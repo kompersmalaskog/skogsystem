@@ -105,7 +105,7 @@ export default function ObjektPage() {
   const gallObj = aktuellaObj.filter(o => o.typ === 'gallring').sort((a, b) => a.ordning - b.ordning)
 
   // Beräkna inplanerat per bolag
-  const beraknaInplanerat = (bolag, typ) => {
+  const beraknaInplanerat = (bolag: string, typ: string) => {
     return aktuellaObj
       .filter(o => o.bolag === bolag && o.typ === typ)
       .reduce((sum, o) => sum + o.volymPlanerad, 0)
