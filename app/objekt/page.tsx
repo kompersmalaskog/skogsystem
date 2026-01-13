@@ -61,8 +61,8 @@ export default function ObjektPage() {
   const [objekt, setObjekt] = useState<Objekt[]>([])
 
   // Modal
-  const [visa, setVisa] = useState(null)
-  const [redigerar, setRedigerar] = useState(null)
+  const [visa, setVisa] = useState<string | null>(null)
+  const [redigerar, setRedigerar] = useState<Objekt | null>(null)
   const [formKey, setFormKey] = useState(0)
   const [form, setForm] = useState({
     voNummer: '',
@@ -112,7 +112,7 @@ export default function ObjektPage() {
   }
 
   // Byt månad
-  const bytManad = (dir) => {
+  const bytManad = (dir: number) => {
     let m = month + dir
     let y = year
     if (m > 11) { m = 0; y++ }
@@ -190,7 +190,7 @@ export default function ObjektPage() {
   }
 
   // Ta bort bolag
-  const taBortBolag = (bolag) => {
+  const taBortBolag = (bolag: string) => {
     setSparadeBolag(sparadeBolag.filter(b => b !== bolag))
     if (form.bolag === bolag) setForm({ ...form, bolag: '' })
   }
@@ -206,13 +206,13 @@ export default function ObjektPage() {
   }
 
   // Ta bort maskin från sparade
-  const taBortMaskin = (maskin) => {
+  const taBortMaskin = (maskin: string) => {
     setSparadeMaskiner(sparadeMaskiner.filter(m => m !== maskin))
     setForm({ ...form, maskiner: form.maskiner.filter(m => m !== maskin) })
   }
 
   // Toggle maskin i form
-  const toggleMaskin = (maskin) => {
+  const toggleMaskin = (maskin: string) => {
     if (hanteraMaskiner) return
     if (form.maskiner.includes(maskin)) {
       setForm({ ...form, maskiner: form.maskiner.filter(m => m !== maskin) })
@@ -235,7 +235,7 @@ export default function ObjektPage() {
   }
 
   // Ta bort åtgärd
-  const taBortAtgard = (atgard) => {
+  const taBortAtgard = (atgard: string) => {
     setSparadeAtgarder({
       ...sparadeAtgarder,
       [form.typ]: sparadeAtgarder[form.typ].filter(a => a !== atgard)
@@ -291,7 +291,7 @@ export default function ObjektPage() {
   }
 
   // Ändra status
-  const andraStatus = (obj) => {
+  const andraStatus = (obj: Objekt) => {
     const statusOrdning = ['planerad', 'skordning', 'skotning', 'klar']
     const nuvarande = statusOrdning.indexOf(obj.status)
     const nasta = statusOrdning[(nuvarande + 1) % statusOrdning.length]
@@ -299,12 +299,12 @@ export default function ObjektPage() {
   }
 
   // Ta bort
-  const taBort = (id) => {
+  const taBort = (id: number) => {
     setObjekt(objekt.filter(o => o.id !== id))
   }
 
   // Flytta ordning
-  const flytta = (obj, dir) => {
+  const flytta = (obj: Objekt, dir: number) => {
     const samma = aktuellaObj.filter(o => o.typ === obj.typ).sort((a, b) => a.ordning - b.ordning)
     const index = samma.findIndex(o => o.id === obj.id)
     if (dir === -1 && index === 0) return
@@ -319,7 +319,7 @@ export default function ObjektPage() {
   }
 
   // Render beställning med matchning
-  const renderBestallning = (best) => {
+  const renderBestallning = (best: Bestallning) => {
     const inplanerat = beraknaInplanerat(best.bolag, best.typ)
     const procent = Math.min(100, Math.round((inplanerat / best.volym) * 100))
     const fylld = inplanerat >= best.volym
@@ -374,7 +374,7 @@ export default function ObjektPage() {
   }
 
   // Render objekt-kort
-  const renderObjekt = (obj, index) => {
+  const renderObjekt = (obj: Objekt, index: number) => {
     const status = STATUS[obj.status]
     return (
       <div key={obj.id} style={{
