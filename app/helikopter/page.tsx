@@ -2,18 +2,14 @@
 'use client'
 import { useState } from 'react'
 
-// Svenska röda dagar 2026
-const RODA_DAGAR_2026 = [
-  '2026-01-01', // Nyårsdagen
-  '2026-01-06', // Trettondedag jul
-  '2026-04-03', // Långfredagen
-  '2026-04-06', // Annandag påsk
-  '2026-05-01', // Första maj
-  '2026-05-14', // Kristi himmelsfärdsdag
-  '2026-06-06', // Nationaldagen
-  '2026-06-19', // Midsommarafton
-  '2026-12-25', // Juldagen
-  '2026-12-26', // Annandag jul
+// Svenska röda dagar
+const RODA_DAGAR = [
+  // 2025
+  '2025-01-01', '2025-01-06', '2025-04-18', '2025-04-21', '2025-05-01',
+  '2025-05-29', '2025-06-06', '2025-06-20', '2025-12-25', '2025-12-26',
+  // 2026
+  '2026-01-01', '2026-01-06', '2026-04-03', '2026-04-06', '2026-05-01',
+  '2026-05-14', '2026-06-06', '2026-06-19', '2026-12-25', '2026-12-26',
 ]
 
 // Räkna arbetsdagar i en månad
@@ -28,7 +24,7 @@ function getArbetsdagar(ar: number, manad: number) {
     const datumStr = d.toISOString().split('T')[0]
     
     // Mån-Fre (1-5) och inte röd dag
-    if (dag >= 1 && dag <= 5 && !RODA_DAGAR_2026.includes(datumStr)) {
+    if (dag >= 1 && dag <= 5 && !RODA_DAGAR.includes(datumStr)) {
       arbetsdagar++
     }
   }
@@ -47,7 +43,7 @@ function getArbetsdagarGatt(ar: number, manad: number, idag: number) {
     const dag = d.getDay()
     const datumStr = d.toISOString().split('T')[0]
     
-    if (dag >= 1 && dag <= 5 && !RODA_DAGAR_2026.includes(datumStr)) {
+    if (dag >= 1 && dag <= 5 && !RODA_DAGAR.includes(datumStr)) {
       arbetsdagar++
     }
   }
@@ -55,20 +51,19 @@ function getArbetsdagarGatt(ar: number, manad: number, idag: number) {
   return arbetsdagar
 }
 
-const DEMO_DATA = {
-  ar: 2026,
-  manad: 3, // Mars
-  dagensDatum: 12, // 12 mars
-  
-  slut: { 
-    bestallning: 8000,
-    skordare: 3500,
-    skotare: 2800
+// Demo-data per månad (detta kommer från databasen sen)
+const MANADSDATA = {
+  '2026-01': {
+    slut: { bestallning: 7500, skordare: 7500, skotare: 7400 },
+    gallring: { bestallning: 1000, skordare: 1000, skotare: 950 }
   },
-  gallring: { 
-    bestallning: 1200,
-    skordare: 600,
-    skotare: 350
+  '2026-02': {
+    slut: { bestallning: 7800, skordare: 7800, skotare: 7700 },
+    gallring: { bestallning: 1100, skordare: 1100, skotare: 1050 }
+  },
+  '2026-03': {
+    slut: { bestallning: 8000, skordare: 3500, skotare: 2800 },
+    gallring: { bestallning: 1200, skordare: 600, skotare: 350 }
   }
 }
 
@@ -76,7 +71,29 @@ const MANAD_NAMN = ['', 'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
                     'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 
 export default function HelikopterPage() {
-  const [data] = useState(DEMO_DATA)
+  const idag = new Date()
+  
+  const [valtAr, setValtAr] = useState(idag.getFullYear())
+  const [valtManad, setValtManad] = useState(idag.getMonth() + 1)
+  const [visaValjare, setVisaValjare] = useState(false)
+  
+  // Hämta data för vald månad (eller tom data om ingen finns)
+  const manadKey = `${valtAr}-${String(valtManad).padStart(2, '0')}`
+  const manadData = MANADSDATA[manadKey] || {
+    slut: { bestallning: 0, skordare: 0, skotare: 0 },
+    gallring: { bestallning: 0, skordare: 0, skotare: 0 }
+  }
+  
+  // Är det nuvarande månaden?
+  const arNuvarandeMaand = valtAr === idag.getFullYear() && valtManad === (idag.getMonth() + 1)
+  const dagensDatum = arNuvarandeMaand ? idag.getDate() : new Date(valtAr, valtManad, 0).getDate()
+  
+  const data = {
+    ar: valtAr,
+    manad: valtManad,
+    dagensDatum,
+    ...manadData
+  }
 
   // Exakta arbetsdagar
   const arbetsdagar = getArbetsdagar(data.ar, data.manad)
@@ -220,24 +237,136 @@ export default function HelikopterPage() {
       padding: '60px 24px 100px'
     }}>
       
-      {/* Header */}
+      {/* Header med månadsväljare */}
       <div style={{ textAlign: 'center', marginBottom: 40 }}>
-        <h1 style={{ 
-          fontSize: 40, 
-          fontWeight: 700, 
-          margin: 0,
-          letterSpacing: '-1px'
-        }}>
-          {MANAD_NAMN[data.manad]}
-        </h1>
+        <button
+          onClick={() => setVisaValjare(!visaValjare)}
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0
+          }}
+        >
+          <h1 style={{ 
+            fontSize: 40, 
+            fontWeight: 700, 
+            margin: 0,
+            letterSpacing: '-1px',
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10
+          }}>
+            {MANAD_NAMN[data.manad]}
+            <span style={{ fontSize: 20, opacity: 0.4 }}>▼</span>
+          </h1>
+        </button>
         <p style={{ 
           fontSize: 17, 
           color: 'rgba(255,255,255,0.4)', 
           marginTop: 8 
         }}>
-          Dag {dagarGatt} av {arbetsdagar} · {dagarKvar} kvar
+          {arNuvarandeMaand 
+            ? `Dag ${dagarGatt} av ${arbetsdagar} · ${dagarKvar} kvar`
+            : `${data.ar} · Avslutad`
+          }
         </p>
       </div>
+
+      {/* Månadsväljare */}
+      {visaValjare && (
+        <div style={{
+          background: 'rgba(255,255,255,0.06)',
+          borderRadius: 20,
+          padding: 20,
+          marginBottom: 24
+        }}>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(4, 1fr)', 
+            gap: 8 
+          }}>
+            {[1,2,3,4,5,6,7,8,9,10,11,12].map(m => {
+              const harData = MANADSDATA[`${valtAr}-${String(m).padStart(2, '0')}`]
+              const arVald = m === valtManad
+              const arFramtid = valtAr === idag.getFullYear() && m > (idag.getMonth() + 1)
+              
+              return (
+                <button
+                  key={m}
+                  onClick={() => {
+                    if (!arFramtid) {
+                      setValtManad(m)
+                      setVisaValjare(false)
+                    }
+                  }}
+                  style={{
+                    padding: '12px 8px',
+                    borderRadius: 12,
+                    border: 'none',
+                    background: arVald ? '#fff' : harData ? 'rgba(255,255,255,0.1)' : 'transparent',
+                    color: arVald ? '#000' : arFramtid ? 'rgba(255,255,255,0.2)' : '#fff',
+                    fontSize: 14,
+                    fontWeight: arVald ? 600 : 400,
+                    cursor: arFramtid ? 'default' : 'pointer'
+                  }}
+                >
+                  {MANAD_NAMN[m].slice(0, 3)}
+                </button>
+              )
+            })}
+          </div>
+          
+          {/* År-väljare */}
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'center', 
+            gap: 16,
+            marginTop: 16,
+            paddingTop: 16,
+            borderTop: '1px solid rgba(255,255,255,0.1)'
+          }}>
+            <button
+              onClick={() => setValtAr(valtAr - 1)}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 8,
+                border: 'none',
+                background: 'rgba(255,255,255,0.1)',
+                color: '#fff',
+                fontSize: 14,
+                cursor: 'pointer'
+              }}
+            >
+              ← {valtAr - 1}
+            </button>
+            <span style={{ 
+              padding: '8px 16px', 
+              fontSize: 16, 
+              fontWeight: 600 
+            }}>
+              {valtAr}
+            </span>
+            <button
+              onClick={() => setValtAr(valtAr + 1)}
+              disabled={valtAr >= idag.getFullYear()}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 8,
+                border: 'none',
+                background: valtAr >= idag.getFullYear() ? 'transparent' : 'rgba(255,255,255,0.1)',
+                color: valtAr >= idag.getFullYear() ? 'rgba(255,255,255,0.2)' : '#fff',
+                fontSize: 14,
+                cursor: valtAr >= idag.getFullYear() ? 'default' : 'pointer'
+              }}
+            >
+              {valtAr + 1} →
+            </button>
+          </div>
+        </div>
+      )}
 
 
 
