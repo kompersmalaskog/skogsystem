@@ -41,6 +41,14 @@ async function hamtaObjektFranSupabase() {
   return res.json()
 }
 
+async function hamtaMaskinerFranSupabase() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/dim_maskin?select=maskin_id,modell`, {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+  })
+  if (!res.ok) throw new Error('Kunde inte hämta maskiner')
+  return res.json()
+}
+
 async function sparaObjektTillSupabase(obj) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/dim_objekt?objekt_id=eq.${obj.objekt_id}`, {
     method: 'PATCH',
@@ -529,6 +537,7 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
 
 export default function ObjektRedigering() {
   const [objekt, setObjekt] = useState([])
+  const [maskiner, setMaskiner] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [bolag, setBolag] = useState(DEMO_BOLAG)
@@ -545,11 +554,15 @@ export default function ObjektRedigering() {
 
   // Hämta från Supabase vid start
   useEffect(() => {
-    hamtaObjektFranSupabase()
-      .then(data => {
-        setObjekt(data)
+    Promise.all([hamtaObjektFranSupabase(), hamtaMaskinerFranSupabase()])
+      .then(([objektData, maskinData]) => {
+        setObjekt(objektData)
+        // Skapa lookup-objekt för maskiner: { maskin_id: modell }
+        const maskinLookup = {}
+        maskinData.forEach(m => { maskinLookup[m.maskin_id] = m.modell })
+        setMaskiner(maskinLookup)
         // Extrahera unika bolag från datan
-        const unikaBolag = [...new Set(data.map(o => o.bolag).filter(Boolean))]
+        const unikaBolag = [...new Set(objektData.map(o => o.bolag).filter(Boolean))]
         setBolag([...new Set([...DEMO_BOLAG, ...unikaBolag])].sort())
         setLoading(false)
       })
@@ -612,7 +625,7 @@ export default function ObjektRedigering() {
   }
 
   if (visaAllaObjekt) {
-    return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} onBack={() => setVisaAllaObjekt(false)} />
+    return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} onBack={() => setVisaAllaObjekt(false)} />
   }
 
   return (
@@ -657,6 +670,7 @@ export default function ObjektRedigering() {
                   <div style={styles.kortPil}>›</div>
                 </div>
                 <div style={styles.kortInfo}>
+                  {maskiner[obj.maskin_id] && <span>{maskiner[obj.maskin_id]} · </span>}
                   {getSaknas(obj).length} av 4 fält saknas
                 </div>
               </div>
@@ -688,7 +702,7 @@ export default function ObjektRedigering() {
 }
 
 // VY 2 - ALLA OBJEKT
-function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, onBack }) {
+function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, onBack }) {
   const [search, setSearch] = useState('')
   const [filterBolag, setFilterBolag] = useState(null)
   const [filterHuvudtyp, setFilterHuvudtyp] = useState(null)
@@ -849,6 +863,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
                 <div style={styles.kortPil}>›</div>
               </div>
               <div style={styles.kortInfo}>
+                {maskiner[obj.maskin_id] && <span>{maskiner[obj.maskin_id]} · </span>}
                 {obj.huvudtyp} · {obj.bolag} · {obj.atgard}
               </div>
               <div style={styles.kortMeta}>{obj.skogsagare}</div>
