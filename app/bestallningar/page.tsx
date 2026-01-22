@@ -131,7 +131,7 @@ export default function Bestallningar() {
     setLoading(false)
   }
 
-  const aktuella = bestallningar.filter(b => b.ar === year && b.manad === month + 1)
+const aktuella = bestallningar.filter(b => Number(b.ar) === year && Number(b.manad) === month + 1)
   const slutBest = aktuella.filter(b => b.typ === 'slut')
   const gallBest = aktuella.filter(b => b.typ === 'gallring')
   const slutSum = slutBest.reduce((s, b) => s + b.volym, 0)
