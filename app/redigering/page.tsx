@@ -56,7 +56,13 @@ async function sparaObjektTillSupabase(obj) {
     body: JSON.stringify({
       object_name: obj.object_name, vo_nummer: obj.vo_nummer, skogsagare: obj.skogsagare,
       bolag: obj.bolag, huvudtyp: obj.huvudtyp, atgard: obj.atgard, inkopare: obj.inkopare,
-      egenskap: obj.egenskap, exkludera: obj.exkludera
+      exkludera: obj.exkludera,
+      grot_anpassad: obj.grot_anpassad || false,
+      egen_skotning: obj.egen_skotning || false,
+      klippning: obj.klippning || false,
+      risskotning: obj.risskotning || false,
+      stubbbehandling: obj.stubbbehandling || false,
+      extra_vagn: obj.extra_vagn || false
     })
   })
   return res.ok
@@ -492,8 +498,8 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
   const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
   const progress = getProgress(valtObjekt)
 
-  const handleEgenskap = (key) => {
-    setValtObjekt({...valtObjekt, egenskap: valtObjekt.egenskap === key ? null : key})
+  const toggleEgenskap = (key) => {
+    setValtObjekt({...valtObjekt, [key]: !valtObjekt[key]})
   }
 
   return (
@@ -507,6 +513,7 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
 
       <VOBox value={valtObjekt.vo_nummer} onChange={(v) => setValtObjekt({...valtObjekt, vo_nummer: v})} />
 
+      <LockedInput label="Objektnamn" value={valtObjekt.object_name || ''} onChange={(v) => setValtObjekt({...valtObjekt, object_name: v})} placeholder="T.ex. Lindön AU 2025" />
       <LockedInput label="Markägare" value={valtObjekt.skogsagare || ''} onChange={(v) => setValtObjekt({...valtObjekt, skogsagare: v})} placeholder="Skriv markägarens namn..." />
       <ChipInput label="Bolag" value={valtObjekt.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v) => setValtObjekt({...valtObjekt, bolag: v})} />
       <ChipInput label="Inköpare" value={valtObjekt.inkopare || ''} options={inkopare} setOptions={setInkopare} onChange={(v) => setValtObjekt({...valtObjekt, inkopare: v})} />
@@ -517,10 +524,10 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
         <ChipInput label="Åtgärd" value={valtObjekt.atgard || ''} options={atgarder} setOptions={setAtgarder} onChange={(v) => setValtObjekt({...valtObjekt, atgard: v})} />
       )}
 
-      <div style={styles.sectionLabel}>Egenskap</div>
+      <div style={styles.sectionLabel}>Egenskaper</div>
       <div style={styles.switchList}>
         {EGENSKAPER.map(e => (
-          <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt.egenskap === e.key} onClick={() => handleEgenskap(e.key)} />
+          <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
         ))}
       </div>
 
