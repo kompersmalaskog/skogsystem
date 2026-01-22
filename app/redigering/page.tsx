@@ -580,10 +580,12 @@ export default function ObjektRedigering() {
       })
   }, [])
 
-  const kompletta = objekt.filter(isKomplett).length
-  const totalt = objekt.length
+  const exkluderade = objekt.filter(o => o.exkludera === true)
+  const aktiva = objekt.filter(o => o.exkludera !== true)
+  const kompletta = aktiva.filter(isKomplett).length
+  const totalt = aktiva.length
   const procent = totalt > 0 ? Math.round((kompletta / totalt) * 100) : 0
-  const ofullstandiga = objekt.filter(o => !isKomplett(o))
+  const ofullstandiga = aktiva.filter(o => !isKomplett(o))
   const color = procent === 100 ? '#30D158' : '#FF9F0A'
 
   async function sparaObjekt() {
@@ -684,6 +686,33 @@ export default function ObjektRedigering() {
             </AnimatedCard>
           ))}
         </div>
+      )}
+
+      {exkluderade.length > 0 && (
+        <>
+          <div style={{...styles.sectionHeader, marginTop: 40}}>
+            <span style={{...styles.sectionTitel, color: 'rgba(255,255,255,0.4)'}}>Exkluderade</span>
+            <span style={{...styles.sectionCount, background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)'}}>{exkluderade.length}</span>
+          </div>
+          <div style={styles.lista}>
+            {exkluderade.map((obj, i) => (
+              <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => setValtObjekt({...obj})}>
+                <div style={{...styles.kortInner, opacity: 0.5}}>
+                  <div style={styles.kortTop}>
+                    <div style={{flex: 1}}>
+                      <div style={styles.kortNamn}>{obj.object_name}</div>
+                      <div style={styles.kortVo}>{obj.vo_nummer}</div>
+                    </div>
+                    <div style={styles.kortPil}>›</div>
+                  </div>
+                  <div style={styles.kortInfo}>
+                    {maskiner[obj.maskin_id] && <span>{maskiner[obj.maskin_id]}</span>}
+                  </div>
+                </div>
+              </AnimatedCard>
+            ))}
+          </div>
+        </>
       )}
 
       {valtObjekt && (
