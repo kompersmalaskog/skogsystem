@@ -1,6 +1,5 @@
 'use client'
 import { useState, useEffect } from 'react'
-//fix
 // Demo-data med bolagsuppdelning
 const DEMO_DATA = {
   '2025-11': {
