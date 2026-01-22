@@ -31,7 +31,7 @@ const EGENSKAPER = [
 
 // === SUPABASE-KOPPLING ===
 const SUPABASE_URL = 'https://mxydghzfacbenbgpodex.supabase.co'
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14eWRnaHpmYWNiZW5iZ3BvZGV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzY3NzU1MDIsImV4cCI6MjA1MjM1MTUwMn0.sHKDpJL0GT9TkS91DGstHN_EvMhMnO2XG13tVIFGvMw'
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14eWRnaHpmYWNiZW5iZ3BvZGV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4NzU2MjMsImV4cCI6MjA4NDQ1MTYyM30.NRBG5HcAtEXRTyf4YTp71A3iATk6U3DGhfdJ5EYlMyo'
 
 async function hamtaObjektFranSupabase() {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/dim_objekt?select=*&order=object_name.asc.nullsfirst`, {
