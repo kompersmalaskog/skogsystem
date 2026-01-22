@@ -29,6 +29,32 @@ const EGENSKAPER = [
   { key: 'extra_vagn', label: 'Extra vagn' }
 ]
 
+// === SUPABASE-KOPPLING ===
+const SUPABASE_URL = 'https://mxydghzfacbenbgpodex.supabase.co'
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14eWRnaHpmYWNiZW5iZ3BvZGV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzY3NzU1MDIsImV4cCI6MjA1MjM1MTUwMn0.sHKDpJL0GT9TkS91DGstHN_EvMhMnO2XG13tVIFGvMw'
+
+async function hamtaObjektFranSupabase() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/dim_objekt?select=*&order=object_name.asc.nullsfirst`, {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+  })
+  if (!res.ok) throw new Error('Kunde inte hämta data')
+  return res.json()
+}
+
+async function sparaObjektTillSupabase(obj) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/dim_objekt?objekt_id=eq.${obj.objekt_id}`, {
+    method: 'PATCH',
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+    body: JSON.stringify({
+      object_name: obj.object_name, vo_nummer: obj.vo_nummer, skogsagare: obj.skogsagare,
+      bolag: obj.bolag, huvudtyp: obj.huvudtyp, atgard: obj.atgard, inkopare: obj.inkopare,
+      egenskap: obj.egenskap, exkludera: obj.exkludera
+    })
+  })
+  return res.ok
+}
+// === SLUT SUPABASE ===
+
 function getSaknas(obj) {
   if (obj.exkludera) return []
   const saknas = []
@@ -502,7 +528,9 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
 }
 
 export default function ObjektRedigering() {
-  const [objekt, setObjekt] = useState(DEMO_OBJEKT)
+  const [objekt, setObjekt] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [bolag, setBolag] = useState(DEMO_BOLAG)
   const [inkopare, setInkopare] = useState(DEMO_INKOPARE)
   const [atgarderSlut, setAtgarderSlut] = useState(['LRK', 'Rp', 'Au', 'Special', 'VF/Bark'])
@@ -515,27 +543,72 @@ export default function ObjektRedigering() {
   const [ringHover, setRingHover] = useState(false)
   const [scrolled, setScrolled] = useState(false)
 
+  // Hämta från Supabase vid start
+  useEffect(() => {
+    hamtaObjektFranSupabase()
+      .then(data => {
+        setObjekt(data)
+        // Extrahera unika bolag från datan
+        const unikaBolag = [...new Set(data.map(o => o.bolag).filter(Boolean))]
+        setBolag([...new Set([...DEMO_BOLAG, ...unikaBolag])].sort())
+        setLoading(false)
+      })
+      .catch(err => {
+        console.error(err)
+        setError('Kunde inte ansluta till databasen')
+        setLoading(false)
+      })
+  }, [])
+
   const kompletta = objekt.filter(isKomplett).length
   const totalt = objekt.length
-  const procent = Math.round((kompletta / totalt) * 100)
+  const procent = totalt > 0 ? Math.round((kompletta / totalt) * 100) : 0
   const ofullstandiga = objekt.filter(o => !isKomplett(o))
   const color = procent === 100 ? '#30D158' : '#FF9F0A'
 
-  function sparaObjekt() {
+  async function sparaObjekt() {
     if (!valtObjekt) return
     setSaving(true)
-    setTimeout(() => {
+    const ok = await sparaObjektTillSupabase(valtObjekt)
+    if (ok) {
       setObjekt(objekt.map(o => o.objekt_id === valtObjekt.objekt_id ? valtObjekt : o))
-      setSaving(false)
       setSaved(true)
       setTimeout(() => { closeModal(); setSaved(false) }, 600)
-    }, 400)
+    }
+    setSaving(false)
   }
 
   function closeModal() { 
     setClosing(true)
     setScrolled(false)
     setTimeout(() => { setValtObjekt(null); setClosing(false) }, 250) 
+  }
+
+  // Loading-vy
+  if (loading) {
+    return (
+      <div style={{...styles.container, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh'}}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 16 }}>⏳</div>
+          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 17 }}>Laddar objekt...</div>
+        </div>
+      </div>
+    )
+  }
+
+  // Error-vy
+  if (error) {
+    return (
+      <div style={{...styles.container, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh'}}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 32, marginBottom: 16 }}>❌</div>
+          <div style={{ color: '#FF453A', fontSize: 17, marginBottom: 16 }}>{error}</div>
+          <button onClick={() => window.location.reload()} style={{ padding: '14px 28px', borderRadius: 14, border: 'none', background: '#30D158', color: '#000', fontSize: 16, fontWeight: 600, cursor: 'pointer' }}>
+            Försök igen
+          </button>
+        </div>
+      </div>
+    )
   }
 
   if (visaAllaObjekt) {
@@ -659,15 +732,16 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
     setSearch('')
   }
 
-  function sparaObjekt() {
+  async function sparaObjekt() {
     if (!valtObjekt) return
     setSaving(true)
-    setTimeout(() => {
+    const ok = await sparaObjektTillSupabase(valtObjekt)
+    if (ok) {
       setObjekt(objekt.map(o => o.objekt_id === valtObjekt.objekt_id ? valtObjekt : o))
-      setSaving(false)
       setSaved(true)
       setTimeout(() => { closeModal(); setSaved(false) }, 600)
-    }, 400)
+    }
+    setSaving(false)
   }
 
   function closeModal() { 
