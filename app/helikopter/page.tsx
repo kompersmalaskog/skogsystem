@@ -1,18 +1,38 @@
-// @ts-nocheck
-'use client'
 import { useState, useEffect } from 'react'
 
-// Demo-data
+// Demo-data med bolagsuppdelning
 const DEMO_DATA = {
   '2025-11': {
     bestallning: { slut_m3: 7200, gallring_m3: 900 },
     produktion: { skordare_slut: 7200, skordare_gallring: 900, skotare_slut: 7200, skotare_gallring: 900 },
-    oskotat: []
+    oskotat: [],
+    bolag: {
+      slut: [
+        { namn: 'Södra', bestallning: 4000, skordare: 4000, skotare: 4000 },
+        { namn: 'Vida', bestallning: 2500, skordare: 2500, skotare: 2500 },
+        { namn: 'ATA', bestallning: 700, skordare: 700, skotare: 700 }
+      ],
+      gallring: [
+        { namn: 'Södra', bestallning: 600, skordare: 600, skotare: 600 },
+        { namn: 'Vida', bestallning: 300, skordare: 300, skotare: 300 }
+      ]
+    }
   },
   '2025-12': {
     bestallning: { slut_m3: 6800, gallring_m3: 850 },
     produktion: { skordare_slut: 6800, skordare_gallring: 850, skotare_slut: 6750, skotare_gallring: 820 },
-    oskotat: [{ id: 1, namn: 'Älgamo 1:5', m3: 50, dagar: 1, typ: 'slut' }]
+    oskotat: [{ id: 1, namn: 'Älgamo 1:5', m3: 50, dagar: 1, typ: 'slut' }],
+    bolag: {
+      slut: [
+        { namn: 'Södra', bestallning: 3800, skordare: 3800, skotare: 3800 },
+        { namn: 'Vida', bestallning: 2200, skordare: 2200, skotare: 2150 },
+        { namn: 'ATA', bestallning: 800, skordare: 800, skotare: 800 }
+      ],
+      gallring: [
+        { namn: 'Södra', bestallning: 550, skordare: 550, skotare: 520 },
+        { namn: 'Vida', bestallning: 300, skordare: 300, skotare: 300 }
+      ]
+    }
   },
   '2026-01': {
     bestallning: { slut_m3: 7500, gallring_m3: 1000 },
@@ -22,7 +42,18 @@ const DEMO_DATA = {
       { id: 2, namn: 'Stensnäs 4:1', m3: 145, dagar: 3, typ: 'slut' },
       { id: 3, namn: 'Kroksjö 1:8', m3: 78, dagar: 2, typ: 'gallring' },
       { id: 4, namn: 'Gässemåla 3:2', m3: 40, dagar: 1, typ: 'slut' }
-    ]
+    ],
+    bolag: {
+      slut: [
+        { namn: 'Södra', bestallning: 4000, skordare: 2600, skotare: 2350 },
+        { namn: 'Vida', bestallning: 2500, skordare: 1600, skotare: 1450 },
+        { namn: 'ATA', bestallning: 1000, skordare: 600, skotare: 550 }
+      ],
+      gallring: [
+        { namn: 'Södra', bestallning: 650, skordare: 400, skotare: 380 },
+        { namn: 'Vida', bestallning: 350, skordare: 220, skotare: 210 }
+      ]
+    }
   },
   '2026-02': {
     bestallning: { slut_m3: 7800, gallring_m3: 1100 },
@@ -30,97 +61,21 @@ const DEMO_DATA = {
     oskotat: [
       { id: 1, namn: 'Hällevik 3:2', m3: 210, dagar: 2, typ: 'slut' },
       { id: 2, namn: 'Rockneby 1:4', m3: 90, dagar: 1, typ: 'gallring' }
-    ]
-  },
-  '2026-03': {
-    bestallning: { slut_m3: 8000, gallring_m3: 1200 },
-    produktion: { skordare_slut: 0, skordare_gallring: 0, skotare_slut: 0, skotare_gallring: 0 },
-    oskotat: []
-  }
-}
-
-// Beräkna påskdagen (Butcher's algoritm)
-function getPaskdagen(ar) {
-  const a = ar % 19
-  const b = Math.floor(ar / 100)
-  const c = ar % 100
-  const d = Math.floor(b / 4)
-  const e = b % 4
-  const f = Math.floor((b + 8) / 25)
-  const g = Math.floor((b - f + 1) / 3)
-  const h = (19 * a + b - d - g + 15) % 30
-  const i = Math.floor(c / 4)
-  const k = c % 4
-  const l = (32 + 2 * e + 2 * i - h - k) % 7
-  const m = Math.floor((a + 11 * h + 22 * l) / 451)
-  const manad = Math.floor((h + l - 7 * m + 114) / 31)
-  const dag = ((h + l - 7 * m + 114) % 31) + 1
-  return new Date(ar, manad - 1, dag)
-}
-
-// Hitta lördag i intervall (för midsommar och alla helgons dag)
-function getLordagMellan(ar, manad, startDag, slutDag) {
-  for (let d = startDag; d <= slutDag; d++) {
-    const datum = new Date(ar, manad, d)
-    if (datum.getDay() === 6) return datum
-  }
-  return null
-}
-
-// Generera alla svenska röda dagar för ett år
-function getRodaDagar(ar) {
-  const pask = getPaskdagen(ar)
-  const dagar = []
-  
-  // Fasta helgdagar
-  dagar.push(new Date(ar, 0, 1))   // Nyårsdagen
-  dagar.push(new Date(ar, 0, 6))   // Trettondedag jul
-  dagar.push(new Date(ar, 4, 1))   // Första maj
-  dagar.push(new Date(ar, 5, 6))   // Nationaldagen
-  dagar.push(new Date(ar, 11, 24)) // Julafton
-  dagar.push(new Date(ar, 11, 25)) // Juldagen
-  dagar.push(new Date(ar, 11, 26)) // Annandag jul
-  dagar.push(new Date(ar, 11, 31)) // Nyårsafton
-  
-  // Rörliga helgdagar baserade på påsk
-  const paskTid = pask.getTime()
-  const dag = 24 * 60 * 60 * 1000
-  
-  dagar.push(new Date(paskTid - 2 * dag))  // Långfredagen
-  dagar.push(new Date(paskTid))             // Påskdagen
-  dagar.push(new Date(paskTid + 1 * dag))  // Annandag påsk
-  dagar.push(new Date(paskTid + 39 * dag)) // Kristi himmelsfärd
-  dagar.push(new Date(paskTid + 49 * dag)) // Pingstdagen
-  
-  // Midsommardagen (lördag mellan 20-26 juni)
-  const midsommar = getLordagMellan(ar, 5, 20, 26)
-  if (midsommar) {
-    dagar.push(new Date(midsommar.getTime() - dag)) // Midsommarafton
-    dagar.push(midsommar) // Midsommardagen
-  }
-  
-  // Alla helgons dag (lördag mellan 31 okt - 6 nov)
-  for (let d = 31; d <= 37; d++) {
-    const datum = d <= 31 ? new Date(ar, 9, d) : new Date(ar, 10, d - 31)
-    if (datum.getDay() === 6) {
-      dagar.push(datum)
-      break
+    ],
+    bolag: {
+      slut: [
+        { namn: 'Södra', bestallning: 4200, skordare: 1100, skotare: 950 },
+        { namn: 'Vida', bestallning: 2600, skordare: 700, skotare: 600 },
+        { namn: 'ATA', bestallning: 1000, skordare: 300, skotare: 250 }
+      ],
+      gallring: [
+        { namn: 'Södra', bestallning: 700, skordare: 180, skotare: 160 },
+        { namn: 'Vida', bestallning: 400, skordare: 100, skotare: 90 }
+      ]
     }
   }
-  
-  // Konvertera till strängar för enkel jämförelse
-  return dagar.map(d => d.toISOString().split('T')[0])
 }
 
-// Cache för röda dagar per år
-const rodaDagarCache = {}
-function arRodDag(datum) {
-  const ar = datum.getFullYear()
-  if (!rodaDagarCache[ar]) {
-    rodaDagarCache[ar] = getRodaDagar(ar)
-  }
-  return rodaDagarCache[ar].includes(datum.toISOString().split('T')[0])
-}
 const MANAD = ['', 'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 
                'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 
@@ -130,7 +85,7 @@ function getArbetsdagar(ar, manad) {
   for (let d = 1; d <= sistaDag; d++) {
     const datum = new Date(ar, manad - 1, d)
     const dag = datum.getDay()
-    if (dag >= 1 && dag <= 5 && !arRodDag(datum)) dagar++
+    if (dag >= 1 && dag <= 5) dagar++
   }
   return dagar
 }
@@ -140,12 +95,11 @@ function getDagarGatt(ar, manad, idag) {
   for (let d = 1; d <= idag; d++) {
     const datum = new Date(ar, manad - 1, d)
     const dag = datum.getDay()
-    if (dag >= 1 && dag <= 5 && !arRodDag(datum)) dagar++
+    if (dag >= 1 && dag <= 5) dagar++
   }
   return dagar
 }
 
-// Animerat nummer
 function CountUp({ value, duration = 1000 }) {
   const [count, setCount] = useState(0)
   useEffect(() => {
@@ -162,7 +116,6 @@ function CountUp({ value, duration = 1000 }) {
   return <>{count.toLocaleString()}</>
 }
 
-// Animerad ring
 function Ring({ procent, size = 100, stroke = 6, color, delay = 0, onClick, active }) {
   const [anim, setAnim] = useState(0)
   const radius = (size - stroke) / 2
@@ -219,12 +172,42 @@ function Ring({ procent, size = 100, stroke = 6, color, delay = 0, onClick, acti
   )
 }
 
+// Mini progress bar för bolag
+function BolagProgress({ procent, color }) {
+  const [anim, setAnim] = useState(0)
+  
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setAnim(Math.min(procent, 100))
+    }, 100)
+    return () => clearTimeout(timer)
+  }, [procent])
+
+  return (
+    <div style={{ 
+      width: '100%', 
+      height: 3, 
+      background: 'rgba(255,255,255,0.08)', 
+      borderRadius: 2,
+      overflow: 'hidden'
+    }}>
+      <div style={{ 
+        width: `${anim}%`, 
+        height: '100%', 
+        background: color,
+        borderRadius: 2,
+        transition: 'width 0.8s ease-out'
+      }} />
+    </div>
+  )
+}
+
 export default function HelikopterPage() {
   const idag = new Date()
   const [ar, setAr] = useState(2026)
   const [manad, setManad] = useState(1)
   const [data, setData] = useState(null)
-  const [sheet, setSheet] = useState(null) // null | 'oskotat' | {typ, maskin}
+  const [sheet, setSheet] = useState(null)
   const [closing, setClosing] = useState(false)
   const [activeRing, setActiveRing] = useState(null)
 
@@ -260,7 +243,6 @@ export default function HelikopterPage() {
     )
   }
 
-  // Beräkningar
   const calc = (best, skord, skot) => {
     const borde = Math.round(procGatt * best)
     return {
@@ -300,9 +282,15 @@ export default function HelikopterPage() {
     const levererat = isSkord ? d.skordLev : d.skotLev
     const diff = levererat - d.best
     
-    // Kolla om månaden är avslutad
     const nu = new Date()
     const manadSlut = ar < nu.getFullYear() || (ar === nu.getFullYear() && manad < nu.getMonth() + 1)
+    
+    // Hämta bolagsdata
+    const bolagTyp = sheet.typ === 'slut' ? 'slut' : 'gallring'
+    const bolagData = data.bolag?.[bolagTyp] || []
+    
+    // Färg baserat på typ (samma som ringen)
+    const color = sheet.typ === 'slut' ? '#FF9F0A' : '#30D158'
     
     return {
       titel: `${isSkord ? 'Skördare' : 'Skotare'} ${sheet.typ === 'slut' ? 'Slutavverkning' : 'Gallring'}`,
@@ -313,10 +301,16 @@ export default function HelikopterPage() {
       perDag: isSkord ? d.skordPerDag : d.skotPerDag,
       tidplanDiff: isSkord ? d.skordDiff : d.skotDiff,
       best: d.best,
-      color: sheet.typ === 'slut' ? '#FF9F0A' : '#30D158',
+      color,
       manadSlut,
       naddemal: diff >= 0,
-      slutDiff: diff
+      slutDiff: diff,
+      bolag: bolagData.map(b => ({
+        ...b,
+        levererat: isSkord ? b.skordare : b.skotare,
+        procent: Math.round(((isSkord ? b.skordare : b.skotare) / b.bestallning) * 100)
+      })),
+      isSkord
     }
   }
 
@@ -414,102 +408,99 @@ export default function HelikopterPage() {
                   <span style={styles.detailTitel}>{d.titel}</span>
                 </div>
 
-                {/* Stor ring */}
                 <div style={styles.detailRingWrap}>
-                  <Ring procent={d.procent} size={160} stroke={10} color={d.color} delay={0} onClick={() => {}} />
+                  <Ring procent={d.procent} size={140} stroke={10} color={d.color} delay={0} onClick={() => {}} />
                 </div>
 
+                {/* Totalt */}
+                <div style={styles.detailStats}>
+                  <div style={styles.detailStat}>
+                    <div style={styles.detailStatValue}>
+                      <CountUp value={d.levererat} />
+                    </div>
+                    <div style={styles.detailStatLabel}>levererat m³</div>
+                  </div>
+                  <div style={styles.detailDivider} />
+                  <div style={styles.detailStat}>
+                    <div style={styles.detailStatValue}>
+                      {d.best.toLocaleString()}
+                    </div>
+                    <div style={styles.detailStatLabel}>beställt m³</div>
+                  </div>
+                </div>
+
+                {/* Bolagsuppdelning */}
+                <div style={styles.bolagSection}>
+                  <div style={styles.bolagHeader}>Per bolag</div>
+                  {d.bolag.map((b, i) => {
+                    const klart = b.levererat >= b.bestallning
+                    return (
+                      <div key={i} style={styles.bolagRow}>
+                        <div style={styles.bolagLeft}>
+                          <span style={styles.bolagNamn}>{b.namn}</span>
+                        </div>
+                        <div style={styles.bolagRight}>
+                          <span style={{ 
+                            ...styles.bolagVolym,
+                            color: klart ? '#30D158' : '#fff'
+                          }}>
+                            {b.levererat.toLocaleString()}
+                          </span>
+                          <span style={styles.bolagAv}>/ {b.bestallning.toLocaleString()}</span>
+                          {klart && <span style={styles.bolagCheck}>✓</span>}
+                        </div>
+                        <div style={styles.bolagProgressWrap}>
+                          <BolagProgress procent={b.procent} color={d.color} />
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Status */}
                 {d.manadSlut ? (
-                  <>
-                    {/* Avslutad månad */}
-                    <div style={styles.detailStats}>
-                      <div style={styles.detailStat}>
-                        <div style={styles.detailStatValue}>
-                          <CountUp value={d.levererat} />
-                        </div>
-                        <div style={styles.detailStatLabel}>levererat m³</div>
-                      </div>
-                      <div style={styles.detailDivider} />
-                      <div style={styles.detailStat}>
-                        <div style={styles.detailStatValue}>
-                          {d.best.toLocaleString()}
-                        </div>
-                        <div style={styles.detailStatLabel}>beställt m³</div>
-                      </div>
-                    </div>
-
-                    {/* Resultat */}
-                    <div style={{
-                      ...styles.detailStatus,
-                      background: d.naddemal ? 'rgba(48,209,88,0.1)' : 'rgba(255,69,58,0.1)',
-                      borderColor: d.naddemal ? 'rgba(48,209,88,0.3)' : 'rgba(255,69,58,0.3)'
+                  <div style={{
+                    ...styles.detailStatus,
+                    background: d.naddemal ? 'rgba(48,209,88,0.1)' : 'rgba(255,69,58,0.1)',
+                    borderColor: d.naddemal ? 'rgba(48,209,88,0.3)' : 'rgba(255,69,58,0.3)'
+                  }}>
+                    <div style={{ 
+                      fontSize: 16, 
+                      fontWeight: 600,
+                      color: d.naddemal ? '#30D158' : '#FF453A',
+                      marginBottom: 4
                     }}>
-                      <div style={{ 
-                        fontSize: 18, 
-                        fontWeight: 600,
-                        color: d.naddemal ? '#30D158' : '#FF453A',
-                        marginBottom: 8
-                      }}>
-                        {d.naddemal ? '✓ Nådde målet' : '✗ Missade målet'}
-                      </div>
-                      <div style={{ 
-                        fontSize: 28, 
-                        fontWeight: 700,
-                        color: d.naddemal ? '#30D158' : '#FF453A'
-                      }}>
-                        {d.slutDiff >= 0 ? '+' : ''}{d.slutDiff} m³
-                      </div>
+                      {d.naddemal ? '✓ Nådde målet' : '✗ Missade målet'}
                     </div>
-                  </>
+                    <div style={{ 
+                      fontSize: 24, 
+                      fontWeight: 700,
+                      color: d.naddemal ? '#30D158' : '#FF453A'
+                    }}>
+                      {d.slutDiff >= 0 ? '+' : ''}{d.slutDiff} m³
+                    </div>
+                  </div>
                 ) : (
-                  <>
-                    {/* Pågående månad */}
-                    <div style={styles.detailStats}>
-                      <div style={styles.detailStat}>
-                        <div style={styles.detailStatValue}>
-                          <CountUp value={d.levererat} />
-                        </div>
-                        <div style={styles.detailStatLabel}>levererat m³</div>
-                      </div>
-                      <div style={styles.detailDivider} />
-                      <div style={styles.detailStat}>
-                        <div style={styles.detailStatValue}>
-                          <CountUp value={d.kvar} />
-                        </div>
-                        <div style={styles.detailStatLabel}>kvar m³</div>
-                      </div>
-                    </div>
-
-                    {/* Behöver per dag */}
-                    <div style={styles.detailNeed}>
-                      <div style={styles.detailNeedLabel}>Behöver köra</div>
-                      <div style={styles.detailNeedValue}>
-                        <span style={{ color: d.color }}>{d.perDag}</span> m³/dag
-                      </div>
-                    </div>
-
-                    {/* Status mot tidplan */}
-                    <div style={{
-                      ...styles.detailStatus,
-                      background: d.tidplanDiff >= 0 ? 'rgba(48,209,88,0.1)' : 'rgba(255,69,58,0.1)',
-                      borderColor: d.tidplanDiff >= 0 ? 'rgba(48,209,88,0.3)' : 'rgba(255,69,58,0.3)'
+                  <div style={{
+                    ...styles.detailStatus,
+                    background: d.tidplanDiff >= 0 ? 'rgba(48,209,88,0.1)' : 'rgba(255,69,58,0.1)',
+                    borderColor: d.tidplanDiff >= 0 ? 'rgba(48,209,88,0.3)' : 'rgba(255,69,58,0.3)'
+                  }}>
+                    <div style={{ 
+                      fontSize: 24, 
+                      fontWeight: 700,
+                      color: d.tidplanDiff >= 0 ? '#30D158' : '#FF453A'
                     }}>
-                      <div style={{ 
-                        fontSize: 28, 
-                        fontWeight: 700,
-                        color: d.tidplanDiff >= 0 ? '#30D158' : '#FF453A'
-                      }}>
-                        {d.tidplanDiff >= 0 ? '+' : ''}{d.tidplanDiff} m³
-                      </div>
-                      <div style={{ 
-                        fontSize: 14, 
-                        color: d.tidplanDiff >= 0 ? '#30D158' : '#FF453A',
-                        marginTop: 4
-                      }}>
-                        {d.tidplanDiff >= 0 ? 'före tidplan' : 'efter tidplan'}
-                      </div>
+                      {d.tidplanDiff >= 0 ? '+' : ''}{d.tidplanDiff} m³
                     </div>
-                  </>
+                    <div style={{ 
+                      fontSize: 13, 
+                      color: d.tidplanDiff >= 0 ? '#30D158' : '#FF453A',
+                      marginTop: 2
+                    }}>
+                      {d.tidplanDiff >= 0 ? 'före tidplan' : 'efter tidplan'}
+                    </div>
+                  </div>
                 )}
               </div>
             )
@@ -536,7 +527,6 @@ export default function HelikopterPage() {
                 </div>
                 
                 <div style={styles.oskotadList}>
-                  {/* Slutavverkning */}
                   {slutObj.length > 0 && (
                     <div style={styles.oskotadGroup}>
                       <div style={styles.oskotadGroupHeader}>
@@ -562,7 +552,6 @@ export default function HelikopterPage() {
                     </div>
                   )}
 
-                  {/* Gallring */}
                   {gallObj.length > 0 && (
                     <div style={styles.oskotadGroup}>
                       <div style={styles.oskotadGroupHeader}>
@@ -638,34 +627,14 @@ const styles = {
   manadText: { fontSize: 32, fontWeight: 700 },
   dagarText: { fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
 
-  section: { 
-    marginBottom: 32
-  },
-  sectionHeader: { 
-    display: 'flex', 
-    alignItems: 'center', 
-    gap: 10, 
-    marginBottom: 20 
-  },
+  section: { marginBottom: 32 },
+  sectionHeader: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 },
   sectionTitel: { fontSize: 18, fontWeight: 600, flex: 1 },
   sectionBest: { fontSize: 14, color: 'rgba(255,255,255,0.35)' },
 
-  ringsRow: { 
-    display: 'flex', 
-    justifyContent: 'center', 
-    gap: 40 
-  },
-  ringBox: { 
-    display: 'flex', 
-    flexDirection: 'column', 
-    alignItems: 'center', 
-    gap: 12 
-  },
-  ringLabel: { 
-    fontSize: 13, 
-    color: 'rgba(255,255,255,0.5)',
-    fontWeight: 500
-  },
+  ringsRow: { display: 'flex', justifyContent: 'center', gap: 40 },
+  ringBox: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 },
+  ringLabel: { fontSize: 13, color: 'rgba(255,255,255,0.5)', fontWeight: 500 },
 
   oskotadBtn: { 
     width: '100%', 
@@ -697,7 +666,9 @@ const styles = {
     background: '#1c1c1e', 
     borderRadius: '24px 24px 0 0', 
     zIndex: 101,
-    paddingBottom: 40
+    paddingBottom: 40,
+    maxHeight: '85vh',
+    overflowY: 'auto'
   },
   sheetHandle: { 
     padding: '14px 0 10px', 
@@ -705,115 +676,80 @@ const styles = {
     display: 'flex', 
     justifyContent: 'center' 
   },
-  sheetBar: { 
-    width: 40, height: 4, 
-    borderRadius: 2, 
-    background: 'rgba(255,255,255,0.2)' 
-  },
+  sheetBar: { width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.2)' },
 
-  // Detalj-sheet
   detailHeader: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 12,
-    padding: '10px 24px 24px'
+    padding: '10px 24px 20px'
   },
   detailTitel: { fontSize: 20, fontWeight: 600 },
-  detailRingWrap: {
+  detailRingWrap: { display: 'flex', justifyContent: 'center', marginBottom: 24 },
+  detailStats: { display: 'flex', justifyContent: 'center', gap: 0, padding: '0 40px', marginBottom: 20 },
+  detailStat: { flex: 1, textAlign: 'center' },
+  detailStatValue: { fontSize: 26, fontWeight: 700 },
+  detailStatLabel: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2 },
+  detailDivider: { width: 1, background: 'rgba(255,255,255,0.1)', margin: '0 24px' },
+  detailStatus: { margin: '16px 24px 0', padding: '16px', borderRadius: 16, textAlign: 'center', border: '1px solid' },
+
+  // Bolag styles - renare design
+  bolagSection: {
+    padding: '0 24px',
+    marginBottom: 8
+  },
+  bolagHeader: {
+    fontSize: 13,
+    fontWeight: 600,
+    color: 'rgba(255,255,255,0.4)',
+    marginBottom: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5
+  },
+  bolagRow: {
+    padding: '14px 0',
+    borderBottom: '1px solid rgba(255,255,255,0.06)'
+  },
+  bolagLeft: {
+    marginBottom: 8
+  },
+  bolagNamn: {
+    fontSize: 15,
+    fontWeight: 500
+  },
+  bolagRight: {
     display: 'flex',
-    justifyContent: 'center',
-    marginBottom: 32
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 10
   },
-  detailStats: {
-    display: 'flex',
-    justifyContent: 'center',
-    gap: 0,
-    padding: '0 40px',
-    marginBottom: 24
-  },
-  detailStat: {
-    flex: 1,
-    textAlign: 'center'
-  },
-  detailStatValue: {
-    fontSize: 28,
+  bolagVolym: {
+    fontSize: 20,
     fontWeight: 700
   },
-  detailStatLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.4)',
-    marginTop: 4
+  bolagAv: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.35)'
   },
-  detailDivider: {
-    width: 1,
-    background: 'rgba(255,255,255,0.1)',
-    margin: '0 24px'
+  bolagCheck: {
+    fontSize: 14,
+    color: '#30D158',
+    marginLeft: 6
   },
-  detailNeed: {
-    textAlign: 'center',
-    padding: '20px 24px',
-    borderTop: '1px solid rgba(255,255,255,0.08)'
-  },
-  detailNeedLabel: {
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.4)',
-    marginBottom: 8
-  },
-  detailNeedValue: {
-    fontSize: 24,
-    fontWeight: 600
-  },
-  detailStatus: {
-    margin: '20px 24px 0',
-    padding: '20px',
-    borderRadius: 16,
-    textAlign: 'center',
-    border: '1px solid'
+  bolagProgressWrap: {
+    width: '100%'
   },
 
-  // Oskotat sheet
-  oskotadHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '4px 24px 24px'
-  },
+  oskotadHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 24px 24px' },
   oskotadSheetTitel: { fontSize: 20, fontWeight: 700 },
   oskotadSheetTotal: { fontSize: 18, fontWeight: 600, color: 'rgba(255,255,255,0.4)' },
-  oskotadList: { 
-    padding: '0 24px 20px', 
-    maxHeight: '60vh', 
-    overflowY: 'auto' 
-  },
-  oskotadGroup: {
-    marginBottom: 24
-  },
-  oskotadGroupHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 10,
-    paddingBottom: 12,
-    borderBottom: '1px solid rgba(255,255,255,0.08)',
-    marginBottom: 8
-  },
-  oskotadGroupTitel: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: 600
-  },
-  oskotadGroupTotal: {
-    fontSize: 15,
-    fontWeight: 600,
-    color: 'rgba(255,255,255,0.5)'
-  },
-  oskotadItem: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '12px 0',
-    paddingLeft: 28
-  },
+  oskotadList: { padding: '0 24px 20px', maxHeight: '60vh', overflowY: 'auto' },
+  oskotadGroup: { marginBottom: 24 },
+  oskotadGroupHeader: { display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 12, borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: 8 },
+  oskotadGroupTitel: { flex: 1, fontSize: 16, fontWeight: 600 },
+  oskotadGroupTotal: { fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.5)' },
+  oskotadItem: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', paddingLeft: 28 },
   oskotadItemLeft: { display: 'flex', alignItems: 'center', gap: 12 },
   oskotadItemNamn: { fontSize: 15 },
   oskotadItemRight: { display: 'flex', alignItems: 'center', gap: 16 },
