@@ -1,5 +1,3 @@
-'use client'
-
 import { useState, useEffect } from 'react'
 
 // TypeScript interfaces
@@ -500,9 +498,26 @@ export default function HelikopterPage() {
                   </div>
                   {Object.entries(bolagData).map(([namn, b], i) => {
                     const prod = isSkordare ? b.skordat : b.skotat
-                    const best = bestBolag[namn] || Math.round(totalBest / Math.max(Object.keys(bolagData).length, 1))
+                    const harBestallning = bestBolag[namn] !== undefined && bestBolag[namn] > 0
+                    const best = bestBolag[namn] || 0
                     const proc = best > 0 ? Math.round((prod / best) * 100) : 0
                     const klarade = proc >= 100
+
+                    // Bolag utan beställning - visa annorlunda
+                    if (!harBestallning) {
+                      return (
+                        <div key={i} style={{ marginBottom: 20, opacity: 0.6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                            <span style={{ fontSize: 15, fontWeight: 500 }}>{namn}</span>
+                            <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', fontStyle: 'italic' }}>Ej planerat</span>
+                          </div>
+                          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.4)' }}>
+                            {Math.round(prod).toLocaleString()} m³ {isSkordare ? 'skördat' : 'skotat'}
+                          </div>
+                        </div>
+                      )
+                    }
+
                     return (
                       <div key={i} style={{ marginBottom: 20 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
