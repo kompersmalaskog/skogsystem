@@ -50,3 +50,5 @@ Repository: github.com/kompersmalasskog/skogsystem
 ---
 
 Kompersmåla Skog AB © 2026
+
+
