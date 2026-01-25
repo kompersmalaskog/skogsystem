@@ -51,6 +51,11 @@ interface FormData {
   koordinatY: string
 }
 
+interface SparadeAtgarder {
+  slut: string[]
+  gallring: string[]
+}
+
 const statusCycle: Record<string, string> = { 
   planerad: 'skordning', 
   skordning: 'skotning', 
@@ -89,22 +94,28 @@ export default function ObjektPage() {
     koordinatY: '' 
   })
 
-  const [sparadeBolag] = useState(['Vida', 'Södra', 'ATA'])
-  const [sparadeMaskiner] = useState(['Ponsse Scorpion', 'Ponsse Buffalo', 'Extern skotare'])
-  const [sparadeAtgarder] = useState<Record<string, string[]>>({ 
+  const [sparadeBolag, setSparadeBolag] = useState<string[]>(['Vida', 'Södra', 'ATA'])
+  const [sparadeMaskiner, setSparadeMaskiner] = useState<string[]>(['Ponsse Scorpion', 'Ponsse Buffalo', 'Extern skotare'])
+  const [sparadeAtgarder, setSparadeAtgarder] = useState<SparadeAtgarder>({ 
     slut: ['Rp', 'Lrk', 'Au', 'VF/BarkB'], 
     gallring: ['Första gallring', 'Andra gallring', 'Gallring'] 
   })
 
+  const [editMode, setEditMode] = useState<string | null>(null)
+  const [showAddBolag, setShowAddBolag] = useState(false)
+  const [showAddMaskin, setShowAddMaskin] = useState(false)
+  const [showAddAtgard, setShowAddAtgard] = useState(false)
+  const [newBolag, setNewBolag] = useState('')
+  const [newMaskin, setNewMaskin] = useState('')
+  const [newAtgard, setNewAtgard] = useState('')
+
   const [showBestallningar, setShowBestallningar] = useState(false)
 
-  // Hämta data med fetch (samma som helikopter-vyn)
   useEffect(() => {
     async function fetchData() {
       setLoading(true)
       
       try {
-        // Hämta beställningar
         const bestRes = await fetch(
           `${SUPABASE_URL}/rest/v1/bestallningar?select=*`,
           {
@@ -119,7 +130,6 @@ export default function ObjektPage() {
           setBestallningar(bestData)
         }
         
-        // Hämta objekt
         const objRes = await fetch(
           `${SUPABASE_URL}/rest/v1/objekt?select=*`,
           {
@@ -149,7 +159,6 @@ export default function ObjektPage() {
     return () => clearTimeout(timer)
   }, [month, year])
 
-  // Filtrera för intern användning (manad 1-12 i DB, 0-11 i UI)
   const manadsBestallningar = bestallningar.filter(b => b.ar === year && b.manad === month + 1)
   const aktuella = objekt.filter(o => o.ar === year && o.manad === month + 1)
   
@@ -176,7 +185,6 @@ export default function ObjektPage() {
     
     setObjekt(objekt.map(o => o.id === id ? { ...o, status: newStatus } : o))
     
-    // Uppdatera i Supabase
     await fetch(`${SUPABASE_URL}/rest/v1/objekt?id=eq.${id}`, {
       method: 'PATCH',
       headers: {
@@ -204,6 +212,10 @@ export default function ObjektPage() {
   const openFormWithType = (typ: 'slut' | 'gallring') => {
     setShowForm(true)
     setEditingId(null)
+    setEditMode(null)
+    setShowAddBolag(false)
+    setShowAddMaskin(false)
+    setShowAddAtgard(false)
     setForm({ voNummer: '', namn: '', bolag: '', typ, atgard: '', volym: '', maskiner: [], koordinatTyp: 'sweref99', koordinatX: '', koordinatY: '' })
   }
 
@@ -292,12 +304,56 @@ export default function ObjektPage() {
       koordinatY: obj.koordinater?.y?.toString() || '' 
     })
     setEditingId(obj.id)
+    setEditMode(null)
+    setShowAddBolag(false)
+    setShowAddMaskin(false)
+    setShowAddAtgard(false)
     setShowForm(true)
   }
 
   const toggleMaskin = (maskin: string) => {
+    if (editMode === 'maskin') return
     if (form.maskiner.includes(maskin)) setForm({ ...form, maskiner: form.maskiner.filter(m => m !== maskin) })
     else setForm({ ...form, maskiner: [...form.maskiner, maskin] })
+  }
+
+  const addBolag = () => {
+    if (newBolag.trim() && !sparadeBolag.includes(newBolag.trim())) {
+      setSparadeBolag([...sparadeBolag, newBolag.trim()])
+      setForm({ ...form, bolag: newBolag.trim() })
+    }
+    setNewBolag(''); setShowAddBolag(false)
+  }
+  
+  const removeBolag = (b: string) => {
+    setSparadeBolag(sparadeBolag.filter(x => x !== b))
+    if (form.bolag === b) setForm({ ...form, bolag: '' })
+  }
+
+  const addMaskin = () => {
+    if (newMaskin.trim() && !sparadeMaskiner.includes(newMaskin.trim())) {
+      setSparadeMaskiner([...sparadeMaskiner, newMaskin.trim()])
+      setForm({ ...form, maskiner: [...form.maskiner, newMaskin.trim()] })
+    }
+    setNewMaskin(''); setShowAddMaskin(false)
+  }
+  
+  const removeMaskin = (m: string) => {
+    setSparadeMaskiner(sparadeMaskiner.filter(x => x !== m))
+    setForm({ ...form, maskiner: form.maskiner.filter(x => x !== m) })
+  }
+
+  const addAtgard = () => {
+    if (newAtgard.trim() && !sparadeAtgarder[form.typ].includes(newAtgard.trim())) {
+      setSparadeAtgarder({ ...sparadeAtgarder, [form.typ]: [...sparadeAtgarder[form.typ], newAtgard.trim()] })
+      setForm({ ...form, atgard: newAtgard.trim() })
+    }
+    setNewAtgard(''); setShowAddAtgard(false)
+  }
+  
+  const removeAtgard = (a: string) => {
+    setSparadeAtgarder({ ...sparadeAtgarder, [form.typ]: sparadeAtgarder[form.typ].filter(x => x !== a) })
+    if (form.atgard === a) setForm({ ...form, atgard: '' })
   }
 
   const Arc = ({ percent, size = 110, color }: { percent: number, size?: number, color: string }) => {
@@ -337,6 +393,75 @@ export default function ObjektPage() {
       requestAnimationFrame(animate)
     }, [animated, value])
     return <>{displayValue}</>
+  }
+
+  interface ChipGroupProps {
+    items: string[]
+    selected: string | string[]
+    onSelect: (item: string) => void
+    onRemove: (item: string) => void
+    editModeKey: string
+    showAdd: boolean
+    setShowAdd: (show: boolean) => void
+    newValue: string
+    setNewValue: (value: string) => void
+    addFn: () => void
+    label: string
+    multiSelect?: boolean
+  }
+
+  const ChipGroup = ({ items, selected, onSelect, onRemove, editModeKey, showAdd, setShowAdd, newValue, setNewValue, addFn, label, multiSelect }: ChipGroupProps) => {
+    const isEditing = editMode === editModeKey
+    const isSelected = (item: string) => multiSelect ? (selected as string[]).includes(item) : selected === item
+    
+    return (
+      <div style={{ marginBottom: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: '600', letterSpacing: '0.5px' }}>{label}</label>
+          <button onClick={() => setEditMode(isEditing ? null : editModeKey)} style={{
+            background: 'none', border: 'none', fontSize: '11px', 
+            color: isEditing ? '#ef4444' : 'rgba(255,255,255,0.3)', cursor: 'pointer'
+          }}>{isEditing ? 'Klar' : 'Ändra'}</button>
+        </div>
+        {!showAdd ? (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {items.map(item => (
+              <button key={item} onClick={() => !isEditing && onSelect(item)} style={{
+                padding: '10px 18px', borderRadius: '20px', border: 'none',
+                background: isSelected(item) ? '#fff' : 'rgba(255,255,255,0.08)',
+                color: isSelected(item) ? '#000' : 'rgba(255,255,255,0.6)',
+                fontSize: '14px', fontWeight: '500', cursor: isEditing ? 'default' : 'pointer',
+                display: 'flex', alignItems: 'center', gap: '8px',
+                transition: 'all 0.2s'
+              }}>
+                {item}
+                {isEditing && (
+                  <span onClick={(e) => { e.stopPropagation(); onRemove(item) }} style={{
+                    width: '18px', height: '18px', borderRadius: '50%',
+                    background: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '10px', color: '#fff', cursor: 'pointer', marginLeft: '2px'
+                  }}>✕</span>
+                )}
+              </button>
+            ))}
+            <button onClick={() => setShowAdd(true)} style={{
+              padding: '10px 18px', borderRadius: '20px',
+              border: '1.5px dashed rgba(255,255,255,0.15)',
+              background: 'transparent', color: 'rgba(255,255,255,0.3)',
+              fontSize: '14px', cursor: 'pointer'
+            }}>+</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input value={newValue} onChange={e => setNewValue(e.target.value)} placeholder="" autoFocus
+              style={{ flex: 1, padding: '12px 18px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '20px', fontSize: '14px', color: '#fff' }} 
+              onKeyDown={e => e.key === 'Enter' && addFn()} />
+            <button onClick={addFn} style={{ padding: '12px 20px', background: '#fff', color: '#000', border: 'none', borderRadius: '20px', fontWeight: '600', cursor: 'pointer' }}>✓</button>
+            <button onClick={() => { setShowAdd(false); setNewValue('') }} style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer' }}>✕</button>
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -425,37 +550,53 @@ export default function ObjektPage() {
               <input value={form.namn} onChange={e => setForm({ ...form, namn: e.target.value })} style={{ width: '100%', padding: '14px 16px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '12px', fontSize: '16px', color: '#fff', boxSizing: 'border-box' }} />
             </div>
 
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '10px', fontWeight: '600' }}>ÅTGÄRD</label>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {sparadeAtgarder[form.typ].map(a => (
-                  <button key={a} onClick={() => setForm({ ...form, atgard: a })} style={{ padding: '10px 18px', borderRadius: '20px', border: 'none', background: form.atgard === a ? '#fff' : 'rgba(255,255,255,0.08)', color: form.atgard === a ? '#000' : 'rgba(255,255,255,0.6)', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>{a}</button>
-                ))}
-              </div>
-            </div>
+            <ChipGroup
+              items={sparadeAtgarder[form.typ]}
+              selected={form.atgard}
+              onSelect={(a) => setForm({ ...form, atgard: a })}
+              onRemove={removeAtgard}
+              editModeKey="atgard"
+              showAdd={showAddAtgard}
+              setShowAdd={setShowAddAtgard}
+              newValue={newAtgard}
+              setNewValue={setNewAtgard}
+              addFn={addAtgard}
+              label="ÅTGÄRD"
+            />
             
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '10px', fontWeight: '600' }}>BOLAG</label>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {sparadeBolag.map(b => (
-                  <button key={b} onClick={() => setForm({ ...form, bolag: b })} style={{ padding: '10px 18px', borderRadius: '20px', border: 'none', background: form.bolag === b ? '#fff' : 'rgba(255,255,255,0.08)', color: form.bolag === b ? '#000' : 'rgba(255,255,255,0.6)', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>{b}</button>
-                ))}
-              </div>
-            </div>
+            <ChipGroup
+              items={sparadeBolag}
+              selected={form.bolag}
+              onSelect={(b) => setForm({ ...form, bolag: b })}
+              onRemove={removeBolag}
+              editModeKey="bolag"
+              showAdd={showAddBolag}
+              setShowAdd={setShowAddBolag}
+              newValue={newBolag}
+              setNewValue={setNewBolag}
+              addFn={addBolag}
+              label="BOLAG"
+            />
             
             <div style={{ marginBottom: '24px' }}>
               <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '10px', fontWeight: '600' }}>VOLYM M³</label>
               <input type="number" value={form.volym} onChange={e => setForm({ ...form, volym: e.target.value })} style={{ width: '100%', padding: '14px 16px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '12px', fontSize: '24px', color: '#fff', fontWeight: '600', boxSizing: 'border-box' }} />
             </div>
 
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '10px', fontWeight: '600' }}>MASKINER</label>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                {sparadeMaskiner.map(m => (
-                  <button key={m} onClick={() => toggleMaskin(m)} style={{ padding: '10px 18px', borderRadius: '20px', border: 'none', background: form.maskiner.includes(m) ? '#fff' : 'rgba(255,255,255,0.08)', color: form.maskiner.includes(m) ? '#000' : 'rgba(255,255,255,0.6)', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>{m}</button>
-                ))}
-              </div>
-            </div>
+            <ChipGroup
+              items={sparadeMaskiner}
+              selected={form.maskiner}
+              onSelect={toggleMaskin}
+              onRemove={removeMaskin}
+              editModeKey="maskin"
+              showAdd={showAddMaskin}
+              setShowAdd={setShowAddMaskin}
+              newValue={newMaskin}
+              setNewValue={setNewMaskin}
+              addFn={addMaskin}
+              label="MASKINER"
+              multiSelect
+            />
 
             <div style={{ marginBottom: '32px' }}>
               <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '12px', fontWeight: '600' }}>KOORDINATER</label>
