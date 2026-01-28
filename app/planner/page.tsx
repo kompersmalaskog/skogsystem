@@ -208,40 +208,36 @@ export default function PlannerPage() {
     const screenCenterX = window.innerWidth / 2;
     const screenCenterY = window.innerHeight / 2;
     
-    setZoom(oldZoom => {
-      const newZoom = Math.min(oldZoom * 1.3, 4);
-      
-      // Beräkna vilken kartpunkt som är i mitten av skärmen
-      const centerMapX = (screenCenterX - pan.x) / oldZoom;
-      const centerMapY = (screenCenterY - pan.y) / oldZoom;
-      
-      // Justera pan så samma punkt förblir i mitten
-      const newPanX = screenCenterX - centerMapX * newZoom;
-      const newPanY = screenCenterY - centerMapY * newZoom;
-      setPan({ x: newPanX, y: newPanY });
-      
-      return newZoom;
-    });
+    const newZoom = Math.min(zoom * 1.3, 4);
+    
+    // Beräkna vilken kartpunkt som är i mitten av skärmen
+    const centerMapX = (screenCenterX - pan.x) / zoom;
+    const centerMapY = (screenCenterY - pan.y) / zoom;
+    
+    // Justera pan så samma punkt förblir i mitten
+    const newPanX = screenCenterX - centerMapX * newZoom;
+    const newPanY = screenCenterY - centerMapY * newZoom;
+    
+    setZoom(newZoom);
+    setPan({ x: newPanX, y: newPanY });
   };
   
   const zoomOut = () => {
     const screenCenterX = window.innerWidth / 2;
     const screenCenterY = window.innerHeight / 2;
     
-    setZoom(oldZoom => {
-      const newZoom = Math.max(oldZoom / 1.3, 0.5);
-      
-      // Beräkna vilken kartpunkt som är i mitten av skärmen
-      const centerMapX = (screenCenterX - pan.x) / oldZoom;
-      const centerMapY = (screenCenterY - pan.y) / oldZoom;
-      
-      // Justera pan så samma punkt förblir i mitten
-      const newPanX = screenCenterX - centerMapX * newZoom;
-      const newPanY = screenCenterY - centerMapY * newZoom;
-      setPan({ x: newPanX, y: newPanY });
-      
-      return newZoom;
-    });
+    const newZoom = Math.max(zoom / 1.3, 0.5);
+    
+    // Beräkna vilken kartpunkt som är i mitten av skärmen
+    const centerMapX = (screenCenterX - pan.x) / zoom;
+    const centerMapY = (screenCenterY - pan.y) / zoom;
+    
+    // Justera pan så samma punkt förblir i mitten
+    const newPanX = screenCenterX - centerMapX * newZoom;
+    const newPanY = screenCenterY - centerMapY * newZoom;
+    
+    setZoom(newZoom);
+    setPan({ x: newPanX, y: newPanY });
   };
   
   // Centrera på GPS-position
