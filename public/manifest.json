@@ -1,7 +1,7 @@
 {
   "name": "Skogsystem",
   "short_name": "Skog",
-  "start_url": "/",
+  "start_url": "/planner",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#000000"
