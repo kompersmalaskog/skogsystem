@@ -203,38 +203,30 @@ export default function PlannerPage() {
   const [compassMode, setCompassMode] = useState(false);
   const [deviceHeading, setDeviceHeading] = useState(0);
   
-  // Zoom funktioner - justerar pan så mitten förblir i mitten
+  // Zoom funktioner - samma logik som pinch-zoom
   const zoomIn = () => {
-    const screenCenterX = window.innerWidth / 2;
-    const screenCenterY = window.innerHeight / 2;
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
     
     const newZoom = Math.min(zoom * 1.3, 4);
+    const zoomRatio = newZoom / zoom;
     
-    // Beräkna vilken kartpunkt som är i mitten av skärmen
-    const centerMapX = (screenCenterX - pan.x) / zoom;
-    const centerMapY = (screenCenterY - pan.y) / zoom;
-    
-    // Justera pan så samma punkt förblir i mitten
-    const newPanX = screenCenterX - centerMapX * newZoom;
-    const newPanY = screenCenterY - centerMapY * newZoom;
+    const newPanX = centerX - (centerX - pan.x) * zoomRatio;
+    const newPanY = centerY - (centerY - pan.y) * zoomRatio;
     
     setZoom(newZoom);
     setPan({ x: newPanX, y: newPanY });
   };
   
   const zoomOut = () => {
-    const screenCenterX = window.innerWidth / 2;
-    const screenCenterY = window.innerHeight / 2;
+    const centerX = window.innerWidth / 2;
+    const centerY = window.innerHeight / 2;
     
     const newZoom = Math.max(zoom / 1.3, 0.5);
+    const zoomRatio = newZoom / zoom;
     
-    // Beräkna vilken kartpunkt som är i mitten av skärmen
-    const centerMapX = (screenCenterX - pan.x) / zoom;
-    const centerMapY = (screenCenterY - pan.y) / zoom;
-    
-    // Justera pan så samma punkt förblir i mitten
-    const newPanX = screenCenterX - centerMapX * newZoom;
-    const newPanY = screenCenterY - centerMapY * newZoom;
+    const newPanX = centerX - (centerX - pan.x) * zoomRatio;
+    const newPanY = centerY - (centerY - pan.y) * zoomRatio;
     
     setZoom(newZoom);
     setPan({ x: newPanX, y: newPanY });
@@ -1591,7 +1583,7 @@ export default function PlannerPage() {
           transformOrigin: '50% 50%',
           transition: compassMode ? 'transform 0.1s ease-out' : 'none',
         }}>
-        <g style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '50% 50%' }}>
+        <g style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
           
           {/* Zoner */}
           {visibleLayers.zones && markers.filter(m => m.isZone && visibleZones[m.zoneType]).map(m => 
