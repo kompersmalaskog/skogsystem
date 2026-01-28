@@ -672,11 +672,12 @@ export default function PlannerPage() {
       saveToHistory([...markers]);
       setMarkers(prev => prev.map(m => 
         m.id === pendingPhotoMarkerId 
-          ? { ...m, photoData: event.target.result }
+          ? { ...m, photoData: event.target?.result as string }
           : m
       ));
+      // Öppna menyn igen för samma markör
+      setMarkerMenuOpen(pendingPhotoMarkerId);
       setPendingPhotoMarkerId(null);
-      setMarkerMenuOpen(null);
     };
     reader.readAsDataURL(file);
     
@@ -3649,6 +3650,8 @@ export default function PlannerPage() {
                   setMarkers(prev => prev.map(m => 
                     m.id === editingMarker.id ? { ...editingMarker } : m
                   ));
+                  // Öppna symbol-menyn igen
+                  setMarkerMenuOpen(editingMarker.id);
                   setEditingMarker(null);
                 }}
                 style={{
