@@ -80,6 +80,7 @@ export default function PlannerPage() {
   });
   const [editingField, setEditingField] = useState<string | null>(null); // 'volym', 'areal', 'skordare', 'skotare'
   const [editValue, setEditValue] = useState('');
+  const [draggingSlider, setDraggingSlider] = useState<string | null>(null); // 'terrang' eller 'barighet'
   const [prognosSettings, setPrognosSettings] = useState<PrognosSettings>({
     terpipirangSvar: 0, // % svår terräng (från branta zoner)
     barighetDalig: 0, // % dålig bärighet (från blöta zoner)
@@ -4524,12 +4525,31 @@ export default function PlannerPage() {
                   </div>
                   
                   {/* Svår terräng */}
-                  <div style={{ marginBottom: '20px' }}>
+                  <div style={{ marginBottom: '24px', position: 'relative' }}>
+                    {/* Stor siffra när man drar */}
+                    {draggingSlider === 'terrang' && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '-55px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        background: 'rgba(0,0,0,0.95)',
+                        borderRadius: '14px',
+                        padding: '10px 20px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        zIndex: 10,
+                      }}>
+                        <span style={{ fontSize: '32px', fontWeight: '700', color: '#fff' }}>
+                          {prognosSettings.terpipirangSvar || forhallanden.brantProcent}%
+                        </span>
+                      </div>
+                    )}
                     <div style={{ 
                       display: 'flex', 
                       justifyContent: 'space-between', 
                       alignItems: 'center',
-                      marginBottom: '10px' 
+                      marginBottom: '12px' 
                     }}>
                       <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>
                         Svår terräng
@@ -4545,32 +4565,108 @@ export default function PlannerPage() {
                         {prognosSettings.terpipirangSvar || forhallanden.brantProcent}%
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="5"
-                      value={prognosSettings.terpipirangSvar || forhallanden.brantProcent}
-                      onChange={(e) => setPrognosSettings(prev => ({ ...prev, terpipirangSvar: Number(e.target.value) }))}
+                    {/* Custom expanderande slider */}
+                    <div 
                       style={{
+                        position: 'relative',
                         width: '100%',
-                        height: '6px',
-                        borderRadius: '3px',
+                        height: draggingSlider === 'terrang' ? '24px' : '6px',
+                        borderRadius: draggingSlider === 'terrang' ? '12px' : '3px',
                         background: 'rgba(255,255,255,0.1)',
-                        outline: 'none',
                         cursor: 'pointer',
-                        WebkitAppearance: 'none',
+                        transition: 'height 0.15s ease, border-radius 0.15s ease',
                       }}
-                    />
+                      onTouchStart={(e) => {
+                        setDraggingSlider('terrang');
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.touches[0].clientX - rect.left;
+                        const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
+                        setPrognosSettings(prev => ({ ...prev, terpipirangSvar: percent }));
+                      }}
+                      onTouchMove={(e) => {
+                        if (draggingSlider === 'terrang') {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const x = e.touches[0].clientX - rect.left;
+                          const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
+                          setPrognosSettings(prev => ({ ...prev, terpipirangSvar: percent }));
+                        }
+                      }}
+                      onTouchEnd={() => setDraggingSlider(null)}
+                      onMouseDown={(e) => {
+                        setDraggingSlider('terrang');
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.clientX - rect.left;
+                        const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
+                        setPrognosSettings(prev => ({ ...prev, terpipirangSvar: percent }));
+                      }}
+                      onMouseMove={(e) => {
+                        if (draggingSlider === 'terrang' && e.buttons === 1) {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const x = e.clientX - rect.left;
+                          const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
+                          setPrognosSettings(prev => ({ ...prev, terpipirangSvar: percent }));
+                        }
+                      }}
+                      onMouseUp={() => setDraggingSlider(null)}
+                      onMouseLeave={() => setDraggingSlider(null)}
+                    >
+                      {/* Fill */}
+                      <div style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: 0,
+                        height: '100%',
+                        width: `${prognosSettings.terpipirangSvar || forhallanden.brantProcent}%`,
+                        background: draggingSlider === 'terrang' 
+                          ? 'linear-gradient(90deg, rgba(10,132,255,0.6), rgba(10,132,255,0.8))'
+                          : 'rgba(255,255,255,0.3)',
+                        borderRadius: 'inherit',
+                        transition: 'background 0.15s ease',
+                      }} />
+                      {/* Thumb */}
+                      <div style={{
+                        position: 'absolute',
+                        left: `${prognosSettings.terpipirangSvar || forhallanden.brantProcent}%`,
+                        top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: draggingSlider === 'terrang' ? '36px' : '20px',
+                        height: draggingSlider === 'terrang' ? '36px' : '20px',
+                        borderRadius: '50%',
+                        background: '#fff',
+                        boxShadow: draggingSlider === 'terrang' 
+                          ? '0 4px 16px rgba(0,0,0,0.4)'
+                          : '0 2px 8px rgba(0,0,0,0.3)',
+                        transition: 'width 0.15s ease, height 0.15s ease, box-shadow 0.15s ease',
+                      }} />
+                    </div>
                   </div>
                   
                   {/* Dålig bärighet */}
-                  <div>
+                  <div style={{ position: 'relative' }}>
+                    {/* Stor siffra när man drar */}
+                    {draggingSlider === 'barighet' && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '-55px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        background: 'rgba(0,0,0,0.95)',
+                        borderRadius: '14px',
+                        padding: '10px 20px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        zIndex: 10,
+                      }}>
+                        <span style={{ fontSize: '32px', fontWeight: '700', color: '#fff' }}>
+                          {prognosSettings.barighetDalig || forhallanden.blottProcent}%
+                        </span>
+                      </div>
+                    )}
                     <div style={{ 
                       display: 'flex', 
                       justifyContent: 'space-between', 
                       alignItems: 'center',
-                      marginBottom: '10px' 
+                      marginBottom: '12px' 
                     }}>
                       <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>
                         Dålig bärighet
@@ -4586,23 +4682,80 @@ export default function PlannerPage() {
                         {prognosSettings.barighetDalig || forhallanden.blottProcent}%
                       </span>
                     </div>
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="5"
-                      value={prognosSettings.barighetDalig || forhallanden.blottProcent}
-                      onChange={(e) => setPrognosSettings(prev => ({ ...prev, barighetDalig: Number(e.target.value) }))}
+                    {/* Custom expanderande slider */}
+                    <div 
                       style={{
+                        position: 'relative',
                         width: '100%',
-                        height: '6px',
-                        borderRadius: '3px',
+                        height: draggingSlider === 'barighet' ? '24px' : '6px',
+                        borderRadius: draggingSlider === 'barighet' ? '12px' : '3px',
                         background: 'rgba(255,255,255,0.1)',
-                        outline: 'none',
                         cursor: 'pointer',
-                        WebkitAppearance: 'none',
+                        transition: 'height 0.15s ease, border-radius 0.15s ease',
                       }}
-                    />
+                      onTouchStart={(e) => {
+                        setDraggingSlider('barighet');
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.touches[0].clientX - rect.left;
+                        const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
+                        setPrognosSettings(prev => ({ ...prev, barighetDalig: percent }));
+                      }}
+                      onTouchMove={(e) => {
+                        if (draggingSlider === 'barighet') {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const x = e.touches[0].clientX - rect.left;
+                          const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
+                          setPrognosSettings(prev => ({ ...prev, barighetDalig: percent }));
+                        }
+                      }}
+                      onTouchEnd={() => setDraggingSlider(null)}
+                      onMouseDown={(e) => {
+                        setDraggingSlider('barighet');
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const x = e.clientX - rect.left;
+                        const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
+                        setPrognosSettings(prev => ({ ...prev, barighetDalig: percent }));
+                      }}
+                      onMouseMove={(e) => {
+                        if (draggingSlider === 'barighet' && e.buttons === 1) {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const x = e.clientX - rect.left;
+                          const percent = Math.round(Math.max(0, Math.min(100, (x / rect.width) * 100)) / 5) * 5;
+                          setPrognosSettings(prev => ({ ...prev, barighetDalig: percent }));
+                        }
+                      }}
+                      onMouseUp={() => setDraggingSlider(null)}
+                      onMouseLeave={() => setDraggingSlider(null)}
+                    >
+                      {/* Fill */}
+                      <div style={{
+                        position: 'absolute',
+                        left: 0,
+                        top: 0,
+                        height: '100%',
+                        width: `${prognosSettings.barighetDalig || forhallanden.blottProcent}%`,
+                        background: draggingSlider === 'barighet' 
+                          ? 'linear-gradient(90deg, rgba(10,132,255,0.6), rgba(10,132,255,0.8))'
+                          : 'rgba(255,255,255,0.3)',
+                        borderRadius: 'inherit',
+                        transition: 'background 0.15s ease',
+                      }} />
+                      {/* Thumb */}
+                      <div style={{
+                        position: 'absolute',
+                        left: `${prognosSettings.barighetDalig || forhallanden.blottProcent}%`,
+                        top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: draggingSlider === 'barighet' ? '36px' : '20px',
+                        height: draggingSlider === 'barighet' ? '36px' : '20px',
+                        borderRadius: '50%',
+                        background: '#fff',
+                        boxShadow: draggingSlider === 'barighet' 
+                          ? '0 4px 16px rgba(0,0,0,0.4)'
+                          : '0 2px 8px rgba(0,0,0,0.3)',
+                        transition: 'width 0.15s ease, height 0.15s ease, box-shadow 0.15s ease',
+                      }} />
+                    </div>
                   </div>
                 </div>
               );
