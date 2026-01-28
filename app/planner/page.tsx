@@ -1152,9 +1152,32 @@ export default function PlannerPage() {
     const warnings = getActiveWarnings();
     if (warnings.length > 0 && !activeWarning) {
       setActiveWarning(warnings[0]);
-      // Vibrera för att uppmärksamma
+      
+      // Vibrera kraftigt
       if (navigator.vibrate) {
-        navigator.vibrate([200, 100, 200]);
+        navigator.vibrate([500, 200, 500, 200, 500]);
+      }
+      
+      // Spela varningsljud
+      try {
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        const playBeep = (freq: number, duration: number, delay: number) => {
+          const oscillator = audioContext.createOscillator();
+          const gainNode = audioContext.createGain();
+          oscillator.connect(gainNode);
+          gainNode.connect(audioContext.destination);
+          oscillator.frequency.value = freq;
+          oscillator.type = 'square';
+          gainNode.gain.value = 0.3;
+          oscillator.start(audioContext.currentTime + delay);
+          oscillator.stop(audioContext.currentTime + delay + duration);
+        };
+        // 3 snabba varningsljud
+        playBeep(800, 0.2, 0);
+        playBeep(800, 0.2, 0.3);
+        playBeep(800, 0.2, 0.6);
+      } catch (e) {
+        console.log('Audio not supported');
       }
     }
   }, [drivingMode, gpsMapPosition, markers, acknowledgedWarnings]);
@@ -2061,7 +2084,7 @@ export default function PlannerPage() {
       )}
       <div style={{
         position: 'absolute',
-        bottom: menuHeight + 80,
+        bottom: menuHeight + 110,
         left: '20px',
         display: 'flex',
         flexDirection: 'column',
@@ -2360,7 +2383,7 @@ export default function PlannerPage() {
         <div 
           style={{
             position: 'absolute',
-            bottom: menuHeight + 80,
+            bottom: menuHeight + 110,
             left: '70px',
             background: '#000',
             borderRadius: '20px',
@@ -2445,7 +2468,7 @@ export default function PlannerPage() {
           onClick={undo}
           style={{
             position: 'absolute',
-            bottom: menuHeight + 80,
+            bottom: menuHeight + 110,
             right: '20px',
             width: '50px',
             height: '50px',
@@ -2762,7 +2785,7 @@ export default function PlannerPage() {
       {measureMode && !isMeasuring && (
         <div style={{
           position: 'absolute',
-          bottom: menuHeight + 100,
+          bottom: menuHeight + 130,
           left: '50%',
           transform: 'translateX(-50%)',
           background: '#0a84ff',
@@ -2820,7 +2843,7 @@ export default function PlannerPage() {
       {measureAreaMode && !isMeasuring && (
         <div style={{
           position: 'absolute',
-          bottom: menuHeight + 100,
+          bottom: menuHeight + 130,
           left: '50%',
           transform: 'translateX(-50%)',
           background: '#22c55e',
@@ -2878,7 +2901,7 @@ export default function PlannerPage() {
       {gpsLineType && isTracking && (
         <div style={{
           position: 'absolute',
-          bottom: menuHeight + 100,
+          bottom: menuHeight + 130,
           left: '50%',
           transform: 'translateX(-50%)',
           background: lineTypes.find(t => t.id === gpsLineType)?.color || colors.blue,
@@ -2943,7 +2966,7 @@ export default function PlannerPage() {
       {(isDrawMode || isZoneMode || isArrowMode || selectedSymbol) && !isDrawing && (
         <div style={{
           position: 'absolute',
-          bottom: menuHeight + 100,
+          bottom: menuHeight + 130,
           left: '50%',
           transform: 'translateX(-50%)',
           background: drawPaused ? colors.blue : colors.surface,
@@ -3071,7 +3094,7 @@ export default function PlannerPage() {
       {/* === BOTTOM SHEET MENY === */}
       <div style={{
         position: 'absolute',
-        bottom: 0,
+        bottom: 30,
         left: 0,
         right: 0,
         height: menuHeight + 40,
@@ -3080,6 +3103,7 @@ export default function PlannerPage() {
         transition: 'height 0.3s ease',
         zIndex: 200,
         borderTop: menuOpen ? '1px solid rgba(255,255,255,0.1)' : 'none',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       }}>
         {/* Handtag / Pil */}
         <div 
@@ -3604,80 +3628,118 @@ export default function PlannerPage() {
       {drivingMode && activeWarning && (
         <div 
           style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: 'translate(-50%, -50%)',
-            background: 'rgba(239,68,68,0.95)',
-            borderRadius: '24px',
-            padding: '30px 40px',
-            boxShadow: '0 12px 60px rgba(239,68,68,0.5)',
-            border: '2px solid #fff',
-            zIndex: 400,
-            textAlign: 'center',
-            minWidth: '280px',
-            animation: 'pulse 1s ease-in-out infinite',
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            background: '#dc2626',
+            zIndex: 9999,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            animation: 'warningFlash 0.5s ease-in-out infinite alternate',
           }}
         >
-          <div style={{ fontSize: '48px', marginBottom: '12px' }}>
+          {/* VARNING text överst */}
+          <div style={{ 
+            fontSize: '28px', 
+            fontWeight: '900', 
+            color: '#fff',
+            letterSpacing: '10px',
+            marginBottom: '30px',
+            textShadow: '0 2px 10px rgba(0,0,0,0.5)',
+          }}>
+            ⚠️ VARNING ⚠️
+          </div>
+          
+          {/* Stor ikon */}
+          <div style={{ 
+            fontSize: '120px', 
+            marginBottom: '20px',
+            filter: 'drop-shadow(0 4px 20px rgba(0,0,0,0.5))',
+          }}>
             {activeWarning.icon}
           </div>
+          
+          {/* Namn */}
           <div style={{ 
-            fontSize: '22px', 
-            fontWeight: '700', 
+            fontSize: '42px', 
+            fontWeight: '900', 
             color: '#fff',
-            marginBottom: '8px',
+            marginBottom: '10px',
+            textShadow: '0 2px 10px rgba(0,0,0,0.5)',
+            textTransform: 'uppercase',
           }}>
             {activeWarning.name}
           </div>
+          
+          {/* Avstånd */}
           <div style={{ 
-            fontSize: '28px', 
-            fontWeight: '700', 
+            fontSize: '80px', 
+            fontWeight: '900', 
             color: '#fff',
-            marginBottom: '8px',
+            marginBottom: '20px',
+            textShadow: '0 4px 20px rgba(0,0,0,0.5)',
           }}>
             {activeWarning.distance}m
           </div>
+          
+          {/* Kommentar */}
           {activeWarning.comment && (
             <div style={{ 
-              fontSize: '14px', 
-              color: 'rgba(255,255,255,0.9)',
-              marginBottom: '16px',
-              padding: '12px',
-              background: 'rgba(0,0,0,0.2)',
-              borderRadius: '10px',
+              fontSize: '22px', 
+              fontWeight: '600',
+              color: '#fff',
+              marginBottom: '20px',
+              padding: '16px 24px',
+              background: 'rgba(0,0,0,0.4)',
+              borderRadius: '12px',
+              maxWidth: '85%',
+              textAlign: 'center',
             }}>
               {activeWarning.comment}
             </div>
           )}
+          
+          {/* Foto */}
           {activeWarning.photoData && (
             <img 
               src={activeWarning.photoData} 
               alt="Foto" 
               style={{
-                width: '100%',
-                maxHeight: '150px',
+                width: '85%',
+                maxWidth: '320px',
+                maxHeight: '180px',
                 objectFit: 'cover',
-                borderRadius: '10px',
-                marginBottom: '16px',
+                borderRadius: '16px',
+                marginBottom: '20px',
+                border: '4px solid #fff',
               }}
             />
           )}
+          
+          {/* Kvittera-knapp */}
           <button
             onClick={acknowledgeWarning}
             style={{
-              width: '100%',
-              padding: '16px',
-              borderRadius: '14px',
+              padding: '28px 100px',
+              borderRadius: '24px',
               border: 'none',
               background: '#fff',
-              color: '#000',
-              fontSize: '18px',
-              fontWeight: '700',
+              color: '#dc2626',
+              fontSize: '28px',
+              fontWeight: '900',
               cursor: 'pointer',
+              marginTop: '20px',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.4)',
+              textTransform: 'uppercase',
             }}
           >
-            ✓ Kvittera
+            ✓ KVITTERA
           </button>
         </div>
       )}
@@ -4360,6 +4422,10 @@ export default function PlannerPage() {
         @keyframes fadeIn {
           from { opacity: 0; transform: translateY(-10px); }
           to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes warningFlash {
+          0% { background: #dc2626; }
+          100% { background: #991b1b; }
         }
         /* Dölja number input spinners */
         input[type=number]::-webkit-inner-spin-button,
