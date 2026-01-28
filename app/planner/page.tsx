@@ -153,6 +153,7 @@ export default function PlannerPage() {
   // Meny
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuTab, setMenuTab] = useState('symbols'); // symbols, lines, zones, arrows, settings
+  const [subMenu, setSubMenu] = useState<string | null>(null); // För meny-i-meny
   const [menuHeight, setMenuHeight] = useState(0); // 0 = stängd, 300 = öppen, 600 = full
   
   // Rita
@@ -2088,383 +2089,95 @@ export default function PlannerPage() {
           })()}
         </svg>
       )}
+      {/* === ZOOM-KNAPPAR (behålls) === */}
       <div style={{
         position: 'absolute',
-        bottom: menuHeight + 110,
-        left: '20px',
+        top: '120px',
+        left: '15px',
         display: 'flex',
         flexDirection: 'column',
         gap: '8px',
         zIndex: 120,
       }}>
         <button
-          onClick={centerOnMe}
-          className="zoom-btn"
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '12px',
-            border: 'none',
-            background: 'rgba(28,28,30,0.8)',
-            color: colors.text,
-            fontSize: '16px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(10px)',
-            opacity: 0.2,
-            transition: 'opacity 0.2s ease',
-          }}
-          onMouseEnter={(e) => e.target.style.opacity = 1}
-          onMouseLeave={(e) => e.target.style.opacity = 0.2}
-          onTouchStart={(e) => e.target.style.opacity = 1}
-          onTouchEnd={(e) => e.target.style.opacity = 0.2}
-        >
-          📍
-        </button>
-        <button
           onClick={zoomIn}
-          className="zoom-btn"
           style={{
             width: '40px',
             height: '40px',
             borderRadius: '12px',
             border: 'none',
             background: 'rgba(28,28,30,0.8)',
-            color: colors.text,
+            color: '#fff',
             fontSize: '20px',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             backdropFilter: 'blur(10px)',
-            opacity: 0.2,
-            transition: 'opacity 0.2s ease',
           }}
-          onMouseEnter={(e) => e.target.style.opacity = 1}
-          onMouseLeave={(e) => e.target.style.opacity = 0.2}
-          onTouchStart={(e) => e.target.style.opacity = 1}
-          onTouchEnd={(e) => e.target.style.opacity = 0.2}
         >
           +
         </button>
         <button
           onClick={zoomOut}
-          className="zoom-btn"
           style={{
             width: '40px',
             height: '40px',
             borderRadius: '12px',
             border: 'none',
             background: 'rgba(28,28,30,0.8)',
-            color: colors.text,
+            color: '#fff',
             fontSize: '20px',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             backdropFilter: 'blur(10px)',
-            opacity: 0.2,
-            transition: 'opacity 0.2s ease',
           }}
-          onMouseEnter={(e) => e.target.style.opacity = 1}
-          onMouseLeave={(e) => e.target.style.opacity = 0.2}
-          onTouchStart={(e) => e.target.style.opacity = 1}
-          onTouchEnd={(e) => e.target.style.opacity = 0.2}
         >
           −
         </button>
-        
-        {/* Kompass-knapp */}
-        <button
-          onClick={toggleCompass}
-          className="zoom-btn"
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '12px',
-            border: compassMode ? '2px solid ' + colors.blue : 'none',
-            background: compassMode ? 'rgba(10,132,255,0.3)' : 'rgba(28,28,30,0.8)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(10px)',
-            opacity: compassMode ? 1 : 0.2,
-            transition: 'all 0.2s ease',
-            padding: 0,
-          }}
-          onMouseEnter={(e) => { if (!compassMode) e.currentTarget.style.opacity = 1; }}
-          onMouseLeave={(e) => { if (!compassMode) e.currentTarget.style.opacity = 0.2; }}
-          onTouchStart={(e) => { if (!compassMode) e.currentTarget.style.opacity = 1; }}
-          onTouchEnd={(e) => { if (!compassMode) e.currentTarget.style.opacity = 0.2; }}
-        >
+      </div>
+
+      {/* === KOMPASS-WIDGET (vänster nere) === */}
+      {compassMode && (
+        <div style={{
+          position: 'absolute',
+          bottom: menuOpen ? menuHeight + 110 : 100,
+          left: '15px',
+          width: '56px',
+          height: '56px',
+          background: 'rgba(0,0,0,0.9)',
+          borderRadius: '16px',
+          border: '1px solid rgba(255,255,255,0.15)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+          zIndex: 150,
+          transition: 'bottom 0.3s ease',
+        }}>
           <svg 
-            width="24" 
-            height="24" 
+            width="40" 
+            height="40" 
             viewBox="0 0 24 24"
             style={{ 
-              transform: compassMode ? `rotate(${-deviceHeading}deg)` : 'none',
+              transform: `rotate(${-deviceHeading}deg)`,
               transition: 'transform 0.1s ease-out',
             }}
           >
-            {/* Yttre cirkel */}
-            <circle 
-              cx="12" 
-              cy="12" 
-              r="10" 
-              fill="none" 
-              stroke={compassMode ? colors.blue : 'rgba(255,255,255,0.5)'} 
-              strokeWidth="1.5"
-            />
-            {/* Norrpil (röd) */}
-            <path 
-              d="M12 3 L14.5 12 L12 10 L9.5 12 Z" 
-              fill={colors.red}
-            />
-            {/* Södrpil (vit) */}
-            <path 
-              d="M12 21 L14.5 12 L12 14 L9.5 12 Z" 
-              fill="rgba(255,255,255,0.7)"
-            />
-            {/* Mittpunkt */}
-            <circle 
-              cx="12" 
-              cy="12" 
-              r="2" 
-              fill={compassMode ? colors.blue : 'rgba(255,255,255,0.8)'}
-            />
+            <circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"/>
+            <path d="M12 3 L14.5 12 L12 10 L9.5 12 Z" fill="#ef4444"/>
+            <path d="M12 21 L14.5 12 L12 14 L9.5 12 Z" fill="rgba(255,255,255,0.5)"/>
+            <circle cx="12" cy="12" r="2" fill="#0a84ff"/>
           </svg>
-        </button>
-        
-        {/* Lager-knapp */}
-        <button
-          onClick={() => setLayerMenuOpen(!layerMenuOpen)}
-          className="zoom-btn"
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '12px',
-            border: layerMenuOpen ? '2px solid ' + colors.blue : 'none',
-            background: layerMenuOpen ? 'rgba(10,132,255,0.3)' : 'rgba(28,28,30,0.8)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(10px)',
-            opacity: layerMenuOpen ? 1 : 0.2,
-            transition: 'all 0.2s ease',
-            padding: 0,
-          }}
-          onMouseEnter={(e) => { if (!layerMenuOpen) e.currentTarget.style.opacity = 1; }}
-          onMouseLeave={(e) => { if (!layerMenuOpen) e.currentTarget.style.opacity = 0.2; }}
-          onTouchStart={(e) => { if (!layerMenuOpen) e.currentTarget.style.opacity = 1; }}
-          onTouchEnd={(e) => { if (!layerMenuOpen) e.currentTarget.style.opacity = 0.2; }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={layerMenuOpen ? colors.blue : 'rgba(255,255,255,0.6)'} strokeWidth="2">
-            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-            <path d="M2 17l10 5 10-5" />
-            <path d="M2 12l10 5 10-5" />
-          </svg>
-        </button>
-        
-        {/* Checklista-knapp */}
-        <button
-          onClick={() => setChecklistOpen(true)}
-          className="zoom-btn"
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '12px',
-            border: checklistItems.every(i => i.answer !== null) ? '2px solid #22c55e' : 
-                   checklistItems.some(i => i.answer !== null) ? '2px solid #fbbf24' : 'none',
-            background: checklistItems.every(i => i.answer !== null) ? 'rgba(34,197,94,0.3)' : 
-                       checklistItems.some(i => i.answer !== null) ? 'rgba(251,191,36,0.3)' : 'rgba(28,28,30,0.8)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(10px)',
-            opacity: checklistItems.some(i => i.answer !== null) ? 1 : 0.2,
-            transition: 'all 0.2s ease',
-            padding: 0,
-            position: 'relative',
-          }}
-          onMouseEnter={(e) => { if (!checklistItems.some(i => i.answer !== null)) e.currentTarget.style.opacity = 1; }}
-          onMouseLeave={(e) => { if (!checklistItems.some(i => i.answer !== null)) e.currentTarget.style.opacity = 0.2; }}
-          onTouchStart={(e) => { if (!checklistItems.some(i => i.answer !== null)) e.currentTarget.style.opacity = 1; }}
-          onTouchEnd={(e) => { if (!checklistItems.some(i => i.answer !== null)) e.currentTarget.style.opacity = 0.2; }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={
-            checklistItems.every(i => i.answer !== null) ? '#22c55e' : 
-            checklistItems.some(i => i.answer !== null) ? '#fbbf24' : 'rgba(255,255,255,0.6)'
-          } strokeWidth="2">
-            <path d="M9 11l3 3L22 4" />
-            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
-          </svg>
-          {/* Progress-indikator */}
-          {checklistItems.some(i => i.answer !== null) && !checklistItems.every(i => i.answer !== null) && (
-            <div style={{
-              position: 'absolute',
-              top: '-4px',
-              right: '-4px',
-              background: '#fbbf24',
-              color: '#000',
-              fontSize: '10px',
-              fontWeight: '700',
-              width: '18px',
-              height: '18px',
-              borderRadius: '9px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              {checklistItems.filter(i => i.answer !== null).length}
-            </div>
-          )}
-        </button>
-        
-        {/* GPS-knapp */}
-        <button
-          onClick={toggleTracking}
-          className="zoom-btn"
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '12px',
-            border: isTracking ? '2px solid #22c55e' : 'none',
-            background: isTracking ? 'rgba(34,197,94,0.3)' : 'rgba(28,28,30,0.8)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(10px)',
-            opacity: isTracking ? 1 : 0.5,
-            transition: 'all 0.2s ease',
-            padding: 0,
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isTracking ? '#22c55e' : 'rgba(255,255,255,0.6)'} strokeWidth="2">
-            <circle cx="12" cy="12" r="3" fill={isTracking ? '#22c55e' : 'none'} />
-            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-          </svg>
-        </button>
-        
-        {/* Körläge-knapp */}
-        <button
-          onClick={() => {
-            setDrivingMode(!drivingMode);
-            if (!drivingMode) {
-              setAcknowledgedWarnings([]);
-            }
-          }}
-          className="zoom-btn"
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '12px',
-            border: drivingMode ? '2px solid #22c55e' : 'none',
-            background: drivingMode ? 'rgba(34,197,94,0.3)' : 'rgba(28,28,30,0.8)',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(10px)',
-            opacity: drivingMode ? 1 : 0.2,
-            transition: 'all 0.2s ease',
-            padding: 0,
-          }}
-          onMouseEnter={(e) => { if (!drivingMode) e.currentTarget.style.opacity = 1; }}
-          onMouseLeave={(e) => { if (!drivingMode) e.currentTarget.style.opacity = 0.2; }}
-          onTouchStart={(e) => { if (!drivingMode) e.currentTarget.style.opacity = 1; }}
-          onTouchEnd={(e) => { if (!drivingMode) e.currentTarget.style.opacity = 0.2; }}
-        >
-          <span style={{ fontSize: '20px' }}>🚜</span>
-        </button>
-      </div>
-
-      {/* === LAGER-MENY === */}
-      {layerMenuOpen && (
-        <div 
-          style={{
+          <span style={{
             position: 'absolute',
-            bottom: menuHeight + 110,
-            left: '70px',
-            background: '#000',
-            borderRadius: '20px',
-            padding: '20px',
-            boxShadow: '0 8px 40px rgba(0,0,0,0.8)',
-            border: '1px solid rgba(255,255,255,0.15)',
-            zIndex: 150,
-            minWidth: '160px',
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div style={{ 
-            fontSize: '13px', 
-            color: 'rgba(255,255,255,0.4)', 
-            marginBottom: '16px',
-            textTransform: 'uppercase',
-            letterSpacing: '1px',
-          }}>
-            Lager
-          </div>
-          
-          {[
-            { key: 'symbols', label: 'Symboler', icon: '📍' },
-            { key: 'arrows', label: 'Pilar', icon: '➡️' },
-            { key: 'zones', label: 'Zoner', icon: '⬡' },
-            { key: 'lines', label: 'Linjer', icon: '〰️' },
-          ].map(layer => (
-            <button
-              key={layer.key}
-              onClick={() => setVisibleLayers(prev => ({ ...prev, [layer.key]: !prev[layer.key] }))}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                width: '100%',
-                padding: '12px',
-                marginBottom: '8px',
-                borderRadius: '12px',
-                border: 'none',
-                background: visibleLayers[layer.key] ? 'rgba(255,255,255,0.1)' : 'transparent',
-                cursor: 'pointer',
-                textAlign: 'left',
-              }}
-            >
-              <span style={{ fontSize: '18px', opacity: visibleLayers[layer.key] ? 1 : 0.3 }}>
-                {layer.icon}
-              </span>
-              <span style={{ 
-                fontSize: '15px', 
-                color: visibleLayers[layer.key] ? '#fff' : 'rgba(255,255,255,0.3)',
-              }}>
-                {layer.label}
-              </span>
-              <div style={{
-                marginLeft: 'auto',
-                width: '36px',
-                height: '20px',
-                borderRadius: '10px',
-                background: visibleLayers[layer.key] ? '#22c55e' : 'rgba(255,255,255,0.2)',
-                position: 'relative',
-                transition: 'background 0.2s ease',
-              }}>
-                <div style={{
-                  position: 'absolute',
-                  top: '2px',
-                  left: visibleLayers[layer.key] ? '18px' : '2px',
-                  width: '16px',
-                  height: '16px',
-                  borderRadius: '8px',
-                  background: '#fff',
-                  transition: 'left 0.2s ease',
-                }} />
-              </div>
-            </button>
-          ))}
+            top: '4px',
+            fontSize: '8px',
+            color: '#ef4444',
+            fontWeight: '700',
+          }}>N</span>
         </div>
       )}
 
@@ -2474,59 +2187,27 @@ export default function PlannerPage() {
           onClick={undo}
           style={{
             position: 'absolute',
-            bottom: menuHeight + 110,
-            right: '20px',
-            width: '50px',
-            height: '50px',
-            borderRadius: '25px',
+            top: '120px',
+            right: '15px',
+            width: '40px',
+            height: '40px',
+            borderRadius: '12px',
             border: 'none',
-            background: colors.surface,
-            color: colors.text,
-            fontSize: '20px',
+            background: 'rgba(28,28,30,0.8)',
+            color: '#fff',
+            fontSize: '18px',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             boxShadow: '0 4px 15px rgba(0,0,0,0.4)',
             zIndex: 120,
-            animation: 'fadeIn 0.2s ease',
+            backdropFilter: 'blur(10px)',
           }}
         >
           ↩️
         </button>
       )}
-
-      {/* === PROGNOS-PIL (höger sida) === */}
-      <button
-        onClick={() => setPrognosOpen(true)}
-        style={{
-          position: 'absolute',
-          right: 0,
-          top: '50%',
-          transform: 'translateY(-50%)',
-          width: '44px',
-          height: '100px',
-          borderRadius: '16px 0 0 16px',
-          border: '2px solid rgba(255,255,255,0.2)',
-          borderRight: 'none',
-          background: 'rgba(28,28,30,0.95)',
-          cursor: 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          boxShadow: '-4px 0 20px rgba(0,0,0,0.5)',
-          zIndex: 200,
-        }}
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5">
-            <path d="M15 18l-6-6 6-6" />
-          </svg>
-          <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.7)', writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-            PROGNOS
-          </span>
-        </div>
-      </button>
       
       {/* === FLYTTA-INDIKATOR === */}
       {draggingMarker && hasMoved && (
@@ -3128,7 +2809,7 @@ export default function PlannerPage() {
         bottom: 30,
         left: 0,
         right: 0,
-        height: menuHeight + 40,
+        height: menuHeight + 50,
         background: menuOpen ? '#000' : 'transparent',
         borderRadius: '24px 24px 0 0',
         transition: 'height 0.3s ease',
@@ -3148,21 +2829,34 @@ export default function PlannerPage() {
             }
           }}
           style={{
-            padding: '16px',
+            height: '50px',
             cursor: 'pointer',
             display: 'flex',
+            flexDirection: 'column',
             justifyContent: 'center',
             alignItems: 'center',
+            gap: '6px',
           }}
         >
+          {/* Gradient-linje när stängd */}
+          {!menuOpen && (
+            <div style={{
+              width: '100%',
+              height: '1px',
+              background: 'linear-gradient(90deg, transparent 10%, rgba(255,255,255,0.25) 50%, transparent 90%)',
+              position: 'absolute',
+              top: 0,
+            }} />
+          )}
+          
           {menuOpen ? (
-            // Pil ner för att stänga
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            // Pil ner för att stänga - tydlig
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6 9l6 6 6-6" />
             </svg>
           ) : (
-            // Diskret pil upp
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            // Pil upp - synlig
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6 15l6-6 6 6" />
             </svg>
           )}
@@ -3172,173 +2866,365 @@ export default function PlannerPage() {
         {menuOpen && (
           <div style={{ padding: '0 20px', overflow: 'auto', height: menuHeight - 20 }}>
             
-            {/* Tabs - minimalistiska */}
+            {/* Tabs - med ikoner */}
             <div style={{
               display: 'flex',
-              gap: '24px',
-              marginBottom: '24px',
-              borderBottom: '1px solid rgba(255,255,255,0.1)',
+              gap: '8px',
+              marginBottom: '20px',
               paddingBottom: '12px',
+              borderBottom: '1px solid rgba(255,255,255,0.1)',
             }}>
               {[
-                { id: 'symbols', name: 'Symboler' },
-                { id: 'lines', name: 'Linjer' },
-                { id: 'zones', name: 'Zoner' },
-                { id: 'arrows', name: 'Pilar' },
-                { id: 'measure', name: 'Mäta' },
+                { id: 'symbols', name: 'Symboler', icon: '📍' },
+                { id: 'lines', name: 'Linjer', icon: '〰️' },
+                { id: 'zones', name: 'Zoner', icon: '⬡' },
+                { id: 'arrows', name: 'Pilar', icon: '➡️' },
               ].map(tab => (
                 <button
                   key={tab.id}
-                  onClick={() => setMenuTab(tab.id)}
+                  onClick={() => {
+                    setMenuTab(tab.id);
+                    setSubMenu(null);
+                  }}
                   style={{
-                    padding: '8px 0',
+                    flex: 1,
+                    padding: '10px 6px',
                     border: 'none',
-                    background: 'transparent',
-                    color: menuTab === tab.id ? '#fff' : 'rgba(255,255,255,0.4)',
-                    fontSize: '14px',
-                    fontWeight: menuTab === tab.id ? '600' : '400',
+                    background: menuTab === tab.id ? 'rgba(255,255,255,0.1)' : 'transparent',
+                    borderRadius: '10px',
                     cursor: 'pointer',
-                    position: 'relative',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '4px',
                   }}
                 >
-                  {tab.name}
-                  {menuTab === tab.id && (
-                    <div style={{
-                      position: 'absolute',
-                      bottom: '-13px',
-                      left: 0,
-                      right: 0,
-                      height: '2px',
-                      background: '#fff',
-                      borderRadius: '1px',
-                    }} />
-                  )}
+                  <span style={{ fontSize: '18px' }}>{tab.icon}</span>
+                  <span style={{ 
+                    fontSize: '11px', 
+                    color: menuTab === tab.id ? '#fff' : 'rgba(255,255,255,0.4)',
+                    fontWeight: menuTab === tab.id ? '600' : '400',
+                  }}>
+                    {tab.name}
+                  </span>
                 </button>
               ))}
             </div>
 
-            {/* Symboler */}
-            {menuTab === 'symbols' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {/* Symboler - meny i meny */}
+            {menuTab === 'symbols' && !subMenu && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {symbolCategories.map(category => (
-                  <div key={category.name}>
-                    <div style={{ 
-                      fontSize: '12px', 
-                      color: 'rgba(255,255,255,0.5)', 
-                      marginBottom: '10px', 
-                      fontWeight: '500', 
-                      letterSpacing: '0.5px' 
+                  <button
+                    key={category.name}
+                    onClick={() => setSubMenu(category.name)}
+                    style={{
+                      padding: '14px 16px',
+                      background: 'rgba(255,255,255,0.06)',
+                      borderRadius: '14px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '12px',
+                    }}
+                  >
+                    <div style={{
+                      width: '44px',
+                      height: '44px',
+                      background: 'rgba(255,255,255,0.08)',
+                      borderRadius: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '22px',
                     }}>
-                      {category.name.toUpperCase()}
+                      {category.symbols[0]?.icon || '📍'}
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-                      {category.symbols.map(type => (
-                        <button
-                          key={type.id}
-                          onClick={() => {
-                            setSelectedSymbol(type.id);
-                            setMenuOpen(false);
-                            setMenuHeight(0);
-                          }}
-                          style={{
-                            padding: '12px 8px',
-                            borderRadius: '10px',
-                            border: '1px solid rgba(255,255,255,0.1)',
-                            background: 'rgba(255,255,255,0.05)',
-                            cursor: 'pointer',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            alignItems: 'center',
-                            gap: '6px',
-                          }}
-                        >
-                          <span style={{ fontSize: '22px' }}>{type.icon}</span>
-                          <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>{type.name}</span>
-                        </button>
-                      ))}
+                    <div style={{ flex: 1, textAlign: 'left' }}>
+                      <div style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>
+                        {category.name}
+                      </div>
+                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+                        {category.symbols.length} symboler
+                      </div>
                     </div>
-                  </div>
+                    <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '20px' }}>›</span>
+                  </button>
                 ))}
               </div>
             )}
 
-            {/* Linjer */}
-            {menuTab === 'lines' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-                {/* GPS-spårning */}
-                <div>
-                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '12px', fontWeight: '500', letterSpacing: '0.5px' }}>
-                    SPÅRA MED GPS
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {lineTypes.map(type => (
-                      <button
-                        key={`gps-${type.id}`}
-                        onClick={() => startGpsTracking(type.id)}
-                        style={{
-                          padding: '14px 16px',
-                          borderRadius: '12px',
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          background: 'rgba(255,255,255,0.05)',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '12px',
-                        }}
-                      >
-                        <div style={{
-                          width: '24px',
-                          height: '4px',
-                          borderRadius: '2px',
-                          background: type.striped 
-                            ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 4px, ${type.color2} 4px, ${type.color2} 8px)`
-                            : type.color,
-                        }} />
-                        <span style={{ fontSize: '14px', color: '#fff' }}>{type.name}</span>
-                        <span style={{ marginLeft: 'auto', fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>●</span>
-                      </button>
-                    ))}
-                  </div>
+            {/* Symboler - vald kategori */}
+            {menuTab === 'symbols' && subMenu && (
+              <div>
+                {/* Bakåt-knapp */}
+                <button
+                  onClick={() => setSubMenu(null)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 0',
+                    marginBottom: '12px',
+                    background: 'none',
+                    border: 'none',
+                    color: '#0a84ff',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M15 18l-6-6 6-6" />
+                  </svg>
+                  Tillbaka
+                </button>
+                
+                {/* Kategori-titel */}
+                <div style={{ 
+                  fontSize: '16px', 
+                  fontWeight: '600', 
+                  color: '#fff',
+                  marginBottom: '14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                }}>
+                  <span>{symbolCategories.find(c => c.name === subMenu)?.symbols[0]?.icon}</span>
+                  {subMenu}
                 </div>
                 
-                {/* Rita manuellt */}
-                <div>
-                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '12px', fontWeight: '500', letterSpacing: '0.5px' }}>
-                    RITA MANUELLT
+                {/* Symbol-grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                  {symbolCategories.find(c => c.name === subMenu)?.symbols.map(type => (
+                    <button
+                      key={type.id}
+                      onClick={() => {
+                        setSelectedSymbol(type.id);
+                        setMenuOpen(false);
+                        setMenuHeight(0);
+                        setSubMenu(null);
+                      }}
+                      style={{
+                        padding: '14px 8px',
+                        borderRadius: '12px',
+                        border: 'none',
+                        background: 'rgba(255,255,255,0.06)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        gap: '6px',
+                      }}
+                    >
+                      <span style={{ fontSize: '26px' }}>{type.icon}</span>
+                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>{type.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Linjer - meny i meny */}
+            {menuTab === 'lines' && !subMenu && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button
+                  onClick={() => setSubMenu('gps-lines')}
+                  style={{
+                    padding: '14px 16px',
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: '14px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                  }}
+                >
+                  <div style={{
+                    width: '44px',
+                    height: '44px',
+                    background: 'rgba(34,197,94,0.2)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '20px',
+                  }}>
+                    📍
                   </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    {lineTypes.map(type => (
-                      <button
-                        key={type.id}
-                        onClick={() => {
-                          setDrawType(type.id);
-                          setIsDrawMode(true);
-                          setMenuOpen(false);
-                          setMenuHeight(0);
-                        }}
-                        style={{
-                          padding: '14px 16px',
-                          borderRadius: '12px',
-                          border: '1px solid rgba(255,255,255,0.1)',
-                          background: 'rgba(255,255,255,0.03)',
-                          cursor: 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '12px',
-                        }}
-                      >
-                        <div style={{
-                          width: '24px',
-                          height: '4px',
-                          borderRadius: '2px',
-                          background: type.striped 
-                            ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 4px, ${type.color2} 4px, ${type.color2} 8px)`
-                            : type.color,
-                        }} />
-                        <span style={{ fontSize: '14px', color: '#fff' }}>{type.name}</span>
-                      </button>
-                    ))}
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>
+                      Spåra med GPS
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+                      Gå och rita linje
+                    </div>
                   </div>
+                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '20px' }}>›</span>
+                </button>
+                
+                <button
+                  onClick={() => setSubMenu('draw-lines')}
+                  style={{
+                    padding: '14px 16px',
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: '14px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                  }}
+                >
+                  <div style={{
+                    width: '44px',
+                    height: '44px',
+                    background: 'rgba(10,132,255,0.2)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '20px',
+                  }}>
+                    ✏️
+                  </div>
+                  <div style={{ flex: 1, textAlign: 'left' }}>
+                    <div style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>
+                      Rita manuellt
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+                      Rita på kartan
+                    </div>
+                  </div>
+                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '20px' }}>›</span>
+                </button>
+              </div>
+            )}
+
+            {/* Linjer - GPS-spåra */}
+            {menuTab === 'lines' && subMenu === 'gps-lines' && (
+              <div>
+                <button
+                  onClick={() => setSubMenu(null)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 0',
+                    marginBottom: '12px',
+                    background: 'none',
+                    border: 'none',
+                    color: '#0a84ff',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M15 18l-6-6 6-6" />
+                  </svg>
+                  Tillbaka
+                </button>
+                
+                <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff', marginBottom: '14px' }}>
+                  📍 Spåra med GPS
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {lineTypes.map(type => (
+                    <button
+                      key={`gps-${type.id}`}
+                      onClick={() => {
+                        startGpsTracking(type.id);
+                        setSubMenu(null);
+                      }}
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: '12px',
+                        background: 'rgba(255,255,255,0.06)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                      }}
+                    >
+                      <div style={{
+                        width: '28px',
+                        height: '4px',
+                        borderRadius: '2px',
+                        background: type.striped 
+                          ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 4px, ${type.color2} 4px, ${type.color2} 8px)`
+                          : type.color,
+                      }} />
+                      <span style={{ fontSize: '15px', color: '#fff' }}>{type.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Linjer - Rita manuellt */}
+            {menuTab === 'lines' && subMenu === 'draw-lines' && (
+              <div>
+                <button
+                  onClick={() => setSubMenu(null)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 0',
+                    marginBottom: '12px',
+                    background: 'none',
+                    border: 'none',
+                    color: '#0a84ff',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M15 18l-6-6 6-6" />
+                  </svg>
+                  Tillbaka
+                </button>
+                
+                <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff', marginBottom: '14px' }}>
+                  ✏️ Rita manuellt
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {lineTypes.map(type => (
+                    <button
+                      key={type.id}
+                      onClick={() => {
+                        setDrawType(type.id);
+                        setIsDrawMode(true);
+                        setMenuOpen(false);
+                        setMenuHeight(0);
+                        setSubMenu(null);
+                      }}
+                      style={{
+                        padding: '14px 16px',
+                        borderRadius: '12px',
+                        background: 'rgba(255,255,255,0.06)',
+                        border: 'none',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                      }}
+                    >
+                      <div style={{
+                        width: '28px',
+                        height: '4px',
+                        borderRadius: '2px',
+                        background: type.striped 
+                          ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 4px, ${type.color2} 4px, ${type.color2} 8px)`
+                          : type.color,
+                      }} />
+                      <span style={{ fontSize: '15px', color: '#fff' }}>{type.name}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
             )}
@@ -3548,6 +3434,413 @@ export default function PlannerPage() {
                 )}
               </div>
             )}
+
+            {/* === PROGNOS & CHECKLISTA === */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '10px', 
+              marginTop: '20px',
+              paddingTop: '16px',
+              borderTop: '1px solid rgba(255,255,255,0.1)',
+            }}>
+              {/* Prognos */}
+              <button
+                onClick={() => {
+                  setPrognosOpen(true);
+                  setMenuOpen(false);
+                  setMenuHeight(0);
+                  setSubMenu(null);
+                }}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  background: 'rgba(255,255,255,0.06)',
+                  borderRadius: '12px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                }}
+              >
+                <span style={{ fontSize: '20px' }}>📊</span>
+                <div style={{ flex: 1, textAlign: 'left' }}>
+                  <div style={{ fontSize: '13px', color: '#fff' }}>Prognos</div>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
+                    {manuellPrognos.skordareTimmar || manuellPrognos.skotareTimmar ? 'Påbörjad' : 'Ej ifylld'}
+                  </div>
+                </div>
+                <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '18px' }}>›</span>
+              </button>
+              
+              {/* Checklista med cirkel-progress */}
+              <button
+                onClick={() => {
+                  setChecklistOpen(true);
+                  setMenuOpen(false);
+                  setMenuHeight(0);
+                  setSubMenu(null);
+                }}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  background: 'rgba(255,255,255,0.06)',
+                  borderRadius: '12px',
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                }}
+              >
+                {/* Cirkel-progress */}
+                <div style={{ position: 'relative', width: '32px', height: '32px' }}>
+                  <svg width="32" height="32" viewBox="0 0 32 32">
+                    {/* Bakgrunds-cirkel */}
+                    <circle
+                      cx="16"
+                      cy="16"
+                      r="12"
+                      fill="none"
+                      stroke="rgba(255,255,255,0.15)"
+                      strokeWidth="3"
+                    />
+                    {/* Progress-cirkel */}
+                    <circle
+                      cx="16"
+                      cy="16"
+                      r="12"
+                      fill="none"
+                      stroke={checklistItems.every(i => i.answer !== null) ? '#22c55e' : 
+                              checklistItems.some(i => i.answer !== null) ? '#fbbf24' : 'rgba(255,255,255,0.3)'}
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeDasharray={`${(checklistItems.filter(i => i.answer !== null).length / checklistItems.length) * 75.4} 75.4`}
+                      transform="rotate(-90 16 16)"
+                    />
+                  </svg>
+                  {/* Ikon i mitten */}
+                  <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '12px',
+                  }}>
+                    {checklistItems.every(i => i.answer !== null) ? '✓' : '📋'}
+                  </div>
+                </div>
+                <div style={{ flex: 1, textAlign: 'left' }}>
+                  <div style={{ fontSize: '13px', color: '#fff' }}>Checklista</div>
+                  <div style={{ 
+                    fontSize: '11px', 
+                    color: checklistItems.every(i => i.answer !== null) ? '#22c55e' : 
+                           checklistItems.some(i => i.answer !== null) ? '#fbbf24' : 'rgba(255,255,255,0.4)'
+                  }}>
+                    {checklistItems.every(i => i.answer !== null) ? 'Klar!' :
+                     checklistItems.some(i => i.answer !== null) ? 
+                       `${checklistItems.filter(i => i.answer !== null).length} av ${checklistItems.length}` : 
+                       'Ej påbörjad'}
+                  </div>
+                </div>
+                <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '18px' }}>›</span>
+              </button>
+            </div>
+
+            {/* === VERKTYGSRAD === */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-around',
+              marginTop: '16px',
+              paddingTop: '16px',
+              borderTop: '1px solid rgba(255,255,255,0.1)',
+            }}>
+              {/* GPS */}
+              <button
+                onClick={() => {
+                  toggleTracking();
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '12px',
+                  background: isTracking ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)',
+                  border: isTracking ? '2px solid #22c55e' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isTracking ? '#22c55e' : 'rgba(255,255,255,0.6)'} strokeWidth="2">
+                    <circle cx="12" cy="12" r="3" fill={isTracking ? '#22c55e' : 'none'} />
+                    <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+                  </svg>
+                </div>
+                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>GPS</span>
+              </button>
+
+              {/* Kompass */}
+              <button
+                onClick={toggleCompass}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '12px',
+                  background: compassMode ? 'rgba(10,132,255,0.3)' : 'rgba(255,255,255,0.08)',
+                  border: compassMode ? '2px solid #0a84ff' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24">
+                    <circle cx="12" cy="12" r="9" fill="none" stroke={compassMode ? '#0a84ff' : 'rgba(255,255,255,0.6)'} strokeWidth="1.5"/>
+                    <path d="M12 4 L14 12 L12 10 L10 12 Z" fill="#ef4444"/>
+                    <path d="M12 20 L14 12 L12 14 L10 12 Z" fill="rgba(255,255,255,0.5)"/>
+                  </svg>
+                </div>
+                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>Kompass</span>
+              </button>
+
+              {/* Körläge */}
+              <button
+                onClick={() => {
+                  setDrivingMode(!drivingMode);
+                  if (!drivingMode) {
+                    setAcknowledgedWarnings([]);
+                    playedWarningsRef.current.clear();
+                  }
+                  setMenuOpen(false);
+                  setMenuHeight(0);
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '12px',
+                  background: drivingMode ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)',
+                  border: drivingMode ? '2px solid #22c55e' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '20px',
+                }}>
+                  🚜
+                </div>
+                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>Körläge</span>
+              </button>
+
+              {/* Centrera */}
+              <button
+                onClick={centerOnMe}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.08)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '18px',
+                }}>
+                  📍
+                </div>
+                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>Centrera</span>
+              </button>
+
+              {/* Mät */}
+              <button
+                onClick={() => {
+                  setMeasureMode(true);
+                  setMeasureAreaMode(false);
+                  setMeasurePath([]);
+                  setMenuOpen(false);
+                  setMenuHeight(0);
+                  setSubMenu(null);
+                }}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '12px',
+                  background: measureMode ? 'rgba(10,132,255,0.3)' : 'rgba(255,255,255,0.08)',
+                  border: measureMode ? '2px solid #0a84ff' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={measureMode ? '#0a84ff' : 'rgba(255,255,255,0.6)'} strokeWidth="2">
+                    <line x1="4" y1="20" x2="20" y2="4" />
+                    <circle cx="4" cy="20" r="2" fill={measureMode ? '#0a84ff' : 'rgba(255,255,255,0.6)'} />
+                    <circle cx="20" cy="4" r="2" fill={measureMode ? '#0a84ff' : 'rgba(255,255,255,0.6)'} />
+                  </svg>
+                </div>
+                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>Mät</span>
+              </button>
+
+              {/* Lager */}
+              <button
+                onClick={() => setLayerMenuOpen(!layerMenuOpen)}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '4px',
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '12px',
+                  background: layerMenuOpen ? 'rgba(10,132,255,0.3)' : 'rgba(255,255,255,0.08)',
+                  border: layerMenuOpen ? '2px solid #0a84ff' : 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={layerMenuOpen ? '#0a84ff' : 'rgba(255,255,255,0.6)'} strokeWidth="2">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                    <path d="M2 17l10 5 10-5" />
+                    <path d="M2 12l10 5 10-5" />
+                  </svg>
+                </div>
+                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>Lager</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* === LAGER-POPUP (i menyn) === */}
+        {layerMenuOpen && menuOpen && (
+          <div 
+            style={{
+              position: 'absolute',
+              bottom: '100%',
+              right: '20px',
+              marginBottom: '10px',
+              background: '#000',
+              borderRadius: '16px',
+              padding: '16px',
+              boxShadow: '0 8px 40px rgba(0,0,0,0.8)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              zIndex: 250,
+              minWidth: '180px',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ 
+              fontSize: '11px', 
+              color: 'rgba(255,255,255,0.4)', 
+              marginBottom: '12px',
+              textTransform: 'uppercase',
+              letterSpacing: '1px',
+            }}>
+              Visa/dölj lager
+            </div>
+            
+            {[
+              { key: 'symbols', label: 'Symboler', icon: '📍' },
+              { key: 'arrows', label: 'Pilar', icon: '➡️' },
+              { key: 'zones', label: 'Zoner', icon: '⬡' },
+              { key: 'lines', label: 'Linjer', icon: '〰️' },
+            ].map(layer => (
+              <button
+                key={layer.key}
+                onClick={() => setVisibleLayers(prev => ({ ...prev, [layer.key]: !prev[layer.key] }))}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  width: '100%',
+                  padding: '10px',
+                  marginBottom: '4px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: visibleLayers[layer.key] ? 'rgba(255,255,255,0.1)' : 'transparent',
+                  cursor: 'pointer',
+                }}
+              >
+                <span style={{ fontSize: '16px', opacity: visibleLayers[layer.key] ? 1 : 0.3 }}>
+                  {layer.icon}
+                </span>
+                <span style={{ 
+                  fontSize: '14px', 
+                  color: visibleLayers[layer.key] ? '#fff' : 'rgba(255,255,255,0.3)',
+                  flex: 1,
+                  textAlign: 'left',
+                }}>
+                  {layer.label}
+                </span>
+                <div style={{
+                  width: '32px',
+                  height: '18px',
+                  borderRadius: '9px',
+                  background: visibleLayers[layer.key] ? '#22c55e' : 'rgba(255,255,255,0.2)',
+                  position: 'relative',
+                }}>
+                  <div style={{
+                    position: 'absolute',
+                    top: '2px',
+                    left: visibleLayers[layer.key] ? '16px' : '2px',
+                    width: '14px',
+                    height: '14px',
+                    borderRadius: '7px',
+                    background: '#fff',
+                    transition: 'left 0.2s ease',
+                  }} />
+                </div>
+              </button>
+            ))}
           </div>
         )}
       </div>
