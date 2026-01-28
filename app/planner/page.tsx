@@ -203,9 +203,46 @@ export default function PlannerPage() {
   const [compassMode, setCompassMode] = useState(false);
   const [deviceHeading, setDeviceHeading] = useState(0);
   
-  // Zoom funktioner
-  const zoomIn = () => setZoom(z => Math.min(z * 1.3, 4));
-  const zoomOut = () => setZoom(z => Math.max(z / 1.3, 0.5));
+  // Zoom funktioner - justerar pan så mitten förblir i mitten
+  const zoomIn = () => {
+    const screenCenterX = window.innerWidth / 2;
+    const screenCenterY = window.innerHeight / 2;
+    
+    setZoom(oldZoom => {
+      const newZoom = Math.min(oldZoom * 1.3, 4);
+      
+      // Beräkna vilken kartpunkt som är i mitten av skärmen
+      const centerMapX = (screenCenterX - pan.x) / oldZoom;
+      const centerMapY = (screenCenterY - pan.y) / oldZoom;
+      
+      // Justera pan så samma punkt förblir i mitten
+      const newPanX = screenCenterX - centerMapX * newZoom;
+      const newPanY = screenCenterY - centerMapY * newZoom;
+      setPan({ x: newPanX, y: newPanY });
+      
+      return newZoom;
+    });
+  };
+  
+  const zoomOut = () => {
+    const screenCenterX = window.innerWidth / 2;
+    const screenCenterY = window.innerHeight / 2;
+    
+    setZoom(oldZoom => {
+      const newZoom = Math.max(oldZoom / 1.3, 0.5);
+      
+      // Beräkna vilken kartpunkt som är i mitten av skärmen
+      const centerMapX = (screenCenterX - pan.x) / oldZoom;
+      const centerMapY = (screenCenterY - pan.y) / oldZoom;
+      
+      // Justera pan så samma punkt förblir i mitten
+      const newPanX = screenCenterX - centerMapX * newZoom;
+      const newPanY = screenCenterY - centerMapY * newZoom;
+      setPan({ x: newPanX, y: newPanY });
+      
+      return newZoom;
+    });
+  };
   
   // Centrera på GPS-position
   const centerOnMe = () => {
@@ -3319,7 +3356,7 @@ export default function PlannerPage() {
             )}
 
             {/* === VERKTYG-TAB === */}
-            {menuTab === 'tools' && (
+            {menuTab === 'tools' && !subMenu && (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
                 {/* Prognos */}
                 <button
@@ -3441,19 +3478,12 @@ export default function PlannerPage() {
 
                 {/* Mät */}
                 <button
-                  onClick={() => {
-                    setMeasureMode(true);
-                    setMeasureAreaMode(false);
-                    setMeasurePath([]);
-                    setMenuOpen(false);
-                    setMenuHeight(0);
-                    setSubMenu(null);
-                  }}
+                  onClick={() => setSubMenu('measure')}
                   style={{
                     padding: '16px 8px',
-                    background: measureMode ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
+                    background: (measureMode || measureAreaMode) ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
                     borderRadius: '14px',
-                    border: measureMode ? '2px solid #0a84ff' : 'none',
+                    border: (measureMode || measureAreaMode) ? '2px solid #0a84ff' : 'none',
                     cursor: 'pointer',
                     display: 'flex',
                     flexDirection: 'column',
@@ -3483,6 +3513,121 @@ export default function PlannerPage() {
                   <span style={{ fontSize: '24px' }}>👁️</span>
                   <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Lager</span>
                 </button>
+              </div>
+            )}
+
+            {/* === MÄT SUBMENY === */}
+            {menuTab === 'tools' && subMenu === 'measure' && (
+              <div>
+                {/* Bakåt-knapp */}
+                <button
+                  onClick={() => setSubMenu(null)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 0',
+                    marginBottom: '12px',
+                    background: 'none',
+                    border: 'none',
+                    color: '#0a84ff',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M15 18l-6-6 6-6" />
+                  </svg>
+                  Tillbaka
+                </button>
+                
+                <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff', marginBottom: '14px' }}>
+                  📏 Mät
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {/* Mät sträcka */}
+                  <button
+                    onClick={() => {
+                      setMeasureMode(true);
+                      setMeasureAreaMode(false);
+                      setMeasurePath([]);
+                      setMenuOpen(false);
+                      setMenuHeight(0);
+                      setSubMenu(null);
+                    }}
+                    style={{
+                      padding: '16px',
+                      background: measureMode ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
+                      borderRadius: '14px',
+                      border: measureMode ? '2px solid #0a84ff' : 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px',
+                    }}
+                  >
+                    <div style={{
+                      width: '44px',
+                      height: '44px',
+                      background: 'rgba(255,255,255,0.08)',
+                      borderRadius: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="2">
+                        <line x1="4" y1="20" x2="20" y2="4" />
+                        <circle cx="4" cy="20" r="2" fill="rgba(255,255,255,0.8)" />
+                        <circle cx="20" cy="4" r="2" fill="rgba(255,255,255,0.8)" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1, textAlign: 'left' }}>
+                      <div style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>Mät sträcka</div>
+                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>Mät avstånd mellan punkter</div>
+                    </div>
+                  </button>
+                  
+                  {/* Mät yta */}
+                  <button
+                    onClick={() => {
+                      setMeasureAreaMode(true);
+                      setMeasureMode(false);
+                      setMeasurePath([]);
+                      setMenuOpen(false);
+                      setMenuHeight(0);
+                      setSubMenu(null);
+                    }}
+                    style={{
+                      padding: '16px',
+                      background: measureAreaMode ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
+                      borderRadius: '14px',
+                      border: measureAreaMode ? '2px solid #0a84ff' : 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px',
+                    }}
+                  >
+                    <div style={{
+                      width: '44px',
+                      height: '44px',
+                      background: 'rgba(255,255,255,0.08)',
+                      borderRadius: '12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.8)" strokeWidth="2">
+                        <polygon points="4,4 20,4 20,20 4,20" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1, textAlign: 'left' }}>
+                      <div style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>Mät yta</div>
+                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>Mät area av ett område</div>
+                    </div>
+                  </button>
+                </div>
               </div>
             )}
 
