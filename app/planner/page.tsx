@@ -68,6 +68,7 @@ export default function PlannerPage() {
   const [drivingMode, setDrivingMode] = useState(false);
   const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<string[]>([]); // IDs av kvitterade
   const [activeWarning, setActiveWarning] = useState<Warning | null>(null); // Markör som visar varning
+  const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // Foto i fullskärm
   const WARNING_DISTANCE = 40; // meter - varning triggas
   const FADE_START_DISTANCE = 100; // meter - börjar synas starkare
   
@@ -1145,13 +1146,25 @@ export default function PlannerPage() {
     return warnings.sort((a, b) => a.distance - b.distance);
   };
   
+  // Track vilka varningar som spelat ljud (för att undvika dubbletter)
+  const playedWarningsRef = useRef<Set<string>>(new Set());
+  
   // Kolla varningar när GPS uppdateras
   useEffect(() => {
     if (!drivingMode) return;
     
     const warnings = getActiveWarnings();
     if (warnings.length > 0 && !activeWarning) {
-      setActiveWarning(warnings[0]);
+      const warning = warnings[0];
+      
+      // Kolla om vi redan spelat ljud för denna varning
+      if (playedWarningsRef.current.has(warning.id)) {
+        setActiveWarning(warning);
+        return;
+      }
+      
+      setActiveWarning(warning);
+      playedWarningsRef.current.add(warning.id);
       
       // Vibrera kraftigt
       if (navigator.vibrate) {
@@ -1187,14 +1200,6 @@ export default function PlannerPage() {
     if (activeWarning) {
       setAcknowledgedWarnings(prev => [...prev, activeWarning.id]);
       setActiveWarning(null);
-      
-      // Kolla om det finns fler varningar
-      setTimeout(() => {
-        const remaining = getActiveWarnings();
-        if (remaining.length > 0) {
-          setActiveWarning(remaining[0]);
-        }
-      }, 100);
     }
   };
   
@@ -2613,7 +2618,7 @@ export default function PlannerPage() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Foto - om markören har en bild */}
+            {/* Foto - klickbart för fullskärm */}
             {marker.photoData && (
               <div style={{
                 marginBottom: '16px',
@@ -2623,11 +2628,13 @@ export default function PlannerPage() {
                 <img 
                   src={marker.photoData} 
                   alt="Foto"
+                  onClick={() => setFullscreenPhoto(marker.photoData || null)}
                   style={{
                     width: '100%',
                     maxHeight: '200px',
                     objectFit: 'cover',
                     display: 'block',
+                    cursor: 'pointer',
                   }}
                 />
               </div>
@@ -3546,10 +3553,28 @@ export default function PlannerPage() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Kommentar - stor och tydlig */}
+            {/* Foto - klickbart för fullskärm */}
+            {editingMarker.photoData && (
+              <img 
+                src={editingMarker.photoData} 
+                alt="Foto" 
+                onClick={() => setFullscreenPhoto(editingMarker.photoData || null)}
+                style={{
+                  width: '100%',
+                  height: '150px',
+                  objectFit: 'cover',
+                  borderRadius: '16px',
+                  marginBottom: '16px',
+                  cursor: 'pointer',
+                  border: '2px solid rgba(255,255,255,0.1)',
+                }}
+              />
+            )}
+            
+            {/* Kommentar */}
             <textarea
               value={editingMarker.comment || ''}
-              onChange={(e) => setEditingMarker(prev => ({ ...prev, comment: e.target.value }))}
+              onChange={(e) => setEditingMarker(prev => prev ? { ...prev, comment: e.target.value } : null)}
               placeholder="Skriv kommentar..."
               autoFocus
               style={{
@@ -3561,7 +3586,7 @@ export default function PlannerPage() {
                 color: '#fff',
                 fontSize: '18px',
                 resize: 'none',
-                height: '120px',
+                height: '100px',
                 fontFamily: 'inherit',
                 textAlign: 'center',
                 outline: 'none',
@@ -3705,11 +3730,12 @@ export default function PlannerPage() {
             </div>
           )}
           
-          {/* Foto */}
+          {/* Foto - klickbart för fullskärm */}
           {activeWarning.photoData && (
             <img 
               src={activeWarning.photoData} 
               alt="Foto" 
+              onClick={() => setFullscreenPhoto(activeWarning.photoData || null)}
               style={{
                 width: '85%',
                 maxWidth: '320px',
@@ -3718,6 +3744,7 @@ export default function PlannerPage() {
                 borderRadius: '16px',
                 marginBottom: '20px',
                 border: '4px solid #fff',
+                cursor: 'pointer',
               }}
             />
           )}
@@ -4412,6 +4439,49 @@ export default function PlannerPage() {
         onChange={handlePhotoCapture}
         style={{ display: 'none' }}
       />
+
+      {/* === FULLSKÄRM FOTO === */}
+      {fullscreenPhoto && (
+        <div 
+          onClick={() => setFullscreenPhoto(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(0,0,0,0.95)',
+            zIndex: 10000,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <img 
+            src={fullscreenPhoto} 
+            alt="Foto" 
+            style={{
+              maxWidth: '95vw',
+              maxHeight: '90vh',
+              objectFit: 'contain',
+              borderRadius: '8px',
+            }}
+          />
+          <div style={{
+            position: 'absolute',
+            top: '50px',
+            right: '20px',
+            color: '#fff',
+            fontSize: '16px',
+            opacity: 0.6,
+          }}>
+            Tryck för att stänga
+          </div>
+        </div>
+      )}
 
       {/* === ANIMATIONS === */}
       <style>{`
