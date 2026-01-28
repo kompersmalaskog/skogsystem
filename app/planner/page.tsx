@@ -2578,20 +2578,6 @@ export default function PlannerPage() {
         const marker = markers.find(m => m.id === markerMenuOpen);
         if (!marker) return null;
         
-        // Beräkna position
-        let posX, posY;
-        if (marker.isMarker || marker.isArrow) {
-          posX = marker.x * zoom + pan.x;
-          posY = marker.y * zoom + pan.y - (marker.photoData ? 140 : 60);
-        } else if (marker.path && marker.path.length > 0) {
-          const centerX = marker.path.reduce((sum, p) => sum + p.x, 0) / marker.path.length;
-          const centerY = marker.path.reduce((sum, p) => sum + p.y, 0) / marker.path.length;
-          posX = centerX * zoom + pan.x;
-          posY = centerY * zoom + pan.y - (marker.photoData ? 140 : 60);
-        } else {
-          return null;
-        }
-        
         const getMarkerName = () => {
           if (marker.isMarker) return markerTypes.find(t => t.id === marker.type)?.name || 'Markering';
           if (marker.isLine) return lineTypes.find(t => t.id === marker.lineType)?.name || 'Linje';
@@ -2600,66 +2586,102 @@ export default function PlannerPage() {
           return 'Objekt';
         };
         
+        const getMarkerIcon = () => {
+          if (marker.isMarker) return markerTypes.find(t => t.id === marker.type)?.icon || '📍';
+          if (marker.isZone) return zoneTypes.find(t => t.id === marker.zoneType)?.icon || '⬡';
+          if (marker.isArrow) return arrowTypes.find(t => t.id === marker.arrowType)?.icon || '➡️';
+          return '📍';
+        };
+        
         return (
           <div 
             style={{
-              position: 'absolute',
-              left: posX,
-              top: posY,
-              transform: 'translateX(-50%)',
-              background: '#000',
-              borderRadius: '24px',
-              padding: '28px',
-              boxShadow: '0 12px 60px rgba(0,0,0,0.9)',
-              border: '1px solid rgba(255,255,255,0.15)',
-              zIndex: 150,
-              minWidth: '260px',
-              maxWidth: '320px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Foto - klickbart för fullskärm */}
-            {marker.photoData && (
-              <div style={{
-                marginBottom: '16px',
-                borderRadius: '16px',
-                overflow: 'hidden',
-              }}>
-                <img 
-                  src={marker.photoData} 
-                  alt="Foto"
-                  onClick={() => setFullscreenPhoto(marker.photoData || null)}
-                  style={{
-                    width: '100%',
-                    maxHeight: '200px',
-                    objectFit: 'cover',
-                    display: 'block',
-                    cursor: 'pointer',
-                  }}
-                />
-              </div>
-            )}
-            
-            {/* Kommentar - STOR och tydlig */}
-            <div style={{ 
-              fontSize: marker.photoData ? '16px' : '22px', 
-              color: '#fff',
-              fontWeight: '500',
-              textAlign: 'center',
-              minHeight: marker.photoData ? '30px' : '60px',
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.85)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              lineHeight: '1.4',
-            }}>
-              {marker.comment || '—'}
-            </div>
+              zIndex: 300,
+            }}
+            onClick={() => setMarkerMenuOpen(null)}
+          >
+            <div 
+              style={{
+                background: '#000',
+                borderRadius: '24px',
+                padding: '28px',
+                width: '90%',
+                maxWidth: '340px',
+                boxShadow: '0 12px 60px rgba(0,0,0,0.9)',
+                border: '1px solid rgba(255,255,255,0.15)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header med ikon och namn */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+                marginBottom: '20px',
+              }}>
+                <span style={{ fontSize: '32px' }}>{getMarkerIcon()}</span>
+                <span style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>{getMarkerName()}</span>
+              </div>
+              
+              {/* Foto - klickbart för fullskärm */}
+              {marker.photoData && (
+                <div style={{
+                  marginBottom: '16px',
+                  borderRadius: '16px',
+                  overflow: 'hidden',
+                }}>
+                  <img 
+                    src={marker.photoData} 
+                    alt="Foto"
+                    onClick={() => setFullscreenPhoto(marker.photoData || null)}
+                    style={{
+                      width: '100%',
+                      maxHeight: '220px',
+                      objectFit: 'cover',
+                      display: 'block',
+                      cursor: 'pointer',
+                    }}
+                  />
+                </div>
+              )}
             
-            {/* Diskreta ikoner */}
+            {/* Kommentar */}
+            {marker.comment ? (
+              <div style={{ 
+                fontSize: '18px', 
+                color: '#fff',
+                fontWeight: '500',
+                textAlign: 'center',
+                padding: '16px',
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: '12px',
+                lineHeight: '1.5',
+              }}>
+                {marker.comment}
+              </div>
+            ) : (
+              <div style={{ 
+                fontSize: '16px', 
+                color: 'rgba(255,255,255,0.3)',
+                textAlign: 'center',
+                fontStyle: 'italic',
+              }}>
+                Ingen kommentar
+              </div>
+            )}
+            
+            {/* Åtgärder */}
             <div style={{
               display: 'flex',
               justifyContent: 'center',
-              gap: '20px',
+              gap: '16px',
               marginTop: '24px',
               paddingTop: '20px',
               borderTop: '1px solid rgba(255,255,255,0.08)',
@@ -2785,6 +2807,7 @@ export default function PlannerPage() {
               </button>
             </div>
           </div>
+        </div>
         );
       })()}
 
