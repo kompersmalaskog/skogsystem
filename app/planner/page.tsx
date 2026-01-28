@@ -2296,6 +2296,32 @@ export default function PlannerPage() {
           )}
         </button>
         
+        {/* GPS-knapp */}
+        <button
+          onClick={toggleTracking}
+          className="zoom-btn"
+          style={{
+            width: '40px',
+            height: '40px',
+            borderRadius: '12px',
+            border: isTracking ? '2px solid #22c55e' : 'none',
+            background: isTracking ? 'rgba(34,197,94,0.3)' : 'rgba(28,28,30,0.8)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backdropFilter: 'blur(10px)',
+            opacity: isTracking ? 1 : 0.5,
+            transition: 'all 0.2s ease',
+            padding: 0,
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isTracking ? '#22c55e' : 'rgba(255,255,255,0.6)'} strokeWidth="2">
+            <circle cx="12" cy="12" r="3" fill={isTracking ? '#22c55e' : 'none'} />
+            <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+          </svg>
+        </button>
+        
         {/* Körläge-knapp */}
         <button
           onClick={() => {
