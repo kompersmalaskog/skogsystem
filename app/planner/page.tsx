@@ -2869,8 +2869,8 @@ export default function PlannerPage() {
             {/* Tabs - med ikoner */}
             <div style={{
               display: 'flex',
-              gap: '8px',
-              marginBottom: '20px',
+              gap: '4px',
+              marginBottom: '16px',
               paddingBottom: '12px',
               borderBottom: '1px solid rgba(255,255,255,0.1)',
             }}>
@@ -2879,6 +2879,7 @@ export default function PlannerPage() {
                 { id: 'lines', name: 'Linjer', icon: '〰️' },
                 { id: 'zones', name: 'Zoner', icon: '⬡' },
                 { id: 'arrows', name: 'Pilar', icon: '➡️' },
+                { id: 'tools', name: 'Verktyg', icon: '⚙️' },
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -2888,7 +2889,7 @@ export default function PlannerPage() {
                   }}
                   style={{
                     flex: 1,
-                    padding: '10px 6px',
+                    padding: '8px 4px',
                     border: 'none',
                     background: menuTab === tab.id ? 'rgba(255,255,255,0.1)' : 'transparent',
                     borderRadius: '10px',
@@ -2896,12 +2897,12 @@ export default function PlannerPage() {
                     display: 'flex',
                     flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '4px',
+                    gap: '3px',
                   }}
                 >
-                  <span style={{ fontSize: '18px' }}>{tab.icon}</span>
+                  <span style={{ fontSize: '16px' }}>{tab.icon}</span>
                   <span style={{ 
-                    fontSize: '11px', 
+                    fontSize: '10px', 
                     color: menuTab === tab.id ? '#fff' : 'rgba(255,255,255,0.4)',
                     fontWeight: menuTab === tab.id ? '600' : '400',
                   }}>
@@ -3317,10 +3318,128 @@ export default function PlannerPage() {
               </div>
             )}
 
-            {/* Mäta */}
-            {menuTab === 'measure' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {/* Mät sträcka */}
+            {/* === VERKTYG-TAB === */}
+            {menuTab === 'tools' && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                {/* Prognos */}
+                <button
+                  onClick={() => {
+                    setPrognosOpen(true);
+                    setMenuOpen(false);
+                    setMenuHeight(0);
+                    setSubMenu(null);
+                  }}
+                  style={{
+                    padding: '16px 8px',
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: '14px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <span style={{ fontSize: '24px' }}>📊</span>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Prognos</span>
+                </button>
+
+                {/* Checklista med cirkel */}
+                <button
+                  onClick={() => {
+                    setChecklistOpen(true);
+                    setMenuOpen(false);
+                    setMenuHeight(0);
+                    setSubMenu(null);
+                  }}
+                  style={{
+                    padding: '16px 8px',
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: '14px',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <div style={{ position: 'relative', width: '28px', height: '28px' }}>
+                    <svg width="28" height="28" viewBox="0 0 28 28" style={{ transform: 'rotate(-90deg)' }}>
+                      <circle cx="14" cy="14" r="11" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2.5"/>
+                      <circle 
+                        cx="14" cy="14" r="11" fill="none" 
+                        stroke={checklistItems.every(i => i.answer !== null) ? '#22c55e' : 
+                                checklistItems.some(i => i.answer !== null) ? '#fbbf24' : 'rgba(255,255,255,0.3)'}
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeDasharray={`${(checklistItems.filter(i => i.answer !== null).length / checklistItems.length) * 69} 69`}
+                      />
+                    </svg>
+                    <div style={{
+                      position: 'absolute',
+                      inset: 0,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '10px',
+                    }}>
+                      {checklistItems.every(i => i.answer !== null) ? '✓' : '📋'}
+                    </div>
+                  </div>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Checklista</span>
+                </button>
+
+                {/* Körläge */}
+                <button
+                  onClick={() => {
+                    setDrivingMode(!drivingMode);
+                    if (!drivingMode) {
+                      setAcknowledgedWarnings([]);
+                      playedWarningsRef.current.clear();
+                    }
+                    setMenuOpen(false);
+                    setMenuHeight(0);
+                  }}
+                  style={{
+                    padding: '16px 8px',
+                    background: drivingMode ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.06)',
+                    borderRadius: '14px',
+                    border: drivingMode ? '2px solid #22c55e' : 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <span style={{ fontSize: '24px' }}>🚜</span>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Körläge</span>
+                </button>
+
+                {/* Kompass */}
+                <button
+                  onClick={() => {
+                    toggleCompass();
+                  }}
+                  style={{
+                    padding: '16px 8px',
+                    background: compassMode ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
+                    borderRadius: '14px',
+                    border: compassMode ? '2px solid #0a84ff' : 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '8px',
+                  }}
+                >
+                  <span style={{ fontSize: '24px' }}>🧭</span>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Kompass</span>
+                </button>
+
+                {/* Mät */}
                 <button
                   onClick={() => {
                     setMeasureMode(true);
@@ -3328,334 +3447,75 @@ export default function PlannerPage() {
                     setMeasurePath([]);
                     setMenuOpen(false);
                     setMenuHeight(0);
+                    setSubMenu(null);
                   }}
                   style={{
-                    padding: '16px',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    background: 'rgba(255,255,255,0.05)',
+                    padding: '16px 8px',
+                    background: measureMode ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
+                    borderRadius: '14px',
+                    border: measureMode ? '2px solid #0a84ff' : 'none',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '14px',
+                    gap: '8px',
                   }}
                 >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="2">
-                    <line x1="4" y1="20" x2="20" y2="4" />
-                    <circle cx="4" cy="20" r="2" fill="rgba(255,255,255,0.8)" />
-                    <circle cx="20" cy="4" r="2" fill="rgba(255,255,255,0.8)" />
-                  </svg>
-                  <span style={{ fontSize: '14px', color: '#fff' }}>Mät sträcka</span>
+                  <span style={{ fontSize: '24px' }}>📏</span>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Mät</span>
                 </button>
-                
-                {/* Mät yta */}
+
+                {/* Lager */}
                 <button
-                  onClick={() => {
-                    setMeasureAreaMode(true);
-                    setMeasureMode(false);
-                    setMeasurePath([]);
-                    setMenuOpen(false);
-                    setMenuHeight(0);
-                  }}
+                  onClick={() => setLayerMenuOpen(!layerMenuOpen)}
                   style={{
-                    padding: '16px',
-                    borderRadius: '12px',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    background: 'rgba(255,255,255,0.05)',
+                    padding: '16px 8px',
+                    background: layerMenuOpen ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
+                    borderRadius: '14px',
+                    border: layerMenuOpen ? '2px solid #0a84ff' : 'none',
                     cursor: 'pointer',
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '14px',
+                    gap: '8px',
                   }}
                 >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.8)" strokeWidth="2">
-                    <polygon points="4,4 20,4 20,20 4,20" />
-                  </svg>
-                  <span style={{ fontSize: '14px', color: '#fff' }}>Mät yta</span>
+                  <span style={{ fontSize: '24px' }}>👁️</span>
+                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Lager</span>
                 </button>
-                
-                {/* Visa/dölj mått */}
-                <div style={{ 
-                  padding: '16px', 
-                  borderRadius: '12px',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                }}>
-                  <span style={{ fontSize: '14px', color: '#fff' }}>Visa mått på linjer/zoner</span>
-                  <button
-                    onClick={() => setShowMeasurements(!showMeasurements)}
-                    style={{
-                      width: '44px',
-                      height: '26px',
-                      borderRadius: '13px',
-                      border: 'none',
-                      background: showMeasurements ? '#fff' : 'rgba(255,255,255,0.2)',
-                      cursor: 'pointer',
-                      position: 'relative',
-                      transition: 'background 0.2s ease',
-                    }}
-                  >
-                    <div style={{
-                      width: '22px',
-                      height: '22px',
-                      borderRadius: '11px',
-                      background: showMeasurements ? '#000' : 'rgba(255,255,255,0.6)',
-                      position: 'absolute',
-                      top: '2px',
-                      left: showMeasurements ? '20px' : '2px',
-                      transition: 'all 0.2s ease',
-                    }} />
-                  </button>
-                </div>
-                
-                {/* Sammanfattning */}
-                {markers.filter(m => m.isLine || m.isZone).length > 0 && (
-                  <div style={{ 
-                    padding: '16px', 
-                    borderRadius: '12px',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                  }}>
-                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '12px', fontWeight: '500', letterSpacing: '0.5px' }}>
-                      TOTALT
-                    </div>
-                    <div style={{ fontSize: '14px', color: '#fff', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'rgba(255,255,255,0.6)' }}>Linjer</span>
-                        <span>{formatLength(markers.filter(m => m.isLine).reduce((sum, m) => sum + calculateLength(m.path), 0))}</span>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ color: 'rgba(255,255,255,0.6)' }}>Zoner</span>
-                        <span>{formatArea(markers.filter(m => m.isZone).reduce((sum, m) => sum + calculateArea(m.path), 0))}</span>
-                      </div>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
-            {/* === PROGNOS & CHECKLISTA === */}
-            <div style={{ 
-              display: 'flex', 
-              gap: '10px', 
-              marginTop: '20px',
-              paddingTop: '16px',
-              borderTop: '1px solid rgba(255,255,255,0.1)',
-            }}>
-              {/* Prognos */}
-              <button
-                onClick={() => {
-                  setPrognosOpen(true);
-                  setMenuOpen(false);
-                  setMenuHeight(0);
-                  setSubMenu(null);
-                }}
-                style={{
-                  flex: 1,
-                  padding: '12px',
-                  background: 'rgba(255,255,255,0.06)',
-                  borderRadius: '12px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                }}
-              >
-                <span style={{ fontSize: '20px' }}>📊</span>
-                <div style={{ flex: 1, textAlign: 'left' }}>
-                  <div style={{ fontSize: '13px', color: '#fff' }}>Prognos</div>
-                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)' }}>
-                    {manuellPrognos.skordareTimmar || manuellPrognos.skotareTimmar ? 'Påbörjad' : 'Ej ifylld'}
-                  </div>
-                </div>
-                <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '18px' }}>›</span>
-              </button>
-              
-              {/* Checklista med cirkel-progress */}
-              <button
-                onClick={() => {
-                  setChecklistOpen(true);
-                  setMenuOpen(false);
-                  setMenuHeight(0);
-                  setSubMenu(null);
-                }}
-                style={{
-                  flex: 1,
-                  padding: '12px',
-                  background: 'rgba(255,255,255,0.06)',
-                  borderRadius: '12px',
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                }}
-              >
-                {/* Cirkel-progress */}
-                <div style={{ position: 'relative', width: '32px', height: '32px' }}>
-                  <svg width="32" height="32" viewBox="0 0 32 32">
-                    {/* Bakgrunds-cirkel */}
-                    <circle
-                      cx="16"
-                      cy="16"
-                      r="12"
-                      fill="none"
-                      stroke="rgba(255,255,255,0.15)"
-                      strokeWidth="3"
-                    />
-                    {/* Progress-cirkel */}
-                    <circle
-                      cx="16"
-                      cy="16"
-                      r="12"
-                      fill="none"
-                      stroke={checklistItems.every(i => i.answer !== null) ? '#22c55e' : 
-                              checklistItems.some(i => i.answer !== null) ? '#fbbf24' : 'rgba(255,255,255,0.3)'}
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeDasharray={`${(checklistItems.filter(i => i.answer !== null).length / checklistItems.length) * 75.4} 75.4`}
-                      transform="rotate(-90 16 16)"
-                    />
-                  </svg>
-                  {/* Ikon i mitten */}
-                  <div style={{
-                    position: 'absolute',
-                    inset: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '12px',
-                  }}>
-                    {checklistItems.every(i => i.answer !== null) ? '✓' : '📋'}
-                  </div>
-                </div>
-                <div style={{ flex: 1, textAlign: 'left' }}>
-                  <div style={{ fontSize: '13px', color: '#fff' }}>Checklista</div>
-                  <div style={{ 
-                    fontSize: '11px', 
-                    color: checklistItems.every(i => i.answer !== null) ? '#22c55e' : 
-                           checklistItems.some(i => i.answer !== null) ? '#fbbf24' : 'rgba(255,255,255,0.4)'
-                  }}>
-                    {checklistItems.every(i => i.answer !== null) ? 'Klar!' :
-                     checklistItems.some(i => i.answer !== null) ? 
-                       `${checklistItems.filter(i => i.answer !== null).length} av ${checklistItems.length}` : 
-                       'Ej påbörjad'}
-                  </div>
-                </div>
-                <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '18px' }}>›</span>
-              </button>
-            </div>
-
-            {/* === VERKTYGSRAD === */}
+            {/* === GPS & CENTRERA (alltid synligt) === */}
             <div style={{
               display: 'flex',
-              justifyContent: 'space-around',
+              justifyContent: 'center',
+              gap: '16px',
               marginTop: '16px',
-              paddingTop: '16px',
+              paddingTop: '14px',
               borderTop: '1px solid rgba(255,255,255,0.1)',
             }}>
               {/* GPS */}
               <button
-                onClick={() => {
-                  toggleTracking();
-                }}
+                onClick={toggleTracking}
                 style={{
                   display: 'flex',
-                  flexDirection: 'column',
                   alignItems: 'center',
-                  gap: '4px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{
-                  width: '42px',
-                  height: '42px',
+                  gap: '8px',
+                  padding: '10px 20px',
+                  background: isTracking ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.06)',
                   borderRadius: '12px',
-                  background: isTracking ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)',
                   border: isTracking ? '2px solid #22c55e' : 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isTracking ? '#22c55e' : 'rgba(255,255,255,0.6)'} strokeWidth="2">
-                    <circle cx="12" cy="12" r="3" fill={isTracking ? '#22c55e' : 'none'} />
-                    <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-                  </svg>
-                </div>
-                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>GPS</span>
-              </button>
-
-              {/* Kompass */}
-              <button
-                onClick={toggleCompass}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '4px',
-                  background: 'none',
-                  border: 'none',
                   cursor: 'pointer',
                 }}
               >
-                <div style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: '12px',
-                  background: compassMode ? 'rgba(10,132,255,0.3)' : 'rgba(255,255,255,0.08)',
-                  border: compassMode ? '2px solid #0a84ff' : 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24">
-                    <circle cx="12" cy="12" r="9" fill="none" stroke={compassMode ? '#0a84ff' : 'rgba(255,255,255,0.6)'} strokeWidth="1.5"/>
-                    <path d="M12 4 L14 12 L12 10 L10 12 Z" fill="#ef4444"/>
-                    <path d="M12 20 L14 12 L12 14 L10 12 Z" fill="rgba(255,255,255,0.5)"/>
-                  </svg>
-                </div>
-                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>Kompass</span>
-              </button>
-
-              {/* Körläge */}
-              <button
-                onClick={() => {
-                  setDrivingMode(!drivingMode);
-                  if (!drivingMode) {
-                    setAcknowledgedWarnings([]);
-                    playedWarningsRef.current.clear();
-                  }
-                  setMenuOpen(false);
-                  setMenuHeight(0);
-                }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '4px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: '12px',
-                  background: drivingMode ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.08)',
-                  border: drivingMode ? '2px solid #22c55e' : 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '20px',
-                }}>
-                  🚜
-                </div>
-                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>Körläge</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isTracking ? '#22c55e' : 'rgba(255,255,255,0.6)'} strokeWidth="2">
+                  <circle cx="12" cy="12" r="3" fill={isTracking ? '#22c55e' : 'none'} />
+                  <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+                </svg>
+                <span style={{ fontSize: '13px', color: isTracking ? '#22c55e' : '#fff' }}>
+                  {isTracking ? 'GPS på' : 'GPS'}
+                </span>
               </button>
 
               {/* Centrera */}
@@ -3663,98 +3523,17 @@ export default function PlannerPage() {
                 onClick={centerOnMe}
                 style={{
                   display: 'flex',
-                  flexDirection: 'column',
                   alignItems: 'center',
-                  gap: '4px',
-                  background: 'none',
+                  gap: '8px',
+                  padding: '10px 20px',
+                  background: 'rgba(255,255,255,0.06)',
+                  borderRadius: '12px',
                   border: 'none',
                   cursor: 'pointer',
                 }}
               >
-                <div style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: '12px',
-                  background: 'rgba(255,255,255,0.08)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  fontSize: '18px',
-                }}>
-                  📍
-                </div>
-                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>Centrera</span>
-              </button>
-
-              {/* Mät */}
-              <button
-                onClick={() => {
-                  setMeasureMode(true);
-                  setMeasureAreaMode(false);
-                  setMeasurePath([]);
-                  setMenuOpen(false);
-                  setMenuHeight(0);
-                  setSubMenu(null);
-                }}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '4px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: '12px',
-                  background: measureMode ? 'rgba(10,132,255,0.3)' : 'rgba(255,255,255,0.08)',
-                  border: measureMode ? '2px solid #0a84ff' : 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={measureMode ? '#0a84ff' : 'rgba(255,255,255,0.6)'} strokeWidth="2">
-                    <line x1="4" y1="20" x2="20" y2="4" />
-                    <circle cx="4" cy="20" r="2" fill={measureMode ? '#0a84ff' : 'rgba(255,255,255,0.6)'} />
-                    <circle cx="20" cy="4" r="2" fill={measureMode ? '#0a84ff' : 'rgba(255,255,255,0.6)'} />
-                  </svg>
-                </div>
-                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>Mät</span>
-              </button>
-
-              {/* Lager */}
-              <button
-                onClick={() => setLayerMenuOpen(!layerMenuOpen)}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  gap: '4px',
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{
-                  width: '42px',
-                  height: '42px',
-                  borderRadius: '12px',
-                  background: layerMenuOpen ? 'rgba(10,132,255,0.3)' : 'rgba(255,255,255,0.08)',
-                  border: layerMenuOpen ? '2px solid #0a84ff' : 'none',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}>
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={layerMenuOpen ? '#0a84ff' : 'rgba(255,255,255,0.6)'} strokeWidth="2">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                    <path d="M2 17l10 5 10-5" />
-                    <path d="M2 12l10 5 10-5" />
-                  </svg>
-                </div>
-                <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.5)' }}>Lager</span>
+                <span style={{ fontSize: '16px' }}>🎯</span>
+                <span style={{ fontSize: '13px', color: '#fff' }}>Centrera</span>
               </button>
             </div>
           </div>
