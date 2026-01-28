@@ -195,13 +195,15 @@ export default function PlannerPage() {
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
   
-  // Pinch-to-zoom
-  const pinchRef = useRef({ initialDistance: 0, initialZoom: 1, initialPan: { x: 0, y: 0 }, center: { x: 0, y: 0 } });
+  // Pinch-to-zoom och rotation
+  const pinchRef = useRef({ initialDistance: 0, initialZoom: 1, initialPan: { x: 0, y: 0 }, center: { x: 0, y: 0 }, initialAngle: 0, initialRotation: 0 });
   const [isPinching, setIsPinching] = useState(false);
+  const [mapRotation, setMapRotation] = useState(0); // Kartans rotation i grader
   
   // Kompass-rotation
   const [compassMode, setCompassMode] = useState(false);
   const [deviceHeading, setDeviceHeading] = useState(0);
+  const lastHeadingRef = useRef(0); // För smooth rotation
   
   // Zoom funktioner - samma logik som pinch-zoom
   const zoomIn = () => {
@@ -251,7 +253,10 @@ export default function PlannerPage() {
   // Kompass - rotera kartan efter enhetens riktning
   const toggleCompass = () => {
     if (!compassMode) {
-      // Aktivera kompass
+      // Aktivera kompass - nollställ manuell rotation
+      setMapRotation(0);
+      lastHeadingRef.current = 0;
+      
       if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         // iOS 13+ kräver tillstånd
         DeviceOrientationEvent.requestPermission()
@@ -271,6 +276,7 @@ export default function PlannerPage() {
       // Stäng av kompass
       setCompassMode(false);
       setDeviceHeading(0);
+      lastHeadingRef.current = 0;
       window.removeEventListener('deviceorientation', handleOrientation);
     }
   };
@@ -279,7 +285,27 @@ export default function PlannerPage() {
     // webkitCompassHeading för iOS, alpha för Android
     let heading = event.webkitCompassHeading || (360 - event.alpha);
     if (heading !== null && !isNaN(heading)) {
-      setDeviceHeading(heading);
+      // Normalisera till 0-360
+      heading = ((heading % 360) + 360) % 360;
+      
+      // Smooth rotation - hitta kortaste vägen
+      let lastHeading = lastHeadingRef.current;
+      // Normalisera lastHeading också
+      const normalizedLast = ((lastHeading % 360) + 360) % 360;
+      
+      let diff = heading - normalizedLast;
+      
+      // Om skillnaden är mer än 180°, ta kortare vägen
+      if (diff > 180) {
+        diff -= 360;
+      } else if (diff < -180) {
+        diff += 360;
+      }
+      
+      // Beräkna ny smooth heading
+      const smoothHeading = lastHeading + diff;
+      lastHeadingRef.current = smoothHeading;
+      setDeviceHeading(smoothHeading);
     }
   };
   
@@ -1474,7 +1500,7 @@ export default function PlannerPage() {
           handleRotationEnd();
         }}
         onTouchStart={(e) => {
-          // Pinch-to-zoom med två fingrar
+          // Pinch-to-zoom och rotation med två fingrar
           if (e.touches.length === 2) {
             e.preventDefault();
             const touch1 = e.touches[0];
@@ -1486,11 +1512,19 @@ export default function PlannerPage() {
             const centerX = (touch1.clientX + touch2.clientX) / 2;
             const centerY = (touch1.clientY + touch2.clientY) / 2;
             
+            // Beräkna initial vinkel mellan fingrarna
+            const angle = Math.atan2(
+              touch2.clientY - touch1.clientY,
+              touch2.clientX - touch1.clientX
+            ) * (180 / Math.PI);
+            
             pinchRef.current = {
               initialDistance: distance,
               initialZoom: zoom,
               initialPan: { ...pan },
-              center: { x: centerX, y: centerY }
+              center: { x: centerX, y: centerY },
+              initialAngle: angle,
+              initialRotation: mapRotation
             };
             setIsPinching(true);
             return;
@@ -1510,7 +1544,7 @@ export default function PlannerPage() {
           }
         }}
         onTouchMove={(e) => {
-          // Pinch-to-zoom med två fingrar
+          // Pinch-to-zoom och rotation med två fingrar
           if (e.touches.length === 2 && isPinching) {
             e.preventDefault();
             const touch1 = e.touches[0];
@@ -1532,6 +1566,17 @@ export default function PlannerPage() {
             const zoomRatio = newZoom / pinchRef.current.initialZoom;
             const newPanX = centerX - (centerX - pinchRef.current.initialPan.x) * zoomRatio;
             const newPanY = centerY - (centerY - pinchRef.current.initialPan.y) * zoomRatio;
+            
+            // Beräkna rotation (bara om kompass är av)
+            if (!compassMode) {
+              const currentAngle = Math.atan2(
+                touch2.clientY - touch1.clientY,
+                touch2.clientX - touch1.clientX
+              ) * (180 / Math.PI);
+              const angleDiff = currentAngle - pinchRef.current.initialAngle;
+              const newRotation = pinchRef.current.initialRotation + angleDiff;
+              setMapRotation(newRotation);
+            }
             
             setZoom(newZoom);
             setPan({ x: newPanX, y: newPanY });
@@ -1574,6 +1619,11 @@ export default function PlannerPage() {
           <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
             <path d="M 60 0 L 0 0 0 60" fill="none" stroke="rgba(132,204,22,0.05)" strokeWidth="1"/>
           </pattern>
+          {/* Gradient för ljuskägla */}
+          <radialGradient id="viewConeGradient" cx="0%" cy="0%" r="100%">
+            <stop offset="0%" stopColor="#0a84ff" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#0a84ff" stopOpacity="0" />
+          </radialGradient>
         </defs>
         <rect width="100%" height="100%" fill="url(#grid)" />
 
@@ -1582,6 +1632,11 @@ export default function PlannerPage() {
           transform: compassMode ? `rotate(${-deviceHeading}deg)` : 'none',
           transformOrigin: '50% 50%',
           transition: compassMode ? 'transform 0.1s ease-out' : 'none',
+        }}>
+        {/* Kart-rotation från finger-gester */}
+        <g style={{ 
+          transform: `rotate(${mapRotation}deg)`,
+          transformOrigin: '50% 50%',
         }}>
         <g style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
           
@@ -1806,15 +1861,39 @@ export default function PlannerPage() {
             />
           )}
 
-          {/* GPS position */}
+          {/* GPS position med ljuskägla */}
           {isTracking && currentPosition && (
-            <circle 
-              cx={gpsMapPosition.x} cy={gpsMapPosition.y} r={12} 
-              fill={colors.blue} 
-              stroke="#fff" 
-              strokeWidth={3}
-              style={{ animation: 'pulse 1.5s infinite' }}
-            />
+            <g>
+              {/* Ljuskägla - visar riktning när kompass är på */}
+              {compassMode && (
+                <path
+                  d={`M ${gpsMapPosition.x} ${gpsMapPosition.y} 
+                      L ${gpsMapPosition.x + Math.sin((deviceHeading - 30) * Math.PI / 180) * 80} ${gpsMapPosition.y - Math.cos((deviceHeading - 30) * Math.PI / 180) * 80}
+                      A 80 80 0 0 1 ${gpsMapPosition.x + Math.sin((deviceHeading + 30) * Math.PI / 180) * 80} ${gpsMapPosition.y - Math.cos((deviceHeading + 30) * Math.PI / 180) * 80}
+                      Z`}
+                  fill="url(#viewConeGradient)"
+                  opacity={0.6}
+                />
+              )}
+              {/* GPS-prick */}
+              <circle 
+                cx={gpsMapPosition.x} cy={gpsMapPosition.y} r={12} 
+                fill={colors.blue} 
+                stroke="#fff" 
+                strokeWidth={3}
+                style={{ animation: 'pulse 1.5s infinite' }}
+              />
+              {/* Riktningspil när kompass är på */}
+              {compassMode && (
+                <path
+                  d={`M ${gpsMapPosition.x} ${gpsMapPosition.y - 18} 
+                      L ${gpsMapPosition.x - 6} ${gpsMapPosition.y - 8} 
+                      L ${gpsMapPosition.x + 6} ${gpsMapPosition.y - 8} Z`}
+                  fill="#fff"
+                  transform={`rotate(${deviceHeading}, ${gpsMapPosition.x}, ${gpsMapPosition.y})`}
+                />
+              )}
+            </g>
           )}
           
           {/* Rotationsindikator */}
@@ -1920,6 +1999,7 @@ export default function PlannerPage() {
               />
             </g>
           )}
+        </g>
         </g>
         </g>
       </svg>
