@@ -72,6 +72,15 @@ export default function PlannerPage() {
   const WARNING_DISTANCE = 40; // meter - varning triggas
   const FADE_START_DISTANCE = 100; // meter - börjar synas starkare
   
+  // Stickvägsavstånd
+  const [stickvagMode, setStickvagMode] = useState(false); // Aktiv stickvägsvy
+  const [stickvagSettings, setStickvagSettings] = useState({
+    targetDistance: 22, // Målvärde i meter
+    tolerance: 3, // ±3 meter
+  });
+  const [stickvagWarningShown, setStickvagWarningShown] = useState(false); // Har vi varnat för detta utanför-tillfälle
+  const previousStickvagRef = useRef<any>(null); // Senaste stickvägen att mäta mot
+  
   // Prognos
   const [prognosOpen, setPrognosOpen] = useState(false);
   const [traktData, setTraktData] = useState<TraktData>({
@@ -449,6 +458,76 @@ export default function PlannerPage() {
     return { x: startX + dx, y: startY + dy };
   };
   
+  // Beräkna avstånd från punkt till en linje (path)
+  const getDistanceToPath = (point: Point, path: Point[]): { distance: number, closestPoint: Point } => {
+    let minDist = Infinity;
+    let closestPoint = path[0];
+    
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i];
+      const b = path[i + 1];
+      
+      // Vektor från a till b
+      const abx = b.x - a.x;
+      const aby = b.y - a.y;
+      const abLen = Math.sqrt(abx * abx + aby * aby);
+      
+      if (abLen === 0) continue;
+      
+      // Projicera punkt på linjen
+      const t = Math.max(0, Math.min(1, 
+        ((point.x - a.x) * abx + (point.y - a.y) * aby) / (abLen * abLen)
+      ));
+      
+      // Närmaste punkt på linjesegmentet
+      const closest = {
+        x: a.x + t * abx,
+        y: a.y + t * aby
+      };
+      
+      const dist = Math.sqrt(
+        Math.pow(point.x - closest.x, 2) + 
+        Math.pow(point.y - closest.y, 2)
+      );
+      
+      if (dist < minDist) {
+        minDist = dist;
+        closestPoint = closest;
+      }
+    }
+    
+    return { distance: minDist * scale, closestPoint }; // Konvertera pixlar till meter
+  };
+  
+  // Hämta aktuellt avstånd till förra stickvägen
+  const getStickvagDistance = (): number | null => {
+    if (!stickvagMode || !previousStickvagRef.current?.path) return null;
+    const result = getDistanceToPath(gpsMapPositionRef.current, previousStickvagRef.current.path);
+    return Math.round(result.distance);
+  };
+  
+  // Spela varningsljud
+  const playStickvagWarning = (tooClose: boolean) => {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      oscillator.frequency.value = tooClose ? 800 : 600;
+      oscillator.type = 'sine';
+      gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+      oscillator.start(audioCtx.currentTime);
+      oscillator.stop(audioCtx.currentTime + 0.3);
+    } catch(e) {}
+    
+    // Vibrera
+    if (navigator.vibrate) {
+      navigator.vibrate(200);
+    }
+  };
+  
   const startGpsTracking = (lineType) => {
     if (!('geolocation' in navigator)) {
       alert('GPS stöds inte i denna enhet');
@@ -461,6 +540,20 @@ export default function PlannerPage() {
     setGpsStartPos(null);
     setMenuOpen(false);
     setMenuHeight(0);
+    
+    // Kolla om det är en stickväg och om det finns tidigare stickvägar
+    const isStickväg = ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(lineType);
+    if (isStickväg) {
+      // Hitta senaste stickvägen att mäta mot
+      const previousStickvägar = markers.filter(m => 
+        m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType)
+      );
+      if (previousStickvägar.length > 0) {
+        previousStickvagRef.current = previousStickvägar[previousStickvägar.length - 1];
+        setStickvagMode(true);
+        setStickvagWarningShown(false);
+      }
+    }
     
     // Om GPS redan är igång, använd den
     if (isTracking && watchIdRef.current) {
@@ -590,6 +683,11 @@ export default function PlannerPage() {
     setGpsStartPos(null);
     setGpsPaused(false);
     gpsPausedRef.current = false;
+    
+    // Stäng av stickvägsmode
+    setStickvagMode(false);
+    previousStickvagRef.current = null;
+    
     // OBS: Vi stänger INTE av isTracking eller watchIdRef - GPS fortsätter visa position
   };
   
@@ -4130,6 +4228,292 @@ export default function PlannerPage() {
                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5">
                   <path d="M20 6L9 17l-5-5" />
                 </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === STICKVÄGSVY === */}
+      {stickvagMode && gpsLineType && previousStickvagRef.current && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: '#000',
+          zIndex: 500,
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '50px 20px 15px',
+            background: 'linear-gradient(180deg, rgba(0,0,0,0.9) 0%, transparent 100%)',
+          }}>
+            <div style={{ fontSize: '13px', color: '#8e8e93', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              Spårar stickväg
+            </div>
+            <div style={{ fontSize: '17px', fontWeight: '600', marginTop: '4px' }}>
+              {lineTypes.find(t => t.id === gpsLineType)?.name} → mot förra stickvägen
+            </div>
+          </div>
+          
+          {/* SVG-vy med vägarna */}
+          <div style={{ flex: 1, position: 'relative' }}>
+            <svg viewBox="0 0 400 500" style={{ width: '100%', height: '100%' }} preserveAspectRatio="xMidYMid meet">
+              {/* Förra vägen (röd) */}
+              {previousStickvagRef.current?.path && (
+                <path
+                  d={previousStickvagRef.current.path.map((p, i) => {
+                    // Transformera till SVG-koordinater relativt till GPS-position
+                    const relX = 100 + (p.x - gpsMapPositionRef.current.x) * 0.5;
+                    const relY = 250 + (p.y - gpsMapPositionRef.current.y) * 0.5;
+                    return `${i === 0 ? 'M' : 'L'} ${relX} ${relY}`;
+                  }).join(' ')}
+                  fill="none"
+                  stroke="#ef4444"
+                  strokeWidth={6}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              )}
+              
+              {/* Din väg (gul, streckad) */}
+              {gpsPath.length > 0 && (
+                <path
+                  d={gpsPath.map((p, i) => {
+                    const relX = 200 + (p.x - gpsMapPositionRef.current.x) * 0.5;
+                    const relY = 250 + (p.y - gpsMapPositionRef.current.y) * 0.5;
+                    return `${i === 0 ? 'M' : 'L'} ${relX} ${relY}`;
+                  }).join(' ')}
+                  fill="none"
+                  stroke="#fbbf24"
+                  strokeWidth={4}
+                  strokeDasharray="12, 8"
+                  strokeLinecap="round"
+                />
+              )}
+              
+              {/* Avståndslinje */}
+              {(() => {
+                const dist = getStickvagDistance();
+                if (!dist || !previousStickvagRef.current?.path) return null;
+                const result = getDistanceToPath(gpsMapPositionRef.current, previousStickvagRef.current.path);
+                const closestX = 100 + (result.closestPoint.x - gpsMapPositionRef.current.x) * 0.5;
+                const closestY = 250 + (result.closestPoint.y - gpsMapPositionRef.current.y) * 0.5;
+                return (
+                  <>
+                    <line
+                      x1={closestX} y1={closestY}
+                      x2={200} y2={250}
+                      stroke="rgba(255,255,255,0.4)"
+                      strokeWidth={1}
+                      strokeDasharray="6, 4"
+                    />
+                    <rect
+                      x={(closestX + 200) / 2 - 28}
+                      y={(closestY + 250) / 2 - 14}
+                      width={56}
+                      height={28}
+                      fill="rgba(0,0,0,0.7)"
+                      rx={8}
+                    />
+                    <text
+                      x={(closestX + 200) / 2}
+                      y={(closestY + 250) / 2 + 5}
+                      fill="#fff"
+                      fontSize={14}
+                      fontWeight={600}
+                      textAnchor="middle"
+                    >
+                      {dist}m
+                    </text>
+                  </>
+                );
+              })()}
+              
+              {/* GPS-punkt (du) */}
+              <circle cx={200} cy={250} r={40} fill="none" stroke="rgba(10,132,255,0.4)" strokeWidth={2}>
+                <animate attributeName="r" from="15" to="40" dur="1.5s" repeatCount="indefinite" />
+                <animate attributeName="opacity" from="1" to="0" dur="1.5s" repeatCount="indefinite" />
+              </circle>
+              <circle cx={200} cy={250} r={12} fill="#0a84ff" style={{ filter: 'drop-shadow(0 0 10px rgba(10,132,255,0.8))' }} />
+              
+              {/* Riktningspil */}
+              <path d="M 200,220 L 190,240 L 195,240 L 195,265 L 205,265 L 205,240 L 210,240 Z" fill="rgba(255,255,255,0.6)" />
+              
+              {/* Labels */}
+              <text x={70} y={300} fill="#8e8e93" fontSize={11} textAnchor="middle">Förra vägen</text>
+              <text x={230} y={270} fill="#8e8e93" fontSize={11} textAnchor="start">Du</text>
+            </svg>
+          </div>
+          
+          {/* Varningsflash (röd overlay vid fel avstånd) */}
+          {(() => {
+            const dist = getStickvagDistance();
+            if (!dist) return null;
+            const { targetDistance, tolerance } = stickvagSettings;
+            const isOutside = dist < targetDistance - tolerance || dist > targetDistance + tolerance;
+            
+            // Trigga varning första gången man hamnar utanför
+            if (isOutside && !stickvagWarningShown) {
+              setStickvagWarningShown(true);
+              playStickvagWarning(dist < targetDistance - tolerance);
+            } else if (!isOutside && stickvagWarningShown) {
+              setStickvagWarningShown(false);
+            }
+            
+            return null;
+          })()}
+          
+          {/* Bottom panel */}
+          <div style={{
+            padding: '20px',
+            paddingBottom: '40px',
+            background: 'linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.8) 70%, transparent 100%)',
+          }}>
+            {/* Huvudavstånd */}
+            <div style={{ textAlign: 'center', marginBottom: '15px' }}>
+              {(() => {
+                const dist = getStickvagDistance();
+                const { targetDistance, tolerance } = stickvagSettings;
+                const minOk = targetDistance - tolerance;
+                const maxOk = targetDistance + tolerance;
+                
+                let statusColor = '#22c55e';
+                let statusText = '✓ Bra avstånd';
+                
+                if (dist !== null) {
+                  if (dist < minOk - 2 || dist > maxOk + 2) {
+                    statusColor = '#ef4444';
+                    statusText = dist < minOk ? '⚠ För nära!' : '⚠ För långt!';
+                  } else if (dist < minOk || dist > maxOk) {
+                    statusColor = '#fbbf24';
+                    statusText = dist < minOk ? '→ Gå lite längre bort' : '← Gå lite närmare';
+                  }
+                }
+                
+                return (
+                  <>
+                    <span style={{ fontSize: '72px', fontWeight: '700', letterSpacing: '-2px', color: statusColor }}>
+                      {dist ?? '--'}
+                    </span>
+                    <span style={{ fontSize: '24px', fontWeight: '400', opacity: 0.7, marginLeft: '4px' }}>m</span>
+                    <div style={{ fontSize: '15px', marginTop: '5px', fontWeight: '500', color: statusColor }}>
+                      {statusText}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+            
+            {/* Inställningar */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'rgba(255,255,255,0.08)',
+              borderRadius: '12px',
+              padding: '12px 16px',
+              marginBottom: '15px',
+            }}>
+              <div style={{ textAlign: 'center' }}>
+                <div 
+                  style={{ fontSize: '18px', fontWeight: '600', cursor: 'pointer' }}
+                  onClick={() => {
+                    const newTarget = prompt('Målvärde (meter):', String(stickvagSettings.targetDistance));
+                    if (newTarget) setStickvagSettings(prev => ({ ...prev, targetDistance: parseInt(newTarget) || 22 }));
+                  }}
+                >
+                  {stickvagSettings.targetDistance}m
+                </div>
+                <div style={{ fontSize: '11px', color: '#8e8e93', marginTop: '2px' }}>Mål ✎</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div 
+                  style={{ fontSize: '18px', fontWeight: '600', cursor: 'pointer' }}
+                  onClick={() => {
+                    const newTol = prompt('Tolerans (±meter):', String(stickvagSettings.tolerance));
+                    if (newTol) setStickvagSettings(prev => ({ ...prev, tolerance: parseInt(newTol) || 3 }));
+                  }}
+                >
+                  ±{stickvagSettings.tolerance}m
+                </div>
+                <div style={{ fontSize: '11px', color: '#8e8e93', marginTop: '2px' }}>Tolerans ✎</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '18px', fontWeight: '600' }}>
+                  {stickvagSettings.targetDistance - stickvagSettings.tolerance}-{stickvagSettings.targetDistance + stickvagSettings.tolerance}m
+                </div>
+                <div style={{ fontSize: '11px', color: '#8e8e93', marginTop: '2px' }}>Godkänt</div>
+              </div>
+            </div>
+            
+            {/* Knappar */}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={toggleGpsPause}
+                style={{
+                  flex: 1,
+                  padding: '14px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: gpsPaused ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.15)',
+                  color: '#fff',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                {gpsPaused ? '▶ Fortsätt' : '⏸ Paus'}
+              </button>
+              <button
+                onClick={() => setStickvagMode(false)}
+                style={{
+                  padding: '14px 20px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: 'rgba(255,255,255,0.1)',
+                  color: '#fff',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                Karta
+              </button>
+              <button
+                onClick={() => stopGpsTracking(false)}
+                style={{
+                  padding: '14px 20px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: 'rgba(239,68,68,0.3)',
+                  color: '#fff',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                Avbryt
+              </button>
+              <button
+                onClick={() => stopGpsTracking(true)}
+                style={{
+                  flex: 1,
+                  padding: '14px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: 'rgba(34,197,94,0.3)',
+                  color: '#fff',
+                  fontSize: '15px',
+                  fontWeight: '600',
+                  cursor: 'pointer',
+                }}
+              >
+                ✓ Spara
               </button>
             </div>
           </div>
