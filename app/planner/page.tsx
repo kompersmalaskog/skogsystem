@@ -187,8 +187,10 @@ export default function PlannerPage() {
   const [trackingPath, setTrackingPath] = useState<Point[]>([]);
   const [gpsLineType, setGpsLineType] = useState<string | null>(null); // Vilken linjetyp som spåras
   const [gpsPath, setGpsPath] = useState<Point[]>([]); // Spårad linje i kartkoordinater
-  const [gpsStartPos, setGpsStartPos] = useState<{lat: number, lng: number} | null>(null); // Startposition för konvertering
+  const [gpsStartPos, setGpsStartPos] = useState<{lat: number, lon: number, x: number, y: number} | null>(null); // Startposition för konvertering
   const watchIdRef = useRef<number | null>(null);
+  const gpsMapPositionRef = useRef<Point>({ x: 200, y: 300 });
+  const gpsPathRef = useRef<Point[]>([]);
   
   // Karta
   const [zoom, setZoom] = useState(1);
@@ -451,6 +453,7 @@ export default function PlannerPage() {
     
     setGpsLineType(lineType);
     setGpsPath([]);
+    gpsPathRef.current = [];
     setGpsStartPos(null);
     setMenuOpen(false);
     setMenuHeight(0);
@@ -458,13 +461,17 @@ export default function PlannerPage() {
     // Om GPS redan är igång, använd den
     if (isTracking && watchIdRef.current) {
       // Sätt startposition till nuvarande position
+      const startX = gpsMapPositionRef.current.x;
+      const startY = gpsMapPositionRef.current.y;
       setGpsStartPos({ 
         lat: currentPosition?.lat, 
         lon: currentPosition?.lon, 
-        x: gpsMapPosition.x, 
-        y: gpsMapPosition.y 
+        x: startX, 
+        y: startY 
       });
-      setGpsPath([{ x: gpsMapPosition.x, y: gpsMapPosition.y }]);
+      const firstPoint = { x: startX, y: startY };
+      gpsPathRef.current = [firstPoint];
+      setGpsPath([firstPoint]);
       return;
     }
     
@@ -483,27 +490,34 @@ export default function PlannerPage() {
             const startPos = { 
               lat: newPos.lat, 
               lon: newPos.lon, 
-              x: gpsMapPosition.x, 
-              y: gpsMapPosition.y 
+              x: gpsMapPositionRef.current.x, 
+              y: gpsMapPositionRef.current.y 
             };
-            setGpsPath([{ x: gpsMapPosition.x, y: gpsMapPosition.y }]);
+            const firstPoint = { x: gpsMapPositionRef.current.x, y: gpsMapPositionRef.current.y };
+            gpsPathRef.current = [firstPoint];
+            setGpsPath([firstPoint]);
             return startPos;
           }
           
           // Konvertera GPS till kartkoordinater
           const mapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
+          gpsMapPositionRef.current = mapPos;
           setGpsMapPosition(mapPos);
           
-          // Lägg till punkt om vi rört oss tillräckligt (5 pixlar) och vi spårar en linje
-          setGpsPath(currentPath => {
-            if (currentPath.length === 0) return [mapPos];
+          // Lägg till punkt om vi rört oss tillräckligt (5 pixlar)
+          const currentPath = gpsPathRef.current;
+          if (currentPath.length === 0) {
+            gpsPathRef.current = [mapPos];
+            setGpsPath([mapPos]);
+          } else {
             const lastPoint = currentPath[currentPath.length - 1];
             const dist = Math.sqrt(Math.pow(mapPos.x - lastPoint.x, 2) + Math.pow(mapPos.y - lastPoint.y, 2));
             if (dist > 5) {
-              return [...currentPath, mapPos];
+              const newPath = [...currentPath, mapPos];
+              gpsPathRef.current = newPath;
+              setGpsPath(newPath);
             }
-            return currentPath;
-          });
+          }
           
           return prev;
         });
@@ -515,12 +529,12 @@ export default function PlannerPage() {
   
   const stopGpsTracking = (save = true) => {
     // Spara linjen om vi har tillräckligt med punkter
-    if (save && gpsPath.length > 1 && gpsLineType) {
+    if (save && gpsPathRef.current.length > 1 && gpsLineType) {
       saveToHistory([...markers]);
       const newLine = {
         id: Date.now(),
         lineType: gpsLineType,
-        path: [...gpsPath],
+        path: [...gpsPathRef.current],
         isLine: true,
         gpsRecorded: true,
       };
@@ -530,6 +544,7 @@ export default function PlannerPage() {
     // Nollställ linjespårning men BEHÅLL GPS-visning
     setGpsLineType(null);
     setGpsPath([]);
+    gpsPathRef.current = [];
     setGpsStartPos(null);
     // OBS: Vi stänger INTE av isTracking eller watchIdRef - GPS fortsätter visa position
   };
@@ -544,6 +559,7 @@ export default function PlannerPage() {
       setIsTracking(false);
       setGpsLineType(null);
       setGpsPath([]);
+      gpsPathRef.current = [];
       setGpsStartPos(null);
       setTrackingPath([]);
       setHeaderExpanded(false);
@@ -566,13 +582,14 @@ export default function PlannerPage() {
                 return { 
                   lat: newPos.lat, 
                   lon: newPos.lon, 
-                  x: gpsMapPosition.x, 
-                  y: gpsMapPosition.y 
+                  x: gpsMapPositionRef.current.x, 
+                  y: gpsMapPositionRef.current.y 
                 };
               }
               
               // Beräkna ny kartposition
               const mapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
+              gpsMapPositionRef.current = mapPos;
               setGpsMapPosition(mapPos);
               return prev;
             });
