@@ -182,6 +182,8 @@ export default function PlannerPage() {
   
   // GPS
   const [isTracking, setIsTracking] = useState(false);
+  const [gpsPaused, setGpsPaused] = useState(false); // Paus för linjespårning
+  const gpsPausedRef = useRef(false); // Ref för closure
   const [currentPosition, setCurrentPosition] = useState<GeolocationPosition | null>(null);
   const [gpsMapPosition, setGpsMapPosition] = useState<Point>({ x: 200, y: 300 }); // Var på kartan GPS-punkten är
   const [trackingPath, setTrackingPath] = useState<Point[]>([]);
@@ -191,6 +193,8 @@ export default function PlannerPage() {
   const watchIdRef = useRef<number | null>(null);
   const gpsMapPositionRef = useRef<Point>({ x: 200, y: 300 });
   const gpsPathRef = useRef<Point[]>([]);
+  const gpsHistoryRef = useRef<Point[]>([]); // Senaste 5 positioner för medelvärde
+  const lastConfirmedPosRef = useRef<Point>({ x: 200, y: 300 }); // Sista bekräftade position (efter minDistance-filter)
   
   // Karta
   const [zoom, setZoom] = useState(1);
@@ -481,6 +485,11 @@ export default function PlannerPage() {
     watchIdRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+        const accuracy = pos.coords.accuracy; // meter
+        
+        // Ignorera väldigt osäkra positioner (över 30 meter)
+        if (accuracy > 30) return;
+        
         setCurrentPosition(newPos);
         setTrackingPath(prev => [...prev, newPos]);
         
@@ -496,26 +505,59 @@ export default function PlannerPage() {
             const firstPoint = { x: gpsMapPositionRef.current.x, y: gpsMapPositionRef.current.y };
             gpsPathRef.current = [firstPoint];
             setGpsPath([firstPoint]);
+            lastConfirmedPosRef.current = firstPoint;
+            gpsHistoryRef.current = [firstPoint];
             return startPos;
           }
           
           // Konvertera GPS till kartkoordinater
-          const mapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
-          gpsMapPositionRef.current = mapPos;
-          setGpsMapPosition(mapPos);
+          const rawMapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
           
-          // Lägg till punkt om vi rört oss tillräckligt (5 pixlar)
-          const currentPath = gpsPathRef.current;
-          if (currentPath.length === 0) {
-            gpsPathRef.current = [mapPos];
-            setGpsPath([mapPos]);
-          } else {
-            const lastPoint = currentPath[currentPath.length - 1];
-            const dist = Math.sqrt(Math.pow(mapPos.x - lastPoint.x, 2) + Math.pow(mapPos.y - lastPoint.y, 2));
-            if (dist > 5) {
-              const newPath = [...currentPath, mapPos];
-              gpsPathRef.current = newPath;
-              setGpsPath(newPath);
+          // Lägg till i historik för medelvärde (max 5 punkter)
+          gpsHistoryRef.current = [...gpsHistoryRef.current.slice(-4), rawMapPos];
+          
+          // Beräkna medelvärde av senaste positionerna
+          const history = gpsHistoryRef.current;
+          const smoothedPos = {
+            x: history.reduce((sum, p) => sum + p.x, 0) / history.length,
+            y: history.reduce((sum, p) => sum + p.y, 0) / history.length
+          };
+          
+          // Kolla avstånd från senast bekräftade position
+          const distFromConfirmed = Math.sqrt(
+            Math.pow(smoothedPos.x - lastConfirmedPosRef.current.x, 2) + 
+            Math.pow(smoothedPos.y - lastConfirmedPosRef.current.y, 2)
+          );
+          
+          // Minsta rörelse för att uppdatera pricken (ca 2 meter vid scale=1)
+          const minPixelMove = 2 / scale; // 2 meter i pixlar
+          
+          if (distFromConfirmed > minPixelMove) {
+            // Uppdatera bekräftad position
+            lastConfirmedPosRef.current = smoothedPos;
+            gpsMapPositionRef.current = smoothedPos;
+            setGpsMapPosition(smoothedPos);
+            
+            // Lägg till punkt i spårad linje om vi rört oss tillräckligt (5 meter)
+            // Men INTE om spårningen är pausad
+            if (!gpsPausedRef.current) {
+              const currentPath = gpsPathRef.current;
+              if (currentPath.length === 0) {
+                gpsPathRef.current = [smoothedPos];
+                setGpsPath([smoothedPos]);
+              } else {
+                const lastPoint = currentPath[currentPath.length - 1];
+                const distForLine = Math.sqrt(
+                  Math.pow(smoothedPos.x - lastPoint.x, 2) + 
+                  Math.pow(smoothedPos.y - lastPoint.y, 2)
+                );
+                const minLinePixels = 5 / scale; // 5 meter i pixlar
+                if (distForLine > minLinePixels) {
+                  const newPath = [...currentPath, smoothedPos];
+                  gpsPathRef.current = newPath;
+                  setGpsPath(newPath);
+                }
+              }
             }
           }
           
@@ -546,7 +588,24 @@ export default function PlannerPage() {
     setGpsPath([]);
     gpsPathRef.current = [];
     setGpsStartPos(null);
+    setGpsPaused(false);
+    gpsPausedRef.current = false;
     // OBS: Vi stänger INTE av isTracking eller watchIdRef - GPS fortsätter visa position
+  };
+  
+  const toggleGpsPause = () => {
+    const newPaused = !gpsPaused;
+    setGpsPaused(newPaused);
+    gpsPausedRef.current = newPaused;
+    
+    // När vi återupptar, sätt nuvarande position som ny startpunkt för fortsättningen
+    if (!newPaused && gpsPathRef.current.length > 0) {
+      // Lägg till nuvarande position som ny punkt (hoppar över var vi var under pausen)
+      const currentPos = gpsMapPositionRef.current;
+      const newPath = [...gpsPathRef.current, currentPos];
+      gpsPathRef.current = newPath;
+      setGpsPath(newPath);
+    }
   };
   
   const toggleTracking = () => {
@@ -560,18 +619,27 @@ export default function PlannerPage() {
       setGpsLineType(null);
       setGpsPath([]);
       gpsPathRef.current = [];
+      gpsHistoryRef.current = [];
       setGpsStartPos(null);
       setTrackingPath([]);
       setHeaderExpanded(false);
+      setGpsPaused(false);
+      gpsPausedRef.current = false;
     } else {
       // Starta GPS-visning (utan linjespårning)
       if ('geolocation' in navigator) {
         setIsTracking(true);
         setGpsStartPos(null); // Återställ så första positionen blir startpunkt
+        gpsHistoryRef.current = [];
         
         watchIdRef.current = navigator.geolocation.watchPosition(
           (pos) => {
             const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+            const accuracy = pos.coords.accuracy;
+            
+            // Ignorera väldigt osäkra positioner
+            if (accuracy > 30) return;
+            
             setCurrentPosition(newPos);
             setTrackingPath(prev => [...prev, newPos]);
             
@@ -579,6 +647,8 @@ export default function PlannerPage() {
             setGpsStartPos(prev => {
               if (!prev) {
                 // Första punkten - spara som referens
+                lastConfirmedPosRef.current = gpsMapPositionRef.current;
+                gpsHistoryRef.current = [gpsMapPositionRef.current];
                 return { 
                   lat: newPos.lat, 
                   lon: newPos.lon, 
@@ -588,9 +658,32 @@ export default function PlannerPage() {
               }
               
               // Beräkna ny kartposition
-              const mapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
-              gpsMapPositionRef.current = mapPos;
-              setGpsMapPosition(mapPos);
+              const rawMapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
+              
+              // Lägg till i historik för medelvärde
+              gpsHistoryRef.current = [...gpsHistoryRef.current.slice(-4), rawMapPos];
+              
+              // Beräkna medelvärde
+              const history = gpsHistoryRef.current;
+              const smoothedPos = {
+                x: history.reduce((sum, p) => sum + p.x, 0) / history.length,
+                y: history.reduce((sum, p) => sum + p.y, 0) / history.length
+              };
+              
+              // Kolla avstånd från senast bekräftade position
+              const distFromConfirmed = Math.sqrt(
+                Math.pow(smoothedPos.x - lastConfirmedPosRef.current.x, 2) + 
+                Math.pow(smoothedPos.y - lastConfirmedPosRef.current.y, 2)
+              );
+              
+              const minPixelMove = 2 / scale; // 2 meter
+              
+              if (distFromConfirmed > minPixelMove) {
+                lastConfirmedPosRef.current = smoothedPos;
+                gpsMapPositionRef.current = smoothedPos;
+                setGpsMapPosition(smoothedPos);
+              }
+              
               return prev;
             });
           },
@@ -788,8 +881,20 @@ export default function PlannerPage() {
     if (menuOpen) return;
     
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - rect.left - pan.x) / zoom;
-    const y = (e.clientY - rect.top - pan.y) / zoom;
+    const isTouch = e.type === 'touchend' || (e.nativeEvent && e.nativeEvent.changedTouches);
+    const touchOffset = isTouch ? 50 : 0; // Offset uppåt för touch så symbolen hamnar ovanför fingret
+    
+    let clientX, clientY;
+    if (isTouch && e.nativeEvent?.changedTouches?.[0]) {
+      clientX = e.nativeEvent.changedTouches[0].clientX;
+      clientY = e.nativeEvent.changedTouches[0].clientY;
+    } else {
+      clientX = e.clientX;
+      clientY = e.clientY;
+    }
+    
+    const x = (clientX - rect.left - pan.x) / zoom;
+    const y = ((clientY - touchOffset) - rect.top - pan.y) / zoom;
 
     // Placera symbol
     if (selectedSymbol) {
@@ -1166,51 +1271,81 @@ export default function PlannerPage() {
     
     const warnings = [];
     
+    // Hjälpfunktion: hitta närmaste punkt på en linje
+    const distanceToLine = (point, path) => {
+      let minDist = Infinity;
+      for (let i = 0; i < path.length - 1; i++) {
+        const a = path[i];
+        const b = path[i + 1];
+        
+        // Vektor från a till b
+        const abx = b.x - a.x;
+        const aby = b.y - a.y;
+        const abLen = Math.sqrt(abx * abx + aby * aby);
+        
+        if (abLen === 0) continue;
+        
+        // Projicera punkt på linjen
+        const t = Math.max(0, Math.min(1, 
+          ((point.x - a.x) * abx + (point.y - a.y) * aby) / (abLen * abLen)
+        ));
+        
+        // Närmaste punkt på linjesegmentet
+        const closestX = a.x + t * abx;
+        const closestY = a.y + t * aby;
+        
+        const dist = Math.sqrt(
+          Math.pow(point.x - closestX, 2) + 
+          Math.pow(point.y - closestY, 2)
+        );
+        
+        if (dist < minDist) minDist = dist;
+      }
+      return minDist * scale; // Konvertera till meter
+    };
+    
     markers.forEach(m => {
       if (acknowledgedWarnings.includes(m.id)) return;
       
-      let pos = null;
+      let distance = null;
       let type = null;
       let icon = null;
       let name = null;
       
       if (m.isMarker) {
-        pos = { x: m.x, y: m.y };
+        const pos = { x: m.x, y: m.y };
+        distance = calculateDistanceMeters(gpsMapPosition, pos);
         const markerType = markerTypes.find(t => t.id === m.type);
         type = 'symbol';
         icon = markerType?.icon || '📍';
         name = markerType?.name || 'Markering';
-      } else if (m.isArrow) {
-        pos = { x: m.x, y: m.y };
-        const arrowType = arrowTypes.find(t => t.id === m.arrowType);
-        type = 'arrow';
-        icon = '➡️';
-        name = arrowType?.name || 'Pil';
       } else if (m.isZone && m.path?.length > 0) {
-        // Använd center av zonen
-        const centerX = m.path.reduce((sum, p) => sum + p.x, 0) / m.path.length;
-        const centerY = m.path.reduce((sum, p) => sum + p.y, 0) / m.path.length;
-        pos = { x: centerX, y: centerY };
+        // Kolla avstånd till zonens kant (inte mittpunkt)
+        distance = distanceToLine(gpsMapPosition, [...m.path, m.path[0]]); // Stäng polygonen
         const zoneType = zoneTypes.find(t => t.id === m.zoneType);
         type = 'zone';
         icon = zoneType?.icon || '⬡';
         name = zoneType?.name || 'Zon';
+      } else if (m.isLine && m.path?.length > 1) {
+        // Kolla avstånd till linjen
+        distance = distanceToLine(gpsMapPosition, m.path);
+        const lineType = lineTypes.find(t => t.id === m.lineType);
+        type = 'line';
+        icon = m.lineType === 'boundary' ? '🚧' : '━';
+        name = lineType?.name || 'Linje';
       }
       
-      if (pos) {
-        const distance = calculateDistanceMeters(gpsMapPosition, pos);
-        if (distance <= WARNING_DISTANCE) {
-          warnings.push({
-            id: m.id,
-            type,
-            icon,
-            name,
-            distance: Math.round(distance),
-            comment: m.comment,
-            photoData: m.photoData,
-            marker: m,
-          });
-        }
+      if (distance !== null && distance <= WARNING_DISTANCE) {
+        warnings.push({
+          id: m.id,
+          type,
+          icon,
+          name,
+          distance: Math.round(distance),
+          comment: m.comment,
+          photoData: m.photoData,
+          marker: m,
+        });
       }
     });
     
@@ -1406,6 +1541,11 @@ export default function PlannerPage() {
       color: colors.text,
       overflow: 'hidden',
       position: 'relative',
+      // Blockera textmarkering och kopiera-meny
+      WebkitUserSelect: 'none',
+      userSelect: 'none',
+      WebkitTouchCallout: 'none',
+      WebkitTapHighlightColor: 'transparent',
     }}>
       
       {/* === HEADER === */}
@@ -2739,7 +2879,7 @@ export default function PlannerPage() {
           bottom: menuHeight + 130,
           left: '50%',
           transform: 'translateX(-50%)',
-          background: lineTypes.find(t => t.id === gpsLineType)?.color || colors.blue,
+          background: gpsPaused ? colors.orange : lineTypes.find(t => t.id === gpsLineType)?.color || colors.blue,
           padding: '14px 24px',
           borderRadius: '20px',
           display: 'flex',
@@ -2758,12 +2898,30 @@ export default function PlannerPage() {
             <span style={{ 
               width: '10px', 
               height: '10px', 
-              borderRadius: '50%', 
+              borderRadius: gpsPaused ? '2px' : '50%', 
               background: '#fff',
-              animation: 'pulse 1s infinite',
+              animation: gpsPaused ? 'none' : 'pulse 1s infinite',
             }} />
-            Spårar {lineTypes.find(t => t.id === gpsLineType)?.name} ({gpsPath.length} punkter)
+            {gpsPaused ? 'Pausad' : `Spårar ${lineTypes.find(t => t.id === gpsLineType)?.name}`} ({gpsPath.length} punkter)
           </span>
+          <button
+            onClick={toggleGpsPause}
+            style={{
+              padding: '8px 14px',
+              borderRadius: '10px',
+              border: 'none',
+              background: gpsPaused ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)',
+              color: '#fff',
+              fontWeight: '600',
+              fontSize: '12px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+          >
+            {gpsPaused ? '▶' : '⏸'} {gpsPaused ? 'Fortsätt' : 'Paus'}
+          </button>
           <button
             onClick={() => stopGpsTracking(false)}
             style={{
