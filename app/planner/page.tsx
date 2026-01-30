@@ -64,6 +64,69 @@ export default function PlannerPage() {
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [markerMenuOpen, setMarkerMenuOpen] = useState<string | null>(null);
   
+  // === KARTA ===
+  const [screenSize, setScreenSize] = useState({ width: 800, height: 600 });
+  const [mapCenter, setMapCenter] = useState({ lat: 57.1052, lng: 14.8261 }); // Stenshult ungefär
+  const [mapZoom, setMapZoom] = useState(16);
+  const [showMap, setShowMap] = useState(true);
+  const [mapType, setMapType] = useState<'osm' | 'satellite'>('osm');
+  
+  // Hämta skärmstorlek på klienten
+  useEffect(() => {
+    setScreenSize({ width: window.innerWidth, height: window.innerHeight });
+    const handleResize = () => setScreenSize({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+  
+  // === DEBUG-LÄGE ===
+  const [debugMode, setDebugMode] = useState(false);
+  const [debugTapCount, setDebugTapCount] = useState(0);
+  const debugTapTimeout = useRef<NodeJS.Timeout | null>(null);
+  const [debugWalking, setDebugWalking] = useState(false);
+  const [debugWalkDirection, setDebugWalkDirection] = useState(0); // grader
+  const [debugWalkSpeed, setDebugWalkSpeed] = useState(5); // pixlar per uppdatering
+  const debugWalkInterval = useRef<NodeJS.Timeout | null>(null);
+  
+  // Hantera debug-tap (5 snabba tryck i övre vänstra hörnet)
+  const handleDebugTap = () => {
+    const newCount = debugTapCount + 1;
+    
+    if (newCount >= 5) {
+      setDebugMode(d => !d);
+      setDebugTapCount(0);
+    } else {
+      setDebugTapCount(newCount);
+    }
+    
+    if (debugTapTimeout.current) clearTimeout(debugTapTimeout.current);
+    debugTapTimeout.current = setTimeout(() => setDebugTapCount(0), 1500);
+  };
+  
+  // Starta/stoppa simulerad gång
+  const startDebugWalk = () => {
+    if (debugWalkInterval.current) clearInterval(debugWalkInterval.current);
+    setDebugWalking(true);
+    debugWalkInterval.current = setInterval(() => {
+      const radians = debugWalkDirection * Math.PI / 180;
+      const dx = Math.sin(radians) * debugWalkSpeed;
+      const dy = -Math.cos(radians) * debugWalkSpeed;
+      setGpsMapPosition(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+      gpsMapPositionRef.current = { x: gpsMapPositionRef.current.x + dx, y: gpsMapPositionRef.current.y + dy };
+    }, 200);
+  };
+  
+  const stopDebugWalk = () => {
+    if (debugWalkInterval.current) clearInterval(debugWalkInterval.current);
+    setDebugWalking(false);
+  };
+  
+  // Flytta GPS manuellt
+  const moveDebugGps = (dx: number, dy: number) => {
+    setGpsMapPosition(prev => ({ x: prev.x + dx, y: prev.y + dy }));
+    gpsMapPositionRef.current = { x: gpsMapPositionRef.current.x + dx, y: gpsMapPositionRef.current.y + dy };
+  };
+
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
   const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<string[]>([]); // IDs av kvitterade
@@ -167,6 +230,12 @@ export default function PlannerPage() {
   const [menuTab, setMenuTab] = useState('symbols'); // symbols, lines, zones, arrows, settings
   const [subMenu, setSubMenu] = useState<string | null>(null); // För meny-i-meny
   const [menuHeight, setMenuHeight] = useState(0); // 0 = stängd, 300 = öppen, 600 = full
+  const [activeCategory, setActiveCategory] = useState<string | null>(null); // Ny fullskärmsmeny
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  const [detectedColor, setDetectedColor] = useState<any>(null);
+  const [selectedVagType, setSelectedVagType] = useState('stickvag');
+  const [selectedVagColor, setSelectedVagColor] = useState<any>(null);
   
   // Rita
   const [isDrawMode, setIsDrawMode] = useState(false);
@@ -252,6 +321,16 @@ export default function PlannerPage() {
     setPan({ x: newPanX, y: newPanY });
   };
   
+  // Beräkna begränsad storlek för symboler (så de inte blir enorma vid inzoomning)
+  const getConstrainedSize = (baseSize: number) => {
+    // När zoom ökar, minska storleken så visuell storlek förblir ~konstant
+    // Min: 50% av basStorlek vid utzoom, Max: 100% av basStorlek vid inzoom
+    const scaledSize = baseSize / zoom;
+    const minSize = baseSize * 0.5;
+    const maxSize = baseSize;
+    return Math.max(minSize, Math.min(maxSize, scaledSize));
+  };
+
   // Centrera på GPS-position
   const centerOnMe = () => {
     // Sätt zoom till en bekväm nivå
@@ -363,55 +442,259 @@ export default function PlannerPage() {
   };
 
   // Symboler grupperade för skogsbruk
+  // === SVG IKONER (Tesla-stil) ===
+  const renderIcon = (iconId: string, size: number = 24, color: string = '#fff') => {
+    const icons: Record<string, any> = {
+      // NATURVÅRD
+      'eternitytree': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3 Q4 6 4 12 Q4 16 12 16 Q20 16 20 12 Q20 6 12 3Z" />
+          <line x1="12" y1="16" x2="12" y2="22" />
+          <path d="M9 22 Q12 20 15 22" />
+        </svg>
+      ),
+      'naturecorner': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="8" cy="10" r="4" />
+          <circle cx="16" cy="10" r="4" />
+          <circle cx="12" cy="7" r="3" />
+          <path d="M3 20 Q12 16 21 20" />
+          <line x1="8" y1="14" x2="8" y2="17" />
+          <line x1="16" y1="14" x2="16" y2="17" />
+        </svg>
+      ),
+      // KULTUR
+      'culturemonument': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <text x="12" y="17" textAnchor="middle" fontSize="16" fontWeight="bold" fontFamily="Arial, sans-serif" fill={color}>R</text>
+        </svg>
+      ),
+      'culturestump': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 22 L8 14 Q8 11 12 11 Q16 11 16 14 L16 22" />
+          <path d="M8 14 Q10 10 12 12 Q14 10 16 14" />
+          <text x="12" y="19" textAnchor="middle" fontSize="7" fontWeight="bold" fontFamily="Arial, sans-serif" fill={color} stroke="none">R</text>
+        </svg>
+      ),
+      // AVVERKNING
+      'highstump': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 22 L9 8 Q9 5 12 5 Q15 5 15 8 L15 22" />
+          <path d="M9 8 L8 4 L10 6 L12 3 L14 6 L16 4 L15 8" />
+          <line x1="5" y1="22" x2="5" y2="10" strokeDasharray="3,3" strokeWidth="1.5" />
+          <path d="M4 10 L6 10" strokeWidth="1.5" />
+          <path d="M4 22 L6 22" strokeWidth="1.5" />
+        </svg>
+      ),
+      'landing': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <ellipse cx="6" cy="18" rx="4" ry="2" />
+          <ellipse cx="14" cy="18" rx="4" ry="2" />
+          <ellipse cx="18" cy="18" rx="4" ry="2" />
+          <ellipse cx="10" cy="13" rx="4" ry="2" />
+          <ellipse cx="14" cy="13" rx="4" ry="2" />
+          <ellipse cx="12" cy="8" rx="4" ry="2" />
+        </svg>
+      ),
+      'brashpile': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 20 Q4 14 8 12 Q6 10 8 8 Q10 6 12 8 Q14 6 16 8 Q18 10 16 12 Q20 14 20 20 Z" />
+          <line x1="10" y1="10" x2="8" y2="5" />
+          <line x1="14" y1="10" x2="16" y2="4" />
+          <line x1="12" y1="12" x2="12" y2="6" />
+        </svg>
+      ),
+      'windfall': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 17 L5 14 L4 12 L6 13 L5 10" />
+          <line x1="5" y1="15" x2="21" y2="9" strokeWidth="3" />
+          <path d="M9 14 L7 18" />
+          <path d="M13 12 L11 17" />
+          <path d="M17 10 L15 15" />
+        </svg>
+      ),
+      'manualfelling': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+          <line x1="5" y1="22" x2="13" y2="9" stroke={color} strokeWidth="3.5" strokeLinecap="round" />
+          <path d="M11 11 L13 6 Q19 3 18 8 Q20 10 17 12 L13 10 Z" fill={color} stroke={color} strokeWidth="1" strokeLinejoin="round" />
+        </svg>
+      ),
+      // INFRASTRUKTUR
+      'powerline': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+          <path d="M13 2 L3 14 L10 14 L10 22 L21 10 L14 10 Z" />
+        </svg>
+      ),
+      'road': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M8 22 L11 2" />
+          <path d="M16 22 L13 2" />
+          <line x1="12" y1="20" x2="12" y2="15" strokeWidth="2.5" />
+          <line x1="12" y1="12" x2="12" y2="7" strokeWidth="2.5" />
+          <line x1="12" y1="5" x2="12" y2="2" strokeWidth="2.5" />
+        </svg>
+      ),
+      'turningpoint': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="7" />
+          <path d="M12 5 A7 7 0 1 1 5 12" strokeWidth="2.5" />
+          <path d="M5 8 L5 12 L9 12" strokeWidth="2" />
+        </svg>
+      ),
+      // TERRÄNG
+      'ditch': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 8 L8 16 L16 16 L22 8" />
+          <path d="M9 14 Q12 12 15 14" />
+          <line x1="2" y1="8" x2="2" y2="5" />
+          <line x1="22" y1="8" x2="22" y2="5" />
+        </svg>
+      ),
+      'bridge': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M2 17 L6 22 L18 22 L22 17" />
+          <path d="M8 20 Q12 18 16 20" />
+          <rect x="4" y="11" width="16" height="4" rx="1" fill={color} stroke="none" />
+          <line x1="6" y1="15" x2="6" y2="19" strokeWidth="2.5" />
+          <line x1="18" y1="15" x2="18" y2="19" strokeWidth="2.5" />
+        </svg>
+      ),
+      'corduroy': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="3" y1="8" x2="21" y2="8" strokeWidth="3.5" />
+          <line x1="3" y1="12" x2="21" y2="12" strokeWidth="3.5" />
+          <line x1="3" y1="16" x2="21" y2="16" strokeWidth="3.5" />
+          <path d="M12 3 L12 5 M10 4 L12 2 L14 4" strokeWidth="1.5" />
+          <path d="M12 21 L12 19 M10 20 L12 22 L14 20" strokeWidth="1.5" />
+        </svg>
+      ),
+      'wet': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3 Q7 10 7 14 Q7 19 12 19 Q17 19 17 14 Q17 10 12 3Z" />
+          <path d="M3 22 Q7 19 11 22 Q15 25 19 22" />
+        </svg>
+      ),
+      'steep': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 20 L12 5 L21 20 Z" />
+          <line x1="7" y1="16" x2="17" y2="16" />
+          <line x1="9" y1="12" x2="15" y2="12" />
+        </svg>
+      ),
+      'trail': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+          <ellipse cx="6" cy="19" rx="2.2" ry="3.5" />
+          <ellipse cx="4.5" cy="14.5" rx="0.9" ry="1.1" />
+          <ellipse cx="5.8" cy="14" rx="0.8" ry="1" />
+          <ellipse cx="7" cy="14.2" rx="0.7" ry="0.9" />
+          <ellipse cx="8" cy="14.8" rx="0.6" ry="0.8" />
+          <ellipse cx="14" cy="12" rx="2.2" ry="3.5" />
+          <ellipse cx="12.5" cy="7.5" rx="0.9" ry="1.1" />
+          <ellipse cx="13.8" cy="7" rx="0.8" ry="1" />
+          <ellipse cx="15" cy="7.2" rx="0.7" ry="0.9" />
+          <ellipse cx="16" cy="7.8" rx="0.6" ry="0.8" />
+          <ellipse cx="20" cy="5" rx="1.8" ry="2.8" />
+          <ellipse cx="18.8" cy="1.8" rx="0.7" ry="0.8" />
+          <ellipse cx="19.8" cy="1.5" rx="0.6" ry="0.7" />
+        </svg>
+      ),
+      // ÖVRIGT
+      'warning': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 3 L22 21 L2 21 Z" />
+          <line x1="12" y1="9" x2="12" y2="14" strokeWidth="2.5" />
+          <circle cx="12" cy="17" r="1.2" fill={color} />
+        </svg>
+      ),
+      // PILAR
+      'fellingdirection': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="12" y1="20" x2="12" y2="6" />
+          <path d="M6 12 L12 4 L18 12" />
+        </svg>
+      ),
+      'drivedirection': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="4" y1="12" x2="18" y2="12" />
+          <path d="M12 6 L20 12 L12 18" />
+        </svg>
+      ),
+    };
+    return icons[iconId] || (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5">
+        <circle cx="12" cy="12" r="8" />
+        <circle cx="12" cy="12" r="3" fill={color} />
+      </svg>
+    );
+  };
+
+  // Bakgrundsfärg för ikoner
+  const getIconBackground = (symbolId: string): string => {
+    const greenIcons = ['eternitytree', 'naturecorner'];
+    const orangeIcons = ['culturemonument', 'culturestump'];
+    if (greenIcons.includes(symbolId)) return '#22c55e';
+    if (orangeIcons.includes(symbolId)) return '#f59e0b';
+    return 'rgba(0,0,0,0.6)';
+  };
+
+  const getIconBorder = (symbolId: string): string => {
+    const greenIcons = ['eternitytree', 'naturecorner'];
+    const orangeIcons = ['culturemonument', 'culturestump'];
+    if (greenIcons.includes(symbolId)) return '#4ade80';
+    if (orangeIcons.includes(symbolId)) return '#fbbf24';
+    return 'rgba(255,255,255,0.15)';
+  };
+
   const symbolCategories = [
     {
-      name: 'Terräng',
+      name: 'Naturvård',
+      bgColor: '#22c55e',
       symbols: [
-        { id: 'wet', name: 'Fuktig mark', icon: '💧' },
-        { id: 'steep', name: 'Brant', icon: '⛰️' },
-        { id: 'windfall', name: 'Vindfällen', icon: '🌪️' },
+        { id: 'eternitytree', name: 'Evighetsträd' },
+        { id: 'naturecorner', name: 'Naturhörna' },
       ]
     },
     {
-      name: 'Infrastruktur',
+      name: 'Kultur',
+      bgColor: '#f59e0b',
       symbols: [
-        { id: 'powerline', name: 'El-ledning', icon: '⚡' },
-        { id: 'ditch', name: 'Dike', icon: '〰️' },
-        { id: 'corduroy', name: 'Kavling', icon: '🪵' },
-        { id: 'bridge', name: 'Bro', icon: '🌉' },
+        { id: 'culturemonument', name: 'Kulturminne' },
+        { id: 'culturestump', name: 'Kulturstubbe' },
       ]
     },
     {
       name: 'Avverkning',
       symbols: [
-        { id: 'brash', name: 'Risa', icon: '🌿' },
-        { id: 'felling', name: 'Fällning', icon: '🪓' },
-        { id: 'highstump', name: 'Högstubbe', icon: '🪵' },
-        { id: 'landing', name: 'Avlägg', icon: '📦' },
+        { id: 'highstump', name: 'Högstubbe' },
+        { id: 'landing', name: 'Avlägg' },
+        { id: 'brashpile', name: 'Rishög' },
+        { id: 'windfall', name: 'Vindfälle' },
+        { id: 'manualfelling', name: 'Manuell fällning' },
       ]
     },
     {
-      name: 'Naturvård',
+      name: 'Infrastruktur',
       symbols: [
-        { id: 'eternitytree', name: 'Evighetsträd', icon: '🌲' },
-        { id: 'culturestump', name: 'Kulturstubbe', icon: '🪨' },
-        { id: 'deadwood', name: 'Död ved', icon: '🪵' },
+        { id: 'powerline', name: 'El-ledning' },
+        { id: 'road', name: 'Väg' },
+        { id: 'turningpoint', name: 'Vändplats' },
       ]
     },
     {
-      name: 'Kulturminnen',
+      name: 'Terräng',
       symbols: [
-        { id: 'cairn', name: 'Odlingsröse', icon: '🪨' },
-        { id: 'tarpot', name: 'Tjärdal', icon: '⚫' },
-        { id: 'ruin', name: 'Ruin/Grund', icon: '🏚️' },
+        { id: 'ditch', name: 'Dike' },
+        { id: 'bridge', name: 'Bro' },
+        { id: 'corduroy', name: 'Kavling' },
+        { id: 'wet', name: 'Fuktig mark' },
+        { id: 'steep', name: 'Brant' },
+        { id: 'trail', name: 'Stig / Led' },
       ]
     },
     {
       name: 'Övrigt',
       symbols: [
-        { id: 'general', name: 'Allmän', icon: '📍' },
-        { id: 'warning', name: 'Varning', icon: '⚠️' },
-        { id: 'start', name: 'Startpunkt', icon: '▶️' },
+        { id: 'warning', name: 'Varning' },
       ]
     },
   ];
@@ -428,21 +711,48 @@ export default function PlannerPage() {
     { id: 'sideRoadRed', name: 'Stickväg Röd', color: '#ef4444', striped: false },
     { id: 'sideRoadYellow', name: 'Stickväg Gul', color: '#fbbf24', striped: false },
     { id: 'sideRoadBlue', name: 'Stickväg Blå', color: '#3b82f6', striped: false },
+    { id: 'stickvag', name: 'Test-stickväg', color: '#ff00ff', striped: false },
     { id: 'nature', name: 'Naturvård', color: '#22c55e', color2: '#ef4444', striped: true },
     { id: 'ditch', name: 'Dike', color: '#06b6d4', color2: '#0e7490', striped: true },
+    { id: 'trail', name: 'Stig/Led', color: '#ffffff', striped: false, dashed: true },
   ];
 
   const zoneTypes = [
-    { id: 'wet', name: 'Blött', color: '#3b82f6', icon: '💧' },
-    { id: 'steep', name: 'Brant', color: '#f59e0b', icon: '⛰️' },
-    { id: 'protected', name: 'Naturvård', color: '#22c55e', icon: '🌳' },
-    { id: 'culture', name: 'Kulturmiljö', color: '#a855f7', icon: '🏛️' },
-    { id: 'noentry', name: 'Ej framkomlig', color: '#ef4444', icon: '🚫' },
+    { id: 'wet', name: 'Blött', color: '#3b82f6', icon: 'wet' },
+    { id: 'steep', name: 'Brant', color: '#f59e0b', icon: 'steep' },
+    { id: 'protected', name: 'Naturvård', color: '#22c55e', icon: 'naturecorner' },
+    { id: 'culture', name: 'Kulturmiljö', color: '#a855f7', icon: 'culturemonument' },
+    { id: 'noentry', name: 'Ej framkomlig', color: '#ef4444', icon: 'warning' },
   ];
 
   const arrowTypes = [
-    { id: 'felling', name: 'Fällriktning', color: '#22c55e', icon: '🌲' },
-    { id: 'drive', name: 'Körriktning', color: '#3b82f6', icon: '🚜' },
+    { id: 'fellingdirection', name: 'Fällriktning', color: '#22c55e' },
+    { id: 'drivedirection', name: 'Körriktning', color: '#3b82f6' },
+  ];
+
+  // Färger för stickvägar/backvägar (Gallring)
+  const vagColors = [
+    { id: 'rod', name: 'Röd', color: '#ef4444' },
+    { id: 'gul', name: 'Gul', color: '#fbbf24' },
+    { id: 'bla', name: 'Blå', color: '#3b82f6' },
+    { id: 'gron', name: 'Grön', color: '#22c55e' },
+    { id: 'orange', name: 'Orange', color: '#f97316' },
+    { id: 'vit', name: 'Vit', color: '#ffffff' },
+    { id: 'svart', name: 'Svart', color: '#1f2937' },
+    { id: 'rosa', name: 'Rosa', color: '#ec4899' },
+  ];
+
+  // Meny-kategorier för fullskärmsmenyn
+  const menuCategories = [
+    { id: 'symbols', name: 'SYMBOLER', color: '#6b7280' },
+    { id: 'lines', name: 'LINJER', color: '#3b82f6' },
+    { id: 'zones', name: 'ZONER', color: '#8b5cf6' },
+    { id: 'arrows', name: 'PILAR', color: '#f59e0b' },
+    { id: 'measure', name: 'MÄTNING', color: '#06b6d4' },
+    { id: 'gallring', name: 'GALLRING', color: '#22c55e' },
+    { id: 'checklist', name: 'CHECKLISTA', color: '#10b981' },
+    { id: 'prognos', name: 'PROGNOS', color: '#f97316' },
+    { id: 'settings', name: 'INSTÄLLN.', color: '#64748b' },
   ];
 
   // === GPS ===
@@ -508,7 +818,7 @@ export default function PlannerPage() {
   const findNearestStickvag = () => {
     const stickvägar = markers.filter(m => 
       m.isLine && 
-      ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType) &&
+      (m.lineType === 'stickvag' || ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')) &&
       m.path && m.path.length > 1
     );
     
@@ -518,7 +828,7 @@ export default function PlannerPage() {
     let minDistance = Infinity;
     
     stickvägar.forEach(road => {
-      const result = getDistanceToPath(gpsMapPositionRef.current, road.path);
+      const result = getDistanceToPath(gpsMapPositionRef.current, road.path!);
       if (result.distance < minDistance) {
         minDistance = result.distance;
         nearestRoad = road;
@@ -1593,6 +1903,13 @@ export default function PlannerPage() {
           <path d={d} fill="none" stroke={type.color2} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="20,20" />
         </g>
       );
+    } else if (type.dashed) {
+      // Streckad linje (t.ex. Stig/Led)
+      return (
+        <g key={`line-${path[0]?.x}-${path[0]?.y}-${typeId}`}>
+          <path d={d} fill="none" stroke={type.color} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="15,10" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }} />
+        </g>
+      );
     } else {
       return (
         <g key={`line-${path[0]?.x}-${path[0]?.y}-${typeId}`}>
@@ -1618,6 +1935,13 @@ export default function PlannerPage() {
     const opacity = getMarkerOpacity({ x: centerX, y: centerY, id: marker.id });
     const isAcknowledged = acknowledgedWarnings.includes(marker.id);
     
+    // Begränsad storlek för zon-ikoner
+    const iconRadius = getConstrainedSize(18);
+    const iconFontSize = getConstrainedSize(16);
+    const ringRadius = getConstrainedSize(26);
+    const strokeW = getConstrainedSize(3);
+    const borderWidth = getConstrainedSize(4);
+    
     return (
       <g key={`zone-${marker.id}`} style={{ opacity: opacity, transition: 'opacity 0.3s ease' }}>
         {/* Fyllning */}
@@ -1632,7 +1956,7 @@ export default function PlannerPage() {
           d={d} 
           fill="none" 
           stroke={zone.color} 
-          strokeWidth={4}
+          strokeWidth={borderWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
           style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }}
@@ -1641,20 +1965,20 @@ export default function PlannerPage() {
           d={d} 
           fill="none" 
           stroke="#fff" 
-          strokeWidth={4}
+          strokeWidth={borderWidth}
           strokeLinecap="round"
           strokeLinejoin="round"
           strokeDasharray="12,12"
         />
         {/* Grön ring om kvitterad */}
         {isAcknowledged && drivingMode && (
-          <circle cx={centerX} cy={centerY} r={26} fill="none" stroke="#22c55e" strokeWidth={3} />
+          <circle cx={centerX} cy={centerY} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={strokeW} />
         )}
         {/* Ikon i mitten */}
-        <circle cx={centerX} cy={centerY} r={18} fill="rgba(0,0,0,0.7)" stroke={zone.color} strokeWidth={2} />
-        <text x={centerX} y={centerY} textAnchor="middle" dominantBaseline="central" fontSize="16" style={{ pointerEvents: 'none' }}>
-          {zone.icon}
-        </text>
+        <circle cx={centerX} cy={centerY} r={iconRadius} fill="rgba(0,0,0,0.7)" stroke={zone.color} strokeWidth={getConstrainedSize(2)} />
+        <g transform={`translate(${centerX - iconFontSize/2}, ${centerY - iconFontSize/2})`} style={{ pointerEvents: 'none' }}>
+          {renderIcon(zone.icon, iconFontSize, '#fff')}
+        </g>
       </g>
     );
   };
@@ -1746,6 +2070,95 @@ export default function PlannerPage() {
         </div>
       </div>
 
+      {/* === KARTBAKGRUND MED TILES === */}
+      {showMap && screenSize.width > 0 && (
+        <div 
+          style={{ 
+            position: 'absolute', 
+            inset: 0, 
+            zIndex: 0,
+            overflow: 'hidden',
+            background: '#e8e4d9',
+            pointerEvents: 'none',
+          }}
+        >
+          {(() => {
+            const tileSize = 256;
+            const lat = mapCenter.lat;
+            const lng = mapCenter.lng;
+            const z = mapZoom;
+            
+            // Konvertera lat/lng till tile-koordinater
+            const n = Math.pow(2, z);
+            const centerTileX = Math.floor((lng + 180) / 360 * n);
+            const latRad = lat * Math.PI / 180;
+            const centerTileY = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+            
+            // Beräkna pixel-offset inom tile
+            const tileXFloat = (lng + 180) / 360 * n;
+            const tileYFloat = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
+            const offsetX = (tileXFloat - centerTileX) * tileSize;
+            const offsetY = (tileYFloat - centerTileY) * tileSize;
+            
+            // Beräkna hur många tiles vi behöver
+            const tilesNeededX = Math.ceil(screenSize.width / tileSize / zoom) + 4;
+            const tilesNeededY = Math.ceil(screenSize.height / tileSize / zoom) + 4;
+            const tilesAround = Math.max(tilesNeededX, tilesNeededY, 8);
+            
+            const tiles: any[] = [];
+            
+            // Basposition för tiles (i SVG-koordinater, dvs före zoom/pan transform)
+            // Vi placerar tiles så att kartan centreras vid (0,0) i SVG-koordinater
+            const basePosX = -offsetX;
+            const basePosY = -offsetY;
+            
+            for (let dx = -tilesAround; dx <= tilesAround; dx++) {
+              for (let dy = -tilesAround; dy <= tilesAround; dy++) {
+                const tileX = centerTileX + dx;
+                const tileY = centerTileY + dy;
+                
+                // Position i "SVG-koordinater" (samma som ritningarna)
+                const svgX = basePosX + dx * tileSize;
+                const svgY = basePosY + dy * tileSize;
+                
+                // Applicera samma transform som SVG: pan + scale
+                const screenX = pan.x + svgX * zoom;
+                const screenY = pan.y + svgY * zoom;
+                
+                // Hoppa över tiles som är utanför skärmen
+                const scaledSize = tileSize * zoom;
+                if (screenX < -scaledSize * 2 || screenX > screenSize.width + scaledSize) continue;
+                if (screenY < -scaledSize * 2 || screenY > screenSize.height + scaledSize) continue;
+                
+                const url = mapType === 'satellite'
+                  ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${tileY}/${tileX}`
+                  : `https://tile.openstreetmap.org/${z}/${tileX}/${tileY}.png`;
+                
+                tiles.push(
+                  <img
+                    key={`tile-${tileX}-${tileY}-${z}`}
+                    src={url}
+                    alt=""
+                    crossOrigin="anonymous"
+                    style={{
+                      position: 'absolute',
+                      left: screenX,
+                      top: screenY,
+                      width: tileSize * zoom,
+                      height: tileSize * zoom,
+                    }}
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.opacity = '0.3';
+                    }}
+                  />
+                );
+              }
+            }
+            return tiles;
+          })()}
+        </div>
+      )}
+
       {/* === KARTA === */}
       <svg 
         style={{ 
@@ -1753,8 +2166,8 @@ export default function PlannerPage() {
           inset: 0, 
           width: '100%', 
           height: '100%',
-          touchAction: 'none', // Förhindra browser-zoom
-          background: `
+          touchAction: 'none',
+          background: showMap ? 'transparent' : `
             radial-gradient(ellipse at 30% 40%, rgba(52, 199, 89, 0.15) 0%, transparent 50%),
             radial-gradient(ellipse at 70% 60%, rgba(10, 132, 255, 0.2) 0%, transparent 45%),
             radial-gradient(ellipse at 50% 80%, rgba(10, 132, 255, 0.25) 0%, transparent 40%),
@@ -1984,21 +2397,27 @@ export default function PlannerPage() {
             const midIndex = Math.floor(m.path.length / 2);
             const midPoint = m.path[midIndex];
             const length = calculateLength(m.path);
+            // Begränsad storlek för mått-labels
+            const labelWidth = getConstrainedSize(60);
+            const labelHeight = getConstrainedSize(20);
+            const labelFontSize = getConstrainedSize(11);
+            const labelRadius = getConstrainedSize(10);
+            const labelOffsetY = getConstrainedSize(25);
             return (
               <g key={`measure-${m.id}`}>
                 <rect
-                  x={midPoint.x - 30}
-                  y={midPoint.y - 25}
-                  width={60}
-                  height={20}
-                  rx={10}
+                  x={midPoint.x - labelWidth/2}
+                  y={midPoint.y - labelOffsetY}
+                  width={labelWidth}
+                  height={labelHeight}
+                  rx={labelRadius}
                   fill="rgba(0,0,0,0.8)"
                 />
                 <text
                   x={midPoint.x}
-                  y={midPoint.y - 12}
+                  y={midPoint.y - labelOffsetY + labelHeight/2 + 1}
                   textAnchor="middle"
-                  fontSize="11"
+                  fontSize={labelFontSize}
                   fontWeight="600"
                   fill="#fff"
                   style={{ pointerEvents: 'none' }}
@@ -2029,6 +2448,18 @@ export default function PlannerPage() {
             const isDragging = draggingMarker === m.id;
             const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
             const isAcknowledged = acknowledgedWarnings.includes(m.id);
+            // Begränsad storlek - så symboler inte blir enorma vid inzoomning
+            const symbolRadius = getConstrainedSize(isDragging && hasMoved ? 26 : 22);
+            const iconSize = getConstrainedSize(isDragging && hasMoved ? 24 : 20);
+            const photoRadius = getConstrainedSize(10);
+            const photoOffset = getConstrainedSize(16);
+            const photoFontSize = getConstrainedSize(10);
+            const ringRadius = getConstrainedSize(30);
+            const strokeW = getConstrainedSize(3);
+            const bgColor = getIconBackground(m.type || '');
+            const borderColor = getIconBorder(m.type || '');
+            // Mörkare bakgrund för bättre kontrast (0.9 istället för 0.6)
+            const darkBg = bgColor === 'rgba(0,0,0,0.6)' ? 'rgba(0,0,0,0.9)' : bgColor;
             return (
               <g 
                 key={m.id} 
@@ -2042,29 +2473,37 @@ export default function PlannerPage() {
               >
                 {/* Skugga när man drar */}
                 {isDragging && hasMoved && (
-                  <circle cx={m.x} cy={m.y + 4} r={26} fill="rgba(0,0,0,0.3)" />
+                  <circle cx={m.x} cy={m.y + 4} r={symbolRadius} fill="rgba(0,0,0,0.3)" />
                 )}
                 {/* Grön ring om kvitterad */}
                 {isAcknowledged && drivingMode && (
-                  <circle cx={m.x} cy={m.y} r={30} fill="none" stroke="#22c55e" strokeWidth={3} />
+                  <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={strokeW} />
                 )}
+                {/* Bakgrundscirkel med kant */}
                 <circle 
                   cx={m.x} 
                   cy={m.y} 
-                  r={isDragging && hasMoved ? 26 : 22} 
-                  fill={isDragging && hasMoved ? colors.blue : isMenuOpen ? 'rgba(10,132,255,0.3)' : 'rgba(0,0,0,0.5)'} 
-                  stroke={isDragging && hasMoved ? '#fff' : isMenuOpen ? colors.blue : 'transparent'} 
-                  strokeWidth={2}
+                  r={symbolRadius} 
+                  fill={isDragging && hasMoved ? colors.blue : isMenuOpen ? 'rgba(10,132,255,0.3)' : darkBg} 
+                  stroke={isDragging && hasMoved ? '#fff' : isMenuOpen ? colors.blue : 'rgba(255,255,255,0.7)'} 
+                  strokeWidth={getConstrainedSize(2)}
                   style={{ transition: isDragging ? 'none' : 'all 0.2s ease' }}
                 />
-                <text x={m.x} y={m.y} textAnchor="middle" dominantBaseline="central" fontSize={isDragging && hasMoved ? '28' : '24'} style={{ pointerEvents: 'none', transition: 'font-size 0.2s ease' }}>
-                  {type?.icon || '📍'}
-                </text>
+                {/* SVG-ikon med glow-effekt */}
+                <g 
+                  transform={`translate(${m.x - iconSize/2}, ${m.y - iconSize/2})`} 
+                  style={{ 
+                    pointerEvents: 'none',
+                    filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.8))',
+                  }}
+                >
+                  {renderIcon(m.type || 'default', iconSize, '#fff')}
+                </g>
                 {/* Foto-indikator */}
                 {m.photoData && (
                   <>
-                    <circle cx={m.x + 16} cy={m.y - 16} r={10} fill="#22c55e" stroke="#fff" strokeWidth={2} />
-                    <text x={m.x + 16} y={m.y - 16} textAnchor="middle" dominantBaseline="central" fontSize="10" style={{ pointerEvents: 'none' }}>
+                    <circle cx={m.x + photoOffset} cy={m.y - photoOffset} r={photoRadius} fill="#22c55e" stroke="#fff" strokeWidth={getConstrainedSize(2)} />
+                    <text x={m.x + photoOffset} y={m.y - photoOffset} textAnchor="middle" dominantBaseline="central" fontSize={photoFontSize} style={{ pointerEvents: 'none' }}>
                       📷
                     </text>
                   </>
@@ -2079,14 +2518,20 @@ export default function PlannerPage() {
             const isDragging = draggingMarker === m.id;
             const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
             const isAcknowledged = acknowledgedWarnings.includes(m.id);
+            // Begränsad storlek för pilar
+            const arrowScale = getConstrainedSize(1);
+            const ringRadius = getConstrainedSize(30);
+            const photoRadius = getConstrainedSize(10);
+            const photoOffset = getConstrainedSize(18);
+            const photoFontSize = getConstrainedSize(10);
             return (
               <g key={m.id} style={{ opacity: opacity, transition: 'opacity 0.3s ease' }}>
                 {/* Grön ring om kvitterad */}
                 {isAcknowledged && drivingMode && (
-                  <circle cx={m.x} cy={m.y} r={30} fill="none" stroke="#22c55e" strokeWidth={3} />
+                  <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={getConstrainedSize(3)} />
                 )}
                 <g 
-                  transform={`translate(${m.x}, ${m.y}) rotate(${m.rotation || 0})`}
+                  transform={`translate(${m.x}, ${m.y}) rotate(${m.rotation || 0}) scale(${arrowScale})`}
                   onMouseDown={(e) => handleMarkerDragStart(e, m)}
                   onTouchStart={(e) => handleMarkerDragStart(e, m)}
                   style={{ cursor: isDragging ? 'grabbing' : 'pointer' }}
@@ -2113,8 +2558,8 @@ export default function PlannerPage() {
                 {/* Foto-indikator (utanför rotation) */}
                 {m.photoData && (
                   <>
-                    <circle cx={m.x + 18} cy={m.y - 18} r={10} fill="#22c55e" stroke="#fff" strokeWidth={2} />
-                    <text x={m.x + 18} y={m.y - 18} textAnchor="middle" dominantBaseline="central" fontSize="10" style={{ pointerEvents: 'none' }}>
+                    <circle cx={m.x + photoOffset} cy={m.y - photoOffset} r={photoRadius} fill="#22c55e" stroke="#fff" strokeWidth={getConstrainedSize(2)} />
+                    <text x={m.x + photoOffset} y={m.y - photoOffset} textAnchor="middle" dominantBaseline="central" fontSize={photoFontSize} style={{ pointerEvents: 'none' }}>
                       📷
                     </text>
                   </>
@@ -2160,37 +2605,43 @@ export default function PlannerPage() {
           )}
 
           {/* GPS position med ljuskägla */}
-          {isTracking && currentPosition && (
+          {(isTracking || debugMode) && (
             <g>
               {/* Ljuskägla - visar riktning när kompass är på */}
-              {compassMode && (
-                <path
-                  d={`M ${gpsMapPosition.x} ${gpsMapPosition.y} 
-                      L ${gpsMapPosition.x + Math.sin((deviceHeading - 30) * Math.PI / 180) * 80} ${gpsMapPosition.y - Math.cos((deviceHeading - 30) * Math.PI / 180) * 80}
-                      A 80 80 0 0 1 ${gpsMapPosition.x + Math.sin((deviceHeading + 30) * Math.PI / 180) * 80} ${gpsMapPosition.y - Math.cos((deviceHeading + 30) * Math.PI / 180) * 80}
-                      Z`}
-                  fill="url(#viewConeGradient)"
-                  opacity={0.6}
-                />
-              )}
-              {/* GPS-prick */}
+              {compassMode && isTracking && (() => {
+                const coneRadius = getConstrainedSize(80);
+                return (
+                  <path
+                    d={`M ${gpsMapPosition.x} ${gpsMapPosition.y} 
+                        L ${gpsMapPosition.x + Math.sin((deviceHeading - 30) * Math.PI / 180) * coneRadius} ${gpsMapPosition.y - Math.cos((deviceHeading - 30) * Math.PI / 180) * coneRadius}
+                        A ${coneRadius} ${coneRadius} 0 0 1 ${gpsMapPosition.x + Math.sin((deviceHeading + 30) * Math.PI / 180) * coneRadius} ${gpsMapPosition.y - Math.cos((deviceHeading + 30) * Math.PI / 180) * coneRadius}
+                        Z`}
+                    fill="url(#viewConeGradient)"
+                    opacity={0.6}
+                  />
+                );
+              })()}
+              {/* GPS-prick - begränsad storlek */}
               <circle 
-                cx={gpsMapPosition.x} cy={gpsMapPosition.y} r={12} 
+                cx={gpsMapPosition.x} cy={gpsMapPosition.y} r={getConstrainedSize(12)} 
                 fill={colors.blue} 
                 stroke="#fff" 
-                strokeWidth={3}
+                strokeWidth={getConstrainedSize(3)}
                 style={{ animation: 'pulse 1.5s infinite' }}
               />
               {/* Riktningspil när kompass är på */}
-              {compassMode && (
-                <path
-                  d={`M ${gpsMapPosition.x} ${gpsMapPosition.y - 18} 
-                      L ${gpsMapPosition.x - 6} ${gpsMapPosition.y - 8} 
-                      L ${gpsMapPosition.x + 6} ${gpsMapPosition.y - 8} Z`}
-                  fill="#fff"
-                  transform={`rotate(${deviceHeading}, ${gpsMapPosition.x}, ${gpsMapPosition.y})`}
-                />
-              )}
+              {compassMode && (() => {
+                const arrowScale = getConstrainedSize(1);
+                return (
+                  <path
+                    d={`M ${gpsMapPosition.x} ${gpsMapPosition.y - 18 * arrowScale} 
+                        L ${gpsMapPosition.x - 6 * arrowScale} ${gpsMapPosition.y - 8 * arrowScale} 
+                        L ${gpsMapPosition.x + 6 * arrowScale} ${gpsMapPosition.y - 8 * arrowScale} Z`}
+                    fill="#fff"
+                    transform={`rotate(${deviceHeading}, ${gpsMapPosition.x}, ${gpsMapPosition.y})`}
+                  />
+                );
+              })()}
             </g>
           )}
           
@@ -2671,11 +3122,18 @@ export default function PlannerPage() {
           return 'Objekt';
         };
         
-        const getMarkerIcon = () => {
-          if (marker.isMarker) return markerTypes.find(t => t.id === marker.type)?.icon || '📍';
-          if (marker.isZone) return zoneTypes.find(t => t.id === marker.zoneType)?.icon || '⬡';
-          if (marker.isArrow) return arrowTypes.find(t => t.id === marker.arrowType)?.icon || '➡️';
-          return '📍';
+        const getMarkerIconId = () => {
+          if (marker.isMarker) return marker.type || 'default';
+          if (marker.isZone) return zoneTypes.find(t => t.id === marker.zoneType)?.icon || 'default';
+          if (marker.isArrow) return marker.arrowType || 'default';
+          return 'default';
+        };
+
+        const getMarkerBgColor = () => {
+          if (marker.isMarker) return getIconBackground(marker.type || '');
+          if (marker.isZone) return zoneTypes.find(t => t.id === marker.zoneType)?.color || 'rgba(0,0,0,0.6)';
+          if (marker.isArrow) return arrowTypes.find(t => t.id === marker.arrowType)?.color || 'rgba(0,0,0,0.6)';
+          return 'rgba(0,0,0,0.6)';
         };
         
         return (
@@ -2711,7 +3169,18 @@ export default function PlannerPage() {
                 gap: '12px',
                 marginBottom: '20px',
               }}>
-                <span style={{ fontSize: '32px' }}>{getMarkerIcon()}</span>
+                <div style={{
+                  width: '52px',
+                  height: '52px',
+                  background: getMarkerBgColor(),
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: `2px solid ${getIconBorder(marker.type || '')}`,
+                }}>
+                  {renderIcon(getMarkerIconId(), 28, '#fff')}
+                </div>
                 <span style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>{getMarkerName()}</span>
               </div>
               
@@ -3224,1060 +3693,1321 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === BOTTOM SHEET MENY === */}
-      <div style={{
-        position: 'absolute',
-        bottom: 30,
-        left: 0,
-        right: 0,
-        height: menuHeight + 50,
-        background: menuOpen ? '#000' : 'transparent',
-        borderRadius: '24px 24px 0 0',
-        transition: 'height 0.3s ease',
-        zIndex: 200,
-        borderTop: menuOpen ? '1px solid rgba(255,255,255,0.1)' : 'none',
-        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-      }}>
-        {/* Handtag / Pil */}
-        <div 
-          onClick={(e) => {
-            e.stopPropagation();
-            if (menuOpen) {
-              setMenuHeight(0);
-              setMenuOpen(false);
-            } else {
-              openMenu();
-            }
-          }}
-          style={{
-            height: '50px',
-            cursor: 'pointer',
+
+      {/* === FULLSKÄRMSMENY === */}
+      {menuOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: '#0a0a0a',
+          zIndex: 500,
+          display: 'flex',
+          flexDirection: 'column',
+          fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '55px 20px 20px',
+            borderBottom: '1px solid rgba(255,255,255,0.1)',
             display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
             alignItems: 'center',
-            gap: '6px',
-          }}
-        >
-          {/* Gradient-linje när stängd */}
-          {!menuOpen && (
-            <div style={{
-              width: '100%',
-              height: '1px',
-              background: 'linear-gradient(90deg, transparent 10%, rgba(255,255,255,0.25) 50%, transparent 90%)',
-              position: 'absolute',
-              top: 0,
-            }} />
-          )}
-          
-          {menuOpen ? (
-            // Pil ner för att stänga - tydlig
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 9l6 6 6-6" />
-            </svg>
-          ) : (
-            // Pil upp - synlig
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M6 15l6-6 6 6" />
-            </svg>
-          )}
-        </div>
-
-        {/* Meny innehåll */}
-        {menuOpen && (
-          <div style={{ padding: '0 20px', overflow: 'auto', height: menuHeight - 20 }}>
-            
-            {/* Tabs - med ikoner */}
-            <div style={{
-              display: 'flex',
-              gap: '4px',
-              marginBottom: '16px',
-              paddingBottom: '12px',
-              borderBottom: '1px solid rgba(255,255,255,0.1)',
-            }}>
-              {[
-                { id: 'symbols', name: 'Symboler', icon: '📍' },
-                { id: 'lines', name: 'Linjer', icon: '〰️' },
-                { id: 'zones', name: 'Zoner', icon: '⬡' },
-                { id: 'arrows', name: 'Pilar', icon: '➡️' },
-                { id: 'tools', name: 'Verktyg', icon: '⚙️' },
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setMenuTab(tab.id);
-                    setSubMenu(null);
-                  }}
-                  style={{
-                    flex: 1,
-                    padding: '8px 4px',
-                    border: 'none',
-                    background: menuTab === tab.id ? 'rgba(255,255,255,0.1)' : 'transparent',
-                    borderRadius: '10px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '3px',
-                  }}
-                >
-                  <span style={{ fontSize: '16px' }}>{tab.icon}</span>
-                  <span style={{ 
-                    fontSize: '10px', 
-                    color: menuTab === tab.id ? '#fff' : 'rgba(255,255,255,0.4)',
-                    fontWeight: menuTab === tab.id ? '600' : '400',
-                  }}>
-                    {tab.name}
-                  </span>
-                </button>
-              ))}
+            justifyContent: 'space-between',
+          }}>
+            <div 
+              onClick={() => {
+                if (showCamera) {
+                  setShowCamera(false);
+                  setDetectedColor(null);
+                } else if (showColorPicker) {
+                  if (selectedVagColor) {
+                    setSelectedVagColor(null);
+                  } else {
+                    setShowColorPicker(false);
+                  }
+                } else if (subMenu) {
+                  setSubMenu(null);
+                } else if (activeCategory) {
+                  setActiveCategory(null);
+                } else {
+                  setMenuOpen(false);
+                  setMenuHeight(0);
+                }
+              }}
+              style={{
+                width: '44px',
+                height: '44px',
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                fontSize: '20px',
+                color: '#fff',
+              }}
+            >
+              {activeCategory || showCamera || showColorPicker || subMenu ? '←' : '✕'}
             </div>
+            
+            <div style={{ 
+              fontSize: '18px', 
+              fontWeight: '600',
+              flex: 1,
+              textAlign: 'center',
+              color: '#fff',
+            }}>
+              {showCamera ? '📷 Fota snitsel' :
+               showColorPicker && selectedVagColor ? `${selectedVagColor.name} väg` :
+               showColorPicker ? 'Välj färg' :
+               subMenu ? (
+                 activeCategory === 'symbols' ? symbolCategories.find(c => c.name === subMenu)?.name :
+                 subMenu === 'gps-lines' ? '📍 Spåra med GPS' :
+                 subMenu === 'draw-lines' ? '✏️ Rita manuellt' :
+                 subMenu
+               ) :
+               activeCategory ? menuCategories.find(c => c.id === activeCategory)?.name :
+               'Meny'}
+            </div>
+            
+            <div style={{ width: '44px' }} />
+          </div>
 
-            {/* Symboler - meny i meny */}
-            {menuTab === 'symbols' && !subMenu && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {/* Innehåll */}
+          <div style={{ 
+            flex: 1, 
+            overflowY: 'auto',
+            paddingBottom: '30px',
+            color: '#fff',
+          }}>
+            
+            {/* === HUVUDMENY === */}
+            {!activeCategory && (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '16px',
+                padding: '20px',
+              }}>
+                {menuCategories.map(cat => (
+                  <div
+                    key={cat.id}
+                    onClick={() => {
+                      if (cat.id === 'checklist') {
+                        setChecklistOpen(true);
+                        setMenuOpen(false);
+                        setMenuHeight(0);
+                      } else if (cat.id === 'prognos') {
+                        setPrognosOpen(true);
+                        setMenuOpen(false);
+                        setMenuHeight(0);
+                      } else {
+                        setActiveCategory(cat.id);
+                      }
+                    }}
+                    style={{
+                      background: `linear-gradient(135deg, ${cat.color}20 0%, ${cat.color}10 100%)`,
+                      border: `1px solid ${cat.color}40`,
+                      borderRadius: '20px',
+                      padding: '24px 16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <span style={{ fontSize: '36px' }}>{cat.icon}</span>
+                    <span style={{ 
+                      fontSize: '12px', 
+                      fontWeight: '700', 
+                      opacity: 0.9, 
+                      textAlign: 'center',
+                      letterSpacing: '0.5px',
+                    }}>
+                      {cat.name}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* === SYMBOLER === */}
+            {activeCategory === 'symbols' && !subMenu && (
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {symbolCategories.map(category => (
-                  <button
+                  <div
                     key={category.name}
                     onClick={() => setSubMenu(category.name)}
                     style={{
-                      padding: '14px 16px',
                       background: 'rgba(255,255,255,0.06)',
-                      borderRadius: '14px',
-                      border: 'none',
-                      cursor: 'pointer',
+                      borderRadius: '16px',
+                      padding: '18px 20px',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '12px',
+                      gap: '16px',
+                      cursor: 'pointer',
                     }}
                   >
                     <div style={{
-                      width: '44px',
-                      height: '44px',
-                      background: 'rgba(255,255,255,0.08)',
-                      borderRadius: '12px',
+                      width: '52px',
+                      height: '52px',
+                      background: category.bgColor || 'rgba(255,255,255,0.1)',
+                      borderRadius: '50%',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '22px',
+                      border: category.bgColor ? `2px solid ${category.bgColor === '#22c55e' ? '#4ade80' : '#fbbf24'}` : 'none',
                     }}>
-                      {category.symbols[0]?.icon || '📍'}
+                      {renderIcon(category.symbols[0]?.id || 'default', 28, '#fff')}
                     </div>
-                    <div style={{ flex: 1, textAlign: 'left' }}>
-                      <div style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>
-                        {category.name}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
-                        {category.symbols.length} symboler
-                      </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '17px', fontWeight: '600' }}>{category.name}</div>
+                      <div style={{ fontSize: '13px', opacity: 0.5 }}>{category.symbols.length} symboler</div>
                     </div>
-                    <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '20px' }}>›</span>
-                  </button>
+                    <span style={{ opacity: 0.3, fontSize: '24px' }}>›</span>
+                  </div>
                 ))}
               </div>
             )}
 
             {/* Symboler - vald kategori */}
-            {menuTab === 'symbols' && subMenu && (
-              <div>
-                {/* Bakåt-knapp */}
-                <button
-                  onClick={() => setSubMenu(null)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 0',
-                    marginBottom: '12px',
-                    background: 'none',
-                    border: 'none',
-                    color: '#0a84ff',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M15 18l-6-6 6-6" />
-                  </svg>
-                  Tillbaka
-                </button>
-                
-                {/* Kategori-titel */}
-                <div style={{ 
-                  fontSize: '16px', 
-                  fontWeight: '600', 
-                  color: '#fff',
-                  marginBottom: '14px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}>
-                  <span>{symbolCategories.find(c => c.name === subMenu)?.symbols[0]?.icon}</span>
-                  {subMenu}
-                </div>
-                
-                {/* Symbol-grid */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                  {symbolCategories.find(c => c.name === subMenu)?.symbols.map(type => (
-                    <button
+            {activeCategory === 'symbols' && subMenu && (
+              <div style={{ 
+                padding: '20px', 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(3, 1fr)', 
+                gap: '12px' 
+              }}>
+                {symbolCategories.find(c => c.name === subMenu)?.symbols.map(type => {
+                  const bgColor = getIconBackground(type.id);
+                  const borderColor = getIconBorder(type.id);
+                  return (
+                    <div
                       key={type.id}
                       onClick={() => {
                         setSelectedSymbol(type.id);
                         setMenuOpen(false);
                         setMenuHeight(0);
                         setSubMenu(null);
+                        setActiveCategory(null);
                       }}
                       style={{
-                        padding: '14px 8px',
-                        borderRadius: '12px',
-                        border: 'none',
                         background: 'rgba(255,255,255,0.06)',
-                        cursor: 'pointer',
+                        borderRadius: '16px',
+                        padding: '20px 12px',
                         display: 'flex',
                         flexDirection: 'column',
                         alignItems: 'center',
-                        gap: '6px',
+                        gap: '10px',
+                        cursor: 'pointer',
                       }}
                     >
-                      <span style={{ fontSize: '26px' }}>{type.icon}</span>
-                      <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>{type.name}</span>
-                    </button>
-                  ))}
-                </div>
+                      <div style={{
+                        width: '52px',
+                        height: '52px',
+                        background: bgColor,
+                        borderRadius: '50%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        border: `2px solid ${borderColor}`,
+                      }}>
+                        {renderIcon(type.id, 28, '#fff')}
+                      </div>
+                      <span style={{ fontSize: '12px', opacity: 0.8, textAlign: 'center' }}>
+                        {type.name}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
-            {/* Linjer - meny i meny */}
-            {menuTab === 'lines' && !subMenu && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <button
+            {/* === LINJER === */}
+            {activeCategory === 'lines' && !subMenu && (
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div
                   onClick={() => setSubMenu('gps-lines')}
                   style={{
-                    padding: '14px 16px',
                     background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '14px',
-                    border: 'none',
-                    cursor: 'pointer',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '12px',
+                    gap: '16px',
+                    cursor: 'pointer',
                   }}
                 >
                   <div style={{
-                    width: '44px',
-                    height: '44px',
+                    width: '52px',
+                    height: '52px',
                     background: 'rgba(34,197,94,0.2)',
-                    borderRadius: '12px',
+                    borderRadius: '14px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '20px',
+                    fontSize: '24px',
                   }}>
                     📍
                   </div>
-                  <div style={{ flex: 1, textAlign: 'left' }}>
-                    <div style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>
-                      Spåra med GPS
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
-                      Gå och rita linje
-                    </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Spåra med GPS</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Gå och rita linje</div>
                   </div>
-                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '20px' }}>›</span>
-                </button>
+                  <span style={{ opacity: 0.3, fontSize: '24px' }}>›</span>
+                </div>
                 
-                <button
+                <div
                   onClick={() => setSubMenu('draw-lines')}
                   style={{
-                    padding: '14px 16px',
                     background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '14px',
-                    border: 'none',
-                    cursor: 'pointer',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '12px',
+                    gap: '16px',
+                    cursor: 'pointer',
                   }}
                 >
                   <div style={{
-                    width: '44px',
-                    height: '44px',
+                    width: '52px',
+                    height: '52px',
                     background: 'rgba(10,132,255,0.2)',
-                    borderRadius: '12px',
+                    borderRadius: '14px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '20px',
+                    fontSize: '24px',
                   }}>
                     ✏️
                   </div>
-                  <div style={{ flex: 1, textAlign: 'left' }}>
-                    <div style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>
-                      Rita manuellt
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
-                      Rita på kartan
-                    </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Rita manuellt</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Rita på kartan</div>
                   </div>
-                  <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: '20px' }}>›</span>
-                </button>
-              </div>
-            )}
-
-            {/* Linjer - GPS-spåra */}
-            {menuTab === 'lines' && subMenu === 'gps-lines' && (
-              <div>
-                <button
-                  onClick={() => setSubMenu(null)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 0',
-                    marginBottom: '12px',
-                    background: 'none',
-                    border: 'none',
-                    color: '#0a84ff',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M15 18l-6-6 6-6" />
-                  </svg>
-                  Tillbaka
-                </button>
-                
-                <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff', marginBottom: '14px' }}>
-                  📍 Spåra med GPS
-                </div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {lineTypes.map(type => (
-                    <button
-                      key={`gps-${type.id}`}
-                      onClick={() => {
-                        startGpsTracking(type.id);
-                        setSubMenu(null);
-                      }}
-                      style={{
-                        padding: '14px 16px',
-                        borderRadius: '12px',
-                        background: 'rgba(255,255,255,0.06)',
-                        border: 'none',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                      }}
-                    >
-                      <div style={{
-                        width: '28px',
-                        height: '4px',
-                        borderRadius: '2px',
-                        background: type.striped 
-                          ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 4px, ${type.color2} 4px, ${type.color2} 8px)`
-                          : type.color,
-                      }} />
-                      <span style={{ fontSize: '15px', color: '#fff' }}>{type.name}</span>
-                    </button>
-                  ))}
+                  <span style={{ opacity: 0.3, fontSize: '24px' }}>›</span>
                 </div>
               </div>
             )}
 
-            {/* Linjer - Rita manuellt */}
-            {menuTab === 'lines' && subMenu === 'draw-lines' && (
-              <div>
-                <button
-                  onClick={() => setSubMenu(null)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 0',
-                    marginBottom: '12px',
-                    background: 'none',
-                    border: 'none',
-                    color: '#0a84ff',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M15 18l-6-6 6-6" />
-                  </svg>
-                  Tillbaka
-                </button>
-                
-                <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff', marginBottom: '14px' }}>
-                  ✏️ Rita manuellt
-                </div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {lineTypes.map(type => (
-                    <button
-                      key={type.id}
-                      onClick={() => {
-                        setDrawType(type.id);
-                        setIsDrawMode(true);
-                        setMenuOpen(false);
-                        setMenuHeight(0);
-                        setSubMenu(null);
-                      }}
-                      style={{
-                        padding: '14px 16px',
-                        borderRadius: '12px',
-                        background: 'rgba(255,255,255,0.06)',
-                        border: 'none',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '12px',
-                      }}
-                    >
-                      <div style={{
-                        width: '28px',
-                        height: '4px',
-                        borderRadius: '2px',
-                        background: type.striped 
-                          ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 4px, ${type.color2} 4px, ${type.color2} 8px)`
-                          : type.color,
-                      }} />
-                      <span style={{ fontSize: '15px', color: '#fff' }}>{type.name}</span>
-                    </button>
-                  ))}
-                </div>
+            {/* Linjer - GPS */}
+            {activeCategory === 'lines' && subMenu === 'gps-lines' && (
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
+                  <div
+                    key={type.id}
+                    onClick={() => {
+                      startGpsTracking(type.id);
+                      setSubMenu(null);
+                      setActiveCategory(null);
+                    }}
+                    style={{
+                      background: `${type.color}15`,
+                      border: `2px solid ${type.color}50`,
+                      borderRadius: '14px',
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{
+                      width: '40px',
+                      height: '6px',
+                      borderRadius: '3px',
+                      background: type.striped 
+                        ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, ${type.color2} 6px, ${type.color2} 12px)`
+                        : type.dashed
+                        ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, transparent 6px, transparent 10px)`
+                        : type.color,
+                    }} />
+                    <span style={{ fontSize: '16px', fontWeight: '500' }}>{type.name}</span>
+                  </div>
+                ))}
               </div>
             )}
 
-            {/* Zoner */}
-            {menuTab === 'zones' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {/* Linjer - Rita */}
+            {activeCategory === 'lines' && subMenu === 'draw-lines' && (
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
+                  <div
+                    key={type.id}
+                    onClick={() => {
+                      setDrawType(type.id);
+                      setIsDrawMode(true);
+                      setMenuOpen(false);
+                      setMenuHeight(0);
+                      setSubMenu(null);
+                      setActiveCategory(null);
+                    }}
+                    style={{
+                      background: `${type.color}15`,
+                      border: `2px solid ${type.color}50`,
+                      borderRadius: '14px',
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{
+                      width: '40px',
+                      height: '6px',
+                      borderRadius: '3px',
+                      background: type.striped 
+                        ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, ${type.color2} 6px, ${type.color2} 12px)`
+                        : type.dashed
+                        ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, transparent 6px, transparent 10px)`
+                        : type.color,
+                    }} />
+                    <span style={{ fontSize: '16px', fontWeight: '500' }}>{type.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* === ZONER === */}
+            {activeCategory === 'zones' && (
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {zoneTypes.map(type => (
-                  <button
+                  <div
                     key={type.id}
                     onClick={() => {
                       setZoneType(type.id);
                       setIsZoneMode(true);
                       setMenuOpen(false);
                       setMenuHeight(0);
+                      setActiveCategory(null);
                     }}
                     style={{
-                      padding: '16px',
-                      borderRadius: '12px',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      background: 'rgba(255,255,255,0.05)',
-                      cursor: 'pointer',
+                      background: `${type.color}15`,
+                      border: `2px solid ${type.color}50`,
+                      borderRadius: '16px',
+                      padding: '18px 20px',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '14px',
+                      gap: '16px',
+                      cursor: 'pointer',
                     }}
                   >
                     <div style={{
-                      width: '32px',
-                      height: '32px',
-                      borderRadius: '8px',
+                      width: '52px',
+                      height: '52px',
                       background: `${type.color}30`,
-                      border: `2px solid ${type.color}`,
+                      borderRadius: '14px',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      fontSize: '16px',
                     }}>
-                      {type.icon}
+                      {renderIcon(type.icon, 28, '#fff')}
                     </div>
-                    <span style={{ fontSize: '14px', color: '#fff' }}>{type.name}</span>
-                  </button>
+                    <span style={{ fontSize: '17px', fontWeight: '600' }}>{type.name}</span>
+                  </div>
                 ))}
               </div>
             )}
 
-            {/* Pilar */}
-            {menuTab === 'arrows' && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {/* === PILAR === */}
+            {activeCategory === 'arrows' && (
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 {arrowTypes.map(type => (
-                  <button
+                  <div
                     key={type.id}
                     onClick={() => {
                       setArrowType(type.id);
                       setIsArrowMode(true);
                       setMenuOpen(false);
                       setMenuHeight(0);
+                      setActiveCategory(null);
                     }}
                     style={{
-                      padding: '16px',
-                      borderRadius: '12px',
-                      border: '1px solid rgba(255,255,255,0.1)',
-                      background: 'rgba(255,255,255,0.05)',
-                      cursor: 'pointer',
+                      background: `${type.color}15`,
+                      border: `2px solid ${type.color}50`,
+                      borderRadius: '16px',
+                      padding: '18px 20px',
                       display: 'flex',
                       alignItems: 'center',
-                      gap: '14px',
+                      gap: '16px',
+                      cursor: 'pointer',
                     }}
                   >
-                    <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-                      {/* Pilskaft */}
-                      <line 
-                        x1="6" y1="22" x2="20" y2="8" 
-                        stroke={type.color} 
-                        strokeWidth="2.5" 
-                        strokeLinecap="round"
-                      />
-                      {/* Pilspets */}
-                      <path 
-                        d="M20 8 L20 15 M20 8 L13 8" 
-                        stroke={type.color} 
-                        strokeWidth="2.5" 
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                    <span style={{ fontSize: '14px', color: '#fff' }}>{type.name}</span>
-                  </button>
+                    <div style={{
+                      width: '52px',
+                      height: '52px',
+                      background: `${type.color}30`,
+                      borderRadius: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      {renderIcon(type.id, 28, '#fff')}
+                    </div>
+                    <span style={{ fontSize: '17px', fontWeight: '600' }}>{type.name}</span>
+                  </div>
                 ))}
               </div>
             )}
 
-            {/* === VERKTYG-TAB === */}
-            {menuTab === 'tools' && !subMenu && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
-                {/* Prognos */}
-                <button
+            {/* === MÄTNING === */}
+            {activeCategory === 'measure' && (
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div
                   onClick={() => {
-                    setPrognosOpen(true);
+                    setMeasureMode(true);
+                    setMeasureAreaMode(false);
+                    setMeasurePath([]);
                     setMenuOpen(false);
                     setMenuHeight(0);
-                    setSubMenu(null);
+                    setActiveCategory(null);
                   }}
                   style={{
-                    padding: '16px 8px',
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '14px',
-                    border: 'none',
-                    cursor: 'pointer',
+                    background: 'rgba(6,182,212,0.15)',
+                    border: '2px solid rgba(6,182,212,0.5)',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
                     display: 'flex',
-                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '8px',
+                    gap: '16px',
+                    cursor: 'pointer',
                   }}
                 >
-                  <span style={{ fontSize: '24px' }}>📊</span>
-                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Prognos</span>
-                </button>
+                  <div style={{
+                    width: '52px',
+                    height: '52px',
+                    background: 'rgba(6,182,212,0.3)',
+                    borderRadius: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '24px',
+                  }}>
+                    📏
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Mät avstånd</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Punkt till punkt</div>
+                  </div>
+                </div>
 
-                {/* Checklista med cirkel */}
-                <button
+                <div
                   onClick={() => {
-                    setChecklistOpen(true);
+                    setMeasureAreaMode(true);
+                    setMeasureMode(false);
+                    setMeasurePath([]);
                     setMenuOpen(false);
                     setMenuHeight(0);
-                    setSubMenu(null);
+                    setActiveCategory(null);
                   }}
                   style={{
-                    padding: '16px 8px',
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '14px',
-                    border: 'none',
-                    cursor: 'pointer',
+                    background: 'rgba(6,182,212,0.15)',
+                    border: '2px solid rgba(6,182,212,0.5)',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
                     display: 'flex',
-                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '8px',
+                    gap: '16px',
+                    cursor: 'pointer',
                   }}
                 >
-                  <div style={{ position: 'relative', width: '28px', height: '28px' }}>
-                    <svg width="28" height="28" viewBox="0 0 28 28" style={{ transform: 'rotate(-90deg)' }}>
-                      <circle cx="14" cy="14" r="11" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="2.5"/>
-                      <circle 
-                        cx="14" cy="14" r="11" fill="none" 
-                        stroke={checklistItems.every(i => i.answer !== null) ? '#22c55e' : 
-                                checklistItems.some(i => i.answer !== null) ? '#fbbf24' : 'rgba(255,255,255,0.3)'}
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeDasharray={`${(checklistItems.filter(i => i.answer !== null).length / checklistItems.length) * 69} 69`}
-                      />
-                    </svg>
-                    <div style={{
-                      position: 'absolute',
-                      inset: 0,
+                  <div style={{
+                    width: '52px',
+                    height: '52px',
+                    background: 'rgba(6,182,212,0.3)',
+                    borderRadius: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '24px',
+                  }}>
+                    📐
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Mät area</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Rita område</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* === GALLRING === */}
+            {activeCategory === 'gallring' && !showColorPicker && !showCamera && (
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Fota snitsel */}
+                <div
+                  onClick={() => setShowCamera(true)}
+                  style={{
+                    background: 'linear-gradient(135deg, rgba(34,197,94,0.3) 0%, rgba(34,197,94,0.1) 100%)',
+                    border: '2px solid #22c55e',
+                    borderRadius: '20px',
+                    padding: '24px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{
+                    width: '56px',
+                    height: '56px',
+                    background: '#22c55e',
+                    borderRadius: '16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '28px',
+                  }}>
+                    📷
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '18px', fontWeight: '700' }}>Fota snitsel</div>
+                    <div style={{ fontSize: '13px', opacity: 0.6 }}>Appen känner igen färgen</div>
+                  </div>
+                  <span style={{ opacity: 0.5, fontSize: '24px' }}>›</span>
+                </div>
+
+                <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '8px', marginBottom: '4px', paddingLeft: '4px' }}>
+                  Eller välj direkt:
+                </div>
+
+                {/* Snabbval Röd, Gul, Blå */}
+                {vagColors.slice(0, 3).map(color => (
+                  <div
+                    key={color.id}
+                    onClick={() => {
+                      setSelectedVagColor(color);
+                      setShowColorPicker(true);
+                    }}
+                    style={{
+                      background: `${color.color}15`,
+                      border: `2px solid ${color.color}50`,
+                      borderRadius: '16px',
+                      padding: '16px 20px',
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '10px',
-                    }}>
-                      {checklistItems.every(i => i.answer !== null) ? '✓' : '📋'}
+                      gap: '16px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{
+                      width: '44px',
+                      height: '44px',
+                      background: color.color,
+                      borderRadius: '12px',
+                    }} />
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '16px', fontWeight: '600' }}>{color.name}</div>
                     </div>
+                    <span style={{ opacity: 0.3, fontSize: '20px' }}>›</span>
                   </div>
-                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Checklista</span>
-                </button>
+                ))}
 
-                {/* Körläge */}
+                {/* Annan färg */}
+                <div
+                  onClick={() => setShowColorPicker(true)}
+                  style={{
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: '16px',
+                    padding: '16px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{
+                    width: '44px',
+                    height: '44px',
+                    background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)',
+                    borderRadius: '12px',
+                  }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '16px', fontWeight: '600' }}>Annan färg...</div>
+                  </div>
+                  <span style={{ opacity: 0.3, fontSize: '20px' }}>›</span>
+                </div>
+
+                <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '8px 0' }} />
+
+                {/* Inställningar & Översikt */}
+                <div
+                  onClick={() => {
+                    setStickvagMode(true);
+                    setSubMenu('stickvag-settings');
+                  }}
+                  style={{
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: '16px',
+                    padding: '16px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{
+                    width: '44px',
+                    height: '44px',
+                    background: 'rgba(255,255,255,0.1)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '22px',
+                  }}>
+                    ⚙️
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '16px', fontWeight: '600' }}>Avstånd</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>{stickvagSettings.targetDistance}m ±{stickvagSettings.tolerance}m</div>
+                  </div>
+                </div>
+
+                <div
+                  onClick={() => {
+                    setStickvagViewOpen(true);
+                    setMenuOpen(false);
+                    setMenuHeight(0);
+                    setActiveCategory(null);
+                  }}
+                  style={{
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: '16px',
+                    padding: '16px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{
+                    width: '44px',
+                    height: '44px',
+                    background: 'rgba(255,255,255,0.1)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '22px',
+                  }}>
+                    🗺️
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '16px', fontWeight: '600' }}>Översikt</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Se alla stickvägar</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Gallring - Kamera (simulerad) */}
+            {activeCategory === 'gallring' && showCamera && !detectedColor && (
+              <div style={{ padding: '20px' }}>
+                <div 
+                  onClick={() => {
+                    // Simulera färgdetektering
+                    const colors = ['rod', 'gul', 'bla', 'gron', 'orange', 'vit'];
+                    const randomColor = colors[Math.floor(Math.random() * colors.length)];
+                    setDetectedColor(vagColors.find(c => c.id === randomColor));
+                  }}
+                  style={{
+                    background: 'linear-gradient(180deg, #1a1a1a 0%, #2a2a2a 100%)',
+                    borderRadius: '20px',
+                    height: '300px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginBottom: '20px',
+                    cursor: 'pointer',
+                    border: '2px dashed rgba(255,255,255,0.2)',
+                  }}
+                >
+                  <div style={{ fontSize: '60px', marginBottom: '16px' }}>📷</div>
+                  <div style={{ fontSize: '16px', opacity: 0.7 }}>Tryck för att fota snitsel</div>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginTop: '8px' }}>(Simulerar i prototyp)</div>
+                </div>
+
                 <button
+                  onClick={() => {
+                    setShowCamera(false);
+                    setShowColorPicker(true);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '16px',
+                    borderRadius: '12px',
+                    border: '1px solid rgba(255,255,255,0.2)',
+                    background: 'transparent',
+                    color: '#fff',
+                    fontSize: '15px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Välj färg manuellt istället
+                </button>
+              </div>
+            )}
+
+            {/* Gallring - Hittad färg */}
+            {activeCategory === 'gallring' && showCamera && detectedColor && (
+              <div style={{ padding: '20px' }}>
+                <div style={{
+                  background: 'rgba(255,255,255,0.06)',
+                  borderRadius: '20px',
+                  padding: '30px',
+                  textAlign: 'center',
+                  marginBottom: '20px',
+                }}>
+                  <div style={{ fontSize: '16px', opacity: 0.6, marginBottom: '16px' }}>Appen hittade:</div>
+                  <div style={{
+                    width: '80px',
+                    height: '80px',
+                    borderRadius: '50%',
+                    background: detectedColor.color,
+                    margin: '0 auto 16px',
+                    border: detectedColor.id === 'vit' ? '3px solid #ccc' : '3px solid rgba(255,255,255,0.3)',
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                  }} />
+                  <div style={{ fontSize: '24px', fontWeight: '700' }}>{detectedColor.name}</div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <button
+                    onClick={() => {
+                      setSelectedVagColor(detectedColor);
+                      setShowCamera(false);
+                      setShowColorPicker(true);
+                      setDetectedColor(null);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '18px',
+                      borderRadius: '14px',
+                      border: 'none',
+                      background: '#22c55e',
+                      color: '#fff',
+                      fontSize: '16px',
+                      fontWeight: '700',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✓ RÄTT
+                  </button>
+                  <button
+                    onClick={() => {
+                      setDetectedColor(null);
+                      setShowCamera(false);
+                      setShowColorPicker(true);
+                    }}
+                    style={{
+                      flex: 1,
+                      padding: '18px',
+                      borderRadius: '14px',
+                      border: '2px solid rgba(255,255,255,0.3)',
+                      background: 'transparent',
+                      color: '#fff',
+                      fontSize: '16px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    ✕ ÄNDRA
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Gallring - Färgpalett */}
+            {activeCategory === 'gallring' && showColorPicker && !selectedVagColor && (
+              <div style={{ padding: '20px' }}>
+                <div style={{ fontSize: '15px', opacity: 0.6, marginBottom: '16px', textAlign: 'center' }}>
+                  Välj färg på snitsel:
+                </div>
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4, 1fr)',
+                  gap: '12px',
+                }}>
+                  {vagColors.map(color => (
+                    <div
+                      key={color.id}
+                      onClick={() => setSelectedVagColor(color)}
+                      style={{
+                        aspectRatio: '1',
+                        borderRadius: '16px',
+                        background: color.color,
+                        border: color.id === 'vit' ? '2px solid #ccc' : '2px solid transparent',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'flex-end',
+                        justifyContent: 'center',
+                        paddingBottom: '8px',
+                        boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
+                      }}
+                    >
+                      <span style={{
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        color: ['gul', 'vit', 'orange'].includes(color.id) ? '#000' : '#fff',
+                        textShadow: ['gul', 'vit', 'orange'].includes(color.id) ? 'none' : '0 1px 2px rgba(0,0,0,0.5)',
+                      }}>
+                        {color.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Gallring - Välj typ (Stickväg/Backväg) */}
+            {activeCategory === 'gallring' && showColorPicker && selectedVagColor && (
+              <div style={{ padding: '20px' }}>
+                <div style={{
+                  background: `${selectedVagColor.color}20`,
+                  border: `3px solid ${selectedVagColor.color}`,
+                  borderRadius: '20px',
+                  padding: '24px',
+                  marginBottom: '20px',
+                  textAlign: 'center',
+                }}>
+                  <div style={{
+                    width: '60px',
+                    height: '60px',
+                    borderRadius: '50%',
+                    background: selectedVagColor.color,
+                    margin: '0 auto 12px',
+                    border: selectedVagColor.id === 'vit' ? '2px solid #ccc' : 'none',
+                  }} />
+                  <div style={{ fontSize: '20px', fontWeight: '700' }}>{selectedVagColor.name}</div>
+                </div>
+
+                <div style={{ marginBottom: '16px', fontSize: '15px', opacity: 0.7, textAlign: 'center' }}>
+                  Välj typ:
+                </div>
+
+                <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+                  <div
+                    onClick={() => setSelectedVagType('stickvag')}
+                    style={{
+                      flex: 1,
+                      padding: '20px',
+                      borderRadius: '16px',
+                      background: selectedVagType === 'stickvag' ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.06)',
+                      border: selectedVagType === 'stickvag' ? '2px solid #22c55e' : '2px solid transparent',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontSize: '28px', marginBottom: '8px' }}>〰️</div>
+                    <div style={{ fontSize: '15px', fontWeight: '600' }}>STICKVÄG</div>
+                  </div>
+                  <div
+                    onClick={() => setSelectedVagType('backvag')}
+                    style={{
+                      flex: 1,
+                      padding: '20px',
+                      borderRadius: '16px',
+                      background: selectedVagType === 'backvag' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.06)',
+                      border: selectedVagType === 'backvag' ? '2px solid #f97316' : '2px solid transparent',
+                      textAlign: 'center',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ fontSize: '28px', marginBottom: '8px' }}>↩️</div>
+                    <div style={{ fontSize: '15px', fontWeight: '600' }}>BACKVÄG</div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    // Starta GPS-spårning med vald färg och typ
+                    const lineId = selectedVagType === 'backvag' 
+                      ? `backRoad${selectedVagColor.name}` 
+                      : `sideRoad${selectedVagColor.name}`;
+                    startGpsTracking(lineId);
+                    setStickvagMode(true);
+                    setShowColorPicker(false);
+                    setSelectedVagColor(null);
+                    setActiveCategory(null);
+                  }}
+                  style={{
+                    width: '100%',
+                    padding: '18px',
+                    borderRadius: '14px',
+                    border: 'none',
+                    background: '#22c55e',
+                    color: '#fff',
+                    fontSize: '17px',
+                    fontWeight: '700',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ▶ STARTA GPS-SPÅRNING
+                </button>
+              </div>
+            )}
+
+            {/* Gallring - Avståndsinställningar */}
+            {activeCategory === 'gallring' && subMenu === 'stickvag-settings' && (
+              <div style={{ padding: '20px' }}>
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ fontSize: '14px', opacity: 0.6, marginBottom: '8px' }}>Målavstånd</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <button
+                      onClick={() => setStickvagSettings(s => ({ ...s, targetDistance: Math.max(10, s.targetDistance - 1) }))}
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        border: 'none',
+                        background: 'rgba(255,255,255,0.1)',
+                        color: '#fff',
+                        fontSize: '24px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      -
+                    </button>
+                    <div style={{ flex: 1, textAlign: 'center' }}>
+                      <span style={{ fontSize: '36px', fontWeight: '700' }}>{stickvagSettings.targetDistance}</span>
+                      <span style={{ fontSize: '18px', opacity: 0.6 }}> m</span>
+                    </div>
+                    <button
+                      onClick={() => setStickvagSettings(s => ({ ...s, targetDistance: Math.min(50, s.targetDistance + 1) }))}
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        border: 'none',
+                        background: 'rgba(255,255,255,0.1)',
+                        color: '#fff',
+                        fontSize: '24px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: '24px' }}>
+                  <div style={{ fontSize: '14px', opacity: 0.6, marginBottom: '8px' }}>Tolerans (±)</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <button
+                      onClick={() => setStickvagSettings(s => ({ ...s, tolerance: Math.max(1, s.tolerance - 1) }))}
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        border: 'none',
+                        background: 'rgba(255,255,255,0.1)',
+                        color: '#fff',
+                        fontSize: '24px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      -
+                    </button>
+                    <div style={{ flex: 1, textAlign: 'center' }}>
+                      <span style={{ fontSize: '36px', fontWeight: '700' }}>±{stickvagSettings.tolerance}</span>
+                      <span style={{ fontSize: '18px', opacity: 0.6 }}> m</span>
+                    </div>
+                    <button
+                      onClick={() => setStickvagSettings(s => ({ ...s, tolerance: Math.min(10, s.tolerance + 1) }))}
+                      style={{
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '50%',
+                        border: 'none',
+                        background: 'rgba(255,255,255,0.1)',
+                        color: '#fff',
+                        fontSize: '24px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{
+                  background: 'rgba(34,197,94,0.15)',
+                  border: '1px solid rgba(34,197,94,0.3)',
+                  borderRadius: '12px',
+                  padding: '16px',
+                  textAlign: 'center',
+                }}>
+                  <div style={{ fontSize: '14px', opacity: 0.7 }}>Godkänt avstånd:</div>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: '#22c55e' }}>
+                    {stickvagSettings.targetDistance - stickvagSettings.tolerance} - {stickvagSettings.targetDistance + stickvagSettings.tolerance} m
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* === INSTÄLLNINGAR === */}
+            {activeCategory === 'settings' && (
+              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {/* Körläge */}
+                <div
                   onClick={() => {
                     setDrivingMode(!drivingMode);
                     if (!drivingMode) {
                       setAcknowledgedWarnings([]);
                       playedWarningsRef.current.clear();
                     }
-                    setMenuOpen(false);
-                    setMenuHeight(0);
                   }}
                   style={{
-                    padding: '16px 8px',
                     background: drivingMode ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.06)',
-                    borderRadius: '14px',
-                    border: drivingMode ? '2px solid #22c55e' : 'none',
-                    cursor: 'pointer',
+                    border: drivingMode ? '2px solid #22c55e' : '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
                     display: 'flex',
-                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '8px',
+                    gap: '16px',
+                    cursor: 'pointer',
                   }}
                 >
-                  <span style={{ fontSize: '24px' }}>🚜</span>
-                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Körläge</span>
-                </button>
+                  <div style={{
+                    width: '52px',
+                    height: '52px',
+                    background: drivingMode ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.1)',
+                    borderRadius: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '24px',
+                  }}>
+                    🚜
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Körläge</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>{drivingMode ? 'Aktivt' : 'Inaktivt'}</div>
+                  </div>
+                  <div style={{
+                    width: '52px',
+                    height: '32px',
+                    background: drivingMode ? '#22c55e' : 'rgba(255,255,255,0.15)',
+                    borderRadius: '16px',
+                    padding: '3px',
+                    transition: 'background 0.2s',
+                  }}>
+                    <div style={{
+                      width: '26px',
+                      height: '26px',
+                      background: '#fff',
+                      borderRadius: '50%',
+                      transform: drivingMode ? 'translateX(20px)' : 'translateX(0)',
+                      transition: 'transform 0.2s',
+                    }} />
+                  </div>
+                </div>
 
                 {/* Kompass */}
-                <button
-                  onClick={() => {
-                    toggleCompass();
-                  }}
+                <div
+                  onClick={() => toggleCompass()}
                   style={{
-                    padding: '16px 8px',
                     background: compassMode ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
-                    borderRadius: '14px',
-                    border: compassMode ? '2px solid #0a84ff' : 'none',
-                    cursor: 'pointer',
+                    border: compassMode ? '2px solid #0a84ff' : '1px solid rgba(255,255,255,0.1)',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
                     display: 'flex',
-                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '8px',
+                    gap: '16px',
+                    cursor: 'pointer',
                   }}
                 >
-                  <span style={{ fontSize: '24px' }}>🧭</span>
-                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Kompass</span>
-                </button>
-
-                {/* Mät */}
-                <button
-                  onClick={() => setSubMenu('measure')}
-                  style={{
-                    padding: '16px 8px',
-                    background: (measureMode || measureAreaMode) ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
+                  <div style={{
+                    width: '52px',
+                    height: '52px',
+                    background: compassMode ? 'rgba(10,132,255,0.3)' : 'rgba(255,255,255,0.1)',
                     borderRadius: '14px',
-                    border: (measureMode || measureAreaMode) ? '2px solid #0a84ff' : 'none',
-                    cursor: 'pointer',
                     display: 'flex',
-                    flexDirection: 'column',
                     alignItems: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  <span style={{ fontSize: '24px' }}>📏</span>
-                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Mät</span>
-                </button>
+                    justifyContent: 'center',
+                    fontSize: '24px',
+                  }}>
+                    🧭
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Kompass</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>{compassMode ? 'Aktivt' : 'Inaktivt'}</div>
+                  </div>
+                  <div style={{
+                    width: '52px',
+                    height: '32px',
+                    background: compassMode ? '#0a84ff' : 'rgba(255,255,255,0.15)',
+                    borderRadius: '16px',
+                    padding: '3px',
+                    transition: 'background 0.2s',
+                  }}>
+                    <div style={{
+                      width: '26px',
+                      height: '26px',
+                      background: '#fff',
+                      borderRadius: '50%',
+                      transform: compassMode ? 'translateX(20px)' : 'translateX(0)',
+                      transition: 'transform 0.2s',
+                    }} />
+                  </div>
+                </div>
 
                 {/* Lager */}
-                <button
-                  onClick={() => setLayerMenuOpen(!layerMenuOpen)}
-                  style={{
-                    padding: '16px 8px',
-                    background: layerMenuOpen ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
-                    borderRadius: '14px',
-                    border: layerMenuOpen ? '2px solid #0a84ff' : 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '8px',
+                <div
+                  onClick={() => {
+                    setLayerMenuOpen(!layerMenuOpen);
+                    setMenuOpen(false);
+                    setMenuHeight(0);
+                    setActiveCategory(null);
                   }}
-                >
-                  <span style={{ fontSize: '24px' }}>👁️</span>
-                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Lager</span>
-                </button>
-
-                {/* Stickvägsavstånd */}
-                <button
-                  onClick={() => setSubMenu('stickvag')}
                   style={{
-                    padding: '16px 8px',
                     background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '14px',
-                    border: 'none',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    alignItems: 'center',
-                    gap: '8px',
-                  }}
-                >
-                  <span style={{ fontSize: '24px' }}>↔️</span>
-                  <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.7)' }}>Avstånd</span>
-                </button>
-              </div>
-            )}
-
-            {/* === STICKVÄG INSTÄLLNINGAR SUBMENY === */}
-            {menuTab === 'tools' && subMenu === 'stickvag' && (
-              <div>
-                {/* Bakåt-knapp */}
-                <button
-                  onClick={() => setSubMenu(null)}
-                  style={{
+                    borderRadius: '16px',
+                    padding: '18px 20px',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
-                    background: 'none',
-                    border: 'none',
-                    color: '#0a84ff',
-                    fontSize: '14px',
-                    padding: '0 0 15px 0',
+                    gap: '16px',
                     cursor: 'pointer',
                   }}
                 >
-                  ← Tillbaka
-                </button>
-                
-                <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '15px' }}>
-                  Stickvägsavstånd
-                </div>
-                
-                {/* Målvärde */}
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '12px 0',
-                  borderBottom: '1px solid rgba(255,255,255,0.1)',
-                }}>
-                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>Avstånd kant-kant</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <button
-                      onClick={() => setStickvagSettings(prev => ({ ...prev, targetDistance: Math.max(15, prev.targetDistance - 1) }))}
-                      style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer' }}
-                    >-</button>
-                    <span style={{ fontWeight: '600', minWidth: '50px', textAlign: 'center' }}>{stickvagSettings.targetDistance}m</span>
-                    <button
-                      onClick={() => setStickvagSettings(prev => ({ ...prev, targetDistance: Math.min(40, prev.targetDistance + 1) }))}
-                      style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer' }}
-                    >+</button>
-                  </div>
-                </div>
-                
-                {/* Tolerans */}
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '12px 0',
-                  borderBottom: '1px solid rgba(255,255,255,0.1)',
-                }}>
-                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>Tolerans</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <button
-                      onClick={() => setStickvagSettings(prev => ({ ...prev, tolerance: Math.max(1, prev.tolerance - 1) }))}
-                      style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer' }}
-                    >-</button>
-                    <span style={{ fontWeight: '600', minWidth: '50px', textAlign: 'center' }}>±{stickvagSettings.tolerance}m</span>
-                    <button
-                      onClick={() => setStickvagSettings(prev => ({ ...prev, tolerance: Math.min(10, prev.tolerance + 1) }))}
-                      style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer' }}
-                    >+</button>
-                  </div>
-                </div>
-                
-                {/* Vägbredd */}
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  padding: '12px 0',
-                  borderBottom: '1px solid rgba(255,255,255,0.1)',
-                }}>
-                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>Vägbredd</span>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <button
-                      onClick={() => setStickvagSettings(prev => ({ ...prev, vagbredd: Math.max(3, prev.vagbredd - 0.5) }))}
-                      style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer' }}
-                    >-</button>
-                    <span style={{ fontWeight: '600', minWidth: '50px', textAlign: 'center' }}>{stickvagSettings.vagbredd}m</span>
-                    <button
-                      onClick={() => setStickvagSettings(prev => ({ ...prev, vagbredd: Math.min(6, prev.vagbredd + 0.5) }))}
-                      style={{ background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', width: '32px', height: '32px', borderRadius: '8px', cursor: 'pointer' }}
-                    >+</button>
-                  </div>
-                </div>
-                
-                {/* Godkänt intervall */}
-                <div style={{
-                  marginTop: '15px',
-                  padding: '12px',
-                  background: 'rgba(34,197,94,0.1)',
-                  borderRadius: '10px',
-                  textAlign: 'center',
-                }}>
-                  <div style={{ color: '#22c55e', fontSize: '13px' }}>Godkänt intervall</div>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: '#22c55e', marginTop: '5px' }}>
-                    {stickvagSettings.targetDistance - stickvagSettings.tolerance}m - {stickvagSettings.targetDistance + stickvagSettings.tolerance}m
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* === MÄT SUBMENY === */}
-            {menuTab === 'tools' && subMenu === 'measure' && (
-              <div>
-                {/* Bakåt-knapp */}
-                <button
-                  onClick={() => setSubMenu(null)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px',
-                    padding: '8px 0',
-                    marginBottom: '12px',
-                    background: 'none',
-                    border: 'none',
-                    color: '#0a84ff',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M15 18l-6-6 6-6" />
-                  </svg>
-                  Tillbaka
-                </button>
-                
-                <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff', marginBottom: '14px' }}>
-                  📏 Mät
-                </div>
-                
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {/* Mät sträcka */}
-                  <button
-                    onClick={() => {
-                      setMeasureMode(true);
-                      setMeasureAreaMode(false);
-                      setMeasurePath([]);
-                      setMenuOpen(false);
-                      setMenuHeight(0);
-                      setSubMenu(null);
-                    }}
-                    style={{
-                      padding: '16px',
-                      background: measureMode ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
-                      borderRadius: '14px',
-                      border: measureMode ? '2px solid #0a84ff' : 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '14px',
-                    }}
-                  >
-                    <div style={{
-                      width: '44px',
-                      height: '44px',
-                      background: 'rgba(255,255,255,0.08)',
-                      borderRadius: '12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="2">
-                        <line x1="4" y1="20" x2="20" y2="4" />
-                        <circle cx="4" cy="20" r="2" fill="rgba(255,255,255,0.8)" />
-                        <circle cx="20" cy="4" r="2" fill="rgba(255,255,255,0.8)" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1, textAlign: 'left' }}>
-                      <div style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>Mät sträcka</div>
-                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>Mät avstånd mellan punkter</div>
-                    </div>
-                  </button>
-                  
-                  {/* Mät yta */}
-                  <button
-                    onClick={() => {
-                      setMeasureAreaMode(true);
-                      setMeasureMode(false);
-                      setMeasurePath([]);
-                      setMenuOpen(false);
-                      setMenuHeight(0);
-                      setSubMenu(null);
-                    }}
-                    style={{
-                      padding: '16px',
-                      background: measureAreaMode ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
-                      borderRadius: '14px',
-                      border: measureAreaMode ? '2px solid #0a84ff' : 'none',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '14px',
-                    }}
-                  >
-                    <div style={{
-                      width: '44px',
-                      height: '44px',
-                      background: 'rgba(255,255,255,0.08)',
-                      borderRadius: '12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="rgba(255,255,255,0.2)" stroke="rgba(255,255,255,0.8)" strokeWidth="2">
-                        <polygon points="4,4 20,4 20,20 4,20" />
-                      </svg>
-                    </div>
-                    <div style={{ flex: 1, textAlign: 'left' }}>
-                      <div style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>Mät yta</div>
-                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>Mät area av ett område</div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* === GPS & CENTRERA (alltid synligt) === */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              gap: '16px',
-              marginTop: '16px',
-              paddingTop: '14px',
-              borderTop: '1px solid rgba(255,255,255,0.1)',
-            }}>
-              {/* GPS */}
-              <button
-                onClick={toggleTracking}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 20px',
-                  background: isTracking ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.06)',
-                  borderRadius: '12px',
-                  border: isTracking ? '2px solid #22c55e' : 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isTracking ? '#22c55e' : 'rgba(255,255,255,0.6)'} strokeWidth="2">
-                  <circle cx="12" cy="12" r="3" fill={isTracking ? '#22c55e' : 'none'} />
-                  <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-                </svg>
-                <span style={{ fontSize: '13px', color: isTracking ? '#22c55e' : '#fff' }}>
-                  {isTracking ? 'GPS på' : 'GPS'}
-                </span>
-              </button>
-
-              {/* Centrera */}
-              <button
-                onClick={centerOnMe}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 20px',
-                  background: 'rgba(255,255,255,0.06)',
-                  borderRadius: '12px',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
-                <span style={{ fontSize: '16px' }}>🎯</span>
-                <span style={{ fontSize: '13px', color: '#fff' }}>Centrera</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* === LAGER-POPUP (i menyn) === */}
-        {layerMenuOpen && menuOpen && (
-          <div 
-            style={{
-              position: 'absolute',
-              bottom: '100%',
-              right: '20px',
-              marginBottom: '10px',
-              background: '#000',
-              borderRadius: '16px',
-              padding: '16px',
-              boxShadow: '0 8px 40px rgba(0,0,0,0.8)',
-              border: '1px solid rgba(255,255,255,0.15)',
-              zIndex: 250,
-              minWidth: '180px',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div style={{ 
-              fontSize: '11px', 
-              color: 'rgba(255,255,255,0.4)', 
-              marginBottom: '12px',
-              textTransform: 'uppercase',
-              letterSpacing: '1px',
-            }}>
-              Visa/dölj lager
-            </div>
-            
-            {[
-              { key: 'symbols', label: 'Symboler', icon: '📍' },
-              { key: 'arrows', label: 'Pilar', icon: '➡️' },
-              { key: 'zones', label: 'Zoner', icon: '⬡' },
-              { key: 'lines', label: 'Linjer', icon: '〰️' },
-            ].map(layer => (
-              <button
-                key={layer.key}
-                onClick={() => setVisibleLayers(prev => ({ ...prev, [layer.key]: !prev[layer.key] }))}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  width: '100%',
-                  padding: '10px',
-                  marginBottom: '4px',
-                  borderRadius: '10px',
-                  border: 'none',
-                  background: visibleLayers[layer.key] ? 'rgba(255,255,255,0.1)' : 'transparent',
-                  cursor: 'pointer',
-                }}
-              >
-                <span style={{ fontSize: '16px', opacity: visibleLayers[layer.key] ? 1 : 0.3 }}>
-                  {layer.icon}
-                </span>
-                <span style={{ 
-                  fontSize: '14px', 
-                  color: visibleLayers[layer.key] ? '#fff' : 'rgba(255,255,255,0.3)',
-                  flex: 1,
-                  textAlign: 'left',
-                }}>
-                  {layer.label}
-                </span>
-                <div style={{
-                  width: '32px',
-                  height: '18px',
-                  borderRadius: '9px',
-                  background: visibleLayers[layer.key] ? '#22c55e' : 'rgba(255,255,255,0.2)',
-                  position: 'relative',
-                }}>
                   <div style={{
-                    position: 'absolute',
-                    top: '2px',
-                    left: visibleLayers[layer.key] ? '16px' : '2px',
-                    width: '14px',
-                    height: '14px',
-                    borderRadius: '7px',
-                    background: '#fff',
-                    transition: 'left 0.2s ease',
-                  }} />
+                    width: '52px',
+                    height: '52px',
+                    background: 'rgba(255,255,255,0.1)',
+                    borderRadius: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '24px',
+                  }}>
+                    👁️
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Lager</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Visa/dölj element</div>
+                  </div>
+                  <span style={{ opacity: 0.3, fontSize: '24px' }}>›</span>
                 </div>
-              </button>
-            ))}
+
+                {/* Karttyp */}
+                <div
+                  onClick={() => setMapType(mapType === 'osm' ? 'satellite' : 'osm')}
+                  style={{
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{
+                    width: '52px',
+                    height: '52px',
+                    background: 'rgba(255,255,255,0.1)',
+                    borderRadius: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '24px',
+                  }}>
+                    🗺️
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Karttyp</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>{mapType === 'osm' ? 'Karta' : 'Satellit'}</div>
+                  </div>
+                </div>
+
+                {/* Karta på/av */}
+                <div
+                  onClick={() => setShowMap(!showMap)}
+                  style={{
+                    background: 'rgba(255,255,255,0.06)',
+                    borderRadius: '16px',
+                    padding: '18px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{
+                    width: '52px',
+                    height: '52px',
+                    background: 'rgba(255,255,255,0.1)',
+                    borderRadius: '14px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '24px',
+                  }}>
+                    🌍
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Visa karta</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5 }}>{showMap ? 'På' : 'Av'}</div>
+                  </div>
+                  <div style={{
+                    width: '52px',
+                    height: '32px',
+                    background: showMap ? '#22c55e' : 'rgba(255,255,255,0.15)',
+                    borderRadius: '16px',
+                    padding: '3px',
+                    transition: 'background 0.2s',
+                  }}>
+                    <div style={{
+                      width: '26px',
+                      height: '26px',
+                      background: '#fff',
+                      borderRadius: '50%',
+                      transform: showMap ? 'translateX(20px)' : 'translateX(0)',
+                      transition: 'transform 0.2s',
+                    }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Meny-knapp (när stängd) */}
+      {!menuOpen && (
+        <div 
+          onClick={() => {
+            setMenuOpen(true);
+            setMenuHeight(400);
+          }}
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: '80px',
+            background: 'linear-gradient(0deg, rgba(0,0,0,0.95) 0%, transparent 100%)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            cursor: 'pointer',
+            zIndex: 200,
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+          }}
+        >
+          <div style={{
+            width: '50px',
+            height: '6px',
+            background: 'rgba(255,255,255,0.6)',
+            borderRadius: '3px',
+          }} />
+        </div>
+      )}
+
 
       {/* === REDIGERA-DIALOG === */}
       {editingMarker && (
@@ -4399,6 +5129,77 @@ export default function PlannerPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* === STICKVÄG DEBUG-VISNING === */}
+      {debugMode && stickvagMode && (
+        <div style={{
+          position: 'fixed',
+          bottom: '100px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10001,
+          textAlign: 'center',
+        }}>
+          {(() => {
+            const dist = getStickvagDistance();
+            const target = stickvagSettings.targetDistance;
+            const tolerance = stickvagSettings.tolerance;
+            
+            if (dist === null) {
+              return (
+                <div style={{
+                  background: 'rgba(100,100,100,0.9)',
+                  padding: '20px 40px',
+                  borderRadius: '20px',
+                  color: '#fff',
+                }}>
+                  <div style={{ fontSize: '18px' }}>Ingen stickväg hittad</div>
+                  <div style={{ fontSize: '14px', opacity: 0.7 }}>Lägg till en test-stickväg först</div>
+                </div>
+              );
+            }
+            
+            const isGood = dist >= (target - tolerance) && dist <= (target + tolerance);
+            const isTooClose = dist < (target - tolerance);
+            const bgColor = isGood ? '#22c55e' : (isTooClose ? '#ef4444' : '#f59e0b');
+            const statusText = isGood ? '✓ BRA AVSTÅND' : (isTooClose ? '⚠ FÖR NÄRA' : '⚠ FÖR LÅNGT');
+            
+            return (
+              <div style={{
+                background: bgColor,
+                padding: '20px 50px',
+                borderRadius: '25px',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+              }}>
+                <div style={{ 
+                  fontSize: '64px', 
+                  fontWeight: 'bold', 
+                  color: '#fff',
+                  lineHeight: 1,
+                }}>
+                  {dist}
+                  <span style={{ fontSize: '28px', marginLeft: '5px' }}>m</span>
+                </div>
+                <div style={{ 
+                  fontSize: '16px', 
+                  color: 'rgba(255,255,255,0.9)',
+                  marginTop: '5px',
+                  fontWeight: '600',
+                }}>
+                  {statusText}
+                </div>
+                <div style={{ 
+                  fontSize: '12px', 
+                  color: 'rgba(255,255,255,0.7)',
+                  marginTop: '3px',
+                }}>
+                  Mål: {target}m (±{tolerance}m)
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -5875,6 +6676,191 @@ export default function PlannerPage() {
           -moz-appearance: textfield;
         }
       `}</style>
+
+      {/* === DEBUG TAP ZONE === */}
+      <div
+        onClick={handleDebugTap}
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100px',
+          height: '100px',
+          zIndex: 99999,
+          background: debugTapCount > 0 ? `rgba(34, 197, 94, ${debugTapCount * 0.2})` : 'transparent',
+          cursor: 'pointer',
+        }}
+      >
+        {debugTapCount > 0 && (
+          <span style={{ color: '#22c55e', fontSize: '24px', padding: '10px', display: 'block' }}>
+            {debugTapCount}/5
+          </span>
+        )}
+      </div>
+
+      {/* === DEBUG PANEL === */}
+      {debugMode && (
+        <div style={{
+          position: 'fixed',
+          top: '100px',
+          left: '10px',
+          background: 'rgba(0,0,0,0.9)',
+          padding: '15px',
+          borderRadius: '12px',
+          zIndex: 10000,
+          color: '#fff',
+          fontSize: '13px',
+          maxWidth: '280px',
+          maxHeight: '70vh',
+          overflowY: 'auto',
+        }}>
+          <div style={{ fontWeight: 'bold', marginBottom: '10px', color: '#22c55e' }}>🔧 DEBUG</div>
+          
+          {/* GPS Position */}
+          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px', marginBottom: '10px' }}>
+            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '6px' }}>GPS POSITION</div>
+            <div>X: {gpsMapPosition.x.toFixed(0)} Y: {gpsMapPosition.y.toFixed(0)}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px', marginTop: '8px' }}>
+              <div></div>
+              <button onClick={() => moveDebugGps(0, -20)} style={{ padding: '8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>↑</button>
+              <div></div>
+              <button onClick={() => moveDebugGps(-20, 0)} style={{ padding: '8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>←</button>
+              <button onClick={() => moveDebugGps(0, 20)} style={{ padding: '8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>↓</button>
+              <button onClick={() => moveDebugGps(20, 0)} style={{ padding: '8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>→</button>
+            </div>
+          </div>
+
+          {/* Simulera gång */}
+          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px', marginBottom: '10px' }}>
+            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '6px' }}>SIMULERA GÅNG</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span>Riktning:</span>
+              <button onClick={() => setDebugWalkDirection(d => d - 45)} style={{ padding: '4px 8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>-45°</button>
+              <span style={{ minWidth: '40px', textAlign: 'center' }}>{debugWalkDirection}°</span>
+              <button onClick={() => setDebugWalkDirection(d => d + 45)} style={{ padding: '4px 8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>+45°</button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+              <span>Fart:</span>
+              <input
+                type="range"
+                min="1"
+                max="20"
+                value={debugWalkSpeed}
+                onChange={(e) => setDebugWalkSpeed(Number(e.target.value))}
+                style={{ flex: 1 }}
+              />
+              <span>{debugWalkSpeed}</span>
+            </div>
+            <button
+              onClick={debugWalking ? stopDebugWalk : startDebugWalk}
+              style={{ 
+                width: '100%', 
+                padding: '10px', 
+                background: debugWalking ? '#ef4444' : '#22c55e', 
+                border: 'none', 
+                borderRadius: '6px', 
+                color: '#fff', 
+                cursor: 'pointer',
+                fontWeight: 'bold',
+              }}
+            >
+              {debugWalking ? '⏹ Stoppa' : '▶ Starta gång'}
+            </button>
+          </div>
+
+          {/* Stickväg info */}
+          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px', marginBottom: '10px' }}>
+            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '6px' }}>STICKVÄG INFO</div>
+            <div>Läge: {stickvagMode ? '✅ Aktivt' : '❌ Av'}</div>
+            <div>Antal stickvägar: {markers.filter(m => m.lineType === 'stickvag').length}</div>
+            <div>Avstånd: {getStickvagDistance()?.toFixed(1) || '-'} m</div>
+          </div>
+
+          {/* Karta */}
+          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px', marginBottom: '10px' }}>
+            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '6px' }}>KARTA</div>
+            <button
+              onClick={() => setShowMap(!showMap)}
+              style={{ width: '100%', padding: '10px', background: showMap ? '#22c55e' : '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', marginBottom: '6px' }}
+            >
+              {showMap ? '🗺️ Karta PÅ' : '⬜ Karta AV'}
+            </button>
+            <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
+              <button
+                onClick={() => setMapType('osm')}
+                style={{ flex: 1, padding: '8px', background: mapType === 'osm' ? '#0a84ff' : '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '11px' }}
+              >
+                Karta
+              </button>
+              <button
+                onClick={() => setMapType('satellite')}
+                style={{ flex: 1, padding: '8px', background: mapType === 'satellite' ? '#0a84ff' : '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '11px' }}
+              >
+                Satellit
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+              <button
+                onClick={() => setMapZoom(z => Math.max(12, z - 1))}
+                style={{ padding: '8px 12px', background: '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer' }}
+              >
+                −
+              </button>
+              <span style={{ flex: 1, textAlign: 'center' }}>Zoom: {mapZoom}</span>
+              <button
+                onClick={() => setMapZoom(z => Math.min(19, z + 1))}
+                style={{ padding: '8px 12px', background: '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer' }}
+              >
+                +
+              </button>
+            </div>
+          </div>
+
+          {/* Snabbknappar */}
+          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px' }}>
+            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '6px' }}>SNABBKNAPPAR</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <button
+                onClick={() => setStickvagMode(!stickvagMode)}
+                style={{ padding: '10px', background: stickvagMode ? '#22c55e' : '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', textAlign: 'left' }}
+              >
+                {stickvagMode ? '✅' : '⬜'} Stickvägsläge
+              </button>
+              <button
+                onClick={() => setDrivingMode(!drivingMode)}
+                style={{ padding: '10px', background: drivingMode ? '#22c55e' : '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', textAlign: 'left' }}
+              >
+                {drivingMode ? '✅' : '⬜'} Körläge
+              </button>
+              <button
+                onClick={() => {
+                  const testPath = [
+                    { x: gpsMapPosition.x + 50, y: gpsMapPosition.y - 100 },
+                    { x: gpsMapPosition.x + 50, y: gpsMapPosition.y + 100 },
+                  ];
+                  setMarkers(prev => [...prev, {
+                    id: `debug-stickvag-${Date.now()}`,
+                    x: testPath[0].x,
+                    y: testPath[0].y,
+                    isLine: true,
+                    lineType: 'stickvag',
+                    path: testPath,
+                  }]);
+                }}
+                style={{ padding: '10px', background: '#0a84ff', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', textAlign: 'left' }}
+              >
+                ➕ Lägg till test-stickväg
+              </button>
+              <button
+                onClick={() => setMarkers([])}
+                style={{ padding: '10px', background: '#ef4444', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', textAlign: 'left' }}
+              >
+                🗑 Rensa alla markörer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
