@@ -2221,22 +2221,21 @@ export default function PlannerPage() {
                   />
                 );
                 
-                // Overlay: Höjdkurvor (visas ovanpå satellit)
-                if (overlays.contours && mapType === 'satellite') {
+                // Overlay: Höjdkurvor (visas på satellit eller vanlig karta)
+                if (overlays.contours && mapType !== 'terrain') {
                   tiles.push(
                     <img
                       key={`contour-${tileX}-${tileY}-${z}`}
                       src={`https://tile.opentopomap.org/${z}/${tileX}/${tileY}.png`}
                       alt=""
-                      crossOrigin="anonymous"
                       style={{
                         position: 'absolute',
                         left: screenX,
                         top: screenY,
                         width: tileSize * zoom,
                         height: tileSize * zoom,
-                        opacity: 0.4,
-                        mixBlendMode: 'multiply',
+                        opacity: mapType === 'satellite' ? 0.5 : 0.3,
+                        mixBlendMode: mapType === 'satellite' ? 'normal' : 'multiply',
                       }}
                       onError={(e) => {
                         (e.target as HTMLImageElement).style.display = 'none';
@@ -2268,20 +2267,20 @@ export default function PlannerPage() {
               
               tiles.push(
                 <img
-                  key="wms-sumpskog"
+                  key={`wms-sumpskog-${Math.round(centerLat*100)}-${Math.round(centerLng*100)}`}
                   src={wmsUrl}
                   alt=""
-                  crossOrigin="anonymous"
                   style={{
                     position: 'absolute',
                     left: 0,
                     top: 0,
                     width: screenSize.width,
                     height: screenSize.height,
-                    opacity: 0.6,
+                    opacity: 0.7,
                     pointerEvents: 'none',
                   }}
                   onError={(e) => {
+                    console.log('Sumpskog WMS failed to load');
                     (e.target as HTMLImageElement).style.display = 'none';
                   }}
                 />
@@ -3196,6 +3195,8 @@ export default function PlannerPage() {
             navigator.geolocation.getCurrentPosition(
               (pos) => {
                 setMapCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+                setPan({ x: 0, y: 0 }); // Återställ pan så kartan centreras
+                setZoom(1); // Återställ zoom
               },
               (err) => {
                 console.log('GPS error:', err);
@@ -4129,7 +4130,7 @@ export default function PlannerPage() {
               </div>
               {[
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
-                { id: 'contours', name: 'Höjdkurvor', desc: 'Visas på satellit', enabled: true },
+                { id: 'contours', name: 'Höjdkurvor', desc: 'Terräng ovanpå karta/satellit', enabled: true },
                 { id: 'moisture', name: 'Markfuktighet', desc: 'Kräver Skogsstyrelsen-konto', enabled: false },
                 { id: 'propertyLines', name: 'Fastighetsgränser', desc: 'Kommer snart', enabled: false },
               ].map(overlay => (
