@@ -2412,15 +2412,7 @@ export default function PlannerPage() {
             const newPanY = centerY - (centerY - pinchRef.current.initialPan.y) * zoomRatio;
             
             // Beräkna rotation (bara om kompass är av)
-            if (!compassMode) {
-              const currentAngle = Math.atan2(
-                touch2.clientY - touch1.clientY,
-                touch2.clientX - touch1.clientX
-              ) * (180 / Math.PI);
-              const angleDiff = currentAngle - pinchRef.current.initialAngle;
-              const newRotation = pinchRef.current.initialRotation + angleDiff;
-              setMapRotation(newRotation);
-            }
+            // Finger-rotation avstängd - kartan pekar alltid norrut
             
             setZoom(newZoom);
             setPan({ x: newPanX, y: newPanY });
@@ -2613,9 +2605,6 @@ export default function PlannerPage() {
             // Returnera null om symbolen inte ska visas
             if (!shouldShow) return null;
             
-            // Mot-rotation så symbolen alltid pekar uppåt
-            const counterRotation = -mapRotation + (compassMode ? deviceHeading : 0);
-            
             return (
               <g 
                 key={m.id} 
@@ -2626,7 +2615,6 @@ export default function PlannerPage() {
                   opacity: opacity,
                   transition: 'opacity 0.3s ease',
                 }}
-                transform={`rotate(${counterRotation}, ${m.x}, ${m.y})`}
               >
                 {/* Skugga när man drar */}
                 {isDragging && hasMoved && (
@@ -2762,10 +2750,8 @@ export default function PlannerPage() {
           )}
 
           {/* GPS position med ljuskägla */}
-          {isTracking && (() => {
-            const gpsCounterRotation = -mapRotation + (compassMode ? deviceHeading : 0);
-            return (
-            <g transform={`rotate(${gpsCounterRotation}, ${gpsMapPosition.x}, ${gpsMapPosition.y})`}>
+          {isTracking && (
+            <g>
               {/* Ljuskägla - visar riktning när kompass är på */}
               {compassMode && isTracking && (() => {
                 const coneRadius = getConstrainedSize(80);
@@ -2802,8 +2788,7 @@ export default function PlannerPage() {
                 );
               })()}
             </g>
-            );
-          })()}
+          )}
           
           {/* Rotationsindikator */}
           {rotatingArrow && (() => {
@@ -3195,17 +3180,20 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === GPS-KNAPP (höger nere) - centrerar kartan på dig === */}
+      {/* === GPS-KNAPP (höger nere) === */}
       <button
         onClick={() => {
-          if (isTracking) {
-            // GPS är på - centrera på nuvarande position
-            const screenCenterX = screenSize.width / 2;
-            const screenCenterY = screenSize.height / 2;
-            setPan({ x: screenCenterX - gpsMapPosition.x * zoom, y: screenCenterY - gpsMapPosition.y * zoom });
-          } else {
-            // Starta GPS först
-            toggleTracking();
+          if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                setMapCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+              },
+              (err) => {
+                console.log('GPS error:', err);
+                alert('Kunde inte hämta din position. Kontrollera att GPS är aktiverat.');
+              },
+              { enableHighAccuracy: true, timeout: 10000 }
+            );
           }
         }}
         style={{
@@ -3215,18 +3203,18 @@ export default function PlannerPage() {
           width: '48px',
           height: '48px',
           borderRadius: '12px',
-          border: isTracking ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.1)',
-          background: isTracking ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          background: 'rgba(255,255,255,0.06)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 150,
-          transition: 'all 0.3s ease',
+          transition: 'bottom 0.3s ease',
           cursor: 'pointer',
         }}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="12" r="5" fill={isTracking ? '#22c55e' : 'rgba(255,255,255,0.4)'}/>
+          <circle cx="12" cy="12" r="5" fill="#22c55e"/>
         </svg>
       </button>
 
