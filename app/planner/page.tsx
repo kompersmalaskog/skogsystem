@@ -215,7 +215,9 @@ export default function PlannerPage() {
   const [arrowType, setArrowType] = useState<string | null>(null);
   
   // Skala och mätning
-  const [scale, setScale] = useState(1); // meter per pixel
+  // Beräkna meter per pixel baserat på kartans zoom-nivå och latitud
+  // Formel: 156543.03392 * cos(lat * PI / 180) / (2^zoom)
+  const scale = 156543.03392 * Math.cos(mapCenter.lat * Math.PI / 180) / Math.pow(2, mapZoom);
   const [showMeasurements, setShowMeasurements] = useState(true);
   const [measureMode, setMeasureMode] = useState(false);
   const [measureAreaMode, setMeasureAreaMode] = useState(false); // Ytmätning
