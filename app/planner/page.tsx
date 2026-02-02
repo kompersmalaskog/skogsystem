@@ -1266,6 +1266,11 @@ export default function PlannerPage() {
 
   // Drag & drop för symboler
   const handleMarkerDragStart = (e, marker) => {
+    // Vibrera kort för feedback
+    if (navigator.vibrate) {
+      navigator.vibrate(20);
+    }
+    
     if (!marker.isMarker && !marker.isArrow) {
       // Linjer och zoner - öppna meny direkt
       e.stopPropagation();
@@ -1322,6 +1327,11 @@ export default function PlannerPage() {
       justEndedDrag.current = true;
       setMarkerMenuOpen(markerId);
       setTimeout(() => { justEndedDrag.current = false; }, 100);
+    } else {
+      // Symbolen flyttades - bekräfta med vibration
+      if (navigator.vibrate) {
+        navigator.vibrate([20, 50, 20]); // Dubbel-vibration
+      }
     }
   };
   
@@ -1447,6 +1457,11 @@ export default function PlannerPage() {
       };
       setMarkers(prev => [...prev, newMarker]);
       
+      // Vibrera för bekräftelse
+      if (navigator.vibrate) {
+        navigator.vibrate(30);
+      }
+      
       // Lägg till i snabbval (max 4, senast först)
       setRecentSymbols(prev => {
         const filtered = prev.filter(s => s !== selectedSymbol);
@@ -1511,7 +1526,7 @@ export default function PlannerPage() {
   };
 
   // Dra-för-att-rita med offset
-  const drawOffset = 60; // Pixlar ovanför fingret
+  const drawOffset = 0; // Ritas direkt där fingret är
   const [drawCursor, setDrawCursor] = useState(null); // Visar var linjen ritas
   
   const handleDrawStart = (e, rect) => {
@@ -3209,6 +3224,11 @@ export default function PlannerPage() {
       {/* === GPS-KNAPP (höger nere) === */}
       <button
         onClick={() => {
+          // Vibrera för feedback
+          if (navigator.vibrate) {
+            navigator.vibrate(25);
+          }
+          
           if (isTracking && currentPosition) {
             // GPS är redan på - flytta kartcentrum till din position
             setMapCenter({ lat: currentPosition.lat, lng: currentPosition.lon });
