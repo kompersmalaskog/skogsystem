@@ -3209,11 +3209,14 @@ export default function PlannerPage() {
       {/* === GPS-KNAPP (höger nere) === */}
       <button
         onClick={() => {
-          if (isTracking) {
-            // GPS är redan på - centrera kartan på nuvarande GPS-position
-            const screenCenterX = screenSize.width / 2;
-            const screenCenterY = screenSize.height / 2;
-            setPan({ x: screenCenterX - gpsMapPosition.x * zoom, y: screenCenterY - gpsMapPosition.y * zoom });
+          if (isTracking && currentPosition) {
+            // GPS är redan på - flytta kartcentrum till din position
+            setMapCenter({ lat: currentPosition.lat, lng: currentPosition.lon });
+            // Återställ GPS-position till centrum (0,0) och pan
+            gpsMapPositionRef.current = { x: 0, y: 0 };
+            setGpsMapPosition({ x: 0, y: 0 });
+            setGpsStartPos({ lat: currentPosition.lat, lon: currentPosition.lon, x: 0, y: 0 });
+            setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
           } else {
             // Starta GPS-tracking
             toggleTracking();
