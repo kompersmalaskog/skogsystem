@@ -784,6 +784,24 @@ export default function PlannerPage() {
   ];
 
   // === GPS ===
+  // Konvertera lat/lon till SVG-koordinater (relativt till mapCenter)
+  const latLonToSvg = (lat: number, lon: number) => {
+    // Meter per grad (approximation för Sverige ~57°N)
+    const mPerDegLat = 111320;
+    const mPerDegLon = 111320 * Math.cos(mapCenter.lat * Math.PI / 180);
+    
+    // Skillnad från kartcentrum i meter
+    const dxMeters = (lon - mapCenter.lng) * mPerDegLon;
+    const dyMeters = (lat - mapCenter.lat) * mPerDegLat;
+    
+    // Konvertera till pixlar (scale = meter per pixel)
+    // SVG-koordinater där (0,0) = mapCenter
+    const x = dxMeters / scale;
+    const y = -dyMeters / scale; // Negativ för att Y ökar nedåt
+    
+    return { x, y };
+  };
+  
   // Konvertera GPS till kartkoordinater (relativ till startpunkt)
   const gpsToMap = (lat, lon, startLat, startLon, startX, startY) => {
     // Meter per grad (approximation för Sverige ~59°N)
@@ -966,13 +984,17 @@ export default function PlannerPage() {
         // Första punkten - sätt startposition
         setGpsStartPos(prev => {
           if (!prev) {
+            // Beräkna SVG-koordinater från lat/lon
+            const svgPos = latLonToSvg(newPos.lat, newPos.lon);
+            gpsMapPositionRef.current = svgPos;
+            setGpsMapPosition(svgPos);
             const startPos = { 
               lat: newPos.lat, 
               lon: newPos.lon, 
-              x: gpsMapPositionRef.current.x, 
-              y: gpsMapPositionRef.current.y 
+              x: svgPos.x, 
+              y: svgPos.y 
             };
-            const firstPoint = { x: gpsMapPositionRef.current.x, y: gpsMapPositionRef.current.y };
+            const firstPoint = { x: svgPos.x, y: svgPos.y };
             gpsPathRef.current = [firstPoint];
             setGpsPath([firstPoint]);
             lastConfirmedPosRef.current = firstPoint;
@@ -1158,14 +1180,17 @@ export default function PlannerPage() {
             // Uppdatera kartposition
             setGpsStartPos(prev => {
               if (!prev) {
-                // Första punkten - spara som referens
-                lastConfirmedPosRef.current = gpsMapPositionRef.current;
-                gpsHistoryRef.current = [gpsMapPositionRef.current];
+                // Första punkten - beräkna SVG-koordinater från lat/lon
+                const svgPos = latLonToSvg(newPos.lat, newPos.lon);
+                gpsMapPositionRef.current = svgPos;
+                setGpsMapPosition(svgPos);
+                lastConfirmedPosRef.current = svgPos;
+                gpsHistoryRef.current = [svgPos];
                 return { 
                   lat: newPos.lat, 
                   lon: newPos.lon, 
-                  x: gpsMapPositionRef.current.x, 
-                  y: gpsMapPositionRef.current.y 
+                  x: svgPos.x, 
+                  y: svgPos.y 
                 };
               }
               
@@ -2463,15 +2488,14 @@ export default function PlannerPage() {
         </defs>
         <rect width="100%" height="100%" fill="url(#grid)" />
 
-        {/* Rotation wrapper för kompass-läge */}
+        {/* Rotation wrapper - avstängd, kartan pekar alltid norrut */}
         <g style={{ 
-          transform: compassMode ? `rotate(${-deviceHeading}deg)` : 'none',
+          transform: 'none',
           transformOrigin: '50% 50%',
-          transition: compassMode ? 'transform 0.1s ease-out' : 'none',
         }}>
-        {/* Kart-rotation från finger-gester */}
+        {/* Kart-rotation från finger-gester - avstängd */}
         <g style={{ 
-          transform: `rotate(${mapRotation}deg)`,
+          transform: 'none',
           transformOrigin: '50% 50%',
         }}>
         <g style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
@@ -3183,17 +3207,14 @@ export default function PlannerPage() {
       {/* === GPS-KNAPP (höger nere) === */}
       <button
         onClick={() => {
-          if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-              (pos) => {
-                setMapCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-              },
-              (err) => {
-                console.log('GPS error:', err);
-                alert('Kunde inte hämta din position. Kontrollera att GPS är aktiverat.');
-              },
-              { enableHighAccuracy: true, timeout: 10000 }
-            );
+          if (isTracking) {
+            // GPS är redan på - centrera kartan på nuvarande GPS-position
+            const screenCenterX = screenSize.width / 2;
+            const screenCenterY = screenSize.height / 2;
+            setPan({ x: screenCenterX - gpsMapPosition.x * zoom, y: screenCenterY - gpsMapPosition.y * zoom });
+          } else {
+            // Starta GPS-tracking
+            toggleTracking();
           }
         }}
         style={{
@@ -3203,18 +3224,18 @@ export default function PlannerPage() {
           width: '48px',
           height: '48px',
           borderRadius: '12px',
-          border: '1px solid rgba(255,255,255,0.1)',
-          background: 'rgba(255,255,255,0.06)',
+          border: isTracking ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.1)',
+          background: isTracking ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           zIndex: 150,
-          transition: 'bottom 0.3s ease',
+          transition: 'all 0.3s ease',
           cursor: 'pointer',
         }}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="12" r="5" fill="#22c55e"/>
+          <circle cx="12" cy="12" r="5" fill={isTracking ? '#22c55e' : 'rgba(255,255,255,0.4)'}/>
         </svg>
       </button>
 
@@ -5019,11 +5040,15 @@ export default function PlannerPage() {
                             
                             setGpsStartPos(prev => {
                               if (!prev) {
+                                // Beräkna SVG-koordinater från lat/lon
+                                const svgPos = latLonToSvg(newPos.lat, newPos.lon);
+                                gpsMapPositionRef.current = svgPos;
+                                setGpsMapPosition(svgPos);
                                 return { 
                                   lat: newPos.lat, 
                                   lon: newPos.lon, 
-                                  x: gpsMapPositionRef.current.x, 
-                                  y: gpsMapPositionRef.current.y 
+                                  x: svgPos.x, 
+                                  y: svgPos.y 
                                 };
                               }
                               
