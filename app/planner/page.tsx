@@ -69,7 +69,15 @@ export default function PlannerPage() {
   const [mapCenter, setMapCenter] = useState({ lat: 57.1052, lng: 14.8261 }); // Stenshult ungefär
   const [mapZoom, setMapZoom] = useState(16);
   const [showMap, setShowMap] = useState(true);
-  const [mapType, setMapType] = useState<'osm' | 'satellite'>('osm');
+  const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain'>('osm');
+  
+  // Overlay-lager
+  const [overlays, setOverlays] = useState({
+    propertyLines: false,  // Fastighetsgränser
+    moisture: false,       // Markfuktighet (kräver konto)
+    contours: false,       // Höjdkurvor
+    wetlands: false,       // Sumpskog (öppet)
+  });
   
   // Hämta skärmstorlek på klienten
   useEffect(() => {
@@ -2184,9 +2192,15 @@ export default function PlannerPage() {
                 if (screenX < -scaledSize * 2 || screenX > screenSize.width + scaledSize) continue;
                 if (screenY < -scaledSize * 2 || screenY > screenSize.height + scaledSize) continue;
                 
-                const url = mapType === 'satellite'
-                  ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${tileY}/${tileX}`
-                  : `https://tile.openstreetmap.org/${z}/${tileX}/${tileY}.png`;
+                // Bakgrundskarta URL
+                let url: string;
+                if (mapType === 'satellite') {
+                  url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${tileY}/${tileX}`;
+                } else if (mapType === 'terrain') {
+                  url = `https://tile.opentopomap.org/${z}/${tileX}/${tileY}.png`;
+                } else {
+                  url = `https://tile.openstreetmap.org/${z}/${tileX}/${tileY}.png`;
+                }
                 
                 tiles.push(
                   <img
@@ -2206,8 +2220,74 @@ export default function PlannerPage() {
                     }}
                   />
                 );
+                
+                // Overlay: Höjdkurvor (visas ovanpå satellit)
+                if (overlays.contours && mapType === 'satellite') {
+                  tiles.push(
+                    <img
+                      key={`contour-${tileX}-${tileY}-${z}`}
+                      src={`https://tile.opentopomap.org/${z}/${tileX}/${tileY}.png`}
+                      alt=""
+                      crossOrigin="anonymous"
+                      style={{
+                        position: 'absolute',
+                        left: screenX,
+                        top: screenY,
+                        width: tileSize * zoom,
+                        height: tileSize * zoom,
+                        opacity: 0.4,
+                        mixBlendMode: 'multiply',
+                      }}
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  );
+                }
               }
             }
+            
+            // WMS Overlay: Sumpskog från Skogsstyrelsen
+            if (overlays.wetlands && screenSize.width > 0) {
+              // Beräkna bounding box för synlig vy
+              const centerLat = mapCenter.lat;
+              const centerLng = mapCenter.lng;
+              
+              // Uppskatta synligt område baserat på zoom
+              const metersPerPixel = 156543.03392 * Math.cos(centerLat * Math.PI / 180) / Math.pow(2, z);
+              const viewWidthMeters = screenSize.width * metersPerPixel / zoom;
+              const viewHeightMeters = screenSize.height * metersPerPixel / zoom;
+              
+              // Konvertera till lat/lng offset
+              const latOffset = (viewHeightMeters / 111320) / 2;
+              const lngOffset = (viewWidthMeters / (111320 * Math.cos(centerLat * Math.PI / 180))) / 2;
+              
+              const bbox = `${centerLng - lngOffset},${centerLat - latOffset},${centerLng + lngOffset},${centerLat + latOffset}`;
+              
+              const wmsUrl = `https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${bbox}&WIDTH=${Math.round(screenSize.width)}&HEIGHT=${Math.round(screenSize.height)}`;
+              
+              tiles.push(
+                <img
+                  key="wms-sumpskog"
+                  src={wmsUrl}
+                  alt=""
+                  crossOrigin="anonymous"
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    top: 0,
+                    width: screenSize.width,
+                    height: screenSize.height,
+                    opacity: 0.6,
+                    pointerEvents: 'none',
+                  }}
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
+                />
+              );
+            }
+            
             return tiles;
           })()}
         </div>
@@ -3109,6 +3189,44 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* === GPS-KNAPP (höger nere) === */}
+      <button
+        onClick={() => {
+          if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+              (pos) => {
+                setMapCenter({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+              },
+              (err) => {
+                console.log('GPS error:', err);
+                alert('Kunde inte hämta din position. Kontrollera att GPS är aktiverat.');
+              },
+              { enableHighAccuracy: true, timeout: 10000 }
+            );
+          }
+        }}
+        style={{
+          position: 'absolute',
+          bottom: menuOpen ? menuHeight + 110 : 100,
+          right: '15px',
+          width: '48px',
+          height: '48px',
+          borderRadius: '12px',
+          border: '1px solid rgba(255,255,255,0.1)',
+          background: 'rgba(255,255,255,0.06)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 150,
+          transition: 'bottom 0.3s ease',
+          cursor: 'pointer',
+        }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="5" fill="#22c55e"/>
+        </svg>
+      </button>
+
       {/* === ÅNGRA-KNAPP === */}
       {showUndo && history.length > 0 && (
         <button
@@ -3936,7 +4054,7 @@ export default function PlannerPage() {
             overflowY: 'auto',
             padding: '12px',
           }}>
-            {/* Huvudlager */}
+            {/* Bakgrundskarta */}
             <div style={{
               background: '#0a0a0a', 
               border: '1px solid rgba(255,255,255,0.08)',
@@ -3944,6 +4062,132 @@ export default function PlannerPage() {
               padding: '8px',
               marginBottom: '16px',
             }}>
+              <div style={{ 
+                padding: '12px 16px 8px', 
+                fontSize: '11px', 
+                opacity: 0.4, 
+                textTransform: 'uppercase', 
+                letterSpacing: '1px' 
+              }}>
+                Bakgrundskarta
+              </div>
+              {[
+                { id: 'osm', name: 'Karta', desc: 'OpenStreetMap' },
+                { id: 'satellite', name: 'Satellit', desc: 'Flygfoto' },
+                { id: 'terrain', name: 'Terräng', desc: 'Höjdkurvor & detaljer' },
+              ].map(type => (
+                <div
+                  key={type.id}
+                  onClick={() => setMapType(type.id as 'osm' | 'satellite' | 'terrain')}
+                  style={{
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{
+                    width: '24px',
+                    height: '24px',
+                    borderRadius: '50%',
+                    border: mapType === type.id ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                    background: mapType === type.id ? '#22c55e' : 'transparent',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    {mapType === type.id && (
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fff' }} />
+                    )}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '15px', color: '#fff' }}>{type.name}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>{type.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Overlay-lager */}
+            <div style={{
+              background: '#0a0a0a', 
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              <div style={{ 
+                padding: '12px 16px 8px', 
+                fontSize: '11px', 
+                opacity: 0.4, 
+                textTransform: 'uppercase', 
+                letterSpacing: '1px' 
+              }}>
+                Overlay
+              </div>
+              {[
+                { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
+                { id: 'contours', name: 'Höjdkurvor', desc: 'Visas på satellit', enabled: true },
+                { id: 'moisture', name: 'Markfuktighet', desc: 'Kräver Skogsstyrelsen-konto', enabled: false },
+                { id: 'propertyLines', name: 'Fastighetsgränser', desc: 'Kommer snart', enabled: false },
+              ].map(overlay => (
+                <div
+                  key={overlay.id}
+                  onClick={() => overlay.enabled && setOverlays(prev => ({ ...prev, [overlay.id]: !prev[overlay.id] }))}
+                  style={{
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    borderRadius: '12px',
+                    cursor: overlay.enabled ? 'pointer' : 'not-allowed',
+                    opacity: overlay.enabled ? 1 : 0.4,
+                  }}
+                >
+                  <span style={{ flex: 1 }}>
+                    <div style={{ fontSize: '15px', color: '#fff' }}>{overlay.name}</div>
+                    <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>{overlay.desc}</div>
+                  </span>
+                  <div style={{
+                    width: '44px',
+                    height: '26px',
+                    borderRadius: '13px',
+                    background: overlays[overlay.id] ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                    padding: '2px',
+                    transition: 'background 0.2s ease',
+                  }}>
+                    <div style={{
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '50%',
+                      background: '#fff',
+                      transform: overlays[overlay.id] ? 'translateX(18px)' : 'translateX(0)',
+                      transition: 'transform 0.2s ease',
+                    }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Dina markeringar */}
+            <div style={{
+              background: '#0a0a0a', 
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              <div style={{ 
+                padding: '12px 16px 8px', 
+                fontSize: '11px', 
+                opacity: 0.4, 
+                textTransform: 'uppercase', 
+                letterSpacing: '1px' 
+              }}>
+                Dina markeringar
+              </div>
               {[
                 { id: 'symbols', name: 'Symboler', icon: '●' },
                 { id: 'lines', name: 'Linjer', icon: '━' },
@@ -5506,7 +5750,11 @@ export default function PlannerPage() {
                   
                   {/* Karttyp */}
                   <div
-                    onClick={() => setMapType(mapType === 'osm' ? 'satellite' : 'osm')}
+                    onClick={() => {
+                      if (mapType === 'osm') setMapType('satellite');
+                      else if (mapType === 'satellite') setMapType('terrain');
+                      else setMapType('osm');
+                    }}
                     style={{
                       padding: '16px 20px',
                       display: 'flex',
@@ -5525,7 +5773,9 @@ export default function PlannerPage() {
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '15px', color: '#fff' }}>Karttyp</div>
-                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>{mapType === 'osm' ? 'Karta' : 'Satellit'}</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>
+                        {mapType === 'osm' ? 'Karta' : mapType === 'satellite' ? 'Satellit' : 'Terräng'}
+                      </div>
                     </div>
                   </div>
 
