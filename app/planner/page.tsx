@@ -248,17 +248,6 @@ export default function PlannerPage() {
   const pinchRef = useRef({ initialDistance: 0, initialZoom: 1, initialPan: { x: 0, y: 0 }, center: { x: 0, y: 0 }, initialAngle: 0, initialRotation: 0 });
   const [isPinching, setIsPinching] = useState(false);
   const [mapRotation, setMapRotation] = useState(0); // Kartans rotation i grader
-  const [followGps, setFollowGps] = useState(false); // Följ GPS automatiskt
-  const followGpsRef = useRef(false); // Ref för closure
-  
-  // Auto-centrera på GPS när followGps är på
-  useEffect(() => {
-    if (followGpsRef.current && isTracking) {
-      const screenCenterX = screenSize.width / 2;
-      const screenCenterY = screenSize.height / 2;
-      setPan({ x: screenCenterX - gpsMapPosition.x * zoom, y: screenCenterY - gpsMapPosition.y * zoom });
-    }
-  }, [gpsMapPosition, isTracking, screenSize, zoom]);
   
   // Kompass-rotation
   const [compassMode, setCompassMode] = useState(false);
@@ -1019,9 +1008,6 @@ export default function PlannerPage() {
             gpsMapPositionRef.current = smoothedPos;
             setGpsMapPosition(smoothedPos);
             
-            // Auto-centrera om followGps är på
-            // Vi använder en ref för att kunna läsa aktuellt värde i callback
-            
             // Lägg till punkt i spårad linje om vi rört oss tillräckligt (5 meter)
             // Men INTE om spårningen är pausad
             if (!gpsPausedRef.current) {
@@ -1657,11 +1643,6 @@ export default function PlannerPage() {
     if (e.button === 0 && !selectedSymbol && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode) {
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-      // Stäng av auto-följ när användaren panorerar
-      if (followGps) {
-        setFollowGps(false);
-        followGpsRef.current = false;
-      }
     }
   };
 
@@ -2404,11 +2385,6 @@ export default function PlannerPage() {
           if (e.touches.length === 1 && !selectedSymbol && !isArrowMode && !measureMode && !measureAreaMode && !isDrawMode && !isZoneMode) {
             setIsPanning(true);
             setPanStart({ x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y });
-            // Stäng av auto-följ när användaren panorerar
-            if (followGps) {
-              setFollowGps(false);
-              followGpsRef.current = false;
-            }
           }
         }}
         onTouchMove={(e) => {
@@ -2637,6 +2613,9 @@ export default function PlannerPage() {
             // Returnera null om symbolen inte ska visas
             if (!shouldShow) return null;
             
+            // Mot-rotation så symbolen alltid pekar uppåt
+            const counterRotation = -mapRotation + (compassMode ? deviceHeading : 0);
+            
             return (
               <g 
                 key={m.id} 
@@ -2647,7 +2626,7 @@ export default function PlannerPage() {
                   opacity: opacity,
                   transition: 'opacity 0.3s ease',
                 }}
-                transform={`rotate(${-mapRotation - (compassMode ? -deviceHeading : 0)}, ${m.x}, ${m.y})`}
+                transform={`rotate(${counterRotation}, ${m.x}, ${m.y})`}
               >
                 {/* Skugga när man drar */}
                 {isDragging && hasMoved && (
@@ -2783,8 +2762,10 @@ export default function PlannerPage() {
           )}
 
           {/* GPS position med ljuskägla */}
-          {isTracking && (
-            <g transform={`rotate(${-mapRotation - (compassMode ? -deviceHeading : 0)}, ${gpsMapPosition.x}, ${gpsMapPosition.y})`}>
+          {isTracking && (() => {
+            const gpsCounterRotation = -mapRotation + (compassMode ? deviceHeading : 0);
+            return (
+            <g transform={`rotate(${gpsCounterRotation}, ${gpsMapPosition.x}, ${gpsMapPosition.y})`}>
               {/* Ljuskägla - visar riktning när kompass är på */}
               {compassMode && isTracking && (() => {
                 const coneRadius = getConstrainedSize(80);
@@ -2821,7 +2802,8 @@ export default function PlannerPage() {
                 );
               })()}
             </g>
-          )}
+            );
+          })()}
           
           {/* Rotationsindikator */}
           {rotatingArrow && (() => {
@@ -3213,32 +3195,17 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === GPS-KNAPP (höger nere) === */}
+      {/* === GPS-KNAPP (höger nere) - centrerar kartan på dig === */}
       <button
         onClick={() => {
-          if (!isTracking) {
-            // Starta GPS-tracking
-            toggleTracking();
-          } else if (!followGps) {
-            // Slå på auto-följ
-            setFollowGps(true);
-            followGpsRef.current = true;
-            // Centrera direkt
+          if (isTracking) {
+            // GPS är på - centrera på nuvarande position
             const screenCenterX = screenSize.width / 2;
             const screenCenterY = screenSize.height / 2;
             setPan({ x: screenCenterX - gpsMapPosition.x * zoom, y: screenCenterY - gpsMapPosition.y * zoom });
           } else {
-            // Stäng av auto-följ (men behåll GPS på)
-            setFollowGps(false);
-            followGpsRef.current = false;
-          }
-        }}
-        onDoubleClick={() => {
-          // Dubbeltryck = stäng av GPS helt
-          if (isTracking) {
+            // Starta GPS först
             toggleTracking();
-            setFollowGps(false);
-            followGpsRef.current = false;
           }
         }}
         style={{
@@ -3248,8 +3215,8 @@ export default function PlannerPage() {
           width: '48px',
           height: '48px',
           borderRadius: '12px',
-          border: followGps ? '2px solid #22c55e' : '1px solid rgba(255,255,255,0.1)',
-          background: isTracking ? (followGps ? 'rgba(34,197,94,0.25)' : 'rgba(34,197,94,0.1)') : 'rgba(255,255,255,0.06)',
+          border: isTracking ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.1)',
+          background: isTracking ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -3258,13 +3225,8 @@ export default function PlannerPage() {
           cursor: 'pointer',
         }}
       >
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          {/* Yttre ring när följ är på */}
-          {followGps && (
-            <circle cx="12" cy="12" r="10" stroke="#22c55e" strokeWidth="2" fill="none" style={{ animation: 'pulse 1.5s infinite' }}/>
-          )}
-          {/* Mittprick */}
-          <circle cx="12" cy="12" r="5" fill={isTracking ? '#22c55e' : 'rgba(255,255,255,0.3)'}/>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <circle cx="12" cy="12" r="5" fill={isTracking ? '#22c55e' : 'rgba(255,255,255,0.4)'}/>
         </svg>
       </button>
 
