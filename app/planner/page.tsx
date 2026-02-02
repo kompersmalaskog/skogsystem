@@ -79,54 +79,6 @@ export default function PlannerPage() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
   
-  // === DEBUG-LÄGE ===
-  const [debugMode, setDebugMode] = useState(false);
-  const [debugTapCount, setDebugTapCount] = useState(0);
-  const debugTapTimeout = useRef<NodeJS.Timeout | null>(null);
-  const [debugWalking, setDebugWalking] = useState(false);
-  const [debugWalkDirection, setDebugWalkDirection] = useState(0); // grader
-  const [debugWalkSpeed, setDebugWalkSpeed] = useState(5); // pixlar per uppdatering
-  const debugWalkInterval = useRef<NodeJS.Timeout | null>(null);
-  
-  // Hantera debug-tap (5 snabba tryck i övre vänstra hörnet)
-  const handleDebugTap = () => {
-    const newCount = debugTapCount + 1;
-    
-    if (newCount >= 5) {
-      setDebugMode(d => !d);
-      setDebugTapCount(0);
-    } else {
-      setDebugTapCount(newCount);
-    }
-    
-    if (debugTapTimeout.current) clearTimeout(debugTapTimeout.current);
-    debugTapTimeout.current = setTimeout(() => setDebugTapCount(0), 1500);
-  };
-  
-  // Starta/stoppa simulerad gång
-  const startDebugWalk = () => {
-    if (debugWalkInterval.current) clearInterval(debugWalkInterval.current);
-    setDebugWalking(true);
-    debugWalkInterval.current = setInterval(() => {
-      const radians = debugWalkDirection * Math.PI / 180;
-      const dx = Math.sin(radians) * debugWalkSpeed;
-      const dy = -Math.cos(radians) * debugWalkSpeed;
-      setGpsMapPosition(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-      gpsMapPositionRef.current = { x: gpsMapPositionRef.current.x + dx, y: gpsMapPositionRef.current.y + dy };
-    }, 200);
-  };
-  
-  const stopDebugWalk = () => {
-    if (debugWalkInterval.current) clearInterval(debugWalkInterval.current);
-    setDebugWalking(false);
-  };
-  
-  // Flytta GPS manuellt
-  const moveDebugGps = (dx: number, dy: number) => {
-    setGpsMapPosition(prev => ({ x: prev.x + dx, y: prev.y + dy }));
-    gpsMapPositionRef.current = { x: gpsMapPositionRef.current.x + dx, y: gpsMapPositionRef.current.y + dy };
-  };
-
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
   const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<string[]>([]); // IDs av kvitterade
@@ -145,6 +97,8 @@ export default function PlannerPage() {
   });
   const [stickvagWarningShown, setStickvagWarningShown] = useState(false); // Har vi varnat för detta utanför-tillfälle
   const previousStickvagRef = useRef<any>(null); // Senaste stickvägen att mäta mot
+  const [showSavedPopup, setShowSavedPopup] = useState(false); // Popup efter sparande
+  const [savedVagColor, setSavedVagColor] = useState<string | null>(null); // Sparad färg för highlight
   
   // Prognos
   const [prognosOpen, setPrognosOpen] = useState(false);
@@ -619,6 +573,72 @@ export default function PlannerPage() {
           <path d="M12 6 L20 12 L12 18" />
         </svg>
       ),
+      // MENY-IKONER (Tesla-stil, tunna linjer)
+      'menu-symbols': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="8" />
+          <circle cx="12" cy="10" r="2.5" />
+          <path d="M12 12.5 L12 16" />
+        </svg>
+      ),
+      'menu-lines': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round">
+          <path d="M4 16 Q12 6 20 14" />
+        </svg>
+      ),
+      'menu-zones': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 4 L20 8.5 L20 15.5 L12 20 L4 15.5 L4 8.5 Z" />
+        </svg>
+      ),
+      'menu-arrows': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="5" y1="12" x2="19" y2="12" />
+          <path d="M14 7 L19 12 L14 17" />
+        </svg>
+      ),
+      'menu-measure': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 20 L20 4" />
+          <path d="M4 20 L4 15" />
+          <path d="M4 20 L9 20" />
+          <path d="M20 4 L20 9" />
+          <path d="M20 4 L15 4" />
+        </svg>
+      ),
+      'menu-gallring': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="8" y1="8" x2="8" y2="20" />
+          <line x1="16" y1="8" x2="16" y2="20" />
+          <circle cx="8" cy="6" r="2.5" />
+          <circle cx="16" cy="6" r="2.5" />
+        </svg>
+      ),
+      'menu-checklist': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="4" y="4" width="16" height="16" rx="2" />
+          <path d="M7 12 L10 15 L17 8" />
+        </svg>
+      ),
+      'menu-prognos': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M4 18 L9 13 L13 15 L20 6" />
+          <path d="M16 6 L20 6 L20 10" />
+        </svg>
+      ),
+      'menu-settings': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2 L12 5" />
+          <path d="M12 19 L12 22" />
+          <path d="M2 12 L5 12" />
+          <path d="M19 12 L22 12" />
+          <path d="M4.93 4.93 L7.05 7.05" />
+          <path d="M16.95 16.95 L19.07 19.07" />
+          <path d="M4.93 19.07 L7.05 16.95" />
+          <path d="M16.95 7.05 L19.07 4.93" />
+        </svg>
+      ),
     };
     return icons[iconId] || (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5">
@@ -719,9 +739,9 @@ export default function PlannerPage() {
 
   const zoneTypes = [
     { id: 'wet', name: 'Blött', color: '#3b82f6', icon: 'wet' },
-    { id: 'steep', name: 'Brant', color: '#f59e0b', icon: 'steep' },
+    { id: 'steep', name: 'Brant', color: '#a855f7', icon: 'steep' },
     { id: 'protected', name: 'Naturvård', color: '#22c55e', icon: 'naturecorner' },
-    { id: 'culture', name: 'Kulturmiljö', color: '#a855f7', icon: 'culturemonument' },
+    { id: 'culture', name: 'Kulturmiljö', color: '#f59e0b', icon: 'culturemonument' },
     { id: 'noentry', name: 'Ej framkomlig', color: '#ef4444', icon: 'warning' },
   ];
 
@@ -744,15 +764,15 @@ export default function PlannerPage() {
 
   // Meny-kategorier för fullskärmsmenyn
   const menuCategories = [
-    { id: 'symbols', name: 'SYMBOLER', color: '#6b7280' },
-    { id: 'lines', name: 'LINJER', color: '#3b82f6' },
-    { id: 'zones', name: 'ZONER', color: '#8b5cf6' },
-    { id: 'arrows', name: 'PILAR', color: '#f59e0b' },
-    { id: 'measure', name: 'MÄTNING', color: '#06b6d4' },
-    { id: 'gallring', name: 'GALLRING', color: '#22c55e' },
-    { id: 'checklist', name: 'CHECKLISTA', color: '#10b981' },
-    { id: 'prognos', name: 'PROGNOS', color: '#f97316' },
-    { id: 'settings', name: 'INSTÄLLN.', color: '#64748b' },
+    { id: 'symbols', name: 'Symboler', desc: 'Placera markeringar', icon: 'menu-symbols' },
+    { id: 'lines', name: 'Linjer', desc: 'Rita linjer och gränser', icon: 'menu-lines' },
+    { id: 'zones', name: 'Zoner', desc: 'Markera områden', icon: 'menu-zones' },
+    { id: 'arrows', name: 'Pilar', desc: 'Visa riktningar', icon: 'menu-arrows' },
+    { id: 'measure', name: 'Mätning', desc: 'Mät avstånd på kartan', icon: 'menu-measure' },
+    { id: 'gallring', name: 'Gallring', desc: 'Snitsla stickvägar', icon: 'menu-gallring' },
+    { id: 'checklist', name: 'Checklista', desc: 'Kontrollera punkter', icon: 'menu-checklist' },
+    { id: 'prognos', name: 'Prognos', desc: 'Produktivitetsberäkning', icon: 'menu-prognos' },
+    { id: 'settings', name: 'Inställningar', desc: 'Anpassa appen', icon: 'menu-settings' },
   ];
 
   // === GPS ===
@@ -815,7 +835,7 @@ export default function PlannerPage() {
   };
   
   // Hitta närmaste stickväg (ignorerar backvägar och traktgräns)
-  const findNearestStickvag = () => {
+  const findNearestStickvag = (pos = gpsMapPosition) => {
     const stickvägar = markers.filter(m => 
       m.isLine && 
       (m.lineType === 'stickvag' || ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')) &&
@@ -828,7 +848,7 @@ export default function PlannerPage() {
     let minDistance = Infinity;
     
     stickvägar.forEach(road => {
-      const result = getDistanceToPath(gpsMapPositionRef.current, road.path!);
+      const result = getDistanceToPath(pos, road.path!);
       if (result.distance < minDistance) {
         minDistance = result.distance;
         nearestRoad = road;
@@ -839,11 +859,9 @@ export default function PlannerPage() {
   };
   
   // Hämta aktuellt avstånd till närmaste stickväg
-  const getStickvagDistance = (): number | null => {
-    if (!stickvagMode) return null;
-    
+  const getStickvagDistance = (pos = gpsMapPosition): number | null => {
     // Hitta närmaste stickväg dynamiskt
-    const nearest = findNearestStickvag();
+    const nearest = findNearestStickvag(pos);
     if (!nearest?.path) return null;
     
     // Uppdatera referensen om den ändrats
@@ -851,7 +869,7 @@ export default function PlannerPage() {
       previousStickvagRef.current = nearest;
     }
     
-    const result = getDistanceToPath(gpsMapPositionRef.current, nearest.path);
+    const result = getDistanceToPath(pos, nearest.path);
     return Math.round(result.distance);
   };
   
@@ -1041,6 +1059,42 @@ export default function PlannerPage() {
     previousStickvagRef.current = null;
     
     // OBS: Vi stänger INTE av isTracking eller watchIdRef - GPS fortsätter visa position
+  };
+  
+  // Spara väg och visa popup för att välja nästa färg
+  const saveAndShowPopup = () => {
+    if (gpsPathRef.current.length > 1 && gpsLineType) {
+      saveToHistory([...markers]);
+      const newLine = {
+        id: Date.now(),
+        lineType: gpsLineType,
+        path: [...gpsPathRef.current],
+        isLine: true,
+        gpsRecorded: true,
+      };
+      setMarkers(prev => [...prev, newLine]);
+      const lineType = lineTypes.find(t => t.id === gpsLineType);
+      setSavedVagColor(lineType?.color || '#fff');
+    }
+    setGpsLineType(null);
+    setGpsPath([]);
+    gpsPathRef.current = [];
+    setGpsStartPos(null);
+    setGpsPaused(false);
+    gpsPausedRef.current = false;
+    setShowSavedPopup(true);
+  };
+
+  // Fortsätt snitslande med vald färg
+  const continueWithColor = (colorId: string) => {
+    const colorMap: Record<string, string> = {
+      'rod': 'sideRoadRed',
+      'gul': 'sideRoadYellow',
+      'bla': 'sideRoadBlue',
+    };
+    setShowSavedPopup(false);
+    startGpsTracking(colorMap[colorId] || 'sideRoadRed');
+    setStickvagMode(true);
   };
   
   const toggleGpsPause = () => {
@@ -1578,7 +1632,7 @@ export default function PlannerPage() {
 
   // Pan
   const handleMouseDown = (e) => {
-    if (e.button === 0 && !selectedSymbol && !isDrawMode && !isZoneMode && !isArrowMode) {
+    if (e.button === 0 && !selectedSymbol && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode) {
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
     }
@@ -2248,8 +2302,8 @@ export default function PlannerPage() {
             return;
           }
           
-          // Pan med ett finger (om inte i ritläge)
-          if (e.touches.length === 1 && !selectedSymbol && !isArrowMode) {
+          // Pan med ett finger (om inte i ritläge eller mätläge)
+          if (e.touches.length === 1 && !selectedSymbol && !isArrowMode && !measureMode && !measureAreaMode && !isDrawMode && !isZoneMode) {
             setIsPanning(true);
             setPanStart({ x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y });
           }
@@ -2448,18 +2502,38 @@ export default function PlannerPage() {
             const isDragging = draggingMarker === m.id;
             const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
             const isAcknowledged = acknowledgedWarnings.includes(m.id);
-            // Begränsad storlek - så symboler inte blir enorma vid inzoomning
-            const symbolRadius = getConstrainedSize(isDragging && hasMoved ? 26 : 22);
-            const iconSize = getConstrainedSize(isDragging && hasMoved ? 24 : 20);
-            const photoRadius = getConstrainedSize(10);
-            const photoOffset = getConstrainedSize(16);
-            const photoFontSize = getConstrainedSize(10);
-            const ringRadius = getConstrainedSize(30);
+            
+            // === ZOOM-BASERAD SYNLIGHET ===
+            // Viktiga kategorier (visas alltid): naturvård och kultur
+            const importantTypes = ['eternitytree', 'naturecorner', 'culturemonument', 'culturestump'];
+            const isImportant = importantTypes.includes(m.type || '');
+            
+            // Vid utzoom (< 15): visa bara viktiga kategorier
+            // Vid inzoom (≥ 15): visa allt
+            const isZoomedOut = mapZoom < 15;
+            const shouldShow = isImportant || !isZoomedOut;
+            
+            // Storlek baserat på zoom
+            // Utzoomad: mindre (14px radie, 12px ikon)
+            // Inzoomad: normal (19px radie, 17px ikon)
+            const baseRadius = isZoomedOut ? 14 : 19;
+            const baseIconSize = isZoomedOut ? 12 : 17;
+            
+            const symbolRadius = getConstrainedSize(isDragging && hasMoved ? baseRadius + 4 : baseRadius);
+            const iconSize = getConstrainedSize(isDragging && hasMoved ? baseIconSize + 3 : baseIconSize);
+            const photoRadius = getConstrainedSize(isZoomedOut ? 7 : 9);
+            const photoOffset = getConstrainedSize(isZoomedOut ? 11 : 14);
+            const photoFontSize = getConstrainedSize(isZoomedOut ? 7 : 9);
+            const ringRadius = getConstrainedSize(isZoomedOut ? 20 : 27);
             const strokeW = getConstrainedSize(3);
             const bgColor = getIconBackground(m.type || '');
             const borderColor = getIconBorder(m.type || '');
             // Mörkare bakgrund för bättre kontrast (0.9 istället för 0.6)
             const darkBg = bgColor === 'rgba(0,0,0,0.6)' ? 'rgba(0,0,0,0.9)' : bgColor;
+            
+            // Returnera null om symbolen inte ska visas
+            if (!shouldShow) return null;
+            
             return (
               <g 
                 key={m.id} 
@@ -2605,7 +2679,7 @@ export default function PlannerPage() {
           )}
 
           {/* GPS position med ljuskägla */}
-          {(isTracking || debugMode) && (
+          {isTracking && (
             <g>
               {/* Ljuskägla - visar riktning när kompass är på */}
               {compassMode && isTracking && (() => {
@@ -3372,35 +3446,66 @@ export default function PlannerPage() {
           bottom: menuHeight + 130,
           left: '50%',
           transform: 'translateX(-50%)',
-          background: '#0a84ff',
-          padding: '14px 24px',
-          borderRadius: '20px',
+          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '16px',
           display: 'flex',
           alignItems: 'center',
-          gap: '12px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          gap: '4px',
+          padding: '4px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
           zIndex: 200,
         }}>
-          <span style={{ fontSize: '13px', color: '#fff' }}>
-            📏 {measurePath.length > 1 ? 'Dra från ● för att fortsätta' : 'Dra för att mäta'}
-          </span>
-          {measurePath.length > 1 && (
-            <button
-              onClick={() => setMeasurePath([])}
-              style={{
-                padding: '8px 12px',
-                borderRadius: '10px',
-                border: 'none',
-                background: 'rgba(255,255,255,0.15)',
-                color: '#fff',
-                fontWeight: '600',
-                fontSize: '12px',
-                cursor: 'pointer',
-              }}
-            >
-              Börja om
-            </button>
+          {measurePath.length > 1 ? (
+            <>
+              {/* Börja om */}
+              <button
+                onClick={() => setMeasurePath([])}
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: 'rgba(255,255,255,0.06)',
+                  color: '#fff',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                ↩
+              </button>
+              {/* Klar */}
+              <button
+                onClick={() => {
+                  setMeasureMode(false);
+                  setMeasurePath([]);
+                  setIsMeasuring(false);
+                }}
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: '#22c55e',
+                  color: '#fff',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                ✓
+              </button>
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att mäta</span>
+            </>
           )}
+          {/* Stäng */}
           <button
             onClick={() => {
               setMeasureMode(false);
@@ -3408,17 +3513,20 @@ export default function PlannerPage() {
               setIsMeasuring(false);
             }}
             style={{
-              padding: '8px 16px',
-              borderRadius: '10px',
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
               border: 'none',
-              background: 'rgba(255,255,255,0.25)',
+              background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontWeight: '600',
-              fontSize: '13px',
+              fontSize: '18px',
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            Klar
+            ✕
           </button>
         </div>
       )}
@@ -3430,35 +3538,64 @@ export default function PlannerPage() {
           bottom: menuHeight + 130,
           left: '50%',
           transform: 'translateX(-50%)',
-          background: '#22c55e',
-          padding: '14px 24px',
-          borderRadius: '20px',
+          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '16px',
           display: 'flex',
           alignItems: 'center',
-          gap: '12px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          gap: '4px',
+          padding: '4px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
           zIndex: 200,
         }}>
-          <span style={{ fontSize: '13px', color: '#fff' }}>
-            📐 {measurePath.length > 2 ? 'Dra från ● för att fortsätta' : 'Dra för att mäta yta'}
-          </span>
-          {measurePath.length > 2 && (
-            <button
-              onClick={() => setMeasurePath([])}
-              style={{
-                padding: '8px 12px',
-                borderRadius: '10px',
-                border: 'none',
-                background: 'rgba(255,255,255,0.15)',
-                color: '#fff',
-                fontWeight: '600',
-                fontSize: '12px',
-                cursor: 'pointer',
-              }}
-            >
-              Börja om
-            </button>
+          {measurePath.length > 2 ? (
+            <>
+              {/* Börja om */}
+              <button
+                onClick={() => setMeasurePath([])}
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: 'rgba(255,255,255,0.06)',
+                  color: '#fff',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                ↩
+              </button>
+              {/* Klar */}
+              <button
+                onClick={() => {
+                  setMeasureAreaMode(false);
+                  setMeasurePath([]);
+                  setIsMeasuring(false);
+                }}
+                style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: '#22c55e',
+                  color: '#fff',
+                  fontSize: '18px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                ✓
+              </button>
+            </>
+          ) : (
+            <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att mäta yta</span>
           )}
+          {/* Stäng */}
           <button
             onClick={() => {
               setMeasureAreaMode(false);
@@ -3466,17 +3603,20 @@ export default function PlannerPage() {
               setIsMeasuring(false);
             }}
             style={{
-              padding: '8px 16px',
-              borderRadius: '10px',
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
               border: 'none',
-              background: 'rgba(255,255,255,0.25)',
+              background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontWeight: '600',
-              fontSize: '13px',
+              fontSize: '18px',
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            Klar
+            ✕
           </button>
         </div>
       )}
@@ -3488,158 +3628,166 @@ export default function PlannerPage() {
           bottom: menuHeight + 130,
           left: '50%',
           transform: 'translateX(-50%)',
-          background: gpsPaused ? colors.orange : lineTypes.find(t => t.id === gpsLineType)?.color || colors.blue,
-          padding: '14px 24px',
-          borderRadius: '20px',
+          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '16px',
           display: 'flex',
           alignItems: 'center',
-          gap: '12px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          gap: '4px',
+          padding: '4px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
           zIndex: 200,
         }}>
-          <span style={{ 
-            fontSize: '13px', 
-            color: '#fff',
+          {/* Status-indikator */}
+          <div style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
+            padding: '0 12px',
           }}>
             <span style={{ 
-              width: '10px', 
-              height: '10px', 
-              borderRadius: gpsPaused ? '2px' : '50%', 
-              background: '#fff',
+              width: '8px', 
+              height: '8px', 
+              borderRadius: '50%', 
+              background: gpsPaused ? '#f59e0b' : '#22c55e',
               animation: gpsPaused ? 'none' : 'pulse 1s infinite',
             }} />
-            {gpsPaused ? 'Pausad' : `Spårar ${lineTypes.find(t => t.id === gpsLineType)?.name}`} ({gpsPath.length} punkter)
-          </span>
+            <span style={{ fontSize: '13px', opacity: 0.6 }}>
+              {gpsPath.length}
+            </span>
+          </div>
+          
+          {/* Paus/Fortsätt */}
           <button
             onClick={toggleGpsPause}
             style={{
-              padding: '8px 14px',
-              borderRadius: '10px',
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
               border: 'none',
-              background: gpsPaused ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.15)',
-              color: '#fff',
-              fontWeight: '600',
-              fontSize: '12px',
+              background: gpsPaused ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.06)',
+              color: gpsPaused ? '#f59e0b' : '#fff',
+              fontSize: '18px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
-              gap: '6px',
+              justifyContent: 'center',
             }}
           >
-            {gpsPaused ? '▶' : '⏸'} {gpsPaused ? 'Fortsätt' : 'Paus'}
+            {gpsPaused ? '▶' : '⏸'}
           </button>
-          <button
-            onClick={() => stopGpsTracking(false)}
-            style={{
-              padding: '8px 12px',
-              borderRadius: '10px',
-              border: 'none',
-              background: 'rgba(255,255,255,0.15)',
-              color: '#fff',
-              fontWeight: '600',
-              fontSize: '12px',
-              cursor: 'pointer',
-            }}
-          >
-            Avbryt
-          </button>
+          
+          {/* Spara */}
           <button
             onClick={() => stopGpsTracking(true)}
             style={{
-              padding: '8px 16px',
-              borderRadius: '10px',
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
               border: 'none',
-              background: 'rgba(255,255,255,0.25)',
+              background: '#22c55e',
               color: '#fff',
-              fontWeight: '600',
-              fontSize: '13px',
+              fontSize: '18px',
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            ✓ Spara
+            ✓
+          </button>
+          
+          {/* Avbryt */}
+          <button
+            onClick={() => stopGpsTracking(false)}
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
+              border: 'none',
+              background: 'rgba(255,255,255,0.06)',
+              color: '#fff',
+              fontSize: '18px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ✕
           </button>
         </div>
       )}
 
       {/* === AKTIV RITNING INDIKATOR === */}
-      {(isDrawMode || isZoneMode || isArrowMode || selectedSymbol) && !isDrawing && (
+      {(isDrawMode || isZoneMode) && !isDrawing && currentPath.length > 1 && (
         <div style={{
           position: 'absolute',
           bottom: menuHeight + 130,
           left: '50%',
           transform: 'translateX(-50%)',
-          background: drawPaused ? colors.blue : colors.surface,
-          padding: '12px 20px',
-          borderRadius: '20px',
+          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '16px',
           display: 'flex',
           alignItems: 'center',
-          gap: '10px',
+          gap: '4px',
+          padding: '4px',
           boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         }}>
-          {/* Instruktion */}
-          <span style={{ fontSize: '14px', color: drawPaused ? '#fff' : colors.textMuted }}>
-            {selectedSymbol && `Tryck för att placera`}
-            {(isDrawMode || isZoneMode) && !drawPaused && currentPath.length === 0 && `Dra för att rita`}
-            {(isDrawMode || isZoneMode) && drawPaused && `Fortsätt eller`}
-            {isArrowMode && `Tryck för att placera`}
-          </span>
+          {/* Ångra */}
+          <button
+            onClick={undoLastSegment}
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
+              border: 'none',
+              background: 'rgba(255,255,255,0.06)',
+              color: '#fff',
+              fontSize: '18px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ↩
+          </button>
           
-          {/* Ångra senaste bit - visas när man har ritat något */}
-          {(isDrawMode || isZoneMode) && currentPath.length > 1 && (
-            <button
-              onClick={undoLastSegment}
-              style={{
-                padding: '8px 12px',
-                borderRadius: '12px',
-                border: 'none',
-                background: drawPaused ? 'rgba(255,255,255,0.2)' : colors.surfaceLight,
-                color: drawPaused ? '#fff' : colors.text,
-                fontWeight: '600',
-                fontSize: '14px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-              }}
-            >
-              ↩
-            </button>
-          )}
+          {/* Klar */}
+          <button
+            onClick={() => isDrawMode ? finishLine() : finishZone()}
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
+              border: 'none',
+              background: '#22c55e',
+              color: '#fff',
+              fontSize: '18px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ✓
+          </button>
           
-          {/* Klar-knapp när man har en linje */}
-          {(isDrawMode || isZoneMode) && currentPath.length > 1 && (
-            <button
-              onClick={() => isDrawMode ? finishLine() : finishZone()}
-              style={{
-                padding: '8px 16px',
-                borderRadius: '12px',
-                border: 'none',
-                background: colors.green,
-                color: '#000',
-                fontWeight: '600',
-                fontSize: '14px',
-                cursor: 'pointer',
-              }}
-            >
-              ✓
-            </button>
-          )}
-          
-          {/* Avbryt-knapp */}
+          {/* Avbryt */}
           <button
             onClick={cancelDrawing}
             style={{
-              padding: '8px 12px',
+              width: '44px',
+              height: '44px',
               borderRadius: '12px',
               border: 'none',
-              background: drawPaused ? 'rgba(255,255,255,0.2)' : colors.surfaceLight,
-              color: drawPaused ? '#fff' : colors.text,
-              fontWeight: '600',
-              fontSize: '14px',
+              background: 'rgba(255,255,255,0.06)',
+              color: '#fff',
+              fontSize: '18px',
               cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
             ✕
@@ -3647,25 +3795,77 @@ export default function PlannerPage() {
         </div>
       )}
       
-      {/* === RITAR JUST NU === */}
-      {isDrawing && (
+      {/* Dra för att rita - visas innan man börjat */}
+      {(isDrawMode || isZoneMode) && !isDrawing && currentPath.length === 0 && (
         <div style={{
           position: 'absolute',
-          top: '120px',
+          bottom: menuHeight + 130,
           left: '50%',
           transform: 'translateX(-50%)',
-          background: colors.green,
-          color: '#000',
-          padding: '10px 20px',
-          borderRadius: '20px',
-          fontSize: '14px',
-          fontWeight: '600',
-          zIndex: 150,
-          boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
-          textAlign: 'center',
+          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          padding: '4px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
         }}>
-          <div>Ritar ovanför fingret ↑</div>
-          <div style={{ fontSize: '12px', fontWeight: '400', opacity: 0.8 }}>Släpp för att avsluta</div>
+          <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita</span>
+          <button
+            onClick={cancelDrawing}
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
+              border: 'none',
+              background: 'rgba(255,255,255,0.06)',
+              color: '#fff',
+              fontSize: '18px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      
+      {/* Placera symbol/pil */}
+      {(isArrowMode || selectedSymbol) && (
+        <div style={{
+          position: 'absolute',
+          bottom: menuHeight + 130,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          padding: '4px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+        }}>
+          <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Tryck för att placera</span>
+          <button
+            onClick={cancelDrawing}
+            style={{
+              width: '44px',
+              height: '44px',
+              borderRadius: '12px',
+              border: 'none',
+              background: 'rgba(255,255,255,0.06)',
+              color: '#fff',
+              fontSize: '18px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ✕
+          </button>
         </div>
       )}
       
@@ -3676,20 +3876,238 @@ export default function PlannerPage() {
           top: '120px',
           left: '50%',
           transform: 'translateX(-50%)',
-          background: colors.blue,
+          background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
           color: '#fff',
-          padding: '12px 24px',
-          borderRadius: '20px',
-          fontSize: '14px',
-          fontWeight: '600',
+          padding: '16px 24px',
+          borderRadius: '16px',
           zIndex: 150,
-          boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
           textAlign: 'center',
         }}>
-          <div style={{ fontSize: '28px', fontWeight: '700', marginBottom: '4px' }}>
+          <div style={{ fontSize: '32px', fontWeight: '300', opacity: 0.9 }}>
             {formatLength(calculateLength(measurePath))}
           </div>
-          <div style={{ fontSize: '12px', opacity: 0.8 }}>Släpp för att mäta</div>
+          <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '4px' }}>Släpp för att mäta</div>
+        </div>
+      )}
+
+      {/* === LAGER-MENY === */}
+      {layerMenuOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: '#000',
+          zIndex: 500,
+          display: 'flex',
+          flexDirection: 'column',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", sans-serif',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '55px 20px 20px',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <div 
+              onClick={() => setLayerMenuOpen(false)}
+              style={{ 
+                padding: '8px', 
+                marginLeft: '-8px', 
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" style={{ opacity: 0.6 }}>
+                <path d="M15 18l-6-6 6-6"/>
+              </svg>
+              <span style={{ fontSize: '17px', opacity: 0.6 }}>Tillbaka</span>
+            </div>
+            <span style={{ fontSize: '17px', fontWeight: '600', color: '#fff' }}>Lager</span>
+            <div style={{ width: '80px' }} />
+          </div>
+
+          {/* Content */}
+          <div style={{ 
+            flex: 1, 
+            overflowY: 'auto',
+            padding: '12px',
+          }}>
+            {/* Huvudlager */}
+            <div style={{
+              background: '#0a0a0a', 
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              {[
+                { id: 'symbols', name: 'Symboler', icon: '●' },
+                { id: 'lines', name: 'Linjer', icon: '━' },
+                { id: 'zones', name: 'Zoner', icon: '▢' },
+                { id: 'arrows', name: 'Pilar', icon: '→' },
+              ].map(layer => (
+                <div
+                  key={layer.id}
+                  onClick={() => setVisibleLayers(prev => ({ ...prev, [layer.id]: !prev[layer.id] }))}
+                  style={{
+                    padding: '16px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ fontSize: '20px', opacity: 0.6, width: '28px', textAlign: 'center' }}>
+                    {layer.icon}
+                  </span>
+                  <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{layer.name}</span>
+                  <div style={{
+                    width: '44px',
+                    height: '26px',
+                    borderRadius: '13px',
+                    background: visibleLayers[layer.id] ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                    padding: '2px',
+                    transition: 'background 0.2s ease',
+                  }}>
+                    <div style={{
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '50%',
+                      background: '#fff',
+                      transform: visibleLayers[layer.id] ? 'translateX(18px)' : 'translateX(0)',
+                      transition: 'transform 0.2s ease',
+                    }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Zontyper - visas om zoner är på */}
+            {visibleLayers.zones && (
+              <div style={{
+                background: '#0a0a0a', 
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '20px',
+                padding: '8px',
+                marginBottom: '16px',
+              }}>
+                <div style={{ 
+                  padding: '12px 16px 8px', 
+                  fontSize: '11px', 
+                  opacity: 0.4, 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '1px' 
+                }}>
+                  Zontyper
+                </div>
+                {zoneTypes.map(zone => (
+                  <div
+                    key={zone.id}
+                    onClick={() => setVisibleZones(prev => ({ ...prev, [zone.id]: !prev[zone.id] }))}
+                    style={{
+                      padding: '14px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '6px',
+                      background: `${zone.color}30`,
+                      border: `2px solid ${zone.color}`,
+                    }} />
+                    <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{zone.name}</span>
+                    <div style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      border: visibleZones[zone.id] ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                      background: visibleZones[zone.id] ? '#22c55e' : 'transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      {visibleZones[zone.id] && (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
+                          <path d="M5 12 L10 17 L19 8" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Linjetyper - visas om linjer är på */}
+            {visibleLayers.lines && (
+              <div style={{
+                background: '#0a0a0a', 
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '20px',
+                padding: '8px',
+                marginBottom: '16px',
+              }}>
+                <div style={{ 
+                  padding: '12px 16px 8px', 
+                  fontSize: '11px', 
+                  opacity: 0.4, 
+                  textTransform: 'uppercase', 
+                  letterSpacing: '1px' 
+                }}>
+                  Linjetyper
+                </div>
+                {lineTypes.filter(l => !l.id.includes('sideRoad') && !l.id.includes('backRoad') && l.id !== 'stickvag').map(line => (
+                  <div
+                    key={line.id}
+                    onClick={() => setVisibleLines(prev => ({ ...prev, [line.id]: !prev[line.id] }))}
+                    style={{
+                      padding: '14px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ 
+                      width: '36px', 
+                      height: '4px', 
+                      borderRadius: '2px',
+                      background: line.striped 
+                        ? `repeating-linear-gradient(90deg, ${line.color} 0px, ${line.color} 4px, ${line.color2} 4px, ${line.color2} 8px)`
+                        : line.color,
+                    }} />
+                    <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{line.name}</span>
+                    <div style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      border: visibleLines[line.id] ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                      background: visibleLines[line.id] ? '#22c55e' : 'transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      {visibleLines[line.id] && (
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
+                          <path d="M5 12 L10 17 L19 8" />
+                        </svg>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -3699,16 +4117,16 @@ export default function PlannerPage() {
         <div style={{
           position: 'fixed',
           inset: 0,
-          background: '#0a0a0a',
+          background: '#000',
           zIndex: 500,
           display: 'flex',
           flexDirection: 'column',
-          fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", sans-serif',
         }}>
           {/* Header */}
           <div style={{
             padding: '55px 20px 20px',
-            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -3737,32 +4155,43 @@ export default function PlannerPage() {
                 width: '44px',
                 height: '44px',
                 borderRadius: '50%',
-                background: 'rgba(255,255,255,0.1)',
+                background: 'transparent',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
-                fontSize: '20px',
                 color: '#fff',
+                opacity: 0.6,
               }}
             >
-              {activeCategory || showCamera || showColorPicker || subMenu ? '←' : '✕'}
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                {activeCategory || showCamera || showColorPicker || subMenu ? (
+                  <path d="M15 18 L9 12 L15 6" />
+                ) : (
+                  <>
+                    <path d="M18 6 L6 18" />
+                    <path d="M6 6 L18 18" />
+                  </>
+                )}
+              </svg>
             </div>
             
             <div style={{ 
-              fontSize: '18px', 
-              fontWeight: '600',
+              fontSize: '16px', 
+              fontWeight: '500',
               flex: 1,
               textAlign: 'center',
               color: '#fff',
+              opacity: 0.9,
+              letterSpacing: '-0.3px',
             }}>
-              {showCamera ? '📷 Fota snitsel' :
+              {showCamera ? 'Fota snitsel' :
                showColorPicker && selectedVagColor ? `${selectedVagColor.name} väg` :
                showColorPicker ? 'Välj färg' :
                subMenu ? (
                  activeCategory === 'symbols' ? symbolCategories.find(c => c.name === subMenu)?.name :
-                 subMenu === 'gps-lines' ? '📍 Spåra med GPS' :
-                 subMenu === 'draw-lines' ? '✏️ Rita manuellt' :
+                 subMenu === 'gps-lines' ? 'Spåra med GPS' :
+                 subMenu === 'draw-lines' ? 'Rita manuellt' :
                  subMenu
                ) :
                activeCategory ? menuCategories.find(c => c.id === activeCategory)?.name :
@@ -3780,13 +4209,13 @@ export default function PlannerPage() {
             color: '#fff',
           }}>
             
-            {/* === HUVUDMENY === */}
+            {/* === HUVUDMENY (3x3 grid) === */}
             {!activeCategory && (
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: '16px',
-                padding: '20px',
+                gap: '8px',
+                padding: '20px 16px',
               }}>
                 {menuCategories.map(cat => (
                   <div
@@ -3805,24 +4234,24 @@ export default function PlannerPage() {
                       }
                     }}
                     style={{
-                      background: `linear-gradient(135deg, ${cat.color}20 0%, ${cat.color}10 100%)`,
-                      border: `1px solid ${cat.color}40`,
-                      borderRadius: '20px',
-                      padding: '24px 16px',
+                      background: 'rgba(255,255,255,0.04)',
+                      borderRadius: '16px',
+                      padding: '20px 12px',
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
-                      gap: '12px',
+                      gap: '10px',
                       cursor: 'pointer',
                     }}
                   >
-                    <span style={{ fontSize: '36px' }}>{cat.icon}</span>
+                    <div style={{ opacity: 0.7 }}>
+                      {renderIcon(cat.icon, 28, '#fff')}
+                    </div>
                     <span style={{ 
-                      fontSize: '12px', 
-                      fontWeight: '700', 
-                      opacity: 0.9, 
+                      fontSize: '11px', 
+                      fontWeight: '500', 
+                      color: '#fff',
                       textAlign: 'center',
-                      letterSpacing: '0.5px',
                     }}>
                       {cat.name}
                     </span>
@@ -3833,571 +4262,728 @@ export default function PlannerPage() {
 
             {/* === SYMBOLER === */}
             {activeCategory === 'symbols' && !subMenu && (
-              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {symbolCategories.map(category => (
-                  <div
-                    key={category.name}
-                    onClick={() => setSubMenu(category.name)}
-                    style={{
-                      background: 'rgba(255,255,255,0.06)',
-                      borderRadius: '16px',
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{
-                      width: '52px',
-                      height: '52px',
-                      background: category.bgColor || 'rgba(255,255,255,0.1)',
-                      borderRadius: '50%',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      border: category.bgColor ? `2px solid ${category.bgColor === '#22c55e' ? '#4ade80' : '#fbbf24'}` : 'none',
-                    }}>
-                      {renderIcon(category.symbols[0]?.id || 'default', 28, '#fff')}
+              <div style={{ padding: '12px' }}>
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '8px',
+                }}>
+                  {symbolCategories.map((category) => (
+                    <div
+                      key={category.name}
+                      onClick={() => setSubMenu(category.name)}
+                      style={{
+                        padding: '16px 20px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '50%',
+                        background: category.bgColor || 'rgba(0,0,0,0.6)',
+                        border: '2px solid rgba(255,255,255,0.7)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+                      }}>
+                        <div style={{ filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.6))' }}>
+                          {renderIcon(category.symbols[0]?.id || 'default', 18, '#fff')}
+                        </div>
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '15px', color: '#fff' }}>{category.name}</div>
+                        <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>{category.symbols.length} symboler</div>
+                      </div>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+                        <path d="M9 6 L15 12 L9 18" />
+                      </svg>
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '17px', fontWeight: '600' }}>{category.name}</div>
-                      <div style={{ fontSize: '13px', opacity: 0.5 }}>{category.symbols.length} symboler</div>
-                    </div>
-                    <span style={{ opacity: 0.3, fontSize: '24px' }}>›</span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
 
             {/* Symboler - vald kategori */}
             {activeCategory === 'symbols' && subMenu && (
-              <div style={{ 
-                padding: '20px', 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(3, 1fr)', 
-                gap: '12px' 
-              }}>
-                {symbolCategories.find(c => c.name === subMenu)?.symbols.map(type => {
-                  const bgColor = getIconBackground(type.id);
-                  const borderColor = getIconBorder(type.id);
-                  return (
-                    <div
-                      key={type.id}
-                      onClick={() => {
-                        setSelectedSymbol(type.id);
-                        setMenuOpen(false);
-                        setMenuHeight(0);
-                        setSubMenu(null);
-                        setActiveCategory(null);
-                      }}
-                      style={{
-                        background: 'rgba(255,255,255,0.06)',
-                        borderRadius: '16px',
-                        padding: '20px 12px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: '10px',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{
-                        width: '52px',
-                        height: '52px',
-                        background: bgColor,
-                        borderRadius: '50%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        border: `2px solid ${borderColor}`,
-                      }}>
-                        {renderIcon(type.id, 28, '#fff')}
-                      </div>
-                      <span style={{ fontSize: '12px', opacity: 0.8, textAlign: 'center' }}>
-                        {type.name}
-                      </span>
-                    </div>
-                  );
-                })}
+              <div style={{ padding: '12px' }}>
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '20px',
+                }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: '16px',
+                  }}>
+                    {symbolCategories.find(c => c.name === subMenu)?.symbols.map(type => {
+                      const bgColor = getIconBackground(type.id);
+                      return (
+                        <div
+                          key={type.id}
+                          onClick={() => {
+                            setSelectedSymbol(type.id);
+                            setMenuOpen(false);
+                            setMenuHeight(0);
+                            setSubMenu(null);
+                            setActiveCategory(null);
+                          }}
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            gap: '10px',
+                            padding: '16px 8px',
+                            borderRadius: '12px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <div style={{
+                            width: '48px',
+                            height: '48px',
+                            borderRadius: '50%',
+                            background: bgColor,
+                            border: '2px solid rgba(255,255,255,0.7)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                          }}>
+                            <div style={{ filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.8))' }}>
+                              {renderIcon(type.id, 24, '#fff')}
+                            </div>
+                          </div>
+                          <span style={{ fontSize: '11px', opacity: 0.6, textAlign: 'center' }}>
+                            {type.name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             )}
 
             {/* === LINJER === */}
             {activeCategory === 'lines' && !subMenu && (
-              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div
-                  onClick={() => setSubMenu('gps-lines')}
-                  style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '16px',
-                    padding: '18px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '52px',
-                    height: '52px',
-                    background: 'rgba(34,197,94,0.2)',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '24px',
-                  }}>
-                    📍
+              <div style={{ padding: '12px' }}>
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '8px',
+                }}>
+                  <div
+                    onClick={() => setSubMenu('gps-lines')}
+                    style={{
+                      padding: '18px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="3" />
+                        <circle cx="12" cy="12" r="8" />
+                        <line x1="12" y1="2" x2="12" y2="4" />
+                        <line x1="12" y1="20" x2="12" y2="22" />
+                        <line x1="2" y1="12" x2="4" y2="12" />
+                        <line x1="20" y1="12" x2="22" y2="12" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Spåra med GPS</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Gå längs linjen</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+                      <path d="M9 6 L15 12 L9 18" />
+                    </svg>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Spåra med GPS</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Gå och rita linje</div>
+                  
+                  <div
+                    onClick={() => setSubMenu('draw-lines')}
+                    style={{
+                      padding: '18px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M12 20 L4 20 Q4 12 12 12 Q20 12 20 4" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Rita manuellt</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Tryck för punkter</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+                      <path d="M9 6 L15 12 L9 18" />
+                    </svg>
                   </div>
-                  <span style={{ opacity: 0.3, fontSize: '24px' }}>›</span>
-                </div>
-                
-                <div
-                  onClick={() => setSubMenu('draw-lines')}
-                  style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '16px',
-                    padding: '18px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '52px',
-                    height: '52px',
-                    background: 'rgba(10,132,255,0.2)',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '24px',
-                  }}>
-                    ✏️
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Rita manuellt</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Rita på kartan</div>
-                  </div>
-                  <span style={{ opacity: 0.3, fontSize: '24px' }}>›</span>
                 </div>
               </div>
             )}
 
             {/* Linjer - GPS */}
             {activeCategory === 'lines' && subMenu === 'gps-lines' && (
-              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
-                  <div
-                    key={type.id}
-                    onClick={() => {
-                      startGpsTracking(type.id);
-                      setSubMenu(null);
-                      setActiveCategory(null);
-                    }}
-                    style={{
-                      background: `${type.color}15`,
-                      border: `2px solid ${type.color}50`,
-                      borderRadius: '14px',
-                      padding: '16px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '14px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{
-                      width: '40px',
-                      height: '6px',
-                      borderRadius: '3px',
-                      background: type.striped 
-                        ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, ${type.color2} 6px, ${type.color2} 12px)`
-                        : type.dashed
-                        ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, transparent 6px, transparent 10px)`
-                        : type.color,
-                    }} />
-                    <span style={{ fontSize: '16px', fontWeight: '500' }}>{type.name}</span>
-                  </div>
-                ))}
+              <div style={{ padding: '12px' }}>
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '16px',
+                }}>
+                  {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
+                    <div
+                      key={type.id}
+                      onClick={() => {
+                        startGpsTracking(type.id);
+                        setSubMenu(null);
+                        setActiveCategory(null);
+                      }}
+                      style={{
+                        padding: '14px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ 
+                        width: '48px', 
+                        height: '6px', 
+                        borderRadius: '3px',
+                        overflow: 'hidden',
+                      }}>
+                        {type.dashed ? (
+                          <svg width="48" height="6">
+                            <line x1="0" y1="3" x2="48" y2="3" 
+                              stroke={type.color} 
+                              strokeWidth="4" 
+                              strokeDasharray="8,6" 
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        ) : (
+                          <div style={{
+                            width: '100%',
+                            height: '100%',
+                            background: type.striped 
+                              ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, ${type.color2} 6px, ${type.color2} 12px)`
+                              : type.color,
+                          }} />
+                        )}
+                      </div>
+                      <span style={{ fontSize: '14px', opacity: 0.8 }}>{type.name}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
             {/* Linjer - Rita */}
             {activeCategory === 'lines' && subMenu === 'draw-lines' && (
-              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
-                  <div
-                    key={type.id}
-                    onClick={() => {
-                      setDrawType(type.id);
-                      setIsDrawMode(true);
-                      setMenuOpen(false);
-                      setMenuHeight(0);
-                      setSubMenu(null);
-                      setActiveCategory(null);
-                    }}
-                    style={{
-                      background: `${type.color}15`,
-                      border: `2px solid ${type.color}50`,
-                      borderRadius: '14px',
-                      padding: '16px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '14px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{
-                      width: '40px',
-                      height: '6px',
-                      borderRadius: '3px',
-                      background: type.striped 
-                        ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, ${type.color2} 6px, ${type.color2} 12px)`
-                        : type.dashed
-                        ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, transparent 6px, transparent 10px)`
-                        : type.color,
-                    }} />
-                    <span style={{ fontSize: '16px', fontWeight: '500' }}>{type.name}</span>
-                  </div>
-                ))}
+              <div style={{ padding: '12px' }}>
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '16px',
+                }}>
+                  {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
+                    <div
+                      key={type.id}
+                      onClick={() => {
+                        setDrawType(type.id);
+                        setIsDrawMode(true);
+                        setMenuOpen(false);
+                        setMenuHeight(0);
+                        setSubMenu(null);
+                        setActiveCategory(null);
+                      }}
+                      style={{
+                        padding: '14px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{ 
+                        width: '48px', 
+                        height: '6px', 
+                        borderRadius: '3px',
+                        overflow: 'hidden',
+                      }}>
+                        {type.dashed ? (
+                          <svg width="48" height="6">
+                            <line x1="0" y1="3" x2="48" y2="3" 
+                              stroke={type.color} 
+                              strokeWidth="4" 
+                              strokeDasharray="8,6" 
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                        ) : (
+                          <div style={{
+                            width: '100%',
+                            height: '100%',
+                            background: type.striped 
+                              ? `repeating-linear-gradient(90deg, ${type.color} 0px, ${type.color} 6px, ${type.color2} 6px, ${type.color2} 12px)`
+                              : type.color,
+                          }} />
+                        )}
+                      </div>
+                      <span style={{ fontSize: '14px', opacity: 0.8 }}>{type.name}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
             {/* === ZONER === */}
             {activeCategory === 'zones' && (
-              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {zoneTypes.map(type => (
-                  <div
-                    key={type.id}
-                    onClick={() => {
-                      setZoneType(type.id);
-                      setIsZoneMode(true);
-                      setMenuOpen(false);
-                      setMenuHeight(0);
-                      setActiveCategory(null);
-                    }}
-                    style={{
-                      background: `${type.color}15`,
-                      border: `2px solid ${type.color}50`,
-                      borderRadius: '16px',
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{
-                      width: '52px',
-                      height: '52px',
-                      background: `${type.color}30`,
-                      borderRadius: '14px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      {renderIcon(type.icon, 28, '#fff')}
+              <div style={{ padding: '12px' }}>
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '16px',
+                }}>
+                  {zoneTypes.map(type => (
+                    <div
+                      key={type.id}
+                      onClick={() => {
+                        setZoneType(type.id);
+                        setIsZoneMode(true);
+                        setMenuOpen(false);
+                        setMenuHeight(0);
+                        setActiveCategory(null);
+                      }}
+                      style={{
+                        padding: '16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        borderRadius: '12px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '10px',
+                        background: `${type.color}15`,
+                        border: `1.5px solid ${type.color}50`,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>
+                        <div style={{
+                          width: '20px',
+                          height: '20px',
+                          background: `${type.color}30`,
+                          borderRadius: '4px',
+                        }} />
+                      </div>
+                      <span style={{ fontSize: '15px', color: '#fff' }}>{type.name}</span>
                     </div>
-                    <span style={{ fontSize: '17px', fontWeight: '600' }}>{type.name}</span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
 
             {/* === PILAR === */}
             {activeCategory === 'arrows' && (
-              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {arrowTypes.map(type => (
-                  <div
-                    key={type.id}
-                    onClick={() => {
-                      setArrowType(type.id);
-                      setIsArrowMode(true);
-                      setMenuOpen(false);
-                      setMenuHeight(0);
-                      setActiveCategory(null);
-                    }}
-                    style={{
-                      background: `${type.color}15`,
-                      border: `2px solid ${type.color}50`,
-                      borderRadius: '16px',
-                      padding: '18px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{
-                      width: '52px',
-                      height: '52px',
-                      background: `${type.color}30`,
-                      borderRadius: '14px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    }}>
-                      {renderIcon(type.id, 28, '#fff')}
-                    </div>
-                    <span style={{ fontSize: '17px', fontWeight: '600' }}>{type.name}</span>
+              <div style={{ padding: '12px' }}>
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '20px',
+                }}>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(2, 1fr)',
+                    gap: '12px',
+                  }}>
+                    {arrowTypes.map(type => (
+                      <div
+                        key={type.id}
+                        onClick={() => {
+                          setArrowType(type.id);
+                          setIsArrowMode(true);
+                          setMenuOpen(false);
+                          setMenuHeight(0);
+                          setActiveCategory(null);
+                        }}
+                        style={{
+                          padding: '24px 16px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          gap: '14px',
+                          borderRadius: '16px',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{
+                          width: '56px',
+                          height: '56px',
+                          borderRadius: '50%',
+                          background: `${type.color}15`,
+                          border: `1.5px solid ${type.color}40`,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                          {renderIcon(type.id, 28, type.color)}
+                        </div>
+                        <span style={{ fontSize: '13px', opacity: 0.7 }}>{type.name}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
               </div>
             )}
 
             {/* === MÄTNING === */}
             {activeCategory === 'measure' && (
-              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div
-                  onClick={() => {
-                    setMeasureMode(true);
-                    setMeasureAreaMode(false);
-                    setMeasurePath([]);
-                    setMenuOpen(false);
-                    setMenuHeight(0);
-                    setActiveCategory(null);
-                  }}
-                  style={{
-                    background: 'rgba(6,182,212,0.15)',
-                    border: '2px solid rgba(6,182,212,0.5)',
-                    borderRadius: '16px',
-                    padding: '18px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '52px',
-                    height: '52px',
-                    background: 'rgba(6,182,212,0.3)',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '24px',
-                  }}>
-                    📏
+              <div style={{ padding: '12px' }}>
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '8px',
+                }}>
+                  <div
+                    onClick={() => {
+                      setMeasureMode(true);
+                      setMeasureAreaMode(false);
+                      setMeasurePath([]);
+                      setMenuOpen(false);
+                      setMenuHeight(0);
+                      setActiveCategory(null);
+                    }}
+                    style={{
+                      padding: '18px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 20 L20 4" />
+                        <path d="M4 20 L4 15" />
+                        <path d="M4 20 L9 20" />
+                        <path d="M20 4 L20 9" />
+                        <path d="M20 4 L15 4" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Mät avstånd</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Punkt till punkt</div>
+                    </div>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Mät avstånd</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Punkt till punkt</div>
-                  </div>
-                </div>
 
-                <div
-                  onClick={() => {
-                    setMeasureAreaMode(true);
-                    setMeasureMode(false);
-                    setMeasurePath([]);
-                    setMenuOpen(false);
-                    setMenuHeight(0);
-                    setActiveCategory(null);
-                  }}
-                  style={{
-                    background: 'rgba(6,182,212,0.15)',
-                    border: '2px solid rgba(6,182,212,0.5)',
-                    borderRadius: '16px',
-                    padding: '18px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '52px',
-                    height: '52px',
-                    background: 'rgba(6,182,212,0.3)',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '24px',
-                  }}>
-                    📐
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Mät area</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Rita område</div>
+                  <div
+                    onClick={() => {
+                      setMeasureAreaMode(true);
+                      setMeasureMode(false);
+                      setMeasurePath([]);
+                      setMenuOpen(false);
+                      setMenuHeight(0);
+                      setActiveCategory(null);
+                    }}
+                    style={{
+                      padding: '18px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M4 4 L20 4 L20 20 L4 20 Z" />
+                        <path d="M4 4 L20 20" strokeDasharray="3,3" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Mät area</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Rita område</div>
+                    </div>
                   </div>
                 </div>
               </div>
             )}
 
             {/* === GALLRING === */}
-            {activeCategory === 'gallring' && !showColorPicker && !showCamera && (
-              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {/* Fota snitsel */}
-                <div
-                  onClick={() => setShowCamera(true)}
-                  style={{
-                    background: 'linear-gradient(135deg, rgba(34,197,94,0.3) 0%, rgba(34,197,94,0.1) 100%)',
-                    border: '2px solid #22c55e',
-                    borderRadius: '20px',
-                    padding: '24px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '56px',
-                    height: '56px',
-                    background: '#22c55e',
-                    borderRadius: '16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '28px',
-                  }}>
-                    📷
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '18px', fontWeight: '700' }}>Fota snitsel</div>
-                    <div style={{ fontSize: '13px', opacity: 0.6 }}>Appen känner igen färgen</div>
-                  </div>
-                  <span style={{ opacity: 0.5, fontSize: '24px' }}>›</span>
-                </div>
-
-                <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '8px', marginBottom: '4px', paddingLeft: '4px' }}>
-                  Eller välj direkt:
-                </div>
-
-                {/* Snabbval Röd, Gul, Blå */}
-                {vagColors.slice(0, 3).map(color => (
+            {activeCategory === 'gallring' && !showColorPicker && !showCamera && !subMenu && (
+              <div style={{ padding: '12px' }}>
+                {/* Huvudval */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '8px',
+                  marginBottom: '16px',
+                }}>
+                  {/* Snitsla ny stickväg */}
                   <div
-                    key={color.id}
+                    onClick={() => setShowColorPicker(true)}
+                    style={{
+                      padding: '18px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M12 5v14M5 12h14"/>
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Snitsla ny stickväg</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Välj färg och starta GPS</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+                      <path d="M9 6 L15 12 L9 18" />
+                    </svg>
+                  </div>
+
+                  {/* Stickvägsavstånd */}
+                  <div
                     onClick={() => {
-                      setSelectedVagColor(color);
-                      setShowColorPicker(true);
+                      setStickvagMode(true);
+                      setMenuOpen(false);
+                      setMenuHeight(0);
+                      setActiveCategory(null);
+                      
+                      // Starta GPS-spårning om inte redan igång
+                      if (!isTracking && !watchIdRef.current) {
+                        navigator.geolocation.watchPosition(
+                          (pos) => {
+                            const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                            setCurrentPosition(newPos);
+                            
+                            setGpsStartPos(prev => {
+                              if (!prev) {
+                                return { 
+                                  lat: newPos.lat, 
+                                  lon: newPos.lon, 
+                                  x: gpsMapPositionRef.current.x, 
+                                  y: gpsMapPositionRef.current.y 
+                                };
+                              }
+                              
+                              const rawMapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
+                              gpsMapPositionRef.current = rawMapPos;
+                              setGpsMapPosition(rawMapPos);
+                              return prev;
+                            });
+                          },
+                          (err) => console.log('GPS error:', err),
+                          { enableHighAccuracy: true, maximumAge: 2000 }
+                        );
+                      }
                     }}
                     style={{
-                      background: `${color.color}15`,
-                      border: `2px solid ${color.color}50`,
-                      borderRadius: '16px',
+                      padding: '18px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M4 20 L20 4" />
+                        <path d="M4 20 L4 15" />
+                        <path d="M4 20 L9 20" />
+                        <path d="M20 4 L20 9" />
+                        <path d="M20 4 L15 4" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Stickvägsavstånd</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Se avstånd till närmaste väg</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+                      <path d="M9 6 L15 12 L9 18" />
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Inställningar */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '8px',
+                  marginBottom: '16px',
+                }}>
+                  {/* Avståndsinställningar */}
+                  <div
+                    onClick={() => setSubMenu('stickvag-settings')}
+                    style={{
                       padding: '16px 20px',
                       display: 'flex',
                       alignItems: 'center',
                       gap: '16px',
+                      borderRadius: '12px',
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{
-                      width: '44px',
-                      height: '44px',
-                      background: color.color,
-                      borderRadius: '12px',
-                    }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '16px', fontWeight: '600' }}>{color.name}</div>
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+                      </svg>
                     </div>
-                    <span style={{ opacity: 0.3, fontSize: '20px' }}>›</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Inställningar</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>
+                        Mål: {stickvagSettings.targetDistance}m (±{stickvagSettings.tolerance}m)
+                      </div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+                      <path d="M9 6 L15 12 L9 18" />
+                    </svg>
                   </div>
-                ))}
 
-                {/* Annan färg */}
-                <div
-                  onClick={() => setShowColorPicker(true)}
-                  style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '16px',
-                    padding: '16px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '44px',
-                    height: '44px',
-                    background: 'conic-gradient(red, yellow, lime, aqua, blue, magenta, red)',
-                    borderRadius: '12px',
-                  }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '16px', fontWeight: '600' }}>Annan färg...</div>
-                  </div>
-                  <span style={{ opacity: 0.3, fontSize: '20px' }}>›</span>
-                </div>
-
-                <div style={{ height: '1px', background: 'rgba(255,255,255,0.1)', margin: '8px 0' }} />
-
-                {/* Inställningar & Översikt */}
-                <div
-                  onClick={() => {
-                    setStickvagMode(true);
-                    setSubMenu('stickvag-settings');
-                  }}
-                  style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '16px',
-                    padding: '16px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '44px',
-                    height: '44px',
-                    background: 'rgba(255,255,255,0.1)',
-                    borderRadius: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '22px',
-                  }}>
-                    ⚙️
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '16px', fontWeight: '600' }}>Avstånd</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>{stickvagSettings.targetDistance}m ±{stickvagSettings.tolerance}m</div>
+                  {/* Översikt */}
+                  <div
+                    onClick={() => {
+                      setStickvagOversikt(true);
+                      setMenuOpen(false);
+                      setMenuHeight(0);
+                      setActiveCategory(null);
+                    }}
+                    style={{
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                        <path d="M3 9h18M9 3v18"/>
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Översikt</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Se alla snitslade vägar</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+                      <path d="M9 6 L15 12 L9 18" />
+                    </svg>
                   </div>
                 </div>
 
-                <div
-                  onClick={() => {
-                    setStickvagViewOpen(true);
-                    setMenuOpen(false);
-                    setMenuHeight(0);
-                    setActiveCategory(null);
-                  }}
-                  style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '16px',
-                    padding: '16px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '44px',
-                    height: '44px',
-                    background: 'rgba(255,255,255,0.1)',
-                    borderRadius: '12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '22px',
-                  }}>
-                    🗺️
+                {/* Statistik */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '20px',
+                  textAlign: 'center',
+                }}>
+                  <div style={{ fontSize: '11px', opacity: 0.3, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                    Sparade stickvägar
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '16px', fontWeight: '600' }}>Översikt</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Se alla stickvägar</div>
+                  <div style={{ fontSize: '36px', fontWeight: '300', marginTop: '8px', opacity: 0.9 }}>
+                    {markers.filter(m => m.isLine && (m.lineType?.startsWith('sideRoad') || m.lineType?.startsWith('backRoad'))).length}
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Gallring - Färgval */}
+            {activeCategory === 'gallring' && showColorPicker && !selectedVagColor && !showCamera && (
+              <div style={{ padding: '12px' }}>
+                {/* Fota snitsel */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '8px',
+                  marginBottom: '16px',
+                }}>
+                  <div
+                    onClick={() => setShowCamera(true)}
+                    style={{
+                      padding: '18px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
+                        <rect x="3" y="6" width="18" height="14" rx="2"/>
+                        <circle cx="12" cy="13" r="4"/>
+                        <path d="M8 6V4h8v2"/>
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Fota snitsel</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Appen känner igen färgen</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+                      <path d="M9 6 L15 12 L9 18" />
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Färgval */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '16px',
+                }}>
+                  {vagColors.map((color) => (
+                    <div
+                      key={color.id}
+                      onClick={() => setSelectedVagColor(color)}
+                      style={{
+                        padding: '14px 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '16px',
+                        borderRadius: '10px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div style={{
+                        width: '32px',
+                        height: '32px',
+                        borderRadius: '8px',
+                        background: color.color,
+                        border: color.id === 'vit' ? '2px solid rgba(255,255,255,0.3)' : 'none',
+                      }} />
+                      <span style={{ fontSize: '15px', opacity: 0.8 }}>{color.name}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
@@ -4520,133 +5106,163 @@ export default function PlannerPage() {
               </div>
             )}
 
-            {/* Gallring - Färgpalett */}
-            {activeCategory === 'gallring' && showColorPicker && !selectedVagColor && (
-              <div style={{ padding: '20px' }}>
-                <div style={{ fontSize: '15px', opacity: 0.6, marginBottom: '16px', textAlign: 'center' }}>
-                  Välj färg på snitsel:
-                </div>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(4, 1fr)',
-                  gap: '12px',
-                }}>
-                  {vagColors.map(color => (
-                    <div
-                      key={color.id}
-                      onClick={() => setSelectedVagColor(color)}
-                      style={{
-                        aspectRatio: '1',
-                        borderRadius: '16px',
-                        background: color.color,
-                        border: color.id === 'vit' ? '2px solid #ccc' : '2px solid transparent',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'flex-end',
-                        justifyContent: 'center',
-                        paddingBottom: '8px',
-                        boxShadow: '0 2px 10px rgba(0,0,0,0.2)',
-                      }}
-                    >
-                      <span style={{
-                        fontSize: '11px',
-                        fontWeight: '600',
-                        color: ['gul', 'vit', 'orange'].includes(color.id) ? '#000' : '#fff',
-                        textShadow: ['gul', 'vit', 'orange'].includes(color.id) ? 'none' : '0 1px 2px rgba(0,0,0,0.5)',
-                      }}>
-                        {color.name}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {/* Gallring - Välj typ (Stickväg/Backväg) */}
             {activeCategory === 'gallring' && showColorPicker && selectedVagColor && (
-              <div style={{ padding: '20px' }}>
+              <div style={{ padding: '12px' }}>
+                {/* Vald färg */}
                 <div style={{
-                  background: `${selectedVagColor.color}20`,
-                  border: `3px solid ${selectedVagColor.color}`,
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: '20px',
-                  padding: '24px',
-                  marginBottom: '20px',
-                  textAlign: 'center',
+                  padding: '20px',
+                  marginBottom: '16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
                 }}>
                   <div style={{
-                    width: '60px',
-                    height: '60px',
+                    width: '48px',
+                    height: '48px',
                     borderRadius: '50%',
                     background: selectedVagColor.color,
-                    margin: '0 auto 12px',
-                    border: selectedVagColor.id === 'vit' ? '2px solid #ccc' : 'none',
+                    border: selectedVagColor.id === 'vit' ? '2px solid rgba(255,255,255,0.3)' : 'none',
                   }} />
-                  <div style={{ fontSize: '20px', fontWeight: '700' }}>{selectedVagColor.name}</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '15px', color: '#fff' }}>{selectedVagColor.name} väg</div>
+                    <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Vald färg</div>
+                  </div>
                 </div>
 
-                <div style={{ marginBottom: '16px', fontSize: '15px', opacity: 0.7, textAlign: 'center' }}>
-                  Välj typ:
-                </div>
-
-                <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+                {/* Välj typ */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '8px',
+                  marginBottom: '16px',
+                }}>
                   <div
                     onClick={() => setSelectedVagType('stickvag')}
                     style={{
-                      flex: 1,
-                      padding: '20px',
-                      borderRadius: '16px',
-                      background: selectedVagType === 'stickvag' ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.06)',
-                      border: selectedVagType === 'stickvag' ? '2px solid #22c55e' : '2px solid transparent',
-                      textAlign: 'center',
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ fontSize: '28px', marginBottom: '8px' }}>〰️</div>
-                    <div style={{ fontSize: '15px', fontWeight: '600' }}>STICKVÄG</div>
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M4 12 Q8 8 12 12 Q16 16 20 12" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Stickväg</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Snitsla ny stickväg</div>
+                    </div>
+                    <div style={{
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '50%',
+                      border: selectedVagType === 'stickvag' ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                      background: selectedVagType === 'stickvag' ? '#22c55e' : 'transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      {selectedVagType === 'stickvag' && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
+                          <path d="M5 12 L10 17 L19 8" />
+                        </svg>
+                      )}
+                    </div>
                   </div>
+
                   <div
                     onClick={() => setSelectedVagType('backvag')}
                     style={{
-                      flex: 1,
-                      padding: '20px',
-                      borderRadius: '16px',
-                      background: selectedVagType === 'backvag' ? 'rgba(249,115,22,0.2)' : 'rgba(255,255,255,0.06)',
-                      border: selectedVagType === 'backvag' ? '2px solid #f97316' : '2px solid transparent',
-                      textAlign: 'center',
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ fontSize: '28px', marginBottom: '8px' }}>↩️</div>
-                    <div style={{ fontSize: '15px', fontWeight: '600' }}>BACKVÄG</div>
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round">
+                        <path d="M19 12 L5 12" />
+                        <path d="M10 7 L5 12 L10 17" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Backväg</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Markera backväg</div>
+                    </div>
+                    <div style={{
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '50%',
+                      border: selectedVagType === 'backvag' ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                      background: selectedVagType === 'backvag' ? '#22c55e' : 'transparent',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}>
+                      {selectedVagType === 'backvag' && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
+                          <path d="M5 12 L10 17 L19 8" />
+                        </svg>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => {
-                    // Starta GPS-spårning med vald färg och typ
-                    const lineId = selectedVagType === 'backvag' 
-                      ? `backRoad${selectedVagColor.name}` 
-                      : `sideRoad${selectedVagColor.name}`;
-                    startGpsTracking(lineId);
-                    setStickvagMode(true);
-                    setShowColorPicker(false);
-                    setSelectedVagColor(null);
-                    setActiveCategory(null);
-                  }}
-                  style={{
-                    width: '100%',
-                    padding: '18px',
-                    borderRadius: '14px',
-                    border: 'none',
-                    background: '#22c55e',
-                    color: '#fff',
-                    fontSize: '17px',
-                    fontWeight: '700',
-                    cursor: 'pointer',
-                  }}
-                >
-                  ▶ STARTA GPS-SPÅRNING
-                </button>
+                {/* Starta-knapp */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '8px',
+                }}>
+                  <div
+                    onClick={() => {
+                      const lineId = selectedVagType === 'backvag' 
+                        ? `backRoad${selectedVagColor.name}` 
+                        : `sideRoad${selectedVagColor.name}`;
+                      startGpsTracking(lineId);
+                      setStickvagMode(true);
+                      setShowColorPicker(false);
+                      setSelectedVagColor(null);
+                      setActiveCategory(null);
+                    }}
+                    style={{
+                      padding: '18px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                      background: 'rgba(34,197,94,0.15)',
+                    }}
+                  >
+                    <div style={{ color: '#22c55e' }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="3" />
+                        <circle cx="12" cy="12" r="8" />
+                        <line x1="12" y1="2" x2="12" y2="4" />
+                        <line x1="12" y1="20" x2="12" y2="22" />
+                        <line x1="2" y1="12" x2="4" y2="12" />
+                        <line x1="20" y1="12" x2="22" y2="12" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff', color: '#22c55e' }}>Starta GPS-spårning</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Börja gå längs stickvägen</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="1.5" style={{ opacity: 0.6 }}>
+                      <path d="M9 6 L15 12 L9 18" />
+                    </svg>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -4750,224 +5366,209 @@ export default function PlannerPage() {
 
             {/* === INSTÄLLNINGAR === */}
             {activeCategory === 'settings' && (
-              <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {/* Körläge */}
-                <div
-                  onClick={() => {
-                    setDrivingMode(!drivingMode);
-                    if (!drivingMode) {
-                      setAcknowledgedWarnings([]);
-                      playedWarningsRef.current.clear();
-                    }
-                  }}
-                  style={{
-                    background: drivingMode ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.06)',
-                    border: drivingMode ? '2px solid #22c55e' : '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '16px',
-                    padding: '18px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '52px',
-                    height: '52px',
-                    background: drivingMode ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.1)',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '24px',
-                  }}>
-                    🚜
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Körläge</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>{drivingMode ? 'Aktivt' : 'Inaktivt'}</div>
-                  </div>
-                  <div style={{
-                    width: '52px',
-                    height: '32px',
-                    background: drivingMode ? '#22c55e' : 'rgba(255,255,255,0.15)',
-                    borderRadius: '16px',
-                    padding: '3px',
-                    transition: 'background 0.2s',
-                  }}>
+              <div style={{ padding: '12px' }}>
+                {/* Lägen */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '8px',
+                  marginBottom: '16px',
+                }}>
+                  {/* Körläge */}
+                  <div
+                    onClick={() => {
+                      setDrivingMode(!drivingMode);
+                      if (!drivingMode) {
+                        setAcknowledgedWarnings([]);
+                        playedWarningsRef.current.clear();
+                      }
+                    }}
+                    style={{
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
+                        <rect x="1" y="6" width="15" height="10" rx="1" />
+                        <path d="M16 10 L20 10 L22 14 L22 16 L16 16 L16 10" />
+                        <circle cx="6" cy="18" r="2" />
+                        <circle cx="18" cy="18" r="2" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Körläge</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Varningar och navigation</div>
+                    </div>
                     <div style={{
-                      width: '26px',
+                      width: '44px',
                       height: '26px',
-                      background: '#fff',
-                      borderRadius: '50%',
-                      transform: drivingMode ? 'translateX(20px)' : 'translateX(0)',
-                      transition: 'transform 0.2s',
-                    }} />
+                      borderRadius: '13px',
+                      background: drivingMode ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                      padding: '2px',
+                      transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        background: '#fff',
+                        transform: drivingMode ? 'translateX(18px)' : 'translateX(0)',
+                        transition: 'transform 0.2s ease',
+                      }} />
+                    </div>
                   </div>
-                </div>
 
-                {/* Kompass */}
-                <div
-                  onClick={() => toggleCompass()}
-                  style={{
-                    background: compassMode ? 'rgba(10,132,255,0.2)' : 'rgba(255,255,255,0.06)',
-                    border: compassMode ? '2px solid #0a84ff' : '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: '16px',
-                    padding: '18px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '52px',
-                    height: '52px',
-                    background: compassMode ? 'rgba(10,132,255,0.3)' : 'rgba(255,255,255,0.1)',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '24px',
-                  }}>
-                    🧭
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Kompass</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>{compassMode ? 'Aktivt' : 'Inaktivt'}</div>
-                  </div>
-                  <div style={{
-                    width: '52px',
-                    height: '32px',
-                    background: compassMode ? '#0a84ff' : 'rgba(255,255,255,0.15)',
-                    borderRadius: '16px',
-                    padding: '3px',
-                    transition: 'background 0.2s',
-                  }}>
+                  {/* Kompass */}
+                  <div
+                    onClick={() => toggleCompass()}
+                    style={{
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M16.24 7.76 L14.12 14.12 L7.76 16.24 L9.88 9.88 Z" fill="#fff" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Kompass</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Rotera kartan</div>
+                    </div>
                     <div style={{
-                      width: '26px',
+                      width: '44px',
                       height: '26px',
-                      background: '#fff',
-                      borderRadius: '50%',
-                      transform: compassMode ? 'translateX(20px)' : 'translateX(0)',
-                      transition: 'transform 0.2s',
-                    }} />
+                      borderRadius: '13px',
+                      background: compassMode ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                      padding: '2px',
+                      transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        background: '#fff',
+                        transform: compassMode ? 'translateX(18px)' : 'translateX(0)',
+                        transition: 'transform 0.2s ease',
+                      }} />
+                    </div>
                   </div>
                 </div>
 
-                {/* Lager */}
-                <div
-                  onClick={() => {
-                    setLayerMenuOpen(!layerMenuOpen);
-                    setMenuOpen(false);
-                    setMenuHeight(0);
-                    setActiveCategory(null);
-                  }}
-                  style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '16px',
-                    padding: '18px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '52px',
-                    height: '52px',
-                    background: 'rgba(255,255,255,0.1)',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '24px',
-                  }}>
-                    👁️
+                {/* Karta */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '8px',
+                }}>
+                  {/* Lager */}
+                  <div
+                    onClick={() => {
+                      setLayerMenuOpen(!layerMenuOpen);
+                      setMenuOpen(false);
+                      setMenuHeight(0);
+                      setActiveCategory(null);
+                    }}
+                    style={{
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
+                        <path d="M12 3 L2 8 L12 13 L22 8 Z" />
+                        <path d="M2 12 L12 17 L22 12" />
+                        <path d="M2 16 L12 21 L22 16" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Lager</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Visa/dölj element</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+                      <path d="M9 6 L15 12 L9 18" />
+                    </svg>
                   </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Lager</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>Visa/dölj element</div>
+                  
+                  {/* Karttyp */}
+                  <div
+                    onClick={() => setMapType(mapType === 'osm' ? 'satellite' : 'osm')}
+                    style={{
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="3,6 9,3 15,6 21,3 21,18 15,21 9,18 3,21" />
+                        <line x1="9" y1="3" x2="9" y2="18" />
+                        <line x1="15" y1="6" x2="15" y2="21" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Karttyp</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>{mapType === 'osm' ? 'Karta' : 'Satellit'}</div>
+                    </div>
                   </div>
-                  <span style={{ opacity: 0.3, fontSize: '24px' }}>›</span>
-                </div>
 
-                {/* Karttyp */}
-                <div
-                  onClick={() => setMapType(mapType === 'osm' ? 'satellite' : 'osm')}
-                  style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '16px',
-                    padding: '18px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '52px',
-                    height: '52px',
-                    background: 'rgba(255,255,255,0.1)',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '24px',
-                  }}>
-                    🗺️
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Karttyp</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>{mapType === 'osm' ? 'Karta' : 'Satellit'}</div>
-                  </div>
-                </div>
-
-                {/* Karta på/av */}
-                <div
-                  onClick={() => setShowMap(!showMap)}
-                  style={{
-                    background: 'rgba(255,255,255,0.06)',
-                    borderRadius: '16px',
-                    padding: '18px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '52px',
-                    height: '52px',
-                    background: 'rgba(255,255,255,0.1)',
-                    borderRadius: '14px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: '24px',
-                  }}>
-                    🌍
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '17px', fontWeight: '600' }}>Visa karta</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5 }}>{showMap ? 'På' : 'Av'}</div>
-                  </div>
-                  <div style={{
-                    width: '52px',
-                    height: '32px',
-                    background: showMap ? '#22c55e' : 'rgba(255,255,255,0.15)',
-                    borderRadius: '16px',
-                    padding: '3px',
-                    transition: 'background 0.2s',
-                  }}>
+                  {/* Visa karta */}
+                  <div
+                    onClick={() => setShowMap(!showMap)}
+                    style={{
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
+                        <circle cx="12" cy="12" r="9" />
+                        <ellipse cx="12" cy="12" rx="9" ry="4" />
+                        <line x1="12" y1="3" x2="12" y2="21" />
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Visa karta</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>{showMap ? 'På' : 'Av'}</div>
+                    </div>
                     <div style={{
-                      width: '26px',
+                      width: '44px',
                       height: '26px',
-                      background: '#fff',
-                      borderRadius: '50%',
-                      transform: showMap ? 'translateX(20px)' : 'translateX(0)',
-                      transition: 'transform 0.2s',
-                    }} />
+                      borderRadius: '13px',
+                      background: showMap ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                      padding: '2px',
+                      transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        background: '#fff',
+                        transform: showMap ? 'translateX(18px)' : 'translateX(0)',
+                        transition: 'transform 0.2s ease',
+                      }} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -5132,126 +5733,264 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === STICKVÄG DEBUG-VISNING === */}
-      {debugMode && stickvagMode && (
+      {/* === STICKVÄGSAVSTÅND (bara titta) === */}
+      {stickvagMode && !gpsLineType && !stickvagOversikt && (
         <div style={{
           position: 'fixed',
-          bottom: '100px',
-          left: '50%',
-          transform: 'translateX(-50%)',
-          zIndex: 10001,
-          textAlign: 'center',
-        }}>
-          {(() => {
-            const dist = getStickvagDistance();
-            const target = stickvagSettings.targetDistance;
-            const tolerance = stickvagSettings.tolerance;
-            
-            if (dist === null) {
-              return (
-                <div style={{
-                  background: 'rgba(100,100,100,0.9)',
-                  padding: '20px 40px',
-                  borderRadius: '20px',
-                  color: '#fff',
-                }}>
-                  <div style={{ fontSize: '18px' }}>Ingen stickväg hittad</div>
-                  <div style={{ fontSize: '14px', opacity: 0.7 }}>Lägg till en test-stickväg först</div>
-                </div>
-              );
-            }
-            
-            const isGood = dist >= (target - tolerance) && dist <= (target + tolerance);
-            const isTooClose = dist < (target - tolerance);
-            const bgColor = isGood ? '#22c55e' : (isTooClose ? '#ef4444' : '#f59e0b');
-            const statusText = isGood ? '✓ BRA AVSTÅND' : (isTooClose ? '⚠ FÖR NÄRA' : '⚠ FÖR LÅNGT');
-            
-            return (
-              <div style={{
-                background: bgColor,
-                padding: '20px 50px',
-                borderRadius: '25px',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
-              }}>
-                <div style={{ 
-                  fontSize: '64px', 
-                  fontWeight: 'bold', 
-                  color: '#fff',
-                  lineHeight: 1,
-                }}>
-                  {dist}
-                  <span style={{ fontSize: '28px', marginLeft: '5px' }}>m</span>
-                </div>
-                <div style={{ 
-                  fontSize: '16px', 
-                  color: 'rgba(255,255,255,0.9)',
-                  marginTop: '5px',
-                  fontWeight: '600',
-                }}>
-                  {statusText}
-                </div>
-                <div style={{ 
-                  fontSize: '12px', 
-                  color: 'rgba(255,255,255,0.7)',
-                  marginTop: '3px',
-                }}>
-                  Mål: {target}m (±{tolerance}m)
-                </div>
-              </div>
-            );
-          })()}
-        </div>
-      )}
-
-      {/* === STICKVÄGSVY (ENKEL) === */}
-      {stickvagMode && gpsLineType && previousStickvagRef.current && !stickvagOversikt && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
+          top: 0, left: 0, right: 0, bottom: 0,
           background: '#000',
           zIndex: 500,
           display: 'flex',
           flexDirection: 'column',
         }}>
-          {/* Header med inställningar */}
-          <div style={{
-            padding: '55px 20px 15px',
-            background: 'rgba(0,0,0,0.95)',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <div style={{
-                width: '10px',
-                height: '10px',
-                background: '#ef4444',
-                borderRadius: '50%',
-                animation: 'pulse 1s infinite',
-              }} />
-              <span style={{ fontSize: '15px', fontWeight: '600' }}>
-                Spårar {lineTypes.find(t => t.id === gpsLineType)?.name}
-              </span>
-            </div>
-            <div style={{
-              background: 'rgba(255,255,255,0.1)',
-              padding: '6px 12px',
-              borderRadius: '15px',
-              fontSize: '12px',
-              color: '#888',
-            }}>
-              Mål: {stickvagSettings.targetDistance}m | Väg: {stickvagSettings.vagbredd}m
-            </div>
-          </div>
-          
-          {/* Kartvy - visar bara förra vägen och din position */}
+          {/* Kartvy */}
           <div style={{ flex: 1, position: 'relative', background: '#1a1a1a' }}>
             <svg viewBox="0 0 400 600" style={{ width: '100%', height: '100%' }} preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <filter id="terrain-avstand">
+                  <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="4" seed="42"/>
+                  <feDiffuseLighting lightingColor="#444" surfaceScale="2">
+                    <feDistantLight azimuth="315" elevation="40"/>
+                  </feDiffuseLighting>
+                </filter>
+              </defs>
+              <rect width="400" height="600" fill="#1a1a1a"/>
+              <rect width="400" height="600" filter="url(#terrain-avstand)" opacity="0.3"/>
+
+              {/* Alla stickvägar */}
+              {markers.filter(m => m.isLine && m.path && m.path.length > 1).map((line) => {
+                const lineType = lineTypes.find(t => t.id === line.lineType);
+                const color = lineType?.color || '#888';
+                const isBoundary = line.lineType === 'boundary';
+                const isStickvag = ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag'].includes(line.lineType || '');
+                
+                return (
+                  <path key={line.id}
+                    d={line.path!.map((p, i) => {
+                      const relX = 200 + (p.x - gpsMapPosition.x) * 0.5;
+                      const relY = 300 + (p.y - gpsMapPosition.y) * 0.5;
+                      return `${i === 0 ? 'M' : 'L'} ${relX} ${relY}`;
+                    }).join(' ')}
+                    fill="none" 
+                    stroke={color} 
+                    strokeWidth={isStickvag ? 4 : isBoundary ? 2 : 3}
+                    strokeLinecap="round" 
+                    strokeDasharray={isBoundary ? '6,3' : 'none'} 
+                    opacity={isStickvag ? 0.9 : 0.4}
+                  />
+                );
+              })}
+
+              {/* Linje till närmaste stickväg */}
+              {(() => {
+                const nearest = findNearestStickvag();
+                if (!nearest?.path) return null;
+                const result = getDistanceToPath(gpsMapPosition, nearest.path);
+                if (!result.closestPoint) return null;
+                
+                const fromX = 200;
+                const fromY = 300;
+                const toX = 200 + (result.closestPoint.x - gpsMapPosition.x) * 0.5;
+                const toY = 300 + (result.closestPoint.y - gpsMapPosition.y) * 0.5;
+                
+                return (
+                  <line 
+                    x1={fromX} y1={fromY} 
+                    x2={toX} y2={toY}
+                    stroke="rgba(255,255,255,0.3)" 
+                    strokeWidth="1" 
+                    strokeDasharray="4,4"
+                  />
+                );
+              })()}
+
+              {/* GPS-position (du) */}
+              <circle cx={200} cy={300} r={8} fill="#fff"/>
+              <circle cx={200} cy={300} r={16} fill="none" stroke="#fff" strokeWidth={1} opacity={0.4}>
+                <animate attributeName="r" from="8" to="24" dur="1.5s" repeatCount="indefinite"/>
+                <animate attributeName="opacity" from="0.5" to="0" dur="1.5s" repeatCount="indefinite"/>
+              </circle>
+            </svg>
+          </div>
+
+          {/* GPS status uppe till vänster */}
+          <div style={{
+            position: 'absolute',
+            top: '50px',
+            left: '14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '8px 12px',
+            borderRadius: '10px',
+            background: 'rgba(0,0,0,0.5)',
+          }}>
+            <div style={{
+              width: '6px', height: '6px',
+              background: '#22c55e',
+              borderRadius: '50%',
+            }} />
+            <span style={{ fontSize: '11px', color: '#fff', opacity: 0.6 }}>GPS</span>
+          </div>
+
+          {/* Stäng-knapp */}
+          <button
+            onClick={() => setStickvagMode(false)}
+            style={{
+              position: 'absolute',
+              top: '50px',
+              right: '14px',
+              width: '40px',
+              height: '40px',
+              borderRadius: '10px',
+              border: 'none',
+              background: 'rgba(0,0,0,0.5)',
+              color: '#fff',
+              fontSize: '18px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            ✕
+          </button>
+
+          {/* Avståndspanel längst ner */}
+          <div style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '24px 24px 0 0',
+            padding: '24px 20px 40px',
+          }}>
+            {(() => {
+              const dist = getStickvagDistance();
+              const stickvägar = markers.filter(m => 
+                m.isLine && 
+                ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag'].includes(m.lineType || '')
+              );
               
-              {/* Förra vägen (tjock, färgkodad) */}
+              if (stickvägar.length === 0) {
+                return (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: '17px', opacity: 0.5, marginBottom: '8px' }}>
+                      Inga stickvägar
+                    </div>
+                    <div style={{ fontSize: '14px', opacity: 0.3 }}>
+                      Snitsla din första stickväg för att se avstånd
+                    </div>
+                  </div>
+                );
+              }
+              
+              const { targetDistance, tolerance } = stickvagSettings;
+              const minOk = targetDistance - tolerance;
+              const maxOk = targetDistance + tolerance;
+              const isOk = dist !== null && dist >= minOk && dist <= maxOk;
+              const isTooClose = dist !== null && dist < minOk;
+              const isTooFar = dist !== null && dist > maxOk;
+              
+              return (
+                <>
+                  {/* Avstånd */}
+                  <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+                    <div style={{ 
+                      fontSize: '64px', 
+                      fontWeight: '300',
+                      color: isOk ? '#22c55e' : isTooClose ? '#ef4444' : '#f59e0b',
+                      lineHeight: 1,
+                    }}>
+                      {dist !== null ? dist : '--'}
+                    </div>
+                    <div style={{ fontSize: '18px', opacity: 0.4, marginTop: '4px' }}>
+                      meter till närmaste stickväg
+                    </div>
+                  </div>
+                  
+                  {/* Status */}
+                  <div style={{
+                    padding: '12px 16px',
+                    borderRadius: '12px',
+                    background: isOk ? 'rgba(34,197,94,0.15)' : isTooClose ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
+                    textAlign: 'center',
+                  }}>
+                    <span style={{ 
+                      fontSize: '15px',
+                      color: isOk ? '#22c55e' : isTooClose ? '#ef4444' : '#f59e0b',
+                    }}>
+                      {isOk ? '✓ Perfekt avstånd' : isTooClose ? '⚠ För nära' : '⚠ För långt'}
+                    </span>
+                    <span style={{ fontSize: '13px', opacity: 0.5, marginLeft: '8px' }}>
+                      (mål: {targetDistance}m ±{tolerance}m)
+                    </span>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* === STICKVÄGSVY (TESLA-STIL) === */}
+      {stickvagMode && gpsLineType && previousStickvagRef.current && !stickvagOversikt && !showSavedPopup && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: '#000',
+          zIndex: 500,
+          display: 'flex',
+          flexDirection: 'column',
+        }}>
+          {/* Header med GPS-knapp som öppnar översikt */}
+          <div style={{
+            position: 'absolute',
+            top: 0, left: 0, right: 0,
+            padding: '50px 14px 10px',
+            background: 'linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%)',
+            zIndex: 10,
+          }}>
+            <button
+              onClick={() => setStickvagOversikt(true)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 12px',
+                borderRadius: '10px',
+                border: 'none',
+                background: 'rgba(255,255,255,0.08)',
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{
+                width: '6px', height: '6px',
+                background: gpsPaused ? '#666' : '#22c55e',
+                borderRadius: '50%',
+              }} />
+              <span style={{ fontSize: '11px', color: '#fff', opacity: 0.6 }}>GPS</span>
+            </button>
+          </div>
+          
+          {/* Kartvy */}
+          <div style={{ flex: 1, position: 'relative', background: '#1a1a1a' }}>
+            <svg viewBox="0 0 400 600" style={{ width: '100%', height: '100%' }} preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <filter id="terrain-stickvag">
+                  <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="4" seed="42"/>
+                  <feDiffuseLighting lightingColor="#444" surfaceScale="2">
+                    <feDistantLight azimuth="315" elevation="40"/>
+                  </feDiffuseLighting>
+                </filter>
+              </defs>
+              <rect width="400" height="600" fill="#1a1a1a"/>
+              <rect width="400" height="600" filter="url(#terrain-stickvag)" opacity="0.3"/>
+              <ellipse cx="80" cy="450" rx="40" ry="60" fill="#1e40af" opacity="0.2"/>
+              <ellipse cx="350" cy="200" rx="35" ry="50" fill="#1e40af" opacity="0.15"/>
+              
+              {/* Förra vägen */}
               {previousStickvagRef.current?.path && (() => {
                 const prevColor = lineTypes.find(t => t.id === previousStickvagRef.current.lineType)?.color || '#ef4444';
                 return (
@@ -5261,39 +6000,28 @@ export default function PlannerPage() {
                       const relY = 300 + (p.y - gpsMapPositionRef.current.y) * 0.6;
                       return `${i === 0 ? 'M' : 'L'} ${relX} ${relY}`;
                     }).join(' ')}
-                    fill="none"
-                    stroke={prevColor}
-                    strokeWidth={10}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
+                    fill="none" stroke={prevColor} strokeWidth={8}
+                    strokeLinecap="round" strokeLinejoin="round" opacity={0.8}
                   />
                 );
               })()}
               
-              {/* Avståndslinje till förra vägen */}
+              {/* Avståndslinje */}
               {(() => {
                 const dist = getStickvagDistance();
                 if (!dist || !previousStickvagRef.current?.path) return null;
                 const result = getDistanceToPath(gpsMapPositionRef.current, previousStickvagRef.current.path);
                 const closestX = 120 + (result.closestPoint.x - gpsMapPositionRef.current.x) * 0.6;
                 const closestY = 300 + (result.closestPoint.y - gpsMapPositionRef.current.y) * 0.6;
-                
-                const { targetDistance, tolerance } = stickvagSettings;
-                const minOk = targetDistance - tolerance;
-                const maxOk = targetDistance + tolerance;
-                let lineColor = 'rgba(34,197,94,0.6)';
-                if (dist < minOk || dist > maxOk) {
-                  lineColor = dist < minOk - 2 || dist > maxOk + 2 ? 'rgba(239,68,68,0.6)' : 'rgba(251,191,36,0.6)';
-                }
-                
                 return (
-                  <line
-                    x1={closestX} y1={closestY}
-                    x2={280} y2={300}
-                    stroke={lineColor}
-                    strokeWidth={3}
-                    strokeDasharray="10, 6"
-                  />
+                  <>
+                    <line x1={closestX} y1={closestY} x2={280} y2={300}
+                      stroke="rgba(255,255,255,0.4)" strokeWidth={1} strokeDasharray="5, 4"/>
+                    <g transform={`translate(${(closestX + 280) / 2}, ${(closestY + 300) / 2 - 14})`}>
+                      <rect x="-20" y="-12" width="40" height="20" rx="6" fill="rgba(0,0,0,0.7)"/>
+                      <text x="0" y="3" fill="#fff" fontSize="12" textAnchor="middle" fontWeight="500">{dist}m</text>
+                    </g>
+                  </>
                 );
               })()}
               
@@ -5307,30 +6035,23 @@ export default function PlannerPage() {
                       const relY = 300 + (p.y - gpsMapPositionRef.current.y) * 0.6;
                       return `${i === 0 ? 'M' : 'L'} ${relX} ${relY}`;
                     }).join(' ')}
-                    fill="none"
-                    stroke={currentColor}
-                    strokeWidth={6}
-                    strokeDasharray="12, 8"
-                    strokeLinecap="round"
+                    fill="none" stroke={currentColor} strokeWidth={5}
+                    strokeDasharray="8, 6" opacity={0.6} strokeLinecap="round"
                   />
                 );
               })()}
               
               {/* GPS-punkt (du) */}
-              <circle cx={280} cy={300} r={35} fill="none" stroke="rgba(10,132,255,0.3)" strokeWidth={3}>
-                <animate attributeName="r" from="18" to="45" dur="1.5s" repeatCount="indefinite" />
-                <animate attributeName="opacity" from="0.8" to="0" dur="1.5s" repeatCount="indefinite" />
+              <circle cx={280} cy={300} r={30} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth={1}>
+                <animate attributeName="r" from="12" to="35" dur="2s" repeatCount="indefinite"/>
+                <animate attributeName="opacity" from="0.3" to="0" dur="2s" repeatCount="indefinite"/>
               </circle>
-              <circle cx={280} cy={300} r={18} fill="#0a84ff" style={{ filter: 'drop-shadow(0 0 15px rgba(10,132,255,0.8))' }} />
-              
-              {/* Riktningspil */}
-              <path d="M 280,265 L 268,285 L 292,285 Z" fill="rgba(255,255,255,0.7)" />
-              
-              {/* Labels */}
-              <text x={80} y={350} fill="#666" fontSize={13}>Förra vägen</text>
+              <circle cx={280} cy={300} r={12} fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.2)" strokeWidth={1}/>
+              <circle cx={280} cy={300} r={5} fill="#fff"/>
+              <path d="M 280,278 L 274,290 L 286,290 Z" fill="rgba(255,255,255,0.8)"/>
             </svg>
           </div>
-          
+
           {/* Varningslogik */}
           {(() => {
             const dist = getStickvagDistance();
@@ -5347,200 +6068,230 @@ export default function PlannerPage() {
             return null;
           })()}
           
-          {/* Avståndsvisning - STOR */}
+          {/* Status och knappar */}
           <div style={{
-            padding: '25px 20px',
-            background: '#000',
+            position: 'absolute',
+            bottom: 0, left: 0, right: 0,
+            background: 'linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 70%, transparent 100%)',
+            padding: '50px 14px 30px',
             textAlign: 'center',
           }}>
             {(() => {
               const dist = getStickvagDistance();
               const { targetDistance, tolerance } = stickvagSettings;
-              const minOk = targetDistance - tolerance;
-              const maxOk = targetDistance + tolerance;
-              
-              let statusColor = '#22c55e';
-              let statusText = '✓ Bra avstånd';
-              
+              let status: 'good' | 'close' | 'far' = 'good';
               if (dist !== null) {
-                if (dist < minOk - 2 || dist > maxOk + 2) {
-                  statusColor = '#ef4444';
-                  statusText = dist < minOk ? '⚠ För nära!' : '⚠ För långt!';
-                } else if (dist < minOk || dist > maxOk) {
-                  statusColor = '#fbbf24';
-                  statusText = dist < minOk ? '→ Gå längre bort' : '← Gå närmare';
-                }
+                if (dist < targetDistance - tolerance) status = 'close';
+                else if (dist > targetDistance + tolerance) status = 'far';
               }
-              
               return (
                 <>
-                  <div style={{ fontSize: '100px', fontWeight: '700', letterSpacing: '-4px', color: statusColor, lineHeight: 1 }}>
-                    {dist ?? '--'}
-                  </div>
-                  <div style={{ fontSize: '28px', color: '#666', marginTop: '-5px' }}>meter kant-kant</div>
-                  <div style={{ fontSize: '20px', fontWeight: '600', marginTop: '10px', color: statusColor }}>
-                    {statusText}
-                  </div>
+                  {status === 'good' ? (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '14px' }}>
+                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
+                        <circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/>
+                      </svg>
+                      <span style={{ fontSize: '16px', color: '#fff', opacity: 0.9 }}>Markera här</span>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '14px' }}>
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" 
+                        stroke={status === 'close' ? '#f59e0b' : '#ef4444'} strokeWidth="1.5"
+                        style={{ transform: status === 'close' ? 'rotate(0)' : 'rotate(180deg)' }}>
+                        <path d="M5 12h14M12 5l7 7-7 7"/>
+                      </svg>
+                      <span style={{ fontSize: '16px', color: status === 'close' ? '#f59e0b' : '#ef4444' }}>
+                        {status === 'close' ? 'Längre bort' : 'Gå tillbaka'}
+                      </span>
+                    </div>
+                  )}
                 </>
               );
             })()}
-          </div>
-          
-          {/* Knappar - mer padding längst ner */}
-          <div style={{
-            padding: '15px 20px 50px',
-            background: '#000',
-            display: 'flex',
-            gap: '12px',
-          }}>
-            <button
-              onClick={toggleGpsPause}
-              style={{
-                flex: 1,
-                padding: '18px',
-                borderRadius: '14px',
-                border: 'none',
-                background: gpsPaused ? 'rgba(34,197,94,0.3)' : 'rgba(255,255,255,0.15)',
-                color: '#fff',
-                fontSize: '17px',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-            >
-              {gpsPaused ? '▶ Fortsätt' : '⏸ Paus'}
-            </button>
-            <button
-              onClick={() => setStickvagOversikt(true)}
-              style={{
-                padding: '18px 22px',
-                borderRadius: '14px',
-                border: 'none',
-                background: 'rgba(59,130,246,0.3)',
-                color: '#3b82f6',
-                fontSize: '17px',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-            >
-              🗺
-            </button>
-            <button
-              onClick={() => stopGpsTracking(true)}
-              style={{
-                flex: 1,
-                padding: '18px',
-                borderRadius: '14px',
-                border: 'none',
-                background: 'rgba(34,197,94,0.3)',
-                color: '#22c55e',
-                fontSize: '17px',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-            >
-              ✓ Spara
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={toggleGpsPause} style={{
+                flex: 1, padding: '14px', borderRadius: '10px', border: 'none',
+                background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '13px', opacity: 0.7, cursor: 'pointer',
+              }}>
+                {gpsPaused ? '▶ Fortsätt' : '⏸ Paus'}
+              </button>
+              <button onClick={saveAndShowPopup} style={{
+                flex: 1, padding: '14px', borderRadius: '10px', border: 'none',
+                background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', opacity: 0.9, cursor: 'pointer',
+              }}>
+                ✓ Spara
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* === STICKVÄGSVY ÖVERSIKT === */}
-      {stickvagMode && stickvagOversikt && (
+      {/* === VÄG SPARAD POPUP === */}
+      {showSavedPopup && (
         <div style={{
           position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
+          top: 0, left: 0, right: 0, bottom: 0,
+          background: '#000',
+          zIndex: 510,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '24px',
+        }}>
+          <div style={{
+            width: '64px', height: '64px', borderRadius: '50%',
+            background: 'rgba(34, 197, 94, 0.15)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: '16px',
+          }}>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2">
+              <path d="M5 12l5 5L20 7"/>
+            </svg>
+          </div>
+          
+          <div style={{ fontSize: '18px', fontWeight: '500', marginBottom: '6px', opacity: 0.9, color: '#fff' }}>
+            Väg sparad
+          </div>
+          <div style={{ fontSize: '12px', opacity: 0.5, marginBottom: '32px', color: '#fff' }}>
+            {markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length} vägar totalt
+          </div>
+
+          <div style={{
+            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '20px',
+            width: '100%', maxWidth: '260px',
+          }}>
+            <div style={{ 
+              fontSize: '10px', opacity: 0.4, marginBottom: '16px',
+              textTransform: 'uppercase', letterSpacing: '1.5px', textAlign: 'center', color: '#fff',
+            }}>
+              Nästa väg
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginBottom: '20px' }}>
+              {[
+                { id: 'rod', color: '#ef4444' },
+                { id: 'gul', color: '#fbbf24' },
+                { id: 'bla', color: '#3b82f6' },
+              ].map((f) => (
+                <button key={f.id} onClick={() => continueWithColor(f.id)} style={{
+                  width: '56px', height: '56px', borderRadius: '16px',
+                  border: savedVagColor === f.color ? '2px solid rgba(255,255,255,0.4)' : '2px solid transparent',
+                  background: f.color, cursor: 'pointer',
+                }} />
+              ))}
+            </div>
+
+            <button onClick={() => continueWithColor('rod')} style={{
+              width: '100%', padding: '14px', borderRadius: '12px', border: 'none',
+              background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: '14px',
+              fontWeight: '500', cursor: 'pointer', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', gap: '8px',
+            }}>
+              Fortsätt
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+                <path d="M5 12h14M12 5l7 7-7 7"/>
+              </svg>
+            </button>
+          </div>
+
+          <button onClick={() => {
+            setShowSavedPopup(false);
+            setStickvagMode(false);
+            previousStickvagRef.current = null;
+          }} style={{
+            marginTop: '20px', padding: '12px 24px', borderRadius: '10px',
+            border: 'none', background: 'transparent', color: '#fff',
+            fontSize: '13px', opacity: 0.4, cursor: 'pointer',
+          }}>
+            Avsluta snitsling
+          </button>
+        </div>
+      )}
+
+      {/* === STICKVÄGSVY ÖVERSIKT (TESLA-STIL) === */}
+      {stickvagOversikt && (
+        <div style={{
+          position: 'fixed',
+          top: 0, left: 0, right: 0, bottom: 0,
           background: '#000',
           zIndex: 501,
           display: 'flex',
           flexDirection: 'column',
         }}>
-          {/* Header */}
-          <div style={{
-            padding: '55px 20px 15px',
-            background: 'rgba(0,0,0,0.95)',
-          }}>
-            <div style={{ fontSize: '20px', fontWeight: '600' }}>🗺 Översikt</div>
-            <div style={{ fontSize: '14px', color: '#888', marginTop: '4px' }}>
-              Alla snitslade vägar
-            </div>
-          </div>
-          
-          {/* Kartvy med alla vägar */}
-          <div style={{ flex: 1, position: 'relative', background: '#1a1a1a' }}>
-            <svg viewBox="0 0 400 500" style={{ width: '100%', height: '100%' }} preserveAspectRatio="xMidYMid meet">
-              
-              {/* Alla sparade vägar */}
-              {markers.filter(m => m.isLine).map((line, idx) => {
+          <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
+            <svg viewBox="0 0 400 600" style={{ width: '100%', height: '100%' }} preserveAspectRatio="xMidYMid meet">
+              <defs>
+                <filter id="terrain-oversikt">
+                  <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="4" seed="42"/>
+                  <feDiffuseLighting lightingColor="#444" surfaceScale="2">
+                    <feDistantLight azimuth="315" elevation="40"/>
+                  </feDiffuseLighting>
+                </filter>
+              </defs>
+              <rect width="400" height="600" fill="#1a1a1a"/>
+              <rect width="400" height="600" filter="url(#terrain-oversikt)" opacity="0.3"/>
+              <ellipse cx="80" cy="450" rx="40" ry="60" fill="#1e40af" opacity="0.2"/>
+              <ellipse cx="350" cy="200" rx="35" ry="50" fill="#1e40af" opacity="0.15"/>
+              <rect x="60" y="80" width="280" height="440" fill="none" 
+                stroke="#fff" strokeWidth="0.5" strokeDasharray="6,4" opacity="0.15" rx="4"/>
+
+              {/* Alla vägar */}
+              {markers.filter(m => m.isLine).map((line) => {
                 const lineType = lineTypes.find(t => t.id === line.lineType);
                 const color = lineType?.color || '#888';
-                const isBackRoad = lineType?.isBackRoad;
                 const isBoundary = line.lineType === 'boundary';
-                
                 if (!line.path || line.path.length < 2) return null;
                 
-                // Beräkna bounds för alla vägar
                 const allPaths = markers.filter(m => m.isLine && m.path);
                 let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
                 allPaths.forEach(l => {
                   l.path?.forEach(p => {
-                    minX = Math.min(minX, p.x);
-                    maxX = Math.max(maxX, p.x);
-                    minY = Math.min(minY, p.y);
-                    maxY = Math.max(maxY, p.y);
+                    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+                    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
                   });
                 });
-                
                 const centerX = (minX + maxX) / 2;
                 const centerY = (minY + maxY) / 2;
-                const scaleX = (maxX - minX) > 0 ? 350 / (maxX - minX) : 1;
-                const scaleY = (maxY - minY) > 0 ? 400 / (maxY - minY) : 1;
-                const viewScale = Math.min(scaleX, scaleY, 1) * 0.8;
+                const viewScale = Math.min(
+                  (maxX - minX) > 0 ? 300 / (maxX - minX) : 1,
+                  (maxY - minY) > 0 ? 450 / (maxY - minY) : 1, 1
+                ) * 0.7;
                 
                 return (
-                  <path
-                    key={line.id}
+                  <path key={line.id}
                     d={line.path.map((p, i) => {
                       const x = 200 + (p.x - centerX) * viewScale;
-                      const y = 250 + (p.y - centerY) * viewScale;
+                      const y = 300 + (p.y - centerY) * viewScale;
                       return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
                     }).join(' ')}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth={isBoundary ? 3 : (isBackRoad ? 5 : 4)}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeDasharray={isBoundary ? '8,4' : 'none'}
+                    fill="none" stroke={color} strokeWidth={isBoundary ? 2 : 3}
+                    strokeLinecap="round" strokeDasharray={isBoundary ? '6,3' : 'none'} opacity={0.8}
                   />
                 );
               })}
               
-              {/* Nuvarande väg (streckad) */}
+              {/* Pågående väg (streckad) */}
               {gpsPath.length > 0 && (() => {
                 const allPaths = markers.filter(m => m.isLine && m.path);
                 let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
                 allPaths.forEach(l => {
                   l.path?.forEach(p => {
-                    minX = Math.min(minX, p.x);
-                    maxX = Math.max(maxX, p.x);
-                    minY = Math.min(minY, p.y);
-                    maxY = Math.max(maxY, p.y);
+                    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+                    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
                   });
                 });
                 gpsPath.forEach(p => {
-                  minX = Math.min(minX, p.x);
-                  maxX = Math.max(maxX, p.x);
-                  minY = Math.min(minY, p.y);
-                  maxY = Math.max(maxY, p.y);
+                  minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+                  minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
                 });
                 
                 const centerX = (minX + maxX) / 2;
                 const centerY = (minY + maxY) / 2;
-                const scaleX = (maxX - minX) > 0 ? 350 / (maxX - minX) : 1;
-                const scaleY = (maxY - minY) > 0 ? 400 / (maxY - minY) : 1;
-                const viewScale = Math.min(scaleX, scaleY, 1) * 0.8;
+                const viewScale = Math.min(
+                  (maxX - minX) > 0 ? 300 / (maxX - minX) : 1,
+                  (maxY - minY) > 0 ? 450 / (maxY - minY) : 1, 1
+                ) * 0.7;
                 
                 const currentColor = lineTypes.find(t => t.id === gpsLineType)?.color || '#fbbf24';
                 
@@ -5548,14 +6299,11 @@ export default function PlannerPage() {
                   <path
                     d={gpsPath.map((p, i) => {
                       const x = 200 + (p.x - centerX) * viewScale;
-                      const y = 250 + (p.y - centerY) * viewScale;
+                      const y = 300 + (p.y - centerY) * viewScale;
                       return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
                     }).join(' ')}
-                    fill="none"
-                    stroke={currentColor}
-                    strokeWidth={4}
-                    strokeDasharray="10, 6"
-                    strokeLinecap="round"
+                    fill="none" stroke={currentColor} strokeWidth={3}
+                    strokeDasharray="6, 4" strokeLinecap="round" opacity={0.6}
                   />
                 );
               })()}
@@ -5563,104 +6311,90 @@ export default function PlannerPage() {
               {/* GPS-position */}
               {(() => {
                 const allPaths = markers.filter(m => m.isLine && m.path);
+                if (allPaths.length === 0) {
+                  return <circle cx={200} cy={300} r={6} fill="#fff"/>;
+                }
                 let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
                 allPaths.forEach(l => {
                   l.path?.forEach(p => {
-                    minX = Math.min(minX, p.x);
-                    maxX = Math.max(maxX, p.x);
-                    minY = Math.min(minY, p.y);
-                    maxY = Math.max(maxY, p.y);
+                    minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+                    minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
                   });
                 });
-                if (minX === Infinity) return null;
-                
                 const centerX = (minX + maxX) / 2;
                 const centerY = (minY + maxY) / 2;
-                const scaleX = (maxX - minX) > 0 ? 350 / (maxX - minX) : 1;
-                const scaleY = (maxY - minY) > 0 ? 400 / (maxY - minY) : 1;
-                const viewScale = Math.min(scaleX, scaleY, 1) * 0.8;
-                
+                const viewScale = Math.min(
+                  (maxX - minX) > 0 ? 300 / (maxX - minX) : 1,
+                  (maxY - minY) > 0 ? 450 / (maxY - minY) : 1, 1
+                ) * 0.7;
                 const gpsX = 200 + (gpsMapPositionRef.current.x - centerX) * viewScale;
-                const gpsY = 250 + (gpsMapPositionRef.current.y - centerY) * viewScale;
-                
+                const gpsY = 300 + (gpsMapPositionRef.current.y - centerY) * viewScale;
                 return (
                   <>
-                    <circle cx={gpsX} cy={gpsY} r={10} fill="none" stroke="rgba(10,132,255,0.4)" strokeWidth={2}>
-                      <animate attributeName="r" from="8" to="20" dur="1.5s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" from="0.8" to="0" dur="1.5s" repeatCount="indefinite" />
+                    <circle cx={gpsX} cy={gpsY} r={6} fill="#fff"/>
+                    <circle cx={gpsX} cy={gpsY} r={12} fill="none" stroke="#fff" strokeWidth={1} opacity={0.4}>
+                      <animate attributeName="r" from="6" to="16" dur="1.5s" repeatCount="indefinite"/>
+                      <animate attributeName="opacity" from="0.5" to="0" dur="1.5s" repeatCount="indefinite"/>
                     </circle>
-                    <circle cx={gpsX} cy={gpsY} r={8} fill="#0a84ff" />
                   </>
                 );
               })()}
             </svg>
           </div>
-          
-          {/* Legend */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'center',
-            gap: '15px',
-            padding: '12px',
-            background: 'rgba(255,255,255,0.05)',
-            flexWrap: 'wrap',
-          }}>
-            {[...new Set(markers.filter(m => m.isLine).map(m => m.lineType))].map(lt => {
-              const lineType = lineTypes.find(t => t.id === lt);
-              if (!lineType) return null;
-              return (
-                <div key={lt} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#aaa' }}>
-                  <div style={{ width: '16px', height: '4px', background: lineType.color, borderRadius: '2px' }} />
-                  <span>{lineType.name}</span>
-                </div>
-              );
-            })}
-          </div>
-          
-          {/* Statistik */}
-          <div style={{
-            display: 'flex',
-            justifyContent: 'space-around',
-            padding: '15px',
-            background: 'rgba(255,255,255,0.05)',
-          }}>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '22px', fontWeight: '700' }}>
-                {markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType)).length}
-              </div>
-              <div style={{ fontSize: '11px', color: '#888' }}>Stickvägar</div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '22px', fontWeight: '700' }}>
-                {markers.filter(m => m.isLine && ['backRoadRed', 'backRoadYellow', 'backRoadBlue'].includes(m.lineType)).length}
-              </div>
-              <div style={{ fontSize: '11px', color: '#888' }}>Backvägar</div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '22px', fontWeight: '700' }}>
-                {stickvagSettings.targetDistance}m
-              </div>
-              <div style={{ fontSize: '11px', color: '#888' }}>Mål</div>
+
+          {/* GPS vänster */}
+          <div style={{ position: 'absolute', top: '50px', left: '14px', zIndex: 10 }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '6px',
+              padding: '8px 12px', borderRadius: '10px', background: 'rgba(0,0,0,0.5)',
+            }}>
+              <div style={{ width: '6px', height: '6px', background: gpsPaused ? '#666' : '#22c55e', borderRadius: '50%' }} />
+              <span style={{ fontSize: '11px', color: '#fff', opacity: 0.6 }}>GPS</span>
             </div>
           </div>
-          
-          {/* Knapp - mer padding längst ner */}
-          <div style={{ padding: '15px 20px 50px', background: '#000' }}>
+
+          {/* Stäng */}
+          <button onClick={() => setStickvagOversikt(false)} style={{
+            position: 'absolute', top: '50px', right: '14px',
+            width: '40px', height: '40px', borderRadius: '10px',
+            border: 'none', background: 'rgba(0,0,0,0.5)',
+            color: '#fff', fontSize: '16px', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            opacity: 0.8, zIndex: 10,
+          }}>
+            ✕
+          </button>
+
+          {/* Zoom */}
+          <div style={{
+            position: 'absolute', bottom: '30px', right: '14px',
+            display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 10,
+          }}>
             <button
-              onClick={() => setStickvagOversikt(false)}
+              onClick={() => setZoom(z => Math.min(2.5, z + 0.25))}
               style={{
-                width: '100%',
-                padding: '18px',
-                borderRadius: '14px',
-                border: 'none',
-                background: 'rgba(255,255,255,0.15)',
-                color: '#fff',
-                fontSize: '17px',
-                fontWeight: '600',
-                cursor: 'pointer',
+                width: '40px', height: '40px', borderRadius: '10px',
+                border: 'none', background: 'rgba(0,0,0,0.4)',
+                color: '#fff', fontSize: '18px', fontWeight: '300',
+                cursor: 'pointer', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                opacity: 0.3,
               }}
             >
-              ← Tillbaka till snitslande
+              +
+            </button>
+            <button
+              onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}
+              style={{
+                width: '40px', height: '40px', borderRadius: '10px',
+                border: 'none', background: 'rgba(0,0,0,0.4)',
+                color: '#fff', fontSize: '18px', fontWeight: '300',
+                cursor: 'pointer', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                opacity: 0.3,
+              }}
+            >
+              −
             </button>
           </div>
         </div>
@@ -6676,191 +7410,6 @@ export default function PlannerPage() {
           -moz-appearance: textfield;
         }
       `}</style>
-
-      {/* === DEBUG TAP ZONE === */}
-      <div
-        onClick={handleDebugTap}
-        style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100px',
-          height: '100px',
-          zIndex: 99999,
-          background: debugTapCount > 0 ? `rgba(34, 197, 94, ${debugTapCount * 0.2})` : 'transparent',
-          cursor: 'pointer',
-        }}
-      >
-        {debugTapCount > 0 && (
-          <span style={{ color: '#22c55e', fontSize: '24px', padding: '10px', display: 'block' }}>
-            {debugTapCount}/5
-          </span>
-        )}
-      </div>
-
-      {/* === DEBUG PANEL === */}
-      {debugMode && (
-        <div style={{
-          position: 'fixed',
-          top: '100px',
-          left: '10px',
-          background: 'rgba(0,0,0,0.9)',
-          padding: '15px',
-          borderRadius: '12px',
-          zIndex: 10000,
-          color: '#fff',
-          fontSize: '13px',
-          maxWidth: '280px',
-          maxHeight: '70vh',
-          overflowY: 'auto',
-        }}>
-          <div style={{ fontWeight: 'bold', marginBottom: '10px', color: '#22c55e' }}>🔧 DEBUG</div>
-          
-          {/* GPS Position */}
-          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px', marginBottom: '10px' }}>
-            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '6px' }}>GPS POSITION</div>
-            <div>X: {gpsMapPosition.x.toFixed(0)} Y: {gpsMapPosition.y.toFixed(0)}</div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '4px', marginTop: '8px' }}>
-              <div></div>
-              <button onClick={() => moveDebugGps(0, -20)} style={{ padding: '8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>↑</button>
-              <div></div>
-              <button onClick={() => moveDebugGps(-20, 0)} style={{ padding: '8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>←</button>
-              <button onClick={() => moveDebugGps(0, 20)} style={{ padding: '8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>↓</button>
-              <button onClick={() => moveDebugGps(20, 0)} style={{ padding: '8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>→</button>
-            </div>
-          </div>
-
-          {/* Simulera gång */}
-          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px', marginBottom: '10px' }}>
-            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '6px' }}>SIMULERA GÅNG</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <span>Riktning:</span>
-              <button onClick={() => setDebugWalkDirection(d => d - 45)} style={{ padding: '4px 8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>-45°</button>
-              <span style={{ minWidth: '40px', textAlign: 'center' }}>{debugWalkDirection}°</span>
-              <button onClick={() => setDebugWalkDirection(d => d + 45)} style={{ padding: '4px 8px', background: '#333', border: 'none', borderRadius: '4px', color: '#fff', cursor: 'pointer' }}>+45°</button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <span>Fart:</span>
-              <input
-                type="range"
-                min="1"
-                max="20"
-                value={debugWalkSpeed}
-                onChange={(e) => setDebugWalkSpeed(Number(e.target.value))}
-                style={{ flex: 1 }}
-              />
-              <span>{debugWalkSpeed}</span>
-            </div>
-            <button
-              onClick={debugWalking ? stopDebugWalk : startDebugWalk}
-              style={{ 
-                width: '100%', 
-                padding: '10px', 
-                background: debugWalking ? '#ef4444' : '#22c55e', 
-                border: 'none', 
-                borderRadius: '6px', 
-                color: '#fff', 
-                cursor: 'pointer',
-                fontWeight: 'bold',
-              }}
-            >
-              {debugWalking ? '⏹ Stoppa' : '▶ Starta gång'}
-            </button>
-          </div>
-
-          {/* Stickväg info */}
-          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px', marginBottom: '10px' }}>
-            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '6px' }}>STICKVÄG INFO</div>
-            <div>Läge: {stickvagMode ? '✅ Aktivt' : '❌ Av'}</div>
-            <div>Antal stickvägar: {markers.filter(m => m.lineType === 'stickvag').length}</div>
-            <div>Avstånd: {getStickvagDistance()?.toFixed(1) || '-'} m</div>
-          </div>
-
-          {/* Karta */}
-          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px', marginBottom: '10px' }}>
-            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '6px' }}>KARTA</div>
-            <button
-              onClick={() => setShowMap(!showMap)}
-              style={{ width: '100%', padding: '10px', background: showMap ? '#22c55e' : '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', marginBottom: '6px' }}
-            >
-              {showMap ? '🗺️ Karta PÅ' : '⬜ Karta AV'}
-            </button>
-            <div style={{ display: 'flex', gap: '4px', marginBottom: '6px' }}>
-              <button
-                onClick={() => setMapType('osm')}
-                style={{ flex: 1, padding: '8px', background: mapType === 'osm' ? '#0a84ff' : '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '11px' }}
-              >
-                Karta
-              </button>
-              <button
-                onClick={() => setMapType('satellite')}
-                style={{ flex: 1, padding: '8px', background: mapType === 'satellite' ? '#0a84ff' : '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', fontSize: '11px' }}
-              >
-                Satellit
-              </button>
-            </div>
-            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-              <button
-                onClick={() => setMapZoom(z => Math.max(12, z - 1))}
-                style={{ padding: '8px 12px', background: '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer' }}
-              >
-                −
-              </button>
-              <span style={{ flex: 1, textAlign: 'center' }}>Zoom: {mapZoom}</span>
-              <button
-                onClick={() => setMapZoom(z => Math.min(19, z + 1))}
-                style={{ padding: '8px 12px', background: '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer' }}
-              >
-                +
-              </button>
-            </div>
-          </div>
-
-          {/* Snabbknappar */}
-          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: '8px', padding: '10px' }}>
-            <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', marginBottom: '6px' }}>SNABBKNAPPAR</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <button
-                onClick={() => setStickvagMode(!stickvagMode)}
-                style={{ padding: '10px', background: stickvagMode ? '#22c55e' : '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', textAlign: 'left' }}
-              >
-                {stickvagMode ? '✅' : '⬜'} Stickvägsläge
-              </button>
-              <button
-                onClick={() => setDrivingMode(!drivingMode)}
-                style={{ padding: '10px', background: drivingMode ? '#22c55e' : '#333', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', textAlign: 'left' }}
-              >
-                {drivingMode ? '✅' : '⬜'} Körläge
-              </button>
-              <button
-                onClick={() => {
-                  const testPath = [
-                    { x: gpsMapPosition.x + 50, y: gpsMapPosition.y - 100 },
-                    { x: gpsMapPosition.x + 50, y: gpsMapPosition.y + 100 },
-                  ];
-                  setMarkers(prev => [...prev, {
-                    id: `debug-stickvag-${Date.now()}`,
-                    x: testPath[0].x,
-                    y: testPath[0].y,
-                    isLine: true,
-                    lineType: 'stickvag',
-                    path: testPath,
-                  }]);
-                }}
-                style={{ padding: '10px', background: '#0a84ff', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', textAlign: 'left' }}
-              >
-                ➕ Lägg till test-stickväg
-              </button>
-              <button
-                onClick={() => setMarkers([])}
-                style={{ padding: '10px', background: '#ef4444', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer', textAlign: 'left' }}
-              >
-                🗑 Rensa alla markörer
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
