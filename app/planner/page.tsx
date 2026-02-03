@@ -3856,8 +3856,8 @@ export default function PlannerPage() {
       {/* === GPS-SPÅRNINGS-INDIKATOR === */}
       {gpsLineType && isTracking && (
         <div style={{
-          position: 'absolute',
-          bottom: menuHeight + 130,
+          position: 'fixed',
+          bottom: '40px',
           left: '50%',
           transform: 'translateX(-50%)',
           background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
@@ -3867,7 +3867,7 @@ export default function PlannerPage() {
           gap: '4px',
           padding: '4px',
           boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-          zIndex: 200,
+          zIndex: 500,
         }}>
           {/* Status-indikator */}
           <div style={{
@@ -6392,15 +6392,15 @@ export default function PlannerPage() {
             Håll fingret för meny
           </div>
 
-          {/* Långtryck-område */}
+          {/* Långtryck-område - täcker inte kontrollknapparna */}
           <div
             style={{
               position: 'fixed',
               top: 0,
               left: 0,
               right: 0,
-              bottom: '150px',
-              zIndex: 399,
+              bottom: '200px',
+              zIndex: 398,
             }}
             onTouchStart={() => {
               longPressTimerRef.current = setTimeout(() => {
@@ -6408,6 +6408,11 @@ export default function PlannerPage() {
               }, 800);
             }}
             onTouchEnd={() => {
+              if (longPressTimerRef.current) {
+                clearTimeout(longPressTimerRef.current);
+              }
+            }}
+            onTouchCancel={() => {
               if (longPressTimerRef.current) {
                 clearTimeout(longPressTimerRef.current);
               }
@@ -6456,46 +6461,59 @@ export default function PlannerPage() {
             borderRadius: '20px', padding: '8px', marginBottom: '20px',
           }}>
             {[
-              { type: 'rock', name: 'Sten/block', icon: '🪨' },
-              { type: 'water', name: 'Vatten', icon: '💧' },
-              { type: 'kultur', name: 'Kulturlämning', icon: '🏛️' },
-              { type: 'warning', name: 'Varning', icon: '⚠️' },
-            ].map((s, i, arr) => (
-              <div
-                key={s.type}
-                onClick={() => {
-                  // Placera symbol på GPS-position
-                  if (gpsMapPosition) {
-                    const newMarker: Marker = {
-                      id: Date.now().toString(),
-                      x: gpsMapPosition.x,
-                      y: gpsMapPosition.y,
-                      type: s.type,
-                      isMarker: true,
-                    };
-                    setMarkers(prev => [...prev, newMarker]);
-                  }
-                  setShowSnitslaMeny(false);
-                }}
-                style={{
-                  padding: '16px 20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                }}
-              >
-                <span style={{ fontSize: '24px' }}>{s.icon}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '15px', color: '#fff' }}>{s.name}</div>
+              { type: 'highstump', name: 'Högstubbe', cat: 'Avverkning' },
+              { type: 'landing', name: 'Avlägg', cat: 'Avverkning' },
+              { type: 'windfall', name: 'Vindfälle', cat: 'Avverkning' },
+              { type: 'culturemonument', name: 'Kulturminne', cat: 'Kultur' },
+              { type: 'warning', name: 'Varning', cat: 'Övrigt' },
+            ].map((s, i, arr) => {
+              const category = symbolCategories.find(c => c.name === s.cat);
+              const bgColor = category?.bgColor || '#666';
+              return (
+                <div
+                  key={s.type}
+                  onClick={() => {
+                    // Placera symbol på GPS-position
+                    if (gpsMapPosition) {
+                      const newMarker: Marker = {
+                        id: Date.now().toString(),
+                        x: gpsMapPosition.x,
+                        y: gpsMapPosition.y,
+                        type: s.type,
+                        isMarker: true,
+                      };
+                      setMarkers(prev => [...prev, newMarker]);
+                    }
+                    setShowSnitslaMeny(false);
+                  }}
+                  style={{
+                    padding: '16px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '16px',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                    borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                  }}
+                >
+                  <div style={{
+                    width: '32px', height: '32px', borderRadius: '8px',
+                    background: bgColor,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '15px', color: '#fff' }}>{s.name}</div>
+                  </div>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
+                    <path d="M9 6 L15 12 L9 18" />
+                  </svg>
                 </div>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                  <path d="M9 6 L15 12 L9 18" />
-                </svg>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Zoner */}
@@ -6969,7 +6987,7 @@ export default function PlannerPage() {
               <button
                 onClick={() => {
                   setStickvagOversikt(false);
-                  continueWithColor(lastUsedColorId);
+                  setShowSavedPopup(true);
                 }}
                 style={{
                   background: 'none',
