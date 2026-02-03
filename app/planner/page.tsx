@@ -107,6 +107,7 @@ export default function PlannerPage() {
   const previousStickvagRef = useRef<any>(null); // Senaste stickvägen att mäta mot
   const [showSavedPopup, setShowSavedPopup] = useState(false); // Popup efter sparande
   const [savedVagColor, setSavedVagColor] = useState<string | null>(null); // Sparad färg för highlight
+  const [lastUsedColorId, setLastUsedColorId] = useState<string>('rod'); // Senast använda färgen
   const [showAvslutaBekraftelse, setShowAvslutaBekraftelse] = useState(false); // Bekräftelse vid avsluta
   const [showSnitslaMeny, setShowSnitslaMeny] = useState(false); // Långtryck-meny under snitsling
   const longPressTimerRef = useRef<any>(null); // Timer för långtryck
@@ -1162,6 +1163,7 @@ export default function PlannerPage() {
       'gul': 'sideRoadYellow',
       'bla': 'sideRoadBlue',
     };
+    setLastUsedColorId(colorId); // Spara senast använda färgen
     setShowSavedPopup(false);
     startGpsTracking(colorMap[colorId] || 'sideRoadRed');
     setStickvagMode(true);
@@ -5609,6 +5611,10 @@ export default function PlannerPage() {
                       const lineId = selectedVagType === 'backvag' 
                         ? `backRoad${englishColor}` 
                         : `sideRoad${englishColor}`;
+                      // Spara senast använda färgen för översikt
+                      if (['rod', 'gul', 'bla'].includes(selectedVagColor.id)) {
+                        setLastUsedColorId(selectedVagColor.id);
+                      }
                       startGpsTracking(lineId);
                       setStickvagMode(true);
                       setShowColorPicker(false);
@@ -6942,7 +6948,10 @@ export default function PlannerPage() {
               {markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length} vägar • {markers.filter(m => m.isMarker).length} symboler
             </div>
             <button
-              onClick={() => setStickvagOversikt(false)}
+              onClick={() => {
+                setStickvagOversikt(false);
+                continueWithColor(lastUsedColorId);
+              }}
               style={{
                 background: 'none',
                 border: 'none',
