@@ -232,6 +232,7 @@ export default function PlannerPage() {
   const [gpsMapPosition, setGpsMapPosition] = useState<Point>({ x: 200, y: 300 }); // Var på kartan GPS-punkten är
   const [trackingPath, setTrackingPath] = useState<Point[]>([]);
   const [gpsLineType, setGpsLineType] = useState<string | null>(null); // Vilken linjetyp som spåras
+  const gpsLineTypeRef = useRef<string | null>(null); // Ref för callback
   const [gpsPath, setGpsPath] = useState<Point[]>([]); // Spårad linje i kartkoordinater
   const [gpsStartPos, setGpsStartPos] = useState<{lat: number, lon: number, x: number, y: number} | null>(null); // Startposition för konvertering
   const watchIdRef = useRef<number | null>(null);
@@ -930,9 +931,12 @@ export default function PlannerPage() {
     }
     
     setGpsLineType(lineType);
+    gpsLineTypeRef.current = lineType;
     setGpsPath([]);
     gpsPathRef.current = [];
     setGpsStartPos(null);
+    setGpsPaused(false);
+    gpsPausedRef.current = false; // Viktigt! Nollställ paus
     setMenuOpen(false);
     setMenuHeight(0);
     
@@ -954,18 +958,23 @@ export default function PlannerPage() {
     
     // Om GPS redan är igång, använd den
     if (isTracking && watchIdRef.current) {
-      // Sätt startposition till nuvarande position
-      const startX = gpsMapPositionRef.current.x;
-      const startY = gpsMapPositionRef.current.y;
-      setGpsStartPos({ 
-        lat: currentPosition?.lat, 
-        lon: currentPosition?.lon, 
-        x: startX, 
-        y: startY 
-      });
-      const firstPoint = { x: startX, y: startY };
-      gpsPathRef.current = [firstPoint];
-      setGpsPath([firstPoint]);
+      if (currentPosition) {
+        // Vi har en position - sätt startposition till nuvarande
+        const startX = gpsMapPositionRef.current.x;
+        const startY = gpsMapPositionRef.current.y;
+        setGpsStartPos({ 
+          lat: currentPosition.lat, 
+          lon: currentPosition.lon, 
+          x: startX, 
+          y: startY 
+        });
+        const firstPoint = { x: startX, y: startY };
+        gpsPathRef.current = [firstPoint];
+        setGpsPath([firstPoint]);
+        lastConfirmedPosRef.current = firstPoint;
+        gpsHistoryRef.current = [firstPoint];
+      }
+      // GPS körs redan, vänta på första positionen i befintlig callback
       return;
     }
     
@@ -977,8 +986,8 @@ export default function PlannerPage() {
         const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
         const accuracy = pos.coords.accuracy; // meter
         
-        // Ignorera väldigt osäkra positioner (över 30 meter)
-        if (accuracy > 30) return;
+        // Ignorera väldigt osäkra positioner (över 50 meter)
+        if (accuracy > 50) return;
         
         setCurrentPosition(newPos);
         setTrackingPath(prev => [...prev, newPos]);
@@ -1045,7 +1054,7 @@ export default function PlannerPage() {
                   Math.pow(smoothedPos.x - lastPoint.x, 2) + 
                   Math.pow(smoothedPos.y - lastPoint.y, 2)
                 );
-                const minLinePixels = 5 / scale; // 5 meter i pixlar
+                const minLinePixels = 2 / scale; // 2 meter i pixlar
                 if (distForLine > minLinePixels) {
                   const newPath = [...currentPath, smoothedPos];
                   gpsPathRef.current = newPath;
@@ -1079,6 +1088,7 @@ export default function PlannerPage() {
     
     // Nollställ linjespårning men BEHÅLL GPS-visning
     setGpsLineType(null);
+    gpsLineTypeRef.current = null;
     setGpsPath([]);
     gpsPathRef.current = [];
     setGpsStartPos(null);
@@ -1109,6 +1119,7 @@ export default function PlannerPage() {
       setSavedVagColor(lineType?.color || '#fff');
     }
     setGpsLineType(null);
+    gpsLineTypeRef.current = null;
     setGpsPath([]);
     gpsPathRef.current = [];
     setGpsStartPos(null);
@@ -1153,6 +1164,7 @@ export default function PlannerPage() {
       }
       setIsTracking(false);
       setGpsLineType(null);
+      gpsLineTypeRef.current = null;
       setGpsPath([]);
       gpsPathRef.current = [];
       gpsHistoryRef.current = [];
@@ -1174,7 +1186,7 @@ export default function PlannerPage() {
             const accuracy = pos.coords.accuracy;
             
             // Ignorera väldigt osäkra positioner
-            if (accuracy > 30) return;
+            if (accuracy > 50) return;
             
             setCurrentPosition(newPos);
             setTrackingPath(prev => [...prev, newPos]);
@@ -1221,6 +1233,27 @@ export default function PlannerPage() {
                 lastConfirmedPosRef.current = smoothedPos;
                 gpsMapPositionRef.current = smoothedPos;
                 setGpsMapPosition(smoothedPos);
+                
+                // Lägg till punkt i linjespårning om aktiv
+                if (gpsLineTypeRef.current && !gpsPausedRef.current) {
+                  const currentPath = gpsPathRef.current;
+                  if (currentPath.length === 0) {
+                    gpsPathRef.current = [smoothedPos];
+                    setGpsPath([smoothedPos]);
+                  } else {
+                    const lastPoint = currentPath[currentPath.length - 1];
+                    const distForLine = Math.sqrt(
+                      Math.pow(smoothedPos.x - lastPoint.x, 2) + 
+                      Math.pow(smoothedPos.y - lastPoint.y, 2)
+                    );
+                    const minLinePixels = 2 / scale; // 2 meter
+                    if (distForLine > minLinePixels) {
+                      const newPath = [...currentPath, smoothedPos];
+                      gpsPathRef.current = newPath;
+                      setGpsPath(newPath);
+                    }
+                  }
+                }
               }
               
               return prev;
@@ -3807,8 +3840,9 @@ export default function PlannerPage() {
               animation: gpsPaused ? 'none' : 'pulse 1s infinite',
             }} />
             <span style={{ fontSize: '13px', opacity: 0.6 }}>
-              {gpsPath.length}
+              {gpsPath.length} pkt
             </span>
+            {gpsPaused && <span style={{ fontSize: '11px', color: '#f59e0b' }}>PAUS</span>}
           </div>
           
           {/* Paus/Fortsätt */}
