@@ -238,7 +238,7 @@ export default function PlannerPage() {
   const watchIdRef = useRef<number | null>(null);
   const gpsMapPositionRef = useRef<Point>({ x: 200, y: 300 });
   const gpsPathRef = useRef<Point[]>([]);
-  const gpsHistoryRef = useRef<Point[]>([]); // Senaste 10 positioner för medelvärde
+  const gpsHistoryRef = useRef<Point[]>([]); // Senaste 20 positioner för medelvärde
   const lastConfirmedPosRef = useRef<Point>({ x: 200, y: 300 }); // Sista bekräftade position (efter minDistance-filter)
   
   // Karta
@@ -1030,8 +1030,8 @@ export default function PlannerPage() {
           // Konvertera GPS till kartkoordinater
           const rawMapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
           
-          // Lägg till i historik för medelvärde (max 10 punkter för jämnare resultat)
-          gpsHistoryRef.current = [...gpsHistoryRef.current.slice(-9), rawMapPos];
+          // Lägg till i historik för medelvärde (max 20 punkter för jämnare resultat)
+          gpsHistoryRef.current = [...gpsHistoryRef.current.slice(-19), rawMapPos];
           
           // Beräkna medelvärde av senaste positionerna
           const history = gpsHistoryRef.current;
