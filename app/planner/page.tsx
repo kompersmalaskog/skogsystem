@@ -947,9 +947,13 @@ export default function PlannerPage() {
       const previousStickvägar = markers.filter(m => 
         m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType)
       );
-      if (previousStickvägar.length > 0) {
-        // Sätt närmaste stickväg som referens (uppdateras dynamiskt)
-        previousStickvagRef.current = previousStickvägar[previousStickvägar.length - 1];
+      
+      // Om vi redan har en referens (från saveAndShowPopup), använd den
+      // Annars använd senaste från markers
+      if (previousStickvagRef.current || previousStickvägar.length > 0) {
+        if (previousStickvägar.length > 0) {
+          previousStickvagRef.current = previousStickvägar[previousStickvägar.length - 1];
+        }
         setStickvagMode(true);
         setStickvagOversikt(false);
         setStickvagWarningShown(false);
@@ -1117,6 +1121,9 @@ export default function PlannerPage() {
       setMarkers(prev => [...prev, newLine]);
       const lineType = lineTypes.find(t => t.id === gpsLineType);
       setSavedVagColor(lineType?.color || '#fff');
+      
+      // Sätt den sparade linjen som referens för nästa spårning
+      previousStickvagRef.current = newLine;
     }
     setGpsLineType(null);
     gpsLineTypeRef.current = null;
@@ -3867,7 +3874,15 @@ export default function PlannerPage() {
           
           {/* Spara */}
           <button
-            onClick={() => stopGpsTracking(true)}
+            onClick={() => {
+              // Om det är en stickväg, visa popup för nästa färg
+              const isStickväg = ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(gpsLineType || '');
+              if (isStickväg) {
+                saveAndShowPopup();
+              } else {
+                stopGpsTracking(true);
+              }
+            }}
             style={{
               width: '44px',
               height: '44px',
@@ -6562,39 +6577,50 @@ export default function PlannerPage() {
                 stroke="#fff" strokeWidth="0.5" strokeDasharray="6,4" opacity="0.15" rx="4"/>
 
               {/* Alla vägar */}
-              {markers.filter(m => m.isLine).map((line) => {
-                const lineType = lineTypes.find(t => t.id === line.lineType);
-                const color = lineType?.color || '#888';
-                const isBoundary = line.lineType === 'boundary';
-                if (!line.path || line.path.length < 2) return null;
+              {(() => {
+                const allLines = markers.filter(m => m.isLine && m.path && m.path.length >= 2);
+                if (allLines.length === 0) return null;
                 
-                const allPaths = markers.filter(m => m.isLine && m.path);
+                // Beräkna bounds för ALLA linjer en gång
                 let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-                allPaths.forEach(l => {
+                allLines.forEach(l => {
                   l.path?.forEach(p => {
                     minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
                     minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
                   });
                 });
+                
+                // Lägg till padding om det bara är en liten area
+                const width = maxX - minX;
+                const height = maxY - minY;
+                if (width < 50) { minX -= 25; maxX += 25; }
+                if (height < 50) { minY -= 25; maxY += 25; }
+                
                 const centerX = (minX + maxX) / 2;
                 const centerY = (minY + maxY) / 2;
                 const viewScale = Math.min(
-                  (maxX - minX) > 0 ? 300 / (maxX - minX) : 1,
-                  (maxY - minY) > 0 ? 450 / (maxY - minY) : 1, 1
-                ) * 0.7;
+                  280 / (maxX - minX),
+                  420 / (maxY - minY)
+                ) * 0.8;
                 
-                return (
-                  <path key={line.id}
-                    d={line.path.map((p, i) => {
-                      const x = 200 + (p.x - centerX) * viewScale;
-                      const y = 300 + (p.y - centerY) * viewScale;
-                      return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
-                    }).join(' ')}
-                    fill="none" stroke={color} strokeWidth={isBoundary ? 2 : 3}
-                    strokeLinecap="round" strokeDasharray={isBoundary ? '6,3' : 'none'} opacity={0.8}
-                  />
-                );
-              })}
+                return allLines.map((line) => {
+                  const lineType = lineTypes.find(t => t.id === line.lineType);
+                  const color = lineType?.color || '#888';
+                  const isBoundary = line.lineType === 'boundary';
+                  
+                  return (
+                    <path key={line.id}
+                      d={line.path.map((p, i) => {
+                        const x = 200 + (p.x - centerX) * viewScale;
+                        const y = 300 + (p.y - centerY) * viewScale;
+                        return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
+                      }).join(' ')}
+                      fill="none" stroke={color} strokeWidth={isBoundary ? 2 : 3}
+                      strokeLinecap="round" strokeDasharray={isBoundary ? '6,3' : 'none'} opacity={0.8}
+                    />
+                  );
+                });
+              })()}
               
               {/* Pågående väg (streckad) */}
               {gpsPath.length > 0 && (() => {
@@ -6611,12 +6637,18 @@ export default function PlannerPage() {
                   minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
                 });
                 
+                // Lägg till padding om det bara är en liten area
+                const width = maxX - minX;
+                const height = maxY - minY;
+                if (width < 50) { minX -= 25; maxX += 25; }
+                if (height < 50) { minY -= 25; maxY += 25; }
+                
                 const centerX = (minX + maxX) / 2;
                 const centerY = (minY + maxY) / 2;
                 const viewScale = Math.min(
-                  (maxX - minX) > 0 ? 300 / (maxX - minX) : 1,
-                  (maxY - minY) > 0 ? 450 / (maxY - minY) : 1, 1
-                ) * 0.7;
+                  280 / (maxX - minX),
+                  420 / (maxY - minY)
+                ) * 0.8;
                 
                 const currentColor = lineTypes.find(t => t.id === gpsLineType)?.color || '#fbbf24';
                 
@@ -6646,12 +6678,19 @@ export default function PlannerPage() {
                     minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
                   });
                 });
+                
+                // Lägg till padding om det bara är en liten area
+                const width = maxX - minX;
+                const height = maxY - minY;
+                if (width < 50) { minX -= 25; maxX += 25; }
+                if (height < 50) { minY -= 25; maxY += 25; }
+                
                 const centerX = (minX + maxX) / 2;
                 const centerY = (minY + maxY) / 2;
                 const viewScale = Math.min(
-                  (maxX - minX) > 0 ? 300 / (maxX - minX) : 1,
-                  (maxY - minY) > 0 ? 450 / (maxY - minY) : 1, 1
-                ) * 0.7;
+                  280 / (maxX - minX),
+                  420 / (maxY - minY)
+                ) * 0.8;
                 const gpsX = 200 + (gpsMapPositionRef.current.x - centerX) * viewScale;
                 const gpsY = 300 + (gpsMapPositionRef.current.y - centerY) * viewScale;
                 return (
