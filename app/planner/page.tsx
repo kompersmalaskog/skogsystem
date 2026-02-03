@@ -110,6 +110,7 @@ export default function PlannerPage() {
   const [lastUsedColorId, setLastUsedColorId] = useState<string>('rod'); // Senast använda färgen
   const [showAvslutaBekraftelse, setShowAvslutaBekraftelse] = useState(false); // Bekräftelse vid avsluta
   const [showSnitslaMeny, setShowSnitslaMeny] = useState(false); // Långtryck-meny under snitsling
+  const [selectedOversiktVag, setSelectedOversiktVag] = useState<Marker | null>(null); // Vald väg i översikt
   const longPressTimerRef = useRef<any>(null); // Timer för långtryck
   
   // Prognos
@@ -6127,7 +6128,7 @@ export default function PlannerPage() {
       )}
 
       {/* === STICKVÄGSAVSTÅND (bara titta) === */}
-      {stickvagMode && !gpsLineType && !stickvagOversikt && (
+      {stickvagMode && !gpsLineType && !stickvagOversikt && !showSavedPopup && (
         <div style={{
           position: 'fixed',
           top: 0, left: 0, right: 0, bottom: 0,
@@ -6329,51 +6330,53 @@ export default function PlannerPage() {
 
 
       {/* === STICKVÄGSAVSTÅND OVERLAY - TESLA MINIMAL === */}
-      {stickvagMode && gpsLineType && previousStickvagRef.current && !stickvagOversikt && !showSavedPopup && !showSnitslaMeny && (
+      {stickvagMode && gpsLineType && !stickvagOversikt && !showSavedPopup && !showSnitslaMeny && (
         <>
-          {/* STOR siffra i mitten */}
-          <div 
-            style={{
-              position: 'fixed',
-              top: '35%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              textAlign: 'center',
-              zIndex: 400,
-              pointerEvents: 'none',
-            }}
-          >
-            {(() => {
-              const dist = getStickvagDistance();
-              const target = stickvagSettings?.targetDistance || 20;
-              const tolerance = stickvagSettings?.tolerance || 5;
-              const isInRange = dist !== null && Math.abs(dist - target) <= tolerance;
-              
-              return (
-                <>
-                  <div style={{
-                    fontSize: '100px',
-                    fontWeight: '100',
-                    color: isInRange ? '#22c55e' : '#fff',
-                    lineHeight: 1,
-                    textShadow: '0 4px 30px rgba(0,0,0,0.8)',
-                    transition: 'color 0.3s',
-                  }}>
-                    {dist !== null ? dist : '—'}
-                  </div>
-                  <div style={{
-                    fontSize: '16px',
-                    color: isInRange ? 'rgba(34,197,94,0.6)' : 'rgba(255,255,255,0.4)',
-                    marginTop: '8px',
-                    letterSpacing: '2px',
-                    textTransform: 'uppercase',
-                  }}>
-                    meter
-                  </div>
-                </>
-              );
-            })()}
-          </div>
+          {/* STOR siffra i mitten - endast om det finns tidigare väg */}
+          {previousStickvagRef.current && (
+            <div 
+              style={{
+                position: 'fixed',
+                top: '35%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                textAlign: 'center',
+                zIndex: 400,
+                pointerEvents: 'none',
+              }}
+            >
+              {(() => {
+                const dist = getStickvagDistance();
+                const target = stickvagSettings?.targetDistance || 20;
+                const tolerance = stickvagSettings?.tolerance || 5;
+                const isInRange = dist !== null && Math.abs(dist - target) <= tolerance;
+                
+                return (
+                  <>
+                    <div style={{
+                      fontSize: '100px',
+                      fontWeight: '100',
+                      color: isInRange ? '#22c55e' : '#fff',
+                      lineHeight: 1,
+                      textShadow: '0 4px 30px rgba(0,0,0,0.8)',
+                      transition: 'color 0.3s',
+                    }}>
+                      {dist !== null ? dist : '—'}
+                    </div>
+                    <div style={{
+                      fontSize: '16px',
+                      color: isInRange ? 'rgba(34,197,94,0.6)' : 'rgba(255,255,255,0.4)',
+                      marginTop: '8px',
+                      letterSpacing: '2px',
+                      textTransform: 'uppercase',
+                    }}>
+                      meter
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          )}
 
           {/* Hint för långtryck */}
           <div style={{
@@ -6745,7 +6748,12 @@ export default function PlannerPage() {
           flexDirection: 'column',
         }}>
           <div style={{ position: 'absolute', inset: 0, overflow: 'hidden' }}>
-            <svg viewBox="0 0 400 600" style={{ width: '100%', height: '100%' }} preserveAspectRatio="xMidYMid meet">
+            <svg 
+              viewBox="0 0 400 600" 
+              style={{ width: '100%', height: '100%' }} 
+              preserveAspectRatio="xMidYMid meet"
+              onClick={() => setSelectedOversiktVag(null)}
+            >
               <defs>
                 <filter id="terrain-oversikt">
                   <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="4" seed="42"/>
@@ -6792,6 +6800,8 @@ export default function PlannerPage() {
                   const lineType = lineTypes.find(t => t.id === line.lineType);
                   const color = lineType?.color || '#888';
                   const isBoundary = line.lineType === 'boundary';
+                  const isSelected = selectedOversiktVag?.id === line.id;
+                  const isStickväg = ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(line.lineType || '');
                   
                   return (
                     <path key={line.id}
@@ -6800,8 +6810,16 @@ export default function PlannerPage() {
                         const y = 300 + (p.y - centerY) * viewScale;
                         return `${i === 0 ? 'M' : 'L'} ${x} ${y}`;
                       }).join(' ')}
-                      fill="none" stroke={color} strokeWidth={isBoundary ? 2 : 3}
-                      strokeLinecap="round" strokeDasharray={isBoundary ? '6,3' : 'none'} opacity={0.8}
+                      fill="none" stroke={color} strokeWidth={isSelected ? 8 : (isBoundary ? 2 : 3)}
+                      strokeLinecap="round" strokeDasharray={isBoundary ? '6,3' : 'none'} 
+                      opacity={isSelected ? 1 : 0.8}
+                      style={{ cursor: isStickväg ? 'pointer' : 'default' }}
+                      onClick={(e) => {
+                        if (isStickväg) {
+                          e.stopPropagation();
+                          setSelectedOversiktVag(line);
+                        }
+                      }}
                     />
                   );
                 });
@@ -6935,34 +6953,142 @@ export default function PlannerPage() {
             </button>
           </div>
 
-          {/* Stats + Stäng länk längst ner */}
+          {/* Stats + Stäng länk längst ner (när ingen väg är vald) */}
+          {!selectedOversiktVag && (
+            <div style={{
+              position: 'absolute',
+              bottom: '40px',
+              left: 0,
+              right: 0,
+              textAlign: 'center',
+              zIndex: 10,
+            }}>
+              <div style={{ fontSize: '13px', color: '#fff', opacity: 0.4, marginBottom: '16px' }}>
+                {markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length} vägar • {markers.filter(m => m.isMarker).length} symboler
+              </div>
+              <button
+                onClick={() => {
+                  setStickvagOversikt(false);
+                  continueWithColor(lastUsedColorId);
+                }}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#fff',
+                  fontSize: '14px',
+                  opacity: 0.5,
+                  cursor: 'pointer',
+                }}
+              >
+                Stäng översikt
+              </button>
+            </div>
+          )}
+
+          {/* Info-panel för vald väg */}
           <div style={{
             position: 'absolute',
-            bottom: '40px',
+            bottom: 0,
             left: 0,
             right: 0,
-            textAlign: 'center',
-            zIndex: 10,
+            background: '#0a0a0a',
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '24px 24px 0 0',
+            padding: '20px',
+            paddingBottom: '40px',
+            transform: selectedOversiktVag ? 'translateY(0)' : 'translateY(100%)',
+            transition: 'transform 0.3s ease-out',
+            zIndex: 20,
           }}>
-            <div style={{ fontSize: '13px', color: '#fff', opacity: 0.4, marginBottom: '16px' }}>
-              {markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length} vägar • {markers.filter(m => m.isMarker).length} symboler
-            </div>
-            <button
-              onClick={() => {
-                setStickvagOversikt(false);
-                continueWithColor(lastUsedColorId);
-              }}
-              style={{
-                background: 'none',
-                border: 'none',
-                color: '#fff',
-                fontSize: '14px',
-                opacity: 0.5,
-                cursor: 'pointer',
-              }}
-            >
-              Stäng översikt
-            </button>
+            {selectedOversiktVag && (() => {
+              const lineType = lineTypes.find(t => t.id === selectedOversiktVag.lineType);
+              const color = lineType?.color || '#888';
+              const colorName = selectedOversiktVag.lineType === 'sideRoadRed' ? 'Röd' : 
+                              selectedOversiktVag.lineType === 'sideRoadYellow' ? 'Gul' : 
+                              selectedOversiktVag.lineType === 'sideRoadBlue' ? 'Blå' : 'Stickväg';
+              const stickvägar = markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || ''));
+              const vägNummer = stickvägar.findIndex(v => v.id === selectedOversiktVag.id) + 1;
+              
+              // Beräkna längd
+              let längd = 0;
+              if (selectedOversiktVag.path && selectedOversiktVag.path.length > 1) {
+                for (let i = 1; i < selectedOversiktVag.path.length; i++) {
+                  const dx = selectedOversiktVag.path[i].x - selectedOversiktVag.path[i-1].x;
+                  const dy = selectedOversiktVag.path[i].y - selectedOversiktVag.path[i-1].y;
+                  längd += Math.sqrt(dx*dx + dy*dy);
+                }
+              }
+              
+              return (
+                <>
+                  {/* Drag-indikator */}
+                  <div style={{
+                    width: '40px', height: '4px',
+                    background: 'rgba(255,255,255,0.2)',
+                    borderRadius: '2px',
+                    margin: '0 auto 16px',
+                  }}/>
+                  
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px',
+                  }}>
+                    <div style={{
+                      width: '40px', height: '40px', borderRadius: '12px',
+                      background: color,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
+                        <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+                        <line x1="4" y1="22" x2="4" y2="15"/>
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '17px', fontWeight: '500', color: '#fff' }}>
+                        Väg {vägNummer}
+                      </div>
+                      <div style={{ fontSize: '13px', opacity: 0.5, color: '#fff' }}>
+                        {colorName} stickväg
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{
+                    background: 'rgba(255,255,255,0.03)',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '16px',
+                    padding: '16px',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
+                      <span style={{ opacity: 0.5, fontSize: '14px', color: '#fff' }}>Längd</span>
+                      <span style={{ fontSize: '14px', color: '#fff' }}>{Math.round(längd)} m</span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                      <span style={{ opacity: 0.5, fontSize: '14px', color: '#fff' }}>Kommentar</span>
+                      <span style={{ fontSize: '14px', opacity: 0.5, color: '#fff' }}>
+                        {selectedOversiktVag.comment || 'Ingen'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setSelectedOversiktVag(null)}
+                    style={{
+                      marginTop: '16px',
+                      width: '100%',
+                      padding: '14px',
+                      borderRadius: '12px',
+                      border: 'none',
+                      background: 'rgba(255,255,255,0.08)',
+                      color: '#fff',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Stäng
+                  </button>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
