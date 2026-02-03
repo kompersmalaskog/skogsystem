@@ -238,7 +238,7 @@ export default function PlannerPage() {
   const watchIdRef = useRef<number | null>(null);
   const gpsMapPositionRef = useRef<Point>({ x: 200, y: 300 });
   const gpsPathRef = useRef<Point[]>([]);
-  const gpsHistoryRef = useRef<Point[]>([]); // Senaste 5 positioner för medelvärde
+  const gpsHistoryRef = useRef<Point[]>([]); // Senaste 10 positioner för medelvärde
   const lastConfirmedPosRef = useRef<Point>({ x: 200, y: 300 }); // Sista bekräftade position (efter minDistance-filter)
   
   // Karta
@@ -994,8 +994,8 @@ export default function PlannerPage() {
         const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
         const accuracy = pos.coords.accuracy; // meter
         
-        // Ignorera väldigt osäkra positioner (över 50 meter)
-        if (accuracy > 50) return;
+        // Ignorera osäkra positioner (över 20 meter)
+        if (accuracy > 20) return;
         
         setCurrentPosition(newPos);
         setTrackingPath(prev => [...prev, newPos]);
@@ -1024,8 +1024,8 @@ export default function PlannerPage() {
           // Konvertera GPS till kartkoordinater
           const rawMapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
           
-          // Lägg till i historik för medelvärde (max 5 punkter)
-          gpsHistoryRef.current = [...gpsHistoryRef.current.slice(-4), rawMapPos];
+          // Lägg till i historik för medelvärde (max 10 punkter för jämnare resultat)
+          gpsHistoryRef.current = [...gpsHistoryRef.current.slice(-9), rawMapPos];
           
           // Beräkna medelvärde av senaste positionerna
           const history = gpsHistoryRef.current;
@@ -1204,8 +1204,8 @@ export default function PlannerPage() {
             const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
             const accuracy = pos.coords.accuracy;
             
-            // Ignorera väldigt osäkra positioner
-            if (accuracy > 50) return;
+            // Ignorera osäkra positioner (över 20 meter)
+            if (accuracy > 20) return;
             
             setCurrentPosition(newPos);
             setTrackingPath(prev => [...prev, newPos]);
@@ -6319,58 +6319,63 @@ export default function PlannerPage() {
           {/* STOR siffra i mitten */}
           <div style={{
             position: 'fixed',
-            top: '50%',
+            top: '35%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
             textAlign: 'center',
             zIndex: 400,
             pointerEvents: 'none',
           }}>
-            <div style={{
-              fontSize: '120px',
-              fontWeight: '100',
-              color: '#fff',
-              lineHeight: 1,
-              textShadow: '0 4px 30px rgba(0,0,0,0.8)',
-            }}>
-              {getStickvagDistance() || '—'}
-            </div>
-            <div style={{
-              fontSize: '18px',
-              color: 'rgba(255,255,255,0.4)',
-              marginTop: '8px',
-              letterSpacing: '2px',
-              textTransform: 'uppercase',
-            }}>
-              meter
-            </div>
+            {(() => {
+              const dist = getStickvagDistance();
+              const target = stickvagSettings.targetDistance;
+              const tolerance = stickvagSettings.tolerance;
+              const isInRange = dist && Math.abs(dist - target) <= tolerance;
+              
+              // Pip när i rätt område
+              if (isInRange && !stickvagWarningShown) {
+                try {
+                  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+                  const oscillator = audioContext.createOscillator();
+                  const gainNode = audioContext.createGain();
+                  oscillator.connect(gainNode);
+                  gainNode.connect(audioContext.destination);
+                  oscillator.frequency.value = 880; // Hög ton
+                  oscillator.type = 'sine';
+                  gainNode.gain.value = 0.3;
+                  oscillator.start();
+                  oscillator.stop(audioContext.currentTime + 0.15);
+                  setStickvagWarningShown(true);
+                } catch (e) {}
+              } else if (!isInRange) {
+                setStickvagWarningShown(false);
+              }
+              
+              return (
+                <>
+                  <div style={{
+                    fontSize: '100px',
+                    fontWeight: '100',
+                    color: isInRange ? '#22c55e' : '#fff',
+                    lineHeight: 1,
+                    textShadow: '0 4px 30px rgba(0,0,0,0.8)',
+                    transition: 'color 0.3s',
+                  }}>
+                    {dist || '—'}
+                  </div>
+                  <div style={{
+                    fontSize: '16px',
+                    color: isInRange ? 'rgba(34,197,94,0.6)' : 'rgba(255,255,255,0.4)',
+                    marginTop: '8px',
+                    letterSpacing: '2px',
+                    textTransform: 'uppercase',
+                  }}>
+                    meter
+                  </div>
+                </>
+              );
+            })()}
           </div>
-
-          {/* Stor spara-knapp nere */}
-          <button
-            onClick={saveAndShowPopup}
-            style={{
-              position: 'fixed',
-              bottom: '80px',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: '80px',
-              height: '80px',
-              borderRadius: '50%',
-              border: 'none',
-              background: '#22c55e',
-              color: '#fff',
-              fontSize: '32px',
-              cursor: 'pointer',
-              boxShadow: '0 4px 30px rgba(34,197,94,0.4)',
-              zIndex: 400,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✓
-          </button>
         </>
       )}
 
