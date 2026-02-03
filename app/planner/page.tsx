@@ -824,6 +824,10 @@ export default function PlannerPage() {
   
   // Beräkna avstånd från punkt till en linje (path)
   const getDistanceToPath = (point: Point, path: Point[]): { distance: number, closestPoint: Point } => {
+    if (!point || !path || path.length === 0) {
+      return { distance: Infinity, closestPoint: { x: 0, y: 0 } };
+    }
+    
     let minDist = Infinity;
     let closestPoint = path[0];
     
@@ -865,6 +869,8 @@ export default function PlannerPage() {
   
   // Hitta närmaste stickväg (ignorerar backvägar och traktgräns)
   const findNearestStickvag = (pos = gpsMapPosition) => {
+    if (!pos || pos.x === undefined || pos.y === undefined) return null;
+    
     const stickvägar = markers.filter(m => 
       m.isLine && 
       (m.lineType === 'stickvag' || ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')) &&
@@ -6328,28 +6334,9 @@ export default function PlannerPage() {
           }}>
             {(() => {
               const dist = getStickvagDistance();
-              const target = stickvagSettings.targetDistance;
-              const tolerance = stickvagSettings.tolerance;
-              const isInRange = dist && Math.abs(dist - target) <= tolerance;
-              
-              // Pip när i rätt område
-              if (isInRange && !stickvagWarningShown) {
-                try {
-                  const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-                  const oscillator = audioContext.createOscillator();
-                  const gainNode = audioContext.createGain();
-                  oscillator.connect(gainNode);
-                  gainNode.connect(audioContext.destination);
-                  oscillator.frequency.value = 880; // Hög ton
-                  oscillator.type = 'sine';
-                  gainNode.gain.value = 0.3;
-                  oscillator.start();
-                  oscillator.stop(audioContext.currentTime + 0.15);
-                  setStickvagWarningShown(true);
-                } catch (e) {}
-              } else if (!isInRange) {
-                setStickvagWarningShown(false);
-              }
+              const target = stickvagSettings?.targetDistance || 20;
+              const tolerance = stickvagSettings?.tolerance || 5;
+              const isInRange = dist !== null && Math.abs(dist - target) <= tolerance;
               
               return (
                 <>
@@ -6361,7 +6348,7 @@ export default function PlannerPage() {
                     textShadow: '0 4px 30px rgba(0,0,0,0.8)',
                     transition: 'color 0.3s',
                   }}>
-                    {dist || '—'}
+                    {dist !== null ? dist : '—'}
                   </div>
                   <div style={{
                     fontSize: '16px',
