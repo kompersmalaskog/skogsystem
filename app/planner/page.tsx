@@ -1109,22 +1109,26 @@ export default function PlannerPage() {
   
   // Spara väg och visa popup för att välja nästa färg
   const saveAndShowPopup = () => {
-    if (gpsPathRef.current.length > 1 && gpsLineType) {
+    const currentLineType = gpsLineType || gpsLineTypeRef.current;
+    
+    if (gpsPathRef.current.length > 1 && currentLineType) {
       saveToHistory([...markers]);
       const newLine = {
         id: Date.now(),
-        lineType: gpsLineType,
+        lineType: currentLineType,
         path: [...gpsPathRef.current],
         isLine: true,
         gpsRecorded: true,
       };
       setMarkers(prev => [...prev, newLine]);
-      const lineType = lineTypes.find(t => t.id === gpsLineType);
+      const lineType = lineTypes.find(t => t.id === currentLineType);
       setSavedVagColor(lineType?.color || '#fff');
       
       // Sätt den sparade linjen som referens för nästa spårning
       previousStickvagRef.current = newLine;
     }
+    
+    // Nollställ spårning
     setGpsLineType(null);
     gpsLineTypeRef.current = null;
     setGpsPath([]);
@@ -1132,6 +1136,9 @@ export default function PlannerPage() {
     setGpsStartPos(null);
     setGpsPaused(false);
     gpsPausedRef.current = false;
+    
+    // Visa popup - håll stickvagMode aktiv
+    setStickvagMode(true);
     setShowSavedPopup(true);
   };
 
@@ -1145,6 +1152,7 @@ export default function PlannerPage() {
     setShowSavedPopup(false);
     startGpsTracking(colorMap[colorId] || 'sideRoadRed');
     setStickvagMode(true);
+    // previousStickvagRef är redan satt från saveAndShowPopup
   };
   
   const toggleGpsPause = () => {
@@ -2818,6 +2826,19 @@ export default function PlannerPage() {
             />
           ))}
 
+          {/* Förra stickvägen (visas under snitslande) */}
+          {stickvagMode && previousStickvagRef.current?.path && (
+            <path
+              d={previousStickvagRef.current.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')}
+              fill="none"
+              stroke={lineTypes.find(t => t.id === previousStickvagRef.current.lineType)?.color || '#ef4444'}
+              strokeWidth={6}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity={0.7}
+            />
+          )}
+
           {/* GPS-spårad linje (live) */}
           {gpsLineType && gpsPath.length > 1 && (
             <path
@@ -3876,7 +3897,8 @@ export default function PlannerPage() {
           <button
             onClick={() => {
               // Om det är en stickväg, visa popup för nästa färg
-              const isStickväg = ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(gpsLineType || '');
+              const currentLineType = gpsLineType || gpsLineTypeRef.current;
+              const isStickväg = ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(currentLineType || '');
               if (isStickväg) {
                 saveAndShowPopup();
               } else {
@@ -5559,9 +5581,21 @@ export default function PlannerPage() {
                 }}>
                   <div
                     onClick={() => {
+                      // Mappa svenska färgnamn till engelska för lineType
+                      const colorMap: Record<string, string> = {
+                        'rod': 'Red',
+                        'gul': 'Yellow',
+                        'bla': 'Blue',
+                        'gron': 'Green',
+                        'orange': 'Orange',
+                        'vit': 'White',
+                        'svart': 'Black',
+                        'rosa': 'Pink',
+                      };
+                      const englishColor = colorMap[selectedVagColor.id] || 'Red';
                       const lineId = selectedVagType === 'backvag' 
-                        ? `backRoad${selectedVagColor.name}` 
-                        : `sideRoad${selectedVagColor.name}`;
+                        ? `backRoad${englishColor}` 
+                        : `sideRoad${englishColor}`;
                       startGpsTracking(lineId);
                       setStickvagMode(true);
                       setShowColorPicker(false);
@@ -6274,197 +6308,78 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === STICKVÄGSVY (TESLA-STIL) === */}
-      {stickvagMode && gpsLineType && previousStickvagRef.current && !stickvagOversikt && !showSavedPopup && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          background: '#000',
-          zIndex: 500,
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          {/* Header med GPS-knapp som öppnar översikt */}
-          <div style={{
-            position: 'absolute',
-            top: 0, left: 0, right: 0,
-            padding: '50px 14px 10px',
-            background: 'linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%)',
-            zIndex: 10,
-          }}>
-            <button
-              onClick={() => setStickvagOversikt(true)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 12px',
-                borderRadius: '10px',
-                border: 'none',
-                background: 'rgba(255,255,255,0.08)',
-                cursor: 'pointer',
-              }}
-            >
-              <div style={{
-                width: '6px', height: '6px',
-                background: gpsPaused ? '#666' : '#22c55e',
-                borderRadius: '50%',
-              }} />
-              <span style={{ fontSize: '11px', color: '#fff', opacity: 0.6 }}>GPS</span>
-            </button>
-          </div>
-          
-          {/* Kartvy */}
-          <div style={{ flex: 1, position: 'relative', background: '#1a1a1a' }}>
-            <svg viewBox="0 0 400 600" style={{ width: '100%', height: '100%' }} preserveAspectRatio="xMidYMid meet">
-              <defs>
-                <filter id="terrain-stickvag">
-                  <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="4" seed="42"/>
-                  <feDiffuseLighting lightingColor="#444" surfaceScale="2">
-                    <feDistantLight azimuth="315" elevation="40"/>
-                  </feDiffuseLighting>
-                </filter>
-              </defs>
-              <rect width="400" height="600" fill="#1a1a1a"/>
-              <rect width="400" height="600" filter="url(#terrain-stickvag)" opacity="0.3"/>
-              <ellipse cx="80" cy="450" rx="40" ry="60" fill="#1e40af" opacity="0.2"/>
-              <ellipse cx="350" cy="200" rx="35" ry="50" fill="#1e40af" opacity="0.15"/>
-              
-              {/* Förra vägen */}
-              {previousStickvagRef.current?.path && (() => {
-                const prevColor = lineTypes.find(t => t.id === previousStickvagRef.current.lineType)?.color || '#ef4444';
-                return (
-                  <path
-                    d={previousStickvagRef.current.path.map((p, i) => {
-                      const relX = 120 + (p.x - gpsMapPositionRef.current.x) * 0.6;
-                      const relY = 300 + (p.y - gpsMapPositionRef.current.y) * 0.6;
-                      return `${i === 0 ? 'M' : 'L'} ${relX} ${relY}`;
-                    }).join(' ')}
-                    fill="none" stroke={prevColor} strokeWidth={8}
-                    strokeLinecap="round" strokeLinejoin="round" opacity={0.8}
-                  />
-                );
-              })()}
-              
-              {/* Avståndslinje */}
-              {(() => {
-                const dist = getStickvagDistance();
-                if (!dist || !previousStickvagRef.current?.path) return null;
-                const result = getDistanceToPath(gpsMapPositionRef.current, previousStickvagRef.current.path);
-                const closestX = 120 + (result.closestPoint.x - gpsMapPositionRef.current.x) * 0.6;
-                const closestY = 300 + (result.closestPoint.y - gpsMapPositionRef.current.y) * 0.6;
-                return (
-                  <>
-                    <line x1={closestX} y1={closestY} x2={280} y2={300}
-                      stroke="rgba(255,255,255,0.4)" strokeWidth={1} strokeDasharray="5, 4"/>
-                    <g transform={`translate(${(closestX + 280) / 2}, ${(closestY + 300) / 2 - 14})`}>
-                      <rect x="-20" y="-12" width="40" height="20" rx="6" fill="rgba(0,0,0,0.7)"/>
-                      <text x="0" y="3" fill="#fff" fontSize="12" textAnchor="middle" fontWeight="500">{dist}m</text>
-                    </g>
-                  </>
-                );
-              })()}
-              
-              {/* Din nuvarande väg (streckad) */}
-              {gpsPath.length > 0 && (() => {
-                const currentColor = lineTypes.find(t => t.id === gpsLineType)?.color || '#fbbf24';
-                return (
-                  <path
-                    d={gpsPath.map((p, i) => {
-                      const relX = 280 + (p.x - gpsMapPositionRef.current.x) * 0.6;
-                      const relY = 300 + (p.y - gpsMapPositionRef.current.y) * 0.6;
-                      return `${i === 0 ? 'M' : 'L'} ${relX} ${relY}`;
-                    }).join(' ')}
-                    fill="none" stroke={currentColor} strokeWidth={5}
-                    strokeDasharray="8, 6" opacity={0.6} strokeLinecap="round"
-                  />
-                );
-              })()}
-              
-              {/* GPS-punkt (du) */}
-              <circle cx={280} cy={300} r={30} fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth={1}>
-                <animate attributeName="r" from="12" to="35" dur="2s" repeatCount="indefinite"/>
-                <animate attributeName="opacity" from="0.3" to="0" dur="2s" repeatCount="indefinite"/>
-              </circle>
-              <circle cx={280} cy={300} r={12} fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.2)" strokeWidth={1}/>
-              <circle cx={280} cy={300} r={5} fill="#fff"/>
-              <path d="M 280,278 L 274,290 L 286,290 Z" fill="rgba(255,255,255,0.8)"/>
-            </svg>
-          </div>
 
-          {/* Varningslogik */}
-          {(() => {
-            const dist = getStickvagDistance();
-            if (!dist) return null;
-            const { targetDistance, tolerance } = stickvagSettings;
-            const isOutside = dist < targetDistance - tolerance || dist > targetDistance + tolerance;
-            
-            if (isOutside && !stickvagWarningShown) {
-              setStickvagWarningShown(true);
-              playStickvagWarning(dist < targetDistance - tolerance);
-            } else if (!isOutside && stickvagWarningShown) {
-              setStickvagWarningShown(false);
-            }
-            return null;
-          })()}
-          
-          {/* Status och knappar */}
+      {/* === STICKVÄGSAVSTÅND OVERLAY (visas på riktiga kartan) === */}
+      {stickvagMode && gpsLineType && previousStickvagRef.current && !stickvagOversikt && !showSavedPopup && (
+        <>
+          {/* Stort avstånd längst ner */}
           <div style={{
-            position: 'absolute',
-            bottom: 0, left: 0, right: 0,
-            background: 'linear-gradient(0deg, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.7) 70%, transparent 100%)',
-            padding: '50px 14px 30px',
-            textAlign: 'center',
+            position: 'fixed',
+            bottom: 180,
+            left: 0, right: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            zIndex: 400,
+            pointerEvents: 'none',
           }}>
-            {(() => {
-              const dist = getStickvagDistance();
-              const { targetDistance, tolerance } = stickvagSettings;
-              let status: 'good' | 'close' | 'far' = 'good';
-              if (dist !== null) {
-                if (dist < targetDistance - tolerance) status = 'close';
-                else if (dist > targetDistance + tolerance) status = 'far';
-              }
-              return (
-                <>
-                  {status === 'good' ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '14px' }}>
-                      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
-                        <circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/>
-                      </svg>
-                      <span style={{ fontSize: '16px', color: '#fff', opacity: 0.9 }}>Markera här</span>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', marginBottom: '14px' }}>
-                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" 
-                        stroke={status === 'close' ? '#f59e0b' : '#ef4444'} strokeWidth="1.5"
-                        style={{ transform: status === 'close' ? 'rotate(0)' : 'rotate(180deg)' }}>
-                        <path d="M5 12h14M12 5l7 7-7 7"/>
-                      </svg>
-                      <span style={{ fontSize: '16px', color: status === 'close' ? '#f59e0b' : '#ef4444' }}>
-                        {status === 'close' ? 'Längre bort' : 'Gå tillbaka'}
-                      </span>
-                    </div>
-                  )}
-                </>
-              );
-            })()}
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button onClick={toggleGpsPause} style={{
-                flex: 1, padding: '14px', borderRadius: '10px', border: 'none',
-                background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '13px', opacity: 0.7, cursor: 'pointer',
+            <div style={{
+              background: 'rgba(0,0,0,0.85)',
+              borderRadius: '24px',
+              padding: '20px 40px',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255,255,255,0.1)',
+            }}>
+              <div style={{
+                fontSize: '64px',
+                fontWeight: '200',
+                color: '#fff',
+                textAlign: 'center',
+                lineHeight: 1,
               }}>
-                {gpsPaused ? '▶ Fortsätt' : '⏸ Paus'}
-              </button>
-              <button onClick={saveAndShowPopup} style={{
-                flex: 1, padding: '14px', borderRadius: '10px', border: 'none',
-                background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', opacity: 0.9, cursor: 'pointer',
+                {getStickvagDistance() || '—'}
+              </div>
+              <div style={{
+                fontSize: '14px',
+                color: 'rgba(255,255,255,0.5)',
+                textAlign: 'center',
+                marginTop: '8px',
               }}>
-                ✓ Spara
-              </button>
+                meter till förra
+              </div>
             </div>
           </div>
-        </div>
+          
+          {/* Översikt-knapp uppe till vänster */}
+          <button
+            onClick={() => setStickvagOversikt(true)}
+            style={{
+              position: 'fixed',
+              top: 50,
+              left: 14,
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '12px 16px',
+              borderRadius: '14px',
+              border: 'none',
+              background: 'rgba(0,0,0,0.8)',
+              backdropFilter: 'blur(10px)',
+              cursor: 'pointer',
+              zIndex: 400,
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            <span style={{ fontSize: '13px', color: '#fff' }}>Översikt</span>
+          </button>
+        </>
       )}
+
 
       {/* === VÄG SPARAD POPUP === */}
       {showSavedPopup && (
