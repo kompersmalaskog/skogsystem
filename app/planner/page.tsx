@@ -934,7 +934,10 @@ export default function PlannerPage() {
     gpsLineTypeRef.current = lineType;
     setGpsPath([]);
     gpsPathRef.current = [];
-    setGpsStartPos(null);
+    // Behåll gpsStartPos om vi redan har en (från continueWithColor)
+    if (!gpsStartPos) {
+      setGpsStartPos(null);
+    }
     setGpsPaused(false);
     gpsPausedRef.current = false; // Viktigt! Nollställ paus
     setMenuOpen(false);
@@ -951,7 +954,8 @@ export default function PlannerPage() {
       // Om vi redan har en referens (från saveAndShowPopup), använd den
       // Annars använd senaste från markers
       if (previousStickvagRef.current || previousStickvägar.length > 0) {
-        if (previousStickvägar.length > 0) {
+        // Prioritera redan satt referens, annars ta senaste
+        if (!previousStickvagRef.current && previousStickvägar.length > 0) {
           previousStickvagRef.current = previousStickvägar[previousStickvägar.length - 1];
         }
         setStickvagMode(true);
@@ -1128,12 +1132,12 @@ export default function PlannerPage() {
       previousStickvagRef.current = newLine;
     }
     
-    // Nollställ spårning
+    // Nollställ spårning MEN BEHÅLL GPS-position
     setGpsLineType(null);
     gpsLineTypeRef.current = null;
     setGpsPath([]);
     gpsPathRef.current = [];
-    setGpsStartPos(null);
+    // VIKTIGT: Behåll gpsStartPos och gpsMapPosition så positionen inte hoppar
     setGpsPaused(false);
     gpsPausedRef.current = false;
     
@@ -6309,73 +6313,63 @@ export default function PlannerPage() {
       )}
 
 
-      {/* === STICKVÄGSAVSTÅND OVERLAY (visas på riktiga kartan) === */}
+      {/* === STICKVÄGSAVSTÅND OVERLAY - TESLA MINIMAL === */}
       {stickvagMode && gpsLineType && previousStickvagRef.current && !stickvagOversikt && !showSavedPopup && (
         <>
-          {/* Stort avstånd längst ner */}
+          {/* STOR siffra i mitten */}
           <div style={{
             position: 'fixed',
-            bottom: 180,
-            left: 0, right: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
+            top: '50%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            textAlign: 'center',
             zIndex: 400,
             pointerEvents: 'none',
           }}>
             <div style={{
-              background: 'rgba(0,0,0,0.85)',
-              borderRadius: '24px',
-              padding: '20px 40px',
-              backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(255,255,255,0.1)',
+              fontSize: '120px',
+              fontWeight: '100',
+              color: '#fff',
+              lineHeight: 1,
+              textShadow: '0 4px 30px rgba(0,0,0,0.8)',
             }}>
-              <div style={{
-                fontSize: '64px',
-                fontWeight: '200',
-                color: '#fff',
-                textAlign: 'center',
-                lineHeight: 1,
-              }}>
-                {getStickvagDistance() || '—'}
-              </div>
-              <div style={{
-                fontSize: '14px',
-                color: 'rgba(255,255,255,0.5)',
-                textAlign: 'center',
-                marginTop: '8px',
-              }}>
-                meter till förra
-              </div>
+              {getStickvagDistance() || '—'}
+            </div>
+            <div style={{
+              fontSize: '18px',
+              color: 'rgba(255,255,255,0.4)',
+              marginTop: '8px',
+              letterSpacing: '2px',
+              textTransform: 'uppercase',
+            }}>
+              meter
             </div>
           </div>
-          
-          {/* Översikt-knapp uppe till vänster */}
+
+          {/* Stor spara-knapp nere */}
           <button
-            onClick={() => setStickvagOversikt(true)}
+            onClick={saveAndShowPopup}
             style={{
               position: 'fixed',
-              top: 50,
-              left: 14,
+              bottom: '80px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              width: '80px',
+              height: '80px',
+              borderRadius: '50%',
+              border: 'none',
+              background: '#22c55e',
+              color: '#fff',
+              fontSize: '32px',
+              cursor: 'pointer',
+              boxShadow: '0 4px 30px rgba(34,197,94,0.4)',
+              zIndex: 400,
               display: 'flex',
               alignItems: 'center',
-              gap: '8px',
-              padding: '12px 16px',
-              borderRadius: '14px',
-              border: 'none',
-              background: 'rgba(0,0,0,0.8)',
-              backdropFilter: 'blur(10px)',
-              cursor: 'pointer',
-              zIndex: 400,
+              justifyContent: 'center',
             }}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
-              <rect x="3" y="3" width="7" height="7" rx="1"/>
-              <rect x="14" y="3" width="7" height="7" rx="1"/>
-              <rect x="3" y="14" width="7" height="7" rx="1"/>
-              <rect x="14" y="14" width="7" height="7" rx="1"/>
-            </svg>
-            <span style={{ fontSize: '13px', color: '#fff' }}>Översikt</span>
+            ✓
           </button>
         </>
       )}
