@@ -6845,12 +6845,11 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === STICKVÄGSVY ÖVERSIKT (TESLA-STIL) === */}
       {stickvagOversikt && (
         <div style={{
           position: 'fixed',
           top: 0, left: 0, right: 0, bottom: 0,
-          background: '#000',
+          background: 'transparent',
           zIndex: 501,
           display: 'flex',
           flexDirection: 'column',
@@ -6870,10 +6869,10 @@ export default function PlannerPage() {
                   </feDiffuseLighting>
                 </filter>
               </defs>
-              <rect width="400" height="600" fill="#1a1a1a"/>
-              <rect width="400" height="600" filter="url(#terrain-oversikt)" opacity="0.3"/>
-              <ellipse cx="80" cy="450" rx="40" ry="60" fill="#1e40af" opacity="0.2"/>
-              <ellipse cx="350" cy="200" rx="35" ry="50" fill="#1e40af" opacity="0.15"/>
+              
+              
+              
+              
               <rect x="60" y="80" width="280" height="440" fill="none" 
                 stroke="#fff" strokeWidth="0.5" strokeDasharray="6,4" opacity="0.15" rx="4"/>
 
@@ -7200,7 +7199,6 @@ export default function PlannerPage() {
           </div>
         </div>
       )}
-
       {/* === KÖRLÄGE VARNING === */}
       {drivingMode && activeWarning && (
         <div 
