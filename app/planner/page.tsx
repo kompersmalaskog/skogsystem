@@ -111,6 +111,7 @@ export default function PlannerPage() {
   const [showAvslutaBekraftelse, setShowAvslutaBekraftelse] = useState(false); // Bekräftelse vid avsluta
   const [showSnitslaMeny, setShowSnitslaMeny] = useState(false); // Långtryck-meny under snitsling
   const [selectedOversiktVag, setSelectedOversiktVag] = useState<Marker | null>(null); // Vald väg i översikt
+  const [selectedOversiktItem, setSelectedOversiktItem] = useState<Marker | null>(null); // Vald symbol/zon i översikt
   const longPressTimerRef = useRef<any>(null); // Timer för långtryck
   
   // Prognos
@@ -962,16 +963,14 @@ export default function PlannerPage() {
         m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType)
       );
       
-      // Om vi redan har en referens (från saveAndShowPopup), använd den
-      // Annars använd senaste från markers
-      if (previousStickvagRef.current || previousStickvägar.length > 0) {
-        // Prioritera redan satt referens, annars ta senaste
-        if (!previousStickvagRef.current && previousStickvägar.length > 0) {
-          previousStickvagRef.current = previousStickvägar[previousStickvägar.length - 1];
-        }
-        setStickvagMode(true);
-        setStickvagOversikt(false);
-        setStickvagWarningShown(false);
+      // Aktivera ALLTID stickvagMode för stickvägar
+      setStickvagMode(true);
+      setStickvagOversikt(false);
+      setStickvagWarningShown(false);
+      
+      // Sätt referens till föregående väg om det finns
+      if (!previousStickvagRef.current && previousStickvägar.length > 0) {
+        previousStickvagRef.current = previousStickvägar[previousStickvägar.length - 1];
       }
     }
     
@@ -1330,6 +1329,16 @@ export default function PlannerPage() {
 
   // Drag & drop för symboler
   const handleMarkerDragStart = (e, marker) => {
+    // I översiktsläge: visa info istället för drag
+    if (stickvagOversikt) {
+      e.stopPropagation();
+      if (marker.isMarker || marker.isZone) {
+        setSelectedOversiktItem(marker);
+        setSelectedOversiktVag(null);
+      }
+      return;
+    }
+    
     // Vibrera kort för feedback
     if (navigator.vibrate) {
       navigator.vibrate(20);
@@ -1466,6 +1475,15 @@ export default function PlannerPage() {
     e.stopPropagation();
     if (draggingMarker) return;
     
+    // I översiktsläge: visa info istället för meny
+    if (stickvagOversikt) {
+      if (marker.isMarker || marker.isZone) {
+        setSelectedOversiktItem(marker);
+        setSelectedOversiktVag(null);
+      }
+      return;
+    }
+    
     if (markerMenuOpen === marker.id) {
       setMarkerMenuOpen(null);
     } else {
@@ -1475,6 +1493,9 @@ export default function PlannerPage() {
 
   // === KARTA INTERAKTION ===
   const handleMapClick = (e) => {
+    // Ignorera click i översiktsläge
+    if (stickvagOversikt) return;
+    
     // Ignorera click om vi precis avslutade en drag (som öppnade menyn)
     if (justEndedDrag.current) {
       return;
@@ -1746,6 +1767,9 @@ export default function PlannerPage() {
 
   // Pan
   const handleMouseDown = (e) => {
+    // Ignorera i översiktsläge
+    if (stickvagOversikt) return;
+    
     if (e.button === 0 && !selectedSymbol && !isDrawMode && !isZoneMode && !isArrowMode && !measureMode && !measureAreaMode) {
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
@@ -2406,6 +2430,7 @@ export default function PlannerPage() {
           width: '100%', 
           height: '100%',
           touchAction: 'none',
+          zIndex: 50,
           background: showMap ? 'transparent' : `
             radial-gradient(ellipse at 30% 40%, rgba(52, 199, 89, 0.15) 0%, transparent 50%),
             radial-gradient(ellipse at 70% 60%, rgba(10, 132, 255, 0.2) 0%, transparent 45%),
@@ -3854,7 +3879,7 @@ export default function PlannerPage() {
       )}
 
       {/* === GPS-SPÅRNINGS-INDIKATOR === */}
-      {gpsLineType && isTracking && (
+      {gpsLineType && isTracking && !stickvagMode && (
         <div style={{
           position: 'fixed',
           bottom: '40px',
@@ -3974,6 +3999,7 @@ export default function PlannerPage() {
           gap: '4px',
           padding: '4px',
           boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+          zIndex: 700,
         }}>
           {/* Ångra */}
           <button
@@ -4051,6 +4077,7 @@ export default function PlannerPage() {
           gap: '4px',
           padding: '4px',
           boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+          zIndex: 700,
         }}>
           <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita</span>
           <button
@@ -4696,11 +4723,29 @@ export default function PlannerPage() {
                         <div
                           key={type.id}
                           onClick={() => {
-                            setSelectedSymbol(type.id);
-                            setMenuOpen(false);
-                            setMenuHeight(0);
-                            setSubMenu(null);
-                            setActiveCategory(null);
+                            if (stickvagMode && gpsMapPosition) {
+                              // I stickvagMode: placera direkt på GPS-position
+                              const newMarker: Marker = {
+                                id: Date.now().toString(),
+                                x: gpsMapPosition.x,
+                                y: gpsMapPosition.y,
+                                type: type.id,
+                                isMarker: true,
+                              };
+                              setMarkers(prev => [...prev, newMarker]);
+                              // Stäng menyn
+                              setMenuOpen(false);
+                              setMenuHeight(0);
+                              setSubMenu(null);
+                              setActiveCategory(null);
+                            } else {
+                              // Normalt läge: välj symbol och stäng meny
+                              setSelectedSymbol(type.id);
+                              setMenuOpen(false);
+                              setMenuHeight(0);
+                              setSubMenu(null);
+                              setActiveCategory(null);
+                            }
                           }}
                           style={{
                             display: 'flex',
@@ -6127,458 +6172,125 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === STICKVÄGSAVSTÅND (bara titta) === */}
-      {stickvagMode && !gpsLineType && !stickvagOversikt && !showSavedPopup && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          background: '#000',
-          zIndex: 500,
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-          {/* Kartvy */}
-          <div style={{ flex: 1, position: 'relative', background: '#1a1a1a' }}>
-            <svg viewBox="0 0 400 600" style={{ width: '100%', height: '100%' }} preserveAspectRatio="xMidYMid meet">
-              <defs>
-                <filter id="terrain-avstand">
-                  <feTurbulence type="fractalNoise" baseFrequency="0.015" numOctaves="4" seed="42"/>
-                  <feDiffuseLighting lightingColor="#444" surfaceScale="2">
-                    <feDistantLight azimuth="315" elevation="40"/>
-                  </feDiffuseLighting>
-                </filter>
-              </defs>
-              <rect width="400" height="600" fill="#1a1a1a"/>
-              <rect width="400" height="600" filter="url(#terrain-avstand)" opacity="0.3"/>
-
-              {/* Alla stickvägar */}
-              {markers.filter(m => m.isLine && m.path && m.path.length > 1).map((line) => {
-                const lineType = lineTypes.find(t => t.id === line.lineType);
-                const color = lineType?.color || '#888';
-                const isBoundary = line.lineType === 'boundary';
-                const isStickvag = ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag'].includes(line.lineType || '');
-                
-                return (
-                  <path key={line.id}
-                    d={line.path!.map((p, i) => {
-                      const relX = 200 + (p.x - gpsMapPosition.x) * 0.5;
-                      const relY = 300 + (p.y - gpsMapPosition.y) * 0.5;
-                      return `${i === 0 ? 'M' : 'L'} ${relX} ${relY}`;
-                    }).join(' ')}
-                    fill="none" 
-                    stroke={color} 
-                    strokeWidth={isStickvag ? 4 : isBoundary ? 2 : 3}
-                    strokeLinecap="round" 
-                    strokeDasharray={isBoundary ? '6,3' : 'none'} 
-                    opacity={isStickvag ? 0.9 : 0.4}
-                  />
-                );
-              })}
-
-              {/* Linje till närmaste stickväg */}
-              {(() => {
-                const nearest = findNearestStickvag();
-                if (!nearest?.path) return null;
-                const result = getDistanceToPath(gpsMapPosition, nearest.path);
-                if (!result.closestPoint) return null;
-                
-                const fromX = 200;
-                const fromY = 300;
-                const toX = 200 + (result.closestPoint.x - gpsMapPosition.x) * 0.5;
-                const toY = 300 + (result.closestPoint.y - gpsMapPosition.y) * 0.5;
-                
-                return (
-                  <line 
-                    x1={fromX} y1={fromY} 
-                    x2={toX} y2={toY}
-                    stroke="rgba(255,255,255,0.3)" 
-                    strokeWidth="1" 
-                    strokeDasharray="4,4"
-                  />
-                );
-              })()}
-
-              {/* GPS-position (du) */}
-              <circle cx={200} cy={300} r={8} fill="#fff"/>
-              <circle cx={200} cy={300} r={16} fill="none" stroke="#fff" strokeWidth={1} opacity={0.4}>
-                <animate attributeName="r" from="8" to="24" dur="1.5s" repeatCount="indefinite"/>
-                <animate attributeName="opacity" from="0.5" to="0" dur="1.5s" repeatCount="indefinite"/>
-              </circle>
-            </svg>
-          </div>
-
-          {/* GPS status uppe till vänster */}
+      {/* === GALLRING OVERLAY === */}
+      {stickvagMode && !stickvagOversikt && !showSavedPopup && !menuOpen && !isZoneMode && !isDrawMode && (
+        <>
+          {/* Stor avståndssiffra */}
           <div style={{
-            position: 'absolute',
-            top: '50px',
-            left: '14px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '8px 12px',
-            borderRadius: '10px',
-            background: 'rgba(0,0,0,0.5)',
-          }}>
-            <div style={{
-              width: '6px', height: '6px',
-              background: '#22c55e',
-              borderRadius: '50%',
-            }} />
-            <span style={{ fontSize: '11px', color: '#fff', opacity: 0.6 }}>GPS</span>
-          </div>
-
-          {/* Stäng-knapp */}
-          <button
-            onClick={() => setStickvagMode(false)}
-            style={{
-              position: 'absolute',
-              top: '50px',
-              right: '14px',
-              width: '40px',
-              height: '40px',
-              borderRadius: '10px',
-              border: 'none',
-              background: 'rgba(0,0,0,0.5)',
-              color: '#fff',
-              fontSize: '18px',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            ✕
-          </button>
-
-          {/* Avståndspanel längst ner */}
-          <div style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '24px 24px 0 0',
-            padding: '24px 20px 40px',
+            position: 'fixed',
+            top: '30%',
+            left: '50%',
+            transform: 'translate(-50%, -50%)',
+            zIndex: 600,
+            pointerEvents: 'none',
+            textAlign: 'center',
           }}>
             {(() => {
               const dist = getStickvagDistance();
-              const stickvägar = markers.filter(m => 
-                m.isLine && 
-                ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag'].includes(m.lineType || '')
-              );
-              
-              if (stickvägar.length === 0) {
-                return (
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: '17px', opacity: 0.5, marginBottom: '8px' }}>
-                      Inga stickvägar
-                    </div>
-                    <div style={{ fontSize: '14px', opacity: 0.3 }}>
-                      Snitsla din första stickväg för att se avstånd
-                    </div>
-                  </div>
-                );
-              }
-              
-              const { targetDistance, tolerance } = stickvagSettings;
-              const minOk = targetDistance - tolerance;
-              const maxOk = targetDistance + tolerance;
-              const isOk = dist !== null && dist >= minOk && dist <= maxOk;
-              const isTooClose = dist !== null && dist < minOk;
-              const isTooFar = dist !== null && dist > maxOk;
+              const target = stickvagSettings?.targetDistance || 20;
+              const tolerance = stickvagSettings?.tolerance || 5;
+              const isInRange = dist !== null && Math.abs(dist - target) <= tolerance;
               
               return (
-                <>
-                  {/* Avstånd */}
-                  <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                    <div style={{ 
-                      fontSize: '64px', 
-                      fontWeight: '300',
-                      color: isOk ? '#22c55e' : isTooClose ? '#ef4444' : '#f59e0b',
-                      lineHeight: 1,
-                    }}>
-                      {dist !== null ? dist : '--'}
-                    </div>
-                    <div style={{ fontSize: '18px', opacity: 0.4, marginTop: '4px' }}>
-                      meter till närmaste stickväg
-                    </div>
-                  </div>
-                  
-                  {/* Status */}
-                  <div style={{
-                    padding: '12px 16px',
-                    borderRadius: '12px',
-                    background: isOk ? 'rgba(34,197,94,0.15)' : isTooClose ? 'rgba(239,68,68,0.15)' : 'rgba(245,158,11,0.15)',
-                    textAlign: 'center',
-                  }}>
-                    <span style={{ 
-                      fontSize: '15px',
-                      color: isOk ? '#22c55e' : isTooClose ? '#ef4444' : '#f59e0b',
-                    }}>
-                      {isOk ? '✓ Perfekt avstånd' : isTooClose ? '⚠ För nära' : '⚠ För långt'}
-                    </span>
-                    <span style={{ fontSize: '13px', opacity: 0.5, marginLeft: '8px' }}>
-                      (mål: {targetDistance}m ±{tolerance}m)
-                    </span>
-                  </div>
-                </>
+                <div style={{
+                  fontSize: '120px',
+                  fontWeight: '200',
+                  color: isInRange ? '#22c55e' : '#fff',
+                  lineHeight: 0.9,
+                  textShadow: '0 4px 30px rgba(0,0,0,0.9)',
+                }}>
+                  {dist !== null ? dist : '—'}
+                </div>
               );
             })()}
           </div>
-        </div>
-      )}
 
-
-      {/* === STICKVÄGSAVSTÅND OVERLAY - TESLA MINIMAL === */}
-      {stickvagMode && gpsLineType && !stickvagOversikt && !showSavedPopup && !showSnitslaMeny && (
-        <>
-          {/* STOR siffra i mitten - endast om det finns tidigare väg */}
-          {previousStickvagRef.current && (
-            <div 
-              style={{
-                position: 'fixed',
-                top: '35%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                textAlign: 'center',
-                zIndex: 400,
-                pointerEvents: 'none',
-              }}
-            >
-              {(() => {
-                const dist = getStickvagDistance();
-                const target = stickvagSettings?.targetDistance || 20;
-                const tolerance = stickvagSettings?.tolerance || 5;
-                const isInRange = dist !== null && Math.abs(dist - target) <= tolerance;
-                
-                return (
-                  <>
-                    <div style={{
-                      fontSize: '100px',
-                      fontWeight: '100',
-                      color: isInRange ? '#22c55e' : '#fff',
-                      lineHeight: 1,
-                      textShadow: '0 4px 30px rgba(0,0,0,0.8)',
-                      transition: 'color 0.3s',
-                    }}>
-                      {dist !== null ? dist : '—'}
-                    </div>
-                    <div style={{
-                      fontSize: '16px',
-                      color: isInRange ? 'rgba(34,197,94,0.6)' : 'rgba(255,255,255,0.4)',
-                      marginTop: '8px',
-                      letterSpacing: '2px',
-                      textTransform: 'uppercase',
-                    }}>
-                      meter
-                    </div>
-                  </>
-                );
-              })()}
+          {/* Pausad-indikator */}
+          {gpsPaused && (
+            <div style={{
+              position: 'fixed',
+              top: '60px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 600,
+              background: 'rgba(245,158,11,0.2)',
+              color: '#f59e0b',
+              padding: '8px 20px',
+              borderRadius: '20px',
+              fontSize: '13px',
+              fontWeight: '500',
+            }}>
+              PAUSAD
             </div>
           )}
 
-          {/* Hint för långtryck */}
+          {/* Tre knappar i botten */}
           <div style={{
             position: 'fixed',
-            bottom: '110px',
+            bottom: '50px',
             left: '50%',
             transform: 'translateX(-50%)',
-            color: 'rgba(255,255,255,0.3)',
-            fontSize: '12px',
-            zIndex: 400,
-            pointerEvents: 'none',
+            display: 'flex',
+            gap: '20px',
+            zIndex: 600,
           }}>
-            Håll fingret för meny
-          </div>
+            {/* Paus/Play */}
+            <button
+              onClick={() => setGpsPaused(!gpsPaused)}
+              style={{
+                width: '60px',
+                height: '60px',
+                borderRadius: '50%',
+                border: 'none',
+                background: gpsPaused ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.15)',
+                color: gpsPaused ? '#f59e0b' : '#fff',
+                fontSize: '18px',
+                cursor: 'pointer',
+              }}
+            >
+              {gpsPaused ? '▶' : '❚❚'}
+            </button>
 
-          {/* Långtryck-område - täcker inte kontrollknapparna */}
-          <div
-            style={{
-              position: 'fixed',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: '200px',
-              zIndex: 398,
-            }}
-            onTouchStart={() => {
-              longPressTimerRef.current = setTimeout(() => {
-                setShowSnitslaMeny(true);
-              }, 800);
-            }}
-            onTouchEnd={() => {
-              if (longPressTimerRef.current) {
-                clearTimeout(longPressTimerRef.current);
-              }
-            }}
-            onTouchCancel={() => {
-              if (longPressTimerRef.current) {
-                clearTimeout(longPressTimerRef.current);
-              }
-            }}
-            onMouseDown={() => {
-              longPressTimerRef.current = setTimeout(() => {
-                setShowSnitslaMeny(true);
-              }, 800);
-            }}
-            onMouseUp={() => {
-              if (longPressTimerRef.current) {
-                clearTimeout(longPressTimerRef.current);
-              }
-            }}
-            onMouseLeave={() => {
-              if (longPressTimerRef.current) {
-                clearTimeout(longPressTimerRef.current);
-              }
-            }}
-          />
+            {/* + Meny */}
+            <button
+              onClick={() => {
+                setMenuOpen(true);
+                setActiveCategory('symbols');
+              }}
+              style={{
+                width: '60px',
+                height: '60px',
+                borderRadius: '50%',
+                border: 'none',
+                background: 'rgba(255,255,255,0.15)',
+                color: '#fff',
+                fontSize: '28px',
+                fontWeight: '300',
+                cursor: 'pointer',
+              }}
+            >
+              +
+            </button>
+
+            {/* Spara */}
+            <button
+              onClick={() => saveAndShowPopup()}
+              style={{
+                width: '60px',
+                height: '60px',
+                borderRadius: '50%',
+                border: 'none',
+                background: '#22c55e',
+                color: '#fff',
+                fontSize: '24px',
+                cursor: 'pointer',
+              }}
+            >
+              ✓
+            </button>
+          </div>
         </>
       )}
-
-      {/* === SNITSLA MENY (långtryck) === */}
-      {showSnitslaMeny && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          background: 'rgba(0,0,0,0.95)',
-          zIndex: 510,
-          display: 'flex',
-          flexDirection: 'column',
-          padding: '60px 20px 40px',
-          overflowY: 'auto',
-        }}>
-          {/* Symboler */}
-          <div style={{
-            fontSize: '11px', color: '#fff', opacity: 0.3, textTransform: 'uppercase', 
-            letterSpacing: '1px', marginBottom: '12px',
-          }}>
-            Placera på din position
-          </div>
-
-          <div style={{
-            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '20px', padding: '8px', marginBottom: '20px',
-          }}>
-            {[
-              { type: 'highstump', name: 'Högstubbe', cat: 'Avverkning' },
-              { type: 'landing', name: 'Avlägg', cat: 'Avverkning' },
-              { type: 'windfall', name: 'Vindfälle', cat: 'Avverkning' },
-              { type: 'culturemonument', name: 'Kulturminne', cat: 'Kultur' },
-              { type: 'warning', name: 'Varning', cat: 'Övrigt' },
-            ].map((s, i, arr) => {
-              const category = symbolCategories.find(c => c.name === s.cat);
-              const bgColor = category?.bgColor || '#666';
-              return (
-                <div
-                  key={s.type}
-                  onClick={() => {
-                    // Placera symbol på GPS-position
-                    if (gpsMapPosition) {
-                      const newMarker: Marker = {
-                        id: Date.now().toString(),
-                        x: gpsMapPosition.x,
-                        y: gpsMapPosition.y,
-                        type: s.type,
-                        isMarker: true,
-                      };
-                      setMarkers(prev => [...prev, newMarker]);
-                    }
-                    setShowSnitslaMeny(false);
-                  }}
-                  style={{
-                    padding: '16px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '16px',
-                    borderRadius: '12px',
-                    cursor: 'pointer',
-                    borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                  }}
-                >
-                  <div style={{
-                    width: '32px', height: '32px', borderRadius: '8px',
-                    background: bgColor,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2">
-                      <circle cx="12" cy="12" r="3"/>
-                    </svg>
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '15px', color: '#fff' }}>{s.name}</div>
-                  </div>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                    <path d="M9 6 L15 12 L9 18" />
-                  </svg>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Zoner */}
-          <div style={{
-            fontSize: '11px', color: '#fff', opacity: 0.3, textTransform: 'uppercase', 
-            letterSpacing: '1px', marginBottom: '12px',
-          }}>
-            Markera zon
-          </div>
-
-          <div style={{
-            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '20px', padding: '8px', marginBottom: '20px',
-          }}>
-            {[
-              { type: 'sensitive', name: 'Hänsynskrävande', color: '#22c55e' },
-              { type: 'wet', name: 'Blött/fuktigt', color: '#3b82f6' },
-              { type: 'steep', name: 'Brant', color: '#f59e0b' },
-            ].map((z, i, arr) => (
-              <div
-                key={z.type}
-                onClick={() => {
-                  // Stäng snitsla-menyn och aktivera zonritning
-                  setShowSnitslaMeny(false);
-                  setZoneType(z.type);
-                  setIsZoneMode(true);
-                }}
-                style={{
-                  padding: '16px 20px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '16px',
-                  borderRadius: '12px',
-                  cursor: 'pointer',
-                  borderBottom: i < arr.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                }}
-              >
-                <div style={{
-                  width: '24px', height: '24px', borderRadius: '6px',
-                  background: z.color, opacity: 0.8,
-                }}/>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '15px', color: '#fff' }}>{z.name}</div>
-                </div>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" style={{ opacity: 0.3 }}>
-                  <path d="M9 6 L15 12 L9 18" />
-                </svg>
-              </div>
-            ))}
-          </div>
-
-          {/* Avbryt */}
-          <button
-            onClick={() => setShowSnitslaMeny(false)}
-            style={{
-              width: '100%', padding: '16px', borderRadius: '14px',
-              border: 'none', background: 'rgba(255,255,255,0.05)',
-              color: '#fff', fontSize: '15px', cursor: 'pointer', opacity: 0.6,
-            }}
-          >
-            Avbryt
-          </button>
-        </div>
-      )}
-
 
       {/* === VÄG SPARAD POPUP === */}
       {showSavedPopup && !showAvslutaBekraftelse && (
@@ -6761,18 +6473,14 @@ export default function PlannerPage() {
           position: 'fixed',
           top: 0, left: 0, right: 0, bottom: 0,
           background: 'transparent',
-          zIndex: 501,
+          zIndex: 100,
           display: 'flex',
           flexDirection: 'column',
+          pointerEvents: 'none',
         }}>
-          {/* Klickyta för att avmarkera väg */}
-          <div 
-            style={{ position: 'absolute', inset: 0 }}
-            onClick={() => setSelectedOversiktVag(null)}
-          />
 
           {/* GPS vänster */}
-          <div style={{ position: 'absolute', top: '50px', left: '14px', zIndex: 10 }}>
+          <div style={{ position: 'absolute', top: '50px', left: '14px', zIndex: 110, pointerEvents: 'auto' }}>
             <div style={{
               display: 'flex', alignItems: 'center', gap: '6px',
               padding: '8px 12px', borderRadius: '10px', background: 'rgba(0,0,0,0.5)',
@@ -6785,7 +6493,8 @@ export default function PlannerPage() {
           {/* Zoom */}
           <div style={{
             position: 'absolute', bottom: '100px', right: '14px',
-            display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 10,
+            display: 'flex', flexDirection: 'column', gap: '4px', zIndex: 110,
+            pointerEvents: 'auto',
           }}>
             <button
               onClick={() => setZoom(z => Math.min(2.5, z + 0.25))}
@@ -6815,15 +6524,16 @@ export default function PlannerPage() {
             </button>
           </div>
 
-          {/* Stats + Stäng länk längst ner (när ingen väg är vald) */}
-          {!selectedOversiktVag && (
+          {/* Stats + Stäng länk längst ner (när inget är valt) */}
+          {!selectedOversiktVag && !selectedOversiktItem && (
             <div style={{
               position: 'absolute',
-              bottom: '40px',
+              bottom: '100px',
               left: 0,
               right: 0,
               textAlign: 'center',
-              zIndex: 10,
+              zIndex: 110,
+              pointerEvents: 'auto',
             }}>
               <div style={{ fontSize: '13px', color: '#fff', opacity: 0.4, marginBottom: '16px' }}>
                 {markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length} vägar • {markers.filter(m => m.isMarker).length} symboler
@@ -6831,18 +6541,20 @@ export default function PlannerPage() {
               <button
                 onClick={() => {
                   setStickvagOversikt(false);
+                  setStickvagMode(true);
                   setShowSavedPopup(true);
                 }}
                 style={{
-                  background: 'none',
+                  background: 'rgba(255,255,255,0.15)',
                   border: 'none',
                   color: '#fff',
-                  fontSize: '14px',
-                  opacity: 0.5,
+                  fontSize: '15px',
+                  padding: '12px 24px',
+                  borderRadius: '12px',
                   cursor: 'pointer',
                 }}
               >
-                Stäng översikt
+                ← Tillbaka till gallring
               </button>
             </div>
           )}
@@ -6857,10 +6569,11 @@ export default function PlannerPage() {
             borderTop: '1px solid rgba(255,255,255,0.08)',
             borderRadius: '24px 24px 0 0',
             padding: '20px',
-            paddingBottom: '40px',
+            paddingBottom: '60px',
             transform: selectedOversiktVag ? 'translateY(0)' : 'translateY(100%)',
             transition: 'transform 0.3s ease-out',
-            zIndex: 20,
+            zIndex: 520,
+            pointerEvents: 'auto',
           }}>
             {selectedOversiktVag && (() => {
               const lineType = lineTypes.find(t => t.id === selectedOversiktVag.lineType);
@@ -6947,6 +6660,139 @@ export default function PlannerPage() {
                     }}
                   >
                     Stäng
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setMarkers(prev => prev.filter(m => m.id !== selectedOversiktVag.id));
+                      setSelectedOversiktVag(null);
+                    }}
+                    style={{
+                      marginTop: '8px',
+                      width: '100%',
+                      padding: '14px',
+                      borderRadius: '12px',
+                      border: 'none',
+                      background: 'rgba(239,68,68,0.2)',
+                      color: '#ef4444',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      pointerEvents: 'auto',
+                    }}
+                  >
+                    Ta bort väg
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+
+          {/* Info-panel för vald symbol/zon */}
+          <div style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            background: '#0a0a0a',
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '24px 24px 0 0',
+            padding: '20px',
+            paddingBottom: '60px',
+            transform: selectedOversiktItem ? 'translateY(0)' : 'translateY(100%)',
+            transition: 'transform 0.3s ease-out',
+            zIndex: 521,
+            pointerEvents: 'auto',
+          }}>
+            {selectedOversiktItem && (() => {
+              const isSymbol = selectedOversiktItem.isMarker;
+              const isZone = selectedOversiktItem.isZone;
+              const symbolType = isSymbol ? markerTypes.find(t => t.id === selectedOversiktItem.type) : null;
+              const zoneTypeDef = isZone ? zoneTypes.find(t => t.id === selectedOversiktItem.zoneType) : null;
+              const name = symbolType?.name || zoneTypeDef?.name || 'Okänd';
+              const color = zoneTypeDef?.color || getIconBackground(selectedOversiktItem.type || '');
+              
+              return (
+                <>
+                  {/* Drag-indikator */}
+                  <div style={{
+                    width: '40px', height: '4px',
+                    background: 'rgba(255,255,255,0.2)',
+                    borderRadius: '2px',
+                    margin: '0 auto 16px',
+                  }}/>
+                  
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px',
+                  }}>
+                    <div style={{
+                      width: '40px', height: '40px', borderRadius: '12px',
+                      background: color,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {isZone ? (
+                        <span style={{ fontSize: '18px', color: '#fff' }}>▢</span>
+                      ) : (
+                        <span style={{ fontSize: '18px', color: '#fff' }}>◉</span>
+                      )}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '17px', fontWeight: '500', color: '#fff' }}>
+                        {name}
+                      </div>
+                      <div style={{ fontSize: '13px', opacity: 0.5, color: '#fff' }}>
+                        {isZone ? 'Zon' : 'Symbol'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedOversiktItem.comment && (
+                    <div style={{
+                      background: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '16px',
+                      padding: '16px',
+                      marginBottom: '16px',
+                    }}>
+                      <div style={{ opacity: 0.5, fontSize: '12px', color: '#fff', marginBottom: '8px' }}>Kommentar</div>
+                      <div style={{ fontSize: '14px', color: '#fff' }}>{selectedOversiktItem.comment}</div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={() => setSelectedOversiktItem(null)}
+                    style={{
+                      width: '100%',
+                      padding: '14px',
+                      borderRadius: '12px',
+                      border: 'none',
+                      background: 'rgba(255,255,255,0.08)',
+                      color: '#fff',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Stäng
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setMarkers(prev => prev.filter(m => m.id !== selectedOversiktItem.id));
+                      setSelectedOversiktItem(null);
+                    }}
+                    style={{
+                      marginTop: '8px',
+                      width: '100%',
+                      padding: '14px',
+                      borderRadius: '12px',
+                      border: 'none',
+                      background: 'rgba(239,68,68,0.2)',
+                      color: '#ef4444',
+                      fontSize: '14px',
+                      cursor: 'pointer',
+                      pointerEvents: 'auto',
+                    }}
+                  >
+                    Ta bort {isZone ? 'zon' : 'symbol'}
                   </button>
                 </>
               );
