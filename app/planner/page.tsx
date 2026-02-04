@@ -234,6 +234,12 @@ export default function PlannerPage() {
   const [isTracking, setIsTracking] = useState(false);
   const [gpsPaused, setGpsPaused] = useState(false); // Paus för linjespårning
   const gpsPausedRef = useRef(false); // Ref för closure
+  
+  // Synka gpsPausedRef med gpsPaused state
+  useEffect(() => {
+    gpsPausedRef.current = gpsPaused;
+  }, [gpsPaused]);
+  
   const [currentPosition, setCurrentPosition] = useState<GeolocationPosition | null>(null);
   const [gpsMapPosition, setGpsMapPosition] = useState<Point>({ x: 200, y: 300 }); // Var på kartan GPS-punkten är
   const [trackingPath, setTrackingPath] = useState<Point[]>([]);
@@ -1004,8 +1010,8 @@ export default function PlannerPage() {
         const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
         const accuracy = pos.coords.accuracy; // meter
         
-        // Ignorera osäkra positioner (över 20 meter)
-        if (accuracy > 20) return;
+        // Ignorera osäkra positioner (över 10 meter för bättre kvalitet)
+        if (accuracy > 10) return;
         
         setCurrentPosition(newPos);
         setTrackingPath(prev => [...prev, newPos]);
@@ -1086,7 +1092,7 @@ export default function PlannerPage() {
         });
       },
       (err) => console.log('GPS error:', err),
-      { enableHighAccuracy: true, maximumAge: 2000 }
+      { enableHighAccuracy: true, maximumAge: 500, timeout: 10000 }
     );
   };
   
@@ -1215,8 +1221,8 @@ export default function PlannerPage() {
             const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
             const accuracy = pos.coords.accuracy;
             
-            // Ignorera osäkra positioner (över 20 meter)
-            if (accuracy > 20) return;
+            // Ignorera osäkra positioner (över 10 meter för bättre kvalitet)
+            if (accuracy > 10) return;
             
             setCurrentPosition(newPos);
             setTrackingPath(prev => [...prev, newPos]);
@@ -1290,7 +1296,7 @@ export default function PlannerPage() {
             });
           },
           (err) => console.log('GPS error:', err),
-          { enableHighAccuracy: true, maximumAge: 2000 }
+          { enableHighAccuracy: true, maximumAge: 500, timeout: 10000 }
         );
       }
     }
@@ -1335,6 +1341,9 @@ export default function PlannerPage() {
       if (marker.isMarker || marker.isZone) {
         setSelectedOversiktItem(marker);
         setSelectedOversiktVag(null);
+      } else if (marker.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(marker.lineType || '')) {
+        setSelectedOversiktVag(marker);
+        setSelectedOversiktItem(null);
       }
       return;
     }
@@ -1480,6 +1489,9 @@ export default function PlannerPage() {
       if (marker.isMarker || marker.isZone) {
         setSelectedOversiktItem(marker);
         setSelectedOversiktVag(null);
+      } else if (marker.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(marker.lineType || '')) {
+        setSelectedOversiktVag(marker);
+        setSelectedOversiktItem(null);
       }
       return;
     }
@@ -1493,8 +1505,12 @@ export default function PlannerPage() {
 
   // === KARTA INTERAKTION ===
   const handleMapClick = (e) => {
-    // Ignorera click i översiktsläge
-    if (stickvagOversikt) return;
+    // I översiktsläge: stäng paneler vid klick på tom yta
+    if (stickvagOversikt) {
+      setSelectedOversiktVag(null);
+      setSelectedOversiktItem(null);
+      return;
+    }
     
     // Ignorera click om vi precis avslutade en drag (som öppnade menyn)
     if (justEndedDrag.current) {
@@ -2431,6 +2447,7 @@ export default function PlannerPage() {
           height: '100%',
           touchAction: 'none',
           zIndex: 50,
+          pointerEvents: stickvagOversikt ? 'none' : 'auto',
           background: showMap ? 'transparent' : `
             radial-gradient(ellipse at 30% 40%, rgba(52, 199, 89, 0.15) 0%, transparent 50%),
             radial-gradient(ellipse at 70% 60%, rgba(10, 132, 255, 0.2) 0%, transparent 45%),
@@ -2475,6 +2492,13 @@ export default function PlannerPage() {
           handleRotationEnd();
         }}
         onTouchStart={(e) => {
+          // I översiktsläge - blockera pan/pinch/draw men inte element-klick
+          if (stickvagOversikt) {
+            // Låt touch-events på markers/linjer/zoner bubbla genom
+            // De har sina egna handlers
+            return;
+          }
+          
           // Pinch-to-zoom och rotation med två fingrar
           if (e.touches.length === 2) {
             e.preventDefault();
@@ -2740,10 +2764,18 @@ export default function PlannerPage() {
                 key={m.id} 
                 onMouseDown={(e) => handleMarkerDragStart(e, m)}
                 onTouchStart={(e) => handleMarkerDragStart(e, m)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (stickvagOversikt) {
+                    setSelectedOversiktItem(m);
+                    setSelectedOversiktVag(null);
+                  }
+                }}
                 style={{ 
                   cursor: isDragging ? 'grabbing' : 'pointer',
                   opacity: opacity,
                   transition: 'opacity 0.3s ease',
+                  pointerEvents: 'auto',
                 }}
               >
                 {/* Skugga när man drar */}
@@ -2809,7 +2841,14 @@ export default function PlannerPage() {
                   transform={`translate(${m.x}, ${m.y}) rotate(${m.rotation || 0}) scale(${arrowScale})`}
                   onMouseDown={(e) => handleMarkerDragStart(e, m)}
                   onTouchStart={(e) => handleMarkerDragStart(e, m)}
-                  style={{ cursor: isDragging ? 'grabbing' : 'pointer' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (stickvagOversikt) {
+                      setSelectedOversiktItem(m);
+                      setSelectedOversiktVag(null);
+                    }
+                  }}
+                  style={{ cursor: isDragging ? 'grabbing' : 'pointer', pointerEvents: 'auto' }}
                 >
                   {isDragging && hasMoved && (
                     <circle cx={0} cy={0} r={35} fill="rgba(0,0,0,0.3)" />
@@ -2850,9 +2889,11 @@ export default function PlannerPage() {
               d={m.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')} 
               fill="none" 
               stroke="transparent" 
-              strokeWidth="30"
-              style={{ cursor: 'pointer' }}
+              strokeWidth="50"
+              style={{ cursor: 'pointer', pointerEvents: 'auto' }}
               onClick={(e) => handleMarkerClick(e, m)}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleMarkerClick(e, m); }}
             />
           ))}
           
@@ -2862,8 +2903,10 @@ export default function PlannerPage() {
               key={`click-zone-${m.id}`}
               d={m.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'} 
               fill="transparent"
-              style={{ cursor: 'pointer' }}
+              style={{ cursor: 'pointer', pointerEvents: 'auto' }}
               onClick={(e) => handleMarkerClick(e, m)}
+              onTouchStart={(e) => e.stopPropagation()}
+              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleMarkerClick(e, m); }}
             />
           ))}
 
@@ -3323,7 +3366,7 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === GPS-KNAPP (höger nere) === */}
+      {/* === GPS-CENTRERING-KNAPP (höger nere) === */}
       <button
         onClick={() => {
           // Vibrera för feedback
@@ -3332,17 +3375,15 @@ export default function PlannerPage() {
           }
           
           if (isTracking && currentPosition) {
-            // GPS är redan på - flytta kartcentrum till din position
+            // Flytta kartcentrum till din GPS-position
             setMapCenter({ lat: currentPosition.lat, lng: currentPosition.lon });
             // Återställ GPS-position till centrum (0,0) och pan
             gpsMapPositionRef.current = { x: 0, y: 0 };
             setGpsMapPosition({ x: 0, y: 0 });
             setGpsStartPos({ lat: currentPosition.lat, lon: currentPosition.lon, x: 0, y: 0 });
             setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
-          } else {
-            // Starta GPS-tracking
-            toggleTracking();
           }
+          // Om GPS är av, gör ingenting - GPS startas via objekt-menyn
         }}
         style={{
           position: 'absolute',
@@ -3358,11 +3399,17 @@ export default function PlannerPage() {
           justifyContent: 'center',
           zIndex: 150,
           transition: 'all 0.3s ease',
-          cursor: 'pointer',
+          cursor: isTracking ? 'pointer' : 'default',
+          opacity: isTracking ? 1 : 0.4,
         }}
       >
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-          <circle cx="12" cy="12" r="5" fill={isTracking ? '#22c55e' : 'rgba(255,255,255,0.4)'}/>
+        {/* Centrerings-ikon */}
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isTracking ? '#22c55e' : 'rgba(255,255,255,0.5)'} strokeWidth="2">
+          <circle cx="12" cy="12" r="3" fill={isTracking ? '#22c55e' : 'none'}/>
+          <line x1="12" y1="2" x2="12" y2="6"/>
+          <line x1="12" y1="18" x2="12" y2="22"/>
+          <line x1="2" y1="12" x2="6" y2="12"/>
+          <line x1="18" y1="12" x2="22" y2="12"/>
         </svg>
       </button>
 
@@ -5193,6 +5240,11 @@ export default function PlannerPage() {
                         navigator.geolocation.watchPosition(
                           (pos) => {
                             const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
+                            const accuracy = pos.coords.accuracy;
+                            
+                            // Ignorera osäkra positioner (över 10 meter)
+                            if (accuracy > 10) return;
+                            
                             setCurrentPosition(newPos);
                             
                             setGpsStartPos(prev => {
@@ -5216,7 +5268,7 @@ export default function PlannerPage() {
                             });
                           },
                           (err) => console.log('GPS error:', err),
-                          { enableHighAccuracy: true, maximumAge: 2000 }
+                          { enableHighAccuracy: true, maximumAge: 500, timeout: 10000 }
                         );
                       }
                     }}
@@ -6236,7 +6288,11 @@ export default function PlannerPage() {
           }}>
             {/* Paus/Play */}
             <button
-              onClick={() => setGpsPaused(!gpsPaused)}
+              onClick={() => {
+                const newPaused = !gpsPaused;
+                setGpsPaused(newPaused);
+                gpsPausedRef.current = newPaused;
+              }}
               style={{
                 width: '60px',
                 height: '60px',
