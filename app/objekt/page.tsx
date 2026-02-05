@@ -1,677 +1,851 @@
-'use client'
+'use client';
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react';
 
-const MANADER = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
+const MANADER = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December'];
 
-const SUPABASE_URL = 'https://mxydghzfacbenbgpodex.supabase.co'
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14eWRnaHpmYWNiZW5iZ3BvZGV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4NzU2MjMsImV4cCI6MjA4NDQ1MTYyM30.NRBG5HcAtEXRTyf4YTp71A3iATk6U3DGhfdJ5EYlMyo'
-
-interface Koordinater {
-  typ: 'sweref99' | 'wgs84'
-  x: number | null
-  y: number | null
-}
-
-interface Objekt {
-  id: string
-  ar: number
-  manad: number
-  vo_nummer: string
-  namn: string
-  bolag: string
-  typ: string
-  atgard: string
-  volym: number
-  status: string
-  maskiner: string[]
-  koordinater: Koordinater
-  ordning: number
-}
-
-interface Bestallning {
-  id: string
-  ar: number
-  manad: number
-  typ: string
-  bolag: string
-  volym: number
-}
-
-interface FormData {
-  voNummer: string
-  namn: string
-  bolag: string
-  typ: 'slut' | 'gallring'
-  atgard: string
-  volym: string
-  maskiner: string[]
-  koordinatTyp: 'sweref99' | 'wgs84'
-  koordinatX: string
-  koordinatY: string
-}
-
-interface SparadeAtgarder {
-  slut: string[]
-  gallring: string[]
-}
-
-const statusCycle: Record<string, string> = { 
-  planerad: 'skordning', 
-  skordning: 'skotning', 
-  skotning: 'klar', 
-  klar: 'planerad' 
-}
-
-const statusColor: Record<string, string> = { 
+const statusColor = { 
   planerad: '#444', 
   skordning: '#eab308', 
   skotning: '#3b82f6', 
   klar: '#22c55e' 
-}
+};
+
+// Demo-data som simulerar importerad TD
+const DEMO_IMPORT = {
+  voNummer: '11080935',
+  traktNr: '883907',
+  namn: 'Lönsbygd AU 2025',
+  bolag: 'Vida',
+  inkopare: 'Jan-Erik Gustafsson',
+  inkoparetel: '070-2327410',
+  markagare: 'Agneta Ragnarsson',
+  markagaretel: '0705430793',
+  markagareepost: 'agnetha.ragnarsson@telia.com',
+  cert: '',
+  typ: 'slut',
+  volym: '565',
+  areal: '1.7',
+  grot: true,
+  koordinatX: '6264879',
+  koordinatY: '482509',
+  sortiment: ['Tall timmer · Urshult', 'Tall timmer · Vislanda', 'Gran timmer · Urshult', 'Gran timmer · Vislanda', 'Tall kubb', 'Gran kubb', 'Barrmassa', 'Björkmassa', 'Bränsleved'],
+  anteckningar: 'Fornåkrar över hela ytan.'
+};
 
 export default function ObjektPage() {
-  const [year, setYear] = useState(2026)
-  const [month, setMonth] = useState(0)
-  const [showForm, setShowForm] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [animated, setAnimated] = useState(false)
-  const [loading, setLoading] = useState(true)
+  const [year, setYear] = useState(2026);
+  const [month, setMonth] = useState(0);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [animated, setAnimated] = useState(false);
+  const [importStatus, setImportStatus] = useState('');
   
-  const [objekt, setObjekt] = useState<Objekt[]>([])
-  const [bestallningar, setBestallningar] = useState<Bestallning[]>([])
+  const [objekt, setObjekt] = useState([
+    { id: '1', namn: 'Björkbacken', bolag: 'Södra', typ: 'slutavverkning', volym: 850, status: 'planerad', atgard: 'Rp', koordinater: { x: 6300000, y: 480000 } },
+    { id: '2', namn: 'Stormyran', bolag: 'Vida', typ: 'gallring', volym: 420, status: 'skordning', atgard: 'Första gallring', koordinater: { x: null, y: null } }
+  ]);
 
-  const [form, setForm] = useState<FormData>({ 
-    voNummer: '', 
-    namn: '', 
-    bolag: '', 
-    typ: 'slut', 
-    atgard: '', 
-    volym: '', 
-    maskiner: [], 
-    koordinatTyp: 'sweref99', 
-    koordinatX: '', 
-    koordinatY: '' 
-  })
+  const [form, setForm] = useState({ 
+    voNummer: '', traktNr: '', namn: '', bolag: '', 
+    inkopare: '', inkoparetel: '', markagare: '', markagaretel: '', markagareepost: '',
+    cert: '', typ: 'slut', atgard: '', volym: '', areal: '', grot: false,
+    maskiner: [], koordinatX: '', koordinatY: '',
+    sortiment: [], anteckningar: ''
+  });
 
-  const [sparadeBolag, setSparadeBolag] = useState<string[]>(['Vida', 'Södra', 'ATA'])
-  const [sparadeMaskiner, setSparadeMaskiner] = useState<string[]>(['Ponsse Scorpion', 'Ponsse Buffalo', 'Extern skotare'])
-  const [sparadeAtgarder, setSparadeAtgarder] = useState<SparadeAtgarder>({ 
+  // Redigerbara listor
+  const [sparadeBolag, setSparadeBolag] = useState(['Vida', 'Södra', 'ATA', 'Privat']);
+  const [sparadeMaskiner, setSparadeMaskiner] = useState(['Ponsse Scorpion', 'Ponsse Buffalo', 'Extern skotare']);
+  const [sparadeAtgarder, setSparadeAtgarder] = useState({ 
     slut: ['Rp', 'Lrk', 'Au', 'VF/BarkB'], 
     gallring: ['Första gallring', 'Andra gallring', 'Gallring'] 
-  })
+  });
+  const [sparadeCert, setSparadeCert] = useState(['FSC', 'PEFC', 'Ej FSC', 'FSC (grön plan)', 'Ej FSC (grön plan)']);
+  const [sparadeSortiment, setSparadeSortiment] = useState([
+    { group: 'Tall timmer', items: ['Urshult', 'Vislanda'] },
+    { group: 'Gran timmer', items: ['Urshult', 'Vislanda'] },
+    { group: 'Kubb', items: ['Tall', 'Gran'] },
+    { group: 'Massa', items: ['Barr', 'Björk'] },
+    { group: 'Energi', items: ['Bränsleved'] },
+  ]);
 
-  const [editMode, setEditMode] = useState<string | null>(null)
-  const [showAddBolag, setShowAddBolag] = useState(false)
-  const [showAddMaskin, setShowAddMaskin] = useState(false)
-  const [showAddAtgard, setShowAddAtgard] = useState(false)
-  const [newBolag, setNewBolag] = useState('')
-  const [newMaskin, setNewMaskin] = useState('')
-  const [newAtgard, setNewAtgard] = useState('')
+  // Edit mode states
+  const [editMode, setEditMode] = useState(null);
+  const [showAdd, setShowAdd] = useState(null);
+  const [newValue, setNewValue] = useState('');
 
-  const [showBestallningar, setShowBestallningar] = useState(false)
-
-  useEffect(() => {
-    async function fetchData() {
-      setLoading(true)
-      
-      try {
-        const bestRes = await fetch(
-          `${SUPABASE_URL}/rest/v1/bestallningar?select=*`,
-          {
-            headers: {
-              'apikey': SUPABASE_KEY,
-              'Authorization': `Bearer ${SUPABASE_KEY}`
-            }
-          }
-        )
-        if (bestRes.ok) {
-          const bestData = await bestRes.json()
-          setBestallningar(bestData)
-        }
-        
-        const objRes = await fetch(
-          `${SUPABASE_URL}/rest/v1/objekt?select=*`,
-          {
-            headers: {
-              'apikey': SUPABASE_KEY,
-              'Authorization': `Bearer ${SUPABASE_KEY}`
-            }
-          }
-        )
-        if (objRes.ok) {
-          const objData = await objRes.json()
-          setObjekt(objData)
-        }
-      } catch (err) {
-        console.error('Fetch error:', err)
-      }
-      
-      setLoading(false)
-    }
-    fetchData()
-  }, [])
+  const [expandedSection, setExpandedSection] = useState('grund');
 
   useEffect(() => {
-    setAnimated(false)
-    setShowBestallningar(false)
-    const timer = setTimeout(() => setAnimated(true), 100)
-    return () => clearTimeout(timer)
-  }, [month, year])
+    setAnimated(false);
+    const timer = setTimeout(() => setAnimated(true), 100);
+    return () => clearTimeout(timer);
+  }, [month, year]);
 
-  const manadsBestallningar = bestallningar.filter(b => b.ar === year && b.manad === month + 1)
-  const aktuella = objekt.filter(o => o.ar === year && o.manad === month + 1)
-  
-  const slutObj = aktuella.filter(o => o.typ === 'slutavverkning')
-  const gallObj = aktuella.filter(o => o.typ === 'gallring')
-  const slutTotal = slutObj.reduce((s, o) => s + (o.volym || 0), 0)
-  const gallTotal = gallObj.reduce((s, o) => s + (o.volym || 0), 0)
-  
-  const slutBest = manadsBestallningar.filter(b => b.typ === 'slutavverkning').reduce((s, b) => s + b.volym, 0)
-  const gallBest = manadsBestallningar.filter(b => b.typ === 'gallring').reduce((s, b) => s + b.volym, 0)
+  const aktuella = objekt;
+  const slutObj = aktuella.filter(o => o.typ === 'slutavverkning');
+  const gallObj = aktuella.filter(o => o.typ === 'gallring');
+  const slutTotal = slutObj.reduce((s, o) => s + (o.volym || 0), 0);
+  const gallTotal = gallObj.reduce((s, o) => s + (o.volym || 0), 0);
+  const slutBest = 2000;
+  const gallBest = 1500;
 
-  const bytManad = (dir: number) => {
-    let m = month + dir, y = year
-    if (m > 11) { m = 0; y++ }
-    if (m < 0) { m = 11; y-- }
-    setMonth(m); setYear(y)
-  }
+  const bytManad = (dir) => {
+    let m = month + dir, y = year;
+    if (m > 11) { m = 0; y++; }
+    if (m < 0) { m = 11; y--; }
+    setMonth(m); setYear(y);
+  };
 
-  const toggleStatus = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation()
-    const obj = objekt.find(o => o.id === id)
-    if (!obj) return
-    const newStatus = statusCycle[obj.status] || 'planerad'
-    
-    setObjekt(objekt.map(o => o.id === id ? { ...o, status: newStatus } : o))
-    
-    await fetch(`${SUPABASE_URL}/rest/v1/objekt?id=eq.${id}`, {
-      method: 'PATCH',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=minimal'
-      },
-      body: JSON.stringify({ status: newStatus })
-    })
-  }
-  
-  const deleteObj = async (id: string) => {
-    setObjekt(objekt.filter(o => o.id !== id))
-    
-    await fetch(`${SUPABASE_URL}/rest/v1/objekt?id=eq.${id}`, {
-      method: 'DELETE',
-      headers: {
-        'apikey': SUPABASE_KEY,
-        'Authorization': `Bearer ${SUPABASE_KEY}`
-      }
-    })
-  }
+  const handleImport = () => {
+    setImportStatus('Läser traktdirektiv...');
+    setTimeout(() => {
+      setForm({ ...form, ...DEMO_IMPORT });
+      setImportStatus('✓ Importerat från TD!');
+      setShowForm(true);
+      setEditingId(null);
+      setExpandedSection('grund');
+    }, 800);
+  };
 
-  const openFormWithType = (typ: 'slut' | 'gallring') => {
-    setShowForm(true)
-    setEditingId(null)
-    setEditMode(null)
-    setShowAddBolag(false)
-    setShowAddMaskin(false)
-    setShowAddAtgard(false)
-    setForm({ voNummer: '', namn: '', bolag: '', typ, atgard: '', volym: '', maskiner: [], koordinatTyp: 'sweref99', koordinatX: '', koordinatY: '' })
-  }
+  const toggleStatus = (e, id) => {
+    e.stopPropagation();
+    const statusCycle = { planerad: 'skordning', skordning: 'skotning', skotning: 'klar', klar: 'planerad' };
+    setObjekt(objekt.map(o => o.id === id ? { ...o, status: statusCycle[o.status] || 'planerad' } : o));
+  };
 
-  const saveObj = async () => {
-    if (!form.voNummer || !form.namn || !form.bolag || !form.volym) return
-    
-    const koordinater: Koordinater = { 
-      typ: form.koordinatTyp, 
-      x: form.koordinatX ? parseFloat(form.koordinatX) : null, 
-      y: form.koordinatY ? parseFloat(form.koordinatY) : null 
-    }
-    
-    const supabaseTyp = form.typ === 'slut' ? 'slutavverkning' : 'gallring'
-    
-    if (editingId) {
-      const updated = { 
-        vo_nummer: form.voNummer, 
-        namn: form.namn, 
-        bolag: form.bolag, 
-        typ: supabaseTyp, 
-        atgard: form.atgard, 
-        volym: parseInt(form.volym), 
-        maskiner: form.maskiner, 
-        koordinater 
-      }
-      
-      setObjekt(objekt.map(o => o.id === editingId ? { ...o, ...updated } : o))
-      
-      await fetch(`${SUPABASE_URL}/rest/v1/objekt?id=eq.${editingId}`, {
-        method: 'PATCH',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal'
-        },
-        body: JSON.stringify(updated)
-      })
-    } else {
-      const newObj = { 
-        ar: year, 
-        manad: month + 1,
-        vo_nummer: form.voNummer, 
-        namn: form.namn, 
-        bolag: form.bolag, 
-        typ: supabaseTyp, 
-        atgard: form.atgard, 
-        volym: parseInt(form.volym), 
-        status: 'planerad', 
-        maskiner: form.maskiner, 
-        koordinater, 
-        ordning: aktuella.filter(o => o.typ === supabaseTyp).length + 1 
-      }
-      
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/objekt`, {
-        method: 'POST',
-        headers: {
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation'
-        },
-        body: JSON.stringify(newObj)
-      })
-      
-      if (res.ok) {
-        const [data] = await res.json()
-        if (data) setObjekt([...objekt, data])
-      }
-    }
-    setShowForm(false)
-    setEditingId(null)
-  }
-
-  const editObj = (obj: Objekt) => {
+  const openFormWithType = (typ) => {
+    setShowForm(true);
+    setEditingId(null);
+    setImportStatus('');
+    setExpandedSection('grund');
+    setEditMode(null);
+    setShowAdd(null);
     setForm({ 
-      voNummer: obj.vo_nummer || '', 
-      namn: obj.namn, 
-      bolag: obj.bolag, 
-      typ: obj.typ === 'slutavverkning' ? 'slut' : 'gallring', 
-      atgard: obj.atgard || '', 
-      volym: obj.volym?.toString() || '', 
-      maskiner: obj.maskiner || [], 
-      koordinatTyp: obj.koordinater?.typ || 'sweref99', 
-      koordinatX: obj.koordinater?.x?.toString() || '', 
-      koordinatY: obj.koordinater?.y?.toString() || '' 
-    })
-    setEditingId(obj.id)
-    setEditMode(null)
-    setShowAddBolag(false)
-    setShowAddMaskin(false)
-    setShowAddAtgard(false)
-    setShowForm(true)
-  }
+      voNummer: '', traktNr: '', namn: '', bolag: '', 
+      inkopare: '', inkoparetel: '', markagare: '', markagaretel: '', markagareepost: '',
+      cert: '', typ, atgard: '', volym: '', areal: '', grot: false,
+      maskiner: [], koordinatX: '', koordinatY: '',
+      sortiment: [], anteckningar: ''
+    });
+  };
 
-  const toggleMaskin = (maskin: string) => {
-    if (editMode === 'maskin') return
-    if (form.maskiner.includes(maskin)) setForm({ ...form, maskiner: form.maskiner.filter(m => m !== maskin) })
-    else setForm({ ...form, maskiner: [...form.maskiner, maskin] })
-  }
-
-  const addBolag = () => {
-    if (newBolag.trim() && !sparadeBolag.includes(newBolag.trim())) {
-      setSparadeBolag([...sparadeBolag, newBolag.trim()])
-      setForm({ ...form, bolag: newBolag.trim() })
+  const saveObj = () => {
+    if (!form.voNummer || !form.namn || !form.bolag || !form.volym) {
+      alert('Fyll i VO-nummer, namn, bolag och volym');
+      return;
     }
-    setNewBolag(''); setShowAddBolag(false)
-  }
-  
-  const removeBolag = (b: string) => {
-    setSparadeBolag(sparadeBolag.filter(x => x !== b))
-    if (form.bolag === b) setForm({ ...form, bolag: '' })
-  }
+    
+    const newObj = {
+      id: Date.now().toString(),
+      vo_nummer: form.voNummer,
+      namn: form.namn,
+      bolag: form.bolag,
+      typ: form.typ === 'slut' ? 'slutavverkning' : 'gallring',
+      atgard: form.atgard,
+      volym: parseInt(form.volym),
+      status: 'planerad',
+      koordinater: { x: form.koordinatX ? parseFloat(form.koordinatX) : null, y: form.koordinatY ? parseFloat(form.koordinatY) : null }
+    };
+    
+    setObjekt([...objekt, newObj]);
+    setShowForm(false);
+    setImportStatus('');
+  };
 
-  const addMaskin = () => {
-    if (newMaskin.trim() && !sparadeMaskiner.includes(newMaskin.trim())) {
-      setSparadeMaskiner([...sparadeMaskiner, newMaskin.trim()])
-      setForm({ ...form, maskiner: [...form.maskiner, newMaskin.trim()] })
+  const editObj = (obj) => {
+    setForm({
+      voNummer: obj.vo_nummer || '',
+      traktNr: '',
+      namn: obj.namn,
+      bolag: obj.bolag,
+      inkopare: '', inkoparetel: '', markagare: '', markagaretel: '', markagareepost: '',
+      cert: '',
+      typ: obj.typ === 'slutavverkning' ? 'slut' : 'gallring',
+      atgard: obj.atgard || '',
+      volym: obj.volym?.toString() || '',
+      areal: '',
+      grot: false,
+      maskiner: [],
+      koordinatX: obj.koordinater?.x?.toString() || '',
+      koordinatY: obj.koordinater?.y?.toString() || '',
+      sortiment: [],
+      anteckningar: ''
+    });
+    setEditingId(obj.id);
+    setImportStatus('');
+    setExpandedSection('grund');
+    setEditMode(null);
+    setShowAdd(null);
+    setShowForm(true);
+  };
+
+  const toggleSortiment = (name) => {
+    if (form.sortiment.includes(name)) {
+      setForm({ ...form, sortiment: form.sortiment.filter(s => s !== name) });
+    } else {
+      setForm({ ...form, sortiment: [...form.sortiment, name] });
     }
-    setNewMaskin(''); setShowAddMaskin(false)
-  }
-  
-  const removeMaskin = (m: string) => {
-    setSparadeMaskiner(sparadeMaskiner.filter(x => x !== m))
-    setForm({ ...form, maskiner: form.maskiner.filter(x => x !== m) })
-  }
+  };
 
-  const addAtgard = () => {
-    if (newAtgard.trim() && !sparadeAtgarder[form.typ].includes(newAtgard.trim())) {
-      setSparadeAtgarder({ ...sparadeAtgarder, [form.typ]: [...sparadeAtgarder[form.typ], newAtgard.trim()] })
-      setForm({ ...form, atgard: newAtgard.trim() })
-    }
-    setNewAtgard(''); setShowAddAtgard(false)
-  }
-  
-  const removeAtgard = (a: string) => {
-    setSparadeAtgarder({ ...sparadeAtgarder, [form.typ]: sparadeAtgarder[form.typ].filter(x => x !== a) })
-    if (form.atgard === a) setForm({ ...form, atgard: '' })
-  }
-
-  const Arc = ({ percent, size = 110, color }: { percent: number, size?: number, color: string }) => {
-    const stroke = 6
-    const r = (size - stroke) / 2
-    const circ = r * 2 * Math.PI
-    const animatedPercent = animated ? Math.min(percent, 100) : 0
-    const offset = circ - (animatedPercent / 100) * circ
-    const isComplete = percent >= 100
-    const id = Math.random().toString(36).substr(2, 9)
+  const Arc = ({ percent, size = 110, color }) => {
+    const stroke = 6;
+    const r = (size - stroke) / 2;
+    const circ = r * 2 * Math.PI;
+    const animatedPercent = animated ? Math.min(percent, 100) : 0;
+    const offset = circ - (animatedPercent / 100) * circ;
+    const isComplete = percent >= 100;
     
     return (
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', overflow: 'visible' }}>
-        <defs>
-          <filter id={`glow-${id}`} x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation={isComplete ? 6 : 3} result="coloredBlur"/>
-            <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
-          </filter>
-        </defs>
         <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={stroke} />
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" filter={`url(#glow-${id})`} style={{ transition: 'stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1)' }} />
-        {isComplete && <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke + 4} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round" opacity={0.3} style={{ transition: 'stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1)' }} />}
+        <circle 
+          cx={size/2} cy={size/2} r={r} fill="none" stroke={color} 
+          strokeWidth={stroke} strokeDasharray={circ} strokeDashoffset={offset} 
+          strokeLinecap="round" 
+          style={{ transition: 'stroke-dashoffset 1.5s cubic-bezier(0.4, 0, 0.2, 1)', filter: `drop-shadow(0 0 ${isComplete ? 8 : 4}px ${color})` }} 
+        />
       </svg>
-    )
-  }
+    );
+  };
 
-  const AnimatedNumber = ({ value }: { value: number }) => {
-    const [displayValue, setDisplayValue] = useState(0)
+  const AnimatedNumber = ({ value }) => {
+    const [displayValue, setDisplayValue] = useState(0);
     useEffect(() => {
-      if (!animated) { setDisplayValue(0); return }
-      const startTime = Date.now()
+      if (!animated) { setDisplayValue(0); return; }
+      const startTime = Date.now();
       const animate = () => {
-        const progress = Math.min((Date.now() - startTime) / 1500, 1)
-        setDisplayValue(Math.round(value * (1 - Math.pow(1 - progress, 3))))
-        if (progress < 1) requestAnimationFrame(animate)
-      }
-      requestAnimationFrame(animate)
-    }, [animated, value])
-    return <>{displayValue}</>
-  }
+        const progress = Math.min((Date.now() - startTime) / 1500, 1);
+        setDisplayValue(Math.round(value * (1 - Math.pow(1 - progress, 3))));
+        if (progress < 1) requestAnimationFrame(animate);
+      };
+      requestAnimationFrame(animate);
+    }, [animated, value]);
+    return <>{displayValue}</>;
+  };
 
-  interface ChipGroupProps {
-    items: string[]
-    selected: string | string[]
-    onSelect: (item: string) => void
-    onRemove: (item: string) => void
-    editModeKey: string
-    showAdd: boolean
-    setShowAdd: (show: boolean) => void
-    newValue: string
-    setNewValue: (value: string) => void
-    addFn: () => void
-    label: string
-    multiSelect?: boolean
-  }
-
-  const ChipGroup = ({ items, selected, onSelect, onRemove, editModeKey, showAdd, setShowAdd, newValue, setNewValue, addFn, label, multiSelect }: ChipGroupProps) => {
-    const isEditing = editMode === editModeKey
-    const isSelected = (item: string) => multiSelect ? (selected as string[]).includes(item) : selected === item
-    
+  const Section = ({ title, id, children }) => {
+    const isOpen = expandedSection === id;
     return (
-      <div style={{ marginBottom: '24px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: '600', letterSpacing: '0.5px' }}>{label}</label>
-          <button onClick={() => setEditMode(isEditing ? null : editModeKey)} style={{
-            background: 'none', border: 'none', fontSize: '11px', 
-            color: isEditing ? '#ef4444' : 'rgba(255,255,255,0.3)', cursor: 'pointer'
-          }}>{isEditing ? 'Klar' : 'Ändra'}</button>
-        </div>
-        {!showAdd ? (
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {items.map(item => (
-              <button key={item} onClick={() => !isEditing && onSelect(item)} style={{
-                padding: '10px 18px', borderRadius: '20px', border: 'none',
-                background: isSelected(item) ? '#fff' : 'rgba(255,255,255,0.08)',
-                color: isSelected(item) ? '#000' : 'rgba(255,255,255,0.6)',
-                fontSize: '14px', fontWeight: '500', cursor: isEditing ? 'default' : 'pointer',
-                display: 'flex', alignItems: 'center', gap: '8px',
-                transition: 'all 0.2s'
-              }}>
-                {item}
-                {isEditing && (
-                  <span onClick={(e) => { e.stopPropagation(); onRemove(item) }} style={{
-                    width: '18px', height: '18px', borderRadius: '50%',
-                    background: '#ef4444', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: '10px', color: '#fff', cursor: 'pointer', marginLeft: '2px'
-                  }}>✕</span>
-                )}
-              </button>
-            ))}
-            <button onClick={() => setShowAdd(true)} style={{
-              padding: '10px 18px', borderRadius: '20px',
-              border: '1.5px dashed rgba(255,255,255,0.15)',
-              background: 'transparent', color: 'rgba(255,255,255,0.3)',
-              fontSize: '14px', cursor: 'pointer'
-            }}>+</button>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <input value={newValue} onChange={e => setNewValue(e.target.value)} placeholder="" autoFocus
-              style={{ flex: 1, padding: '12px 18px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '20px', fontSize: '14px', color: '#fff' }} 
-              onKeyDown={e => e.key === 'Enter' && addFn()} />
-            <button onClick={addFn} style={{ padding: '12px 20px', background: '#fff', color: '#000', border: 'none', borderRadius: '20px', fontWeight: '600', cursor: 'pointer' }}>✓</button>
-            <button onClick={() => { setShowAdd(false); setNewValue('') }} style={{ padding: '12px 16px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', borderRadius: '20px', cursor: 'pointer' }}>✕</button>
+      <div style={{ marginBottom: '8px' }}>
+        <button 
+          onClick={() => setExpandedSection(isOpen ? null : id)}
+          style={{
+            width: '100%',
+            padding: '14px 16px',
+            background: 'rgba(255,255,255,0.04)',
+            border: 'none',
+            borderRadius: isOpen ? '12px 12px 0 0' : '12px',
+            color: '#fff',
+            fontSize: '14px',
+            fontWeight: '600',
+            cursor: 'pointer',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center'
+          }}
+        >
+          {title}
+          <span style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', opacity: 0.5 }}>▼</span>
+        </button>
+        {isOpen && (
+          <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '0 0 12px 12px' }}>
+            {children}
           </div>
         )}
       </div>
-    )
-  }
+    );
+  };
+
+  const InputField = ({ label, value, onChange, placeholder, type = 'text' }) => (
+    <div style={{ marginBottom: '16px' }}>
+      <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '8px', fontWeight: '600' }}>{label}</label>
+      <input 
+        type={type}
+        value={value} 
+        onChange={onChange} 
+        placeholder={placeholder}
+        style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '10px', fontSize: '15px', color: '#fff', boxSizing: 'border-box' }} 
+      />
+    </div>
+  );
+
+  // Redigerbar ChipSelect
+  const ChipSelect = ({ items, selected, onSelect, label, editKey, onAdd, onRemove, multi = false }) => {
+    const isEditing = editMode === editKey;
+    const isAdding = showAdd === editKey;
+    const isSelected = (item) => multi ? (selected || []).includes(item) : selected === item;
+    
+    const handleSelect = (item) => {
+      if (isEditing) return;
+      if (multi) {
+        if (isSelected(item)) {
+          onSelect(selected.filter(s => s !== item));
+        } else {
+          onSelect([...(selected || []), item]);
+        }
+      } else {
+        onSelect(item);
+      }
+    };
+
+    const handleAdd = () => {
+      if (newValue.trim() && !items.includes(newValue.trim())) {
+        onAdd(newValue.trim());
+        if (!multi) {
+          onSelect(newValue.trim());
+        }
+      }
+      setNewValue('');
+      setShowAdd(null);
+    };
+    
+    return (
+      <div style={{ marginBottom: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: '600' }}>{label}</label>
+          <button 
+            onClick={() => setEditMode(isEditing ? null : editKey)} 
+            style={{ background: 'none', border: 'none', fontSize: '11px', color: isEditing ? '#ef4444' : 'rgba(255,255,255,0.3)', cursor: 'pointer' }}
+          >
+            {isEditing ? 'Klar' : 'Ändra'}
+          </button>
+        </div>
+        
+        {isAdding ? (
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <input 
+              value={newValue} 
+              onChange={e => setNewValue(e.target.value)} 
+              placeholder="Lägg till..." 
+              autoFocus
+              onKeyDown={e => e.key === 'Enter' && handleAdd()}
+              style={{ flex: 1, padding: '10px 14px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff' }} 
+            />
+            <button onClick={handleAdd} style={{ padding: '10px 16px', background: '#fff', color: '#000', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>✓</button>
+            <button onClick={() => { setShowAdd(null); setNewValue(''); }} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>✕</button>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {items.map(item => (
+              <button 
+                key={item} 
+                onClick={() => handleSelect(item)}
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '10px',
+                  border: 'none',
+                  background: isSelected(item) ? '#fff' : 'rgba(255,255,255,0.06)',
+                  color: isSelected(item) ? '#000' : 'rgba(255,255,255,0.5)',
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  cursor: isEditing ? 'default' : 'pointer',
+                  transition: 'all 0.15s',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                {item}
+                {isEditing && (
+                  <span 
+                    onClick={(e) => { e.stopPropagation(); onRemove(item); }}
+                    style={{
+                      width: '18px',
+                      height: '18px',
+                      borderRadius: '50%',
+                      background: '#ef4444',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '12px',
+                      color: '#fff',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    ✕
+                  </span>
+                )}
+              </button>
+            ))}
+            <button 
+              onClick={() => setShowAdd(editKey)}
+              style={{
+                padding: '10px 16px',
+                borderRadius: '10px',
+                border: '1.5px dashed rgba(255,255,255,0.15)',
+                background: 'transparent',
+                color: 'rgba(255,255,255,0.3)',
+                fontSize: '14px',
+                cursor: 'pointer'
+              }}
+            >
+              +
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // Sortiment med redigerbara grupper och items
+  const SortimentSelector = ({ selected, onToggle }) => {
+    const [addingToGroup, setAddingToGroup] = useState(null);
+    const [newItemValue, setNewItemValue] = useState('');
+    const [addingGroup, setAddingGroup] = useState(false);
+    const [newGroupName, setNewGroupName] = useState('');
+
+    const handleAddItem = (groupIndex) => {
+      if (newItemValue.trim()) {
+        const updated = [...sparadeSortiment];
+        updated[groupIndex].items.push(newItemValue.trim());
+        setSparadeSortiment(updated);
+        setNewItemValue('');
+        setAddingToGroup(null);
+      }
+    };
+
+    const handleRemoveItem = (groupIndex, item) => {
+      const updated = [...sparadeSortiment];
+      updated[groupIndex].items = updated[groupIndex].items.filter(i => i !== item);
+      setSparadeSortiment(updated);
+      // Ta bort från valda om den var vald
+      const fullId = updated[groupIndex].group + ' · ' + item;
+      if (selected.includes(fullId)) {
+        onToggle(fullId);
+      }
+    };
+
+    const handleRemoveGroup = (groupIndex) => {
+      const updated = sparadeSortiment.filter((_, i) => i !== groupIndex);
+      setSparadeSortiment(updated);
+    };
+
+    const handleAddGroup = () => {
+      if (newGroupName.trim()) {
+        setSparadeSortiment([...sparadeSortiment, { group: newGroupName.trim(), items: [] }]);
+        setNewGroupName('');
+        setAddingGroup(false);
+      }
+    };
+
+    const isEditing = editMode === 'sortiment';
+
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: '600' }}>SORTIMENT</label>
+          <button 
+            onClick={() => setEditMode(isEditing ? null : 'sortiment')} 
+            style={{ background: 'none', border: 'none', fontSize: '11px', color: isEditing ? '#ef4444' : 'rgba(255,255,255,0.3)', cursor: 'pointer' }}
+          >
+            {isEditing ? 'Klar' : 'Ändra'}
+          </button>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          {sparadeSortiment.map(({ group, items }, groupIndex) => (
+            <div key={group}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', fontWeight: '600', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                  {group}
+                </div>
+                {isEditing && (
+                  <button 
+                    onClick={() => handleRemoveGroup(groupIndex)}
+                    style={{ background: 'none', border: 'none', color: '#ef4444', fontSize: '11px', cursor: 'pointer', padding: '2px 6px' }}
+                  >
+                    Ta bort
+                  </button>
+                )}
+              </div>
+              
+              {addingToGroup === groupIndex ? (
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <input 
+                    value={newItemValue} 
+                    onChange={e => setNewItemValue(e.target.value)} 
+                    placeholder="Lägg till..." 
+                    autoFocus
+                    onKeyDown={e => e.key === 'Enter' && handleAddItem(groupIndex)}
+                    style={{ flex: 1, padding: '10px 14px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff' }} 
+                  />
+                  <button onClick={() => handleAddItem(groupIndex)} style={{ padding: '10px 16px', background: '#fff', color: '#000', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>✓</button>
+                  <button onClick={() => { setAddingToGroup(null); setNewItemValue(''); }} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>✕</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {items.map(item => {
+                    const fullId = group + ' · ' + item;
+                    const isActive = selected.includes(fullId);
+                    return (
+                      <button
+                        key={item}
+                        onClick={() => !isEditing && onToggle(fullId)}
+                        style={{
+                          padding: '12px 20px',
+                          borderRadius: '10px',
+                          border: 'none',
+                          background: isActive ? '#fff' : 'rgba(255,255,255,0.06)',
+                          color: isActive ? '#000' : 'rgba(255,255,255,0.5)',
+                          fontSize: '14px',
+                          fontWeight: '500',
+                          cursor: isEditing ? 'default' : 'pointer',
+                          transition: 'all 0.15s ease',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                      >
+                        {item}
+                        {isEditing && (
+                          <span 
+                            onClick={(e) => { e.stopPropagation(); handleRemoveItem(groupIndex, item); }}
+                            style={{
+                              width: '18px',
+                              height: '18px',
+                              borderRadius: '50%',
+                              background: '#ef4444',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '12px',
+                              color: '#fff',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            ✕
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                  <button 
+                    onClick={() => setAddingToGroup(groupIndex)}
+                    style={{
+                      padding: '12px 20px',
+                      borderRadius: '10px',
+                      border: '1.5px dashed rgba(255,255,255,0.15)',
+                      background: 'transparent',
+                      color: 'rgba(255,255,255,0.3)',
+                      fontSize: '14px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    +
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Lägg till ny grupp */}
+          {addingGroup ? (
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input 
+                value={newGroupName} 
+                onChange={e => setNewGroupName(e.target.value)} 
+                placeholder="Ny sortimentsgrupp..." 
+                autoFocus
+                onKeyDown={e => e.key === 'Enter' && handleAddGroup()}
+                style={{ flex: 1, padding: '10px 14px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff' }} 
+              />
+              <button onClick={handleAddGroup} style={{ padding: '10px 16px', background: '#fff', color: '#000', border: 'none', borderRadius: '10px', fontWeight: '600', cursor: 'pointer' }}>✓</button>
+              <button onClick={() => { setAddingGroup(false); setNewGroupName(''); }} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.1)', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer' }}>✕</button>
+            </div>
+          ) : (
+            <button 
+              onClick={() => setAddingGroup(true)}
+              style={{
+                padding: '14px',
+                borderRadius: '10px',
+                border: '1.5px dashed rgba(255,255,255,0.15)',
+                background: 'transparent',
+                color: 'rgba(255,255,255,0.3)',
+                fontSize: '14px',
+                cursor: 'pointer',
+                width: '100%'
+              }}
+            >
+              + Lägg till sortimentsgrupp
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Handlers för att lägga till/ta bort
+  const addBolag = (val) => setSparadeBolag([...sparadeBolag, val]);
+  const removeBolag = (val) => {
+    setSparadeBolag(sparadeBolag.filter(b => b !== val));
+    if (form.bolag === val) setForm({ ...form, bolag: '' });
+  };
+
+  const addCert = (val) => setSparadeCert([...sparadeCert, val]);
+  const removeCert = (val) => {
+    setSparadeCert(sparadeCert.filter(c => c !== val));
+    if (form.cert === val) setForm({ ...form, cert: '' });
+  };
+
+  const addAtgard = (val) => {
+    setSparadeAtgarder({ ...sparadeAtgarder, [form.typ]: [...sparadeAtgarder[form.typ], val] });
+  };
+  const removeAtgard = (val) => {
+    setSparadeAtgarder({ ...sparadeAtgarder, [form.typ]: sparadeAtgarder[form.typ].filter(a => a !== val) });
+    if (form.atgard === val) setForm({ ...form, atgard: '' });
+  };
+
+  const addMaskin = (val) => setSparadeMaskiner([...sparadeMaskiner, val]);
+  const removeMaskin = (val) => {
+    setSparadeMaskiner(sparadeMaskiner.filter(m => m !== val));
+    setForm({ ...form, maskiner: form.maskiner.filter(m => m !== val) });
+  };
 
   return (
     <div style={{ minHeight: '100vh', background: '#000', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif' }}>
       <style>{`@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } } @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
       
+      {/* Header */}
       <div style={{ padding: '20px 24px 12px' }}>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', fontWeight: '600', letterSpacing: '1px' }}>KOMPERSMÅLA SKOG</div>
         <div style={{ fontSize: '32px', fontWeight: '700', color: '#fff', marginTop: '4px', letterSpacing: '-1px' }}>Objekt</div>
       </div>
 
-      {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '80px 0' }}>
-          <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '14px' }}>Laddar...</div>
-        </div>
-      ) : (
-      <>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px 24px 16px', gap: '24px' }}>
-          <button onClick={() => bytManad(-1)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>‹</button>
-          <button onClick={() => manadsBestallningar.length > 0 && setShowBestallningar(true)} style={{ background: 'none', border: 'none', cursor: manadsBestallningar.length > 0 ? 'pointer' : 'default', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '18px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>{MANADER[month]} {year}</span>
-            {manadsBestallningar.length > 0 && <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)' }}>▼</span>}
-          </button>
-          <button onClick={() => bytManad(1)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>›</button>
-        </div>
+      {/* Import-knapp */}
+      <div style={{ padding: '0 24px 16px' }}>
+        <button
+          onClick={handleImport}
+          style={{
+            width: '100%',
+            padding: '16px',
+            background: 'rgba(255,255,255,0.06)',
+            border: '1.5px dashed rgba(255,255,255,0.2)',
+            borderRadius: '12px',
+            color: 'rgba(255,255,255,0.7)',
+            fontSize: '14px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '10px'
+          }}
+        >
+          Importera traktfiler
+        </button>
+      </div>
 
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '48px', padding: '16px 24px 48px' }}>
-          {[{ typ: 'slut' as const, label: 'Slutavverkning', total: slutTotal, best: slutBest, color: '#eab308' }, { typ: 'gallring' as const, label: 'Gallring', total: gallTotal, best: gallBest, color: '#22c55e' }].map(item => {
-            const percent = item.best ? (item.total / item.best) * 100 : 0
-            const isComplete = percent >= 100
-            return (
-              <div key={item.typ} onClick={() => openFormWithType(item.typ)} style={{ textAlign: 'center', cursor: 'pointer' }}>
-                <div style={{ position: 'relative', display: 'inline-block', filter: isComplete ? `drop-shadow(0 0 20px ${item.color})` : 'none' }}>
-                  <Arc percent={percent} color={item.color} />
-                  <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-                    <div style={{ fontSize: '24px', fontWeight: '700', color: '#fff', textShadow: isComplete ? `0 0 20px ${item.color}` : 'none' }}><AnimatedNumber value={Math.round(percent)} /></div>
-                    <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginTop: '-2px' }}>%</div>
-                  </div>
-                </div>
-                <div style={{ marginTop: '14px' }}>
-                  <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', fontWeight: '500' }}>{item.label}</div>
-                  <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)', marginTop: '4px' }}><AnimatedNumber value={item.total} /> / {item.best} m³</div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
+      {/* Månadsväljare */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '12px 24px 16px', gap: '24px' }}>
+        <button onClick={() => bytManad(-1)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>‹</button>
+        <span style={{ fontSize: '18px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>{MANADER[month]} {year}</span>
+        <button onClick={() => bytManad(1)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.25)', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>›</button>
+      </div>
 
-        <div style={{ padding: '0 24px', maxWidth: '600px', margin: '0 auto' }}>
-          {aktuella.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '60px 0', color: 'rgba(255,255,255,0.2)', fontSize: '14px' }}>Tryck på en ring för att lägga till</div>
-          ) : aktuella.map((obj, i) => (
-            <div key={obj.id} onClick={() => editObj(obj)} style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '20px 0', borderTop: i === 0 ? '1px solid rgba(255,255,255,0.06)' : 'none', borderBottom: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div onClick={(e) => toggleStatus(e, obj.id)} style={{ width: '10px', height: '10px', borderRadius: '50%', background: statusColor[obj.status] || '#444', boxShadow: obj.status !== 'planerad' ? `0 0 12px ${statusColor[obj.status]}` : 'none', cursor: 'pointer' }} />
-                <div style={{ width: '4px', height: '36px', borderRadius: '2px', background: obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e', opacity: (obj.koordinater?.x && obj.koordinater?.y) ? 1 : 0.25, boxShadow: (obj.koordinater?.x && obj.koordinater?.y) ? `0 0 8px ${obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e'}` : 'none' }} />
+      {/* Cirkeldiagram */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '48px', padding: '16px 24px 48px' }}>
+        {[
+          { typ: 'slut', label: 'Slutavverkning', total: slutTotal, best: slutBest, color: '#eab308' }, 
+          { typ: 'gallring', label: 'Gallring', total: gallTotal, best: gallBest, color: '#22c55e' }
+        ].map(item => {
+          const percent = item.best ? (item.total / item.best) * 100 : 0;
+          return (
+            <div key={item.typ} onClick={() => openFormWithType(item.typ)} style={{ textAlign: 'center', cursor: 'pointer' }}>
+              <div style={{ position: 'relative', display: 'inline-block' }}>
+                <Arc percent={percent} color={item.color} />
+                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '24px', fontWeight: '700', color: '#fff' }}><AnimatedNumber value={Math.round(percent)} /></div>
+                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', marginTop: '-2px' }}>%</div>
+                </div>
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff' }}>{obj.namn}</div>
-                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>{obj.bolag}{obj.atgard && ` · ${obj.atgard}`}</div>
+              <div style={{ marginTop: '14px' }}>
+                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', fontWeight: '500' }}>{item.label}</div>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)', marginTop: '4px' }}><AnimatedNumber value={item.total} /> / {item.best} m³</div>
               </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>{obj.volym}</div>
-                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '2px' }}>m³</div>
-              </div>
-              <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: '18px', marginLeft: '8px' }}>›</div>
             </div>
-          ))}
-        </div>
-      </>
-      )}
+          );
+        })}
+      </div>
 
+      {/* Objektlista */}
+      <div style={{ padding: '0 24px', maxWidth: '600px', margin: '0 auto' }}>
+        {aktuella.map((obj, i) => (
+          <div 
+            key={obj.id} 
+            onClick={() => editObj(obj)} 
+            style={{ 
+              display: 'flex', alignItems: 'center', gap: '16px', padding: '20px 0', 
+              borderTop: i === 0 ? '1px solid rgba(255,255,255,0.06)' : 'none', 
+              borderBottom: '1px solid rgba(255,255,255,0.06)', 
+              cursor: 'pointer' 
+            }}
+          >
+            <div style={{ 
+              width: '4px', height: '36px', borderRadius: '2px', 
+              background: obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e', 
+              opacity: (obj.koordinater?.x && obj.koordinater?.y) ? 1 : 0.25,
+              boxShadow: (obj.koordinater?.x && obj.koordinater?.y) ? `0 0 8px ${obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e'}` : 'none'
+            }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff' }}>{obj.namn}</div>
+              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>{obj.bolag}{obj.atgard && ` · ${obj.atgard}`}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>{obj.volym}</div>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginTop: '2px' }}>m³</div>
+            </div>
+            <div style={{ color: 'rgba(255,255,255,0.2)', fontSize: '18px', marginLeft: '8px' }}>›</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Formulär */}
       {showForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 100 }} onClick={() => setShowForm(false)}>
-          <div style={{ background: '#161616', width: '100%', maxWidth: '500px', borderRadius: '20px 20px 0 0', padding: '24px', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
-            <div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.15)', borderRadius: '2px', margin: '0 auto 24px' }} />
-            <h2 style={{ fontSize: '24px', fontWeight: '700', color: '#fff', textAlign: 'center', marginBottom: '32px' }}>{editingId ? 'Redigera objekt' : (form.typ === 'slut' ? 'Ny slutavverkning' : 'Ny gallring')}</h2>
+          <div style={{ background: '#161616', width: '100%', maxWidth: '500px', borderRadius: '20px 20px 0 0', padding: '20px', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.15)', borderRadius: '2px', margin: '0 auto 20px' }} />
             
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '10px', fontWeight: '600' }}>VO-NUMMER</label>
-              <input value={form.voNummer} onChange={e => setForm({ ...form, voNummer: e.target.value })} style={{ width: '100%', padding: '14px 16px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '12px', fontSize: '16px', color: '#fff', boxSizing: 'border-box' }} />
-            </div>
+            <h2 style={{ fontSize: '22px', fontWeight: '700', color: '#fff', textAlign: 'center', marginBottom: '8px' }}>
+              {editingId ? 'Redigera objekt' : (form.typ === 'slut' ? 'Ny slutavverkning' : 'Ny gallring')}
+            </h2>
             
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '10px', fontWeight: '600' }}>NAMN</label>
-              <input value={form.namn} onChange={e => setForm({ ...form, namn: e.target.value })} style={{ width: '100%', padding: '14px 16px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '12px', fontSize: '16px', color: '#fff', boxSizing: 'border-box' }} />
-            </div>
-
-            <ChipGroup
-              items={sparadeAtgarder[form.typ]}
-              selected={form.atgard}
-              onSelect={(a) => setForm({ ...form, atgard: a })}
-              onRemove={removeAtgard}
-              editModeKey="atgard"
-              showAdd={showAddAtgard}
-              setShowAdd={setShowAddAtgard}
-              newValue={newAtgard}
-              setNewValue={setNewAtgard}
-              addFn={addAtgard}
-              label="ÅTGÄRD"
-            />
-            
-            <ChipGroup
-              items={sparadeBolag}
-              selected={form.bolag}
-              onSelect={(b) => setForm({ ...form, bolag: b })}
-              onRemove={removeBolag}
-              editModeKey="bolag"
-              showAdd={showAddBolag}
-              setShowAdd={setShowAddBolag}
-              newValue={newBolag}
-              setNewValue={setNewBolag}
-              addFn={addBolag}
-              label="BOLAG"
-            />
-            
-            <div style={{ marginBottom: '24px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '10px', fontWeight: '600' }}>VOLYM M³</label>
-              <input type="number" value={form.volym} onChange={e => setForm({ ...form, volym: e.target.value })} style={{ width: '100%', padding: '14px 16px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '12px', fontSize: '24px', color: '#fff', fontWeight: '600', boxSizing: 'border-box' }} />
-            </div>
-
-            <ChipGroup
-              items={sparadeMaskiner}
-              selected={form.maskiner}
-              onSelect={toggleMaskin}
-              onRemove={removeMaskin}
-              editModeKey="maskin"
-              showAdd={showAddMaskin}
-              setShowAdd={setShowAddMaskin}
-              newValue={newMaskin}
-              setNewValue={setNewMaskin}
-              addFn={addMaskin}
-              label="MASKINER"
-              multiSelect
-            />
-
-            <div style={{ marginBottom: '32px' }}>
-              <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '12px', fontWeight: '600' }}>KOORDINATER</label>
-              <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                {(['sweref99', 'wgs84'] as const).map(t => (
-                  <button key={t} onClick={() => setForm({ ...form, koordinatTyp: t })} style={{ padding: '10px 18px', borderRadius: '20px', border: 'none', background: form.koordinatTyp === t ? '#fff' : 'rgba(255,255,255,0.08)', color: form.koordinatTyp === t ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: '500', cursor: 'pointer' }}>{t === 'sweref99' ? 'SWEREF99' : 'WGS84'}</button>
-                ))}
+            {importStatus && (
+              <div style={{ 
+                textAlign: 'center', padding: '10px', marginBottom: '16px',
+                background: importStatus.includes('✓') ? 'rgba(34,197,94,0.15)' : 'rgba(59,130,246,0.15)',
+                borderRadius: '8px',
+                color: importStatus.includes('✓') ? '#22c55e' : '#3b82f6',
+                fontSize: '13px'
+              }}>
+                {importStatus}
               </div>
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <input value={form.koordinatX} onChange={e => setForm({ ...form, koordinatX: e.target.value })} placeholder={form.koordinatTyp === 'sweref99' ? 'X (N)' : 'Lat'} style={{ flex: 1, padding: '14px 16px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '12px', fontSize: '14px', color: '#fff' }} />
-                <input value={form.koordinatY} onChange={e => setForm({ ...form, koordinatY: e.target.value })} placeholder={form.koordinatTyp === 'sweref99' ? 'Y (E)' : 'Lng'} style={{ flex: 1, padding: '14px 16px', background: 'rgba(255,255,255,0.08)', border: 'none', borderRadius: '12px', fontSize: '14px', color: '#fff' }} />
-              </div>
-            </div>
-
-            <button onClick={saveObj} style={{ width: '100%', padding: '18px', border: 'none', borderRadius: '14px', background: '#fff', color: '#000', fontSize: '16px', fontWeight: '600', cursor: 'pointer', marginBottom: '12px' }}>Spara</button>
-            {editingId && (
-              <button onClick={() => { deleteObj(editingId); setShowForm(false) }} style={{ width: '100%', padding: '16px', border: 'none', borderRadius: '14px', background: 'rgba(239,68,68,0.15)', color: '#ef4444', fontSize: '16px', fontWeight: '500', cursor: 'pointer', marginBottom: '12px' }}>Ta bort</button>
             )}
-            <button onClick={() => setShowForm(false)} style={{ width: '100%', padding: '16px', border: 'none', borderRadius: '14px', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: '16px', cursor: 'pointer' }}>Avbryt</button>
-          </div>
-        </div>
-      )}
 
-      {showBestallningar && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', animation: 'fadeIn 0.2s ease' }} onClick={() => setShowBestallningar(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: '#161616', borderRadius: '20px 20px 0 0', padding: '12px 24px 40px', animation: 'slideUp 0.3s ease' }}>
-            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}><div style={{ width: '36px', height: '4px', background: 'rgba(255,255,255,0.2)', borderRadius: '2px' }} /></div>
-            <div style={{ textAlign: 'center', marginBottom: '28px' }}>
-              <div style={{ fontSize: '18px', fontWeight: '600', color: '#fff' }}>Beställningar</div>
-              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>{MANADER[month]} {year}</div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {(() => {
-                const perBolag: Record<string, { slut: number, gallring: number }> = {}
-                manadsBestallningar.forEach(b => {
-                  if (!perBolag[b.bolag]) perBolag[b.bolag] = { slut: 0, gallring: 0 }
-                  if (b.typ === 'slutavverkning') perBolag[b.bolag].slut += b.volym
-                  else perBolag[b.bolag].gallring += b.volym
-                })
-                return Object.entries(perBolag).map(([bolag, volymer]) => {
-                  const inplaneratSlut = aktuella.filter(o => o.typ === 'slutavverkning' && o.bolag === bolag).reduce((s, o) => s + (o.volym || 0), 0)
-                  const inplaneratGall = aktuella.filter(o => o.typ === 'gallring' && o.bolag === bolag).reduce((s, o) => s + (o.volym || 0), 0)
-                  return (
-                    <div key={bolag} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: '16px', padding: '16px 20px' }}>
-                      <div style={{ fontSize: '15px', fontWeight: '600', color: '#fff', marginBottom: '14px' }}>{bolag}</div>
-                      {volymer.slut > 0 && (
-                        <div style={{ marginBottom: volymer.gallring > 0 ? '12px' : 0 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Slutavverkning</span>
-                            <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.9)', fontWeight: '500' }}>{inplaneratSlut} / {volymer.slut} m³{inplaneratSlut >= volymer.slut && <span style={{ color: '#22c55e' }}> ✓</span>}</span>
-                          </div>
-                          <div style={{ height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-                            <div style={{ width: `${Math.min((inplaneratSlut / volymer.slut) * 100, 100)}%`, height: '100%', background: '#eab308', borderRadius: '2px', boxShadow: inplaneratSlut >= volymer.slut ? '0 0 12px #eab308' : 'none' }} />
-                          </div>
-                        </div>
-                      )}
-                      {volymer.gallring > 0 && (
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                            <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Gallring</span>
-                            <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.9)', fontWeight: '500' }}>{inplaneratGall} / {volymer.gallring} m³{inplaneratGall >= volymer.gallring && <span style={{ color: '#22c55e' }}> ✓</span>}</span>
-                          </div>
-                          <div style={{ height: '4px', background: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-                            <div style={{ width: `${Math.min((inplaneratGall / volymer.gallring) * 100, 100)}%`, height: '100%', background: '#22c55e', borderRadius: '2px', boxShadow: inplaneratGall >= volymer.gallring ? '0 0 12px #22c55e' : 'none' }} />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                })
-              })()}
+            {/* GRUNDINFO */}
+            <Section title="Grundinfo" id="grund">
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <InputField label="VO-NUMMER" value={form.voNummer} onChange={e => setForm({ ...form, voNummer: e.target.value })} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <InputField label="TRAKTNR" value={form.traktNr} onChange={e => setForm({ ...form, traktNr: e.target.value })} />
+                </div>
+              </div>
+              
+              <InputField label="NAMN" value={form.namn} onChange={e => setForm({ ...form, namn: e.target.value })} />
+              
+              <ChipSelect 
+                items={sparadeBolag} 
+                selected={form.bolag} 
+                onSelect={v => setForm({ ...form, bolag: v })} 
+                label="BOLAG"
+                editKey="bolag"
+                onAdd={addBolag}
+                onRemove={removeBolag}
+              />
+              
+              <ChipSelect 
+                items={sparadeCert} 
+                selected={form.cert} 
+                onSelect={v => setForm({ ...form, cert: v })} 
+                label="CERTIFIERING"
+                editKey="cert"
+                onAdd={addCert}
+                onRemove={removeCert}
+              />
+              
+              <ChipSelect 
+                items={sparadeAtgarder[form.typ]} 
+                selected={form.atgard} 
+                onSelect={v => setForm({ ...form, atgard: v })} 
+                label="ÅTGÄRD"
+                editKey="atgard"
+                onAdd={addAtgard}
+                onRemove={removeAtgard}
+              />
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <InputField label="VOLYM M³" value={form.volym} onChange={e => setForm({ ...form, volym: e.target.value })} type="number" />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <InputField label="AREAL HA" value={form.areal} onChange={e => setForm({ ...form, areal: e.target.value })} />
+                </div>
+              </div>
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '10px', fontWeight: '600' }}>GROT</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button onClick={() => setForm({ ...form, grot: true })} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: form.grot ? '#22c55e' : 'rgba(255,255,255,0.06)', color: form.grot ? '#fff' : 'rgba(255,255,255,0.5)', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>Ja</button>
+                  <button onClick={() => setForm({ ...form, grot: false })} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: !form.grot ? '#ef4444' : 'rgba(255,255,255,0.06)', color: !form.grot ? '#fff' : 'rgba(255,255,255,0.5)', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>Nej</button>
+                </div>
+              </div>
+            </Section>
+
+            {/* KONTAKTINFO */}
+            <Section title="Kontakt" id="kontakt">
+              <InputField label="MARKÄGARE" value={form.markagare} onChange={e => setForm({ ...form, markagare: e.target.value })} />
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ flex: 1 }}>
+                  <InputField label="TELEFON" value={form.markagaretel} onChange={e => setForm({ ...form, markagaretel: e.target.value })} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <InputField label="E-POST" value={form.markagareepost} onChange={e => setForm({ ...form, markagareepost: e.target.value })} />
+                </div>
+              </div>
+              <InputField label="INKÖPARE" value={form.inkopare} onChange={e => setForm({ ...form, inkopare: e.target.value })} />
+              <InputField label="INKÖPARE TELEFON" value={form.inkoparetel} onChange={e => setForm({ ...form, inkoparetel: e.target.value })} />
+            </Section>
+
+            {/* SORTIMENT */}
+            <Section title="Sortiment" id="virke">
+              <SortimentSelector 
+                selected={form.sortiment} 
+                onToggle={toggleSortiment}
+              />
+            </Section>
+
+            {/* ÖVRIGT */}
+            <Section title="Övrigt" id="ovrigt">
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '10px', fontWeight: '600' }}>KOORDINATER</label>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <input value={form.koordinatX} onChange={e => setForm({ ...form, koordinatX: e.target.value })} placeholder="N" style={{ flex: 1, padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff' }} />
+                  <input value={form.koordinatY} onChange={e => setForm({ ...form, koordinatY: e.target.value })} placeholder="E" style={{ flex: 1, padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff' }} />
+                </div>
+              </div>
+
+              <ChipSelect 
+                items={sparadeMaskiner} 
+                selected={form.maskiner} 
+                onSelect={v => setForm({ ...form, maskiner: v })} 
+                label="MASKINER"
+                editKey="maskin"
+                onAdd={addMaskin}
+                onRemove={removeMaskin}
+                multi
+              />
+
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', display: 'block', marginBottom: '10px', fontWeight: '600' }}>ANTECKNINGAR</label>
+                <textarea
+                  value={form.anteckningar}
+                  onChange={e => setForm({ ...form, anteckningar: e.target.value })}
+                  rows={3}
+                  style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff', resize: 'vertical', boxSizing: 'border-box' }}
+                />
+              </div>
+            </Section>
+
+            <div style={{ marginTop: '20px' }}>
+              <button onClick={saveObj} style={{ width: '100%', padding: '16px', border: 'none', borderRadius: '10px', background: '#fff', color: '#000', fontSize: '16px', fontWeight: '600', cursor: 'pointer', marginBottom: '10px' }}>Spara</button>
+              <button onClick={() => { setShowForm(false); setImportStatus(''); setEditMode(null); setShowAdd(null); }} style={{ width: '100%', padding: '14px', border: 'none', borderRadius: '10px', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: '15px', cursor: 'pointer' }}>Avbryt</button>
             </div>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }
