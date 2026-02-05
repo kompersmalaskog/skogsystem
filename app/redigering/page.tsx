@@ -62,7 +62,9 @@ async function sparaObjektTillSupabase(obj) {
       klippning: obj.klippning || false,
       risskotning: obj.risskotning || false,
       stubbbehandling: obj.stubbbehandling || false,
-      extra_vagn: obj.extra_vagn || false
+      extra_vagn: obj.extra_vagn || false,
+      skordning_avslutad: obj.skordning_avslutad || null,
+      skotning_avslutad: obj.skotning_avslutad || null
     })
   })
   return res.ok
@@ -369,6 +371,115 @@ function EgenskapSwitch({ label, active, onClick, orange }) {
   )
 }
 
+// DateToggle (för avslut-datum)
+function DateToggle({ label, date, onToggle, onDateChange }) {
+  const [bounce, setBounce] = useState(false)
+  const [hover, setHover] = useState(false)
+  const [textInput, setTextInput] = useState('')
+  const active = !!date
+  const activeColor = '#30D158'
+  const activeBg = 'rgba(48,209,88,0.10)'
+  const activeBorder = 'rgba(48,209,88,0.30)'
+
+  const handleTextSave = () => {
+    if (!textInput.trim()) return
+    const t = textInput.trim()
+    let parsed = null
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) parsed = t
+    else if (/^\d{2}[\/\-]\d{2}[\/\-]\d{4}$/.test(t)) {
+      const parts = t.split(/[\/\-]/)
+      parsed = `${parts[2]}-${parts[1]}-${parts[0]}`
+    } else if (/^\d{8}$/.test(t)) {
+      parsed = `${t.slice(0,4)}-${t.slice(4,6)}-${t.slice(6,8)}`
+    }
+    if (parsed && !isNaN(new Date(parsed).getTime())) {
+      onDateChange(parsed)
+      setTextInput('')
+    }
+  }
+
+  const handleClick = () => {
+    setBounce(true)
+    setTimeout(() => setBounce(false), 300)
+    if (active) {
+      onToggle(null)
+    } else {
+      onToggle(new Date().toISOString().split('T')[0])
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div 
+        onClick={handleClick}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{
+          ...styles.switchRow,
+          background: active ? activeBg : hover ? 'rgba(255,255,255,0.03)' : 'transparent',
+          borderColor: active ? activeBorder : hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
+          transform: hover ? 'scale(1.01)' : 'scale(1)',
+          boxShadow: active ? `0 0 20px ${activeColor}20` : 'none'
+        }}
+      >
+        <div style={styles.switchLeft}>
+          <span style={{ fontSize: 15, fontWeight: 500, color: active ? '#fff' : 'rgba(255,255,255,0.5)', transition: 'color 0.2s ease' }}>{label}</span>
+        </div>
+        <div style={{
+          ...styles.switch,
+          background: active ? activeColor : 'rgba(255,255,255,0.15)',
+          boxShadow: active ? `0 0 20px ${activeColor}90` : 'none',
+          transform: bounce ? 'scale(1.1)' : 'scale(1)',
+          transition: 'all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1)'
+        }}>
+          <div style={{ ...styles.switchKnob, transform: active ? 'translateX(20px)' : 'translateX(0)' }} />
+        </div>
+      </div>
+      {active && (
+        <div style={{ 
+          display: 'flex', alignItems: 'center', gap: 8, 
+          padding: '10px 16px', marginLeft: 8, marginRight: 8,
+          borderRadius: 12, background: 'rgba(48,209,88,0.08)', 
+          border: '1px solid rgba(48,209,88,0.2)',
+          animation: 'fadeIn 0.2s ease'
+        }}>
+          <input 
+            type="date" 
+            value={date || ''} 
+            onChange={(e) => onDateChange(e.target.value)}
+            style={{
+              flex: 1, padding: '8px 10px', borderRadius: 8,
+              border: '1px solid rgba(48,209,88,0.3)', background: 'rgba(0,0,0,0.3)',
+              color: '#fff', fontSize: 14, outline: 'none',
+              colorScheme: 'dark'
+            }}
+          />
+          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)' }}>eller</span>
+          <input 
+            type="text" 
+            value={textInput} 
+            onChange={(e) => setTextInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') handleTextSave() }}
+            placeholder=""
+            style={{
+              width: 110, padding: '8px 10px', borderRadius: 8,
+              border: '1px solid rgba(48,209,88,0.3)', background: 'rgba(0,0,0,0.3)',
+              color: '#fff', fontSize: 14, outline: 'none'
+            }}
+          />
+          {textInput.trim() && (
+            <button onClick={handleTextSave}
+              style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: '#30D158', color: '#000',
+                fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              OK
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Locked Input (som VO-nummer men för vanliga fält)
 function LockedInput({ label, value, onChange, placeholder }) {
   const [isEditing, setIsEditing] = useState(false)
@@ -529,6 +640,22 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
         {EGENSKAPER.map(e => (
           <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
         ))}
+      </div>
+
+      <div style={styles.sectionLabel}>Avslut</div>
+      <div style={styles.switchList}>
+        <DateToggle 
+          label="Skördning avslutad" 
+          date={valtObjekt.skordning_avslutad || null}
+          onToggle={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
+          onDateChange={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
+        />
+        <DateToggle 
+          label="Skotning avslutad" 
+          date={valtObjekt.skotning_avslutad || null}
+          onToggle={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
+          onDateChange={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
+        />
       </div>
 
       <div style={styles.sectionLabel}>Statistik</div>
