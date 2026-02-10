@@ -1,6 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 const MANADER = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December'];
 
@@ -24,16 +30,27 @@ export default function ObjektPage() {
   const [importStatus, setImportStatus] = useState('');
 
 
-  const [objekt, setObjekt] = useState([
-    { id: '1', namn: 'Björkbacken', bolag: 'Södra', typ: 'slutavverkning', volym: 850, atgard: 'Rp', lat: 6300000, lng: 480000, ar: 2026, manad: 1, ordning: 1,
-      vo_nummer: '', traktnr: '', inkopare: '', inkopare_tel: '', markagare: '', markagare_tel: '', markagare_epost: '', cert: '', areal: 0, grot: false, maskiner: [], sortiment: [], anteckningar: '', status: 'planerad' },
-    { id: '2', namn: 'Stormyran', bolag: 'Vida', typ: 'gallring', volym: 420, atgard: 'Första gallring', lat: null, lng: null, ar: 2026, manad: 1, ordning: 2,
-      vo_nummer: '', traktnr: '', inkopare: '', inkopare_tel: '', markagare: '', markagare_tel: '', markagare_epost: '', cert: '', areal: 0, grot: false, maskiner: ['PONSSE Scorpion Giant 8W'], sortiment: [], anteckningar: '', status: 'planerad' },
-    { id: '3', namn: 'Norra Ekdungen', bolag: 'ATA', typ: 'slutavverkning', volym: 1200, atgard: 'Au', lat: 6280000, lng: 475000, ar: null, manad: null, ordning: 0,
-      vo_nummer: '11090001', traktnr: '900123', inkopare: 'Maria Lindgren', inkopare_tel: '070-1234567', markagare: 'Erik Svensson', markagare_tel: '070-9876543', markagare_epost: 'erik@mail.se', cert: 'FSC', areal: 3.2, grot: true, maskiner: [], sortiment: ['Tall timmer · Urshult', 'Massa · Barr'], anteckningar: 'Grusväg 200m', status: 'importerad' },
-    { id: '4', namn: 'Kvarnåsen', bolag: 'Vida', typ: 'gallring', volym: 380, atgard: 'Gallring', lat: 6290000, lng: 478000, ar: null, manad: null, ordning: 0,
-      vo_nummer: '11090002', traktnr: '900456', inkopare: '', inkopare_tel: '', markagare: 'Anna Ek', markagare_tel: '070-5551234', markagare_epost: '', cert: 'PEFC', areal: 2.1, grot: false, maskiner: [], sortiment: [], anteckningar: '', status: 'importerad' },
-  ]);
+  const [objekt, setObjekt] = useState<any[]>([]);
+
+  const fetchData = async () => {
+    const { data, error } = await supabase
+      .from('objekt')
+      .select('*')
+      .order('ar', { ascending: true })
+      .order('manad', { ascending: true })
+      .order('ordning', { ascending: true });
+
+    if (error) {
+      console.error('Fetch error:', error);
+      return;
+    }
+
+    setObjekt(data || []);
+  };
+
+  useEffect(() => {
+    fetchData();
+  }, []);
 
   const bestallningar = [
     { manad: 1, typ: 'slutavverkning', volym: 2000 },
@@ -57,7 +74,7 @@ export default function ObjektPage() {
     slut: ['Rp', 'Lrk', 'Au', 'VF/BarkB'], 
     gallring: ['Första gallring', 'Andra gallring', 'Gallring'] 
   });
-  const [sparadeCert, setSparadeCert] = useState(['FSC', 'PEFC', 'Ej FSC']);
+  const [sparadeCert, setSparadeCert] = useState(['FSC', 'PEFC', 'FSC PEFC', 'Ej certifierad']);
   const [sparadeSortiment, setSparadeSortiment] = useState([
     { group: 'Tall timmer', items: ['Urshult', 'Vislanda'] },
     { group: 'Gran timmer', items: ['Urshult', 'Vislanda'] },
@@ -94,15 +111,76 @@ export default function ObjektPage() {
     setMonth(m); setYear(y);
   };
 
-  const handleImport = () => {
+  const handleZipImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
     setImportStatus('Läser traktdirektiv...');
-    setTimeout(() => {
-      setForm({ ...form, ...DEMO_IMPORT, ar: year, manad: month + 1, ordning: planerade.length + 1, status: 'planerad' });
-      setImportStatus('✓ Importerat från TD!');
-      setShowForm(true);
-      setEditingId(null);
-      setExpandedSection('grund');
-    }, 800);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('ar', year.toString());
+      formData.append('manad', (month + 1).toString());
+
+      const res = await fetch('/api/import-trakt', {
+        method: 'POST',
+        body: formData
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        if (res.status === 409) {
+          setImportStatus('⚠ Objektet finns redan');
+        } else {
+          setImportStatus(`Fel: ${data.error || 'Import misslyckades'}`);
+        }
+        setTimeout(() => setImportStatus(''), 4000);
+        return;
+      }
+
+      // Lägg till det importerade objektet i listan
+      const newObj = {
+        id: data.objekt.id || Date.now().toString(),
+        vo_nummer: data.objekt.vo_nummer || '',
+        traktnr: data.objekt.traktnr || '',
+        namn: data.objekt.namn || '',
+        bolag: data.objekt.bolag || '',
+        inkopare: data.objekt.inkopare || '',
+        inkopare_tel: data.objekt.inkopare_tel || '',
+        markagare: data.objekt.markagare || '',
+        markagare_tel: data.objekt.markagare_tel || '',
+        markagare_epost: data.objekt.markagare_epost || '',
+        cert: data.objekt.cert || '',
+        typ: data.objekt.typ || 'slutavverkning',
+        volym: data.objekt.volym || 0,
+        areal: data.objekt.areal || 0,
+        grot: data.objekt.grot || false,
+        lat: data.objekt.lat,
+        lng: data.objekt.lng,
+        ar: data.objekt.ar,
+        manad: data.objekt.manad,
+        status: data.objekt.status || 'planerad',
+        atgard: '',
+        maskiner: data.objekt.maskiner || [],
+        sortiment: data.objekt.sortiment || [],
+        anteckningar: data.objekt.anteckningar || '',
+        ordning: planerade.length + 1
+      };
+
+      setObjekt([...objekt, newObj]);
+      setImportStatus('✓ Importerat!');
+      setTimeout(() => setImportStatus(''), 2000);
+
+    } catch (error) {
+      console.error('Import error:', error);
+      setImportStatus('Fel: Kunde inte importera');
+      setTimeout(() => setImportStatus(''), 3000);
+    }
+
+    // Återställ input så samma fil kan väljas igen
+    e.target.value = '';
   };
 
   const openFormWithType = (typ: string) => {
@@ -168,12 +246,26 @@ export default function ObjektPage() {
     setShowForm(true);
   };
 
-  const deleteObj = () => {
+  const deleteObj = async () => {
     if (!editingId || !confirm('Ta bort objektet?')) return;
-    setObjekt(objekt.filter(o => o.id !== editingId));
+
+    console.log('Tar bort objekt:', editingId);
+
+    const { error } = await supabase
+      .from('objekt')
+      .delete()
+      .eq('id', editingId);
+
+    if (error) {
+      console.error('Delete error:', error);
+      alert('Kunde inte ta bort objektet');
+      return;
+    }
+
+    console.log('Borttaget från Supabase');
     setShowForm(false);
-    setEditMode(null);
-    setShowAdd(null);
+    setEditingId(null);
+    fetchData();
   };
 
   const toggleSortiment = (name: string) => {
@@ -401,16 +493,25 @@ export default function ObjektPage() {
 
       {/* Import */}
       <div style={{ padding: '0 24px 16px' }}>
-        <button onClick={handleImport}
+        <input
+          type="file"
+          id="zip-import"
+          accept=".zip"
+          onChange={handleZipImport}
+          style={{ display: 'none' }}
+        />
+        <label
+          htmlFor="zip-import"
           style={{
             width: '100%', padding: '14px', background: 'transparent',
             border: '1px dashed rgba(255,255,255,0.12)', borderRadius: '12px',
-            color: importStatus ? (importStatus.includes('✓') ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.4)') : 'rgba(255,255,255,0.3)',
+            color: importStatus ? (importStatus.includes('✓') ? 'rgba(255,255,255,0.6)' : importStatus.includes('Fel') ? '#ef4444' : 'rgba(255,255,255,0.4)') : 'rgba(255,255,255,0.3)',
             fontSize: '14px', fontWeight: '500', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            boxSizing: 'border-box'
           }}>
-          {importStatus || 'Importera traktdirektiv'}
-        </button>
+          {importStatus || 'Importera traktdirektiv (.zip)'}
+        </label>
       </div>
 
       {/* Månadsväljare */}
