@@ -77,6 +77,7 @@ export default function PlannerPage() {
   
   // Overlay-lager
   const [overlays, setOverlays] = useState({
+    vidaKartbild: true,    // VIDA traktdirektiv-kartbild
     propertyLines: false,  // Fastighetsgränser
     moisture: false,       // Markfuktighet (kräver konto)
     contours: false,       // Höjdkurvor
@@ -2218,6 +2219,12 @@ export default function PlannerPage() {
     return (
       <ObjektValjare
         onSelectObjekt={(obj) => {
+          console.log('=== VALT OBJEKT ===');
+          console.log('namn:', obj.namn);
+          console.log('kartbild_url:', obj.kartbild_url);
+          console.log('kartbild_bounds:', obj.kartbild_bounds);
+          console.log('kartbild_bounds type:', typeof obj.kartbild_bounds);
+          console.log('lat:', obj.lat, 'lng:', obj.lng);
           setValtObjekt(obj);
           // Centrera kartan på objektets koordinater eller kartbild
           if (obj.kartbild_bounds) {
@@ -2477,7 +2484,16 @@ export default function PlannerPage() {
       )}
 
       {/* === VIDA KARTBILD OVERLAY === */}
-      {valtObjekt?.kartbild_url && valtObjekt?.kartbild_bounds && showMap && (() => {
+      {(() => {
+        console.log('=== OVERLAY CHECK ===', {
+          url: valtObjekt?.kartbild_url,
+          bounds: valtObjekt?.kartbild_bounds,
+          boundsType: typeof valtObjekt?.kartbild_bounds,
+          showMap,
+        });
+        return null;
+      })()}
+      {valtObjekt?.kartbild_url && valtObjekt?.kartbild_bounds && showMap && overlays.vidaKartbild && (() => {
         const tileSize = 256;
         const z = mapZoom;
         const n = Math.pow(2, z);
@@ -4418,6 +4434,7 @@ export default function PlannerPage() {
                 Overlay
               </div>
               {[
+                { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
                 { id: 'contours', name: 'Höjdkurvor', desc: 'Terräng ovanpå karta/satellit', enabled: true },
                 { id: 'moisture', name: 'Markfuktighet', desc: 'Kräver Skogsstyrelsen-konto', enabled: false },
