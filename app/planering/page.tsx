@@ -2215,6 +2215,9 @@ export default function PlannerPage() {
     orange: '#ff9f0a',
   };
 
+  // Är ritläge aktivt? Blockerar klick på befintliga element
+  const isInDrawingMode = isDrawMode || isZoneMode || isArrowMode || !!selectedSymbol || measureMode || measureAreaMode;
+
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
     return (
@@ -2736,7 +2739,7 @@ export default function PlannerPage() {
         <g style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: '0 0',
-          pointerEvents: (isDrawMode || isZoneMode || isArrowMode || selectedSymbol || measureMode || measureAreaMode) ? 'none' : 'auto',
+          pointerEvents: isInDrawingMode ? 'none' : 'auto',
         }}>
 
           {/* Zoner */}
@@ -2846,11 +2849,11 @@ export default function PlannerPage() {
                     setSelectedOversiktVag(null);
                   }
                 }}
-                style={{ 
+                style={{
                   cursor: isDragging ? 'grabbing' : 'pointer',
                   opacity: opacity,
                   transition: 'opacity 0.3s ease',
-                  pointerEvents: 'auto',
+                  pointerEvents: isInDrawingMode ? 'none' : 'auto',
                 }}
               >
                 {/* Skugga när man drar */}
@@ -2923,7 +2926,7 @@ export default function PlannerPage() {
                       setSelectedOversiktVag(null);
                     }
                   }}
-                  style={{ cursor: isDragging ? 'grabbing' : 'pointer', pointerEvents: 'auto' }}
+                  style={{ cursor: isDragging ? 'grabbing' : 'pointer', pointerEvents: isInDrawingMode ? 'none' : 'auto' }}
                 >
                   {isDragging && hasMoved && (
                     <circle cx={0} cy={0} r={35} fill="rgba(0,0,0,0.3)" />
@@ -2965,20 +2968,20 @@ export default function PlannerPage() {
               fill="none" 
               stroke="transparent" 
               strokeWidth="50"
-              style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+              style={{ cursor: 'pointer', pointerEvents: isInDrawingMode ? 'none' : 'auto' }}
               onClick={(e) => handleMarkerClick(e, m)}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleMarkerClick(e, m); }}
             />
           ))}
-          
+
           {/* Klickbara zoner (osynlig hitbox) */}
           {visibleLayers.zones && markers.filter(m => m.isZone && visibleZones[m.zoneType]).map(m => (
-            <path 
+            <path
               key={`click-zone-${m.id}`}
-              d={m.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'} 
+              d={m.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'}
               fill="transparent"
-              style={{ cursor: 'pointer', pointerEvents: 'auto' }}
+              style={{ cursor: 'pointer', pointerEvents: isInDrawingMode ? 'none' : 'auto' }}
               onClick={(e) => handleMarkerClick(e, m)}
               onTouchStart={(e) => e.stopPropagation()}
               onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleMarkerClick(e, m); }}
