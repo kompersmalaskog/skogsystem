@@ -4764,9 +4764,9 @@ export default function PlannerPage() {
                     <div style={{ opacity: 0.7 }}>
                       {renderIcon(cat.icon, 28, '#fff')}
                     </div>
-                    <span style={{ 
-                      fontSize: '11px', 
-                      fontWeight: '500', 
+                    <span style={{
+                      fontSize: '11px',
+                      fontWeight: '500',
                       color: '#fff',
                       textAlign: 'center',
                     }}>
@@ -4774,6 +4774,41 @@ export default function PlannerPage() {
                     </span>
                   </div>
                 ))}
+
+                {/* Byt objekt */}
+                <div
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setMenuHeight(0);
+                    setValtObjekt(null);
+                  }}
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    borderRadius: '16px',
+                    padding: '20px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '10px',
+                    cursor: 'pointer',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                  }}
+                >
+                  <div style={{ opacity: 0.7 }}>
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M9 14L4 9l5-5" />
+                      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+                    </svg>
+                  </div>
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: '500',
+                    color: '#fff',
+                    textAlign: 'center',
+                  }}>
+                    Byt objekt
+                  </span>
+                </div>
               </div>
             )}
 
