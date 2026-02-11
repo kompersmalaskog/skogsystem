@@ -2454,12 +2454,62 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* === VIDA KARTBILD OVERLAY === */}
+      {valtObjekt?.kartbild_url && valtObjekt?.kartbild_bounds && showMap && (() => {
+        const tileSize = 256;
+        const z = mapZoom;
+        const n = Math.pow(2, z);
+        const centerLatRad = mapCenter.lat * Math.PI / 180;
+        const centerTileXFloat = (mapCenter.lng + 180) / 360 * n;
+        const centerTileYFloat = (1 - Math.log(Math.tan(centerLatRad) + 1 / Math.cos(centerLatRad)) / Math.PI) / 2 * n;
+
+        // Konvertera bounds [[south, west], [north, east]] till SVG-koordinater
+        const bounds = valtObjekt.kartbild_bounds;
+        const northLatRad = bounds[1][0] * Math.PI / 180;
+        const southLatRad = bounds[0][0] * Math.PI / 180;
+
+        const westTileX = (bounds[0][1] + 180) / 360 * n;
+        const eastTileX = (bounds[1][1] + 180) / 360 * n;
+        const northTileY = (1 - Math.log(Math.tan(northLatRad) + 1 / Math.cos(northLatRad)) / Math.PI) / 2 * n;
+        const southTileY = (1 - Math.log(Math.tan(southLatRad) + 1 / Math.cos(southLatRad)) / Math.PI) / 2 * n;
+
+        const svgLeft = (westTileX - centerTileXFloat) * tileSize;
+        const svgTop = (northTileY - centerTileYFloat) * tileSize;
+        const svgRight = (eastTileX - centerTileXFloat) * tileSize;
+        const svgBottom = (southTileY - centerTileYFloat) * tileSize;
+
+        const screenLeft = pan.x + svgLeft * zoom;
+        const screenTop = pan.y + svgTop * zoom;
+        const screenWidth = (svgRight - svgLeft) * zoom;
+        const screenHeight = (svgBottom - svgTop) * zoom;
+
+        return (
+          <img
+            src={valtObjekt.kartbild_url}
+            alt="VIDA kartbild"
+            style={{
+              position: 'absolute',
+              left: screenLeft,
+              top: screenTop,
+              width: screenWidth,
+              height: screenHeight,
+              zIndex: 25,
+              opacity: 0.8,
+              pointerEvents: 'none',
+            }}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+            }}
+          />
+        );
+      })()}
+
       {/* === KARTA === */}
-      <svg 
-        style={{ 
-          position: 'absolute', 
-          inset: 0, 
-          width: '100%', 
+      <svg
+        style={{
+          position: 'absolute',
+          inset: 0,
+          width: '100%',
           height: '100%',
           touchAction: 'none',
           zIndex: 50,
