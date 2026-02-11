@@ -302,13 +302,14 @@ export default function PlannerPage() {
     setPan({ x: newPanX, y: newPanY });
   };
   
-  // Beräkna begränsad storlek för symboler (så de inte blir enorma vid inzoomning)
+  // Beräkna dynamisk storlek för symboler baserat på zoom
+  // Symboler ska vara mindre vid utzoom och större vid inzoom,
+  // men inte växa linjärt med zoom (då blir de enorma)
   const getConstrainedSize = (baseSize: number) => {
-    // När zoom ökar, minska storleken så visuell storlek förblir ~konstant
-    // Min: 50% av basStorlek vid utzoom, Max: 100% av basStorlek vid inzoom
-    const scaledSize = baseSize / zoom;
-    const minSize = baseSize * 0.5;
-    const maxSize = baseSize;
+    // Använd sqrt för mjukare skalning: symboler växer, men långsammare än zoom
+    const scaledSize = baseSize / Math.sqrt(zoom);
+    const minSize = baseSize * 0.3;  // Minsta vid kraftig utzoom
+    const maxSize = baseSize * 1.5;  // Största vid kraftig inzoom
     return Math.max(minSize, Math.min(maxSize, scaledSize));
   };
 
