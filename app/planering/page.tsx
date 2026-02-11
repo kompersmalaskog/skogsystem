@@ -307,10 +307,11 @@ export default function PlannerPage() {
   // Symboler ska vara mindre vid utzoom och större vid inzoom,
   // men inte växa linjärt med zoom (då blir de enorma)
   const getConstrainedSize = (baseSize: number) => {
-    // Använd sqrt för mjukare skalning: symboler växer, men långsammare än zoom
-    const scaledSize = baseSize / Math.sqrt(zoom);
-    const minSize = baseSize * 0.3;  // Minsta vid kraftig utzoom
-    const maxSize = baseSize * 1.5;  // Största vid kraftig inzoom
+    // Kompensera för zoom-transform: dela med zoom för konstant visuell storlek,
+    // men använd sqrt för att symboler växer lite vid inzoom
+    const scaledSize = (baseSize * 0.5) / Math.sqrt(zoom);
+    const minSize = baseSize * 0.15;
+    const maxSize = baseSize * 0.75;
     return Math.max(minSize, Math.min(maxSize, scaledSize));
   };
 
