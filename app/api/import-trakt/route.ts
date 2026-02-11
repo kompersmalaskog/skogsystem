@@ -280,72 +280,74 @@ export async function POST(request: NextRequest) {
     if (!jpgEntry) console.log('VARNING: Ingen .jpg hittades');
     if (!jgwEntry) console.log('VARNING: Ingen .jgw hittades');
 
-    if (jpgEntry && jgwEntry) {
+    if (jpgEntry) {
       try {
         console.log('Läser JPG:', jpgFilename);
 
         // Läs JPG-data
         const jpgData = new Uint8Array(await jpgEntry.async('arraybuffer'));
-        const dimensions = getJpegDimensions(jpgData);
-        console.log('Dimensioner:', dimensions);
+        console.log('JPG storlek:', jpgData.length, 'bytes');
 
-        // Läs JGW-filen (world file)
-        const jgwText = await jgwEntry.async('string');
-        const jgwLines = jgwText.trim().split(/\r?\n/);
-        console.log('JGW:', jgwLines);
+        // Ladda upp till Supabase Storage (alltid, oavsett om bounds kan beräknas)
+        const storagePath = `${traktnr || Date.now()}.jpg`;
+        console.log('Försöker ladda upp till:', storagePath);
 
-        // Hantera svenskt decimalkomma i JGW-filer
-        const parseJgwValue = (s: string) => parseFloat(s.replace(',', '.'));
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('kartbilder')
+          .upload(storagePath, jpgData, {
+            contentType: 'image/jpeg',
+            upsert: true
+          });
 
-        if (dimensions && jgwLines.length >= 6) {
-          const pixelSizeX = parseJgwValue(jgwLines[0]); // Meter per pixel i X-led
-          const pixelSizeY = parseJgwValue(jgwLines[3]); // Meter per pixel i Y-led (negativ)
-          const pixelCenterX = parseJgwValue(jgwLines[4]); // Easting för pixel-center
-          const pixelCenterY = parseJgwValue(jgwLines[5]); // Northing för pixel-center
+        console.log('Upload result:', { uploadData, uploadError });
 
-          // JGW anger pixel-center, justera till pixel-kant (övre vänstra hörnet)
-          const upperLeftX = pixelCenterX - pixelSizeX / 2;
-          const upperLeftY = pixelCenterY - pixelSizeY / 2;
-
-          // Beräkna bounds i SWEREF99 TM
-          const lowerRightX = upperLeftX + (dimensions.width * pixelSizeX);
-          const lowerRightY = upperLeftY + (dimensions.height * pixelSizeY); // pixelSizeY är negativ
-
-          console.log('SWEREF99 bounds:', { upperLeftX, upperLeftY, lowerRightX, lowerRightY });
-
-          // Konvertera till WGS84 (Leaflet använder [lat, lng] format)
-          // Bounds format: [[south, west], [north, east]]
-          const upperLeft = sweref99ToWgs84(upperLeftY, upperLeftX);
-          const lowerRight = sweref99ToWgs84(lowerRightY, lowerRightX);
-
-          kartbild_bounds = [
-            [lowerRight.lat, upperLeft.lng], // Southwest corner
-            [upperLeft.lat, lowerRight.lng]  // Northeast corner
-          ];
-          console.log('WGS84 bounds:', kartbild_bounds);
-
-          // Ladda upp till Supabase Storage
-          const storagePath = `${traktnr || Date.now()}.jpg`;
-          console.log('Försöker ladda upp till:', storagePath);
-          console.log('JPG storlek:', jpgData.length, 'bytes');
-
-          const { data: uploadData, error: uploadError } = await supabase.storage
+        if (uploadError) {
+          console.error('Upload error details:', JSON.stringify(uploadError, null, 2));
+        } else {
+          const { data: urlData } = supabase.storage
             .from('kartbilder')
-            .upload(storagePath, jpgData, {
-              contentType: 'image/jpeg',
-              upsert: true
-            });
+            .getPublicUrl(storagePath);
+          kartbild_url = urlData.publicUrl;
+          console.log('Kartbild URL:', kartbild_url);
+        }
 
-          console.log('Upload result:', { uploadData, uploadError });
+        // Beräkna bounds om JGW finns och JPEG-dimensioner kan läsas
+        if (jgwEntry) {
+          const dimensions = getJpegDimensions(jpgData);
+          console.log('Dimensioner:', dimensions);
 
-          if (uploadError) {
-            console.error('Upload error details:', JSON.stringify(uploadError, null, 2));
+          const jgwText = await jgwEntry.async('string');
+          const jgwLines = jgwText.trim().split(/\r?\n/);
+          console.log('JGW:', jgwLines);
+
+          const parseJgwValue = (s: string) => parseFloat(s.replace(',', '.'));
+
+          if (dimensions && jgwLines.length >= 6) {
+            const pixelSizeX = parseJgwValue(jgwLines[0]);
+            const pixelSizeY = parseJgwValue(jgwLines[3]);
+            const pixelCenterX = parseJgwValue(jgwLines[4]);
+            const pixelCenterY = parseJgwValue(jgwLines[5]);
+
+            // JGW anger pixel-center, justera till pixel-kant (övre vänstra hörnet)
+            const upperLeftX = pixelCenterX - pixelSizeX / 2;
+            const upperLeftY = pixelCenterY - pixelSizeY / 2;
+
+            // Beräkna bounds i SWEREF99 TM
+            const lowerRightX = upperLeftX + (dimensions.width * pixelSizeX);
+            const lowerRightY = upperLeftY + (dimensions.height * pixelSizeY);
+
+            console.log('SWEREF99 bounds:', { upperLeftX, upperLeftY, lowerRightX, lowerRightY });
+
+            const upperLeft = sweref99ToWgs84(upperLeftY, upperLeftX);
+            const lowerRight = sweref99ToWgs84(lowerRightY, lowerRightX);
+
+            kartbild_bounds = [
+              [lowerRight.lat, upperLeft.lng], // Southwest corner
+              [upperLeft.lat, lowerRight.lng]  // Northeast corner
+            ];
+            console.log('WGS84 bounds:', kartbild_bounds);
           } else {
-            const { data: urlData } = supabase.storage
-              .from('kartbilder')
-              .getPublicUrl(storagePath);
-            kartbild_url = urlData.publicUrl;
-            console.log('Kartbild URL:', kartbild_url);
+            console.log('VARNING: Kunde inte beräkna bounds (dimensions:', dimensions, ', jgwLines:', jgwLines.length, ')');
           }
         }
       } catch (e) {
