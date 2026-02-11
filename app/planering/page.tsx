@@ -2699,8 +2699,12 @@ export default function PlannerPage() {
           transform: 'none',
           transformOrigin: '50% 50%',
         }}>
-        <g style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
-          
+        <g style={{
+          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+          transformOrigin: '0 0',
+          pointerEvents: (isDrawMode || isZoneMode || isArrowMode || selectedSymbol || measureMode || measureAreaMode) ? 'none' : 'auto',
+        }}>
+
           {/* Zoner */}
           {visibleLayers.zones && markers.filter(m => m.isZone && visibleZones[m.zoneType]).map(m => 
             renderZone(m)
