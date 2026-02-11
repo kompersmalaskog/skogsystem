@@ -2108,9 +2108,9 @@ export default function PlannerPage() {
     const type = lineTypes.find(t => t.id === typeId);
     if (!type) return null;
 
-    // Tunn linje som matchar VIDA-kartans stil
-    // Kompensera för zoom-transform så visuell tjocklek förblir ~2px
-    const w = 2 / zoom;
+    // Linje som matchar VIDA-kartans stil (~5px visuellt)
+    // Kompensera för zoom-transform så visuell tjocklek förblir konstant
+    const w = 5 / zoom;
     const dashScale = 1 / zoom;
 
     // Använd smooth path
@@ -2759,7 +2759,7 @@ export default function PlannerPage() {
                 d={currentPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + (currentPath.length > 2 ? ' Z' : '')}
                 fill="none"
                 stroke={zoneTypes.find(t => t.id === zoneType)?.color || '#fff'}
-                strokeWidth={2 / zoom}
+                strokeWidth={5 / zoom}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -2767,7 +2767,7 @@ export default function PlannerPage() {
                 d={currentPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + (currentPath.length > 2 ? ' Z' : '')}
                 fill="none"
                 stroke="#fff"
-                strokeWidth={2 / zoom}
+                strokeWidth={5 / zoom}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeDasharray={`${10 / zoom},${10 / zoom}`}
@@ -2822,7 +2822,7 @@ export default function PlannerPage() {
               d={createSmoothPath(currentPath)}
               fill="none"
               stroke={lineTypes.find(t => t.id === drawType)?.color || '#fff'}
-              strokeWidth={2 / zoom}
+              strokeWidth={5 / zoom}
               strokeDasharray={`${8 / zoom},${8 / zoom}`}
             />
           )}
