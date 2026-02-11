@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import JSZip from 'jszip';
+import proj4 from 'proj4';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,28 +27,13 @@ function getJpegDimensions(data: Uint8Array): { width: number; height: number } 
   return null;
 }
 
-// Konvertera SWEREF99 TM till WGS84
+// SWEREF99 TM (EPSG:3006) definition för proj4
+const SWEREF99TM = '+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs';
+
+// Konvertera SWEREF99 TM till WGS84 med proj4
 function sweref99ToWgs84(n: number, e: number): { lat: number; lng: number } {
-  const axis = 6378137.0;
-  const flattening = 1.0 / 298.257222101;
-  const centralMeridian = 15.0 * Math.PI / 180;
-  const scale = 0.9996;
-  const falseEasting = 500000.0;
-  const e2 = flattening * (2.0 - flattening);
-  const n_ = flattening / (2.0 - flattening);
-  const aRoof = axis / (1.0 + n_) * (1.0 + n_ * n_ / 4.0 + n_ * n_ * n_ * n_ / 64.0);
-  const delta1 = n_ / 2.0 - 2.0 * n_ * n_ / 3.0 + 37.0 * n_ * n_ * n_ / 96.0;
-  const delta2 = n_ * n_ / 48.0 + n_ * n_ * n_ / 15.0;
-  const delta3 = 17.0 * n_ * n_ * n_ / 480.0;
-  const xi = (n - 0) / (scale * aRoof);
-  const eta = (e - falseEasting) / (scale * aRoof);
-  const xiPrim = xi - delta1 * Math.sin(2 * xi) * Math.cosh(2 * eta) - delta2 * Math.sin(4 * xi) * Math.cosh(4 * eta) - delta3 * Math.sin(6 * xi) * Math.cosh(6 * eta);
-  const etaPrim = eta - delta1 * Math.cos(2 * xi) * Math.sinh(2 * eta) - delta2 * Math.cos(4 * xi) * Math.sinh(4 * eta) - delta3 * Math.cos(6 * xi) * Math.sinh(6 * eta);
-  const phiStar = Math.asin(Math.sin(xiPrim) / Math.cosh(etaPrim));
-  const deltaLambda = Math.atan(Math.sinh(etaPrim) / Math.cos(xiPrim));
-  const lat = (phiStar + Math.sin(phiStar) * Math.cos(phiStar) * (e2 + e2 * e2 * Math.pow(Math.sin(phiStar), 2))) * 180 / Math.PI;
-  const lng = (centralMeridian + deltaLambda) * 180 / Math.PI;
-  return { lat: Math.round(lat * 100000) / 100000, lng: Math.round(lng * 100000) / 100000 };
+  const [lng, lat] = proj4(SWEREF99TM, 'WGS84', [e, n]);
+  return { lat, lng };
 }
 
 export async function POST(request: NextRequest) {
@@ -328,6 +314,13 @@ export async function POST(request: NextRequest) {
             const pixelCenterX = parseJgwValue(jgwLines[4]);
             const pixelCenterY = parseJgwValue(jgwLines[5]);
 
+            console.log('=== JGW RÅVÄRDEN ===');
+            console.log('pixelSizeX:', pixelSizeX, '(meter/pixel X)');
+            console.log('pixelSizeY:', pixelSizeY, '(meter/pixel Y, ska vara negativ)');
+            console.log('pixelCenterX:', pixelCenterX, '(easting)');
+            console.log('pixelCenterY:', pixelCenterY, '(northing)');
+            console.log('Bildstorlek:', dimensions.width, 'x', dimensions.height, 'px');
+
             // JGW anger pixel-center, justera till pixel-kant (övre vänstra hörnet)
             const upperLeftX = pixelCenterX - pixelSizeX / 2;
             const upperLeftY = pixelCenterY - pixelSizeY / 2;
@@ -336,16 +329,22 @@ export async function POST(request: NextRequest) {
             const lowerRightX = upperLeftX + (dimensions.width * pixelSizeX);
             const lowerRightY = upperLeftY + (dimensions.height * pixelSizeY);
 
-            console.log('SWEREF99 bounds:', { upperLeftX, upperLeftY, lowerRightX, lowerRightY });
+            console.log('=== SWEREF99 BOUNDS (efter pixel-kant justering) ===');
+            console.log('upperLeft  (NW):', upperLeftX, upperLeftY);
+            console.log('lowerRight (SE):', lowerRightX, lowerRightY);
 
             const upperLeft = sweref99ToWgs84(upperLeftY, upperLeftX);
             const lowerRight = sweref99ToWgs84(lowerRightY, lowerRightX);
+
+            console.log('=== WGS84 BOUNDS ===');
+            console.log('upperLeft  (NW): lat', upperLeft.lat, 'lng', upperLeft.lng);
+            console.log('lowerRight (SE): lat', lowerRight.lat, 'lng', lowerRight.lng);
 
             kartbild_bounds = [
               [lowerRight.lat, upperLeft.lng], // Southwest corner
               [upperLeft.lat, lowerRight.lng]  // Northeast corner
             ];
-            console.log('WGS84 bounds:', kartbild_bounds);
+            console.log('kartbild_bounds (SW, NE):', JSON.stringify(kartbild_bounds));
           } else {
             console.log('VARNING: Kunde inte beräkna bounds (dimensions:', dimensions, ', jgwLines:', jgwLines.length, ')');
           }
