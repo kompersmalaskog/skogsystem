@@ -72,6 +72,7 @@ export default function PlannerPage() {
   // === STATE ===
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [markersLoaded, setMarkersLoaded] = useState(false);
+  const [showSaveToast, setShowSaveToast] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [markerMenuOpen, setMarkerMenuOpen] = useState<string | null>(null);
 
@@ -4865,6 +4866,57 @@ export default function PlannerPage() {
                   </div>
                 ))}
 
+                {/* Spara */}
+                <div
+                  onClick={async () => {
+                    if (!valtObjekt?.id || markers.length === 0) return;
+                    const rows = markers.map(m => ({
+                      objekt_id: valtObjekt.id,
+                      marker_id: String(m.id),
+                      typ: getMarkerTyp(m),
+                      data: m,
+                    }));
+                    const { error } = await supabase
+                      .from('planering_markeringar')
+                      .upsert(rows, { onConflict: 'objekt_id,marker_id' });
+                    if (error) {
+                      console.error('Manuell sparning fel:', error);
+                    } else {
+                      setShowSaveToast(true);
+                      setTimeout(() => setShowSaveToast(false), 2000);
+                    }
+                    setMenuOpen(false);
+                    setMenuHeight(0);
+                  }}
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    borderRadius: '16px',
+                    padding: '20px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '10px',
+                    cursor: 'pointer',
+                    border: '1px solid rgba(34,197,94,0.3)',
+                  }}
+                >
+                  <div style={{ opacity: 0.7 }}>
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+                      <polyline points="17 21 17 13 7 13 7 21" />
+                      <polyline points="7 3 7 8 15 8" />
+                    </svg>
+                  </div>
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: '500',
+                    color: '#22c55e',
+                    textAlign: 'center',
+                  }}>
+                    Spara
+                  </span>
+                </div>
+
                 {/* Byt objekt */}
                 <div
                   onClick={() => {
@@ -8071,6 +8123,26 @@ export default function PlannerPage() {
           -moz-appearance: textfield;
         }
       `}</style>
+
+      {/* Sparat-toast */}
+      {showSaveToast && (
+        <div style={{
+          position: 'fixed',
+          top: '80px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 10000,
+          background: 'rgba(34,197,94,0.95)',
+          color: '#fff',
+          padding: '12px 28px',
+          borderRadius: '12px',
+          fontSize: '16px',
+          fontWeight: '600',
+          pointerEvents: 'none',
+        }}>
+          Sparat!
+        </div>
+      )}
     </div>
   );
 }
