@@ -2101,32 +2101,36 @@ export default function PlannerPage() {
     return d;
   };
   
-  const renderLine = (path, typeId, width = 6) => {
+  const renderLine = (path, typeId) => {
     if (!path || path.length < 2) return null;
     const type = lineTypes.find(t => t.id === typeId);
     if (!type) return null;
-    
+
+    // Tunn linje som matchar VIDA-kartans stil
+    // Kompensera för zoom-transform så visuell tjocklek förblir ~2px
+    const w = 2 / zoom;
+    const dashScale = 1 / zoom;
+
     // Använd smooth path
     const d = createSmoothPath(path);
-    
+
     if (type.striped) {
       return (
         <g key={`line-${path[0]?.x}-${path[0]?.y}-${typeId}`}>
-          <path d={d} fill="none" stroke={type.color} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }} />
-          <path d={d} fill="none" stroke={type.color2} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="20,20" />
+          <path d={d} fill="none" stroke={type.color} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" />
+          <path d={d} fill="none" stroke={type.color2} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={`${20 * dashScale},${20 * dashScale}`} />
         </g>
       );
     } else if (type.dashed) {
-      // Streckad linje (t.ex. Stig/Led)
       return (
         <g key={`line-${path[0]?.x}-${path[0]?.y}-${typeId}`}>
-          <path d={d} fill="none" stroke={type.color} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="15,10" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }} />
+          <path d={d} fill="none" stroke={type.color} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={`${15 * dashScale},${10 * dashScale}`} />
         </g>
       );
     } else {
       return (
         <g key={`line-${path[0]?.x}-${path[0]?.y}-${typeId}`}>
-          <path d={d} fill="none" stroke={type.color} strokeWidth={width} strokeLinecap="round" strokeLinejoin="round" strokeDasharray="12,8" style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' }} />
+          <path d={d} fill="none" stroke={type.color} strokeWidth={w} strokeLinecap="round" strokeLinejoin="round" strokeDasharray={`${12 * dashScale},${8 * dashScale}`} />
         </g>
       );
     }
@@ -2717,7 +2721,7 @@ export default function PlannerPage() {
                 d={currentPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + (currentPath.length > 2 ? ' Z' : '')}
                 fill="none"
                 stroke={zoneTypes.find(t => t.id === zoneType)?.color || '#fff'}
-                strokeWidth={3}
+                strokeWidth={2 / zoom}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -2725,17 +2729,17 @@ export default function PlannerPage() {
                 d={currentPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + (currentPath.length > 2 ? ' Z' : '')}
                 fill="none"
                 stroke="#fff"
-                strokeWidth={3}
+                strokeWidth={2 / zoom}
                 strokeLinecap="round"
                 strokeLinejoin="round"
-                strokeDasharray="10,10"
+                strokeDasharray={`${10 / zoom},${10 / zoom}`}
               />
             </g>
           )}
 
           {/* Linjer */}
           {visibleLayers.lines && markers.filter(m => m.isLine && visibleLines[m.lineType]).map(m => 
-            renderLine(m.path, m.lineType, m.lineType === 'mainRoad' ? 10 : m.lineType === 'boundary' ? 6 : 6)
+            renderLine(m.path, m.lineType)
           )}
           
           {/* Mått-labels för linjer */}
@@ -2780,8 +2784,8 @@ export default function PlannerPage() {
               d={createSmoothPath(currentPath)}
               fill="none"
               stroke={lineTypes.find(t => t.id === drawType)?.color || '#fff'}
-              strokeWidth={4}
-              strokeDasharray="8,8"
+              strokeWidth={2 / zoom}
+              strokeDasharray={`${8 / zoom},${8 / zoom}`}
             />
           )}
           
