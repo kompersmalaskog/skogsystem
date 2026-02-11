@@ -1,6 +1,12 @@
 'use client'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import ObjektValjare from './ObjektValjare'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 // === TYPES ===
 interface Point {
@@ -65,8 +71,86 @@ export default function PlannerPage() {
 
   // === STATE ===
   const [markers, setMarkers] = useState<Marker[]>([]);
+  const [markersLoaded, setMarkersLoaded] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [markerMenuOpen, setMarkerMenuOpen] = useState<string | null>(null);
+
+  // === SUPABASE SYNC ===
+  const getMarkerTyp = (m: Marker): string => {
+    if (m.isLine) return 'linje';
+    if (m.isZone) return 'zon';
+    if (m.isArrow) return 'pil';
+    return 'symbol';
+  };
+
+  // Ladda markeringar från Supabase när objekt väljs
+  useEffect(() => {
+    if (!valtObjekt?.id) {
+      setMarkersLoaded(false);
+      return;
+    }
+    const loadMarkers = async () => {
+      const { data, error } = await supabase
+        .from('planering_markeringar')
+        .select('marker_id, data')
+        .eq('objekt_id', valtObjekt.id);
+      if (error) {
+        console.error('Kunde inte ladda markeringar:', error);
+      } else if (data && data.length > 0) {
+        setMarkers(data.map(row => row.data as Marker));
+      }
+      setMarkersLoaded(true);
+    };
+    loadMarkers();
+  }, [valtObjekt?.id]);
+
+  // Spara en markering till Supabase
+  const saveMarkerToDb = useCallback(async (marker: Marker) => {
+    if (!valtObjekt?.id) return;
+    const { error } = await supabase
+      .from('planering_markeringar')
+      .upsert({
+        objekt_id: valtObjekt.id,
+        marker_id: String(marker.id),
+        typ: getMarkerTyp(marker),
+        data: marker,
+      }, { onConflict: 'objekt_id,marker_id' });
+    if (error) console.error('Spara markering fel:', error);
+  }, [valtObjekt?.id]);
+
+  // Ta bort en markering från Supabase
+  const deleteMarkerFromDb = useCallback(async (markerId: string | number) => {
+    if (!valtObjekt?.id) return;
+    const { error } = await supabase
+      .from('planering_markeringar')
+      .delete()
+      .eq('objekt_id', valtObjekt.id)
+      .eq('marker_id', String(markerId));
+    if (error) console.error('Ta bort markering fel:', error);
+  }, [valtObjekt?.id]);
+
+  // Synka markers till Supabase vid ändringar (debounced)
+  const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!valtObjekt?.id || !markersLoaded) return;
+    if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
+    syncTimeoutRef.current = setTimeout(async () => {
+      // Upsert alla nuvarande markers
+      const rows = markers.map(m => ({
+        objekt_id: valtObjekt.id,
+        marker_id: String(m.id),
+        typ: getMarkerTyp(m),
+        data: m,
+      }));
+      if (rows.length > 0) {
+        const { error } = await supabase
+          .from('planering_markeringar')
+          .upsert(rows, { onConflict: 'objekt_id,marker_id' });
+        if (error) console.error('Sync markers fel:', error);
+      }
+    }, 1000);
+    return () => { if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current); };
+  }, [markers, valtObjekt?.id, markersLoaded]);
   
   // === KARTA ===
   const [screenSize, setScreenSize] = useState({ width: 800, height: 600 });
@@ -1338,6 +1422,7 @@ export default function PlannerPage() {
     saveToHistory([...markers]);
     setMarkers(prev => prev.filter(m => m.id !== id));
     setMarkerMenuOpen(null);
+    deleteMarkerFromDb(id);
   };
 
   // Drag & drop för symboler
@@ -3728,6 +3813,7 @@ export default function PlannerPage() {
                     setIsDrawMode(true);
                     setDrawPaused(true);
                     saveToHistory([...markers]);
+                    deleteMarkerFromDb(marker.id);
                     setMarkers(prev => prev.filter(m => m.id !== marker.id));
                     setMarkerMenuOpen(null);
                   }}
@@ -4784,6 +4870,8 @@ export default function PlannerPage() {
                   onClick={() => {
                     setMenuOpen(false);
                     setMenuHeight(0);
+                    setMarkers([]);
+                    setMarkersLoaded(false);
                     setValtObjekt(null);
                   }}
                   style={{
@@ -6834,6 +6922,7 @@ export default function PlannerPage() {
 
                   <button
                     onClick={() => {
+                      deleteMarkerFromDb(selectedOversiktVag.id);
                       setMarkers(prev => prev.filter(m => m.id !== selectedOversiktVag.id));
                       setSelectedOversiktVag(null);
                     }}
@@ -6946,6 +7035,7 @@ export default function PlannerPage() {
 
                   <button
                     onClick={() => {
+                      deleteMarkerFromDb(selectedOversiktItem.id);
                       setMarkers(prev => prev.filter(m => m.id !== selectedOversiktItem.id));
                       setSelectedOversiktItem(null);
                     }}
