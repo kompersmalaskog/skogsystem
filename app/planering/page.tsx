@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useEffect } from 'react'
+import ObjektValjare from './ObjektValjare'
 
 // === TYPES ===
 interface Point {
@@ -59,6 +60,9 @@ interface ManuellPrognos {
 }
 
 export default function PlannerPage() {
+  // === OBJEKTVAL ===
+  const [valtObjekt, setValtObjekt] = useState<any>(null);
+
   // === STATE ===
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
@@ -2203,6 +2207,18 @@ export default function PlannerPage() {
     red: '#ff453a',
     orange: '#ff9f0a',
   };
+
+  // Visa objektväljaren om inget objekt är valt
+  if (!valtObjekt) {
+    return (
+      <ObjektValjare
+        onSelectObjekt={(obj) => setValtObjekt(obj)}
+        onNavigera={(lat, lng) => {
+          window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
+        }}
+      />
+    );
+  }
 
   return (
     <div style={{

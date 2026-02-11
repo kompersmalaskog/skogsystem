@@ -294,11 +294,18 @@ export async function POST(request: NextRequest) {
         const jgwLines = jgwText.trim().split(/\r?\n/);
         console.log('JGW:', jgwLines);
 
+        // Hantera svenskt decimalkomma i JGW-filer
+        const parseJgwValue = (s: string) => parseFloat(s.replace(',', '.'));
+
         if (dimensions && jgwLines.length >= 6) {
-          const pixelSizeX = parseFloat(jgwLines[0]); // Meter per pixel i X-led
-          const pixelSizeY = parseFloat(jgwLines[3]); // Meter per pixel i Y-led (negativ)
-          const upperLeftX = parseFloat(jgwLines[4]); // Easting för övre vänstra hörnet
-          const upperLeftY = parseFloat(jgwLines[5]); // Northing för övre vänstra hörnet
+          const pixelSizeX = parseJgwValue(jgwLines[0]); // Meter per pixel i X-led
+          const pixelSizeY = parseJgwValue(jgwLines[3]); // Meter per pixel i Y-led (negativ)
+          const pixelCenterX = parseJgwValue(jgwLines[4]); // Easting för pixel-center
+          const pixelCenterY = parseJgwValue(jgwLines[5]); // Northing för pixel-center
+
+          // JGW anger pixel-center, justera till pixel-kant (övre vänstra hörnet)
+          const upperLeftX = pixelCenterX - pixelSizeX / 2;
+          const upperLeftY = pixelCenterY - pixelSizeY / 2;
 
           // Beräkna bounds i SWEREF99 TM
           const lowerRightX = upperLeftX + (dimensions.width * pixelSizeX);
