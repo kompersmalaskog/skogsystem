@@ -2290,10 +2290,10 @@ export default function PlannerPage() {
             fontWeight: '600',
             color: colors.text,
           }}>
-            {tractInfo.name}
+            {valtObjekt?.namn || 'Inget objekt'}
           </span>
           <span style={{ fontSize: '14px', color: colors.textMuted }}>
-            {tractInfo.area}
+            {valtObjekt?.areal ? `${valtObjekt.areal} ha` : ''}
           </span>
           
           {/* GPS-indikator - bara en färgad prick */}
