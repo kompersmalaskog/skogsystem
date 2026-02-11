@@ -2780,41 +2780,7 @@ export default function PlannerPage() {
             renderLine(m.path, m.lineType)
           )}
           
-          {/* Mått-labels för linjer */}
-          {showMeasurements && visibleLayers.lines && markers.filter(m => m.isLine && visibleLines[m.lineType]).map(m => {
-            const midIndex = Math.floor(m.path.length / 2);
-            const midPoint = m.path[midIndex];
-            const length = calculateLength(m.path);
-            // Begränsad storlek för mått-labels
-            const labelWidth = getConstrainedSize(60);
-            const labelHeight = getConstrainedSize(20);
-            const labelFontSize = getConstrainedSize(11);
-            const labelRadius = getConstrainedSize(10);
-            const labelOffsetY = getConstrainedSize(25);
-            return (
-              <g key={`measure-${m.id}`}>
-                <rect
-                  x={midPoint.x - labelWidth/2}
-                  y={midPoint.y - labelOffsetY}
-                  width={labelWidth}
-                  height={labelHeight}
-                  rx={labelRadius}
-                  fill="rgba(0,0,0,0.8)"
-                />
-                <text
-                  x={midPoint.x}
-                  y={midPoint.y - labelOffsetY + labelHeight/2 + 1}
-                  textAnchor="middle"
-                  fontSize={labelFontSize}
-                  fontWeight="600"
-                  fill="#fff"
-                  style={{ pointerEvents: 'none' }}
-                >
-                  {formatLength(length)}
-                </text>
-              </g>
-            );
-          })}
+          {/* Mått-labels för linjer - borttagna */}
           
           {/* Pågående linje */}
           {isDrawMode && currentPath.length > 0 && (
