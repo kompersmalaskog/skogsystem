@@ -2217,7 +2217,24 @@ export default function PlannerPage() {
   if (!valtObjekt) {
     return (
       <ObjektValjare
-        onSelectObjekt={(obj) => setValtObjekt(obj)}
+        onSelectObjekt={(obj) => {
+          setValtObjekt(obj);
+          // Centrera kartan på objektets koordinater eller kartbild
+          if (obj.kartbild_bounds) {
+            // Centrera på mitten av kartbilden
+            const bounds = obj.kartbild_bounds;
+            const centerLat = (bounds[0][0] + bounds[1][0]) / 2;
+            const centerLng = (bounds[0][1] + bounds[1][1]) / 2;
+            setMapCenter({ lat: centerLat, lng: centerLng });
+            setMapZoom(15);
+          } else if (obj.lat && obj.lng) {
+            setMapCenter({ lat: obj.lat, lng: obj.lng });
+            setMapZoom(16);
+          }
+          // Återställ pan/zoom till centrerat läge
+          setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
+          setZoom(1);
+        }}
         onNavigera={(lat, lng) => {
           window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
         }}
