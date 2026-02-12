@@ -2638,76 +2638,91 @@ export default function PlannerPage() {
               }
             }
             
-            // WMS Overlay: Sumpskog (gammal toggle)
-            if (overlays.wetlands && screenSize.width > 0) {
-              const centerLat = mapCenter.lat;
-              const centerLng = mapCenter.lng;
-              const metersPerPixel = 156543.03392 * Math.cos(centerLat * Math.PI / 180) / Math.pow(2, z);
-              const viewWidthMeters = screenSize.width * metersPerPixel / zoom;
-              const viewHeightMeters = screenSize.height * metersPerPixel / zoom;
-              const latOffset = (viewHeightMeters / 111320) / 2;
-              const lngOffset = (viewWidthMeters / (111320 * Math.cos(centerLat * Math.PI / 180))) / 2;
-              const bbox = `${centerLng - lngOffset},${centerLat - latOffset},${centerLng + lngOffset},${centerLat + latOffset}`;
-              const wmsUrl = `https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${bbox}&WIDTH=${Math.round(screenSize.width)}&HEIGHT=${Math.round(screenSize.height)}`;
-              tiles.push(
-                <img
-                  key={`wms-wetlands-${Math.round(centerLat*1000)}-${Math.round(centerLng*1000)}-${z}`}
-                  src={wmsUrl}
-                  alt=""
-                  style={{ position: 'absolute', left: 0, top: 0, width: screenSize.width, height: screenSize.height, opacity: 0.7, pointerEvents: 'none' }}
-                  onError={(e) => {
-                    console.warn('WMS wetlands fel:', (e.target as HTMLImageElement).src.substring(0, 120));
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
-                />
-              );
+            // WMS Overlay: Sumpskog (gammal toggle) - nu tile-baserad
+            if (overlays.wetlands) {
+              for (let dx = -tilesAround; dx <= tilesAround; dx++) {
+                for (let dy = -tilesAround; dy <= tilesAround; dy++) {
+                  const tileX = centerTileX + dx;
+                  const tileY = centerTileY + dy;
+                  const svgX = basePosX + dx * tileSize;
+                  const svgY = basePosY + dy * tileSize;
+                  const screenX = pan.x + svgX * zoom;
+                  const screenY = pan.y + svgY * zoom;
+                  const scaledSize = tileSize * zoom;
+                  if (screenX < -scaledSize * 2 || screenX > screenSize.width + scaledSize) continue;
+                  if (screenY < -scaledSize * 2 || screenY > screenSize.height + scaledSize) continue;
+                  // Beräkna tile-bbox i EPSG:4326 (WMS 1.1.1: minx=lng_min, miny=lat_min)
+                  const tLngMin = tileX / n * 360 - 180;
+                  const tLngMax = (tileX + 1) / n * 360 - 180;
+                  const tLatMax = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / n))) * 180 / Math.PI;
+                  const tLatMin = Math.atan(Math.sinh(Math.PI * (1 - 2 * (tileY + 1) / n))) * 180 / Math.PI;
+                  const bbox = `${tLngMin},${tLatMin},${tLngMax},${tLatMax}`;
+                  tiles.push(
+                    <img
+                      key={`wms-wetlands-${tileX}-${tileY}-${z}`}
+                      src={`https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${bbox}&WIDTH=256&HEIGHT=256`}
+                      alt=""
+                      style={{ position: 'absolute', left: screenX, top: screenY, width: scaledSize, height: scaledSize, opacity: 0.7, pointerEvents: 'none' }}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  );
+                }
+              }
             }
 
-            // WMS Overlays: Skogsstyrelsen (EPSG:4326) + Riksantikvarieämbetet (EPSG:3857)
-            if (screenSize.width > 0) {
-              const centerLat = mapCenter.lat;
-              const centerLng = mapCenter.lng;
-              const metersPerPixel = 156543.03392 * Math.cos(centerLat * Math.PI / 180) / Math.pow(2, z);
-              const viewWidthMeters = screenSize.width * metersPerPixel / zoom;
-              const viewHeightMeters = screenSize.height * metersPerPixel / zoom;
-              const latOffset = (viewHeightMeters / 111320) / 2;
-              const lngOffset = (viewWidthMeters / (111320 * Math.cos(centerLat * Math.PI / 180))) / 2;
-
-              // EPSG:4326 bbox (WMS 1.1.1: minx,miny,maxx,maxy = lng_min,lat_min,lng_max,lat_max)
-              const bbox4326 = `${centerLng - lngOffset},${centerLat - latOffset},${centerLng + lngOffset},${centerLat + latOffset}`;
-
-              // EPSG:3857 bbox för RAA
-              const toWebMercator = (lat: number, lng: number) => {
-                const x = lng * 20037508.34 / 180;
-                const y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
-                return { x, y: y * 20037508.34 / 180 };
+            // WMS Overlays: tile-baserade - följer pan/zoom exakt som baskartan
+            // Hjälpfunktion: tile -> bbox i EPSG:4326
+            const tileBbox4326 = (tx: number, ty: number) => {
+              const lngMin = tx / n * 360 - 180;
+              const lngMax = (tx + 1) / n * 360 - 180;
+              const latMax = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n))) * 180 / Math.PI;
+              const latMin = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / n))) * 180 / Math.PI;
+              return `${lngMin},${latMin},${lngMax},${latMax}`;
+            };
+            // Hjälpfunktion: tile -> bbox i EPSG:3857
+            const tileBbox3857 = (tx: number, ty: number) => {
+              const lngMin = tx / n * 360 - 180;
+              const lngMax = (tx + 1) / n * 360 - 180;
+              const latMax = Math.atan(Math.sinh(Math.PI * (1 - 2 * ty / n))) * 180 / Math.PI;
+              const latMin = Math.atan(Math.sinh(Math.PI * (1 - 2 * (ty + 1) / n))) * 180 / Math.PI;
+              const toMerc = (la: number, lo: number) => {
+                const mx = lo * 20037508.34 / 180;
+                const my = Math.log(Math.tan((90 + la) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180;
+                return { mx, my };
               };
-              const sw = toWebMercator(centerLat - latOffset, centerLng - lngOffset);
-              const ne = toWebMercator(centerLat + latOffset, centerLng + lngOffset);
-              const bbox3857 = `${sw.x},${sw.y},${ne.x},${ne.y}`;
+              const swM = toMerc(latMin, lngMin);
+              const neM = toMerc(latMax, lngMax);
+              return `${swM.mx},${swM.my},${neM.mx},${neM.my}`;
+            };
 
-              const imgW = Math.round(screenSize.width);
-              const imgH = Math.round(screenSize.height);
-
-              wmsLayers.forEach(layer => {
-                if (!overlays[layer.id]) return;
-                const srs = layer.srs || 'EPSG:4326';
-                const bbox = srs === 'EPSG:3857' ? bbox3857 : bbox4326;
-                const wmsUrl = `${layer.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(layer.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=${srs}&BBOX=${bbox}&WIDTH=${imgW}&HEIGHT=${imgH}`;
-                tiles.push(
-                  <img
-                    key={`wms-${layer.id}-${Math.round(centerLat*1000)}-${Math.round(centerLng*1000)}-${z}`}
-                    src={wmsUrl}
-                    alt=""
-                    style={{ position: 'absolute', left: 0, top: 0, width: screenSize.width, height: screenSize.height, opacity: 0.75, pointerEvents: 'none' }}
-                    onError={(e) => {
-                      console.warn(`WMS ${layer.id} fel:`, (e.target as HTMLImageElement).src.substring(0, 150));
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
-                  />
-                );
-              });
-            }
+            wmsLayers.forEach(layer => {
+              if (!overlays[layer.id]) return;
+              const srs = layer.srs || 'EPSG:4326';
+              for (let dx = -tilesAround; dx <= tilesAround; dx++) {
+                for (let dy = -tilesAround; dy <= tilesAround; dy++) {
+                  const tileX = centerTileX + dx;
+                  const tileY = centerTileY + dy;
+                  const svgX = basePosX + dx * tileSize;
+                  const svgY = basePosY + dy * tileSize;
+                  const screenX = pan.x + svgX * zoom;
+                  const screenY = pan.y + svgY * zoom;
+                  const scaledSize = tileSize * zoom;
+                  if (screenX < -scaledSize * 2 || screenX > screenSize.width + scaledSize) continue;
+                  if (screenY < -scaledSize * 2 || screenY > screenSize.height + scaledSize) continue;
+                  const bbox = srs === 'EPSG:3857' ? tileBbox3857(tileX, tileY) : tileBbox4326(tileX, tileY);
+                  const wmsUrl = `${layer.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(layer.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=${srs}&BBOX=${bbox}&WIDTH=256&HEIGHT=256`;
+                  tiles.push(
+                    <img
+                      key={`wms-${layer.id}-${tileX}-${tileY}-${z}`}
+                      src={wmsUrl}
+                      alt=""
+                      style={{ position: 'absolute', left: screenX, top: screenY, width: scaledSize, height: scaledSize, opacity: 0.75, pointerEvents: 'none' }}
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  );
+                }
+              }
+            });
             
             return tiles;
           })()}
