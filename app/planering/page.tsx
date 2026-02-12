@@ -175,11 +175,11 @@ export default function PlannerPage() {
   });
 
   const wmsLayers = [
-    { id: 'nyckelbiotoper', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: '0', name: 'Nyckelbiotoper', color: '#a855f7' },
-    { id: 'naturvarde', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer', layers: '0', name: 'Naturvärde', color: '#22c55e' },
-    { id: 'sumpskog', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer', layers: '0', name: 'Sumpskogar', color: '#3b82f6' },
-    { id: 'fornlamningar', url: 'https://pub.raa.se/visning/lamningar/wms', layers: 'lamningar:all', name: 'Fornlämningar', color: '#ef4444' },
-    { id: 'skoghistoria', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer', layers: '0', name: 'Skog & historia', color: '#f59e0b' },
+    { id: 'nyckelbiotoper', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: 'Nyckelbiotop_Skogsstyrelsen', name: 'Nyckelbiotoper', color: '#a855f7' },
+    { id: 'naturvarde', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer', layers: 'Objektnaturvarde_Skogsstyrelsen', name: 'Naturvärde', color: '#22c55e' },
+    { id: 'sumpskog', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer', layers: 'Sumpskog_Skogsstyrelsen', name: 'Sumpskogar', color: '#3b82f6' },
+    { id: 'fornlamningar', url: 'https://pub.raa.se/visning/lamningar/wms', layers: 'fornlamningar', name: 'Fornlämningar', color: '#ef4444', srs: 'EPSG:3857' },
+    { id: 'skoghistoria', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer', layers: 'SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen', name: 'Skog & historia', color: '#f59e0b' },
   ];
   
   // Hämta skärmstorlek på klienten
@@ -2648,19 +2648,22 @@ export default function PlannerPage() {
               const latOffset = (viewHeightMeters / 111320) / 2;
               const lngOffset = (viewWidthMeters / (111320 * Math.cos(centerLat * Math.PI / 180))) / 2;
               const bbox = `${centerLng - lngOffset},${centerLat - latOffset},${centerLng + lngOffset},${centerLat + latOffset}`;
-              const wmsUrl = `https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${bbox}&WIDTH=${Math.round(screenSize.width)}&HEIGHT=${Math.round(screenSize.height)}`;
+              const wmsUrl = `https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${bbox}&WIDTH=${Math.round(screenSize.width)}&HEIGHT=${Math.round(screenSize.height)}`;
               tiles.push(
                 <img
-                  key={`wms-sumpskog-${Math.round(centerLat*100)}-${Math.round(centerLng*100)}`}
+                  key={`wms-wetlands-${Math.round(centerLat*1000)}-${Math.round(centerLng*1000)}-${z}`}
                   src={wmsUrl}
                   alt=""
                   style={{ position: 'absolute', left: 0, top: 0, width: screenSize.width, height: screenSize.height, opacity: 0.7, pointerEvents: 'none' }}
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  onError={(e) => {
+                    console.warn('WMS wetlands fel:', (e.target as HTMLImageElement).src.substring(0, 120));
+                    (e.target as HTMLImageElement).style.display = 'none';
+                  }}
                 />
               );
             }
 
-            // WMS Overlays: Skogsstyrelsen + Riksantikvarieämbetet
+            // WMS Overlays: Skogsstyrelsen (EPSG:4326) + Riksantikvarieämbetet (EPSG:3857)
             if (screenSize.width > 0) {
               const centerLat = mapCenter.lat;
               const centerLng = mapCenter.lng;
@@ -2670,7 +2673,10 @@ export default function PlannerPage() {
               const latOffset = (viewHeightMeters / 111320) / 2;
               const lngOffset = (viewWidthMeters / (111320 * Math.cos(centerLat * Math.PI / 180))) / 2;
 
-              // EPSG:3857 (Web Mercator) bbox-beräkning
+              // EPSG:4326 bbox (WMS 1.1.1: minx,miny,maxx,maxy = lng_min,lat_min,lng_max,lat_max)
+              const bbox4326 = `${centerLng - lngOffset},${centerLat - latOffset},${centerLng + lngOffset},${centerLat + latOffset}`;
+
+              // EPSG:3857 bbox för RAA
               const toWebMercator = (lat: number, lng: number) => {
                 const x = lng * 20037508.34 / 180;
                 const y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
@@ -2679,19 +2685,25 @@ export default function PlannerPage() {
               const sw = toWebMercator(centerLat - latOffset, centerLng - lngOffset);
               const ne = toWebMercator(centerLat + latOffset, centerLng + lngOffset);
               const bbox3857 = `${sw.x},${sw.y},${ne.x},${ne.y}`;
+
               const imgW = Math.round(screenSize.width);
               const imgH = Math.round(screenSize.height);
 
               wmsLayers.forEach(layer => {
                 if (!overlays[layer.id]) return;
-                const wmsUrl = `${layer.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(layer.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX=${bbox3857}&WIDTH=${imgW}&HEIGHT=${imgH}`;
+                const srs = layer.srs || 'EPSG:4326';
+                const bbox = srs === 'EPSG:3857' ? bbox3857 : bbox4326;
+                const wmsUrl = `${layer.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(layer.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=${srs}&BBOX=${bbox}&WIDTH=${imgW}&HEIGHT=${imgH}`;
                 tiles.push(
                   <img
                     key={`wms-${layer.id}-${Math.round(centerLat*1000)}-${Math.round(centerLng*1000)}-${z}`}
                     src={wmsUrl}
                     alt=""
                     style={{ position: 'absolute', left: 0, top: 0, width: screenSize.width, height: screenSize.height, opacity: 0.75, pointerEvents: 'none' }}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                    onError={(e) => {
+                      console.warn(`WMS ${layer.id} fel:`, (e.target as HTMLImageElement).src.substring(0, 150));
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
                   />
                 );
               });
