@@ -254,7 +254,97 @@ export default function PlannerPage() {
     { id: 'elledningar', text: 'El-ledningar markerade?', answer: null, fixed: true },
   ]);
   const [newChecklistItem, setNewChecklistItem] = useState('');
-  
+
+  // Info-fliken
+  const maskinLista = ['PONSSE Scorpion Giant 8W', 'Wisent 2015', 'Elephant King AF', 'Rottne'];
+  const [infoBarighet, setInfoBarighet] = useState<string | null>(null);
+  const [infoTerrang, setInfoTerrang] = useState<string | null>(null);
+  const [infoSkordareMaskin, setInfoSkordareMaskin] = useState('');
+  const [infoSkordareBand, setInfoSkordareBand] = useState(false);
+  const [infoSkordareBandPar, setInfoSkordareBandPar] = useState('1');
+  const [infoSkordareManFall, setInfoSkordareManFall] = useState(false);
+  const [infoSkordareManFallText, setInfoSkordareManFallText] = useState('');
+  const [infoSkotareMaskin, setInfoSkotareMaskin] = useState('');
+  const [infoSkotareBand, setInfoSkotareBand] = useState(false);
+  const [infoSkotareBandPar, setInfoSkotareBandPar] = useState('1');
+  const [infoSkotareLastreder, setInfoSkotareLastreder] = useState(false);
+  const [infoSkotareRisDirekt, setInfoSkotareRisDirekt] = useState(false);
+  const [infoTrailerIn, setInfoTrailerIn] = useState(true);
+  const [infoTransportKommentar, setInfoTransportKommentar] = useState('');
+  const [infoMarkagareVed, setInfoMarkagareVed] = useState(false);
+  const [infoMarkagareVedText, setInfoMarkagareVedText] = useState('');
+  const [infoAnteckningar, setInfoAnteckningar] = useState('');
+  const [infoLoaded, setInfoLoaded] = useState(false);
+  const infoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Ladda info-data från Supabase när objekt väljs
+  useEffect(() => {
+    if (!valtObjekt?.id) { setInfoLoaded(false); return; }
+    const loadInfo = async () => {
+      const { data, error } = await supabase
+        .from('objekt')
+        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar')
+        .eq('id', valtObjekt.id)
+        .single();
+      if (!error && data) {
+        setInfoBarighet(data.barighet || null);
+        setInfoTerrang(data.terrang || null);
+        setInfoSkordareMaskin(data.skordare_maskin || '');
+        setInfoSkordareBand(data.skordare_band || false);
+        setInfoSkordareBandPar(data.skordare_band_par || '1');
+        setInfoSkordareManFall(data.skordare_manuell_fallning || false);
+        setInfoSkordareManFallText(data.skordare_manuell_fallning_text || '');
+        setInfoSkotareMaskin(data.skotare_maskin || '');
+        setInfoSkotareBand(data.skotare_band || false);
+        setInfoSkotareBandPar(data.skotare_band_par || '1');
+        setInfoSkotareLastreder(data.skotare_lastreder_breddat || false);
+        setInfoSkotareRisDirekt(data.skotare_ris_direkt || false);
+        setInfoTrailerIn(data.transport_trailer_in !== false);
+        setInfoTransportKommentar(data.transport_kommentar || '');
+        setInfoMarkagareVed(data.markagare_ska_ha_ved || false);
+        setInfoMarkagareVedText(data.markagare_ved_text || '');
+        setInfoAnteckningar(data.info_anteckningar || '');
+      }
+      setInfoLoaded(true);
+    };
+    loadInfo();
+  }, [valtObjekt?.id]);
+
+  // Spara info till Supabase (debounced)
+  const saveInfoToDb = useCallback(async () => {
+    if (!valtObjekt?.id || !infoLoaded) return;
+    const { error } = await supabase
+      .from('objekt')
+      .update({
+        barighet: infoBarighet,
+        terrang: infoTerrang,
+        skordare_maskin: infoSkordareMaskin || null,
+        skordare_band: infoSkordareBand,
+        skordare_band_par: infoSkordareBandPar,
+        skordare_manuell_fallning: infoSkordareManFall,
+        skordare_manuell_fallning_text: infoSkordareManFallText || null,
+        skotare_maskin: infoSkotareMaskin || null,
+        skotare_band: infoSkotareBand,
+        skotare_band_par: infoSkotareBandPar,
+        skotare_lastreder_breddat: infoSkotareLastreder,
+        skotare_ris_direkt: infoSkotareRisDirekt,
+        transport_trailer_in: infoTrailerIn,
+        transport_kommentar: infoTransportKommentar || null,
+        markagare_ska_ha_ved: infoMarkagareVed,
+        markagare_ved_text: infoMarkagareVedText || null,
+        info_anteckningar: infoAnteckningar || null,
+      })
+      .eq('id', valtObjekt.id);
+    if (error) console.error('Spara info fel:', error);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar]);
+
+  useEffect(() => {
+    if (!infoLoaded) return;
+    if (infoSaveTimeoutRef.current) clearTimeout(infoSaveTimeoutRef.current);
+    infoSaveTimeoutRef.current = setTimeout(() => saveInfoToDb(), 800);
+    return () => { if (infoSaveTimeoutRef.current) clearTimeout(infoSaveTimeoutRef.current); };
+  }, [saveInfoToDb, infoLoaded]);
+
   // Foto
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [pendingPhotoMarkerId, setPendingPhotoMarkerId] = useState<string | null>(null);
@@ -741,6 +831,13 @@ export default function PlannerPage() {
           <path d="M16 6 L20 6 L20 10" />
         </svg>
       ),
+      'menu-info': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+      ),
       'menu-settings': (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="3" />
@@ -887,6 +984,7 @@ export default function PlannerPage() {
     { id: 'gallring', name: 'Gallring', desc: 'Snitsla stickvägar', icon: 'menu-gallring' },
     { id: 'checklist', name: 'Checklista', desc: 'Kontrollera punkter', icon: 'menu-checklist' },
     { id: 'prognos', name: 'Prognos', desc: 'Produktivitetsberäkning', icon: 'menu-prognos' },
+    { id: 'info', name: 'Info', desc: 'Objektinformation', icon: 'menu-info' },
     { id: 'settings', name: 'Inställningar', desc: 'Anpassa appen', icon: 'menu-settings' },
   ];
 
@@ -6100,6 +6198,332 @@ export default function PlannerPage() {
                     {stickvagSettings.targetDistance - stickvagSettings.tolerance} - {stickvagSettings.targetDistance + stickvagSettings.tolerance} m
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* === INFO === */}
+            {activeCategory === 'info' && (
+              <div style={{ padding: '12px' }}>
+
+                {/* MARKFÖRHÅLLANDEN */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Markförhållanden</div>
+
+                  {/* Bärighet */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Bärighet</div>
+                    <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      {[{ id: 'bra', label: 'Bra' }, { id: 'medel', label: 'Medel' }, { id: 'dalig', label: 'Dålig' }].map(opt => (
+                        <div key={opt.id} onClick={() => setInfoBarighet(opt.id)}
+                          style={{
+                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '14px', cursor: 'pointer',
+                            background: infoBarighet === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
+                            color: infoBarighet === opt.id ? '#fff' : 'rgba(255,255,255,0.4)',
+                            fontWeight: infoBarighet === opt.id ? '600' : '400',
+                            transition: 'all 0.2s ease',
+                          }}>{opt.label}</div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Terräng */}
+                  <div>
+                    <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Terräng</div>
+                    <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      {[{ id: 'flackt', label: 'Flackt' }, { id: 'kuperat', label: 'Kuperat' }, { id: 'brant', label: 'Brant' }].map(opt => (
+                        <div key={opt.id} onClick={() => setInfoTerrang(opt.id)}
+                          style={{
+                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '14px', cursor: 'pointer',
+                            background: infoTerrang === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
+                            color: infoTerrang === opt.id ? '#fff' : 'rgba(255,255,255,0.4)',
+                            fontWeight: infoTerrang === opt.id ? '600' : '400',
+                            transition: 'all 0.2s ease',
+                          }}>{opt.label}</div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* HINDER & HÄNSYN */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '12px' }}>Hinder & hänsyn</div>
+                  {(() => {
+                    const hinderSymboler = markers.filter(m => m.isMarker !== false && !m.isZone && !m.isLine && !m.isArrow && ['powerline', 'ditch', 'bridge', 'corduroy', 'wet', 'steep', 'warning', 'culturemonument', 'culturestump', 'eternitytree', 'naturecorner', 'trail'].includes(m.type || ''));
+                    const hinderZoner = markers.filter(m => m.isZone);
+                    const alla = [...hinderSymboler, ...hinderZoner];
+                    if (alla.length === 0) {
+                      return <div style={{ fontSize: '14px', opacity: 0.3, padding: '8px 0' }}>Inga hinder ritade på kartan</div>;
+                    }
+                    return alla.map(m => {
+                      const namn = m.isZone
+                        ? (zoneTypes.find(z => z.id === m.zoneType)?.name || m.zoneType || 'Zon')
+                        : (markerTypes.find(t => t.id === m.type)?.name || m.type || 'Markering');
+                      const farg = m.isZone
+                        ? (zoneTypes.find(z => z.id === m.zoneType)?.color || '#666')
+                        : '#888';
+                      return (
+                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: farg, flexShrink: 0 }} />
+                          <span style={{ fontSize: '14px', color: '#fff' }}>{namn}</span>
+                          {m.comment && <span style={{ fontSize: '12px', opacity: 0.4, marginLeft: 'auto' }}>{m.comment}</span>}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+
+                {/* SKÖRDARE */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Skördare</div>
+
+                  {/* Maskin dropdown */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
+                    <select
+                      value={infoSkordareMaskin}
+                      onChange={e => setInfoSkordareMaskin(e.target.value)}
+                      style={{
+                        width: '100%', padding: '12px 16px', borderRadius: '10px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', fontSize: '14px', outline: 'none',
+                        appearance: 'none', WebkitAppearance: 'none',
+                      }}
+                    >
+                      <option value="" style={{ background: '#111' }}>Välj maskin...</option>
+                      {maskinLista.map(m => <option key={m} value={m} style={{ background: '#111' }}>{m}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Band toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareBand ? '12px' : '16px' }}>
+                    <span style={{ fontSize: '14px', color: '#fff' }}>Band</span>
+                    <div onClick={() => setInfoSkordareBand(!infoSkordareBand)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkordareBand ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkordareBand ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                  {infoSkordareBand && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        {[{ id: '1', label: '1 par' }, { id: '2', label: '2 par' }].map(opt => (
+                          <div key={opt.id} onClick={() => setInfoSkordareBandPar(opt.id)}
+                            style={{
+                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '14px', cursor: 'pointer',
+                              background: infoSkordareBandPar === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
+                              color: infoSkordareBandPar === opt.id ? '#fff' : 'rgba(255,255,255,0.4)',
+                              fontWeight: infoSkordareBandPar === opt.id ? '600' : '400',
+                              transition: 'all 0.2s ease',
+                            }}>{opt.label}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Manuell fällning toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareManFall ? '12px' : '0' }}>
+                    <span style={{ fontSize: '14px', color: '#fff' }}>Manuell fällning</span>
+                    <div onClick={() => setInfoSkordareManFall(!infoSkordareManFall)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkordareManFall ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkordareManFall ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                  {infoSkordareManFall && (
+                    <textarea
+                      value={infoSkordareManFallText}
+                      onChange={e => setInfoSkordareManFallText(e.target.value)}
+                      placeholder="Beskriv..."
+                      style={{
+                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px', marginTop: '4px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', fontSize: '14px', outline: 'none', resize: 'vertical',
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* SKOTARE */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Skotare</div>
+
+                  {/* Maskin dropdown */}
+                  <div style={{ marginBottom: '16px' }}>
+                    <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
+                    <select
+                      value={infoSkotareMaskin}
+                      onChange={e => setInfoSkotareMaskin(e.target.value)}
+                      style={{
+                        width: '100%', padding: '12px 16px', borderRadius: '10px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', fontSize: '14px', outline: 'none',
+                        appearance: 'none', WebkitAppearance: 'none',
+                      }}
+                    >
+                      <option value="" style={{ background: '#111' }}>Välj maskin...</option>
+                      {maskinLista.map(m => <option key={m} value={m} style={{ background: '#111' }}>{m}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Band toggle */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkotareBand ? '12px' : '16px' }}>
+                    <span style={{ fontSize: '14px', color: '#fff' }}>Band</span>
+                    <div onClick={() => setInfoSkotareBand(!infoSkotareBand)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkotareBand ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareBand ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                  {infoSkotareBand && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        {[{ id: '1', label: '1 par' }, { id: '2', label: '2 par' }].map(opt => (
+                          <div key={opt.id} onClick={() => setInfoSkotareBandPar(opt.id)}
+                            style={{
+                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '14px', cursor: 'pointer',
+                              background: infoSkotareBandPar === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
+                              color: infoSkotareBandPar === opt.id ? '#fff' : 'rgba(255,255,255,0.4)',
+                              fontWeight: infoSkotareBandPar === opt.id ? '600' : '400',
+                              transition: 'all 0.2s ease',
+                            }}>{opt.label}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Lastreder breddat */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                    <span style={{ fontSize: '14px', color: '#fff' }}>Lastreder breddat</span>
+                    <div onClick={() => setInfoSkotareLastreder(!infoSkotareLastreder)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkotareLastreder ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareLastreder ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+
+                  {/* Ris skotas direkt */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '14px', color: '#fff' }}>Ris skotas direkt</span>
+                    <div onClick={() => setInfoSkotareRisDirekt(!infoSkotareRisDirekt)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoSkotareRisDirekt ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareRisDirekt ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* TRANSPORT */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Transport</div>
+
+                  {/* Trailer kan köra in */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: !infoTrailerIn ? '12px' : '16px' }}>
+                    <span style={{ fontSize: '14px', color: '#fff' }}>Trailer kan köra in</span>
+                    <div onClick={() => setInfoTrailerIn(!infoTrailerIn)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoTrailerIn ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoTrailerIn ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                  {!infoTrailerIn && (
+                    <div style={{
+                      padding: '10px 14px', borderRadius: '10px', marginBottom: '16px',
+                      background: 'rgba(234,179,8,0.1)', border: '1px solid rgba(234,179,8,0.3)',
+                      color: '#eab308', fontSize: '13px', fontWeight: '500',
+                    }}>
+                      Lassa av vid väg
+                    </div>
+                  )}
+
+                  {/* Kommentar */}
+                  <div>
+                    <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Kommentar</div>
+                    <textarea
+                      value={infoTransportKommentar}
+                      onChange={e => setInfoTransportKommentar(e.target.value)}
+                      placeholder="Kommentar om transport..."
+                      style={{
+                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', fontSize: '14px', outline: 'none', resize: 'vertical',
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* MARKÄGARE */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Markägare</div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoMarkagareVed ? '12px' : '0' }}>
+                    <span style={{ fontSize: '14px', color: '#fff' }}>Ska ha ved</span>
+                    <div onClick={() => setInfoMarkagareVed(!infoMarkagareVed)} style={{
+                      width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
+                      background: infoMarkagareVed ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoMarkagareVed ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
+                    </div>
+                  </div>
+                  {infoMarkagareVed && (
+                    <textarea
+                      value={infoMarkagareVedText}
+                      onChange={e => setInfoMarkagareVedText(e.target.value)}
+                      placeholder="Detaljer om ved..."
+                      style={{
+                        width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px',
+                        background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                        color: '#fff', fontSize: '14px', outline: 'none', resize: 'vertical',
+                        fontFamily: 'inherit',
+                      }}
+                    />
+                  )}
+                </div>
+
+                {/* ANTECKNINGAR */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                }}>
+                  <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '12px' }}>Anteckningar</div>
+                  <textarea
+                    value={infoAnteckningar}
+                    onChange={e => setInfoAnteckningar(e.target.value)}
+                    placeholder="Fritext..."
+                    style={{
+                      width: '100%', minHeight: '100px', padding: '12px', borderRadius: '10px',
+                      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                      color: '#fff', fontSize: '14px', outline: 'none', resize: 'vertical',
+                      fontFamily: 'inherit',
+                    }}
+                  />
+                </div>
+
               </div>
             )}
 
