@@ -167,7 +167,20 @@ export default function PlannerPage() {
     moisture: false,       // Markfuktighet (kräver konto)
     contours: false,       // Höjdkurvor
     wetlands: false,       // Sumpskog (öppet)
+    nyckelbiotoper: false, // Skogsstyrelsen
+    naturvarde: false,     // Objekt med naturvärde
+    sumpskog: false,       // Sumpskog WMS
+    fornlamningar: false,  // Riksantikvarieämbetet
+    skoghistoria: false,   // Skog och historia
   });
+
+  const wmsLayers = [
+    { id: 'nyckelbiotoper', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: '0', name: 'Nyckelbiotoper', color: '#a855f7' },
+    { id: 'naturvarde', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer', layers: '0', name: 'Naturvärde', color: '#22c55e' },
+    { id: 'sumpskog', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer', layers: '0', name: 'Sumpskogar', color: '#3b82f6' },
+    { id: 'fornlamningar', url: 'https://pub.raa.se/visning/lamningar/wms', layers: 'lamningar:all', name: 'Fornlämningar', color: '#ef4444' },
+    { id: 'skoghistoria', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer', layers: '0', name: 'Skog & historia', color: '#f59e0b' },
+  ];
   
   // Hämta skärmstorlek på klienten
   useEffect(() => {
@@ -2625,45 +2638,63 @@ export default function PlannerPage() {
               }
             }
             
-            // WMS Overlay: Sumpskog från Skogsstyrelsen
+            // WMS Overlay: Sumpskog (gammal toggle)
             if (overlays.wetlands && screenSize.width > 0) {
-              // Beräkna bounding box för synlig vy
               const centerLat = mapCenter.lat;
               const centerLng = mapCenter.lng;
-              
-              // Uppskatta synligt område baserat på zoom
               const metersPerPixel = 156543.03392 * Math.cos(centerLat * Math.PI / 180) / Math.pow(2, z);
               const viewWidthMeters = screenSize.width * metersPerPixel / zoom;
               const viewHeightMeters = screenSize.height * metersPerPixel / zoom;
-              
-              // Konvertera till lat/lng offset
               const latOffset = (viewHeightMeters / 111320) / 2;
               const lngOffset = (viewWidthMeters / (111320 * Math.cos(centerLat * Math.PI / 180))) / 2;
-              
               const bbox = `${centerLng - lngOffset},${centerLat - latOffset},${centerLng + lngOffset},${centerLat + latOffset}`;
-              
               const wmsUrl = `https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${bbox}&WIDTH=${Math.round(screenSize.width)}&HEIGHT=${Math.round(screenSize.height)}`;
-              
               tiles.push(
                 <img
                   key={`wms-sumpskog-${Math.round(centerLat*100)}-${Math.round(centerLng*100)}`}
                   src={wmsUrl}
                   alt=""
-                  style={{
-                    position: 'absolute',
-                    left: 0,
-                    top: 0,
-                    width: screenSize.width,
-                    height: screenSize.height,
-                    opacity: 0.7,
-                    pointerEvents: 'none',
-                  }}
-                  onError={(e) => {
-                    console.log('Sumpskog WMS failed to load');
-                    (e.target as HTMLImageElement).style.display = 'none';
-                  }}
+                  style={{ position: 'absolute', left: 0, top: 0, width: screenSize.width, height: screenSize.height, opacity: 0.7, pointerEvents: 'none' }}
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                 />
               );
+            }
+
+            // WMS Overlays: Skogsstyrelsen + Riksantikvarieämbetet
+            if (screenSize.width > 0) {
+              const centerLat = mapCenter.lat;
+              const centerLng = mapCenter.lng;
+              const metersPerPixel = 156543.03392 * Math.cos(centerLat * Math.PI / 180) / Math.pow(2, z);
+              const viewWidthMeters = screenSize.width * metersPerPixel / zoom;
+              const viewHeightMeters = screenSize.height * metersPerPixel / zoom;
+              const latOffset = (viewHeightMeters / 111320) / 2;
+              const lngOffset = (viewWidthMeters / (111320 * Math.cos(centerLat * Math.PI / 180))) / 2;
+
+              // EPSG:3857 (Web Mercator) bbox-beräkning
+              const toWebMercator = (lat: number, lng: number) => {
+                const x = lng * 20037508.34 / 180;
+                const y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
+                return { x, y: y * 20037508.34 / 180 };
+              };
+              const sw = toWebMercator(centerLat - latOffset, centerLng - lngOffset);
+              const ne = toWebMercator(centerLat + latOffset, centerLng + lngOffset);
+              const bbox3857 = `${sw.x},${sw.y},${ne.x},${ne.y}`;
+              const imgW = Math.round(screenSize.width);
+              const imgH = Math.round(screenSize.height);
+
+              wmsLayers.forEach(layer => {
+                if (!overlays[layer.id]) return;
+                const wmsUrl = `${layer.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(layer.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX=${bbox3857}&WIDTH=${imgW}&HEIGHT=${imgH}`;
+                tiles.push(
+                  <img
+                    key={`wms-${layer.id}-${Math.round(centerLat*1000)}-${Math.round(centerLng*1000)}-${z}`}
+                    src={wmsUrl}
+                    alt=""
+                    style={{ position: 'absolute', left: 0, top: 0, width: screenSize.width, height: screenSize.height, opacity: 0.75, pointerEvents: 'none' }}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                );
+              });
             }
             
             return tiles;
@@ -4633,9 +4664,70 @@ export default function PlannerPage() {
               ))}
             </div>
 
+            {/* WMS-lager */}
+            <div style={{
+              background: '#0a0a0a',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              <div style={{
+                padding: '12px 16px 8px',
+                fontSize: '11px',
+                opacity: 0.4,
+                textTransform: 'uppercase',
+                letterSpacing: '1px'
+              }}>
+                Öppna geodata
+              </div>
+              {wmsLayers.map(layer => (
+                <div
+                  key={layer.id}
+                  onClick={() => setOverlays(prev => ({ ...prev, [layer.id]: !prev[layer.id] }))}
+                  style={{
+                    padding: '14px 16px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '14px',
+                    borderRadius: '12px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{
+                    width: '10px',
+                    height: '10px',
+                    borderRadius: '50%',
+                    background: layer.color,
+                    flexShrink: 0,
+                    opacity: overlays[layer.id] ? 1 : 0.3,
+                    transition: 'opacity 0.2s ease',
+                  }} />
+                  <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{layer.name}</span>
+                  <div style={{
+                    width: '44px',
+                    height: '26px',
+                    borderRadius: '13px',
+                    background: overlays[layer.id] ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                    padding: '2px',
+                    transition: 'background 0.2s ease',
+                  }}>
+                    <div style={{
+                      width: '22px',
+                      height: '22px',
+                      borderRadius: '50%',
+                      background: '#fff',
+                      transform: overlays[layer.id] ? 'translateX(18px)' : 'translateX(0)',
+                      transition: 'transform 0.2s ease',
+                    }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
             {/* Dina markeringar */}
             <div style={{
-              background: '#0a0a0a', 
+              background: '#0a0a0a',
               border: '1px solid rgba(255,255,255,0.08)',
               borderRadius: '20px',
               padding: '8px',
