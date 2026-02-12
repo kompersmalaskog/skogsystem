@@ -167,20 +167,53 @@ export default function PlannerPage() {
     moisture: false,       // Markfuktighet (kräver konto)
     contours: false,       // Höjdkurvor
     wetlands: false,       // Sumpskog (öppet)
-    nyckelbiotoper: false, // Skogsstyrelsen
-    naturvarde: false,     // Objekt med naturvärde
-    sumpskog: false,       // Sumpskog WMS
-    fornlamningar: false,  // Riksantikvarieämbetet
-    skoghistoria: false,   // Skog och historia
+    // Skogsstyrelsen
+    nyckelbiotoper: false,
+    naturvarde: false,
+    sumpskog: false,
+    skoghistoria: false,
+    biotopskydd: false,
+    naturvardsavtal: false,
+    avverkningsanmalan: false,
+    utfordavverkning: false,
+    // Riksantikvarieämbetet
+    fornlamningar: false,
+    // Naturvårdsverket
+    naturreservat: false,
+    natura2000: false,
+    vattenskydd: false,
   });
 
-  const wmsLayers = [
-    { id: 'nyckelbiotoper', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: 'Nyckelbiotop_Skogsstyrelsen', name: 'Nyckelbiotoper', color: '#a855f7' },
-    { id: 'naturvarde', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer', layers: 'Objektnaturvarde_Skogsstyrelsen', name: 'Naturvärde', color: '#22c55e' },
-    { id: 'sumpskog', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer', layers: 'Sumpskog_Skogsstyrelsen', name: 'Sumpskogar', color: '#3b82f6' },
-    { id: 'fornlamningar', url: 'https://pub.raa.se/visning/lamningar/wms', layers: 'fornlamningar', name: 'Fornlämningar', color: '#ef4444', srs: 'EPSG:3857' },
-    { id: 'skoghistoria', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer', layers: 'SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen', name: 'Skog & historia', color: '#f59e0b' },
+  const wmsLayerGroups = [
+    {
+      group: 'Skogsstyrelsen',
+      layers: [
+        { id: 'nyckelbiotoper', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: 'Nyckelbiotop_Skogsstyrelsen', name: 'Nyckelbiotoper', color: '#a855f7' },
+        { id: 'naturvarde', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer', layers: 'Objektnaturvarde_Skogsstyrelsen', name: 'Naturvärde', color: '#22c55e' },
+        { id: 'sumpskog', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer', layers: 'Sumpskog_Skogsstyrelsen', name: 'Sumpskogar', color: '#3b82f6' },
+        { id: 'biotopskydd', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer', layers: 'Biotopskydd_Skogsstyrelsen', name: 'Biotopskydd', color: '#166534' },
+        { id: 'naturvardsavtal', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNaturvardsavtal/MapServer/WmsServer', layers: 'Naturvardsavtal_Skogsstyrelsen', name: 'Naturvårdsavtal', color: '#14b8a6' },
+        { id: 'skoghistoria', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer', layers: 'SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen', name: 'Skog & historia', color: '#f59e0b' },
+        { id: 'avverkningsanmalan', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaAvverkningsanmalan/MapServer/WmsServer', layers: 'Avverkningsanmalan_Skogsstyrelsen', name: 'Avverkningsanmälningar', color: '#eab308' },
+        { id: 'utfordavverkning', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaUtfordavverkning/MapServer/WmsServer', layers: 'UtfordAvverkning_Skogsstyrelsen', name: 'Utförda avverkningar', color: '#92400e' },
+      ],
+    },
+    {
+      group: 'Riksantikvarieämbetet',
+      layers: [
+        { id: 'fornlamningar', url: 'https://pub.raa.se/visning/lamningar/wms', layers: 'fornlamningar', name: 'Fornlämningar', color: '#ef4444', srs: 'EPSG:3857' },
+      ],
+    },
+    {
+      group: 'Naturvårdsverket',
+      layers: [
+        { id: 'naturreservat', url: 'https://geodata.naturvardsverket.se/naturvardsregistret/wms', layers: 'Naturreservat', name: 'Naturreservat', color: '#15803d' },
+        { id: 'natura2000', url: 'https://geodata.naturvardsverket.se/n2000/wms', layers: 'Habitatdirektivet,Fageldirektivet', name: 'Natura 2000', color: '#4ade80' },
+        { id: 'vattenskydd', url: 'https://geodata.naturvardsverket.se/naturvardsregistret/wms', layers: 'Vattenskyddsomrade', name: 'Vattenskyddsområden', color: '#7dd3fc' },
+      ],
+    },
   ];
+  const wmsLayers = wmsLayerGroups.flatMap(g => g.layers);
   
   // Hämta skärmstorlek på klienten
   useEffect(() => {
@@ -4691,66 +4724,68 @@ export default function PlannerPage() {
               ))}
             </div>
 
-            {/* WMS-lager */}
-            <div style={{
-              background: '#0a0a0a',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
-              padding: '8px',
-              marginBottom: '16px',
-            }}>
-              <div style={{
-                padding: '12px 16px 8px',
-                fontSize: '11px',
-                opacity: 0.4,
-                textTransform: 'uppercase',
-                letterSpacing: '1px'
+            {/* WMS-lager grupperade */}
+            {wmsLayerGroups.map(group => (
+              <div key={group.group} style={{
+                background: '#0a0a0a',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '20px',
+                padding: '8px',
+                marginBottom: '16px',
               }}>
-                Öppna geodata
-              </div>
-              {wmsLayers.map(layer => (
-                <div
-                  key={layer.id}
-                  onClick={() => setOverlays(prev => ({ ...prev, [layer.id]: !prev[layer.id] }))}
-                  style={{
-                    padding: '14px 16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '14px',
-                    borderRadius: '12px',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{
-                    width: '10px',
-                    height: '10px',
-                    borderRadius: '50%',
-                    background: layer.color,
-                    flexShrink: 0,
-                    opacity: overlays[layer.id] ? 1 : 0.3,
-                    transition: 'opacity 0.2s ease',
-                  }} />
-                  <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{layer.name}</span>
-                  <div style={{
-                    width: '44px',
-                    height: '26px',
-                    borderRadius: '13px',
-                    background: overlays[layer.id] ? '#22c55e' : 'rgba(255,255,255,0.1)',
-                    padding: '2px',
-                    transition: 'background 0.2s ease',
-                  }}>
-                    <div style={{
-                      width: '22px',
-                      height: '22px',
-                      borderRadius: '50%',
-                      background: '#fff',
-                      transform: overlays[layer.id] ? 'translateX(18px)' : 'translateX(0)',
-                      transition: 'transform 0.2s ease',
-                    }} />
-                  </div>
+                <div style={{
+                  padding: '12px 16px 8px',
+                  fontSize: '11px',
+                  opacity: 0.4,
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
+                }}>
+                  {group.group}
                 </div>
-              ))}
-            </div>
+                {group.layers.map(layer => (
+                  <div
+                    key={layer.id}
+                    onClick={() => setOverlays(prev => ({ ...prev, [layer.id]: !prev[layer.id] }))}
+                    style={{
+                      padding: '14px 16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '14px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{
+                      width: '10px',
+                      height: '10px',
+                      borderRadius: '50%',
+                      background: layer.color,
+                      flexShrink: 0,
+                      opacity: overlays[layer.id] ? 1 : 0.3,
+                      transition: 'opacity 0.2s ease',
+                    }} />
+                    <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{layer.name}</span>
+                    <div style={{
+                      width: '44px',
+                      height: '26px',
+                      borderRadius: '13px',
+                      background: overlays[layer.id] ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                      padding: '2px',
+                      transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{
+                        width: '22px',
+                        height: '22px',
+                        borderRadius: '50%',
+                        background: '#fff',
+                        transform: overlays[layer.id] ? 'translateX(18px)' : 'translateX(0)',
+                        transition: 'transform 0.2s ease',
+                      }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
 
             {/* Dina markeringar */}
             <div style={{
