@@ -220,7 +220,7 @@ export default function PlannerPage() {
     {
       group: 'MSB',
       layers: [
-        { id: 'brandrisk', url: 'https://inspire.msb.se/brandrisk/wms', layers: 'Brandriskvarden2024', name: 'Brandrisk (historisk)', color: '#f97316' },
+        { id: 'brandrisk', url: 'https://inspire.msb.se/brandrisk/wms', layers: 'Brandriskvarden2024', name: 'Brandrisk (historisk)', color: '#f97316', maxNativeZoom: 10 },
         { id: 'oversvamning', url: 'https://inspire.msb.se/oversvamning/wms', layers: 'NZ_Oversvamning_100,NZ_Oversvamning_200,NZ_Oversvamning_BHF', name: 'Översvämningskarteringar', color: '#1e3a8a' },
       ],
     },
@@ -2749,25 +2749,49 @@ export default function PlannerPage() {
             wmsLayers.forEach(layer => {
               if (!overlays[layer.id]) return;
               const srs = layer.srs || 'EPSG:4326';
-              for (let dx = -tilesAround; dx <= tilesAround; dx++) {
-                for (let dy = -tilesAround; dy <= tilesAround; dy++) {
-                  const tileX = centerTileX + dx;
-                  const tileY = centerTileY + dy;
-                  const svgX = basePosX + dx * tileSize;
-                  const svgY = basePosY + dy * tileSize;
+              // maxNativeZoom: hämta tiles vid lägre zoom och skala upp
+              const wmsZ = (layer.maxNativeZoom != null && z > layer.maxNativeZoom) ? layer.maxNativeZoom : z;
+              const wmsN = Math.pow(2, wmsZ);
+              const scaleMult = Math.pow(2, z - wmsZ); // 1 om samma zoom, >1 om lägre
+              const wmsTileXFloat = (lng + 180) / 360 * wmsN;
+              const wmsLatRad = lat * Math.PI / 180;
+              const wmsTileYFloat = (1 - Math.log(Math.tan(wmsLatRad) + 1 / Math.cos(wmsLatRad)) / Math.PI) / 2 * wmsN;
+              const wmsCenterTileX = Math.floor(wmsTileXFloat);
+              const wmsCenterTileY = Math.floor(wmsTileYFloat);
+              const wmsTA = Math.ceil(tilesAround / scaleMult) + 2;
+              for (let dx = -wmsTA; dx <= wmsTA; dx++) {
+                for (let dy = -wmsTA; dy <= wmsTA; dy++) {
+                  const tileX = wmsCenterTileX + dx;
+                  const tileY = wmsCenterTileY + dy;
+                  // Positionera WMS-tile i basmap-tile-gridet
+                  const svgX = basePosX + (tileX * scaleMult - centerTileX) * tileSize;
+                  const svgY = basePosY + (tileY * scaleMult - centerTileY) * tileSize;
                   const screenX = pan.x + svgX * zoom;
                   const screenY = pan.y + svgY * zoom;
-                  const scaledSize = tileSize * zoom;
-                  if (screenX < -scaledSize * 2 || screenX > screenSize.width + scaledSize) continue;
-                  if (screenY < -scaledSize * 2 || screenY > screenSize.height + scaledSize) continue;
-                  const bbox = srs === 'EPSG:3857' ? tileBbox3857(tileX, tileY) : tileBbox4326(tileX, tileY);
+                  const wmsTileScreenSize = tileSize * scaleMult * zoom;
+                  if (screenX < -wmsTileScreenSize * 2 || screenX > screenSize.width + wmsTileScreenSize) continue;
+                  if (screenY < -wmsTileScreenSize * 2 || screenY > screenSize.height + wmsTileScreenSize) continue;
+                  // BBOX vid WMS-zoom
+                  const lngMin = tileX / wmsN * 360 - 180;
+                  const lngMax = (tileX + 1) / wmsN * 360 - 180;
+                  const latMax = Math.atan(Math.sinh(Math.PI * (1 - 2 * tileY / wmsN))) * 180 / Math.PI;
+                  const latMin = Math.atan(Math.sinh(Math.PI * (1 - 2 * (tileY + 1) / wmsN))) * 180 / Math.PI;
+                  let bbox: string;
+                  if (srs === 'EPSG:3857') {
+                    const toMerc = (la: number, lo: number) => ({ mx: lo * 20037508.34 / 180, my: Math.log(Math.tan((90 + la) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180 });
+                    const sw = toMerc(latMin, lngMin);
+                    const ne = toMerc(latMax, lngMax);
+                    bbox = `${sw.mx},${sw.my},${ne.mx},${ne.my}`;
+                  } else {
+                    bbox = `${lngMin},${latMin},${lngMax},${latMax}`;
+                  }
                   const wmsUrl = `${layer.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(layer.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=${srs}&BBOX=${bbox}&WIDTH=256&HEIGHT=256`;
                   tiles.push(
                     <img
-                      key={`wms-${layer.id}-${tileX}-${tileY}-${z}`}
+                      key={`wms-${layer.id}-${tileX}-${tileY}-${wmsZ}`}
                       src={wmsUrl}
                       alt=""
-                      style={{ position: 'absolute', left: screenX, top: screenY, width: scaledSize, height: scaledSize, opacity: 0.75, pointerEvents: 'none' }}
+                      style={{ position: 'absolute', left: screenX, top: screenY, width: wmsTileScreenSize, height: wmsTileScreenSize, opacity: 0.75, pointerEvents: 'none' }}
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                     />
                   );
