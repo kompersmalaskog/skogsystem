@@ -187,6 +187,10 @@ export default function PlannerPage() {
     oversvamning: false,
     // SGU
     jordarter: false,
+    // Trafikverket
+    barighet: false,
+    // Svenska Kraftnät
+    kraftledningar: false,
   });
 
   const wmsLayerGroups = [
@@ -227,6 +231,18 @@ export default function PlannerPage() {
       group: 'SGU',
       layers: [
         { id: 'jordarter', url: 'https://maps3.sgu.se/geoserver/jord/ows', layers: 'jord:SE.GOV.SGU.JORD.GRUNDLAGER.25K', name: 'Jordarter', color: '#92400e' },
+      ],
+    },
+    {
+      group: 'Trafikverket',
+      layers: [
+        { id: 'barighet', url: 'https://geo-netinfo.trafikverket.se/mapservice/wms.axd/NetInfo_1_8', layers: 'Barighet', name: 'Bärighet (BK-klass)', color: '#f97316' },
+      ],
+    },
+    {
+      group: 'Svenska Kraftnät',
+      layers: [
+        { id: 'kraftledningar', url: 'https://inspire-skn.metria.se/geoserver/skn/ows', layers: 'US.ElectricityNetwork.Lines', name: 'Kraftledningar (stamnätet)', color: '#ef4444' },
       ],
     },
   ];
