@@ -220,7 +220,6 @@ export default function PlannerPage() {
     {
       group: 'MSB',
       layers: [
-        { id: 'brandrisk', url: 'https://inspire.msb.se/brandrisk/wms', layers: 'Brandriskvarden2024', name: 'Brandrisk (historisk)', color: '#f97316', maxNativeZoom: 10 },
         { id: 'oversvamning', url: 'https://inspire.msb.se/oversvamning/wms', layers: 'NZ_Oversvamning_100,NZ_Oversvamning_200,NZ_Oversvamning_BHF', name: 'Översvämningskarteringar', color: '#1e3a8a' },
       ],
     },
@@ -232,7 +231,27 @@ export default function PlannerPage() {
     },
   ];
   const wmsLayers = wmsLayerGroups.flatMap(g => g.layers);
-  
+
+  // SMHI Brandrisk (API-baserad, inte WMS)
+  const [brandriskData, setBrandriskData] = useState<{fwiindex: number, grassfire: number, fwi: number, date: string} | null>(null);
+  useEffect(() => {
+    if (!overlays.brandrisk) { setBrandriskData(null); return; }
+    const lng = mapCenter.lng.toFixed(1);
+    const lat = mapCenter.lat.toFixed(1);
+    fetch(`https://opendata-download-metfcst.smhi.se/api/category/fwif1g/version/1/daily/geotype/point/lon/${lng}/lat/${lat}/data.json`)
+      .then(r => r.json())
+      .then(data => {
+        const today = data.timeSeries?.[0];
+        if (today) {
+          const fwiindex = today.parameters.find((p: any) => p.name === 'fwiindex')?.values[0] ?? -1;
+          const grassfire = today.parameters.find((p: any) => p.name === 'grassfire')?.values[0] ?? -1;
+          const fwi = today.parameters.find((p: any) => p.name === 'fwi')?.values[0] ?? 0;
+          setBrandriskData({ fwiindex, grassfire, fwi, date: today.validTime });
+        }
+      })
+      .catch(() => setBrandriskData(null));
+  }, [overlays.brandrisk, mapCenter.lat, mapCenter.lng]);
+
   // Hämta skärmstorlek på klienten
   useEffect(() => {
     setScreenSize({ width: window.innerWidth, height: window.innerHeight });
@@ -4139,6 +4158,47 @@ export default function PlannerPage() {
         );
       })()}
 
+      {/* === SMHI BRANDRISK-BADGE === */}
+      {overlays.brandrisk && brandriskData && (
+        <div style={{
+          position: 'absolute',
+          top: 60,
+          right: 12,
+          background: '#0a0a0a',
+          border: '1px solid rgba(255,255,255,0.12)',
+          borderRadius: '14px',
+          padding: '10px 14px',
+          zIndex: 200,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '10px',
+        }}>
+          <div style={{
+            width: '10px',
+            height: '10px',
+            borderRadius: '50%',
+            background: brandriskData.fwiindex <= 0 ? '#22c55e'
+              : brandriskData.fwiindex <= 2 ? '#eab308'
+              : brandriskData.fwiindex <= 3 ? '#f97316'
+              : '#ef4444',
+            flexShrink: 0,
+          }} />
+          <div>
+            <div style={{ fontSize: '13px', color: '#fff', fontWeight: 500 }}>
+              {brandriskData.fwiindex <= 0 ? 'Ingen brandrisk'
+                : brandriskData.fwiindex <= 1 ? 'Liten brandrisk'
+                : brandriskData.fwiindex <= 2 ? 'Normal brandrisk'
+                : brandriskData.fwiindex <= 3 ? 'Stor brandrisk'
+                : brandriskData.fwiindex <= 4 ? 'Mycket stor brandrisk'
+                : 'Extrem brandrisk'}
+            </div>
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
+              SMHI FWI: {brandriskData.fwi.toFixed(1)} {brandriskData.grassfire > 0 ? '| Gräsbrandsrisk' : ''}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* === MÄTNINGS-INDIKATOR === */}
       {measureMode && !isMeasuring && (
         <div style={{
@@ -4829,6 +4889,67 @@ export default function PlannerPage() {
               </div>
             ))}
 
+            {/* SMHI Brandrisk (API-baserad) */}
+            <div style={{
+              background: '#0a0a0a',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              <div style={{
+                padding: '12px 16px 8px',
+                fontSize: '11px',
+                opacity: 0.4,
+                textTransform: 'uppercase',
+                letterSpacing: '1px'
+              }}>
+                SMHI
+              </div>
+              <div
+                onClick={() => setOverlays(prev => ({ ...prev, brandrisk: !prev.brandrisk }))}
+                style={{
+                  padding: '14px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '14px',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  width: '10px',
+                  height: '10px',
+                  borderRadius: '50%',
+                  background: '#f97316',
+                  flexShrink: 0,
+                  opacity: overlays.brandrisk ? 1 : 0.3,
+                  transition: 'opacity 0.2s ease',
+                }} />
+                <span style={{ flex: 1 }}>
+                  <span style={{ fontSize: '15px', color: '#fff' }}>Brandrisk</span>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>SMHI prognos, uppdateras dagligen</div>
+                </span>
+                <div style={{
+                  width: '44px',
+                  height: '26px',
+                  borderRadius: '13px',
+                  background: overlays.brandrisk ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                  padding: '2px',
+                  transition: 'background 0.2s ease',
+                }}>
+                  <div style={{
+                    width: '22px',
+                    height: '22px',
+                    borderRadius: '50%',
+                    background: '#fff',
+                    transform: overlays.brandrisk ? 'translateX(18px)' : 'translateX(0)',
+                    transition: 'transform 0.2s ease',
+                  }} />
+                </div>
+              </div>
+            </div>
+
             {/* Dina markeringar */}
             <div style={{
               background: '#0a0a0a',
@@ -4837,12 +4958,12 @@ export default function PlannerPage() {
               padding: '8px',
               marginBottom: '16px',
             }}>
-              <div style={{ 
-                padding: '12px 16px 8px', 
-                fontSize: '11px', 
-                opacity: 0.4, 
-                textTransform: 'uppercase', 
-                letterSpacing: '1px' 
+              <div style={{
+                padding: '12px 16px 8px',
+                fontSize: '11px',
+                opacity: 0.4,
+                textTransform: 'uppercase',
+                letterSpacing: '1px'
               }}>
                 Dina markeringar
               </div>
