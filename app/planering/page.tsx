@@ -182,6 +182,11 @@ export default function PlannerPage() {
     naturreservat: false,
     natura2000: false,
     vattenskydd: false,
+    // MSB
+    brandrisk: false,
+    oversvamning: false,
+    // SGU
+    jordarter: false,
   });
 
   const wmsLayerGroups = [
@@ -210,6 +215,19 @@ export default function PlannerPage() {
         { id: 'naturreservat', url: 'https://geodata.naturvardsverket.se/naturvardsregistret/wms', layers: 'Naturreservat', name: 'Naturreservat', color: '#15803d' },
         { id: 'natura2000', url: 'https://geodata.naturvardsverket.se/n2000/wms', layers: 'Habitatdirektivet,Fageldirektivet', name: 'Natura 2000', color: '#4ade80' },
         { id: 'vattenskydd', url: 'https://geodata.naturvardsverket.se/naturvardsregistret/wms', layers: 'Vattenskyddsomrade', name: 'Vattenskyddsområden', color: '#7dd3fc' },
+      ],
+    },
+    {
+      group: 'MSB',
+      layers: [
+        { id: 'brandrisk', url: 'https://inspire.msb.se/brandrisk/wms', layers: 'Brandriskvarden2024', name: 'Brandrisk (historisk)', color: '#f97316' },
+        { id: 'oversvamning', url: 'https://inspire.msb.se/oversvamning/wms', layers: 'NZ_Oversvamning_100,NZ_Oversvamning_200,NZ_Oversvamning_BHF', name: 'Översvämningskarteringar', color: '#1e3a8a' },
+      ],
+    },
+    {
+      group: 'SGU',
+      layers: [
+        { id: 'jordarter', url: 'https://resource.sgu.se/service/wms/130/jordarter-25-100-tusen', layers: 'jord:SE.GOV.SGU.JORD.GRUNDLAGER.25K', name: 'Jordarter', color: '#92400e' },
       ],
     },
   ];
