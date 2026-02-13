@@ -68,6 +68,35 @@ interface ChecklistItem {
   fixed: boolean;
 }
 
+interface TmaRoadHit {
+  name: string;
+  type: string;       // OSM highway tag
+  maxspeed?: number;
+  ref?: string;        // Vägnummer (E22, Rv 25, etc.)
+  distance: number;    // Meter från traktgräns till väg
+  category: 'allman' | 'kan_vara_allman' | 'enskild';
+  skyddsklassad: boolean; // Kräver TMA klass 2+ (hög ÅDT-proxy)
+  nearbyGeom?: { lat: number; lon: number }[]; // Vägsegment inom 50m
+  closestPoint?: { lat: number; lon: number };  // Närmaste punkt på vägen
+}
+
+interface TmaCheckResult {
+  status: 'loading' | 'done' | 'error';
+  roads: TmaRoadHit[];
+  message?: string;
+}
+
+interface SmhiWeather {
+  status: 'loading' | 'done' | 'error';
+  temp?: number;        // °C
+  windSpeed?: number;   // m/s
+  windDir?: number;     // grader (0=N, 90=E, 180=S, 270=W)
+  windDirLabel?: string; // "N", "NE", "SV" etc.
+  windArrow?: string;   // Unicode-pil
+  precip?: number;      // nederbördskategori (0=ingen, 1=snö, 2=snö+regn, 3=regn, 4=duggregn, 5=hagel, 6=regn+åska)
+  precipLabel?: string;
+}
+
 interface TraktData {
   volym: number;
   areal: number;
@@ -496,6 +525,7 @@ export default function PlannerPage() {
   const [subMenu, setSubMenu] = useState<string | null>(null); // För meny-i-meny
   const [menuHeight, setMenuHeight] = useState(0); // 0 = stängd, 300 = öppen, 600 = full
   const [activeCategory, setActiveCategory] = useState<string | null>(null); // Ny fullskärmsmeny
+  const [emergencyHealthcare, setEmergencyHealthcare] = useState<{ name: string; type: string; lat: number; lon: number; dist: number }[] | null>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showCamera, setShowCamera] = useState(false);
   const [detectedColor, setDetectedColor] = useState<any>(null);
@@ -708,9 +738,161 @@ export default function PlannerPage() {
   // Generellt tillstånd för avlägg
   const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
 
+  // TMA-varning (traktgräns nära väg) – per boundary
+  const [tmaResults, setTmaResults] = useState<Record<string, TmaCheckResult>>({});
+  const tmaCheckedRef = useRef<Record<string, string>>({}); // markerId → hash, undviker dubbelkoll
+  const [tmaOpen, setTmaOpen] = useState<string | null>(null); // boundary-id för öppen panel
+  const [tmaRisk, setTmaRisk] = useState<(boolean | null)[]>([null, null, null, null, null, null, null]); // 7 riskfrågor
+  const [tmaWeather, setTmaWeather] = useState<SmhiWeather | null>(null);
+  const [tmaSamrad, setTmaSamrad] = useState({
+    fallare: '',
+    tmaBil: null as boolean | null,
+    checkboxes: [false, false, false, false, false, false],
+    datum: new Date().toISOString().split('T')[0],
+    kvitterad: false,
+    kvitteradDatum: '',
+  });
+
+  // Hjälpare: alla TMA-resultat som har vägar (för rendering)
+  const tmaWithRoads = Object.entries(tmaResults).filter(([, r]) => r.status === 'done' && r.roads.length > 0);
+
+  // Trigga TMA-kontroll per boundary individuellt
+  useEffect(() => {
+    const boundaryMarkers = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1);
+    const currentIds = new Set(boundaryMarkers.map(m => String(m.id)));
+
+    // Ta bort resultat för raderade boundaries
+    setTmaResults(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of Object.keys(next)) {
+        if (!currentIds.has(id)) {
+          delete next[id];
+          delete tmaCheckedRef.current[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
+    // Kolla varje boundary individuellt
+    for (const bm of boundaryMarkers) {
+      const bmId = String(bm.id);
+      const hash = bmId + ':' + (bm.path?.length || 0);
+      if (tmaCheckedRef.current[bmId] === hash) continue; // Redan kontrollerad
+      tmaCheckedRef.current[bmId] = hash;
+
+      console.log('[TMA] Kontrollerar boundary', bmId, 'pathLength:', bm.path?.length);
+
+      // Sätt loading för denna boundary
+      setTmaResults(prev => ({ ...prev, [bmId]: { status: 'loading', roads: [] } }));
+
+      const path = bm.path!;
+      checkBoundaryTma([path]).then(result => {
+        console.log('[TMA] Resultat för', bmId, ':', result.roads.length, 'vägar');
+        setTmaResults(prev => ({ ...prev, [bmId]: result }));
+      });
+
+      // Hämta väder från första boundaryn som kollas (om inte redan hämtat)
+      if (!tmaWeather) {
+        const midPt = path[Math.floor(path.length / 2)];
+        const { lat: wLat, lon: wLon } = svgToLatLon(midPt.x, midPt.y);
+        fetchSmhiWeather(wLat, wLon);
+      }
+    }
+  }, [markers]);
+
   // Drag för meny
   const dragStartY = useRef(0);
   const dragStartHeight = useRef(0);
+
+  // Hämta sjukvård när nödläge-panelen öppnas
+  useEffect(() => {
+    if (activeCategory !== 'emergency') return;
+    if (emergencyHealthcare !== null) return; // Redan hämtat/hämtar
+
+    console.log('[Emergency] Panelen öppnad, hämtar sjukvård. mapCenter:', mapCenter);
+    setEmergencyHealthcare([]); // [] = loading
+
+    const lat = mapCenter.lat;
+    const lon = mapCenter.lng;
+
+    (async () => {
+      try {
+        // Sök node + way + relation, 80km för sjukhus, 30km för vårdcentraler
+        const query = `[out:json][timeout:20];(
+          nwr(around:80000,${lat},${lon})["amenity"="hospital"];
+          nwr(around:80000,${lat},${lon})["healthcare"="hospital"];
+          nwr(around:30000,${lat},${lon})["amenity"="clinic"];
+          nwr(around:30000,${lat},${lon})["amenity"="doctors"];
+          nwr(around:30000,${lat},${lon})["healthcare"="clinic"];
+        );out center;`;
+        const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+        console.log('[Emergency] Overpass URL:', url);
+        const resp = await fetch(url);
+        console.log('[Emergency] Overpass status:', resp.status);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        const elements = data.elements || [];
+        console.log('[Emergency] Overpass returnerade', elements.length, 'element (rå)');
+        elements.forEach((e: any) => {
+          console.log('[Emergency]  -', e.type, e.tags?.name || '(inget namn)', 'amenity=' + (e.tags?.amenity || '–'), 'healthcare=' + (e.tags?.healthcare || '–'));
+        });
+
+        const toRad = (d: number) => d * Math.PI / 180;
+        const haversine = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+          const dLat = toRad(lat2 - lat1);
+          const dLon = toRad(lon2 - lon1);
+          const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+          return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        };
+
+        // Deduplicera på namn
+        const seen = new Set<string>();
+        const items = elements
+          .filter((e: any) => e.tags?.name)
+          .map((e: any) => {
+            // way/relation har center-koordinater via "out center"
+            const eLat = e.lat ?? e.center?.lat;
+            const eLon = e.lon ?? e.center?.lon;
+            const isHospital = e.tags.amenity === 'hospital' || e.tags.healthcare === 'hospital';
+            return {
+              name: e.tags.name as string,
+              type: isHospital ? 'hospital' : 'clinic',
+              lat: eLat as number,
+              lon: eLon as number,
+              dist: (eLat && eLon) ? Math.round(haversine(lat, lon, eLat, eLon)) : 9999,
+            };
+          })
+          .filter((item: any) => {
+            if (!item.lat || !item.lon) return false;
+            if (seen.has(item.name)) return false;
+            seen.add(item.name);
+            return true;
+          })
+          .sort((a: any, b: any) => a.dist - b.dist);
+
+        const hospitals = items.filter((i: any) => i.type === 'hospital').slice(0, 2);
+        const clinics = items.filter((i: any) => i.type === 'clinic').slice(0, 2);
+        console.log('[Emergency] Sjukhus:', hospitals);
+        console.log('[Emergency] Vårdcentraler:', clinics);
+
+        const result = [...hospitals, ...clinics];
+        if (hospitals.length === 0) {
+          console.warn('[Emergency] Inga sjukhus hittades! Lägger till fallback.');
+          result.push({ name: 'Växjö centralsjukhus', type: 'hospital', lat: 56.8790, lon: 14.8059, dist: Math.round(haversine(lat, lon, 56.8790, 14.8059)) });
+        }
+        setEmergencyHealthcare(result);
+      } catch (err) {
+        console.error('[Emergency] Overpass fel:', err);
+        setEmergencyHealthcare([
+          { name: 'Ljungby lasarett', type: 'hospital', lat: 56.8333, lon: 13.9333, dist: 34 },
+          { name: 'Växjö centralsjukhus', type: 'hospital', lat: 56.8790, lon: 14.8059, dist: 45 },
+          { name: 'Alvesta vårdcentral', type: 'clinic', lat: 56.8990, lon: 14.5560, dist: 12 },
+        ]);
+      }
+    })();
+  }, [activeCategory]);
 
   // === DATA ===
   const tractInfo = {
@@ -971,6 +1153,13 @@ export default function PlannerPage() {
           <path d="M16.95 7.05 L19.07 4.93" />
         </svg>
       ),
+      'menu-emergency': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" stroke="#ef4444" />
+          <line x1="12" y1="7" x2="12" y2="17" stroke="#ef4444" strokeWidth="2.5" />
+          <line x1="7" y1="12" x2="17" y2="12" stroke="#ef4444" strokeWidth="2.5" />
+        </svg>
+      ),
     };
     return icons[iconId] || (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5">
@@ -1106,6 +1295,7 @@ export default function PlannerPage() {
     { id: 'prognos', name: 'Prognos', desc: 'Produktivitetsberäkning', icon: 'menu-prognos' },
     { id: 'info', name: 'Info', desc: 'Objektinformation', icon: 'menu-info' },
     { id: 'settings', name: 'Inställningar', desc: 'Anpassa appen', icon: 'menu-settings' },
+    { id: 'emergency', name: 'Nödläge', desc: 'SOS, position, sjukvård', icon: 'menu-emergency' },
   ];
 
   // === GPS ===
@@ -1276,6 +1466,219 @@ export default function PlannerPage() {
     } catch (err) {
       return { status: 'error', tillstand: 'ej_sokt', message: 'Kunde inte hämta vägdata' };
     }
+  };
+
+  // Klassificera om väg kräver TMA skyddsklassad (proxy för ÅDT > 2000)
+  const isTmaSkyddsklassad = (highway: string, maxspeed?: number): boolean => {
+    // Riksvägar och europavägar alltid skyddsklassade
+    if (['motorway', 'motorway_link', 'trunk', 'trunk_link'].includes(highway)) return true;
+    // Primary (riksväg/länsväg) med hög hastighet
+    if (['primary', 'primary_link'].includes(highway)) return true;
+    // Secondary med ≥70 km/h som proxy för ÅDT > 2000
+    if (['secondary', 'secondary_link'].includes(highway) && (maxspeed || 70) >= 70) return true;
+    return false;
+  };
+
+  // Hämta väder från SMHI öppna API
+  const fetchSmhiWeather = async (lat: number, lon: number) => {
+    setTmaWeather({ status: 'loading' });
+    try {
+      const roundedLon = Math.round(lon * 1000000) / 1000000;
+      const roundedLat = Math.round(lat * 1000000) / 1000000;
+      const url = `https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/${roundedLon}/lat/${roundedLat}/data.json`;
+      console.log('[SMHI] Fetching:', url);
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+
+      // Hitta närmaste tidsserie (första är den mest aktuella prognosen)
+      const ts = data.timeSeries?.[0];
+      if (!ts) throw new Error('Ingen tidsserie');
+
+      const getParam = (name: string) => {
+        const p = ts.parameters?.find((p: any) => p.name === name);
+        return p?.values?.[0];
+      };
+
+      const temp = getParam('t');        // °C
+      const ws = getParam('ws');          // m/s
+      const wd = getParam('wd');          // grader
+      const pcat = getParam('pcat');      // nederbördskategori
+
+      // Vindriktning till text och pil
+      const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+      const arrows = ['↓', '↙', '←', '↖', '↑', '↗', '→', '↘'];
+      const dirIdx = wd != null ? Math.round(wd / 45) % 8 : 0;
+      const dirLabel = wd != null ? dirs[dirIdx] : '';
+      const arrow = wd != null ? arrows[dirIdx] : '';
+
+      // Nederbördstext
+      const precipLabels: Record<number, string> = { 0: '', 1: 'Snö', 2: 'Snöblandat regn', 3: 'Regn', 4: 'Duggregn', 5: 'Hagel', 6: 'Regn & åska' };
+      const precipLabel = pcat != null ? (precipLabels[pcat] || '') : '';
+
+      console.log('[SMHI] Resultat:', { temp, ws, wd, pcat, dirLabel, arrow, precipLabel });
+
+      setTmaWeather({
+        status: 'done',
+        temp, windSpeed: ws, windDir: wd,
+        windDirLabel: dirLabel, windArrow: arrow,
+        precip: pcat, precipLabel,
+      });
+    } catch (err) {
+      console.error('[SMHI] Fel:', err);
+      setTmaWeather({ status: 'error' });
+    }
+  };
+
+  // Kontrollera traktgränsens närhet till vägar (TMA-analys)
+  const checkBoundaryTma = async (boundaryPaths: Point[][]): Promise<TmaCheckResult> => {
+    try {
+      console.log('[TMA] checkBoundaryTma anropad med', boundaryPaths.length, 'linjer, totalt', boundaryPaths.reduce((s, p) => s + p.length, 0), 'punkter');
+      // Sampla punkter längs traktgränserna (var 10:e punkt, max 20 per linje)
+      const samplePoints: { lat: number; lon: number }[] = [];
+      for (const path of boundaryPaths) {
+        const step = Math.max(1, Math.floor(path.length / 20));
+        for (let i = 0; i < path.length; i += step) {
+          const { lat, lon } = svgToLatLon(path[i].x, path[i].y);
+          samplePoints.push({ lat, lon });
+        }
+      }
+
+      console.log('[TMA] Samplade', samplePoints.length, 'punkter. Första:', samplePoints[0], 'mapCenter:', mapCenter);
+
+      if (samplePoints.length === 0) {
+        return { status: 'done', roads: [], message: 'Inga traktgränser att kontrollera' };
+      }
+
+      // Beräkna bounding box med 100m marginal
+      let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+      for (const p of samplePoints) {
+        minLat = Math.min(minLat, p.lat);
+        maxLat = Math.max(maxLat, p.lat);
+        minLon = Math.min(minLon, p.lon);
+        maxLon = Math.max(maxLon, p.lon);
+      }
+      // 100m marginal ≈ 0.001° lat, 0.002° lon vid ~57°N
+      minLat -= 0.001; maxLat += 0.001;
+      minLon -= 0.002; maxLon += 0.002;
+
+      console.log('[TMA] Bounding box:', { minLat, maxLat, minLon, maxLon });
+
+      // Hämta ALLA vägar inom bounding box (ofiltrerat för debug)
+      const query = `[out:json][timeout:15];way(${minLat},${minLon},${maxLat},${maxLon})["highway"];out body geom;`;
+      const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+      console.log('[TMA] Overpass URL:', url);
+      const response = await fetch(url);
+      console.log('[TMA] Overpass response status:', response.status);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+
+      const allWays = (data.elements || []).filter((e: any) => e.type === 'way');
+      console.log('[TMA] === ALLA VÄGAR FRÅN OVERPASS (' + allWays.length + ' st) ===');
+      allWays.forEach((w: any, i: number) => {
+        const t = w.tags || {};
+        console.log(`[TMA]  ${i + 1}. highway=${t.highway} | name=${t.name || '–'} | ref=${t.ref || '–'} | maxspeed=${t.maxspeed || '–'} | surface=${t.surface || '–'} | id=${w.id}`);
+      });
+
+      // Filtrera: behåll bara trunk, primary, secondary, tertiary (+ _link)
+      const relevantTypes = new Set(['motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link', 'tertiary', 'tertiary_link']);
+      const ways = allWays.filter((w: any) => relevantTypes.has(w.tags?.highway || ''));
+      console.log('[TMA] Efter filter:', ways.length, 'relevanta vägar av', allWays.length);
+
+      if (ways.length === 0) {
+        return { status: 'done', roads: [], message: 'Inga relevanta vägar i närheten' };
+      }
+
+      // Beräkna avstånd från varje boundary-punkt till varje väg
+      const roadHits: Map<number, TmaRoadHit> = new Map();
+
+      for (const way of ways) {
+        const tags = way.tags || {};
+        const highway = tags.highway || '';
+        const category = getRoadCategory(highway);
+
+        const geom: { lat: number; lon: number }[] = way.geometry || [];
+        if (geom.length < 2) continue;
+
+        // Per-segment: beräkna min avstånd till traktgräns
+        let minDist = Infinity;
+        let closestPt: { lat: number; lon: number } = geom[0];
+        const nearbyPts: { lat: number; lon: number }[] = [];
+        const nearbySet = new Set<number>(); // index av noder nära
+
+        for (let i = 0; i < geom.length - 1; i++) {
+          const a = geom[i];
+          const b = geom[i + 1];
+          let segMin = Infinity;
+          for (const sp of samplePoints) {
+            const dist = pointToSegmentDistance(sp.lat, sp.lon, a.lat, a.lon, b.lat, b.lon);
+            if (dist < segMin) segMin = dist;
+            if (dist < minDist) {
+              minDist = dist;
+              // Beräkna närmaste punkt på segmentet
+              const t = Math.max(0, Math.min(1, ((sp.lat - a.lat) * (b.lat - a.lat) + (sp.lon - a.lon) * (b.lon - a.lon)) / ((b.lat - a.lat) ** 2 + (b.lon - a.lon) ** 2 || 1)));
+              closestPt = { lat: a.lat + t * (b.lat - a.lat), lon: a.lon + t * (b.lon - a.lon) };
+            }
+          }
+          if (segMin < 50) {
+            nearbySet.add(i);
+            nearbySet.add(i + 1);
+          }
+        }
+
+        // Bygg sammanhängande segment av noder inom 50m
+        const nearbyGeom: { lat: number; lon: number }[] = [];
+        for (let i = 0; i < geom.length; i++) {
+          if (nearbySet.has(i)) nearbyGeom.push(geom[i]);
+        }
+
+        if (minDist < 200) {
+          const maxspeed = tags.maxspeed ? parseInt(tags.maxspeed) : undefined;
+          const existing = roadHits.get(way.id);
+          if (!existing || minDist < existing.distance) {
+            roadHits.set(way.id, {
+              name: tags.name || tags.ref || 'Namnlös väg',
+              type: highway,
+              maxspeed,
+              ref: tags.ref,
+              distance: Math.round(minDist),
+              category,
+              skyddsklassad: isTmaSkyddsklassad(highway, maxspeed),
+              nearbyGeom: nearbyGeom.length >= 2 ? nearbyGeom : undefined,
+              closestPoint: closestPt,
+            });
+          }
+        }
+      }
+
+      const roads = Array.from(roadHits.values()).sort((a, b) => a.distance - b.distance);
+      console.log('[TMA] === VÄGDETALJER ===');
+      roads.forEach((r, i) => {
+        console.log(`[TMA] Väg ${i + 1}: ${r.ref || ''} ${r.name} | typ: ${r.type} | hastighet: ${r.maxspeed || 'okänd'} km/h | avstånd: ${r.distance}m | kategori: ${r.category} | skyddsklassad: ${r.skyddsklassad}`);
+      });
+      return { status: 'done', roads };
+    } catch (err) {
+      console.error('[TMA] FEL:', err);
+      return { status: 'error', roads: [], message: 'Kunde inte hämta vägdata för TMA-kontroll' };
+    }
+  };
+
+  // Punkt-till-segment avstånd (haversine-baserat, i meter)
+  const pointToSegmentDistance = (pLat: number, pLon: number, aLat: number, aLon: number, bLat: number, bLon: number): number => {
+    // Projicera punkt P på linje AB
+    const dAB = haversineDistance(aLat, aLon, bLat, bLon);
+    if (dAB < 0.1) return haversineDistance(pLat, pLon, aLat, aLon); // Punkter sammanfaller
+
+    const dAP = haversineDistance(aLat, aLon, pLat, pLon);
+    const dBP = haversineDistance(bLat, bLon, pLat, pLon);
+
+    // Enkel projicering: kolla om punkten projicerar innanför segmentet
+    const t = Math.max(0, Math.min(1, ((pLat - aLat) * (bLat - aLat) + (pLon - aLon) * (bLon - aLon)) / ((bLat - aLat) ** 2 + (bLon - aLon) ** 2 || 1)));
+    const projLat = aLat + t * (bLat - aLat);
+    const projLon = aLon + t * (bLon - aLon);
+    const dProj = haversineDistance(pLat, pLon, projLat, projLon);
+
+    return Math.min(dAP, dBP, dProj);
   };
 
   // Konvertera GPS till kartkoordinater (relativ till startpunkt)
@@ -3331,7 +3734,41 @@ export default function PlannerPage() {
           )}
           
           {/* Mått-labels för linjer - borttagna */}
-          
+
+          {/* TMA: Vägsträcka nära traktgräns (röd glöd + linje) – per boundary */}
+          {tmaWithRoads.flatMap(([bmId, result]) => result.roads.map((road, ri) => {
+            if (!road.nearbyGeom || road.nearbyGeom.length < 2) return null;
+            const svgPts = road.nearbyGeom.map(p => latLonToSvg(p.lat, p.lon));
+            const d = svgPts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+            return (
+              <g key={`tma-road-${bmId}-${ri}`}>
+                {/* Bred glöd bakom */}
+                <path
+                  d={d}
+                  fill="none"
+                  stroke="rgba(239,68,68,0.3)"
+                  strokeWidth={20 / zoom}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ filter: 'blur(4px)' }}
+                >
+                  <animate attributeName="stroke-opacity" values="0.3;0.6;0.3" dur="2s" repeatCount="indefinite" />
+                </path>
+                {/* Röd vägsträcka */}
+                <path
+                  d={d}
+                  fill="none"
+                  stroke="#ef4444"
+                  strokeWidth={8 / zoom}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <animate attributeName="opacity" values="0.6;1;0.6" dur="2s" repeatCount="indefinite" />
+                </path>
+              </g>
+            );
+          }))}
+
           {/* Pågående linje */}
           {isDrawMode && currentPath.length > 0 && (
             <path
@@ -4170,7 +4607,7 @@ export default function PlannerPage() {
                 borderRadius: '24px',
                 padding: '28px',
                 width: '90%',
-                maxWidth: '340px',
+                maxWidth: '500px',
                 boxShadow: '0 12px 60px rgba(0,0,0,0.9)',
                 border: '1px solid rgba(255,255,255,0.15)',
               }}
@@ -4270,9 +4707,10 @@ export default function PlannerPage() {
               const checkedCount = rc.checklist ? rc.checklist.filter(Boolean).length : 0;
 
               // Style-helpers
-              const sectionStyle = { marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '10px' };
-              const ruleStyle = { fontSize: '12px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.7', margin: 0 as const };
-              const bulletStyle = { ...ruleStyle, paddingLeft: '8px' };
+              const sectionStyle = { marginTop: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' };
+              const sectionHeadingStyle = { fontSize: '11px', fontWeight: '600' as const, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '12px' };
+              const ruleStyle = { fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.7', margin: 0 as const };
+              const bulletStyle = { fontSize: '12px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.8', margin: 0 as const, paddingLeft: '4px' };
 
               return (
               <div style={{
@@ -4280,6 +4718,7 @@ export default function PlannerPage() {
                 maxHeight: '55vh',
                 overflowY: 'auto',
                 WebkitOverflowScrolling: 'touch',
+                paddingTop: '4px',
               }}>
                 {/* Loading */}
                 {rc.status === 'loading' && (
@@ -4314,18 +4753,18 @@ export default function PlannerPage() {
 
                 {/* Resultat */}
                 {(rc.status === 'ok' || rc.status === 'warning') && (
-                  <div style={{ padding: '14px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', border: `1px solid ${cat === 'enskild' ? 'rgba(34,197,94,0.3)' : rc.tillstand === 'beviljat' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+                  <div style={{ padding: '16px', background: cat === 'enskild' ? 'rgba(255,255,255,0.05)' : 'transparent', borderRadius: '16px', border: cat === 'enskild' ? '1px solid rgba(34,197,94,0.3)' : 'none' }}>
 
                     {/* ===== RUBRIK ===== */}
-                    <div style={{ fontSize: '15px', fontWeight: '700', textAlign: 'center', marginBottom: '8px', color: cat === 'enskild' ? '#22c55e' : rc.generelltTillstandApplied ? '#22c55e' : cat === 'kan_vara_allman' ? '#eab308' : '#ef4444' }}>
+                    <div style={{ fontSize: '15px', fontWeight: '700', textAlign: 'center', marginBottom: '4px', color: cat === 'enskild' ? '#22c55e' : cat === 'allman' ? '#ef4444' : '#eab308' }}>
                       {cat === 'enskild' ? 'Enskild väg' : cat === 'kan_vara_allman' ? 'Kontrollera om vägen är allmän' : 'Allmän väg – tillstånd krävs'}
                     </div>
 
                     {/* Vägnamn */}
                     {rc.nearestRoad && (
-                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', textAlign: 'center', marginBottom: '8px' }}>
+                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginBottom: '16px' }}>
                         {rc.nearestRoad.ref ? `${rc.nearestRoad.ref} — ` : ''}{rc.nearestRoad.name}
-                        {speed ? ` (${speed} km/h)` : ''}
+                        {speed ? ` · ${speed} km/h` : ''}
                       </div>
                     )}
 
@@ -4342,38 +4781,29 @@ export default function PlannerPage() {
                     {/* ===== TILLSTÅND (allmän + oklar) ===== */}
                     {isAllmanOrOklar && (
                       <div style={sectionStyle}>
-                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '6px' }}>Tillstånd</div>
+                        <div style={sectionHeadingStyle}>Tillstånd</div>
 
-                        {/* Generellt tillstånd-badge */}
                         {rc.generelltTillstandApplied && (
-                          <div style={{ padding: '6px 10px', borderRadius: '8px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: '12px', fontWeight: '600', textAlign: 'center', marginBottom: '8px' }}>
-                            Generellt tillstånd gäller
-                          </div>
+                          <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>Generellt tillstånd gäller</div>
                         )}
 
-                        {/* Särskilt tillstånd badge */}
                         {rc.requiresSpecialPermit && (
-                          <div style={{ padding: '6px 10px', borderRadius: '8px', background: 'rgba(239,68,68,0.15)', color: '#ef4444', fontSize: '12px', fontWeight: '600', textAlign: 'center', marginBottom: '8px' }}>
-                            Särskilt tillstånd krävs (2 900 kr)
-                          </div>
+                          <div style={{ fontSize: '13px', color: '#ef4444', marginBottom: '4px' }}>Särskilt tillstånd krävs</div>
                         )}
 
                         {!rc.generelltTillstandApplied && (
                           <>
-                            <div style={bulletStyle}>Tillstånd krävs enligt väglagen (1971:948) 43§</div>
-                            <div style={bulletStyle}>Inom vägområdet → Trafikverket beslutar</div>
-                            <div style={bulletStyle}>Utanför vägområdet men inom 12–50m → Länsstyrelsen beslutar (47§)</div>
-                            <div style={bulletStyle}>Kostnad: 2 900 kr per ansökan</div>
+                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.35)', marginBottom: '12px' }}>Väglagen 43§</div>
 
                             {/* Tillstånd-toggle */}
-                            <div style={{ display: 'flex', gap: '4px', marginTop: '8px', padding: '3px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}>
+                            <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
                               {(['ej_sokt', 'sokt', 'beviljat'] as const).map(t => {
                                 const isActive = rc.tillstand === t;
                                 const label = t === 'ej_sokt' ? 'Ej sökt' : t === 'sokt' ? 'Sökt' : 'Beviljat';
                                 const activeColor = t === 'ej_sokt' ? '#ef4444' : t === 'sokt' ? '#eab308' : '#22c55e';
                                 return (
                                   <button key={t} onClick={() => { setMarkers(prev => prev.map(m => m.id === marker.id && m.roadCheck ? { ...m, roadCheck: { ...m.roadCheck, tillstand: t } } : m)); }}
-                                    style={{ flex: 1, padding: '7px 4px', borderRadius: '8px', border: 'none', background: isActive ? activeColor : 'transparent', color: isActive ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '11px', fontWeight: isActive ? '700' : '500', cursor: 'pointer', transition: 'all 0.2s' }}>
+                                    style={{ flex: 1, padding: '10px 0', borderRadius: '8px', border: 'none', background: isActive ? activeColor : 'transparent', color: isActive ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: isActive ? '700' : '500', cursor: 'pointer', transition: 'all 0.2s' }}>
                                     {label}
                                   </button>
                                 );
@@ -4381,16 +4811,15 @@ export default function PlannerPage() {
                             </div>
 
                             <a href="https://www.trafikverket.se/e-tjanster/upplag-av-virke-eller-skogsbransle-vid-vag/" target="_blank" rel="noopener noreferrer"
-                              style={{ display: 'block', textAlign: 'center', marginTop: '8px', fontSize: '11px', color: 'rgba(100,180,255,0.8)', textDecoration: 'none' }}>
+                              style={{ display: 'block', textAlign: 'center', marginTop: '16px', fontSize: '12px', color: '#60a5fa', textDecoration: 'none' }}>
                               Sök tillstånd hos Trafikverket →
                             </a>
                           </>
                         )}
 
-                        {/* Generellt tillstånd-info */}
                         {speed && speed <= 80 && !rc.generelltTillstandApplied && (
-                          <div style={{ marginTop: '8px', padding: '6px 10px', borderRadius: '8px', background: 'rgba(234,179,8,0.1)', fontSize: '11px', color: '#eab308', lineHeight: '1.5' }}>
-                            Generellt tillstånd kan sökas per län – gäller 2 år, max 80 km/h och max 2000 fordon/dygn.
+                          <div style={{ marginTop: '14px', fontSize: '12px', color: 'rgba(255,255,255,0.35)', lineHeight: '1.5' }}>
+                            Generellt tillstånd kan sökas per län – gäller 2 år
                           </div>
                         )}
                       </div>
@@ -4399,35 +4828,30 @@ export default function PlannerPage() {
                     {/* ===== PLACERING (allmän + oklar) ===== */}
                     {isAllmanOrOklar && speed && (
                       <div style={sectionStyle}>
-                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '6px' }}>Placering</div>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <div style={{ flex: 1, padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
-                            <div style={{ fontSize: '20px', fontWeight: '700', color: '#fff' }}>{edgeDist}m</div>
-                            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>vägkant → välta</div>
+                        <div style={sectionHeadingStyle}>Placering</div>
+                        <div style={{ display: 'flex', gap: '24px' }}>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+                            <div style={{ fontSize: '28px', fontWeight: '700', color: '#fff', lineHeight: '1' }}>{edgeDist}m</div>
+                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>vägkant → välta</div>
                           </div>
-                          <div style={{ flex: 1, padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
-                            <div style={{ fontSize: '20px', fontWeight: '700', color: '#fff' }}>{intDist}m</div>
-                            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>till korsning/krön/kurva</div>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+                            <div style={{ fontSize: '28px', fontWeight: '700', color: '#fff', lineHeight: '1' }}>{intDist}m</div>
+                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>till korsning/krön/kurva</div>
                           </div>
                         </div>
 
-                        {/* Korsningsvarning */}
-                        {rc.nearbyIntersection && intDist && (
-                          <div style={{ marginTop: '6px', padding: '6px 10px', borderRadius: '8px', background: 'rgba(239,68,68,0.12)', fontSize: '12px', color: '#ef4444', fontWeight: '600' }}>
-                            Korsning inom {rc.nearbyIntersection.distance}m – krav min {intDist}m
-                          </div>
-                        )}
+                        {/* Korsningsvarning borttagen – avstånd visas redan i placerings-siffran */}
                       </div>
                     )}
 
                     {/* ===== CHECKLISTA (allmän + oklar) ===== */}
                     {isAllmanOrOklar && rc.checklist && (
                       <details style={sectionStyle}>
-                        <summary style={{ fontSize: '13px', fontWeight: '600', color: '#fff', cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <summary style={{ ...sectionHeadingStyle, cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' }}>
                           <span>Checklista</span>
-                          <span style={{ fontSize: '11px', fontWeight: '500', color: checkedCount === 11 ? '#22c55e' : 'rgba(255,255,255,0.4)' }}>{checkedCount}/11</span>
+                          <span style={{ fontSize: '11px', fontWeight: '500', color: checkedCount === 11 ? '#22c55e' : 'rgba(255,255,255,0.3)', letterSpacing: '0', textTransform: 'none' as const }}>{checkedCount}/11</span>
                         </summary>
-                        <div style={{ marginTop: '8px' }}>
+                        <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
                           {checklistLabels.map((label, i) => (
                             <div key={i}
                               onClick={() => {
@@ -4438,11 +4862,11 @@ export default function PlannerPage() {
                                   return { ...m, roadCheck: { ...m.roadCheck, checklist: newCl } };
                                 }));
                               }}
-                              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', cursor: 'pointer', borderBottom: i < 10 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                              <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: `1.5px solid ${rc.checklist![i] ? '#22c55e' : 'rgba(255,255,255,0.2)'}`, background: rc.checklist![i] ? 'rgba(34,197,94,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                {rc.checklist![i] && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
+                              style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '7px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                              <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: `1.5px solid ${rc.checklist![i] ? '#22c55e' : 'rgba(255,255,255,0.15)'}`, background: rc.checklist![i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' }}>
+                                {rc.checklist![i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
                               </div>
-                              <span style={{ fontSize: '12px', color: rc.checklist![i] ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.7)', textDecoration: rc.checklist![i] ? 'line-through' : 'none' }}>{label}</span>
+                              <span style={{ fontSize: '11px', color: rc.checklist![i] ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)', textDecoration: rc.checklist![i] ? 'line-through' : 'none', lineHeight: '1.4' }}>{label}</span>
                             </div>
                           ))}
                         </div>
@@ -4451,8 +4875,8 @@ export default function PlannerPage() {
 
                     {/* ===== VÄLTAN (alla vägar) ===== */}
                     <details style={sectionStyle}>
-                      <summary style={{ fontSize: '13px', fontWeight: '600', color: '#fff', cursor: 'pointer', listStyle: 'none' }}>Regler för vältan</summary>
-                      <div style={{ marginTop: '6px' }}>
+                      <summary style={{ ...sectionHeadingStyle, cursor: 'pointer', listStyle: 'none', marginBottom: '0' }}>Regler för vältan</summary>
+                      <div style={{ marginTop: '10px' }}>
                         {[
                           'Max höjd: 4,5m',
                           'Jämndragen mot vägen upp till 1,5m höjd',
@@ -4467,8 +4891,8 @@ export default function PlannerPage() {
 
                     {/* ===== LASTNING & SÄKERHET (alla vägar) ===== */}
                     <details style={sectionStyle}>
-                      <summary style={{ fontSize: '13px', fontWeight: '600', color: '#fff', cursor: 'pointer', listStyle: 'none' }}>Lastning & säkerhet</summary>
-                      <div style={{ marginTop: '6px' }}>
+                      <summary style={{ ...sectionHeadingStyle, cursor: 'pointer', listStyle: 'none', marginBottom: '0' }}>Lastning & säkerhet</summary>
+                      <div style={{ marginTop: '10px' }}>
                         {[
                           'Lastbil/maskin får inte blockera vägen – utryckningsfordon måste kunna passera',
                           'Använd varningstriangel och varningslykta vid lastning',
@@ -4481,15 +4905,15 @@ export default function PlannerPage() {
 
                     {/* ===== LIGGTIDER (alla vägar) ===== */}
                     <div style={sectionStyle}>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '4px' }}>Liggtider</div>
+                      <div style={sectionHeadingStyle}>Liggtider</div>
                       <div style={bulletStyle}>• Rundvirke: max 60 dagar</div>
                       <div style={bulletStyle}>• Skogsbränsle: max 18 månader</div>
                     </div>
 
                     {/* ===== EFTER AVHÄMTNING (alla vägar) ===== */}
-                    <details style={sectionStyle}>
-                      <summary style={{ fontSize: '13px', fontWeight: '600', color: '#fff', cursor: 'pointer', listStyle: 'none' }}>Efter avhämtning</summary>
-                      <div style={{ marginTop: '6px' }}>
+                    <details style={{ ...sectionStyle, borderBottom: 'none' }}>
+                      <summary style={{ ...sectionHeadingStyle, cursor: 'pointer', listStyle: 'none', marginBottom: '0' }}>Efter avhämtning</summary>
+                      <div style={{ marginTop: '10px' }}>
                         {[
                           'Städa vägen, slänter och diken',
                           'Anmäl vägskador till väghållaren',
@@ -4501,10 +4925,10 @@ export default function PlannerPage() {
                     </details>
 
                     {/* ===== LÄNK TILL DOKUMENT (alla vägar) ===== */}
-                    <div style={{ ...sectionStyle, textAlign: 'center' as const }}>
+                    <div style={{ marginTop: '20px', textAlign: 'center' as const }}>
                       <a href="https://www.skogforsk.se/cd_20200406123332/contentassets/8431ded2d08246c69be60fa9eb35b7fb/100401_upplag_av_virke_och_skogsbransle_vid_allman_och_enskild_vag_utg_6.pdf"
                         target="_blank" rel="noopener noreferrer"
-                        style={{ fontSize: '11px', color: 'rgba(100,180,255,0.8)', textDecoration: 'none' }}>
+                        style={{ fontSize: '11px', color: '#60a5fa', textDecoration: 'none' }}>
                         Trafikverket & Skogforsk instruktion (PDF) →
                       </a>
                     </div>
@@ -7655,6 +8079,119 @@ export default function PlannerPage() {
               </div>
             )}
 
+            {/* === NÖDLÄGE === */}
+            {activeCategory === 'emergency' && (
+              <div style={{ padding: '12px' }}>
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '24px',
+                }}>
+                  {/* === SOS === */}
+                  <div style={{ marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#fff', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '16px' }}>SOS</div>
+                    <a href="tel:112" style={{ textDecoration: 'none', display: 'block', marginBottom: '12px' }}>
+                      <div style={{ fontSize: '48px', fontWeight: '700', color: '#fff', lineHeight: '1' }}>112</div>
+                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>SOS Alarm – Nödsamtal</div>
+                    </a>
+                    <a href="tel:1177" style={{ textDecoration: 'none', display: 'block' }}>
+                      <div style={{ fontSize: '32px', fontWeight: '700', color: '#fff', lineHeight: '1' }}>1177</div>
+                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>Sjukvårdsrådgivningen</div>
+                    </a>
+                  </div>
+
+                  {/* === DIN POSITION === */}
+                  <div style={{ marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '600', color: '#fff', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '12px' }}>Din position</div>
+                    {(() => {
+                      const centerLat = mapCenter.lat.toFixed(4);
+                      const centerLon = mapCenter.lng.toFixed(4);
+                      const posText = `${centerLat}°N, ${centerLon}°E`;
+                      return (
+                        <>
+                          <div style={{ fontSize: '18px', fontWeight: '600', color: '#fff', marginBottom: '8px', fontFamily: 'monospace' }}>
+                            {posText}
+                          </div>
+                          <button
+                            onClick={() => { navigator.clipboard.writeText(posText); }}
+                            style={{
+                              padding: '8px 16px', borderRadius: '8px',
+                              border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)',
+                              color: '#fff', fontSize: '12px', cursor: 'pointer', marginBottom: '8px',
+                            }}
+                          >
+                            Kopiera koordinater
+                          </button>
+                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+                            Ge denna position till larmoperatören
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {/* === NÄRMASTE SJUKVÅRD === */}
+                  {emergencyHealthcare !== null && emergencyHealthcare.length === 0 && (
+                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginBottom: '16px' }}>Söker sjukvård i närheten...</div>
+                  )}
+
+                  {/* Sjukhus */}
+                  {emergencyHealthcare && emergencyHealthcare.filter(h => h.type === 'hospital').length > 0 && (
+                    <div style={{ marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px' }}>
+                      <div style={{ fontSize: '11px', fontWeight: '600', color: '#fff', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '12px' }}>Närmaste sjukhus</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {emergencyHealthcare.filter(h => h.type === 'hospital').map((h, i) => (
+                          <a
+                            key={i}
+                            href={`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lon}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)' }}
+                          >
+                            <span style={{ fontSize: '20px' }}>🏥</span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '14px', color: '#fff' }}>{h.name}</div>
+                              <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+                                {h.dist} km · ~{Math.max(5, Math.round(h.dist * 0.9))} min
+                              </div>
+                            </div>
+                            <span style={{ fontSize: '13px', color: '#60a5fa' }}>Navigera →</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Vårdcentraler */}
+                  {emergencyHealthcare && emergencyHealthcare.filter(h => h.type === 'clinic').length > 0 && (
+                    <div>
+                      <div style={{ fontSize: '11px', fontWeight: '600', color: '#fff', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '12px' }}>Närmaste vårdcentral</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {emergencyHealthcare.filter(h => h.type === 'clinic').map((h, i) => (
+                          <a
+                            key={i}
+                            href={`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lon}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)' }}
+                          >
+                            <span style={{ fontSize: '20px' }}>🏥</span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '14px', color: '#fff' }}>{h.name}</div>
+                              <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+                                {h.dist} km · ~{Math.max(5, Math.round(h.dist * 0.9))} min
+                              </div>
+                            </div>
+                            <span style={{ fontSize: '13px', color: '#60a5fa' }}>Navigera →</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}
@@ -8818,6 +9355,446 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* TMA: Varningsikoner som HTML-overlay (klickbar) – en per boundary med varning */}
+      {!tmaOpen && tmaWithRoads.map(([bmId, result]) => {
+        const cp = result.roads[0].closestPoint;
+        if (!cp) return null;
+        const svgPt = latLonToSvg(cp.lat, cp.lon);
+        const screenX = svgPt.x * zoom + pan.x;
+        const screenY = svgPt.y * zoom + pan.y;
+        return (
+          <div
+            key={`tma-icon-${bmId}`}
+            onClick={(e) => { e.stopPropagation(); setTmaOpen(bmId); }}
+            style={{
+              position: 'absolute',
+              left: screenX - 14,
+              top: screenY - 14,
+              width: '28px',
+              height: '28px',
+              borderRadius: '6px',
+              background: '#eab308',
+              border: '2px solid rgba(0,0,0,0.3)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              zIndex: 100,
+              boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+              pointerEvents: 'auto',
+              opacity: tmaSamrad.kvitterad ? 0.4 : 1,
+              transition: 'opacity 0.3s',
+            }}
+          >
+            <span style={{ fontSize: '16px', lineHeight: '1', color: '#000', fontWeight: '700' }}>⚠</span>
+            {/* Vit notifikationsprick – visas tills samråd kvitteras */}
+            {!tmaSamrad.kvitterad && (
+              <div style={{
+                position: 'absolute',
+                top: '-3px',
+                right: '-3px',
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: '#fff',
+                border: '1.5px solid rgba(0,0,0,0.3)',
+              }} />
+            )}
+          </div>
+        );
+      })}
+
+      {/* === TMA / VÄG-PANEL === */}
+      {tmaOpen && tmaResults[tmaOpen] && tmaResults[tmaOpen].status === 'done' && tmaResults[tmaOpen].roads.length > 0 && (() => {
+        const mainRoad = tmaResults[tmaOpen].roads[0];
+        const isRed = ['trunk', 'trunk_link', 'primary', 'primary_link'].includes(mainRoad.type) || (mainRoad.maxspeed || 0) >= 80;
+        const roadLabel = mainRoad.ref ? `${mainRoad.ref} · ${mainRoad.name}` : mainRoad.name;
+        const speedLabel = mainRoad.maxspeed ? `${mainRoad.maxspeed} km/h` : '';
+
+        // Styles – identiska med avläggspanelen
+        const secStyle = { marginTop: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' };
+        const headStyle: React.CSSProperties = { fontSize: '11px', fontWeight: '600', color: '#fff', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '12px' };
+        const summaryStyle: React.CSSProperties = { ...headStyle, cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' };
+        const textStyle = { fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.7' as const };
+        const linkStyle = { fontSize: '13px', color: '#60a5fa', textDecoration: 'none' as const };
+
+        // Riskbedömning (7 frågor: 0-3 original, 4-6 väder)
+        const riskLabels = [
+          'Kan träd falla mot vägen?',
+          'Behöver maskiner korsa eller stå på vägen?',
+          'Kommer personal att arbeta inom 20m från vägkant?',
+          'Behövs manuell fällning nära vägen?',
+          'Blåser det mot vägen?',
+          'Är träden snötyngda eller istyngda?',
+          'Finns det synligt rötskadade träd nära vägen?',
+        ];
+        const answeredCount = tmaRisk.filter(v => v !== null).length;
+        const jaCount = tmaRisk.filter(v => v === true).length;
+        // "Blåser mot vägen" (index 4) = Ja höjer risken ett steg
+        const windBoost = tmaRisk[4] === true ? 1 : 0;
+        const baseLevel = answeredCount < 7 ? null : (jaCount >= 3 || tmaRisk[1] === true) ? 'high' : jaCount >= 1 ? 'medium' : 'low';
+        const riskLevel = baseLevel === null ? null : windBoost > 0 ? (baseLevel === 'low' ? 'medium' : baseLevel === 'medium' ? 'high' : 'high') : baseLevel;
+
+        // Vädervarningar
+        const wWind = tmaWeather?.windSpeed;
+        const wTemp = tmaWeather?.temp;
+        const wPrecip = tmaWeather?.precip;
+        const windWarningRed = wWind != null && wWind > 15;
+        const windWarningYellow = wWind != null && wWind > 10 && !windWarningRed;
+        const snowWarning = (wPrecip === 1 || wPrecip === 2) && wTemp != null && wTemp >= -2 && wTemp <= 2;
+
+        // Samråd checkboxar
+        const samradLabels = [
+          'Vilka träd ska fällas och var',
+          'Fallriktning bestämd (bort från väg)',
+          'TMA-bilens placering',
+          'Kommunikation (radio/telefon)',
+          'Vem avbryter vid fara',
+          'Säkerhetsavstånd mellan maskin och fällare',
+        ];
+
+        return (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.85)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 600,
+            }}
+            onClick={() => setTmaOpen(null)}
+          >
+            <div
+              style={{
+                background: '#000',
+                borderRadius: '24px',
+                padding: '28px',
+                width: '90%',
+                maxWidth: '500px',
+                maxHeight: '85vh',
+                overflowY: 'auto',
+                boxShadow: '0 12px 60px rgba(0,0,0,0.9)',
+                border: '1px solid rgba(255,255,255,0.15)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header med ikon och titel */}
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '14px',
+                marginBottom: '8px',
+              }}>
+                <div style={{
+                  width: '52px',
+                  height: '52px',
+                  background: isRed ? 'rgba(239,68,68,0.15)' : 'rgba(234,179,8,0.15)',
+                  borderRadius: '50%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: `2px solid ${isRed ? 'rgba(239,68,68,0.3)' : 'rgba(234,179,8,0.3)'}`,
+                  fontSize: '24px',
+                }}>
+                  ⚠
+                </div>
+                <span style={{ fontSize: '20px', fontWeight: '600', color: '#fff' }}>Avverkning nära väg</span>
+              </div>
+
+              {/* Samråd-status (diskret vit text, centrerad) */}
+              <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: '20px', textAlign: 'center' }}>
+                {tmaSamrad.kvitterad
+                  ? `Samråd genomfört ${tmaSamrad.kvitteradDatum}`
+                  : 'Samråd ej genomfört'
+                }
+              </div>
+
+              {/* Rubrik + Väg + Avstånd – allt på en rad */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-end',
+                paddingBottom: '20px',
+                borderBottom: '1px solid rgba(255,255,255,0.08)',
+              }}>
+                <div>
+                  <div style={{ fontSize: '15px', fontWeight: '700', color: isRed ? '#ef4444' : '#eab308', marginBottom: '4px' }}>
+                    {isRed ? 'Avverkning nära skyddsklassad väg' : 'Allmän väg nära avverkning'}
+                  </div>
+                  <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
+                    {roadLabel}{speedLabel ? ` · ${speedLabel}` : ''}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '20px' }}>
+                  <div style={{ fontSize: '28px', fontWeight: '700', color: '#fff', lineHeight: '1' }}>
+                    {mainRoad.distance}m
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginTop: '4px' }}>
+                    till väg
+                  </div>
+                </div>
+              </div>
+
+              {/* ===== VÄDER (SMHI) ===== */}
+              {tmaWeather && tmaWeather.status === 'done' && (
+                <div style={secStyle}>
+                  <div style={headStyle}>Väder just nu</div>
+                  <div style={{ display: 'flex', gap: '20px', alignItems: 'baseline' }}>
+                    {tmaWeather.windSpeed != null && (
+                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>
+                        {tmaWeather.windArrow} {tmaWeather.windSpeed} m/s {tmaWeather.windDirLabel}
+                      </div>
+                    )}
+                    {tmaWeather.temp != null && (
+                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>
+                        {tmaWeather.temp}°C
+                      </div>
+                    )}
+                    {tmaWeather.precipLabel ? (
+                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>
+                        {tmaWeather.precipLabel}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* Vädervarningar */}
+                  {windWarningRed && (
+                    <div style={{ marginTop: '10px', fontSize: '13px', fontWeight: '500', color: '#ef4444' }}>
+                      Mycket stark vind – avbryt fällning nära väg
+                    </div>
+                  )}
+                  {windWarningYellow && (
+                    <div style={{ marginTop: '10px', fontSize: '13px', fontWeight: '500', color: '#eab308' }}>
+                      Stark vind – kontrollera fallriktning mot väg
+                    </div>
+                  )}
+                  {snowWarning && (
+                    <div style={{ marginTop: '10px', fontSize: '13px', fontWeight: '500', color: '#eab308' }}>
+                      Snötyngda träd – ökad risk för oväntad fallriktning
+                    </div>
+                  )}
+                </div>
+              )}
+              {tmaWeather && tmaWeather.status === 'loading' && (
+                <div style={secStyle}>
+                  <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>Hämtar väder...</div>
+                </div>
+              )}
+
+              {/* ===== SEKTION 1: Riskbedömning ===== */}
+              <details open style={secStyle}>
+                <summary style={summaryStyle}>
+                  <span>Riskbedömning – arbete nära väg</span>
+                  {answeredCount === 7 && (
+                    <span style={{ fontSize: '11px', fontWeight: '500', letterSpacing: '0', textTransform: 'none' as const, color: riskLevel === 'low' ? '#22c55e' : riskLevel === 'medium' ? '#eab308' : '#ef4444' }}>
+                      {riskLevel === 'low' ? 'Låg risk' : riskLevel === 'medium' ? 'Förhöjd' : 'Hög risk'}
+                    </span>
+                  )}
+                </summary>
+                <div style={{ marginTop: '12px' }}>
+                  <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.7', marginBottom: '16px' }}>
+                    Enligt AML 3 kap 2§ ska arbetsgivaren bedöma risker innan arbete påbörjas.
+                  </div>
+
+                  {/* Frågor – label och Ja/Nej bredvid varandra */}
+                  {riskLabels.map((label, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginBottom: '14px' }}>
+                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', flex: 1, lineHeight: '1.4' }}>{label}</div>
+                      <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', flexShrink: 0 }}>
+                        {([true, false] as const).map(val => {
+                          const isActive = tmaRisk[i] === val;
+                          const activeColor = val ? '#eab308' : '#22c55e';
+                          return (
+                            <button key={String(val)} onClick={() => setTmaRisk(prev => { const n = [...prev]; n[i] = val; return n; })}
+                              style={{ flex: 1, minWidth: '50px', padding: '10px 0', borderRadius: '8px', border: 'none', background: isActive ? activeColor : 'transparent', color: isActive ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: isActive ? '700' : '500', cursor: 'pointer', transition: 'all 0.2s' }}>
+                              {val ? 'Ja' : 'Nej'}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Resultat */}
+                  {riskLevel && (
+                    <div style={{ marginTop: '8px', fontSize: '13px', fontWeight: '500', lineHeight: '1.5', color: riskLevel === 'low' ? '#22c55e' : riskLevel === 'medium' ? '#eab308' : '#ef4444' }}>
+                      {riskLevel === 'low' && 'Låg risk – tänk på skyltning vid fällning nära väg'}
+                      {riskLevel === 'medium' && 'Förhöjd risk – varningsskyltar och farthinder rekommenderas'}
+                      {riskLevel === 'high' && 'Hög risk – TMA-bil eller avstängd vägbana rekommenderas'}
+                    </div>
+                  )}
+                </div>
+              </details>
+
+              {/* ===== SEKTION 2: Att tänka på ===== */}
+              <details style={secStyle}>
+                <summary style={summaryStyle}>
+                  <span>Att tänka på</span>
+                  <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>›</span>
+                </summary>
+                <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {[
+                    'Fäll alltid bort från vägen.',
+                    'Säkerhetsavstånd minst 1,5 × trädlängd från vägkant.',
+                    'Varningsskyltar vid fällning nära väg.',
+                    'Maskiner ska inte stå på allmän väg utan tillstånd.',
+                    'Kontakta Trafikverket om arbete måste ske på vägbanan.',
+                  ].map((t, i) => <div key={i} style={textStyle}>{t}</div>)}
+                </div>
+              </details>
+
+              {/* ===== SEKTION 3: Samråd ===== */}
+              <details open={tmaRisk[3] === true} style={secStyle}>
+                <summary style={summaryStyle}>
+                  <span>Samråd – gemensamt arbetsställe</span>
+                  {tmaSamrad.kvitterad ? (
+                    <span style={{ fontSize: '11px', fontWeight: '500', letterSpacing: '0', textTransform: 'none' as const, color: '#22c55e' }}>Genomfört</span>
+                  ) : (
+                    <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>›</span>
+                  )}
+                </summary>
+                <div style={{ marginTop: '12px' }}>
+                  <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.7', marginBottom: '16px' }}>
+                    Enligt AML 3 kap 7g§ ska alla som arbetar på samma ställe samråda om skyddsåtgärder. Det finns ingen branschstandard för skogsbruk – denna mall är baserad på lagen.
+                  </div>
+
+                  {tmaSamrad.kvitterad ? (
+                    <div style={{ fontSize: '13px', color: '#22c55e', fontWeight: '500' }}>
+                      Samråd genomfört {tmaSamrad.kvitteradDatum}
+                    </div>
+                  ) : (
+                    <>
+                      {/* Fällare + TMA-bil på en rad */}
+                      <div style={{ display: 'flex', gap: '16px', marginBottom: '20px' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>Manuell fällare (namn/företag)</div>
+                          <input
+                            type="text"
+                            value={tmaSamrad.fallare}
+                            onChange={e => setTmaSamrad(prev => ({ ...prev, fallare: e.target.value }))}
+                            placeholder="Ange namn eller företag"
+                            style={{
+                              width: '100%', padding: '10px 12px', borderRadius: '8px',
+                              border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
+                              color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box',
+                            }}
+                          />
+                        </div>
+                        <div style={{ width: '140px', flexShrink: 0 }}>
+                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>TMA-bil beställd?</div>
+                          <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
+                            {([true, false] as const).map(val => {
+                              const isActive = tmaSamrad.tmaBil === val;
+                              const activeColor = val ? '#22c55e' : 'rgba(255,255,255,0.3)';
+                              return (
+                                <button key={String(val)} onClick={() => setTmaSamrad(prev => ({ ...prev, tmaBil: val }))}
+                                  style={{ flex: 1, padding: '10px 0', borderRadius: '8px', border: 'none', background: isActive ? activeColor : 'transparent', color: isActive ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: isActive ? '700' : '500', cursor: 'pointer', transition: 'all 0.2s' }}>
+                                  {val ? 'Ja' : 'Nej'}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Checkboxar */}
+                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '8px' }}>Genomgånget tillsammans</div>
+                      <div style={{ marginBottom: '20px' }}>
+                        {samradLabels.map((label, i) => (
+                          <div key={i}
+                            onClick={() => setTmaSamrad(prev => { const cb = [...prev.checkboxes]; cb[i] = !cb[i]; return { ...prev, checkboxes: cb }; })}
+                            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                            <div style={{
+                              width: '18px', height: '18px', borderRadius: '4px',
+                              border: `1.5px solid ${tmaSamrad.checkboxes[i] ? '#22c55e' : 'rgba(255,255,255,0.15)'}`,
+                              background: tmaSamrad.checkboxes[i] ? 'rgba(34,197,94,0.12)' : 'transparent',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                            }}>
+                              {tmaSamrad.checkboxes[i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
+                            </div>
+                            <span style={{ fontSize: '13px', color: tmaSamrad.checkboxes[i] ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)', textDecoration: tmaSamrad.checkboxes[i] ? 'line-through' : 'none', lineHeight: '1.4' }}>
+                              {label}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Datum + Kvittera på en rad */}
+                      <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
+                        <div style={{ width: '160px', flexShrink: 0 }}>
+                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>Datum</div>
+                          <input
+                            type="date"
+                            value={tmaSamrad.datum}
+                            onChange={e => setTmaSamrad(prev => ({ ...prev, datum: e.target.value }))}
+                            style={{
+                              width: '100%', padding: '10px 12px', borderRadius: '8px',
+                              border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
+                              color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box',
+                              colorScheme: 'dark',
+                            }}
+                          />
+                        </div>
+                        <button
+                          onClick={() => setTmaSamrad(prev => ({ ...prev, kvitterad: true, kvitteradDatum: prev.datum }))}
+                          style={{
+                            flex: 1, padding: '14px', borderRadius: '12px', border: 'none',
+                            background: '#22c55e', color: '#000', fontSize: '14px', fontWeight: '600',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          Samråd genomfört
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </details>
+
+              {/* ===== SEKTION 4: TMA-leverantörer ===== */}
+              <details style={secStyle}>
+                <summary style={summaryStyle}>
+                  <span>TMA-leverantörer</span>
+                  <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>›</span>
+                </summary>
+                <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div>
+                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: '2px' }}>Ramudden: 010-303 50 00</div>
+                    <a href="https://www.ramudden.se/tjanster/trafiktjanster/tma" target="_blank" rel="noopener noreferrer" style={linkStyle}>ramudden.se →</a>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: '2px' }}>Assistancekåren</div>
+                    <a href="https://assistancekaren.se" target="_blank" rel="noopener noreferrer" style={linkStyle}>assistancekaren.se →</a>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>Trafikverket (frågor om krav): 0771-921 921</div>
+                  </div>
+                </div>
+              </details>
+
+              {/* ===== LÄNKAR ===== */}
+              <div style={{ ...secStyle, borderBottom: 'none' }}>
+                <div style={headStyle}>Mer information</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <a href="https://www.skogforsk.se/rad--stod/filmer--publikationer/avverkning-av-trad-nara-trafikerade-vagar/" target="_blank" rel="noopener noreferrer" style={linkStyle}>
+                    Skogforsk – Avverkning nära vägar →
+                  </a>
+                  <a href="https://bransch.trafikverket.se/for-dig-i-branschen/Arbetsmiljo-och-sakerhet/Arbete-pa-vag/" target="_blank" rel="noopener noreferrer" style={linkStyle}>
+                    Trafikverket – Arbete på väg →
+                  </a>
+                  <a href="https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/arbetsmiljolag-19771160_sfs-1977-1160/" target="_blank" rel="noopener noreferrer" style={linkStyle}>
+                    Arbetsmiljölagen 3 kap →
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* === PROGNOS === */}
       {prognosOpen && (
         <div 
@@ -8991,7 +9968,103 @@ export default function PlannerPage() {
                 </div>
               </div>
             </div>
-            
+
+            {/* Vägsäkerhet – TMA-varning per boundary */}
+            {tmaWithRoads.map(([bmId, result]) => {
+              const mainRoad = result.roads[0];
+              const isRed = mainRoad.skyddsklassad && ((mainRoad.maxspeed || 0) >= 80 || ['trunk', 'trunk_link', 'primary', 'primary_link'].includes(mainRoad.type));
+              const roadLabel = mainRoad.ref ? `${mainRoad.ref} · ${mainRoad.name}` : mainRoad.name;
+              const speedLabel = mainRoad.maxspeed ? `${mainRoad.maxspeed} km/h` : '';
+              return (
+                <div
+                  key={`prognos-tma-${bmId}`}
+                  onClick={() => setTmaOpen(bmId)}
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    borderRadius: '16px',
+                    padding: '20px',
+                    marginBottom: '16px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: isRed ? '#ef4444' : '#eab308', flexShrink: 0 }} />
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: '500', color: '#fff' }}>Avverkning nära väg</div>
+                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
+                          {roadLabel}{speedLabel ? ` · ${speedLabel}` : ''} · {mainRoad.distance}m
+                        </div>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '16px', color: 'rgba(255,255,255,0.2)' }}>›</span>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* TMA loading */}
+            {Object.values(tmaResults).some(r => r.status === 'loading') && (
+              <div style={{
+                background: 'rgba(255,255,255,0.04)',
+                borderRadius: '16px',
+                padding: '20px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+              }}>
+                <div style={{
+                  width: '16px', height: '16px', borderRadius: '50%',
+                  border: '2px solid rgba(255,255,255,0.2)',
+                  borderTopColor: '#60a5fa',
+                  animation: 'spin 1s linear infinite',
+                }} />
+                <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Kontrollerar vägar nära traktgränsen...</span>
+              </div>
+            )}
+
+            {/* TMA error */}
+            {Object.entries(tmaResults).filter(([, r]) => r.status === 'error').map(([bmId, result]) => (
+              <div key={`prognos-tma-err-${bmId}`} style={{
+                background: 'rgba(255,255,255,0.04)',
+                borderRadius: '16px',
+                padding: '20px',
+                marginBottom: '16px',
+              }}>
+                <div style={{
+                  fontSize: '12px',
+                  color: 'rgba(255,255,255,0.4)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px',
+                  marginBottom: '12px',
+                }}>
+                  Vägsäkerhet
+                </div>
+                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>
+                  {result.message || 'Kunde inte hämta vägdata'}
+                </div>
+                <button
+                  onClick={() => {
+                    delete tmaCheckedRef.current[bmId];
+                    setTmaResults(prev => { const next = { ...prev }; delete next[bmId]; return next; });
+                    setMarkers(prev => [...prev]);
+                  }}
+                  style={{
+                    marginTop: '10px',
+                    fontSize: '12px',
+                    color: '#60a5fa',
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    padding: 0,
+                  }}
+                >
+                  Försök igen
+                </button>
+              </div>
+            ))}
+
             {/* Förhållanden */}
             {(() => {
               const forhallanden = beraknaForhallanden();
@@ -9002,9 +10075,9 @@ export default function PlannerPage() {
                   padding: '20px',
                   marginBottom: '24px',
                 }}>
-                  <div style={{ 
-                    fontSize: '12px', 
-                    color: 'rgba(255,255,255,0.4)', 
+                  <div style={{
+                    fontSize: '12px',
+                    color: 'rgba(255,255,255,0.4)',
                     textTransform: 'uppercase',
                     letterSpacing: '0.5px',
                     marginBottom: '20px',

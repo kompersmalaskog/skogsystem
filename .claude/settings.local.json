@@ -2,7 +2,13 @@
   "permissions": {
     "allow": [
       "Bash(tree:*)",
-      "Bash(npm run dev:*)"
+      "Bash(npm run dev:*)",
+      "Bash(npx next build:*)",
+      "WebFetch(domain:geodpags.skogsstyrelsen.se)",
+      "WebFetch(domain:nvpub.vic-metria.nu)",
+      "WebSearch",
+      "WebFetch(domain:geodata.naturvardsverket.se)",
+      "WebFetch(domain:ext-geodatakatalog-forv.lansstyrelsen.se)"
     ]
   }
 }
