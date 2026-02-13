@@ -14,6 +14,23 @@ interface Point {
   y: number;
 }
 
+interface RoadCheckResult {
+  status: 'loading' | 'ok' | 'warning' | 'error';
+  nearestRoad?: {
+    name: string;
+    type: string;
+    maxspeed?: number;
+    ref?: string;
+  };
+  roadCategory?: 'allman' | 'kan_vara_allman' | 'enskild';
+  requiresSpecialPermit?: boolean;
+  generelltTillstandApplied?: boolean;
+  tillstand: 'ej_sokt' | 'sokt' | 'beviljat';
+  checklist?: boolean[];
+  nearbyIntersection?: { distance: number };
+  message?: string;
+}
+
 interface Marker {
   id: string;
   x: number;
@@ -30,6 +47,7 @@ interface Marker {
   path?: Point[];
   comment?: string;
   photoData?: string;
+  roadCheck?: RoadCheckResult;
 }
 
 interface Warning {
@@ -687,6 +705,9 @@ export default function PlannerPage() {
   });
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
 
+  // Generellt tillstånd för avlägg
+  const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
+
   // Drag för meny
   const dragStartY = useRef(0);
   const dragStartHeight = useRef(0);
@@ -1105,7 +1126,158 @@ export default function PlannerPage() {
     
     return { x, y };
   };
-  
+
+  // Inverskonvertering: SVG-koordinater till lat/lon
+  const svgToLatLon = (x: number, y: number) => {
+    const mPerDegLat = 111320;
+    const mPerDegLon = 111320 * Math.cos(mapCenter.lat * Math.PI / 180);
+    const dxMeters = x * scale;
+    const dyMeters = -y * scale;
+    const lon = mapCenter.lng + dxMeters / mPerDegLon;
+    const lat = mapCenter.lat + dyMeters / mPerDegLat;
+    return { lat, lon };
+  };
+
+  // Klassificera vägtyp: allmän, kan vara allmän, eller enskild
+  const getRoadCategory = (highway: string): 'allman' | 'kan_vara_allman' | 'enskild' => {
+    switch (highway) {
+      case 'motorway': case 'motorway_link':
+      case 'trunk': case 'trunk_link':
+      case 'primary': case 'primary_link':
+      case 'secondary': case 'secondary_link':
+      case 'tertiary': case 'tertiary_link':
+        return 'allman';
+      case 'residential':
+      case 'unclassified':
+        return 'kan_vara_allman';
+      case 'track': case 'service': case 'path':
+      default:
+        return 'enskild';
+    }
+  };
+
+  // Avstånd vägkant → välta (meter), baserat på hastighetsgräns
+  const getEdgeDistance = (speed: number): number => {
+    if (speed <= 50) return 2;
+    if (speed <= 80) return 3;
+    if (speed === 90) return 7;
+    if (speed === 100) return 8;
+    return 9; // 110+
+  };
+
+  // Avstånd till korsning/krön/kurva (meter), baserat på hastighetsgräns
+  const getIntersectionDistance = (speed: number): number => {
+    const table: Record<number, number> = { 30: 35, 40: 60, 50: 80, 60: 100, 70: 130, 80: 160, 90: 190, 100: 220, 110: 250 };
+    // Hitta närmaste uppåt
+    const speeds = [30, 40, 50, 60, 70, 80, 90, 100, 110];
+    for (const s of speeds) { if (speed <= s) return table[s]; }
+    return 250;
+  };
+
+  // Haversine-avstånd mellan två punkter (meter)
+  const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  };
+
+  // Asynkron vägkontroll via Overpass API
+  const checkRoadSafety = async (lat: number, lon: number): Promise<RoadCheckResult> => {
+    try {
+      // Hämta vägar + korsningsnoder inom 250m (max siktavstånd)
+      const query = `[out:json][timeout:10];(way(around:50,${lat},${lon})["highway"];node(around:250,${lat},${lon})["highway"="crossing"];node(around:250,${lat},${lon})["railway"="level_crossing"];);out body geom;`;
+      const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+
+      const ways = (data.elements || []).filter((e: any) => e.type === 'way');
+      const nodes = (data.elements || []).filter((e: any) => e.type === 'node');
+
+      if (ways.length === 0) {
+        return { status: 'ok', tillstand: 'ej_sokt', message: 'Ingen väg hittad inom 50m' };
+      }
+
+      // Hitta närmaste väg (baserat på taggarna, inte avstånd)
+      // Prioritera allmän > kan vara allmän > enskild
+      let bestWay: any = null;
+      let bestCategory: 'allman' | 'kan_vara_allman' | 'enskild' = 'enskild';
+      const categoryPriority = { allman: 0, kan_vara_allman: 1, enskild: 2 };
+
+      for (const way of ways) {
+        const tags = way.tags || {};
+        const cat = getRoadCategory(tags.highway || '');
+        if (!bestWay || categoryPriority[cat] < categoryPriority[bestCategory]) {
+          bestWay = way;
+          bestCategory = cat;
+        }
+      }
+
+      if (!bestWay) {
+        return { status: 'ok', tillstand: 'ej_sokt', message: 'Ingen väg hittad inom 50m' };
+      }
+
+      const tags = bestWay.tags || {};
+      const nearestRoad: RoadCheckResult['nearestRoad'] = {
+        name: tags.name || tags.ref || 'Namnlös väg',
+        type: tags.highway || 'unknown',
+        maxspeed: tags.maxspeed ? parseInt(tags.maxspeed) : undefined,
+        ref: tags.ref,
+      };
+      const category = bestCategory;
+
+      // Kolla korsningar i närheten
+      let nearbyIntersection: RoadCheckResult['nearbyIntersection'] | undefined;
+      if (category !== 'enskild') {
+        // Kolla crossing/level_crossing-noder
+        for (const node of nodes) {
+          if (node.lat && node.lon) {
+            const dist = Math.round(haversineDistance(lat, lon, node.lat, node.lon));
+            const requiredDist = getIntersectionDistance(nearestRoad.maxspeed || 70);
+            if (dist < requiredDist && (!nearbyIntersection || dist < nearbyIntersection.distance)) {
+              nearbyIntersection = { distance: dist };
+            }
+          }
+        }
+
+        // Kolla om flera vägar korsar varandra (förenklad: >1 unika vägtyper/namn)
+        if (!nearbyIntersection && ways.length > 1) {
+          const uniqueNames = new Set(ways.map((w: any) => (w.tags?.name || w.tags?.ref || w.id)));
+          if (uniqueNames.size > 1) {
+            nearbyIntersection = { distance: 0 }; // Korsning vid avlägget
+          }
+        }
+      }
+
+      let status: RoadCheckResult['status'] = 'ok';
+      let message: string;
+
+      if (category === 'enskild') {
+        message = 'Enskild väg';
+      } else if (category === 'kan_vara_allman') {
+        status = 'warning';
+        message = 'Kontrollera om vägen är allmän';
+      } else {
+        status = 'warning';
+        message = 'Allmän väg – tillstånd krävs';
+      }
+
+      return {
+        status,
+        nearestRoad,
+        roadCategory: category,
+        tillstand: 'ej_sokt',
+        checklist: new Array(11).fill(false),
+        nearbyIntersection,
+        message,
+      };
+    } catch (err) {
+      return { status: 'error', tillstand: 'ej_sokt', message: 'Kunde inte hämta vägdata' };
+    }
+  };
+
   // Konvertera GPS till kartkoordinater (relativ till startpunkt)
   const gpsToMap = (lat, lon, startLat, startLon, startX, startY) => {
     // Meter per grad (approximation för Sverige ~59°N)
@@ -1846,19 +2018,42 @@ export default function PlannerPage() {
         isMarker: true,
         comment: '',
       };
+
+      // Automatisk vägkontroll för avlägg
+      if (selectedSymbol === 'landing') {
+        const { lat, lon } = svgToLatLon(x, y);
+        newMarker.roadCheck = { status: 'loading', tillstand: 'ej_sokt' };
+        checkRoadSafety(lat, lon).then(result => {
+          const gt = generelltTillstand;
+          const maxspeed = result.nearestRoad?.maxspeed;
+          const isAllman = result.roadCategory === 'allman' || result.roadCategory === 'kan_vara_allman';
+
+          if (isAllman && maxspeed && maxspeed > 80) {
+            result.requiresSpecialPermit = true;
+          } else if (isAllman && gt && gt.lan && gt.giltigtTom && new Date(gt.giltigtTom) >= new Date()) {
+            result.tillstand = 'beviljat';
+            result.generelltTillstandApplied = true;
+          }
+
+          setMarkers(prev => prev.map(m =>
+            m.id === newMarker.id ? { ...m, roadCheck: result } : m
+          ));
+        });
+      }
+
       setMarkers(prev => [...prev, newMarker]);
-      
+
       // Vibrera för bekräftelse
       if (navigator.vibrate) {
         navigator.vibrate(30);
       }
-      
+
       // Lägg till i snabbval (max 4, senast först)
       setRecentSymbols(prev => {
         const filtered = prev.filter(s => s !== selectedSymbol);
         return [selectedSymbol, ...filtered].slice(0, 4);
       });
-      
+
       setSelectedSymbol(null);
       return;
     }
@@ -3216,6 +3411,18 @@ export default function PlannerPage() {
                 {isAcknowledged && drivingMode && (
                   <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={strokeW} />
                 )}
+                {/* Vägkontroll-ring för avlägg — ej enskild väg */}
+                {m.type === 'landing' && m.roadCheck && m.roadCheck.status !== 'loading' && m.roadCheck.roadCategory !== 'enskild' && (
+                  <circle
+                    cx={m.x} cy={m.y}
+                    r={ringRadius}
+                    fill="none"
+                    stroke={m.roadCheck.tillstand === 'beviljat' ? '#22c55e' : m.roadCheck.tillstand === 'sokt' ? '#eab308' : '#ef4444'}
+                    strokeWidth={strokeW}
+                    strokeDasharray={m.roadCheck.tillstand === 'ej_sokt' ? '6 4' : 'none'}
+                    opacity={0.7}
+                  />
+                )}
                 {/* Bakgrundscirkel med kant */}
                 <circle 
                   cx={m.x} 
@@ -4038,7 +4245,275 @@ export default function PlannerPage() {
                 Ingen kommentar
               </div>
             )}
-            
+
+            {/* Vägkontroll för avlägg */}
+            {marker.type === 'landing' && marker.roadCheck && (() => {
+              const rc = marker.roadCheck;
+              const cat = rc.roadCategory;
+              const isAllmanOrOklar = cat === 'allman' || cat === 'kan_vara_allman';
+              const speed = rc.nearestRoad?.maxspeed;
+              const edgeDist = speed ? getEdgeDistance(speed) : undefined;
+              const intDist = speed ? getIntersectionDistance(speed) : undefined;
+              const checklistLabels = [
+                'Inte i kurva med skymd sikt',
+                'Inte vid backkrön',
+                'Inte vid heldragen mittlinje',
+                'Inte vid busshållplats',
+                'Inte vid plankorsning med järnväg',
+                'Lossning kan ske från skogssidan',
+                'Skotare kan lossa utan att köra upp på vägen',
+                'Lastbil kan stå plant',
+                'Utryckningsfordon kan passera',
+                'Ingen kraftledning ovanför',
+                'Vattenavrinning och diken inte blockerade',
+              ];
+              const checkedCount = rc.checklist ? rc.checklist.filter(Boolean).length : 0;
+
+              // Style-helpers
+              const sectionStyle = { marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '10px' };
+              const ruleStyle = { fontSize: '12px', color: 'rgba(255,255,255,0.6)', lineHeight: '1.7', margin: 0 as const };
+              const bulletStyle = { ...ruleStyle, paddingLeft: '8px' };
+
+              return (
+              <div style={{
+                marginTop: '16px',
+                maxHeight: '55vh',
+                overflowY: 'auto',
+                WebkitOverflowScrolling: 'touch',
+              }}>
+                {/* Loading */}
+                {rc.status === 'loading' && (
+                  <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.6)', fontSize: '14px', padding: '14px' }}>
+                    <div style={{
+                      display: 'inline-block', width: '16px', height: '16px',
+                      border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#fff',
+                      borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+                      marginRight: '8px', verticalAlign: 'middle',
+                    }} />
+                    Kontrollerar vägdata...
+                    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+                  </div>
+                )}
+
+                {/* Error */}
+                {rc.status === 'error' && (
+                  <div style={{ textAlign: 'center', padding: '14px' }}>
+                    <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '14px', marginBottom: '8px' }}>{rc.message}</div>
+                    <button
+                      onClick={() => {
+                        const { lat, lon } = svgToLatLon(marker.x, marker.y);
+                        setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, roadCheck: { ...m.roadCheck!, status: 'loading' as const } } : m));
+                        checkRoadSafety(lat, lon).then(result => {
+                          setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, roadCheck: result } : m));
+                        });
+                      }}
+                      style={{ padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', cursor: 'pointer' }}
+                    >Försök igen</button>
+                  </div>
+                )}
+
+                {/* Resultat */}
+                {(rc.status === 'ok' || rc.status === 'warning') && (
+                  <div style={{ padding: '14px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', border: `1px solid ${cat === 'enskild' ? 'rgba(34,197,94,0.3)' : rc.tillstand === 'beviljat' ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}` }}>
+
+                    {/* ===== RUBRIK ===== */}
+                    <div style={{ fontSize: '15px', fontWeight: '700', textAlign: 'center', marginBottom: '8px', color: cat === 'enskild' ? '#22c55e' : rc.generelltTillstandApplied ? '#22c55e' : cat === 'kan_vara_allman' ? '#eab308' : '#ef4444' }}>
+                      {cat === 'enskild' ? 'Enskild väg' : cat === 'kan_vara_allman' ? 'Kontrollera om vägen är allmän' : 'Allmän väg – tillstånd krävs'}
+                    </div>
+
+                    {/* Vägnamn */}
+                    {rc.nearestRoad && (
+                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', textAlign: 'center', marginBottom: '8px' }}>
+                        {rc.nearestRoad.ref ? `${rc.nearestRoad.ref} — ` : ''}{rc.nearestRoad.name}
+                        {speed ? ` (${speed} km/h)` : ''}
+                      </div>
+                    )}
+
+                    {/* ===== ENSKILD VÄG ===== */}
+                    {cat === 'enskild' && (
+                      <div style={ruleStyle}>Kontakta väghållaren</div>
+                    )}
+
+                    {/* ===== OKLAR VÄG ===== */}
+                    {cat === 'kan_vara_allman' && (
+                      <div style={{ ...ruleStyle, marginBottom: '6px' }}>Kontrollera vägtyp med kommunen</div>
+                    )}
+
+                    {/* ===== TILLSTÅND (allmän + oklar) ===== */}
+                    {isAllmanOrOklar && (
+                      <div style={sectionStyle}>
+                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '6px' }}>Tillstånd</div>
+
+                        {/* Generellt tillstånd-badge */}
+                        {rc.generelltTillstandApplied && (
+                          <div style={{ padding: '6px 10px', borderRadius: '8px', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: '12px', fontWeight: '600', textAlign: 'center', marginBottom: '8px' }}>
+                            Generellt tillstånd gäller
+                          </div>
+                        )}
+
+                        {/* Särskilt tillstånd badge */}
+                        {rc.requiresSpecialPermit && (
+                          <div style={{ padding: '6px 10px', borderRadius: '8px', background: 'rgba(239,68,68,0.15)', color: '#ef4444', fontSize: '12px', fontWeight: '600', textAlign: 'center', marginBottom: '8px' }}>
+                            Särskilt tillstånd krävs (2 900 kr)
+                          </div>
+                        )}
+
+                        {!rc.generelltTillstandApplied && (
+                          <>
+                            <div style={bulletStyle}>Tillstånd krävs enligt väglagen (1971:948) 43§</div>
+                            <div style={bulletStyle}>Inom vägområdet → Trafikverket beslutar</div>
+                            <div style={bulletStyle}>Utanför vägområdet men inom 12–50m → Länsstyrelsen beslutar (47§)</div>
+                            <div style={bulletStyle}>Kostnad: 2 900 kr per ansökan</div>
+
+                            {/* Tillstånd-toggle */}
+                            <div style={{ display: 'flex', gap: '4px', marginTop: '8px', padding: '3px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px' }}>
+                              {(['ej_sokt', 'sokt', 'beviljat'] as const).map(t => {
+                                const isActive = rc.tillstand === t;
+                                const label = t === 'ej_sokt' ? 'Ej sökt' : t === 'sokt' ? 'Sökt' : 'Beviljat';
+                                const activeColor = t === 'ej_sokt' ? '#ef4444' : t === 'sokt' ? '#eab308' : '#22c55e';
+                                return (
+                                  <button key={t} onClick={() => { setMarkers(prev => prev.map(m => m.id === marker.id && m.roadCheck ? { ...m, roadCheck: { ...m.roadCheck, tillstand: t } } : m)); }}
+                                    style={{ flex: 1, padding: '7px 4px', borderRadius: '8px', border: 'none', background: isActive ? activeColor : 'transparent', color: isActive ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '11px', fontWeight: isActive ? '700' : '500', cursor: 'pointer', transition: 'all 0.2s' }}>
+                                    {label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
+                            <a href="https://www.trafikverket.se/e-tjanster/upplag-av-virke-eller-skogsbransle-vid-vag/" target="_blank" rel="noopener noreferrer"
+                              style={{ display: 'block', textAlign: 'center', marginTop: '8px', fontSize: '11px', color: 'rgba(100,180,255,0.8)', textDecoration: 'none' }}>
+                              Sök tillstånd hos Trafikverket →
+                            </a>
+                          </>
+                        )}
+
+                        {/* Generellt tillstånd-info */}
+                        {speed && speed <= 80 && !rc.generelltTillstandApplied && (
+                          <div style={{ marginTop: '8px', padding: '6px 10px', borderRadius: '8px', background: 'rgba(234,179,8,0.1)', fontSize: '11px', color: '#eab308', lineHeight: '1.5' }}>
+                            Generellt tillstånd kan sökas per län – gäller 2 år, max 80 km/h och max 2000 fordon/dygn.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ===== PLACERING (allmän + oklar) ===== */}
+                    {isAllmanOrOklar && speed && (
+                      <div style={sectionStyle}>
+                        <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '6px' }}>Placering</div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <div style={{ flex: 1, padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
+                            <div style={{ fontSize: '20px', fontWeight: '700', color: '#fff' }}>{edgeDist}m</div>
+                            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>vägkant → välta</div>
+                          </div>
+                          <div style={{ flex: 1, padding: '8px', borderRadius: '8px', background: 'rgba(255,255,255,0.04)', textAlign: 'center' }}>
+                            <div style={{ fontSize: '20px', fontWeight: '700', color: '#fff' }}>{intDist}m</div>
+                            <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>till korsning/krön/kurva</div>
+                          </div>
+                        </div>
+
+                        {/* Korsningsvarning */}
+                        {rc.nearbyIntersection && intDist && (
+                          <div style={{ marginTop: '6px', padding: '6px 10px', borderRadius: '8px', background: 'rgba(239,68,68,0.12)', fontSize: '12px', color: '#ef4444', fontWeight: '600' }}>
+                            Korsning inom {rc.nearbyIntersection.distance}m – krav min {intDist}m
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* ===== CHECKLISTA (allmän + oklar) ===== */}
+                    {isAllmanOrOklar && rc.checklist && (
+                      <details style={sectionStyle}>
+                        <summary style={{ fontSize: '13px', fontWeight: '600', color: '#fff', cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>Checklista</span>
+                          <span style={{ fontSize: '11px', fontWeight: '500', color: checkedCount === 11 ? '#22c55e' : 'rgba(255,255,255,0.4)' }}>{checkedCount}/11</span>
+                        </summary>
+                        <div style={{ marginTop: '8px' }}>
+                          {checklistLabels.map((label, i) => (
+                            <div key={i}
+                              onClick={() => {
+                                setMarkers(prev => prev.map(m => {
+                                  if (m.id !== marker.id || !m.roadCheck?.checklist) return m;
+                                  const newCl = [...m.roadCheck.checklist!];
+                                  newCl[i] = !newCl[i];
+                                  return { ...m, roadCheck: { ...m.roadCheck, checklist: newCl } };
+                                }));
+                              }}
+                              style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0', cursor: 'pointer', borderBottom: i < 10 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                              <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: `1.5px solid ${rc.checklist![i] ? '#22c55e' : 'rgba(255,255,255,0.2)'}`, background: rc.checklist![i] ? 'rgba(34,197,94,0.2)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                {rc.checklist![i] && <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
+                              </div>
+                              <span style={{ fontSize: '12px', color: rc.checklist![i] ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.7)', textDecoration: rc.checklist![i] ? 'line-through' : 'none' }}>{label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    )}
+
+                    {/* ===== VÄLTAN (alla vägar) ===== */}
+                    <details style={sectionStyle}>
+                      <summary style={{ fontSize: '13px', fontWeight: '600', color: '#fff', cursor: 'pointer', listStyle: 'none' }}>Regler för vältan</summary>
+                      <div style={{ marginTop: '6px' }}>
+                        {[
+                          'Max höjd: 4,5m',
+                          'Jämndragen mot vägen upp till 1,5m höjd',
+                          'Första vältan mot trafiken ska vara sluttande',
+                          'Stockändarna ska peka mot vägen',
+                          'Alla vältor ska märkas med ägarens namn',
+                          'Inga utstickande stamdelar under 1,5m höjd',
+                          'Virke får inte riskera att rasa in på vägbanan',
+                        ].map((t, i) => <div key={i} style={bulletStyle}>• {t}</div>)}
+                      </div>
+                    </details>
+
+                    {/* ===== LASTNING & SÄKERHET (alla vägar) ===== */}
+                    <details style={sectionStyle}>
+                      <summary style={{ fontSize: '13px', fontWeight: '600', color: '#fff', cursor: 'pointer', listStyle: 'none' }}>Lastning & säkerhet</summary>
+                      <div style={{ marginTop: '6px' }}>
+                        {[
+                          'Lastbil/maskin får inte blockera vägen – utryckningsfordon måste kunna passera',
+                          'Använd varningstriangel och varningslykta vid lastning',
+                          'Skylt X6 "Lastning" ska användas',
+                          'Ta bort skyltning när lastning är klar',
+                          'Min 2–6m från kraftledningar',
+                        ].map((t, i) => <div key={i} style={bulletStyle}>• {t}</div>)}
+                      </div>
+                    </details>
+
+                    {/* ===== LIGGTIDER (alla vägar) ===== */}
+                    <div style={sectionStyle}>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '4px' }}>Liggtider</div>
+                      <div style={bulletStyle}>• Rundvirke: max 60 dagar</div>
+                      <div style={bulletStyle}>• Skogsbränsle: max 18 månader</div>
+                    </div>
+
+                    {/* ===== EFTER AVHÄMTNING (alla vägar) ===== */}
+                    <details style={sectionStyle}>
+                      <summary style={{ fontSize: '13px', fontWeight: '600', color: '#fff', cursor: 'pointer', listStyle: 'none' }}>Efter avhämtning</summary>
+                      <div style={{ marginTop: '6px' }}>
+                        {[
+                          'Städa vägen, slänter och diken',
+                          'Anmäl vägskador till väghållaren',
+                          'Den som skadat vägen har betalningsansvar',
+                          'Får EJ blockera vattenavrinning, diken eller vägtrummor',
+                          'Får EJ hindra snöplogning',
+                        ].map((t, i) => <div key={i} style={bulletStyle}>• {t}</div>)}
+                      </div>
+                    </details>
+
+                    {/* ===== LÄNK TILL DOKUMENT (alla vägar) ===== */}
+                    <div style={{ ...sectionStyle, textAlign: 'center' as const }}>
+                      <a href="https://www.skogforsk.se/cd_20200406123332/contentassets/8431ded2d08246c69be60fa9eb35b7fb/100401_upplag_av_virke_och_skogsbransle_vid_allman_och_enskild_vag_utg_6.pdf"
+                        target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: '11px', color: 'rgba(100,180,255,0.8)', textDecoration: 'none' }}>
+                        Trafikverket & Skogforsk instruktion (PDF) →
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </div>
+              );
+            })()}
+
             {/* Åtgärder */}
             <div style={{
               display: 'flex',
@@ -6959,6 +7434,110 @@ export default function PlannerPage() {
                       }} />
                     </div>
                   </div>
+                </div>
+
+                {/* Generellt tillstånd */}
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px',
+                  padding: '16px 20px',
+                  marginBottom: '16px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px' }}>
+                    <div style={{ opacity: 0.6 }}>
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.5">
+                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+                        <path d="M14 2v6h6" />
+                        <path d="M9 15l2 2 4-4" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '15px', color: '#fff', fontWeight: '600' }}>Generellt tillstånd</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Avlägg vid allmän väg ≤80 km/h</div>
+                    </div>
+                  </div>
+
+                  {/* Län */}
+                  <div style={{ marginBottom: '10px' }}>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>Län</div>
+                    <select
+                      value={generelltTillstand?.lan || ''}
+                      onChange={(e) => {
+                        const lan = e.target.value;
+                        if (!lan) {
+                          setGenerelltTillstand(null);
+                        } else {
+                          setGenerelltTillstand(prev => ({ lan, giltigtTom: prev?.giltigtTom || '' }));
+                        }
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        background: 'rgba(255,255,255,0.05)',
+                        color: '#fff',
+                        fontSize: '14px',
+                        appearance: 'none',
+                        WebkitAppearance: 'none',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <option value="" style={{ background: '#111' }}>Välj län...</option>
+                      {[
+                        'Blekinge', 'Dalarna', 'Gotland', 'Gävleborg', 'Halland',
+                        'Jämtland', 'Jönköping', 'Kalmar', 'Kronoberg', 'Norrbotten',
+                        'Skåne', 'Stockholm', 'Södermanland', 'Uppsala', 'Värmland',
+                        'Västerbotten', 'Västernorrland', 'Västmanland',
+                        'Västra Götaland', 'Örebro', 'Östergötland',
+                      ].map(l => (
+                        <option key={l} value={l} style={{ background: '#111' }}>{l}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Giltig t.o.m. */}
+                  <div style={{ marginBottom: '6px' }}>
+                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '4px' }}>Giltig t.o.m.</div>
+                    <input
+                      type="date"
+                      value={generelltTillstand?.giltigtTom || ''}
+                      onChange={(e) => {
+                        const giltigtTom = e.target.value;
+                        setGenerelltTillstand(prev => prev ? { ...prev, giltigtTom } : { lan: '', giltigtTom });
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '10px 12px',
+                        borderRadius: '10px',
+                        border: '1px solid rgba(255,255,255,0.15)',
+                        background: 'rgba(255,255,255,0.05)',
+                        color: '#fff',
+                        fontSize: '14px',
+                        colorScheme: 'dark',
+                      }}
+                    />
+                  </div>
+
+                  {/* Status */}
+                  {generelltTillstand?.lan && generelltTillstand?.giltigtTom && (
+                    <div style={{
+                      marginTop: '10px',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      textAlign: 'center',
+                      background: new Date(generelltTillstand.giltigtTom) >= new Date()
+                        ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
+                      color: new Date(generelltTillstand.giltigtTom) >= new Date()
+                        ? '#22c55e' : '#ef4444',
+                    }}>
+                      {new Date(generelltTillstand.giltigtTom) >= new Date()
+                        ? `Giltigt — ${generelltTillstand.lan} län`
+                        : `Utgånget ${generelltTillstand.giltigtTom}`}
+                    </div>
+                  )}
                 </div>
 
                 {/* Karta */}
