@@ -227,7 +227,7 @@ export default function PlannerPage() {
     {
       group: 'SGU',
       layers: [
-        { id: 'jordarter', url: 'https://resource.sgu.se/service/wms/130/jordarter-25-100-tusen', layers: 'jord:SE.GOV.SGU.JORD.GRUNDLAGER.25K', name: 'Jordarter', color: '#92400e' },
+        { id: 'jordarter', url: 'https://maps3.sgu.se/geoserver/jord/ows', layers: 'jord:SE.GOV.SGU.JORD.GRUNDLAGER.25K', name: 'Jordarter', color: '#92400e' },
       ],
     },
   ];
