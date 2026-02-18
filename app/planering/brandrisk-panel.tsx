@@ -79,7 +79,8 @@ function p2c(cx: number, cy: number, r: number, deg: number): [number, number] {
 }
 
 // === FireClock Component ===
-function FireClock({ hourlyIdx, nowHour }: { hourlyIdx: number[]; nowHour: number }) {
+function FireClock({ hourlyIdx, nowHour, nowMinute }: { hourlyIdx: number[]; nowHour: number; nowMinute?: number }) {
+  const timeLabel = nowMinute !== undefined ? `${nowHour.toString().padStart(2, '0')}:${nowMinute.toString().padStart(2, '0')}` : 'NU';
   const CX = 155, CY = 155, R_OUT = 135, R_IN = 92, GAP = 1.2;
   const segments = [];
   const labels: Record<number, string> = { 0: "00", 3: "03", 6: "06", 9: "09", 12: "12", 15: "15", 18: "18", 21: "21" };
@@ -144,8 +145,8 @@ function FireClock({ hourlyIdx, nowHour }: { hourlyIdx: number[]; nowHour: numbe
       <circle cx={mx} cy={my} r={5} fill="#fff" />
       <circle cx={mx} cy={my} r={2} fill="#000" />
       <line x1={tx1} y1={ty1} x2={tx2} y2={ty2} stroke="#fff" strokeWidth={2} strokeLinecap="round" />
-      <rect x={nx - 12} y={ny - 7} width={24} height={14} rx={4} fill="rgba(255,255,255,0.12)" />
-      <text x={nx} y={ny + 4} textAnchor="middle" fill="#fff" fontSize={9} fontWeight={700} fontFamily="-apple-system, sans-serif">NU</text>
+      <rect x={nx - 18} y={ny - 8} width={36} height={16} rx={4} fill="rgba(255,255,255,0.18)" />
+      <text x={nx} y={ny + 4} textAnchor="middle" fill="#fff" fontSize={10} fontWeight={700} fontFamily="-apple-system, sans-serif">{timeLabel}</text>
       <circle cx={mx} cy={my} r={5} fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth={1.5}>
         <animate attributeName="r" from="5" to="14" dur="2s" repeatCount="indefinite" />
         <animate attributeName="stroke-opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" />
@@ -240,6 +241,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
   const lastFetchRef = useRef<string>('');
 
   const nowHour = new Date().getHours();
+  const nowMinute = new Date().getMinutes();
   const barWidths: Record<number, string> = { 1: "17%", 2: "33%", 3: "50%", 4: "67%", 5: "83%", 6: "100%" };
   const wxColor: Record<string, string> = { vdry: "rgba(255,69,58,0.4)", dry: "rgba(255,159,10,0.45)" };
 
@@ -448,7 +450,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             Brandriskklocka – {clockLabel} {clockDate && `${clockDate}`}
           </div>
           <div style={{ position: 'relative', width: 320, height: 320, margin: '0 auto' }}>
-            <FireClock hourlyIdx={clockHourlyIdx} nowHour={activeDay === 0 ? nowHour : 12} />
+            <FireClock hourlyIdx={clockHourlyIdx} nowHour={activeDay === 0 ? nowHour : 12} nowMinute={activeDay === 0 ? nowMinute : undefined} />
             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none' }}>
               <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 2 }}>Lägre beräknad risk</div>
               <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5, color: MCF_COLORS[lowestIdx] || MCF_COLORS[1] }}>
@@ -490,7 +492,14 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '18px 20px' }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 14 }}>Vecka – högsta nivå per dag</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {data.daily.map((d, i) => (
+            {(() => {
+              const todayStr = new Date().toISOString().split('T')[0];
+              const todayIdx = data.daily.findIndex(d => d.date === todayStr);
+              const sorted = todayIdx > 0
+                ? [...data.daily.slice(todayIdx), ...data.daily.slice(0, todayIdx)]
+                : data.daily;
+              return sorted;
+            })().map((d, i) => (
               <div key={i}>
                 <div style={{ display: 'flex', alignItems: 'center', padding: '12px 0', gap: 12, ...(i === 0 ? { background: 'rgba(255,255,255,0.03)', margin: '0 -20px', padding: '12px 20px', borderRadius: 10 } : {}) }}>
                   <div style={{ width: 32, fontSize: 14, fontWeight: 500, color: i === 0 ? '#fff' : 'rgba(255,255,255,0.5)', flexShrink: 0 }}>{d.dayName}</div>
