@@ -1,13 +1,15 @@
 // Skoglig volymberäkning via Skogsstyrelsens ImageServer REST API
-// Använder SLUskogskarta_1_0 (12 band, EPSG:3006, 12.5m pixel)
-// Band 0: TotalVolym, 1: Medelhöjd(dm), 3: Medeldiameter(cm),
-// 5: TallVolym, 6: GranVolym, 7: BjörkVolym, 8: Contorta, 9: Bok, 10: Ek, 11: Övrigt
-// Pixelvärden / 100 = m³sk/ha (empiriskt verifierad skalfaktor)
+//
+// Huvudkälla: SkogligaGrunddata_3_1 (laserdata, 10m pixel, EPSG:3006)
+//   Band 0: Volym (m³sk/ha, direkt), 1: Medelhöjd(dm), 3: Medeldiameter(cm)
+//   Band 7: UnixDay (skanningsdatum), 9: NMD skogsmark (0=ej skog, 1=prod, 2=ej prod)
+//
+// Trädslagsfördelning: SLUskogskarta_1_0 (satellit+riksskogstax, 12.5m pixel)
+//   Band 5-11: Volym per trädslag (raw / 100 = m³sk/ha)
+//   Används BARA för procentuell fördelning, appliceras på laservolym
 
+const SGD_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SkogligaGrunddata_3_1/ImageServer';
 const SLU_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUskogskarta_1_0/ImageServer';
-const PIXEL_SCALE = 100; // raw pixel / 100 = m³sk/ha
-const DIAM_BAND = 3;     // Medeldiameter, raw = cm (from SLU, tiondelar)
-const DIAM_SCALE = 10;   // raw / 10 = cm
 
 export interface Tradslag {
   namn: string;
@@ -22,20 +24,24 @@ export interface Tradslag {
 export interface VolymResultat {
   status: 'done' | 'error' | 'no_data';
   areal: number;            // ha
-  totalVolymHa: number;     // m³sk/ha medel
+  arealSkog: number;        // ha produktiv skogsmark
+  totalVolymHa: number;     // m³sk/ha medel (på skogsmark)
   totalVolym: number;       // m³sk total
   medeldiameter: number;    // cm
   tradslag: Tradslag[];
+  skanningsAr: number;      // År laserdatan skannades
+  sluAr: number;            // År SLU Skogskarta baseras på (ca 2018-2020)
+  andelSkog: number;        // Andel produktiv skogsmark (0-1)
+  avverkatVarning: boolean; // Sant om stor andel verkar avverkad
   felmeddelande?: string;
 }
 
 // WGS84 → SWEREF99TM (EPSG:3006) förenklad konvertering
 function wgs84ToSweref(lat: number, lon: number): { x: number; y: number } {
-  // Transverse Mercator approximation for SWEREF99TM
   const a = 6378137.0;
   const f = 1 / 298.257222101;
   const k0 = 0.9996;
-  const lonOrigin = 15.0; // Central meridian for SWEREF99TM
+  const lonOrigin = 15.0;
   const falseE = 500000;
   const falseN = 0;
 
@@ -73,7 +79,6 @@ function wgs84ToSweref(lat: number, lon: number): { x: number; y: number } {
   return { x, y };
 }
 
-// Beräkna polygonarea i m² (Shoelace formula, SWEREF99TM-koordinater)
 function polyArea(coords: { x: number; y: number }[]): number {
   let area = 0;
   const n = coords.length;
@@ -85,27 +90,21 @@ function polyArea(coords: { x: number; y: number }[]): number {
   return Math.abs(area) / 2;
 }
 
-// Sortimentsfördelning baserat på medeldiameter
-// Förenklad utbytestabell (sydsvenska förhållanden)
 function sortimentsFordelning(tradslag: string, medeldiamCm: number, volymM3sk: number) {
-  // Omräkningsfaktor m³sk → m³fub (under bark)
   const skToFub: Record<string, number> = {
     tall: 0.83, gran: 0.83, bjork: 0.80, contorta: 0.83, bok: 0.78, ek: 0.75, ovrigt: 0.78,
   };
   const fubFactor = skToFub[tradslag] || 0.80;
   const volymFub = volymM3sk * fubFactor;
 
-  // Andel sågtimmer baserat på medeldiameter
   let sagtimmerAndel: number;
   if (tradslag === 'bjork' || tradslag === 'bok' || tradslag === 'ek' || tradslag === 'ovrigt') {
-    // Löv: lägre sågutbyte
     if (medeldiamCm < 15) sagtimmerAndel = 0;
     else if (medeldiamCm < 20) sagtimmerAndel = 0.10;
     else if (medeldiamCm < 25) sagtimmerAndel = 0.25;
     else if (medeldiamCm < 30) sagtimmerAndel = 0.35;
     else sagtimmerAndel = 0.45;
   } else {
-    // Barr: tall/gran/contorta
     if (medeldiamCm < 14) sagtimmerAndel = 0;
     else if (medeldiamCm < 18) sagtimmerAndel = 0.15;
     else if (medeldiamCm < 22) sagtimmerAndel = 0.40;
@@ -117,77 +116,119 @@ function sortimentsFordelning(tradslag: string, medeldiamCm: number, volymM3sk: 
   const sagtimmer = volymFub * sagtimmerAndel;
   const massaved = volymFub * (1 - sagtimmerAndel);
 
-  // GROT (grenar och toppar) i ton torrsubstans
-  // Andel av stamvolym: gran 27%, tall 18%, björk 22%, övrigt 20%
   const grotAndel: Record<string, number> = {
     tall: 0.18, gran: 0.27, bjork: 0.22, contorta: 0.18, bok: 0.20, ek: 0.20, ovrigt: 0.20,
   };
-  // Densitet torrsubstans ~0.4 ton/m³fub (förenklat)
   const grot = volymFub * (grotAndel[tradslag] || 0.20) * 0.4;
 
   return { sagtimmer, massaved, grot };
 }
 
-// Huvudfunktion: beräkna volym per trädslag för en polygon
-export async function beraknaVolym(
-  polygonLatLon: { lat: number; lon: number }[],
-  proxyUrl: string
-): Promise<VolymResultat> {
-  if (polygonLatLon.length < 3) {
-    return { status: 'error', areal: 0, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: 'Minst 3 punkter krävs' };
-  }
-
-  // Konvertera polygon till SWEREF99TM
-  const swerefCoords = polygonLatLon.map(p => wgs84ToSweref(p.lat, p.lon));
-
-  // Beräkna areal
-  const arealM2 = polyArea(swerefCoords);
-  const arealHa = arealM2 / 10000;
-
-  if (arealHa < 0.01) {
-    return { status: 'error', areal: 0, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: 'Polygonen är för liten' };
-  }
-
-  // Bygg ArcGIS ring (stäng polygon)
-  const ring = swerefCoords.map(c => [c.x, c.y]);
-  if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) {
-    ring.push([ring[0][0], ring[0][1]]);
-  }
-
-  const geometry = JSON.stringify({ rings: [ring] });
+async function fetchStats(service: string, geometry: string, proxyUrl: string) {
   const params = new URLSearchParams({
     geometry,
     geometryType: 'esriGeometryPolygon',
     spatialReference: JSON.stringify({ wkid: 3006 }),
     f: 'json',
   });
+  const targetUrl = `${service}/computeStatisticsHistograms?${params.toString()}`;
+  const resp = await fetch(`${proxyUrl}?url=${encodeURIComponent(targetUrl)}`);
+  if (!resp.ok) throw new Error(`API ${resp.status}`);
+  const data = await resp.json();
+  return data.statistics || [];
+}
 
-  const targetUrl = `${SLU_SERVICE}/computeStatisticsHistograms?${params.toString()}`;
-  const fetchUrl = `${proxyUrl}?url=${encodeURIComponent(targetUrl)}`;
+const emptyResult = (arealHa: number, msg: string, status: 'error' | 'no_data' = 'error'): VolymResultat => ({
+  status, areal: arealHa, arealSkog: 0, totalVolymHa: 0, totalVolym: 0,
+  medeldiameter: 0, tradslag: [], skanningsAr: 0, sluAr: 0,
+  andelSkog: 0, avverkatVarning: false, felmeddelande: msg,
+});
+
+export async function beraknaVolym(
+  polygonLatLon: { lat: number; lon: number }[],
+  proxyUrl: string
+): Promise<VolymResultat> {
+  if (polygonLatLon.length < 3) return emptyResult(0, 'Minst 3 punkter krävs');
+
+  const swerefCoords = polygonLatLon.map(p => wgs84ToSweref(p.lat, p.lon));
+  const arealHa = polyArea(swerefCoords) / 10000;
+  if (arealHa < 0.01) return emptyResult(0, 'Polygonen är för liten');
+
+  const ring = swerefCoords.map(c => [c.x, c.y]);
+  if (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1]) {
+    ring.push([ring[0][0], ring[0][1]]);
+  }
+  const geometry = JSON.stringify({ rings: [ring] });
 
   try {
-    const resp = await fetch(fetchUrl);
-    if (!resp.ok) {
-      return { status: 'error', areal: arealHa, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: `API-fel: ${resp.status}` };
+    // Hämta båda parallellt
+    const [sgdStats, sluStats] = await Promise.all([
+      fetchStats(SGD_SERVICE, geometry, proxyUrl),
+      fetchStats(SLU_SERVICE, geometry, proxyUrl),
+    ]);
+
+    // --- SkogligaGrunddata (laserdata) ---
+    if (!sgdStats || sgdStats.length < 10 || sgdStats[0].count === 0) {
+      return emptyResult(arealHa, 'Ingen laserdata för detta område', 'no_data');
     }
 
-    const data = await resp.json();
-    const stats = data.statistics;
+    const sgdVolymHa = sgdStats[0].mean;   // m³sk/ha direkt
+    const medeldiameter = sgdStats[3].mean; // cm direkt
+    const unixDay = sgdStats[7].mean;       // skanningsdatum
+    const nmdMean = sgdStats[9].mean;       // NMD skogsmark (0/1/2)
 
-    if (!stats || stats.length < 12) {
-      return { status: 'no_data', areal: arealHa, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: 'Ingen skogsdata för detta område' };
+    // Skanningsår
+    const skanningsDatum = new Date(unixDay * 86400000);
+    const skanningsAr = skanningsDatum.getFullYear();
+
+    // Andel produktiv skogsmark
+    // NMD: 0=ej skog, 1=produktiv skog, 2=ej produktiv skog
+    // mean ≈ andel med skog (1 och 2). Vi vill veta andel=1 (produktiv).
+    // Approximation: om mean ~1 är det mest produktiv skog
+    // Vi använder histogrammet om det finns, annars approximerar
+    let andelSkog = 1.0;
+    if (sgdStats[9].min === 0 && sgdStats[9].max <= 2) {
+      // Om min=0 finns icke-skog. Approximera:
+      // mean=0 → 0% skog, mean=1 → 100% prod skog, mean=2 → 100% ej prod skog
+      // Enklast: andel skogsmark = andel pixlar där volym > 0
+      const totalPixlar = sgdStats[0].count;
+      // Om volym-min > 0 är allt skog
+      if (sgdStats[0].min > 0) {
+        andelSkog = 1.0;
+      } else {
+        // Uppskatta andel skog från NMD: mean ~1 ≈ mesta prod skog
+        // mean ~0 ≈ mest öppet, mean ~2 ≈ myr/impediment
+        // Förenkling: prod skog ≈ pixlar med NMD=1
+        andelSkog = Math.max(0, Math.min(1, nmdMean > 0 ? (2 - nmdMean) / 1.0 : 0));
+        // Fallback: om medelvärde volym > 20 men andelSkog beräknas låg, justera
+        if (sgdVolymHa > 20 && andelSkog < 0.3) andelSkog = 0.5;
+      }
     }
 
-    // Kontrollera att vi har giltiga pixlar
-    if (stats[0].count === 0) {
-      return { status: 'no_data', areal: arealHa, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: 'Ingen skogsdata (inga pixlar)' };
+    const arealSkog = arealHa * andelSkog;
+
+    // Avverkningsvarning: mycket låg volym trots att det "borde" vara skog
+    const avverkatVarning = sgdVolymHa < 15 && andelSkog > 0.5;
+
+    if (avverkatVarning) {
+      return {
+        status: 'done',
+        areal: Math.round(arealHa * 100) / 100,
+        arealSkog: Math.round(arealSkog * 100) / 100,
+        totalVolymHa: Math.round(sgdVolymHa * 10) / 10,
+        totalVolym: Math.round(sgdVolymHa * arealSkog),
+        medeldiameter: Math.round(medeldiameter * 10) / 10,
+        tradslag: [],
+        skanningsAr,
+        sluAr: 2020, // SLU Skogskarta baseras på data ~2018-2020
+        andelSkog,
+        avverkatVarning: true,
+      };
     }
 
-    const totalVolymHa = stats[0].mean / PIXEL_SCALE;
-    const medeldiameter = stats[DIAM_BAND].mean / DIAM_SCALE;
-    const totalVolym = totalVolymHa * arealHa;
+    const totalVolym = sgdVolymHa * arealSkog;
 
-    // Per trädslag: band 5-11
+    // --- SLU Skogskarta (trädslagsfördelning) ---
     const tradslagDef = [
       { band: 5, namn: 'Tall', key: 'tall' },
       { band: 6, namn: 'Gran', key: 'gran' },
@@ -199,38 +240,62 @@ export async function beraknaVolym(
     ];
 
     const tradslag: Tradslag[] = [];
-    for (const def of tradslagDef) {
-      const volymHa = stats[def.band].mean / PIXEL_SCALE;
-      if (volymHa < 0.1) continue; // Skippa obetydliga trädslag
 
-      const totalVol = volymHa * arealHa;
-      const andel = totalVolymHa > 0 ? volymHa / totalVolymHa : 0;
-      const sort = sortimentsFordelning(def.key, medeldiameter, totalVol);
+    if (sluStats && sluStats.length >= 12 && sluStats[0].count > 0) {
+      // Beräkna procentuell fördelning från SLU raw-värden
+      let sluSumma = 0;
+      for (const def of tradslagDef) {
+        sluSumma += Math.max(0, sluStats[def.band].mean);
+      }
 
+      for (const def of tradslagDef) {
+        const sluRaw = Math.max(0, sluStats[def.band].mean);
+        const andel = sluSumma > 0 ? sluRaw / sluSumma : 0;
+        if (andel < 0.005) continue; // Skippa < 0.5%
+
+        // Applicera andelen på laservolym
+        const volymHa = sgdVolymHa * andel;
+        const totalVol = volymHa * arealSkog;
+        const sort = sortimentsFordelning(def.key, medeldiameter, totalVol);
+
+        tradslag.push({
+          namn: def.namn,
+          volymHa: Math.round(volymHa * 10) / 10,
+          totalVolym: Math.round(totalVol),
+          andel,
+          sagtimmer: Math.round(sort.sagtimmer),
+          massaved: Math.round(sort.massaved),
+          grot: Math.round(sort.grot * 10) / 10,
+        });
+      }
+    } else {
+      // Ingen SLU-data — visa totalvolym utan trädslagsfördelning
       tradslag.push({
-        namn: def.namn,
-        volymHa,
-        totalVolym: totalVol,
-        andel,
-        sagtimmer: sort.sagtimmer,
-        massaved: sort.massaved,
-        grot: sort.grot,
+        namn: 'Okänt trädslag',
+        volymHa: Math.round(sgdVolymHa * 10) / 10,
+        totalVolym: Math.round(totalVolym),
+        andel: 1,
+        sagtimmer: 0, massaved: 0, grot: 0,
       });
     }
 
-    // Sortera efter volym (störst först)
     tradslag.sort((a, b) => b.totalVolym - a.totalVolym);
 
     return {
       status: 'done',
       areal: Math.round(arealHa * 100) / 100,
-      totalVolymHa: Math.round(totalVolymHa * 10) / 10,
+      arealSkog: Math.round(arealSkog * 100) / 100,
+      totalVolymHa: Math.round(sgdVolymHa * 10) / 10,
       totalVolym: Math.round(totalVolym),
       medeldiameter: Math.round(medeldiameter * 10) / 10,
       tradslag,
+      skanningsAr,
+      sluAr: 2020,
+      andelSkog,
+      avverkatVarning: false,
     };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Okänt fel';
-    return { status: 'error', areal: arealHa, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: msg };
+    return emptyResult(arealHa, msg);
   }
 }

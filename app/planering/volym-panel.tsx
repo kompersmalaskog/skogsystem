@@ -50,7 +50,7 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
       {loading && (
         <div style={{ padding: '40px 20px', textAlign: 'center' }}>
           <div style={{ width: '32px', height: '32px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#22c55e', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
-          <div style={{ fontSize: '14px', opacity: 0.6 }}>Beräknar volym via SLU Skogskarta...</div>
+          <div style={{ fontSize: '14px', opacity: 0.6 }}>Beräknar volym via Skogliga Grunddata...</div>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
@@ -72,10 +72,21 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
 
       {resultat?.status === 'done' && (
         <div style={{ padding: '0 16px 20px' }}>
+          {/* Avverkningsvarning */}
+          {resultat.avverkatVarning && (
+            <div style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '12px', padding: '12px 14px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <span style={{ fontSize: '20px' }}>⚠</span>
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: '600', color: '#fbbf24' }}>Området verkar avverkat</div>
+                <div style={{ fontSize: '12px', opacity: 0.6, marginTop: '2px' }}>Låg volym trots skogsmark. Data kan vara inaktuellt.</div>
+              </div>
+            </div>
+          )}
+
           {/* Sammanfattning */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '16px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
             {[
-              { label: 'Areal', value: `${fmtNum(resultat.areal, 2)} ha` },
+              { label: 'Total areal', value: `${fmtNum(resultat.areal, 2)} ha` },
               { label: 'Volym/ha', value: `${fmtNum(resultat.totalVolymHa, 1)} m³sk` },
               { label: 'Total volym', value: `${fmtNum(resultat.totalVolym)} m³sk` },
             ].map(item => (
@@ -86,9 +97,25 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
             ))}
           </div>
 
+          {/* Skogsmark-rad */}
+          {resultat.andelSkog < 1.0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '10px 12px', textAlign: 'center' }}>
+                <div style={{ fontSize: '11px', opacity: 0.5, marginBottom: '4px' }}>Skogsmark</div>
+                <div style={{ fontSize: '14px', fontWeight: '600' }}>{fmtNum(resultat.arealSkog, 2)} ha ({Math.round(resultat.andelSkog * 100)}%)</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '10px 12px', textAlign: 'center' }}>
+                <div style={{ fontSize: '11px', opacity: 0.5, marginBottom: '4px' }}>Medeldiameter</div>
+                <div style={{ fontSize: '14px', fontWeight: '600' }}>{resultat.medeldiameter} cm</div>
+              </div>
+            </div>
+          )}
+
           {/* Extra info */}
-          <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', fontSize: '12px', opacity: 0.5, padding: '0 4px' }}>
-            <span>Medeldiameter: {resultat.medeldiameter} cm</span>
+          <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', fontSize: '12px', opacity: 0.5, padding: '0 4px', flexWrap: 'wrap' }}>
+            {resultat.andelSkog >= 1.0 && <span>Medeldiameter: {resultat.medeldiameter} cm</span>}
+            <span>Laserskannat: {resultat.skanningsAr}</span>
+            <span>SLU Skogskarta: ~{resultat.sluAr}</span>
           </div>
 
           {/* Trädslag-tabell */}
@@ -162,7 +189,7 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
 
           {/* Källa */}
           <div style={{ fontSize: '11px', opacity: 0.3, textAlign: 'center', marginTop: '16px', padding: '0 8px' }}>
-            Data: SLU Skogskarta via Skogsstyrelsen. Sortiment uppskattat med förenklade utbytestabeller.
+            Volym: Skogliga Grunddata (laserdata {resultat.skanningsAr}). Trädslag: SLU Skogskarta (~{resultat.sluAr}). Sortiment uppskattat med förenklade utbytestabeller.
           </div>
         </div>
       )}
