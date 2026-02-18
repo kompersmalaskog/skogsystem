@@ -67,7 +67,7 @@ const DOCS: DocGroup[] = [
     { title: "Förordning om skydd mot olyckor (FSO 2003:789)", sub: "riksdagen.se · §7 eldningsförbud", url: "https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/forordning-2003789-om-skydd-mot-olyckor_sfs-2003-789/" },
   ]},
   { group: "Övrig brandsäkerhet", items: [
-    { title: "SBF 127:17 – Regler för brandskydd", sub: "Brandskyddsföreningen", url: "#" },
+    { title: "SBF 127:17 – Regler för brandskydd", sub: "Brandskyddsföreningen", url: "https://www.brandskyddsforeningen.se/regler-och-normer/" },
   ]},
 ];
 
@@ -552,9 +552,9 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 <div key={gi}>
                   <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, color: 'rgba(255,255,255,0.9)', padding: gi === 0 ? '0 0 6px' : '14px 0 6px' }}>{group.group}</div>
                   {group.items.map((doc, di) => (
-                    <a key={di} href={doc.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', textDecoration: 'none', borderBottom: di < group.items.length - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none', color: 'inherit' }}>
+                    <a key={di} href={doc.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', textDecoration: 'none', borderBottom: di < group.items.length - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none', color: '#60a5fa' }}>
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: 'rgba(255,255,255,0.5)' }}>{doc.title}</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: '#60a5fa' }}>{doc.title}</span>
                         <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>{doc.sub}</span>
                       </div>
                       <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 16, flexShrink: 0 }}>&#x203A;</span>
