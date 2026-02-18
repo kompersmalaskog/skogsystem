@@ -133,11 +133,11 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
             ))}
           </div>
 
-          {/* Gallringsindex */}
+          {/* Gallringsanalys */}
           {resultat.gallring && (
             <div style={{ marginTop: '16px' }}>
               <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', padding: '0 4px', marginBottom: '8px' }}>
-                Gallringsbehov
+                Gallringsanalys
               </div>
               <div style={{
                 background: resultat.gallring.behov
@@ -147,13 +147,39 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
                 borderRadius: '12px',
                 padding: '12px 14px',
               }}>
+                {/* Ja/Nej-bedömning */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
                   <span style={{ fontSize: '14px', fontWeight: '600', color: resultat.gallring.behov ? '#ef4444' : '#22c55e' }}>
-                    {resultat.gallring.behov ? 'Ja — gallring rekommenderas' : 'Nej — inget akut gallringsbehov'}
+                    Gallringsbehov: {resultat.gallring.behov ? 'Ja' : 'Nej'}
                   </span>
+                  <span style={{ fontSize: '11px', opacity: 0.5 }}>Mall: {resultat.gallring.sis}</span>
                 </div>
+
+                {/* Rekommendation */}
+                {resultat.gallring.behov && resultat.gallring.malGrundyta && (
+                  <div style={{ background: 'rgba(239,68,68,0.1)', borderRadius: '8px', padding: '8px 10px', marginBottom: '10px', fontSize: '13px' }}>
+                    Grundyta {resultat.gallring.grundyta} m²/ha → bör gallras till ca {resultat.gallring.malGrundyta} m²/ha
+                  </div>
+                )}
+
+                {/* Skogliga värden */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '10px' }}>
+                  {[
+                    { label: 'Grundyta', value: `${resultat.gallring.grundyta}`, unit: 'm²/ha' },
+                    { label: 'Medelhöjd', value: `${resultat.medelhojd}`, unit: 'm' },
+                    { label: 'Medeldia.', value: `${resultat.medeldiameter}`, unit: 'cm' },
+                    { label: 'Stamantal', value: `${fmtNum(resultat.gallring.stamantal)}`, unit: 'st/ha' },
+                  ].map(item => (
+                    <div key={item.label} style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '10px', opacity: 0.5, marginBottom: '2px' }}>{item.label}</div>
+                      <div style={{ fontSize: '14px', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{item.value}</div>
+                      <div style={{ fontSize: '10px', opacity: 0.4 }}>{item.unit}</div>
+                    </div>
+                  ))}
+                </div>
+
                 {/* Fördelningsstapel */}
-                <div style={{ display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', marginBottom: '8px' }}>
+                <div style={{ display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', marginBottom: '6px' }}>
                   {resultat.gallring.fordelning.lagt > 0 && (
                     <div style={{ width: `${resultat.gallring.fordelning.lagt * 100}%`, background: '#22c55e' }} />
                   )}
@@ -167,7 +193,7 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
                     <div style={{ width: `${resultat.gallring.fordelning.akut * 100}%`, background: '#ef4444' }} />
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: '12px', fontSize: '11px', opacity: 0.7, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '10px', fontSize: '11px', opacity: 0.7, flexWrap: 'wrap' }}>
                   {resultat.gallring.fordelning.lagt > 0.01 && <span style={{ color: '#22c55e' }}>Lågt {Math.round(resultat.gallring.fordelning.lagt * 100)}%</span>}
                   {resultat.gallring.fordelning.medel > 0.01 && <span style={{ color: '#eab308' }}>Medel {Math.round(resultat.gallring.fordelning.medel * 100)}%</span>}
                   {resultat.gallring.fordelning.hogt > 0.01 && <span style={{ color: '#f97316' }}>Högt {Math.round(resultat.gallring.fordelning.hogt * 100)}%</span>}

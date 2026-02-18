@@ -1,8 +1,8 @@
 // Skoglig volymberäkning via Skogsstyrelsens ImageServer REST API
 //
 // Huvudkälla: SkogligaGrunddata_3_1 (laserdata, 10m pixel, EPSG:3006)
-//   Band 0: Volym (m³sk/ha, direkt), 1: Medelhöjd(dm), 3: Medeldiameter(cm)
-//   Band 7: UnixDay (skanningsdatum), 9: NMD skogsmark (0=ej skog, 1=prod, 2=ej prod)
+//   Band 0: Volym (m³sk/ha), 1: Medelhöjd (dm), 2: Grundyta (m²/ha), 3: Medeldiameter (cm)
+//   Band 4: Biomassa, 5: P95, 6: Vegkvot, 7: UnixDay, 8: Löv/Avlövat, 9: NMD skogsmark
 //   Rasterfunktion "Gallringsindex": 4 klasser (0=Lågt, 1=Medel, 2=Högt, 3=Akut)
 //
 // Trädslagsfördelning: SLUskogskarta_1_0 (satellit+riksskogstax, 12.5m pixel)
@@ -21,9 +21,13 @@ export interface Tradslag {
 
 export interface GallringsResultat {
   behov: boolean;           // true om gallringsbehov finns
-  klass: string;            // 'Lågt' | 'Medel' | 'Högt' | 'Akut' | 'Ej skog'
+  klass: string;            // 'Lågt' | 'Medel' | 'Högt' | 'Akut'
   fordelning: { lagt: number; medel: number; hogt: number; akut: number }; // andel 0-1
   totalPixlar: number;      // antal skogspixlar (exkl NoData)
+  sis: string;              // ståndortsindex-mall, t.ex. 'G16-G22'
+  grundyta: number;         // m²/ha
+  stamantal: number;        // stammar/ha (beräknat)
+  malGrundyta?: number;     // rekommenderad grundyta efter gallring (m²/ha)
 }
 
 export interface VolymResultat {
@@ -111,7 +115,42 @@ async function fetchStats(service: string, geometry: string, proxyUrl: string, r
   return await resp.json();
 }
 
-function parseGallringsHistogram(data: Record<string, unknown>): GallringsResultat | undefined {
+// Gallringsmall: mål-grundyta efter gallring baserat på medelhöjd och ståndortsindex
+// Förenklad tabell efter Skogforsk/Skogsstyrelsen gallringsmallar
+function gallringsMalGrundyta(medelhojdM: number, sis: string): number | undefined {
+  // Linjär interpolering av "gallra-till"-kurvan
+  // Format: [medelhöjd_m, mål_grundyta_m2ha]
+  const mallar: Record<string, [number, number][]> = {
+    'g16-g22': [[8, 12], [10, 14], [12, 16], [14, 18], [16, 19], [18, 20], [20, 21], [25, 23]],
+    'g23-g28': [[8, 14], [10, 16], [12, 18], [14, 20], [16, 22], [18, 23], [20, 24], [25, 26]],
+    'g29-g34': [[8, 16], [10, 18], [12, 20], [14, 22], [16, 24], [18, 25], [20, 26], [25, 28]],
+    'g35-g40': [[8, 18], [10, 20], [12, 22], [14, 24], [16, 26], [18, 27], [20, 28], [25, 30]],
+    't14-t17': [[8, 10], [10, 12], [12, 14], [14, 15], [16, 16], [18, 17], [20, 18], [25, 19]],
+    't18-t21': [[8, 12], [10, 14], [12, 16], [14, 17], [16, 18], [18, 19], [20, 20], [25, 21]],
+    't22-t25': [[8, 14], [10, 16], [12, 18], [14, 19], [16, 20], [18, 21], [20, 22], [25, 23]],
+    't26-t30': [[8, 16], [10, 18], [12, 20], [14, 21], [16, 22], [18, 23], [20, 24], [25, 25]],
+  };
+  const points = mallar[sis];
+  if (!points || medelhojdM < 8) return undefined;
+  // Linjär interpolering
+  for (let i = 0; i < points.length - 1; i++) {
+    const [h1, g1] = points[i];
+    const [h2, g2] = points[i + 1];
+    if (medelhojdM >= h1 && medelhojdM <= h2) {
+      return g1 + (g2 - g1) * (medelhojdM - h1) / (h2 - h1);
+    }
+  }
+  // Utanför tabellen — returnera sista värdet
+  return points[points.length - 1][1];
+}
+
+function parseGallringsHistogram(
+  data: Record<string, unknown>,
+  grundyta: number,
+  medeldiameterCm: number,
+  medelhojdM: number,
+  sis: string,
+): GallringsResultat | undefined {
   const histograms = data.histograms as { counts: number[] }[] | undefined;
   if (!histograms || !histograms[0]?.counts) return undefined;
   const counts = histograms[0].counts;
@@ -140,7 +179,20 @@ function parseGallringsHistogram(data: Record<string, unknown>): GallringsResult
   // Gallringsbehov = mer än 30% högt+akut
   const behov = (fordelning.hogt + fordelning.akut) > 0.3;
 
-  return { behov, klass, fordelning, totalPixlar: total };
+  // Stamantal: N = grundyta / (π/4 × (d/100)²)
+  const dM = medeldiameterCm / 100;
+  const stamantal = dM > 0 ? Math.round(grundyta / (Math.PI / 4 * dM * dM)) : 0;
+
+  // Mål-grundyta efter gallring
+  const malGy = behov ? gallringsMalGrundyta(medelhojdM, sis) : undefined;
+
+  return {
+    behov, klass, fordelning, totalPixlar: total,
+    sis: sis.toUpperCase().replace('-', '–'),
+    grundyta: Math.round(grundyta * 10) / 10,
+    stamantal,
+    malGrundyta: malGy ? Math.round(malGy) : undefined,
+  };
 }
 
 const emptyResult = (arealHa: number, msg: string, status: 'error' | 'no_data' = 'error'): VolymResultat => ({
@@ -186,6 +238,7 @@ export async function beraknaVolym(
 
     const sgdVolymHa = sgdStats[0].mean;   // m³sk/ha direkt
     const medelhojdDm = sgdStats[1].mean;  // dm direkt
+    const grundyta = sgdStats[2].mean;     // m²/ha direkt
     const medeldiameter = sgdStats[3].mean; // cm direkt
     const unixDay = sgdStats[7].mean;       // skanningsdatum
     const nmdMean = sgdStats[9].mean;       // NMD skogsmark (0/1/2)
@@ -221,7 +274,11 @@ export async function beraknaVolym(
     const arealSkog = arealHa * andelSkog;
 
     // Gallringsindex
-    const gallring = gallringsData ? parseGallringsHistogram(gallringsData) : undefined;
+    const medelhojdM = medelhojdDm / 10;
+    const gallringSis = 'g16-g22';
+    const gallring = gallringsData
+      ? parseGallringsHistogram(gallringsData, grundyta, medeldiameter, medelhojdM, gallringSis)
+      : undefined;
 
     // Avverkningsvarning: mycket låg volym trots att det "borde" vara skog
     const avverkatVarning = sgdVolymHa < 15 && andelSkog > 0.5;
@@ -234,7 +291,7 @@ export async function beraknaVolym(
         totalVolymHa: Math.round(sgdVolymHa * 10) / 10,
         totalVolym: Math.round(sgdVolymHa * arealSkog),
         medeldiameter: Math.round(medeldiameter * 10) / 10,
-        medelhojd: Math.round(medelhojdDm / 10 * 10) / 10,
+        medelhojd: Math.round(medelhojdM * 10) / 10,
         tradslag: [],
         gallring,
         skanningsAr,
@@ -301,7 +358,7 @@ export async function beraknaVolym(
       totalVolymHa: Math.round(sgdVolymHa * 10) / 10,
       totalVolym: Math.round(totalVolym),
       medeldiameter: Math.round(medeldiameter * 10) / 10,
-      medelhojd: Math.round(medelhojdDm / 10 * 10) / 10,
+      medelhojd: Math.round(medelhojdM * 10) / 10,
       tradslag,
       gallring,
       skanningsAr,
