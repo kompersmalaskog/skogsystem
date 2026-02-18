@@ -54,8 +54,9 @@ interface DocGroup { group: string; items: DocItem[]; }
 
 const DOCS: DocGroup[] = [
   { group: "Riktlinjer", items: [
-    { title: "Branschgemensamma riktlinjer – Brand", sub: "Skogforsk (2022) · PDF", url: "https://www.skogforsk.se/cd_20221011125609/contentassets/0fca4a66d7694891b5a1369f75330339/riskhantering-avseende-brand-22-09-05.pdf" },
-    { title: "Fördjupande information v2", sub: "Skogforsk · PDF", url: "https://www.skogforsk.se/cd_20220513142539/contentassets/0fca4a66d7694891b5a1369f75330339/riskhantering-avseende-brand--fordjupande-information--version-2-utskriftsformat.pdf" },
+    { title: "Branschgemensamma riktlinjer – Brand", sub: "Skogforsk (2022) · PDF", url: "https://www.skogforsk.se/cd_20221011125609/contentassets/6c848836ec104a4ea436c11051b3d9f2/riskhantering-avseende-brand-22-09-05.pdf" },
+    { title: "Fördjupande information v2", sub: "Skogforsk · PDF", url: "https://www.skogforsk.se/cd_20220513142539/contentassets/bffdbb5eaf7246a485f73011e47c6ef5/riskhantering-avseende-brand--fordjupande-information--version-2-utskriftsformat.pdf" },
+    { title: "Skogforsk – Förebyggande arbete mot brand", sub: "skogforsk.se", url: "https://www.skogforsk.se/brandrisk" },
   ]},
   { group: "Prognoser och data", items: [
     { title: "MCF Brandriskprognoser", sub: "mcf.se", url: "https://www.mcf.se/brandriskprognoser/" },
@@ -67,7 +68,7 @@ const DOCS: DocGroup[] = [
     { title: "Förordning om skydd mot olyckor (FSO 2003:789)", sub: "riksdagen.se · §7 eldningsförbud", url: "https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/forordning-2003789-om-skydd-mot-olyckor_sfs-2003-789/" },
   ]},
   { group: "Övrig brandsäkerhet", items: [
-    { title: "SBF 127:17 – Regler för brandskydd", sub: "Brandskyddsföreningen", url: "https://www.brandskyddsforeningen.se/regler-och-normer/" },
+    { title: "SBF 127:17 – Regler för brandskydd", sub: "Brandskyddsföreningen", url: "https://www.brandskyddsforeningen.se/webbshop/normer-och-regelverk/sbf-12717-regler-for-brandskydd-pa-arbetsfordon-skogs-anlaggningsmaskiner/" },
   ]},
 ];
 
