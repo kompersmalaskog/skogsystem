@@ -236,6 +236,8 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
   const [data, setData] = useState<SmhiBrandriskData | null>(null);
   const [status, setStatus] = useState<'idle' | 'loading' | 'done' | 'error'>('idle');
   const [isTestFallback, setIsTestFallback] = useState(false);
+  const [devSimulating, setDevSimulating] = useState(false);
+  const realDataRef = useRef<SmhiBrandriskData | null>(null);
   const [activeDay, setActiveDay] = useState(0);
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchRef = useRef<string>('');
@@ -879,6 +881,36 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             </div>
           </details>
         </div>
+
+        {/* Dev test toggle */}
+        {process.env.NODE_ENV === 'development' && testMode === null && (
+          <div style={{ margin: '0 16px 8px', textAlign: 'center' }}>
+            <button
+              onClick={() => {
+                if (devSimulating) {
+                  // Restore real data
+                  if (realDataRef.current) {
+                    setData(realDataRef.current);
+                    onStatusChange?.({ status: 'done', currentFwi: realDataRef.current.currentFwi, currentIdx: realDataRef.current.currentIdx });
+                  }
+                  setIsTestFallback(false);
+                  setDevSimulating(false);
+                } else {
+                  // Save real data and switch to simulated
+                  realDataRef.current = data;
+                  const simulated = generateTestData(5);
+                  setData(simulated);
+                  setIsTestFallback(true);
+                  setDevSimulating(true);
+                  onStatusChange?.({ status: 'done', currentFwi: simulated.currentFwi, currentIdx: simulated.currentIdx });
+                }
+              }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: devSimulating ? '#eab308' : 'rgba(255,255,255,0.15)', padding: '6px 12px' }}
+            >
+              {devSimulating ? 'Avsluta simulering' : 'Simulera hög risk'}
+            </button>
+          </div>
+        )}
 
         {/* Footer */}
         <div style={{ margin: '8px 16px 32px', fontSize: 10, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6, textAlign: 'center' }}>
