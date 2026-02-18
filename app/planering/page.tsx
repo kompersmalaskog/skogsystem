@@ -3,6 +3,8 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
+import VolymPanel from './volym-panel'
+import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -846,6 +848,10 @@ export default function PlannerPage() {
     lines: true,
   });
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+
+  // Volymberäkning
+  const [volymResultat, setVolymResultat] = useState<VolymResultat | null>(null);
+  const [volymLoading, setVolymLoading] = useState(false);
 
   // Generellt tillstånd för avlägg
   const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
@@ -5466,6 +5472,41 @@ export default function PlannerPage() {
                 </svg>
               </button>
               
+              {/* Beräkna volym (bara för traktgränser) */}
+              {marker.isLine && marker.lineType === 'boundary' && marker.path && marker.path.length >= 3 && (
+                <button
+                  onClick={() => {
+                    const path = marker.path!;
+                    const latLonPath = path.map(p => svgToLatLon(p.x, p.y));
+                    setVolymLoading(true);
+                    setVolymResultat(null);
+                    setMarkerMenuOpen(null);
+                    beraknaVolym(latLonPath, '/api/wms-proxy').then(res => {
+                      setVolymResultat(res);
+                      setVolymLoading(false);
+                    }).catch(() => {
+                      setVolymResultat({ status: 'error', areal: 0, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: 'Beräkning misslyckades' });
+                      setVolymLoading(false);
+                    });
+                  }}
+                  style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '24px',
+                    border: 'none',
+                    background: 'rgba(34,197,94,0.15)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(34,197,94,0.8)" strokeWidth="2">
+                    <path d="M3 3v18h18" /><path d="M7 16l4-8 4 4 6-10" />
+                  </svg>
+                </button>
+              )}
+
               {/* Radera */}
               <button
                 onClick={() => deleteMarker(marker.id)}
@@ -5490,6 +5531,15 @@ export default function PlannerPage() {
         </div>
         );
       })()}
+
+      {/* === VOLYMBERÄKNING === */}
+      {(volymLoading || volymResultat) && (
+        <VolymPanel
+          resultat={volymResultat}
+          loading={volymLoading}
+          onClose={() => { setVolymResultat(null); setVolymLoading(false); }}
+        />
+      )}
 
       {/* === SMHI BRANDRISK-BADGE === */}
       {overlays.brandrisk && brandriskData && (
