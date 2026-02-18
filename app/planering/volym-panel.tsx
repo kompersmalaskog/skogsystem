@@ -165,7 +165,7 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
                 {/* Skogliga värden */}
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '10px' }}>
                   {[
-                    { label: 'Grundyta', value: `${resultat.gallring.grundyta}`, unit: 'm²/ha' },
+                    { label: 'Grundyta', value: `${resultat.grundyta}`, unit: 'm²/ha' },
                     { label: 'Medelhöjd', value: `${resultat.medelhojd}`, unit: 'm' },
                     { label: 'Medeldia.', value: `${resultat.medeldiameter}`, unit: 'cm' },
                     { label: 'Stamantal', value: `${fmtNum(resultat.gallring.stamantal)}`, unit: 'st/ha' },

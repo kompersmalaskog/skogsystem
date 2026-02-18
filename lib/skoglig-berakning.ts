@@ -38,6 +38,7 @@ export interface VolymResultat {
   totalVolym: number;       // m³sk total
   medeldiameter: number;    // cm
   medelhojd: number;        // m
+  grundyta: number;         // m²/ha
   tradslag: Tradslag[];
   gallring?: GallringsResultat;
   skanningsAr: number;      // År laserdatan skannades
@@ -197,7 +198,7 @@ function parseGallringsHistogram(
 
 const emptyResult = (arealHa: number, msg: string, status: 'error' | 'no_data' = 'error'): VolymResultat => ({
   status, areal: arealHa, arealSkog: 0, totalVolymHa: 0, totalVolym: 0,
-  medeldiameter: 0, medelhojd: 0, tradslag: [], skanningsAr: 0, sluAr: 0,
+  medeldiameter: 0, medelhojd: 0, grundyta: 0, tradslag: [], skanningsAr: 0, sluAr: 0,
   andelSkog: 0, avverkatVarning: false, felmeddelande: msg,
 });
 
@@ -292,6 +293,7 @@ export async function beraknaVolym(
         totalVolym: Math.round(sgdVolymHa * arealSkog),
         medeldiameter: Math.round(medeldiameter * 10) / 10,
         medelhojd: Math.round(medelhojdM * 10) / 10,
+        grundyta: Math.round(grundyta * 10) / 10,
         tradslag: [],
         gallring,
         skanningsAr,
@@ -359,6 +361,7 @@ export async function beraknaVolym(
       totalVolym: Math.round(totalVolym),
       medeldiameter: Math.round(medeldiameter * 10) / 10,
       medelhojd: Math.round(medelhojdM * 10) / 10,
+      grundyta: Math.round(grundyta * 10) / 10,
       tradslag,
       gallring,
       skanningsAr,
