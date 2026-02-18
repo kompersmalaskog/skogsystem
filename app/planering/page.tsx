@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import ObjektValjare from './ObjektValjare'
+import BrandriskPanel from './brandrisk-panel'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -854,9 +855,7 @@ export default function PlannerPage() {
   const [brandRisk, setBrandRisk] = useState<{
     status: 'idle' | 'loading' | 'done' | 'error';
     currentFwi: number;
-    dailyFwi: { date: string; fwi: number }[];
-    hourlyFwi: { hour: string; fwi: number; label: string }[];
-    grassRisk?: string;
+    currentIdx: number;
   } | null>(null);
   const [brandOpen, setBrandOpen] = useState(false);
   const [brandEldningsforbud, setBrandEldningsforbud] = useState(false);
@@ -896,6 +895,7 @@ export default function PlannerPage() {
   const [brandLarmTillfart, setBrandLarmTillfart] = useState('');
   const [brandLarmChecklista, setBrandLarmChecklista] = useState([false, false, false, false, false]);
   const brandLoadedRef = useRef(false);
+  const [brandTestMode, setBrandTestMode] = useState<number | null>(null);
 
   // Hjälpare: alla TMA-resultat som har vägar (för rendering)
   const tmaWithRoads = Object.entries(tmaResults).filter(([, r]) => r.status === 'done' && r.roads.length > 0);
@@ -946,15 +946,13 @@ export default function PlannerPage() {
     }
   }, [markers]);
 
-  // === BRANDRISK: Hämta FWI när panelen öppnas ===
+  // === BRANDRISK: Hämta nearby vatten/brandstation när panelen öppnas ===
   useEffect(() => {
     if (activeCategory !== 'brandrisk') return;
-    if (brandRisk && brandRisk.status !== 'idle') return;
-    const lat = mapCenter.lat;
-    const lon = mapCenter.lng;
-    fetchBrandRisk(lat, lon);
-    fetchBrandNearby(lat, lon);
-  }, [activeCategory]);
+    if (brandTestMode !== null) return;
+    if (brandNearbyWater.length > 0 || brandNearbyFireStation.length > 0) return;
+    fetchBrandNearby(mapCenter.lat, mapCenter.lng);
+  }, [activeCategory, brandTestMode]);
 
   // === BRAND: Ladda sparad data från Supabase ===
   useEffect(() => {
@@ -1014,7 +1012,7 @@ export default function PlannerPage() {
   // === BRAND: Spara samråd + kontakter (debounced) ===
   const brandSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
-    if (!valtObjekt?.id || !brandLoadedRef.current) return;
+    if (!valtObjekt?.id || !brandLoadedRef.current || brandTestMode !== null) return;
     if (brandSaveTimeoutRef.current) clearTimeout(brandSaveTimeoutRef.current);
     brandSaveTimeoutRef.current = setTimeout(async () => {
       await supabase.from('brand_samrad').upsert({
@@ -1049,7 +1047,7 @@ export default function PlannerPage() {
       console.log('[Brand] Sparade till Supabase');
     }, 2000);
     return () => { if (brandSaveTimeoutRef.current) clearTimeout(brandSaveTimeoutRef.current); };
-  }, [brandSamrad, brandKontakter, brandEfterkontroll, valtObjekt?.id]);
+  }, [brandSamrad, brandKontakter, brandEfterkontroll, valtObjekt?.id, brandTestMode]);
 
   // === TMA: Ladda sparad data från Supabase ===
   const tmaLoadedRef = useRef(false);
@@ -1879,74 +1877,6 @@ export default function PlannerPage() {
   };
 
   // Beräkna förenklat FWI från SMHI-parametrar
-  const calcFwi = (temp: number, rh: number, ws: number, precip: number): number => {
-    if (temp < 5) return 0;
-    const tempFactor = Math.max(0, (temp - 10) / 5);
-    const rhFactor = Math.max(0.1, (100 - rh) / 40);
-    const windFactor = 1 + ws / 8;
-    const precipFactor = Math.max(0, 1 - precip * 3);
-    return Math.round(Math.max(0, tempFactor * rhFactor * windFactor * precipFactor) * 10) / 10;
-  };
-
-  // Hämta brandriskdata från SMHI (full prognos)
-  const fetchBrandRisk = async (lat: number, lon: number) => {
-    setBrandRisk({ status: 'loading', currentFwi: 0, dailyFwi: [], hourlyFwi: [] });
-    try {
-      const rLon = Math.round(lon * 1000000) / 1000000;
-      const rLat = Math.round(lat * 1000000) / 1000000;
-      const url = `https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/${rLon}/lat/${rLat}/data.json`;
-      const resp = await fetch(url);
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-      const data = await resp.json();
-      const timeSeries = data.timeSeries || [];
-
-      const getP = (ts: any, name: string) => {
-        const p = ts.parameters?.find((p: any) => p.name === name);
-        return p?.values?.[0];
-      };
-
-      // Timbaserade FWI för 48h
-      const now = new Date();
-      const hourlyFwi: { hour: string; fwi: number; label: string }[] = [];
-      const dailyMap: Record<string, number[]> = {};
-
-      for (const ts of timeSeries) {
-        const t = new Date(ts.validTime);
-        const diffH = (t.getTime() - now.getTime()) / 3600000;
-        if (diffH < -1 || diffH > 144) continue;
-
-        const temp = getP(ts, 't') ?? 10;
-        const rh = getP(ts, 'r') ?? 60;
-        const ws = getP(ts, 'ws') ?? 2;
-        const pmean = getP(ts, 'pmean') ?? 0;
-        const fwi = calcFwi(temp, rh, ws, pmean);
-
-        const dateKey = t.toISOString().split('T')[0];
-        if (!dailyMap[dateKey]) dailyMap[dateKey] = [];
-        dailyMap[dateKey].push(fwi);
-
-        if (diffH <= 48) {
-          const hh = t.getHours().toString().padStart(2, '0');
-          const dayLabel = diffH < 24 ? 'Idag' : 'Imorgon';
-          hourlyFwi.push({ hour: `${hh}:00`, fwi, label: `${dayLabel} ${hh}:00` });
-        }
-      }
-
-      const dailyFwi = Object.entries(dailyMap).slice(0, 6).map(([date, vals]) => ({
-        date,
-        fwi: Math.round(Math.max(...vals) * 10) / 10,
-      }));
-
-      const currentFwi = hourlyFwi.length > 0 ? hourlyFwi[0].fwi : 0;
-
-      setBrandRisk({ status: 'done', currentFwi, dailyFwi, hourlyFwi });
-      console.log('[Brand] FWI:', currentFwi, 'dailyFwi:', dailyFwi.length, 'hourly:', hourlyFwi.length);
-    } catch (err) {
-      console.error('[Brand] FWI-fel:', err);
-      setBrandRisk({ status: 'error', currentFwi: 0, dailyFwi: [], hourlyFwi: [] });
-    }
-  };
-
   // Hämta närmaste vatten och brandstationer
   const fetchBrandNearby = async (lat: number, lon: number) => {
     // Vatten
@@ -8543,6 +8473,65 @@ export default function PlannerPage() {
                       }} />
                     </div>
                   </div>
+
+                  {/* Brandrisk testläge */}
+                  <div style={{ marginTop: '24px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '20px' }}>
+                    <div style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '12px' }}>Testläge</div>
+                    {brandTestMode === null ? (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button
+                          onClick={() => {
+                            setBrandTestMode(5);
+                            setBrandNearbyWater([
+                              { name: 'Testsjön', dist: 800, lat: mapCenter.lat + 0.005, lon: mapCenter.lng + 0.003 },
+                              { name: 'Testbäcken', dist: 1200, lat: mapCenter.lat - 0.003, lon: mapCenter.lng + 0.008 },
+                            ]);
+                            setBrandNearbyFireStation([
+                              { name: 'Teststation Räddningstjänst', dist: 4500, lat: mapCenter.lat + 0.02, lon: mapCenter.lng - 0.01 },
+                            ]);
+                            console.log('[BrandTest] Aktiverat FWI 5 testläge');
+                            setTimeout(() => setActiveCategory('brandrisk'), 50);
+                          }}
+                          style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: 'rgba(239,68,68,0.2)', color: '#ef4444', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                        >
+                          Testa FWI 5
+                        </button>
+                        <button
+                          onClick={() => {
+                            setBrandTestMode(3);
+                            setBrandNearbyWater([
+                              { name: 'Testsjön', dist: 800, lat: mapCenter.lat + 0.005, lon: mapCenter.lng + 0.003 },
+                            ]);
+                            setBrandNearbyFireStation([
+                              { name: 'Teststation Räddningstjänst', dist: 4500, lat: mapCenter.lat + 0.02, lon: mapCenter.lng - 0.01 },
+                            ]);
+                            console.log('[BrandTest] Aktiverat FWI 3 testläge');
+                            setTimeout(() => setActiveCategory('brandrisk'), 50);
+                          }}
+                          style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: 'rgba(234,179,8,0.2)', color: '#eab308', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                        >
+                          Testa FWI 3
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(234,179,8,0.15)', border: '1px solid rgba(234,179,8,0.3)', marginBottom: '10px' }}>
+                          <span style={{ fontSize: '13px', color: '#eab308', fontWeight: '600' }}>TESTLÄGE AKTIVT – FWI {brandTestMode}</span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setBrandTestMode(null);
+                            setBrandRisk(null);
+                            setBrandNearbyWater([]);
+                            setBrandNearbyFireStation([]);
+                          }}
+                          style={{ width: '100%', padding: '12px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.7)', fontSize: '13px', cursor: 'pointer' }}
+                        >
+                          Avsluta testläge
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -8658,6 +8647,63 @@ export default function PlannerPage() {
                   )}
                 </div>
               </div>
+            )}
+
+            {/* === BRANDRISK === */}
+            {activeCategory === 'brandrisk' && (
+              <BrandriskPanel
+                lat={mapCenter.lat}
+                lon={mapCenter.lng}
+                eldningsforbud={brandEldningsforbud}
+                onEldningsforbudChange={setBrandEldningsforbud}
+                testMode={brandTestMode}
+                brandSamrad={brandSamrad}
+                onSamradChange={setBrandSamrad}
+                brandKontakter={brandKontakter}
+                onKontakterChange={setBrandKontakter}
+                brandTillbud={brandTillbud}
+                brandNewTillbud={brandNewTillbud}
+                onNewTillbudChange={setBrandNewTillbud}
+                onSaveTillbud={async () => {
+                  if (!valtObjekt?.id || !brandNewTillbud.beskrivning) return;
+                  const row = {
+                    objekt_id: valtObjekt.id,
+                    datum: brandNewTillbud.datum,
+                    beskrivning: brandNewTillbud.beskrivning,
+                    atgard: brandNewTillbud.atgard,
+                    lat: mapCenter.lat, lon: mapCenter.lng,
+                    photo_data: brandNewTillbud.photoData || null,
+                    rapporterad_till: brandNewTillbud.rapporteradTill || null,
+                  };
+                  const { error } = await supabase.from('brand_tillbud').insert(row);
+                  if (!error) {
+                    setBrandTillbud(p => [{ datum: row.datum, beskrivning: row.beskrivning, atgard: row.atgard, lat: row.lat, lon: row.lon, photoData: '', rapporteradTill: row.rapporterad_till || '' }, ...p]);
+                    setBrandNewTillbud({ datum: new Date().toISOString().slice(0, 16), beskrivning: '', atgard: '', rapporteradTill: '', photoData: '' });
+                  }
+                }}
+                brandEfterkontroll={brandEfterkontroll}
+                onEfterkontrollChange={setBrandEfterkontroll}
+                brandBrandvakt={brandBrandvakt}
+                onBrandvaktChange={setBrandBrandvakt}
+                onSaveBrandvakt={async () => {
+                  if (!valtObjekt?.id || !brandBrandvakt.namn) return;
+                  await supabase.from('brand_brandvakt').insert({
+                    objekt_id: valtObjekt.id,
+                    namn: brandBrandvakt.namn, starttid: brandBrandvakt.starttid || null,
+                    sluttid: brandBrandvakt.sluttid || null, noteringar: brandBrandvakt.noteringar || null,
+                  });
+                }}
+                brandUtrustning={brandUtrustning}
+                onUtrustningChange={setBrandUtrustning}
+                brandNearbyWater={brandNearbyWater}
+                brandNearbyFireStation={brandNearbyFireStation}
+                brandLarmTillfart={brandLarmTillfart}
+                onLarmTillfartChange={setBrandLarmTillfart}
+                brandLarmChecklista={brandLarmChecklista}
+                onLarmChecklistaChange={setBrandLarmChecklista}
+                mapCenter={mapCenter}
+                onStatusChange={(s) => setBrandRisk({ status: s.status, currentFwi: s.currentFwi, currentIdx: s.currentIdx })}
+              />
             )}
 
           </div>
@@ -8819,505 +8865,6 @@ export default function PlannerPage() {
         </div>
       )}
 
-            {/* === BRANDRISK === */}
-            {activeCategory === 'brandrisk' && (() => {
-              const fwi = brandRisk?.currentFwi ?? 0;
-              const showSystem = fwi >= 3 || brandEldningsforbud;
-              const isYellow = fwi >= 3 && fwi < 5;
-              const isRed = fwi >= 5;
-              const fwiColor = isRed ? '#ef4444' : isYellow ? '#eab308' : '#22c55e';
-              const secStyle = { marginTop: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' };
-              const headStyle: React.CSSProperties = { fontSize: '11px', fontWeight: '600', color: '#fff', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '12px' };
-              const summaryStyle: React.CSSProperties = { ...headStyle, cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' };
-              const textStyle = { fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.7' };
-              const linkStyle = { fontSize: '13px', color: '#60a5fa', textDecoration: 'none' as const };
-              const inputStyle = { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' as const };
-              const btnJaNej = (active: boolean | null, val: boolean, onClick: () => void) => (
-                <button onClick={onClick} style={{ flex: 1, padding: '10px 0', borderRadius: '8px', border: 'none', background: active === val ? (val ? '#22c55e' : 'rgba(255,255,255,0.3)') : 'transparent', color: active === val ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: active === val ? '700' : '500', cursor: 'pointer' }}>
-                  {val ? 'Ja' : 'Nej'}
-                </button>
-              );
-
-              // Bästa körtid
-              const todayHours = brandRisk?.hourlyFwi?.filter(h => h.label.startsWith('Idag')) || [];
-              const safeHours = todayHours.filter(h => h.fwi < 3);
-              const bestTime = safeHours.length > 0 ? `${safeHours[0].hour}–${safeHours[safeHours.length - 1].hour}` : null;
-
-              // Samråd-åtgärder
-              const atgardsAlternativ = [
-                'Anpassat körsätt', 'Avgränsat arbetsområde', 'Brandvakt utsedd',
-                'Byte av trakt', 'Demonterade slirskydd', 'Efterkontroll planerad',
-                'Förstärkt släckutrustning', 'Tidsanpassad körning', 'Avstå arbete',
-              ];
-
-              // Utrustning
-              const utrustLabels = [
-                'Avverkningsmaskiner: 2 st 9L skum/vätskesläckare',
-                'Markberedning: 6 st 9L skum/vätskesläckare',
-                'Kratta och spade medförs',
-                'Larmkoordinat i traktdirektiv',
-              ];
-
-              const larmLabels = [
-                'Risk för personskada?',
-                'Position med koordinater',
-                'Brandens omfattning och spridningsriktning',
-                'Vad hotas i brandens närområde?',
-                'Lämplig tillfartsväg',
-              ];
-
-              return (
-              <div style={{ padding: '12px' }}>
-                <div style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '24px' }}>
-
-                  {/* Loading */}
-                  {brandRisk?.status === 'loading' && (
-                    <div style={{ textAlign: 'center', padding: '20px', color: 'rgba(255,255,255,0.5)', fontSize: '14px' }}>
-                      <div style={{ display: 'inline-block', width: '16px', height: '16px', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginRight: '8px', verticalAlign: 'middle' }} />
-                      Hämtar brandriskdata...
-                    </div>
-                  )}
-
-                  {/* Error */}
-                  {brandRisk?.status === 'error' && (
-                    <div style={{ textAlign: 'center', padding: '20px' }}>
-                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginBottom: '8px' }}>Kunde inte hämta brandriskdata</div>
-                      <button onClick={() => { setBrandRisk(null); }} style={{ padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', cursor: 'pointer' }}>Försök igen</button>
-                    </div>
-                  )}
-
-                  {/* Eldningsförbud-toggle (alltid synlig) */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                    <div>
-                      <div style={{ fontSize: '13px', color: '#fff', fontWeight: '500' }}>Råder eldningsförbud?</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', width: '140px' }}>
-                      {[true, false].map(val => (
-                        <button key={String(val)} onClick={() => setBrandEldningsforbud(val)}
-                          style={{ flex: 1, padding: '10px 0', borderRadius: '8px', border: 'none', background: brandEldningsforbud === val ? (val ? '#ef4444' : 'rgba(255,255,255,0.3)') : 'transparent', color: brandEldningsforbud === val ? (val ? '#fff' : '#000') : 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: brandEldningsforbud === val ? '700' : '500', cursor: 'pointer' }}>
-                          {val ? 'Ja' : 'Nej'}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {brandEldningsforbud && (
-                    <div style={{ background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '12px', padding: '14px', marginBottom: '20px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '16px', fontWeight: '700', color: '#ef4444' }}>ELDNINGSFÖRBUD RÅDER</div>
-                    </div>
-                  )}
-
-                  {/* FWI-resultat */}
-                  {brandRisk?.status === 'done' && (
-                    <>
-                      {/* Nuvarande FWI */}
-                      <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-                        <div style={{ fontSize: '48px', fontWeight: '700', color: fwiColor, lineHeight: '1' }}>{fwi.toFixed(1)}</div>
-                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', marginTop: '6px', textTransform: 'uppercase', letterSpacing: '1px' }}>FWI – brandriskindex</div>
-                        {fwi < 3 && !brandEldningsforbud && (
-                          <div style={{ fontSize: '13px', color: '#22c55e', marginTop: '8px' }}>Låg brandrisk – inga åtgärder krävs</div>
-                        )}
-                        {isYellow && (
-                          <div style={{ fontSize: '13px', color: '#eab308', marginTop: '8px', fontWeight: '500' }}>
-                            {fwi >= 4 ? 'Höjd beredskap – samråd krävs' : 'Förhöjd brandrisk'}
-                            {brandSamrad.blotMarkUndantag && ' – avgränsat till blöt mark enligt samråd'}
-                          </div>
-                        )}
-                        {isRed && (
-                          <div style={{ fontSize: '13px', color: '#ef4444', marginTop: '8px', fontWeight: '500' }}>
-                            Överväg att avbryta arbete
-                            {brandSamrad.blotMarkUndantag && ' – avgränsat till blöt mark'}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 6-dagars prognos */}
-                      {brandRisk.dailyFwi.length > 0 && (
-                        <div style={secStyle}>
-                          <div style={headStyle}>Prognos 6 dagar</div>
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            {brandRisk.dailyFwi.map((d, i) => {
-                              const c = d.fwi >= 5 ? '#ef4444' : d.fwi >= 3 ? '#eab308' : '#22c55e';
-                              const dayName = new Date(d.date).toLocaleDateString('sv-SE', { weekday: 'short' });
-                              return (
-                                <div key={i} style={{ flex: 1, textAlign: 'center' }}>
-                                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginBottom: '4px' }}>{dayName}</div>
-                                  <div style={{ height: '40px', background: `${c}22`, borderRadius: '4px', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', position: 'relative' }}>
-                                    <div style={{ width: '100%', height: `${Math.min(100, (d.fwi / 6) * 100)}%`, background: c, borderRadius: '4px', opacity: 0.6, minHeight: '4px' }} />
-                                  </div>
-                                  <div style={{ fontSize: '11px', color: c, fontWeight: '600', marginTop: '4px' }}>{d.fwi.toFixed(1)}</div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Bästa körtid (tidslinje) */}
-                      {showSystem && brandRisk.hourlyFwi.length > 0 && (
-                        <div style={secStyle}>
-                          <div style={headStyle}>Bästa körtid</div>
-                          {bestTime && <div style={{ fontSize: '14px', color: '#22c55e', fontWeight: '500', marginBottom: '12px' }}>Rekommenderad körtid idag: {bestTime}</div>}
-                          {['Idag', 'Imorgon'].map(day => {
-                            const hrs = brandRisk.hourlyFwi.filter(h => h.label.startsWith(day));
-                            if (hrs.length === 0) return null;
-                            return (
-                              <div key={day} style={{ marginBottom: '12px' }}>
-                                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{day}</div>
-                                <div style={{ display: 'flex', gap: '1px', height: '28px', borderRadius: '6px', overflow: 'hidden' }}>
-                                  {hrs.map((h, i) => {
-                                    const c = h.fwi >= 5 ? '#ef4444' : h.fwi >= 3 ? '#eab308' : '#22c55e';
-                                    return <div key={i} style={{ flex: 1, background: c, opacity: 0.7, position: 'relative' }} title={`${h.hour}: FWI ${h.fwi.toFixed(1)}`} />;
-                                  })}
-                                </div>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
-                                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)' }}>{hrs[0]?.hour}</span>
-                                  <span style={{ fontSize: '9px', color: 'rgba(255,255,255,0.3)' }}>{hrs[hrs.length - 1]?.hour}</span>
-                                </div>
-                              </div>
-                            );
-                          })}
-                          <div style={{ display: 'flex', gap: '12px', marginTop: '4px' }}>
-                            {[{ c: '#22c55e', l: 'Säkert' }, { c: '#eab308', l: 'Förhöjd' }, { c: '#ef4444', l: 'Hög risk' }].map(x => (
-                              <div key={x.l} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <div style={{ width: '10px', height: '10px', borderRadius: '2px', background: x.c, opacity: 0.7 }} />
-                                <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)' }}>{x.l}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Samråd brandrisk (vid FWI >= 4) */}
-                      {fwi >= 4 && (
-                        <details open style={secStyle}>
-                          <summary style={summaryStyle}>
-                            <span>Samråd brandrisk</span>
-                            {brandSamrad.kvitterad ? <span style={{ fontSize: '11px', fontWeight: '500', letterSpacing: '0', textTransform: 'none', color: '#22c55e' }}>Kvitterat</span> : <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
-                          </summary>
-                          <div style={{ marginTop: '12px' }}>
-                            <div style={textStyle}>Enligt Skogforsks branschgemensamma riktlinjer (2022) krävs samråd mellan uppdragstagare och uppdragsgivare vid FWI &#x2265; 4.</div>
-
-                            {/* Beredskapsnivå */}
-                            <div style={{ marginTop: '16px', fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '8px' }}>Beredskapsnivå</div>
-                            <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', marginBottom: '16px' }}>
-                              {(['normal', 'hojd'] as const).map(niva => (
-                                <button key={niva} onClick={() => setBrandSamrad(p => ({ ...p, beredskapsniva: niva }))}
-                                  style={{ flex: 1, padding: '10px 0', borderRadius: '8px', border: 'none', background: brandSamrad.beredskapsniva === niva ? (niva === 'hojd' ? '#eab308' : '#22c55e') : 'transparent', color: brandSamrad.beredskapsniva === niva ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '12px', fontWeight: brandSamrad.beredskapsniva === niva ? '700' : '500', cursor: 'pointer' }}>
-                                  {niva === 'normal' ? 'Normal' : 'Höjd'}
-                                </button>
-                              ))}
-                            </div>
-
-                            {/* Åtgärder */}
-                            <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '8px' }}>Beslutade åtgärder</div>
-                            <div style={{ marginBottom: '16px' }}>
-                              {atgardsAlternativ.map((atg, i) => (
-                                <div key={i} onClick={() => setBrandSamrad(p => ({ ...p, atgarder: p.atgarder.includes(atg) ? p.atgarder.filter(a => a !== atg) : [...p.atgarder, atg] }))}
-                                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                                  <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: `1.5px solid ${brandSamrad.atgarder.includes(atg) ? '#22c55e' : 'rgba(255,255,255,0.15)'}`, background: brandSamrad.atgarder.includes(atg) ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                    {brandSamrad.atgarder.includes(atg) && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
-                                  </div>
-                                  <span style={{ fontSize: '13px', color: brandSamrad.atgarder.includes(atg) ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)', textDecoration: brandSamrad.atgarder.includes(atg) ? 'line-through' : 'none', lineHeight: '1.4' }}>{atg}</span>
-                                </div>
-                              ))}
-                              {brandSamrad.atgarder.includes('Tidsanpassad körning') && (
-                                <input type="text" placeholder="Vilka timmar?" value={brandSamrad.kortider} onChange={e => setBrandSamrad(p => ({ ...p, kortider: e.target.value }))} style={{ ...inputStyle, marginTop: '8px' }} />
-                              )}
-                            </div>
-
-                            {/* Blöt mark undantag */}
-                            <div style={{ background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: '12px', padding: '14px', marginBottom: '16px' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                <span style={{ fontSize: '12px', color: '#60a5fa', fontWeight: '500' }}>Arbete sker enbart på blöt mark (myr/sumpskog)</span>
-                                <div style={{ display: 'flex', gap: '6px', padding: '3px', background: 'rgba(255,255,255,0.05)', borderRadius: '10px', width: '100px' }}>
-                                  {[true, false].map(val => (
-                                    <button key={String(val)} onClick={() => setBrandSamrad(p => ({ ...p, blotMarkUndantag: val }))}
-                                      style={{ flex: 1, padding: '6px 0', borderRadius: '7px', border: 'none', background: brandSamrad.blotMarkUndantag === val ? '#60a5fa' : 'transparent', color: brandSamrad.blotMarkUndantag === val ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '11px', fontWeight: brandSamrad.blotMarkUndantag === val ? '700' : '500', cursor: 'pointer' }}>
-                                      {val ? 'Ja' : 'Nej'}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                              {brandSamrad.blotMarkUndantag && (
-                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', lineHeight: '1.6' }}>
-                                  Dokumentera att maskinen håller sig inom markerat blött område. Band/slirskydd behålls – krävs för bärighet. GPS-spår verifieras mot blöta zoner.
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Uppdragsgivare */}
-                            <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>Uppdragsgivare kontaktad</div>
-                                <input type="text" placeholder="Namn" value={brandSamrad.uppdragsgivareNamn} onChange={e => setBrandSamrad(p => ({ ...p, uppdragsgivareNamn: e.target.value }))} style={inputStyle} />
-                              </div>
-                              <div style={{ width: '140px', flexShrink: 0 }}>
-                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>Telefon</div>
-                                <input type="tel" placeholder="07X-XXX XX XX" value={brandSamrad.uppdragsgivareTel} onChange={e => setBrandSamrad(p => ({ ...p, uppdragsgivareTel: e.target.value }))} style={inputStyle} />
-                              </div>
-                            </div>
-
-                            {/* Datum + kvittera */}
-                            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end' }}>
-                              <div style={{ width: '200px', flexShrink: 0 }}>
-                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>Datum & tid</div>
-                                <input type="datetime-local" value={brandSamrad.datum} onChange={e => setBrandSamrad(p => ({ ...p, datum: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
-                              </div>
-                              <button onClick={() => setBrandSamrad(p => ({ ...p, kvitterad: !p.kvitterad }))}
-                                style={{ flex: 1, padding: '14px', borderRadius: '12px', border: 'none', background: brandSamrad.kvitterad ? 'rgba(34,197,94,0.15)' : '#22c55e', color: brandSamrad.kvitterad ? '#22c55e' : '#000', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>
-                                {brandSamrad.kvitterad ? 'Kvitterat ✓' : 'Kvittera samråd'}
-                              </button>
-                            </div>
-                          </div>
-                        </details>
-                      )}
-
-                      {/* Utrustning (vid FWI >= 3) */}
-                      {showSystem && (
-                        <details style={secStyle}>
-                          <summary style={summaryStyle}>
-                            <span>Utrustning</span>
-                            <span style={{ fontSize: '11px', fontWeight: '500', letterSpacing: '0', textTransform: 'none', color: brandUtrustning.every(Boolean) ? '#22c55e' : 'rgba(255,255,255,0.3)' }}>{brandUtrustning.filter(Boolean).length}/{brandUtrustning.length}</span>
-                          </summary>
-                          <div style={{ marginTop: '12px' }}>
-                            <div style={{ ...textStyle, marginBottom: '12px' }}>Källa: Brandskyddsföreningens SBF 127</div>
-                            {utrustLabels.map((label, i) => (
-                              <div key={i} onClick={() => setBrandUtrustning(p => { const n = [...p]; n[i] = !n[i]; return n; })}
-                                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                                <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: `1.5px solid ${brandUtrustning[i] ? '#22c55e' : 'rgba(255,255,255,0.15)'}`, background: brandUtrustning[i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                  {brandUtrustning[i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
-                                </div>
-                                <span style={{ fontSize: '13px', color: brandUtrustning[i] ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)', textDecoration: brandUtrustning[i] ? 'line-through' : 'none', lineHeight: '1.4' }}>{label}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-
-                      {/* Närmaste vatten */}
-                      {showSystem && (
-                        <details style={secStyle}>
-                          <summary style={summaryStyle}>
-                            <span>Närmaste vatten</span>
-                            <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>
-                          </summary>
-                          <div style={{ marginTop: '12px' }}>
-                            {brandNearbyWater.length === 0 && <div style={textStyle}>Söker...</div>}
-                            {brandNearbyWater.map((w, i) => (
-                              <a key={i} href={`https://www.google.com/maps/dir/?api=1&destination=${w.lat},${w.lon}`} target="_blank" rel="noopener noreferrer"
-                                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', textDecoration: 'none' }}>
-                                <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)' }}>{'\u{1F4A7}'} {w.name}</span>
-                                <span style={linkStyle}>{w.dist < 1000 ? `${w.dist}m` : `${(w.dist / 1000).toFixed(1)} km`} &#x2192;</span>
-                              </a>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-
-                      {/* Närmaste brandstation */}
-                      {showSystem && (
-                        <details style={secStyle}>
-                          <summary style={summaryStyle}>
-                            <span>Närmaste brandstation</span>
-                            <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>
-                          </summary>
-                          <div style={{ marginTop: '12px' }}>
-                            {brandNearbyFireStation.length === 0 && <div style={textStyle}>Söker...</div>}
-                            {brandNearbyFireStation.map((s, i) => (
-                              <a key={i} href={`https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`} target="_blank" rel="noopener noreferrer"
-                                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', textDecoration: 'none' }}>
-                                <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)' }}>{'\u{1F692}'} {s.name}</span>
-                                <span style={linkStyle}>{(s.dist / 1000).toFixed(1)} km (~{Math.round(s.dist / 1000 / 60 * 60)} min) &#x2192;</span>
-                              </a>
-                            ))}
-                          </div>
-                        </details>
-                      )}
-
-                      {/* Larmkoordinat */}
-                      <details style={secStyle}>
-                        <summary style={summaryStyle}>
-                          <span>Larmkoordinat & mötesplats</span>
-                          <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>
-                        </summary>
-                        <div style={{ marginTop: '12px' }}>
-                          <div style={{ fontSize: '20px', fontWeight: '700', color: '#fff', fontFamily: 'monospace', marginBottom: '4px' }}>
-                            {mapCenter.lat.toFixed(4)}°N, {mapCenter.lng.toFixed(4)}°E
-                          </div>
-                          <button onClick={() => navigator.clipboard?.writeText(`${mapCenter.lat.toFixed(6)}, ${mapCenter.lng.toFixed(6)}`)}
-                            style={{ fontSize: '12px', color: '#60a5fa', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: '12px' }}>
-                            Kopiera koordinater
-                          </button>
-                          <div style={{ ...textStyle, marginBottom: '12px' }}>Ge denna position vid larm till 112</div>
-                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>Tillfartsväg</div>
-                          <textarea value={brandLarmTillfart} onChange={e => setBrandLarmTillfart(e.target.value)} placeholder="Beskriv bästa tillfartsväg..."
-                            style={{ ...inputStyle, minHeight: '60px', resize: 'vertical' }} />
-
-                          <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '16px', marginBottom: '8px' }}>Vid larm – förmedla</div>
-                          {larmLabels.map((label, i) => (
-                            <div key={i} onClick={() => setBrandLarmChecklista(p => { const n = [...p]; n[i] = !n[i]; return n; })}
-                              style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0', cursor: 'pointer' }}>
-                              <div style={{ width: '16px', height: '16px', borderRadius: '3px', border: `1.5px solid ${brandLarmChecklista[i] ? '#22c55e' : 'rgba(255,255,255,0.15)'}`, background: brandLarmChecklista[i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                                {brandLarmChecklista[i] && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
-                              </div>
-                              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.4' }}>{label}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-
-                      {/* Kontaktlista */}
-                      <details style={secStyle}>
-                        <summary style={summaryStyle}>
-                          <span>Kontakter</span>
-                          <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>
-                        </summary>
-                        <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                          {[
-                            { label: 'Uppdragsgivare', nameKey: 'uppdragsgivareNamn', telKey: 'uppdragsgivareTel' },
-                            { label: 'Försäkringsbolag', nameKey: 'forsakringsbolag', telKey: 'forsakringsnummer' },
-                            { label: 'Lokal räddningstjänst', nameKey: 'raddningstjanstNamn', telKey: 'raddningstjanstTel' },
-                          ].map(({ label, nameKey, telKey }) => (
-                            <div key={nameKey}>
-                              <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>{label}</div>
-                              <div style={{ display: 'flex', gap: '8px' }}>
-                                <input type="text" placeholder="Namn" value={(brandKontakter as any)[nameKey]} onChange={e => setBrandKontakter(p => ({ ...p, [nameKey]: e.target.value }))} style={{ ...inputStyle, flex: 1 }} />
-                                <div style={{ position: 'relative', width: '160px' }}>
-                                  <input type="tel" placeholder={telKey === 'forsakringsnummer' ? 'Nummer' : 'Telefon'} value={(brandKontakter as any)[telKey]} onChange={e => setBrandKontakter(p => ({ ...p, [telKey]: e.target.value }))} style={inputStyle} />
-                                  {(brandKontakter as any)[telKey] && telKey !== 'forsakringsnummer' && (
-                                    <a href={`tel:${(brandKontakter as any)[telKey]}`} style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '16px', textDecoration: 'none' }}>{'\u{1F4DE}'}</a>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-
-                      {/* Tillbudsrapportering */}
-                      <details style={secStyle}>
-                        <summary style={summaryStyle}>
-                          <span>Rapportera brandtillbud</span>
-                          <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>
-                        </summary>
-                        <div style={{ marginTop: '12px' }}>
-                          <div style={textStyle}>Alla brandtillbud oavsett storlek ska rapporteras till uppdragsgivare (Skogforsk).</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '14px' }}>
-                            <input type="datetime-local" value={brandNewTillbud.datum} onChange={e => setBrandNewTillbud(p => ({ ...p, datum: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
-                            <textarea placeholder="Vad hände?" value={brandNewTillbud.beskrivning} onChange={e => setBrandNewTillbud(p => ({ ...p, beskrivning: e.target.value }))} style={{ ...inputStyle, minHeight: '50px', resize: 'vertical' }} />
-                            <textarea placeholder="Åtgärd vidtagen" value={brandNewTillbud.atgard} onChange={e => setBrandNewTillbud(p => ({ ...p, atgard: e.target.value }))} style={{ ...inputStyle, minHeight: '50px', resize: 'vertical' }} />
-                            <input type="text" placeholder="Rapporterad till (namn)" value={brandNewTillbud.rapporteradTill} onChange={e => setBrandNewTillbud(p => ({ ...p, rapporteradTill: e.target.value }))} style={inputStyle} />
-                            <button onClick={async () => {
-                              if (!valtObjekt?.id || !brandNewTillbud.beskrivning) return;
-                              const row = {
-                                objekt_id: valtObjekt.id,
-                                datum: brandNewTillbud.datum,
-                                beskrivning: brandNewTillbud.beskrivning,
-                                atgard: brandNewTillbud.atgard,
-                                lat: mapCenter.lat, lon: mapCenter.lng,
-                                photo_data: brandNewTillbud.photoData || null,
-                                rapporterad_till: brandNewTillbud.rapporteradTill || null,
-                              };
-                              const { error } = await supabase.from('brand_tillbud').insert(row);
-                              if (!error) {
-                                setBrandTillbud(p => [{ datum: row.datum, beskrivning: row.beskrivning, atgard: row.atgard, lat: row.lat, lon: row.lon, photoData: '', rapporteradTill: row.rapporterad_till || '' }, ...p]);
-                                setBrandNewTillbud({ datum: new Date().toISOString().slice(0, 16), beskrivning: '', atgard: '', rapporteradTill: '', photoData: '' });
-                              }
-                            }} style={{ padding: '14px', borderRadius: '12px', border: 'none', background: '#60a5fa', color: '#000', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>
-                              Spara tillbud
-                            </button>
-                          </div>
-                          {brandTillbud.length > 0 && (
-                            <div style={{ marginTop: '16px' }}>
-                              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginBottom: '8px' }}>Tidigare tillbud</div>
-                              {brandTillbud.map((t, i) => (
-                                <div key={i} style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                                  <span style={{ color: 'rgba(255,255,255,0.6)' }}>{new Date(t.datum).toLocaleDateString('sv-SE')}</span> – {t.beskrivning.slice(0, 50)}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </details>
-
-                      {/* Brandvaktslogg (om brandvakt utsedd i samråd) */}
-                      {brandSamrad.atgarder.includes('Brandvakt utsedd') && (
-                        <details style={secStyle}>
-                          <summary style={summaryStyle}>
-                            <span>Brandvaktslogg</span>
-                            <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>
-                          </summary>
-                          <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                            <input type="text" placeholder="Brandvaktens namn" value={brandBrandvakt.namn} onChange={e => setBrandBrandvakt(p => ({ ...p, namn: e.target.value }))} style={inputStyle} />
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Start</div>
-                                <input type="datetime-local" value={brandBrandvakt.starttid} onChange={e => setBrandBrandvakt(p => ({ ...p, starttid: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
-                              </div>
-                              <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '4px' }}>Slut</div>
-                                <input type="datetime-local" value={brandBrandvakt.sluttid} onChange={e => setBrandBrandvakt(p => ({ ...p, sluttid: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
-                              </div>
-                            </div>
-                            <textarea placeholder="Noteringar" value={brandBrandvakt.noteringar} onChange={e => setBrandBrandvakt(p => ({ ...p, noteringar: e.target.value }))} style={{ ...inputStyle, minHeight: '50px', resize: 'vertical' }} />
-                            <button onClick={async () => {
-                              if (!valtObjekt?.id || !brandBrandvakt.namn) return;
-                              await supabase.from('brand_brandvakt').insert({
-                                objekt_id: valtObjekt.id,
-                                namn: brandBrandvakt.namn, starttid: brandBrandvakt.starttid || null,
-                                sluttid: brandBrandvakt.sluttid || null, noteringar: brandBrandvakt.noteringar || null,
-                              });
-                            }} style={{ padding: '14px', borderRadius: '12px', border: 'none', background: '#60a5fa', color: '#000', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>
-                              Spara brandvaktslogg
-                            </button>
-                          </div>
-                        </details>
-                      )}
-
-                      {/* Efterkontroll */}
-                      <details style={secStyle}>
-                        <summary style={summaryStyle}>
-                          <span>Efterkontroll</span>
-                          {brandEfterkontroll.kvitterad ? <span style={{ fontSize: '11px', fontWeight: '500', letterSpacing: '0', textTransform: 'none', color: '#22c55e' }}>Utförd ✓</span> : <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
-                        </summary>
-                        <div style={{ marginTop: '12px' }}>
-                          <div style={textStyle}>Trakten ska avsynas efter avslutat arbete (Skogforsk).</div>
-                          <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-end', marginTop: '14px' }}>
-                            <div style={{ width: '200px', flexShrink: 0 }}>
-                              <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginBottom: '6px' }}>Datum & tid</div>
-                              <input type="datetime-local" value={brandEfterkontroll.datum} onChange={e => setBrandEfterkontroll(p => ({ ...p, datum: e.target.value }))} style={{ ...inputStyle, colorScheme: 'dark' }} />
-                            </div>
-                            <button onClick={() => setBrandEfterkontroll(p => ({ ...p, kvitterad: !p.kvitterad }))}
-                              style={{ flex: 1, padding: '14px', borderRadius: '12px', border: 'none', background: brandEfterkontroll.kvitterad ? 'rgba(34,197,94,0.15)' : '#22c55e', color: brandEfterkontroll.kvitterad ? '#22c55e' : '#000', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}>
-                              {brandEfterkontroll.kvitterad ? 'Utförd ✓' : 'Efterkontroll utförd'}
-                            </button>
-                          </div>
-                          <textarea placeholder="Noteringar" value={brandEfterkontroll.noteringar} onChange={e => setBrandEfterkontroll(p => ({ ...p, noteringar: e.target.value }))} style={{ ...inputStyle, marginTop: '10px', minHeight: '50px', resize: 'vertical' }} />
-                        </div>
-                      </details>
-
-                      {/* Länkar */}
-                      <div style={{ marginTop: '24px' }}>
-                        <div style={headStyle}>Mer information</div>
-                        {[
-                          { text: 'Skogforsk – Riskhantering brand', url: 'https://www.skogforsk.se/cd_20221011125609/contentassets/6c848836ec104a4ea436c11051b3d9f2/riskhantering-avseende-brand-22-09-05.pdf' },
-                          { text: 'SMHI – Brandrisk', url: 'https://www.smhi.se/brandrisk' },
-                          { text: 'Skötselskolan – Brand', url: 'https://www.skotselskolan.se/' },
-                          { text: 'MSB – Brandriskprognoser', url: 'https://www.msb.se' },
-                        ].map((link, i) => (
-                          <a key={i} href={link.url} target="_blank" rel="noopener noreferrer"
-                            style={{ display: 'block', padding: '8px 0', ...linkStyle, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                            {link.text} &#x2192;
-                          </a>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </div>
-              );
-            })()}
 
       {/* === GALLRING OVERLAY === */}
       {stickvagMode && !stickvagOversikt && !showSavedPopup && !menuOpen && !isZoneMode && !isDrawMode && (
@@ -10324,7 +9871,7 @@ export default function PlannerPage() {
       )}
 
       {/* Brandrisk: eld-ikon som HTML-overlay (alltid synlig vid FWI >= 3) */}
-      {brandRisk?.status === 'done' && (brandRisk.currentFwi >= 3 || brandEldningsforbud) && activeCategory !== 'brandrisk' && (
+      {((brandRisk?.status === 'done' && ((brandRisk.currentIdx ?? 0) >= 3 || brandEldningsforbud)) || brandTestMode !== null) && activeCategory !== 'brandrisk' && (
         <div
           onClick={() => { setActiveCategory('brandrisk'); setMenuOpen(true); }}
           style={{
@@ -10334,7 +9881,7 @@ export default function PlannerPage() {
             width: '36px',
             height: '36px',
             borderRadius: '10px',
-            background: brandRisk.currentFwi >= 5 ? 'rgba(239,68,68,0.9)' : 'rgba(234,179,8,0.9)',
+            background: (brandRisk?.currentIdx ?? 0) >= 5 ? 'rgba(239,68,68,0.9)' : 'rgba(234,179,8,0.9)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -10345,6 +9892,9 @@ export default function PlannerPage() {
           }}
         >
           <span style={{ fontSize: '20px' }}>{'\u{1F525}'}</span>
+          {brandTestMode !== null && (
+            <div style={{ position: 'absolute', top: -6, right: -6, background: '#eab308', color: '#000', fontSize: '7px', fontWeight: '800', padding: '2px 4px', borderRadius: '4px', lineHeight: '1' }}>TEST</div>
+          )}
         </div>
       )}
 
