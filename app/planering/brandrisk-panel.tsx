@@ -323,8 +323,17 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
   const peakHour = data.peakHour;
   const showSystem = currentIdx >= 3 || eldningsforbud || testMode !== null;
 
+  // Sort daily so today is always first
+  const sortedDaily = (() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayIdx = data.daily.findIndex(d => d.date === todayStr);
+    return todayIdx > 0
+      ? [...data.daily.slice(todayIdx), ...data.daily.slice(0, todayIdx)]
+      : data.daily;
+  })();
+
   // Active day's hourly data for the fire clock
-  const activeDayData = data.daily[activeDay];
+  const activeDayData = sortedDaily[activeDay];
   const clockHourlyIdx = activeDayData?.hourlyIdx || data.todayHourlyIdx;
   const clockLabel = activeDayData?.dayName || 'Idag';
   const clockDate = activeDayData ? new Date(activeDayData.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'short' }) : '';
@@ -476,7 +485,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
           {/* Day selector */}
           <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 16 }}>
-            {data.daily.slice(0, 7).map((d, i) => (
+            {sortedDaily.slice(0, 7).map((d, i) => (
               <button key={i} onClick={() => setActiveDay(i)} style={{ padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500, color: activeDay === i ? '#fff' : 'rgba(255,255,255,0.3)', background: activeDay === i ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
                 {d.dayName}
               </button>
@@ -492,14 +501,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '18px 20px' }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 14 }}>Vecka – högsta nivå per dag</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {(() => {
-              const todayStr = new Date().toISOString().split('T')[0];
-              const todayIdx = data.daily.findIndex(d => d.date === todayStr);
-              const sorted = todayIdx > 0
-                ? [...data.daily.slice(todayIdx), ...data.daily.slice(0, todayIdx)]
-                : data.daily;
-              return sorted;
-            })().map((d, i) => (
+            {sortedDaily.map((d, i) => (
               <div key={i}>
                 <div style={{ display: 'flex', alignItems: 'center', padding: '12px 0', gap: 12, ...(i === 0 ? { background: 'rgba(255,255,255,0.03)', margin: '0 -20px', padding: '12px 20px', borderRadius: 10 } : {}) }}>
                   <div style={{ width: 32, fontSize: 14, fontWeight: 500, color: i === 0 ? '#fff' : 'rgba(255,255,255,0.5)', flexShrink: 0 }}>{d.dayName}</div>
