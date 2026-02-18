@@ -336,6 +336,11 @@ export default function PlannerPage() {
     barighet: false,
     // Svenska Kraftnät
     kraftledningar: false,
+    // Skogsstyrelsen Raster (via proxy)
+    sks_markfuktighet: false,
+    sks_virkesvolym: false,
+    sks_tradhojd: false,
+    sks_lutning: false,
   });
 
   const wmsLayerGroups = [
@@ -388,6 +393,15 @@ export default function PlannerPage() {
       group: 'Svenska Kraftnät',
       layers: [
         { id: 'kraftledningar', url: 'https://inspire-skn.metria.se/geoserver/skn/ows', layers: 'US.ElectricityNetwork.Lines', name: 'Kraftledningar (stamnätet)', color: '#ef4444' },
+      ],
+    },
+    {
+      group: 'Skogsstyrelsen Raster',
+      layers: [
+        { id: 'sks_markfuktighet', url: '/api/wms-proxy', layers: 'Markfuktighet_SLU_2_0', name: 'Markfuktighet (SLU)', color: '#4FC3F7', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer' },
+        { id: 'sks_virkesvolym', url: '/api/wms-proxy', layers: 'SkogligaGrunddata_3_1', name: 'Virkesvolym', color: '#66BB6A', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer' },
+        { id: 'sks_tradhojd', url: '/api/wms-proxy', layers: 'Tradhojd_3_1', name: 'Trädhöjd', color: '#AED581', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer' },
+        { id: 'sks_lutning', url: '/api/wms-proxy', layers: 'Lutning_1_0', name: 'Lutning', color: '#FF8A65', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer' },
       ],
     },
   ];
@@ -3816,7 +3830,13 @@ export default function PlannerPage() {
                   } else {
                     bbox = `${lngMin},${latMin},${lngMax},${latMax}`;
                   }
-                  const wmsUrl = `${layer.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(layer.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=${srs}&BBOX=${bbox}&WIDTH=256&HEIGHT=256`;
+                  let wmsUrl: string;
+                  if (layer.proxyTarget) {
+                    const target = `${layer.proxyTarget}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(layer.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=${srs}&BBOX=${bbox}&WIDTH=256&HEIGHT=256`;
+                    wmsUrl = `${layer.url}?url=${encodeURIComponent(target)}`;
+                  } else {
+                    wmsUrl = `${layer.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(layer.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=${srs}&BBOX=${bbox}&WIDTH=256&HEIGHT=256`;
+                  }
                   tiles.push(
                     <img
                       key={`wms-${layer.id}-${tileX}-${tileY}-${wmsZ}`}
@@ -6098,7 +6118,7 @@ export default function PlannerPage() {
                 { id: 'vidaKartbild', name: 'VIDA-kartbild', desc: 'Traktdirektivets kartbild', enabled: true },
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
                 { id: 'contours', name: 'Höjdkurvor', desc: 'Terräng ovanpå karta/satellit', enabled: true },
-                { id: 'moisture', name: 'Markfuktighet', desc: 'Kräver Skogsstyrelsen-konto', enabled: false },
+                { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
                 { id: 'propertyLines', name: 'Fastighetsgränser', desc: 'Kommer snart', enabled: false },
               ].map(overlay => (
                 <div
