@@ -3,6 +3,7 @@
 // Huvudkälla: SkogligaGrunddata_3_1 (laserdata, 10m pixel, EPSG:3006)
 //   Band 0: Volym (m³sk/ha, direkt), 1: Medelhöjd(dm), 3: Medeldiameter(cm)
 //   Band 7: UnixDay (skanningsdatum), 9: NMD skogsmark (0=ej skog, 1=prod, 2=ej prod)
+//   Rasterfunktion "Gallringsindex": 4 klasser (0=Lågt, 1=Medel, 2=Högt, 3=Akut)
 //
 // Trädslagsfördelning: SLUskogskarta_1_0 (satellit+riksskogstax, 12.5m pixel)
 //   Band 5-11: Volym per trädslag (raw / 100 = m³sk/ha)
@@ -18,6 +19,13 @@ export interface Tradslag {
   andel: number;       // 0-1
 }
 
+export interface GallringsResultat {
+  behov: boolean;           // true om gallringsbehov finns
+  klass: string;            // 'Lågt' | 'Medel' | 'Högt' | 'Akut' | 'Ej skog'
+  fordelning: { lagt: number; medel: number; hogt: number; akut: number }; // andel 0-1
+  totalPixlar: number;      // antal skogspixlar (exkl NoData)
+}
+
 export interface VolymResultat {
   status: 'done' | 'error' | 'no_data';
   areal: number;            // ha
@@ -27,6 +35,7 @@ export interface VolymResultat {
   medeldiameter: number;    // cm
   medelhojd: number;        // m
   tradslag: Tradslag[];
+  gallring?: GallringsResultat;
   skanningsAr: number;      // År laserdatan skannades
   sluAr: number;            // År SLU Skogskarta baseras på (ca 2018-2020)
   andelSkog: number;        // Andel produktiv skogsmark (0-1)
@@ -88,18 +97,50 @@ function polyArea(coords: { x: number; y: number }[]): number {
   return Math.abs(area) / 2;
 }
 
-async function fetchStats(service: string, geometry: string, proxyUrl: string) {
+async function fetchStats(service: string, geometry: string, proxyUrl: string, renderingRule?: string) {
   const params = new URLSearchParams({
     geometry,
     geometryType: 'esriGeometryPolygon',
     spatialReference: JSON.stringify({ wkid: 3006 }),
     f: 'json',
   });
+  if (renderingRule) params.set('renderingRule', renderingRule);
   const targetUrl = `${service}/computeStatisticsHistograms?${params.toString()}`;
   const resp = await fetch(`${proxyUrl}?url=${encodeURIComponent(targetUrl)}`);
   if (!resp.ok) throw new Error(`API ${resp.status}`);
-  const data = await resp.json();
-  return data.statistics || [];
+  return await resp.json();
+}
+
+function parseGallringsHistogram(data: Record<string, unknown>): GallringsResultat | undefined {
+  const histograms = data.histograms as { counts: number[] }[] | undefined;
+  if (!histograms || !histograms[0]?.counts) return undefined;
+  const counts = histograms[0].counts;
+  // Klasser: 0=Lågt, 1=Medel, 2=Högt, 3=Akut, 255=NoData
+  const lagt = counts[0] || 0;
+  const medel = counts[1] || 0;
+  const hogt = counts[2] || 0;
+  const akut = counts[3] || 0;
+  const total = lagt + medel + hogt + akut;
+  if (total === 0) return undefined;
+
+  const fordelning = {
+    lagt: lagt / total,
+    medel: medel / total,
+    hogt: hogt / total,
+    akut: akut / total,
+  };
+
+  // Dominerande klass
+  const max = Math.max(lagt, medel, hogt, akut);
+  let klass = 'Lågt';
+  if (max === akut) klass = 'Akut';
+  else if (max === hogt) klass = 'Högt';
+  else if (max === medel) klass = 'Medel';
+
+  // Gallringsbehov = mer än 30% högt+akut
+  const behov = (fordelning.hogt + fordelning.akut) > 0.3;
+
+  return { behov, klass, fordelning, totalPixlar: total };
 }
 
 const emptyResult = (arealHa: number, msg: string, status: 'error' | 'no_data' = 'error'): VolymResultat => ({
@@ -125,11 +166,18 @@ export async function beraknaVolym(
   const geometry = JSON.stringify({ rings: [ring] });
 
   try {
-    // Hämta båda parallellt
-    const [sgdStats, sluStats] = await Promise.all([
+    // Hämta alla parallellt
+    const gallringsRule = JSON.stringify({
+      rasterFunction: 'Gallringsindex',
+      rasterFunctionArguments: { sis: 'g16-g22' },
+    });
+    const [sgdData, sluData, gallringsData] = await Promise.all([
       fetchStats(SGD_SERVICE, geometry, proxyUrl),
       fetchStats(SLU_SERVICE, geometry, proxyUrl),
+      fetchStats(SGD_SERVICE, geometry, proxyUrl, gallringsRule).catch(() => null),
     ]);
+    const sgdStats = sgdData.statistics || [];
+    const sluStats = sluData.statistics || [];
 
     // --- SkogligaGrunddata (laserdata) ---
     if (!sgdStats || sgdStats.length < 10 || sgdStats[0].count === 0) {
@@ -172,6 +220,9 @@ export async function beraknaVolym(
 
     const arealSkog = arealHa * andelSkog;
 
+    // Gallringsindex
+    const gallring = gallringsData ? parseGallringsHistogram(gallringsData) : undefined;
+
     // Avverkningsvarning: mycket låg volym trots att det "borde" vara skog
     const avverkatVarning = sgdVolymHa < 15 && andelSkog > 0.5;
 
@@ -185,6 +236,7 @@ export async function beraknaVolym(
         medeldiameter: Math.round(medeldiameter * 10) / 10,
         medelhojd: Math.round(medelhojdDm / 10 * 10) / 10,
         tradslag: [],
+        gallring,
         skanningsAr,
         sluAr: 2020,
         andelSkog,
@@ -251,6 +303,7 @@ export async function beraknaVolym(
       medeldiameter: Math.round(medeldiameter * 10) / 10,
       medelhojd: Math.round(medelhojdDm / 10 * 10) / 10,
       tradslag,
+      gallring,
       skanningsAr,
       sluAr: 2020,
       andelSkog,

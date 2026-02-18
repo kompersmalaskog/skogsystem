@@ -343,6 +343,7 @@ export default function PlannerPage() {
     sks_virkesvolym: false,
     sks_tradhojd: false,
     sks_lutning: false,
+    sks_gallringsindex: false,
   });
 
   const wmsLayerGroups = [
@@ -404,6 +405,7 @@ export default function PlannerPage() {
         { id: 'sks_virkesvolym', url: '/api/wms-proxy', layers: 'SkogligaGrunddata_3_1', name: 'Virkesvolym', color: '#66BB6A', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer' },
         { id: 'sks_tradhojd', url: '/api/wms-proxy', layers: 'Tradhojd_3_1', name: 'Trädhöjd', color: '#AED581', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer' },
         { id: 'sks_lutning', url: '/api/wms-proxy', layers: 'Lutning_1_0', name: 'Lutning', color: '#FF8A65', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer' },
+        { id: 'sks_gallringsindex', url: '/api/wms-proxy', layers: '', name: 'Gallringsindex', color: '#E91E63', exportImage: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SkogligaGrunddata_3_1/ImageServer', renderingRule: '{"rasterFunction":"Gallringsindex","rasterFunctionArguments":{"sis":"g16-g22"}}' },
       ],
     },
   ];
@@ -3837,7 +3839,16 @@ export default function PlannerPage() {
                     bbox = `${lngMin},${latMin},${lngMax},${latMax}`;
                   }
                   let wmsUrl: string;
-                  if (layer.proxyTarget) {
+                  if (layer.exportImage) {
+                    // ArcGIS ImageServer exportImage (t.ex. Gallringsindex)
+                    const mercBbox = (() => {
+                      const toM = (la: number, lo: number) => ({ mx: lo * 20037508.34 / 180, my: Math.log(Math.tan((90 + la) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180 });
+                      const s = toM(latMin, lngMin), n = toM(latMax, lngMax);
+                      return `${s.mx},${s.my},${n.mx},${n.my}`;
+                    })();
+                    const target = `${layer.exportImage}/exportImage?bbox=${mercBbox}&bboxSR=3857&imageSR=3857&size=256,256&format=png&transparent=true&renderingRule=${encodeURIComponent(layer.renderingRule || '')}&f=image`;
+                    wmsUrl = `${layer.url}?url=${encodeURIComponent(target)}`;
+                  } else if (layer.proxyTarget) {
                     const target = `${layer.proxyTarget}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(layer.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=${srs}&BBOX=${bbox}&WIDTH=256&HEIGHT=256`;
                     wmsUrl = `${layer.url}?url=${encodeURIComponent(target)}`;
                   } else {

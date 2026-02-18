@@ -133,6 +133,50 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
             ))}
           </div>
 
+          {/* Gallringsindex */}
+          {resultat.gallring && (
+            <div style={{ marginTop: '16px' }}>
+              <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', padding: '0 4px', marginBottom: '8px' }}>
+                Gallringsbehov
+              </div>
+              <div style={{
+                background: resultat.gallring.behov
+                  ? 'rgba(239,68,68,0.12)'
+                  : 'rgba(34,197,94,0.12)',
+                border: `1px solid ${resultat.gallring.behov ? 'rgba(239,68,68,0.25)' : 'rgba(34,197,94,0.25)'}`,
+                borderRadius: '12px',
+                padding: '12px 14px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: resultat.gallring.behov ? '#ef4444' : '#22c55e' }}>
+                    {resultat.gallring.behov ? 'Ja — gallring rekommenderas' : 'Nej — inget akut gallringsbehov'}
+                  </span>
+                </div>
+                {/* Fördelningsstapel */}
+                <div style={{ display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', marginBottom: '8px' }}>
+                  {resultat.gallring.fordelning.lagt > 0 && (
+                    <div style={{ width: `${resultat.gallring.fordelning.lagt * 100}%`, background: '#22c55e' }} />
+                  )}
+                  {resultat.gallring.fordelning.medel > 0 && (
+                    <div style={{ width: `${resultat.gallring.fordelning.medel * 100}%`, background: '#eab308' }} />
+                  )}
+                  {resultat.gallring.fordelning.hogt > 0 && (
+                    <div style={{ width: `${resultat.gallring.fordelning.hogt * 100}%`, background: '#f97316' }} />
+                  )}
+                  {resultat.gallring.fordelning.akut > 0 && (
+                    <div style={{ width: `${resultat.gallring.fordelning.akut * 100}%`, background: '#ef4444' }} />
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '12px', fontSize: '11px', opacity: 0.7, flexWrap: 'wrap' }}>
+                  {resultat.gallring.fordelning.lagt > 0.01 && <span style={{ color: '#22c55e' }}>Lågt {Math.round(resultat.gallring.fordelning.lagt * 100)}%</span>}
+                  {resultat.gallring.fordelning.medel > 0.01 && <span style={{ color: '#eab308' }}>Medel {Math.round(resultat.gallring.fordelning.medel * 100)}%</span>}
+                  {resultat.gallring.fordelning.hogt > 0.01 && <span style={{ color: '#f97316' }}>Högt {Math.round(resultat.gallring.fordelning.hogt * 100)}%</span>}
+                  {resultat.gallring.fordelning.akut > 0.01 && <span style={{ color: '#ef4444' }}>Akut {Math.round(resultat.gallring.fordelning.akut * 100)}%</span>}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Källa */}
           <div style={{ fontSize: '11px', opacity: 0.3, textAlign: 'center', marginTop: '16px', padding: '0 8px' }}>
             Volym: Skogliga Grunddata (laserdata {resultat.skanningsAr}). Trädslag: SLU Skogskarta (~{resultat.sluAr}).
