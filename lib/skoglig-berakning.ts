@@ -16,9 +16,6 @@ export interface Tradslag {
   volymHa: number;     // m³sk/ha
   totalVolym: number;  // m³sk total
   andel: number;       // 0-1
-  sagtimmer: number;   // m³fub
-  massaved: number;    // m³fub
-  grot: number;        // ton TS
 }
 
 export interface VolymResultat {
@@ -28,6 +25,7 @@ export interface VolymResultat {
   totalVolymHa: number;     // m³sk/ha medel (på skogsmark)
   totalVolym: number;       // m³sk total
   medeldiameter: number;    // cm
+  medelhojd: number;        // m
   tradslag: Tradslag[];
   skanningsAr: number;      // År laserdatan skannades
   sluAr: number;            // År SLU Skogskarta baseras på (ca 2018-2020)
@@ -90,40 +88,6 @@ function polyArea(coords: { x: number; y: number }[]): number {
   return Math.abs(area) / 2;
 }
 
-function sortimentsFordelning(tradslag: string, medeldiamCm: number, volymM3sk: number) {
-  const skToFub: Record<string, number> = {
-    tall: 0.83, gran: 0.83, bjork: 0.80, contorta: 0.83, bok: 0.78, ek: 0.75, ovrigt: 0.78,
-  };
-  const fubFactor = skToFub[tradslag] || 0.80;
-  const volymFub = volymM3sk * fubFactor;
-
-  let sagtimmerAndel: number;
-  if (tradslag === 'bjork' || tradslag === 'bok' || tradslag === 'ek' || tradslag === 'ovrigt') {
-    if (medeldiamCm < 15) sagtimmerAndel = 0;
-    else if (medeldiamCm < 20) sagtimmerAndel = 0.10;
-    else if (medeldiamCm < 25) sagtimmerAndel = 0.25;
-    else if (medeldiamCm < 30) sagtimmerAndel = 0.35;
-    else sagtimmerAndel = 0.45;
-  } else {
-    if (medeldiamCm < 14) sagtimmerAndel = 0;
-    else if (medeldiamCm < 18) sagtimmerAndel = 0.15;
-    else if (medeldiamCm < 22) sagtimmerAndel = 0.40;
-    else if (medeldiamCm < 26) sagtimmerAndel = 0.55;
-    else if (medeldiamCm < 30) sagtimmerAndel = 0.65;
-    else sagtimmerAndel = 0.75;
-  }
-
-  const sagtimmer = volymFub * sagtimmerAndel;
-  const massaved = volymFub * (1 - sagtimmerAndel);
-
-  const grotAndel: Record<string, number> = {
-    tall: 0.18, gran: 0.27, bjork: 0.22, contorta: 0.18, bok: 0.20, ek: 0.20, ovrigt: 0.20,
-  };
-  const grot = volymFub * (grotAndel[tradslag] || 0.20) * 0.4;
-
-  return { sagtimmer, massaved, grot };
-}
-
 async function fetchStats(service: string, geometry: string, proxyUrl: string) {
   const params = new URLSearchParams({
     geometry,
@@ -140,7 +104,7 @@ async function fetchStats(service: string, geometry: string, proxyUrl: string) {
 
 const emptyResult = (arealHa: number, msg: string, status: 'error' | 'no_data' = 'error'): VolymResultat => ({
   status, areal: arealHa, arealSkog: 0, totalVolymHa: 0, totalVolym: 0,
-  medeldiameter: 0, tradslag: [], skanningsAr: 0, sluAr: 0,
+  medeldiameter: 0, medelhojd: 0, tradslag: [], skanningsAr: 0, sluAr: 0,
   andelSkog: 0, avverkatVarning: false, felmeddelande: msg,
 });
 
@@ -173,6 +137,7 @@ export async function beraknaVolym(
     }
 
     const sgdVolymHa = sgdStats[0].mean;   // m³sk/ha direkt
+    const medelhojdDm = sgdStats[1].mean;  // dm direkt
     const medeldiameter = sgdStats[3].mean; // cm direkt
     const unixDay = sgdStats[7].mean;       // skanningsdatum
     const nmdMean = sgdStats[9].mean;       // NMD skogsmark (0/1/2)
@@ -218,9 +183,10 @@ export async function beraknaVolym(
         totalVolymHa: Math.round(sgdVolymHa * 10) / 10,
         totalVolym: Math.round(sgdVolymHa * arealSkog),
         medeldiameter: Math.round(medeldiameter * 10) / 10,
+        medelhojd: Math.round(medelhojdDm / 10 * 10) / 10,
         tradslag: [],
         skanningsAr,
-        sluAr: 2020, // SLU Skogskarta baseras på data ~2018-2020
+        sluAr: 2020,
         andelSkog,
         avverkatVarning: true,
       };
@@ -256,16 +222,12 @@ export async function beraknaVolym(
         // Applicera andelen på laservolym
         const volymHa = sgdVolymHa * andel;
         const totalVol = volymHa * arealSkog;
-        const sort = sortimentsFordelning(def.key, medeldiameter, totalVol);
 
         tradslag.push({
           namn: def.namn,
           volymHa: Math.round(volymHa * 10) / 10,
           totalVolym: Math.round(totalVol),
           andel,
-          sagtimmer: Math.round(sort.sagtimmer),
-          massaved: Math.round(sort.massaved),
-          grot: Math.round(sort.grot * 10) / 10,
         });
       }
     } else {
@@ -275,7 +237,6 @@ export async function beraknaVolym(
         volymHa: Math.round(sgdVolymHa * 10) / 10,
         totalVolym: Math.round(totalVolym),
         andel: 1,
-        sagtimmer: 0, massaved: 0, grot: 0,
       });
     }
 
@@ -288,6 +249,7 @@ export async function beraknaVolym(
       totalVolymHa: Math.round(sgdVolymHa * 10) / 10,
       totalVolym: Math.round(totalVolym),
       medeldiameter: Math.round(medeldiameter * 10) / 10,
+      medelhojd: Math.round(medelhojdDm / 10 * 10) / 10,
       tradslag,
       skanningsAr,
       sluAr: 2020,

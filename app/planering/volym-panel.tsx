@@ -1,5 +1,4 @@
 'use client'
-import { useState } from 'react'
 import type { VolymResultat } from '../../lib/skoglig-berakning'
 
 interface VolymPanelProps {
@@ -11,13 +10,7 @@ interface VolymPanelProps {
 const fmtNum = (n: number, d = 0) => n.toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
 export default function VolymPanel({ resultat, loading, onClose }: VolymPanelProps) {
-  const [showGrot, setShowGrot] = useState(false);
-
   if (!resultat && !loading) return null;
-
-  const totalSagtimmer = resultat?.tradslag.reduce((s, t) => s + t.sagtimmer, 0) || 0;
-  const totalMassaved = resultat?.tradslag.reduce((s, t) => s + t.massaved, 0) || 0;
-  const totalGrot = resultat?.tradslag.reduce((s, t) => s + t.grot, 0) || 0;
 
   return (
     <div style={{
@@ -114,6 +107,7 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
           {/* Extra info */}
           <div style={{ display: 'flex', gap: '12px', marginBottom: '16px', fontSize: '12px', opacity: 0.5, padding: '0 4px', flexWrap: 'wrap' }}>
             {resultat.andelSkog >= 1.0 && <span>Medeldiameter: {resultat.medeldiameter} cm</span>}
+            <span>Medelhöjd: {resultat.medelhojd} m</span>
             <span>Laserskannat: {resultat.skanningsAr}</span>
             <span>SLU Skogskarta: ~{resultat.sluAr}</span>
           </div>
@@ -139,57 +133,9 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
             ))}
           </div>
 
-          {/* Sortiment */}
-          <div style={{ marginTop: '16px' }}>
-            <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', padding: '0 4px', marginBottom: '8px' }}>
-              Sortiment (uppskattat)
-            </div>
-            <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '12px', overflow: 'hidden' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 80px', gap: '4px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.06)', fontSize: '11px', opacity: 0.5 }}>
-                <span>Trädslag</span>
-                <span style={{ textAlign: 'right' }}>Sågtimmer</span>
-                <span style={{ textAlign: 'right' }}>Massaved</span>
-              </div>
-              {resultat.tradslag.map(t => (
-                <div key={t.namn} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 80px', gap: '4px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                  <span style={{ fontSize: '14px' }}>{t.namn}</span>
-                  <span style={{ fontSize: '14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(t.sagtimmer)} m³fub</span>
-                  <span style={{ fontSize: '14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(t.massaved)} m³fub</span>
-                </div>
-              ))}
-              {/* Summa */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 70px 80px', gap: '4px', padding: '10px 12px', borderTop: '1px solid rgba(255,255,255,0.1)', fontWeight: '600' }}>
-                <span style={{ fontSize: '14px' }}>Totalt</span>
-                <span style={{ fontSize: '14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(totalSagtimmer)} m³fub</span>
-                <span style={{ fontSize: '14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(totalMassaved)} m³fub</span>
-              </div>
-            </div>
-          </div>
-
-          {/* GROT toggle */}
-          <div style={{ marginTop: '12px' }}>
-            <button
-              onClick={() => setShowGrot(!showGrot)}
-              style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '10px', padding: '10px 14px', color: '#fff', fontSize: '13px', cursor: 'pointer', width: '100%', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
-            >
-              <span>GROT (grenar och toppar)</span>
-              <span style={{ fontSize: '15px', fontWeight: '600', color: '#22c55e' }}>{fmtNum(totalGrot, 1)} ton TS</span>
-            </button>
-            {showGrot && (
-              <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '0 0 10px 10px', overflow: 'hidden', borderLeft: '1px solid rgba(255,255,255,0.08)', borderRight: '1px solid rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-                {resultat.tradslag.map(t => (
-                  <div key={t.namn} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 14px', borderBottom: '1px solid rgba(255,255,255,0.03)', fontSize: '13px' }}>
-                    <span style={{ opacity: 0.7 }}>{t.namn}</span>
-                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>{fmtNum(t.grot, 1)} ton TS</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
           {/* Källa */}
           <div style={{ fontSize: '11px', opacity: 0.3, textAlign: 'center', marginTop: '16px', padding: '0 8px' }}>
-            Volym: Skogliga Grunddata (laserdata {resultat.skanningsAr}). Trädslag: SLU Skogskarta (~{resultat.sluAr}). Sortiment uppskattat med förenklade utbytestabeller.
+            Volym: Skogliga Grunddata (laserdata {resultat.skanningsAr}). Trädslag: SLU Skogskarta (~{resultat.sluAr}).
           </div>
         </div>
       )}
