@@ -12,6 +12,14 @@ type Sasong = 'torrt' | 'normalt' | 'blott';
 
 const sasongLabel: Record<Sasong, string> = { torrt: 'Torrt', normalt: 'Normalt', blott: 'Blött' };
 
+type Bedomning = 'kor' | 'planera' | 'undvik';
+
+const bedomningConfig: Record<Bedomning, { icon: string; label: string; color: string; bg: string; rec: string }> = {
+  kor:     { icon: '\u2713', label: 'KÖR',     color: '#22c55e', bg: 'rgba(34,197,94,0.15)',  rec: 'Bra mark. Körbart året runt.' },
+  planera: { icon: '!',      label: 'PLANERA',  color: '#eab308', bg: 'rgba(234,179,8,0.15)',  rec: 'Blandad mark. Planera basvägen på den gröna delen. Kör vid torrt.' },
+  undvik:  { icon: '\u2715', label: 'UNDVIK',   color: '#ef4444', bg: 'rgba(239,68,68,0.15)',  rec: 'Dålig bärighet. Kräver risning/kavling eller torr sommar.' },
+};
+
 export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: KorbarhetPanelProps) {
   const autoSasong = resultat?.smhi?.sasong ?? 'normalt';
   const [manuell, setManuell] = useState<Sasong | null>(null);
@@ -35,15 +43,9 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
   const ford = getFordelning();
   const antalLass = totalVolymM3sk > 0 ? Math.ceil(totalVolymM3sk * 0.8 / 13) : 0;
   const basvagVarning = antalLass > 30 && (ford.gul + ford.rod) > 0.4;
-  const ejLamplig = ford.rod > 0.5;
 
-  const getSammanfattning = (): string => {
-    if (ford.rod > 0.5) return 'Ej lämplig för avverkning utan specialåtgärder (risning, kavling)';
-    if (ford.gron > 0.7) return 'Trakten är körbar under normala förhållanden';
-    if (ford.rod > 0.3) return 'Trakten har dålig bärighet \u2013 undvik körning vid blöta förhållanden';
-    if (ford.gul > 0.3) return 'Trakten har begränsad körbarhet \u2013 planera för torra perioder';
-    return 'Blandad bärighet \u2013 anpassa efter aktuella förhållanden';
-  };
+  const bedomning: Bedomning = ford.gron > 0.7 ? 'kor' : ford.gron >= 0.4 ? 'planera' : 'undvik';
+  const cfg = bedomningConfig[bedomning];
 
   return (
     <div style={{ marginTop: '16px' }}>
@@ -66,6 +68,27 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
 
       {resultat?.status === 'done' && (
         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '12px 14px' }}>
+
+          {/* Stor bedömningsikon + rekommendation */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <div style={{
+              width: '44px', height: '44px', borderRadius: '50%', flexShrink: 0,
+              background: cfg.bg, border: `2px solid ${cfg.color}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '20px', fontWeight: '700', color: cfg.color,
+            }}>
+              {cfg.icon}
+            </div>
+            <div>
+              <div style={{ fontSize: '14px', fontWeight: '700', color: cfg.color, marginBottom: '2px' }}>
+                {cfg.label}
+              </div>
+              <div style={{ fontSize: '12px', opacity: 0.7, lineHeight: '1.4' }}>
+                {cfg.rec}
+              </div>
+            </div>
+          </div>
+
           {/* SMHI markstatus */}
           {resultat.smhi && (
             <div style={{
@@ -119,36 +142,15 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
             })}
           </div>
 
-          {/* Fördelningsstapel */}
-          <div style={{ display: 'flex', height: '10px', borderRadius: '5px', overflow: 'hidden', marginBottom: '6px' }}>
-            {ford.gron > 0 && <div style={{ width: `${ford.gron * 100}%`, background: '#22c55e' }} />}
-            {ford.gul > 0 && <div style={{ width: `${ford.gul * 100}%`, background: '#eab308' }} />}
-            {ford.rod > 0 && <div style={{ width: `${ford.rod * 100}%`, background: '#ef4444' }} />}
-          </div>
-          <div style={{ display: 'flex', gap: '10px', fontSize: '11px', opacity: 0.7, marginBottom: '12px' }}>
-            {ford.gron > 0.01 && <span style={{ color: '#22c55e' }}>Körbart {Math.round(ford.gron * 100)}%</span>}
-            {ford.gul > 0.01 && <span style={{ color: '#eab308' }}>Begränsat {Math.round(ford.gul * 100)}%</span>}
-            {ford.rod > 0.01 && <span style={{ color: '#ef4444' }}>Ej körbart {Math.round(ford.rod * 100)}%</span>}
-          </div>
-
-          {/* Sammanfattning */}
-          <div style={{ fontSize: '13px', marginBottom: '12px', lineHeight: '1.4' }}>
-            {getSammanfattning()}
-          </div>
-
-          {/* Info-rad */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', marginBottom: '10px' }}>
+          {/* Grunddata: jordart + lutning */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '10px' }}>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '10px', opacity: 0.5, marginBottom: '2px' }}>Skotarlass</div>
-              <div style={{ fontSize: '14px', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>~{antalLass}</div>
+              <div style={{ fontSize: '10px', opacity: 0.5, marginBottom: '2px' }}>Jordart</div>
+              <div style={{ fontSize: '13px', fontWeight: '600' }}>{resultat.dominantJordart}</div>
             </div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: '10px', opacity: 0.5, marginBottom: '2px' }}>Medellutning</div>
               <div style={{ fontSize: '14px', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{resultat.medelLutning}°</div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: '10px', opacity: 0.5, marginBottom: '2px' }}>Jordart</div>
-              <div style={{ fontSize: '13px', fontWeight: '600' }}>{resultat.dominantJordart}</div>
             </div>
           </div>
 
@@ -161,27 +163,37 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
             </div>
           )}
 
-          {/* Varning: ej lämplig */}
-          {ejLamplig && (
+          {/* Fördelningsstapel */}
+          <div style={{ display: 'flex', height: '10px', borderRadius: '5px', overflow: 'hidden', marginBottom: '6px' }}>
+            {ford.gron > 0 && <div style={{ width: `${ford.gron * 100}%`, background: '#22c55e' }} />}
+            {ford.gul > 0 && <div style={{ width: `${ford.gul * 100}%`, background: '#eab308' }} />}
+            {ford.rod > 0 && <div style={{ width: `${ford.rod * 100}%`, background: '#ef4444' }} />}
+          </div>
+          <div style={{ display: 'flex', gap: '10px', fontSize: '11px', opacity: 0.7, marginBottom: '12px' }}>
+            {ford.gron > 0.01 && <span style={{ color: '#22c55e' }}>Körbart {Math.round(ford.gron * 100)}%</span>}
+            {ford.gul > 0.01 && <span style={{ color: '#eab308' }}>Begränsat {Math.round(ford.gul * 100)}%</span>}
+            {ford.rod > 0.01 && <span style={{ color: '#ef4444' }}>Ej körbart {Math.round(ford.rod * 100)}%</span>}
+          </div>
+
+          {/* Varning (visas bara en gång, längst ner) */}
+          {bedomning === 'undvik' && (
             <div style={{
               background: 'rgba(239,68,68,0.12)',
               border: '1px solid rgba(239,68,68,0.25)',
               borderRadius: '10px',
               padding: '10px 12px',
               fontSize: '12px',
-              marginBottom: basvagVarning ? '8px' : '0',
             }}>
               <div style={{ fontWeight: '600', color: '#ef4444', marginBottom: '4px' }}>
-                Ej lämplig för avverkning utan specialåtgärder
+                Ej lämplig utan specialåtgärder
               </div>
               <div style={{ opacity: 0.7, lineHeight: '1.4' }}>
-                Över hälften av trakten har dålig bärighet. Risning, kavling eller tjälad mark krävs för att undvika markskador.
+                Risning, kavling eller tjälad mark krävs för att undvika markskador.
               </div>
             </div>
           )}
 
-          {/* Basvägsvarning */}
-          {basvagVarning && !ejLamplig && (
+          {bedomning !== 'undvik' && basvagVarning && (
             <div style={{
               background: 'rgba(251,191,36,0.12)',
               border: '1px solid rgba(251,191,36,0.25)',
