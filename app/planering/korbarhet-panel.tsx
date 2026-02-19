@@ -1,5 +1,5 @@
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { KorbarhetsResultat } from '../../lib/korbarhet'
 
 interface KorbarhetPanelProps {
@@ -10,8 +10,15 @@ interface KorbarhetPanelProps {
 
 type Sasong = 'torrt' | 'normalt' | 'blott';
 
+const sasongLabel: Record<Sasong, string> = { torrt: 'Torrt', normalt: 'Normalt', blott: 'Blött' };
+
 export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: KorbarhetPanelProps) {
-  const [sasong, setSasong] = useState<Sasong>('normalt');
+  const autoSasong = resultat?.smhi?.sasong ?? 'normalt';
+  const [manuell, setManuell] = useState<Sasong | null>(null);
+  const sasong = manuell ?? autoSasong;
+
+  // Återställ manuellt val vid nytt resultat
+  useEffect(() => { setManuell(null); }, [resultat]);
 
   if (!resultat && !loading) return null;
 
@@ -57,33 +64,57 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
 
       {resultat?.status === 'done' && (
         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '12px 14px' }}>
-          {/* Säsongsväljare */}
+          {/* SMHI markstatus */}
+          {resultat.smhi && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '8px 10px', marginBottom: '10px', borderRadius: '8px',
+              background: resultat.smhi.sasong === 'torrt' ? 'rgba(34,197,94,0.1)' : resultat.smhi.sasong === 'blott' ? 'rgba(239,68,68,0.1)' : 'rgba(234,179,8,0.1)',
+              fontSize: '12px',
+            }}>
+              <span>
+                Markstatus just nu: <strong style={{ color: resultat.smhi.sasong === 'torrt' ? '#22c55e' : resultat.smhi.sasong === 'blott' ? '#ef4444' : '#eab308' }}>
+                  {sasongLabel[resultat.smhi.sasong]}
+                </strong>
+                {' '}({resultat.smhi.nederbord7d}mm senaste 7d, {resultat.smhi.station})
+              </span>
+            </div>
+          )}
+
+          {/* Säsongsväljare (override) */}
           <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
             {([
               { key: 'torrt' as Sasong, label: 'Torrt', desc: 'Sommar' },
               { key: 'normalt' as Sasong, label: 'Normalt', desc: 'Vår/höst' },
               { key: 'blott' as Sasong, label: 'Blött', desc: 'Utan tjäle' },
-            ]).map(s => (
-              <button
-                key={s.key}
-                onClick={() => setSasong(s.key)}
-                style={{
-                  flex: 1,
-                  padding: '8px 0 6px',
-                  border: sasong === s.key ? '1px solid rgba(255,255,255,0.2)' : '1px solid transparent',
-                  borderRadius: '8px',
-                  fontSize: '12px',
-                  fontWeight: sasong === s.key ? '600' : '400',
-                  background: sasong === s.key ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
-                  color: '#fff',
-                  cursor: 'pointer',
-                  lineHeight: '1.2',
-                }}
-              >
-                {s.label}
-                <div style={{ fontSize: '9px', opacity: 0.4, marginTop: '2px' }}>{s.desc}</div>
-              </button>
-            ))}
+            ]).map(s => {
+              const isActive = sasong === s.key;
+              const isAuto = manuell === null && autoSasong === s.key;
+              return (
+                <button
+                  key={s.key}
+                  onClick={() => setManuell(s.key === autoSasong && manuell !== null ? null : s.key)}
+                  style={{
+                    flex: 1,
+                    padding: '8px 0 6px',
+                    border: isActive ? '1px solid rgba(255,255,255,0.2)' : '1px solid transparent',
+                    borderRadius: '8px',
+                    fontSize: '12px',
+                    fontWeight: isActive ? '600' : '400',
+                    background: isActive ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    lineHeight: '1.2',
+                    position: 'relative',
+                  }}
+                >
+                  {s.label}
+                  <div style={{ fontSize: '9px', opacity: 0.4, marginTop: '2px' }}>
+                    {isAuto ? 'SMHI' : s.desc}
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
           {/* Fördelningsstapel */}

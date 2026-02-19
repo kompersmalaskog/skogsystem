@@ -2,12 +2,19 @@
 //
 // Markfuktighet: Markfuktighet_SLU_2_0 ImageServer (klasser 1-5)
 // Lutning: Lutning_1_0 ImageServer (grader)
-// Jordart: SGU WMS GetFeatureInfo (jordarter 25-100K)
+// Jordart: SGU WMS GetFeatureInfo via maps3.sgu.se (jordarter 25-100K)
+// Säsong: SMHI nederbördsdata (parameter 5) från närmaste station
 
 const MARKFUKT_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/Markfuktighet_SLU_2_0/ImageServer';
 const LUTNING_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/Lutning_1_0/ImageServer';
-const SGU_WMS = 'https://resource.sgu.se/service/wms/130/jordarter-25-100-tusen';
+const SGU_WMS = 'https://maps3.sgu.se/geoserver/jord/ows';
 const SGU_LAYER = 'SE.GOV.SGU.JORD.GRUNDLAGER.25K';
+
+export interface SmhiData {
+  sasong: 'torrt' | 'normalt' | 'blott';
+  nederbord7d: number;
+  station: string;
+}
 
 export interface KorbarhetsResultat {
   status: 'done' | 'error';
@@ -15,6 +22,7 @@ export interface KorbarhetsResultat {
   dominantJordart: string;
   jordartFordelning: { namn: string; andel: number }[];
   medelLutning: number;
+  smhi?: SmhiData;
   felmeddelande?: string;
 }
 
@@ -112,7 +120,7 @@ async function fetchStatistics(service: string, geometry: string, proxyUrl: stri
   return await resp.json();
 }
 
-// ---------- Jordart (SGU) ----------
+// ---------- Jordart (SGU via maps3.sgu.se) ----------
 
 type JordartKategori = 'berg' | 'moran' | 'sand' | 'lera' | 'torv' | 'okand';
 
@@ -137,22 +145,23 @@ function jordartDisplayName(kat: JordartKategori): string {
   }
 }
 
+// x = easting, y = northing i SWEREF99TM
 async function fetchJordartAtPoint(x: number, y: number, sguProxyUrl: string): Promise<JordartKategori> {
-  const d = 5;
-  const bbox = `${x - d},${y - d},${x + d},${y + d}`;
+  // WMS 1.3.0 med CRS=EPSG:3006: BBOX = minNorthing,minEasting,maxNorthing,maxEasting
+  const d = 500; // 1km bbox
+  const bbox = `${y - d},${x - d},${y + d},${x + d}`;
   const params = new URLSearchParams({
     SERVICE: 'WMS',
-    VERSION: '1.1.1',
+    VERSION: '1.3.0',
     REQUEST: 'GetFeatureInfo',
     LAYERS: SGU_LAYER,
     QUERY_LAYERS: SGU_LAYER,
-    STYLES: '',
-    SRS: 'EPSG:3006',
+    CRS: 'EPSG:3006',
     BBOX: bbox,
-    WIDTH: '1',
-    HEIGHT: '1',
-    X: '0',
-    Y: '0',
+    WIDTH: '256',
+    HEIGHT: '256',
+    I: '128',
+    J: '128',
     INFO_FORMAT: 'application/json',
   });
   const targetUrl = `${SGU_WMS}?${params.toString()}`;
@@ -162,20 +171,17 @@ async function fetchJordartAtPoint(x: number, y: number, sguProxyUrl: string): P
     const data = await resp.json();
     if (data.features && data.features.length > 0) {
       const props = data.features[0].properties || {};
+      // SGU returnerar fältet "Jordart" med värden som "Lera--silt", "Morän"
+      if (props.Jordart) return parseJordart(String(props.Jordart));
+      // Fallback: sök bland alla properties
       for (const key of Object.keys(props)) {
         const k = key.toLowerCase();
-        if (k.includes('jordart') || k.includes('jord') || k === 'namn' || k === 'name') {
-          return parseJordart(String(props[key]));
-        }
-      }
-      // Fallback: first string property
-      for (const key of Object.keys(props)) {
-        if (typeof props[key] === 'string' && props[key].length > 2) {
+        if (k.includes('jordart') || k.includes('jord')) {
           return parseJordart(String(props[key]));
         }
       }
     }
-  } catch { /* SGU offline eller CORS */ }
+  } catch { /* SGU offline */ }
   return 'okand';
 }
 
@@ -237,7 +243,6 @@ function parseLutning(data: Record<string, unknown>): LutningData {
 
   const histograms = data.histograms as { counts: number[]; min?: number; max?: number }[] | undefined;
   if (!histograms?.[0]?.counts) {
-    // Inget histogram – placera allt i rätt intervall baserat på medelvärde
     for (const r of ranges) { if (mean < r.maxDeg) { r.fraction = 1; break; } }
     if (ranges.every(r => r.fraction === 0)) ranges[3].fraction = 1;
     return { mean, ranges };
@@ -329,11 +334,20 @@ export async function beraknaKorbarhet(
 
   const samplingPoints = generateSamplingPoints(swerefCoords, 12);
 
+  // Beräkna polygonens centroid för SMHI-anrop
+  const centerLat = polygonLatLon.reduce((s, p) => s + p.lat, 0) / polygonLatLon.length;
+  const centerLon = polygonLatLon.reduce((s, p) => s + p.lon, 0) / polygonLatLon.length;
+
   try {
-    // Hämta markfuktighet, lutning och jordart parallellt
-    const [markfuktData, lutningData, ...jordartResults] = await Promise.all([
+    // Hämta allt parallellt: markfuktighet, lutning, SMHI, jordart
+    const smhiPromise: Promise<SmhiData | null> = fetch(`/api/smhi-nederb?lat=${centerLat}&lon=${centerLon}`)
+      .then(r => r.ok ? r.json() as Promise<SmhiData> : null)
+      .catch(() => null);
+
+    const [markfuktData, lutningData, smhiData, ...jordartResults] = await Promise.all([
       fetchStatistics(MARKFUKT_SERVICE, geometry, proxyUrl),
       fetchStatistics(LUTNING_SERVICE, geometry, proxyUrl),
+      smhiPromise,
       ...samplingPoints.map(p => fetchJordartAtPoint(p.x, p.y, sguProxyUrl)),
     ]);
 
@@ -359,7 +373,7 @@ export async function beraknaKorbarhet(
     // Kombinera: jordart × fuktighet × lutningsintervall
     const fordelning = { gron: 0, gul: 0, rod: 0 };
     const fuktClasses: FuktKlass[] = ['torr', 'frisk', 'friskFuktig', 'fuktig', 'blot'];
-    const lutRepresentative = [10, 17, 22, 30]; // representativa lutningsvärden per intervall
+    const lutRepresentative = [10, 17, 22, 30];
 
     for (const [kat, count] of Object.entries(jordartCounts) as [JordartKategori, number][]) {
       if (count === 0) continue;
@@ -393,6 +407,7 @@ export async function beraknaKorbarhet(
       dominantJordart: jordartDisplayName(dominantKat),
       jordartFordelning,
       medelLutning: Math.round(lutning.mean * 10) / 10,
+      smhi: smhiData || undefined,
     };
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Okänt fel';

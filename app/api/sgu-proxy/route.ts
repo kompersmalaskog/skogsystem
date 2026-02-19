@@ -7,7 +7,8 @@ export async function GET(req: NextRequest) {
   let parsed: URL;
   try { parsed = new URL(url); } catch { return NextResponse.json({ error: 'Invalid url' }, { status: 400 }); }
 
-  if (parsed.hostname !== 'resource.sgu.se') {
+  const ALLOWED = ['resource.sgu.se', 'maps3.sgu.se'];
+  if (!ALLOWED.includes(parsed.hostname)) {
     return NextResponse.json({ error: 'Host not allowed' }, { status: 403 });
   }
 
