@@ -1,16 +1,15 @@
-// Skoglig volymberäkning via Skogsstyrelsens ImageServer REST API
+// Skoglig volymberäkning
 //
 // Huvudkälla: SkogligaGrunddata_3_1 (laserdata, 10m pixel, EPSG:3006)
 //   Band 0: Volym (m³sk/ha), 1: Medelhöjd (dm), 2: Grundyta (m²/ha), 3: Medeldiameter (cm)
 //   Band 4: Biomassa, 5: P95, 6: Vegkvot, 7: UnixDay, 8: Löv/Avlövat, 9: NMD skogsmark
 //   Rasterfunktion "Gallringsindex": 4 klasser (0=Lågt, 1=Medel, 2=Högt, 3=Akut)
 //
-// Trädslagsfördelning: SLUskogskarta_1_0 (satellit+riksskogstax, 12.5m pixel)
-//   Band 5-11: Volym per trädslag (raw / 100 = m³sk/ha)
-//   Används BARA för procentuell fördelning, appliceras på laservolym
+// Trädslagsfördelning: Lokala GeoTIFF-filer (SLU Skogskarta, 12.5m pixel)
+//   Nedladdade från Skogsstyrelsens FTP till data/slu-skogskarta/
+//   Läses via /api/slu-geotiff med pixelsampling inom polygon
 
 const SGD_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SkogligaGrunddata_3_1/ImageServer';
-const SLU_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUskogskarta_1_0/ImageServer';
 
 export interface Tradslag {
   namn: string;
@@ -135,57 +134,25 @@ async function fetchStats(service: string, geometry: string, proxyUrl: string, r
   return data;
 }
 
-// SLU Skogskarta 1.0: computeStatisticsHistograms and getSamples are broken
-// server-side (tested with curl — identical results for all polygons regardless
-// of location). The data has per-tile granularity (~40 tiles covering Sweden,
-// each tile ~50-100 km across). identify at the polygon centroid returns the
-// correct tile-specific values. Two polygons within the same tile WILL get
-// the same species %. Polygons in different tiles get different %.
-async function fetchSluIdentify(
-  service: string,
-  centroid: { x: number; y: number },
-  proxyUrl: string,
-): Promise<number[]> {
-  const geometry = JSON.stringify({
-    x: Math.round(centroid.x),
-    y: Math.round(centroid.y),
+// SLU Skogskarta: Lokala GeoTIFF-filer (12.5m pixel) via /api/slu-geotiff
+// Skogsstyrelsens ImageServer API returnerar per-tile-data (~50-100km upplösning).
+// Lokala filer ger pixelexakt trädslagsfördelning inom polygonen.
+async function fetchSluLocal(
+  swerefRing: number[][],
+): Promise<{ key: string; namn: string; meanRaw: number }[]> {
+  const resp = await fetch('/api/slu-geotiff', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ring: swerefRing }),
   });
-  const params = new URLSearchParams({
-    geometry,
-    geometryType: 'esriGeometryPoint',
-    geometrySR: '3006',
-    returnGeometry: 'false',
-    returnCatalogItems: 'true',
-    f: 'json',
-  });
-  const targetUrl = `${service}/identify?${params.toString()}`;
-
-  console.log(`[skoglig] fetchSluIdentify: centroid=(${Math.round(centroid.x)}, ${Math.round(centroid.y)})`);
-
-  const resp = await fetch(`${proxyUrl}?url=${encodeURIComponent(targetUrl)}`);
-  if (!resp.ok) throw new Error(`SLU identify ${resp.status}`);
-
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    console.error(`[skoglig] fetchSluLocal error: ${resp.status} ${text.slice(0, 300)}`);
+    throw new Error(`SLU GeoTIFF ${resp.status}`);
+  }
   const data = await resp.json();
-
-  // Log which tile we got data from
-  const catalogItems = data.catalogItems?.features || [];
-  const primaryTile = catalogItems.find(
-    (f: { attributes: { Category: number; Name: string } }) => f.attributes.Category === 1,
-  );
-  if (primaryTile) {
-    console.log(`[skoglig] SLU tile: ${primaryTile.attributes.Name} (regional resolution ~50-100km)`);
-  }
-
-  const valueStr = data.value;
-  if (!valueStr || valueStr === 'NoData') {
-    console.log(`[skoglig] fetchSluIdentify: no data (value=${valueStr})`);
-    return [];
-  }
-
-  // identify returns comma-separated: "22283, 503, 1300, 89, ..."
-  const values = valueStr.split(',').map((s: string) => Number(s.trim()));
-  console.log(`[skoglig] SLU values: Tall=${values[5]} Gran=${values[6]} Björk=${values[7]}`);
-  return values;
+  console.log(`[skoglig] SLU lokal: ${(data.values || []).map((v: { key: string; meanRaw: number }) => `${v.key}=${v.meanRaw.toFixed(1)}`).join(', ')} (${data.insideCount} pixlar)`);
+  return data.values || [];
 }
 
 // Gallringsmall: mål-grundyta efter gallring baserat på medelhöjd och ståndortsindex
@@ -290,23 +257,17 @@ export async function beraknaVolym(
   }
   const geometry = JSON.stringify({ rings: [ring] });
 
-  // Centroid for SLU identify (simple average of polygon vertices)
-  const centroid = swerefCoords.reduce(
-    (acc, c) => ({ x: acc.x + c.x / swerefCoords.length, y: acc.y + c.y / swerefCoords.length }),
-    { x: 0, y: 0 },
-  );
-
   try {
     // Hämta alla parallellt
     const gallringsRule = JSON.stringify({
       rasterFunction: 'Gallringsindex',
       rasterFunctionArguments: { sis: 'g16-g22' },
     });
-    // SGD: computeStatisticsHistograms works correctly (POST)
-    // SLU: computeStatisticsHistograms is broken — use identify at centroid
-    const [sgdData, sluBandValues, gallringsData] = await Promise.all([
+    // SGD: computeStatisticsHistograms (POST) — laserdata
+    // SLU: lokala GeoTIFF-filer via /api/slu-geotiff — trädslagsfördelning
+    const [sgdData, sluSpecies, gallringsData] = await Promise.all([
       fetchStats(SGD_SERVICE, geometry, proxyUrl),
-      fetchSluIdentify(SLU_SERVICE, centroid, proxyUrl),
+      fetchSluLocal(ring),
       fetchStats(SGD_SERVICE, geometry, proxyUrl, gallringsRule).catch(() => null),
     ]);
     const sgdStats = sgdData.statistics || [];
@@ -384,36 +345,20 @@ export async function beraknaVolym(
 
     const totalVolym = sgdVolymHa * arealSkog;
 
-    // --- SLU Skogskarta (trädslagsfördelning) ---
-    const tradslagDef = [
-      { band: 5, namn: 'Tall', key: 'tall' },
-      { band: 6, namn: 'Gran', key: 'gran' },
-      { band: 7, namn: 'Björk', key: 'bjork' },
-      { band: 8, namn: 'Contorta', key: 'contorta' },
-      { band: 9, namn: 'Bok', key: 'bok' },
-      { band: 10, namn: 'Ek', key: 'ek' },
-      { band: 11, namn: 'Övrigt löv', key: 'ovrigt' },
-    ];
-
+    // --- SLU Skogskarta (trädslagsfördelning, lokala GeoTIFF 12.5m) ---
     const tradslag: Tradslag[] = [];
 
-    console.log(`[skoglig] SLU identify bands: ${sluBandValues.length}`);
-    if (sluBandValues.length >= 12) {
-      console.log(`[skoglig] SLU band values: Tall=${sluBandValues[5]} Gran=${sluBandValues[6]} Björk=${sluBandValues[7]} Contorta=${sluBandValues[8]} Bok=${sluBandValues[9]} Ek=${sluBandValues[10]} Övrigt=${sluBandValues[11]}`);
-    }
-
-    if (sluBandValues.length >= 12 && sluBandValues[5] > 0) {
-      // identify returns pixel values for all 12 bands at the centroid
-      // Bands 5-11: Tall, Gran, Björk, Contorta, Bok, Ek, Övrigt löv (raw values)
+    if (sluSpecies.length > 0) {
+      // meanRaw = medelvärde m³sk/ha per trädslag inom polygonen
       let sluSumma = 0;
-      for (const def of tradslagDef) {
-        sluSumma += Math.max(0, sluBandValues[def.band]);
+      for (const sp of sluSpecies) {
+        sluSumma += Math.max(0, sp.meanRaw);
       }
 
-      console.log(`[skoglig] SLU trädslag summa: ${sluSumma}`);
+      console.log(`[skoglig] SLU trädslag summa: ${sluSumma.toFixed(1)}`);
 
-      for (const def of tradslagDef) {
-        const sluRaw = Math.max(0, sluBandValues[def.band]);
+      for (const sp of sluSpecies) {
+        const sluRaw = Math.max(0, sp.meanRaw);
         const andel = sluSumma > 0 ? sluRaw / sluSumma : 0;
         if (andel < 0.005) continue; // Skippa < 0.5%
 
@@ -422,13 +367,15 @@ export async function beraknaVolym(
         const totalVol = volymHa * arealSkog;
 
         tradslag.push({
-          namn: def.namn,
+          namn: sp.namn,
           volymHa: Math.round(volymHa * 10) / 10,
           totalVolym: Math.round(totalVol),
           andel,
         });
       }
-    } else {
+    }
+
+    if (tradslag.length === 0) {
       // Ingen SLU-data — visa totalvolym utan trädslagsfördelning
       tradslag.push({
         namn: 'Okänt trädslag',
