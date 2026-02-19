@@ -135,34 +135,48 @@ async function fetchStats(service: string, geometry: string, proxyUrl: string, r
   return data;
 }
 
-// SLU Skogskarta: computeStatisticsHistograms is broken server-side — it
-// ignores geometry and returns global aggregates. Use identify at the polygon
-// centroid instead, which correctly returns per-tile pixel values.
+// SLU Skogskarta 1.0: computeStatisticsHistograms and getSamples are broken
+// server-side (tested with curl — identical results for all polygons regardless
+// of location). The data has per-tile granularity (~40 tiles covering Sweden,
+// each tile ~50-100 km across). identify at the polygon centroid returns the
+// correct tile-specific values. Two polygons within the same tile WILL get
+// the same species %. Polygons in different tiles get different %.
 async function fetchSluIdentify(
   service: string,
   centroid: { x: number; y: number },
   proxyUrl: string,
 ): Promise<number[]> {
-  const geometry = JSON.stringify({ x: centroid.x, y: centroid.y });
+  const geometry = JSON.stringify({
+    x: Math.round(centroid.x),
+    y: Math.round(centroid.y),
+  });
   const params = new URLSearchParams({
     geometry,
     geometryType: 'esriGeometryPoint',
     geometrySR: '3006',
     returnGeometry: 'false',
-    returnCatalogItems: 'false',
+    returnCatalogItems: 'true',
     f: 'json',
   });
   const targetUrl = `${service}/identify?${params.toString()}`;
 
-  console.log(`[skoglig] fetchSluIdentify: centroid=(${centroid.x.toFixed(0)}, ${centroid.y.toFixed(0)})`);
-  console.log(`[skoglig] fetchSluIdentify URL: ${targetUrl}`);
+  console.log(`[skoglig] fetchSluIdentify: centroid=(${Math.round(centroid.x)}, ${Math.round(centroid.y)})`);
 
   const resp = await fetch(`${proxyUrl}?url=${encodeURIComponent(targetUrl)}`);
   if (!resp.ok) throw new Error(`SLU identify ${resp.status}`);
 
   const data = await resp.json();
-  const valueStr = data.value;
 
+  // Log which tile we got data from
+  const catalogItems = data.catalogItems?.features || [];
+  const primaryTile = catalogItems.find(
+    (f: { attributes: { Category: number; Name: string } }) => f.attributes.Category === 1,
+  );
+  if (primaryTile) {
+    console.log(`[skoglig] SLU tile: ${primaryTile.attributes.Name} (regional resolution ~50-100km)`);
+  }
+
+  const valueStr = data.value;
   if (!valueStr || valueStr === 'NoData') {
     console.log(`[skoglig] fetchSluIdentify: no data (value=${valueStr})`);
     return [];
@@ -170,7 +184,7 @@ async function fetchSluIdentify(
 
   // identify returns comma-separated: "22283, 503, 1300, 89, ..."
   const values = valueStr.split(',').map((s: string) => Number(s.trim()));
-  console.log(`[skoglig] fetchSluIdentify: ${values.length} bands, values=[${values.join(', ')}]`);
+  console.log(`[skoglig] SLU values: Tall=${values[5]} Gran=${values[6]} Björk=${values[7]}`);
   return values;
 }
 
