@@ -3852,13 +3852,8 @@ export default function PlannerPage() {
                   }
                   let wmsUrl: string;
                   if (layer.customApi) {
-                    // Egen API-route (t.ex. körbarhetstiles)
-                    const mercBbox = (() => {
-                      const toM = (la: number, lo: number) => ({ mx: lo * 20037508.34 / 180, my: Math.log(Math.tan((90 + la) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180 });
-                      const s = toM(latMin, lngMin), n = toM(latMax, lngMax);
-                      return `${s.mx},${s.my},${n.mx},${n.my}`;
-                    })();
-                    wmsUrl = `${layer.url}?bbox=${mercBbox}&size=256,256`;
+                    // Egen API-route (t.ex. körbarhetstiles) — bbox i EPSG:4326
+                    wmsUrl = `${layer.url}?bbox=${lngMin},${latMin},${lngMax},${latMax}&width=256&height=256`;
                   } else if (layer.exportImage) {
                     // ArcGIS ImageServer exportImage (t.ex. Gallringsindex)
                     const mercBbox = (() => {
