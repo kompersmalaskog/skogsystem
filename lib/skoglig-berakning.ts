@@ -102,57 +102,40 @@ function polyArea(coords: { x: number; y: number }[]): number {
   return Math.abs(area) / 2;
 }
 
+// POST form-encoded body via wms-proxy to avoid URL length limits.
+// ArcGIS computeStatisticsHistograms silently ignores geometry when
+// it exceeds GET URL length limits (~2048 chars).
 async function fetchStats(service: string, geometry: string, proxyUrl: string, renderingRule?: string) {
-  const params = new URLSearchParams({
+  const formParams = new URLSearchParams({
     geometry,
     geometryType: 'esriGeometryPolygon',
-    spatialReference: JSON.stringify({ wkid: 3006 }),
+    geometrySR: '3006',
     f: 'json',
   });
-  if (renderingRule) params.set('renderingRule', renderingRule);
-  const targetUrl = `${service}/computeStatisticsHistograms?${params.toString()}`;
-  console.log(`[skoglig] fetchStats: ${targetUrl.slice(0, 200)}...`);
-  const resp = await fetch(`${proxyUrl}?url=${encodeURIComponent(targetUrl)}`);
-  if (!resp.ok) throw new Error(`API ${resp.status}`);
-  return await resp.json();
-}
+  if (renderingRule) formParams.set('renderingRule', renderingRule);
 
-// getSamples at polygon centroid — works for SLU Skogskarta where
-// computeStatisticsHistograms ignores geometry (returns overview values)
-async function fetchSluSamples(
-  service: string,
-  centroid: { x: number; y: number },
-  proxyUrl: string,
-): Promise<number[]> {
-  const geometry = JSON.stringify({
-    x: centroid.x,
-    y: centroid.y,
-    spatialReference: { wkid: 3006 },
+  const targetUrl = `${service}/computeStatisticsHistograms`;
+  const formBody = formParams.toString();
+
+  console.log(`[skoglig] fetchStats POST: ${targetUrl}`);
+  console.log(`[skoglig] fetchStats geometry: ${geometry}`);
+  console.log(`[skoglig] fetchStats body length: ${formBody.length} chars`);
+
+  const resp = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetUrl, body: formBody }),
   });
-  const mosaicRule = JSON.stringify({
-    mosaicMethod: 'esriMosaicNorthwest',
-    where: 'Category = 1',
-  });
-  const params = new URLSearchParams({
-    geometry,
-    geometryType: 'esriGeometryPoint',
-    sampleCount: '1',
-    mosaicRule,
-    f: 'json',
-  });
-  const targetUrl = `${service}/getSamples?${params.toString()}`;
-  console.log(`[skoglig] fetchSluSamples: ${targetUrl.slice(0, 200)}...`);
-  const resp = await fetch(`${proxyUrl}?url=${encodeURIComponent(targetUrl)}`);
-  if (!resp.ok) throw new Error(`SLU getSamples ${resp.status}`);
-  const data = await resp.json();
-  const samples = data.samples;
-  if (!samples || samples.length === 0 || !samples[0].value) {
-    console.log('[skoglig] SLU getSamples: no samples returned');
-    return [];
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    console.error(`[skoglig] fetchStats error: ${resp.status} ${text.slice(0, 300)}`);
+    throw new Error(`API ${resp.status}`);
   }
-  const values = samples[0].value.split(' ').map(Number);
-  console.log(`[skoglig] SLU getSamples: ${values.length} bands, values=${values.join(',')}`);
-  return values;
+
+  const data = await resp.json();
+  console.log(`[skoglig] fetchStats response: ${JSON.stringify(data).slice(0, 300)}...`);
+  return data;
 }
 
 // Gallringsmall: mål-grundyta efter gallring baserat på medelhöjd och ståndortsindex
@@ -257,23 +240,15 @@ export async function beraknaVolym(
   }
   const geometry = JSON.stringify({ rings: [ring] });
 
-  // Centroid for SLU getSamples (simple average)
-  const centroid = swerefCoords.reduce(
-    (acc, c) => ({ x: acc.x + c.x / swerefCoords.length, y: acc.y + c.y / swerefCoords.length }),
-    { x: 0, y: 0 },
-  );
-
   try {
-    // Hämta alla parallellt
+    // Hämta alla parallellt — POST form-encoded via proxy
     const gallringsRule = JSON.stringify({
       rasterFunction: 'Gallringsindex',
       rasterFunctionArguments: { sis: 'g16-g22' },
     });
-    // SLU: använd getSamples vid centroid — computeStatisticsHistograms
-    // returnerar alltid samma värden oavsett polygon (server-bug)
-    const [sgdData, sluBandValues, gallringsData] = await Promise.all([
+    const [sgdData, sluData, gallringsData] = await Promise.all([
       fetchStats(SGD_SERVICE, geometry, proxyUrl),
-      fetchSluSamples(SLU_SERVICE, centroid, proxyUrl),
+      fetchStats(SLU_SERVICE, geometry, proxyUrl),
       fetchStats(SGD_SERVICE, geometry, proxyUrl, gallringsRule).catch(() => null),
     ]);
     const sgdStats = sgdData.statistics || [];
@@ -363,18 +338,25 @@ export async function beraknaVolym(
     ];
 
     const tradslag: Tradslag[] = [];
+    const sluStats = sluData.statistics || [];
 
-    if (sluBandValues.length >= 12) {
-      // getSamples returns all 12 bands as numbers:
-      // [TotalVolym, Medelhöjd, Grundyta, Medeldiameter, Biomassa,
-      //  TallVolym, GranVolym, BjörkVolym, ContortaVolym, BokVolym, EkVolym, ÖvrigtVolym]
+    console.log(`[skoglig] SLU statistics bands: ${sluStats.length}`);
+    for (let i = 0; i < sluStats.length; i++) {
+      console.log(`[skoglig] SLU band ${i}: mean=${sluStats[i]?.mean} count=${sluStats[i]?.count}`);
+    }
+
+    if (sluStats.length >= 12 && sluStats[5]?.count > 0) {
+      // computeStatisticsHistograms returns per-band statistics
+      // Bands 5-11: Tall, Gran, Björk, Contorta, Bok, Ek, Övrigt löv (raw/100 = m³sk/ha)
       let sluSumma = 0;
       for (const def of tradslagDef) {
-        sluSumma += Math.max(0, sluBandValues[def.band]);
+        sluSumma += Math.max(0, sluStats[def.band]?.mean || 0);
       }
 
+      console.log(`[skoglig] SLU trädslag summa: ${sluSumma}`);
+
       for (const def of tradslagDef) {
-        const sluRaw = Math.max(0, sluBandValues[def.band]);
+        const sluRaw = Math.max(0, sluStats[def.band]?.mean || 0);
         const andel = sluSumma > 0 ? sluRaw / sluSumma : 0;
         if (andel < 0.005) continue; // Skippa < 0.5%
 
