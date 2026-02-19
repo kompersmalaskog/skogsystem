@@ -1,15 +1,19 @@
 'use client'
 import type { VolymResultat } from '../../lib/skoglig-berakning'
+import type { KorbarhetsResultat } from '../../lib/korbarhet'
+import KorbarhetPanel from './korbarhet-panel'
 
 interface VolymPanelProps {
   resultat: VolymResultat | null;
   loading: boolean;
   onClose: () => void;
+  korbarhetsResultat?: KorbarhetsResultat | null;
+  korbarhetsLoading?: boolean;
 }
 
 const fmtNum = (n: number, d = 0) => n.toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
-export default function VolymPanel({ resultat, loading, onClose }: VolymPanelProps) {
+export default function VolymPanel({ resultat, loading, onClose, korbarhetsResultat, korbarhetsLoading }: VolymPanelProps) {
   if (!resultat && !loading) return null;
 
   return (
@@ -203,9 +207,18 @@ export default function VolymPanel({ resultat, loading, onClose }: VolymPanelPro
             </div>
           )}
 
+          {/* Körbarhet */}
+          {(korbarhetsLoading || korbarhetsResultat) && (
+            <KorbarhetPanel
+              resultat={korbarhetsResultat ?? null}
+              loading={korbarhetsLoading ?? false}
+              totalVolymM3sk={resultat.totalVolym}
+            />
+          )}
+
           {/* Källa */}
           <div style={{ fontSize: '11px', opacity: 0.3, textAlign: 'center', marginTop: '16px', padding: '0 8px' }}>
-            Volym: Skogliga Grunddata (laserdata {resultat.skanningsAr}). Trädslag: SLU Skogskarta (~{resultat.sluAr}).
+            Volym: Skogliga Grunddata (laserdata {resultat.skanningsAr}). Trädslag: SLU Skogskarta (~{resultat.sluAr}).{korbarhetsResultat?.status === 'done' ? ' Körbarhet: SGU jordarter + SLU markfuktighet + SKS lutning.' : ''}
           </div>
         </div>
       )}

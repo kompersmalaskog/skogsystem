@@ -5,6 +5,7 @@ import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
 import VolymPanel from './volym-panel'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
+import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -854,6 +855,9 @@ export default function PlannerPage() {
   // Volymberäkning
   const [volymResultat, setVolymResultat] = useState<VolymResultat | null>(null);
   const [volymLoading, setVolymLoading] = useState(false);
+  // Körbarhetsanalys
+  const [korbarhetsResultat, setKorbarhetsResultat] = useState<KorbarhetsResultat | null>(null);
+  const [korbarhetsLoading, setKorbarhetsLoading] = useState(false);
 
   // Generellt tillstånd för avlägg
   const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
@@ -5491,6 +5495,8 @@ export default function PlannerPage() {
                     const latLonPath = path.map(p => svgToLatLon(p.x, p.y));
                     setVolymLoading(true);
                     setVolymResultat(null);
+                    setKorbarhetsLoading(true);
+                    setKorbarhetsResultat(null);
                     setMarkerMenuOpen(null);
                     beraknaVolym(latLonPath, '/api/wms-proxy').then(res => {
                       setVolymResultat(res);
@@ -5498,6 +5504,13 @@ export default function PlannerPage() {
                     }).catch(() => {
                       setVolymResultat({ status: 'error', areal: 0, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: 'Beräkning misslyckades' });
                       setVolymLoading(false);
+                    });
+                    beraknaKorbarhet(latLonPath, '/api/wms-proxy', '/api/sgu-proxy').then(res => {
+                      setKorbarhetsResultat(res);
+                      setKorbarhetsLoading(false);
+                    }).catch(() => {
+                      setKorbarhetsResultat({ status: 'error', fordelning: { gron: 0, gul: 0, rod: 0 }, dominantJordart: 'Okänd', jordartFordelning: [], medelLutning: 0, felmeddelande: 'Körbarhetsanalys misslyckades' });
+                      setKorbarhetsLoading(false);
                     });
                   }}
                   style={{
@@ -5543,12 +5556,14 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === VOLYMBERÄKNING === */}
+      {/* === VOLYMBERÄKNING + KÖRBARHET === */}
       {(volymLoading || volymResultat) && (
         <VolymPanel
           resultat={volymResultat}
           loading={volymLoading}
-          onClose={() => { setVolymResultat(null); setVolymLoading(false); }}
+          onClose={() => { setVolymResultat(null); setVolymLoading(false); setKorbarhetsResultat(null); setKorbarhetsLoading(false); }}
+          korbarhetsResultat={korbarhetsResultat}
+          korbarhetsLoading={korbarhetsLoading}
         />
       )}
 
