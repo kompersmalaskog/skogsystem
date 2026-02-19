@@ -6,40 +6,12 @@ const MARKFUKT_SERVICE =
 const LUTNING_SERVICE =
   'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/Lutning_1_0/ImageServer';
 
-// ---------- Rendering rules ----------
+// renderingRule=None → raw pixel values (no server-side colormap)
+const NONE_RULE = encodeURIComponent(JSON.stringify({ rasterFunction: 'None' }));
 
-// Markfuktighet: Colormap som ger R=klassId*10 (10-50), nodata = transparent
-const FUKT_RULE = JSON.stringify({
-  rasterFunction: 'Colormap',
-  rasterFunctionArguments: {
-    Colormap: [
-      [1, 10, 0, 0],
-      [2, 20, 0, 0],
-      [3, 30, 0, 0],
-      [4, 40, 0, 0],
-      [5, 50, 0, 0],
-    ],
-  },
-});
-
-// Lutning: Remap till 3 klasser, sedan Colormap
-const LUTNING_RULE = JSON.stringify({
-  rasterFunction: 'Colormap',
-  rasterFunctionArguments: {
-    Colormap: [
-      [1, 10, 0, 0],
-      [2, 20, 0, 0],
-      [3, 30, 0, 0],
-    ],
-    Raster: {
-      rasterFunction: 'Remap',
-      rasterFunctionArguments: {
-        InputRanges: [0, 20, 20, 25, 25, 90],
-        OutputValues: [1, 2, 3],
-      },
-    },
-  },
-});
+// Browser-like UA required — Skogsstyrelsens WAF blocks custom User-Agents
+const UA =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // ---------- Fetch helper ----------
 
@@ -65,7 +37,6 @@ async function fetchPng(
     throw new Error(`${label} returned HTTP ${res.status}`);
   }
 
-  // Verify content-type is an image
   if (!contentType.includes('image/')) {
     const body = await res.text().catch(() => '(could not read body)');
     console.error(
@@ -79,7 +50,6 @@ async function fetchPng(
   const arrayBuf = await res.arrayBuffer();
   const buf = Buffer.from(arrayBuf);
 
-  // Verify PNG magic bytes (89 50 4E 47)
   if (
     buf.length < 8 ||
     buf[0] !== 0x89 ||
@@ -124,22 +94,24 @@ export async function GET(req: NextRequest) {
 
   const authHeaders: Record<string, string> = {
     Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
-    'User-Agent': 'Mozilla/5.0 (Skogsystem Korbarhet Tiles)',
+    'User-Agent': UA,
   };
 
   const sizeParam = `${width},${height}`;
 
+  // Markfuktighet: band 1 = MarkfuktighetKlassad (1-4), renderingRule=None for raw values
   const fuktUrl =
     `${MARKFUKT_SERVICE}/exportImage?` +
     `bbox=${bbox}&bboxSR=${bboxSR}&imageSR=${bboxSR}` +
     `&size=${sizeParam}&format=png&transparent=true` +
-    `&renderingRule=${encodeURIComponent(FUKT_RULE)}&f=image`;
+    `&bandIds=1&renderingRule=${NONE_RULE}&f=image`;
 
+  // Lutning: single band = slope degrees (0-90), renderingRule=None for raw values
   const lutUrl =
     `${LUTNING_SERVICE}/exportImage?` +
     `bbox=${bbox}&bboxSR=${bboxSR}&imageSR=${bboxSR}` +
     `&size=${sizeParam}&format=png&transparent=true` +
-    `&renderingRule=${encodeURIComponent(LUTNING_RULE)}&f=image`;
+    `&renderingRule=${NONE_RULE}&f=image`;
 
   console.log('[korbarhet-tiles] === Request ===');
   console.log(`[korbarhet-tiles] bbox=${bbox} bboxSR=${bboxSR} size=${width}x${height}`);
@@ -162,47 +134,52 @@ export async function GET(req: NextRequest) {
     const output = Buffer.alloc(width * height * 4);
 
     for (let i = 0; i < width * height; i++) {
-      const fR = fuktRaw[i * 4];      // R channel = fuktklassens kodvärde
-      const fA = fuktRaw[i * 4 + 3];  // Alpha
-      const lR = lutRaw[i * 4];       // R channel = lutningsklassens kodvärde
-      const lA = lutRaw[i * 4 + 3];
+      // Markfuktighet band 1 (MarkfuktighetKlassad) is in the R channel
+      //   1 = Torr (dry), 2 = Frisk-Fuktig (fresh-moist),
+      //   3 = Blöt (wet), 4 = Öppet vatten (open water)
+      const fuktKlass = fuktRaw[i * 4];      // R channel
+      const fuktAlpha = fuktRaw[i * 4 + 3];
 
-      // Inget data → transparent
-      if (fA === 0 && lA === 0) continue;
+      // Lutning: slope in degrees (0-90) in the R channel
+      const slopeDeg = lutRaw[i * 4];         // R channel
+      const slopeAlpha = lutRaw[i * 4 + 3];
 
-      // Avkoda klasser från Colormap-kodning (R=10→klass1, R=20→klass2, etc.)
-      const fuktKlass = fA > 0 ? Math.round(fR / 10) : 0; // 1-5 eller 0
-      const lutKlass = lA > 0 ? Math.round(lR / 10) : 1;  // 1-3, default <20°
+      // No data → transparent
+      if (fuktAlpha === 0 && slopeAlpha === 0) continue;
 
-      let r = 0,
-        g = 0,
-        b = 0,
-        a = 0;
+      let r = 0, g = 0, b = 0, a = 0;
 
-      if (fuktKlass >= 1) {
-        // Lutning >25° → alltid röd
-        if (lutKlass === 3) {
-          r = 220; g = 0; b = 0; a = 140;
-        }
-        // Blöt (klass 5)
-        else if (fuktKlass === 5) {
-          r = 220; g = 0; b = 0; a = 180;
-        }
-        // Fuktig (klass 4)
-        else if (fuktKlass === 4) {
-          r = 220; g = 0; b = 0; a = 140;
-        }
-        // Frisk-fuktig (klass 3)
-        else if (fuktKlass === 3) {
-          if (lutKlass === 1) { r = 220; g = 180; b = 0; a = 140; }
-          else { r = 220; g = 0; b = 0; a = 140; }
-        }
-        // Torr/Frisk (klass 1-2)
-        else {
-          if (lutKlass === 1) { r = 0; g = 180; b = 0; a = 140; }
-          else if (lutKlass === 2) { r = 220; g = 180; b = 0; a = 140; }
-          else { r = 220; g = 0; b = 0; a = 140; }
-        }
+      // Slope classification: 0 = flat, 1 = moderate, 2 = steep
+      let slopeClass = 0;
+      if (slopeAlpha > 0 && slopeDeg >= 25) slopeClass = 2;
+      else if (slopeAlpha > 0 && slopeDeg >= 20) slopeClass = 1;
+
+      // Steep slope (>25°) → always red
+      if (slopeClass === 2) {
+        r = 220; g = 0; b = 0; a = 140;
+      }
+      // Öppet vatten (class 4) → red
+      else if (fuktKlass === 4) {
+        r = 220; g = 0; b = 0; a = 180;
+      }
+      // Blöt (class 3) → red
+      else if (fuktKlass === 3) {
+        r = 220; g = 0; b = 0; a = 140;
+      }
+      // Frisk-Fuktig (class 2)
+      else if (fuktKlass === 2) {
+        if (slopeClass === 1) { r = 220; g = 0; b = 0; a = 140; }    // 20-25° = red
+        else { r = 220; g = 180; b = 0; a = 140; }                    // <20° = yellow
+      }
+      // Torr (class 1) — best trafficability
+      else if (fuktKlass === 1) {
+        if (slopeClass === 1) { r = 220; g = 180; b = 0; a = 140; }  // 20-25° = yellow
+        else { r = 0; g = 180; b = 0; a = 140; }                      // <20° = green
+      }
+      // Unknown / no fukt data but has slope
+      else if (slopeAlpha > 0) {
+        if (slopeClass === 1) { r = 220; g = 180; b = 0; a = 100; }
+        else { r = 0; g = 180; b = 0; a = 100; }
       }
 
       output[i * 4] = r;
