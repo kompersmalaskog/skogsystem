@@ -81,8 +81,6 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
   };
 
   const ford = getFordelning();
-  const antalLass = totalVolymM3sk > 0 ? Math.ceil(totalVolymM3sk * 0.8 / 13) : 0;
-  const basvagVarning = antalLass > 30 && (ford.gul + ford.rod) > 0.4;
 
   const bedomning: Bedomning = ford.gron > 0.7 ? 'kor' : ford.gron >= 0.4 ? 'planera' : 'undvik';
   const cfg = bedomningConfig[bedomning];
@@ -284,22 +282,6 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
             </div>
           )}
 
-          {bedomning !== 'undvik' && basvagVarning && (
-            <div style={{
-              background: 'rgba(251,191,36,0.12)',
-              border: '1px solid rgba(251,191,36,0.25)',
-              borderRadius: '10px',
-              padding: '10px 12px',
-              fontSize: '12px',
-            }}>
-              <div style={{ fontWeight: '600', color: '#fbbf24', marginBottom: '4px' }}>
-                Hög volym ({antalLass} lass) på känslig mark
-              </div>
-              <div style={{ opacity: 0.7, lineHeight: '1.4' }}>
-                Planera basvägen på fastmark – det är basvägen som är den kritiska punkten, inte avverkningsytan.
-              </div>
-            </div>
-          )}
         </div>
       )}
     </div>
