@@ -39,13 +39,98 @@ function findNearest(stations: Station[], lat: number, lon: number): Station | n
   return nearest;
 }
 
+// SMHI PMP API: hämta 10-dagars prognos
+interface PrognosDag {
+  datum: string;
+  nederbord: number;
+  symbol: number;
+}
+
+async function fetchPrognos(lat: number, lon: number): Promise<{ dagar: PrognosDag[]; summa3d: number; summa7d: number } | null> {
+  try {
+    const url = `https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/${lon.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+    const data = await resp.json();
+
+    const timeSeries = data.timeSeries || [];
+
+    // Aggregera per dag: summera pmean (mm/h) och ta mest förekommande symbol
+    const dagMap = new Map<string, { nederbord: number; symbols: number[] }>();
+
+    for (const ts of timeSeries) {
+      const dt = new Date(ts.validTime);
+      const dag = ts.validTime.slice(0, 10); // 'YYYY-MM-DD'
+
+      let pmean = 0;
+      let wsymb2 = 1;
+      for (const p of ts.parameters || []) {
+        if (p.name === 'pmean') pmean = p.values?.[0] ?? 0;
+        if (p.name === 'Wsymb2') wsymb2 = p.values?.[0] ?? 1;
+      }
+
+      const entry = dagMap.get(dag) || { nederbord: 0, symbols: [] };
+      // pmean is mm/h, each timestep is 1 hour
+      entry.nederbord += pmean;
+      // Only use daytime symbols (6-18) for representative weather
+      const hour = dt.getUTCHours();
+      if (hour >= 6 && hour <= 18) {
+        entry.symbols.push(wsymb2);
+      }
+      dagMap.set(dag, entry);
+    }
+
+    // Konvertera till array, sorterat, max 10 dagar
+    const today = new Date().toISOString().slice(0, 10);
+    const dagar: PrognosDag[] = [];
+    for (const [datum, val] of Array.from(dagMap.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+      if (datum < today) continue;
+      if (dagar.length >= 10) break;
+
+      // Mest förekommande symbol (mode)
+      let symbol = 1;
+      if (val.symbols.length > 0) {
+        const freq = new Map<number, number>();
+        for (const s of val.symbols) freq.set(s, (freq.get(s) || 0) + 1);
+        let maxFreq = 0;
+        for (const [s, f] of freq) {
+          if (f > maxFreq) { maxFreq = f; symbol = s; }
+        }
+      }
+
+      dagar.push({
+        datum,
+        nederbord: Math.round(val.nederbord * 10) / 10,
+        symbol,
+      });
+    }
+
+    const summa3d = dagar.slice(0, 3).reduce((s, d) => s + d.nederbord, 0);
+    const summa7d = dagar.slice(0, 7).reduce((s, d) => s + d.nederbord, 0);
+
+    return {
+      dagar,
+      summa3d: Math.round(summa3d * 10) / 10,
+      summa7d: Math.round(summa7d * 10) / 10,
+    };
+  } catch (e) {
+    console.error('[smhi-nederb] PMP prognos error:', e);
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest) {
   const lat = parseFloat(req.nextUrl.searchParams.get('lat') || '');
   const lon = parseFloat(req.nextUrl.searchParams.get('lon') || '');
   if (isNaN(lat) || isNaN(lon)) return NextResponse.json({ error: 'Missing lat/lon' }, { status: 400 });
 
   try {
-    const stations = await getActiveStations();
+    // Hämta historik och prognos parallellt
+    const [stations, prognos] = await Promise.all([
+      getActiveStations(),
+      fetchPrognos(lat, lon),
+    ]);
+
     const nearest = findNearest(stations, lat, lon);
     if (!nearest) return NextResponse.json({ error: 'No station found' }, { status: 404 });
 
@@ -68,12 +153,22 @@ export async function GET(req: NextRequest) {
     }
     sum7d = Math.round(sum7d * 10) / 10;
 
-    const sasong = sum7d < 5 ? 'torrt' : sum7d <= 25 ? 'normalt' : 'blott';
+    // Automatisk markstatus med prognos
+    const summa3d = prognos?.summa3d ?? 0;
+    let sasong: 'torrt' | 'normalt' | 'blott';
+    if (sum7d > 25 || summa3d > 20) {
+      sasong = 'blott';
+    } else if (sum7d < 5 && summa3d < 5) {
+      sasong = 'torrt';
+    } else {
+      sasong = 'normalt';
+    }
 
     return NextResponse.json({
       sasong,
       nederbord7d: sum7d,
       station: nearest.name,
+      prognos: prognos || undefined,
     }, {
       headers: { 'Cache-Control': 'public, max-age=1800' },
     });

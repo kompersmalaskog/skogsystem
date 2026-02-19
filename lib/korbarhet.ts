@@ -10,10 +10,23 @@ const LUTNING_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/
 const SGU_WMS = 'https://maps3.sgu.se/geoserver/jord/ows';
 const SGU_LAYER = 'SE.GOV.SGU.JORD.GRUNDLAGER.25K';
 
+export interface SmhiPrognosDag {
+  datum: string;       // 'YYYY-MM-DD'
+  nederbord: number;   // mm total
+  symbol: number;      // Wsymb2 1-27
+}
+
+export interface SmhiPrognos {
+  dagar: SmhiPrognosDag[];
+  summa3d: number;
+  summa7d: number;
+}
+
 export interface SmhiData {
   sasong: 'torrt' | 'normalt' | 'blott';
   nederbord7d: number;
   station: string;
+  prognos?: SmhiPrognos;
 }
 
 export interface KorbarhetsResultat {
