@@ -103,8 +103,6 @@ function polyArea(coords: { x: number; y: number }[]): number {
 }
 
 // POST form-encoded body via wms-proxy to avoid URL length limits.
-// ArcGIS computeStatisticsHistograms silently ignores geometry when
-// it exceeds GET URL length limits (~2048 chars).
 async function fetchStats(service: string, geometry: string, proxyUrl: string, renderingRule?: string) {
   const formParams = new URLSearchParams({
     geometry,
@@ -118,7 +116,6 @@ async function fetchStats(service: string, geometry: string, proxyUrl: string, r
   const formBody = formParams.toString();
 
   console.log(`[skoglig] fetchStats POST: ${targetUrl}`);
-  console.log(`[skoglig] fetchStats geometry: ${geometry}`);
   console.log(`[skoglig] fetchStats body length: ${formBody.length} chars`);
 
   const resp = await fetch(proxyUrl, {
@@ -136,6 +133,45 @@ async function fetchStats(service: string, geometry: string, proxyUrl: string, r
   const data = await resp.json();
   console.log(`[skoglig] fetchStats response: ${JSON.stringify(data).slice(0, 300)}...`);
   return data;
+}
+
+// SLU Skogskarta: computeStatisticsHistograms is broken server-side — it
+// ignores geometry and returns global aggregates. Use identify at the polygon
+// centroid instead, which correctly returns per-tile pixel values.
+async function fetchSluIdentify(
+  service: string,
+  centroid: { x: number; y: number },
+  proxyUrl: string,
+): Promise<number[]> {
+  const geometry = JSON.stringify({ x: centroid.x, y: centroid.y });
+  const params = new URLSearchParams({
+    geometry,
+    geometryType: 'esriGeometryPoint',
+    geometrySR: '3006',
+    returnGeometry: 'false',
+    returnCatalogItems: 'false',
+    f: 'json',
+  });
+  const targetUrl = `${service}/identify?${params.toString()}`;
+
+  console.log(`[skoglig] fetchSluIdentify: centroid=(${centroid.x.toFixed(0)}, ${centroid.y.toFixed(0)})`);
+  console.log(`[skoglig] fetchSluIdentify URL: ${targetUrl}`);
+
+  const resp = await fetch(`${proxyUrl}?url=${encodeURIComponent(targetUrl)}`);
+  if (!resp.ok) throw new Error(`SLU identify ${resp.status}`);
+
+  const data = await resp.json();
+  const valueStr = data.value;
+
+  if (!valueStr || valueStr === 'NoData') {
+    console.log(`[skoglig] fetchSluIdentify: no data (value=${valueStr})`);
+    return [];
+  }
+
+  // identify returns comma-separated: "22283, 503, 1300, 89, ..."
+  const values = valueStr.split(',').map((s: string) => Number(s.trim()));
+  console.log(`[skoglig] fetchSluIdentify: ${values.length} bands, values=[${values.join(', ')}]`);
+  return values;
 }
 
 // Gallringsmall: mål-grundyta efter gallring baserat på medelhöjd och ståndortsindex
@@ -240,15 +276,23 @@ export async function beraknaVolym(
   }
   const geometry = JSON.stringify({ rings: [ring] });
 
+  // Centroid for SLU identify (simple average of polygon vertices)
+  const centroid = swerefCoords.reduce(
+    (acc, c) => ({ x: acc.x + c.x / swerefCoords.length, y: acc.y + c.y / swerefCoords.length }),
+    { x: 0, y: 0 },
+  );
+
   try {
-    // Hämta alla parallellt — POST form-encoded via proxy
+    // Hämta alla parallellt
     const gallringsRule = JSON.stringify({
       rasterFunction: 'Gallringsindex',
       rasterFunctionArguments: { sis: 'g16-g22' },
     });
-    const [sgdData, sluData, gallringsData] = await Promise.all([
+    // SGD: computeStatisticsHistograms works correctly (POST)
+    // SLU: computeStatisticsHistograms is broken — use identify at centroid
+    const [sgdData, sluBandValues, gallringsData] = await Promise.all([
       fetchStats(SGD_SERVICE, geometry, proxyUrl),
-      fetchStats(SLU_SERVICE, geometry, proxyUrl),
+      fetchSluIdentify(SLU_SERVICE, centroid, proxyUrl),
       fetchStats(SGD_SERVICE, geometry, proxyUrl, gallringsRule).catch(() => null),
     ]);
     const sgdStats = sgdData.statistics || [];
@@ -338,25 +382,24 @@ export async function beraknaVolym(
     ];
 
     const tradslag: Tradslag[] = [];
-    const sluStats = sluData.statistics || [];
 
-    console.log(`[skoglig] SLU statistics bands: ${sluStats.length}`);
-    for (let i = 0; i < sluStats.length; i++) {
-      console.log(`[skoglig] SLU band ${i}: mean=${sluStats[i]?.mean} count=${sluStats[i]?.count}`);
+    console.log(`[skoglig] SLU identify bands: ${sluBandValues.length}`);
+    if (sluBandValues.length >= 12) {
+      console.log(`[skoglig] SLU band values: Tall=${sluBandValues[5]} Gran=${sluBandValues[6]} Björk=${sluBandValues[7]} Contorta=${sluBandValues[8]} Bok=${sluBandValues[9]} Ek=${sluBandValues[10]} Övrigt=${sluBandValues[11]}`);
     }
 
-    if (sluStats.length >= 12 && sluStats[5]?.count > 0) {
-      // computeStatisticsHistograms returns per-band statistics
-      // Bands 5-11: Tall, Gran, Björk, Contorta, Bok, Ek, Övrigt löv (raw/100 = m³sk/ha)
+    if (sluBandValues.length >= 12 && sluBandValues[5] > 0) {
+      // identify returns pixel values for all 12 bands at the centroid
+      // Bands 5-11: Tall, Gran, Björk, Contorta, Bok, Ek, Övrigt löv (raw values)
       let sluSumma = 0;
       for (const def of tradslagDef) {
-        sluSumma += Math.max(0, sluStats[def.band]?.mean || 0);
+        sluSumma += Math.max(0, sluBandValues[def.band]);
       }
 
       console.log(`[skoglig] SLU trädslag summa: ${sluSumma}`);
 
       for (const def of tradslagDef) {
-        const sluRaw = Math.max(0, sluStats[def.band]?.mean || 0);
+        const sluRaw = Math.max(0, sluBandValues[def.band]);
         const andel = sluSumma > 0 ? sluRaw / sluSumma : 0;
         if (andel < 0.005) continue; // Skippa < 0.5%
 
