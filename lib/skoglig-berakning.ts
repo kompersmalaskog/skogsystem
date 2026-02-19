@@ -111,9 +111,48 @@ async function fetchStats(service: string, geometry: string, proxyUrl: string, r
   });
   if (renderingRule) params.set('renderingRule', renderingRule);
   const targetUrl = `${service}/computeStatisticsHistograms?${params.toString()}`;
+  console.log(`[skoglig] fetchStats: ${targetUrl.slice(0, 200)}...`);
   const resp = await fetch(`${proxyUrl}?url=${encodeURIComponent(targetUrl)}`);
   if (!resp.ok) throw new Error(`API ${resp.status}`);
   return await resp.json();
+}
+
+// getSamples at polygon centroid — works for SLU Skogskarta where
+// computeStatisticsHistograms ignores geometry (returns overview values)
+async function fetchSluSamples(
+  service: string,
+  centroid: { x: number; y: number },
+  proxyUrl: string,
+): Promise<number[]> {
+  const geometry = JSON.stringify({
+    x: centroid.x,
+    y: centroid.y,
+    spatialReference: { wkid: 3006 },
+  });
+  const mosaicRule = JSON.stringify({
+    mosaicMethod: 'esriMosaicNorthwest',
+    where: 'Category = 1',
+  });
+  const params = new URLSearchParams({
+    geometry,
+    geometryType: 'esriGeometryPoint',
+    sampleCount: '1',
+    mosaicRule,
+    f: 'json',
+  });
+  const targetUrl = `${service}/getSamples?${params.toString()}`;
+  console.log(`[skoglig] fetchSluSamples: ${targetUrl.slice(0, 200)}...`);
+  const resp = await fetch(`${proxyUrl}?url=${encodeURIComponent(targetUrl)}`);
+  if (!resp.ok) throw new Error(`SLU getSamples ${resp.status}`);
+  const data = await resp.json();
+  const samples = data.samples;
+  if (!samples || samples.length === 0 || !samples[0].value) {
+    console.log('[skoglig] SLU getSamples: no samples returned');
+    return [];
+  }
+  const values = samples[0].value.split(' ').map(Number);
+  console.log(`[skoglig] SLU getSamples: ${values.length} bands, values=${values.join(',')}`);
+  return values;
 }
 
 // Gallringsmall: mål-grundyta efter gallring baserat på medelhöjd och ståndortsindex
@@ -218,19 +257,26 @@ export async function beraknaVolym(
   }
   const geometry = JSON.stringify({ rings: [ring] });
 
+  // Centroid for SLU getSamples (simple average)
+  const centroid = swerefCoords.reduce(
+    (acc, c) => ({ x: acc.x + c.x / swerefCoords.length, y: acc.y + c.y / swerefCoords.length }),
+    { x: 0, y: 0 },
+  );
+
   try {
     // Hämta alla parallellt
     const gallringsRule = JSON.stringify({
       rasterFunction: 'Gallringsindex',
       rasterFunctionArguments: { sis: 'g16-g22' },
     });
-    const [sgdData, sluData, gallringsData] = await Promise.all([
+    // SLU: använd getSamples vid centroid — computeStatisticsHistograms
+    // returnerar alltid samma värden oavsett polygon (server-bug)
+    const [sgdData, sluBandValues, gallringsData] = await Promise.all([
       fetchStats(SGD_SERVICE, geometry, proxyUrl),
-      fetchStats(SLU_SERVICE, geometry, proxyUrl),
+      fetchSluSamples(SLU_SERVICE, centroid, proxyUrl),
       fetchStats(SGD_SERVICE, geometry, proxyUrl, gallringsRule).catch(() => null),
     ]);
     const sgdStats = sgdData.statistics || [];
-    const sluStats = sluData.statistics || [];
 
     // --- SkogligaGrunddata (laserdata) ---
     if (!sgdStats || sgdStats.length < 10 || sgdStats[0].count === 0) {
@@ -318,15 +364,17 @@ export async function beraknaVolym(
 
     const tradslag: Tradslag[] = [];
 
-    if (sluStats && sluStats.length >= 12 && sluStats[0].count > 0) {
-      // Beräkna procentuell fördelning från SLU raw-värden
+    if (sluBandValues.length >= 12) {
+      // getSamples returns all 12 bands as numbers:
+      // [TotalVolym, Medelhöjd, Grundyta, Medeldiameter, Biomassa,
+      //  TallVolym, GranVolym, BjörkVolym, ContortaVolym, BokVolym, EkVolym, ÖvrigtVolym]
       let sluSumma = 0;
       for (const def of tradslagDef) {
-        sluSumma += Math.max(0, sluStats[def.band].mean);
+        sluSumma += Math.max(0, sluBandValues[def.band]);
       }
 
       for (const def of tradslagDef) {
-        const sluRaw = Math.max(0, sluStats[def.band].mean);
+        const sluRaw = Math.max(0, sluBandValues[def.band]);
         const andel = sluSumma > 0 ? sluRaw / sluSumma : 0;
         if (andel < 0.005) continue; // Skippa < 0.5%
 
