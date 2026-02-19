@@ -339,6 +339,8 @@ export default function PlannerPage() {
     barighet: false,
     // Svenska Kraftnät
     kraftledningar: false,
+    // Körbarhet (kombinerat lager)
+    korbarhet: false,
     // Skogsstyrelsen Raster (via proxy)
     sks_markfuktighet: false,
     sks_virkesvolym: false,
@@ -397,6 +399,12 @@ export default function PlannerPage() {
       group: 'Svenska Kraftnät',
       layers: [
         { id: 'kraftledningar', url: 'https://inspire-skn.metria.se/geoserver/skn/ows', layers: 'US.ElectricityNetwork.Lines', name: 'Kraftledningar (stamnätet)', color: '#ef4444' },
+      ],
+    },
+    {
+      group: 'Analys',
+      layers: [
+        { id: 'korbarhet', url: '/api/korbarhet-tiles', layers: '', name: 'Körbarhet', color: '#22c55e', customApi: true, desc: 'Baserat på markfuktighet och lutning. Rita trakt för full analys inkl jordart.' },
       ],
     },
     {
@@ -3843,7 +3851,15 @@ export default function PlannerPage() {
                     bbox = `${lngMin},${latMin},${lngMax},${latMax}`;
                   }
                   let wmsUrl: string;
-                  if (layer.exportImage) {
+                  if (layer.customApi) {
+                    // Egen API-route (t.ex. körbarhetstiles)
+                    const mercBbox = (() => {
+                      const toM = (la: number, lo: number) => ({ mx: lo * 20037508.34 / 180, my: Math.log(Math.tan((90 + la) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180 });
+                      const s = toM(latMin, lngMin), n = toM(latMax, lngMax);
+                      return `${s.mx},${s.my},${n.mx},${n.my}`;
+                    })();
+                    wmsUrl = `${layer.url}?bbox=${mercBbox}&size=256,256`;
+                  } else if (layer.exportImage) {
                     // ArcGIS ImageServer exportImage (t.ex. Gallringsindex)
                     const mercBbox = (() => {
                       const toM = (la: number, lo: number) => ({ mx: lo * 20037508.34 / 180, my: Math.log(Math.tan((90 + la) * Math.PI / 360)) / (Math.PI / 180) * 20037508.34 / 180 });
@@ -6275,7 +6291,10 @@ export default function PlannerPage() {
                       opacity: overlays[layer.id] ? 1 : 0.3,
                       transition: 'opacity 0.2s ease',
                     }} />
-                    <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>{layer.name}</span>
+                    <span style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>{layer.name}</div>
+                      {layer.desc && <div style={{ fontSize: '11px', opacity: 0.4, marginTop: '2px' }}>{layer.desc}</div>}
+                    </span>
                     <div style={{
                       width: '44px',
                       height: '26px',
