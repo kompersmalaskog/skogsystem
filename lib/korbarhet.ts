@@ -273,35 +273,43 @@ function parseLutning(data: Record<string, unknown>): LutningData {
 // ---------- Klassificering ----------
 
 function klassificera(jordart: JordartKategori, fukt: FuktKlass, lutning: number): 'gron' | 'gul' | 'rod' {
+  // 1. Torv — ALLTID röd oavsett fuktighet/lutning/säsong
+  if (jordart === 'torv') return 'rod';
+
+  // 2. Brant lutning — alltid röd
   if (lutning > 25) return 'rod';
+
+  // 3. Blöt mark (klass 5) — alltid röd
   if (fukt === 'blot') return 'rod';
+
+  // 4. Fuktig mark (klass 4)
   if (fukt === 'fuktig') {
-    if (jordart === 'berg' && lutning < 15) return 'gul';
-    return 'rod';
+    if ((jordart === 'moran' || jordart === 'sand' || jordart === 'berg') && lutning < 15) return 'gul';
+    return 'rod'; // lera + fuktig = röd
   }
 
-  // torr, frisk, frisk-fuktig
+  // 5. Frisk-fuktig (klass 3)
+  if (fukt === 'friskFuktig') {
+    if ((jordart === 'moran' || jordart === 'berg') && lutning < 20) return 'gron';
+    if (jordart === 'sand' && lutning < 20) return 'gron';
+    if (jordart === 'lera' && lutning < 15) return 'gul';
+    return 'gul';
+  }
+
+  // 6. Torr (klass 1) / Frisk (klass 2)
   switch (jordart) {
     case 'berg':
     case 'moran':
-      if ((fukt === 'torr' || fukt === 'frisk') && lutning < 15) return 'gron';
-      if (fukt === 'friskFuktig' && lutning < 20) return 'gul';
-      return 'gul';
-
     case 'sand':
       if (lutning < 20) return 'gron';
       return 'gul';
 
     case 'lera':
-      if ((fukt === 'torr' || fukt === 'frisk') && lutning < 15) return 'gul';
+      if (lutning < 15) return 'gul';
       return 'rod';
 
-    case 'torv':
-      if (fukt === 'torr' || fukt === 'frisk') return 'gul';
-      return 'rod'; // frisk-fuktig + torv
-
     default:
-      if (fukt === 'torr' || fukt === 'frisk') return 'gul';
+      if (lutning < 15) return 'gul';
       return 'rod';
   }
 }

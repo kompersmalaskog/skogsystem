@@ -35,10 +35,12 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
   const ford = getFordelning();
   const antalLass = totalVolymM3sk > 0 ? Math.ceil(totalVolymM3sk * 0.8 / 13) : 0;
   const basvagVarning = antalLass > 30 && (ford.gul + ford.rod) > 0.4;
+  const ejLamplig = ford.rod > 0.5;
 
   const getSammanfattning = (): string => {
+    if (ford.rod > 0.5) return 'Ej lämplig för avverkning utan specialåtgärder (risning, kavling)';
     if (ford.gron > 0.7) return 'Trakten är körbar under normala förhållanden';
-    if (ford.rod > 0.5) return 'Trakten har dålig bärighet \u2013 undvik körning vid blöta förhållanden';
+    if (ford.rod > 0.3) return 'Trakten har dålig bärighet \u2013 undvik körning vid blöta förhållanden';
     if (ford.gul > 0.3) return 'Trakten har begränsad körbarhet \u2013 planera för torra perioder';
     return 'Blandad bärighet \u2013 anpassa efter aktuella förhållanden';
   };
@@ -159,8 +161,27 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
             </div>
           )}
 
+          {/* Varning: ej lämplig */}
+          {ejLamplig && (
+            <div style={{
+              background: 'rgba(239,68,68,0.12)',
+              border: '1px solid rgba(239,68,68,0.25)',
+              borderRadius: '10px',
+              padding: '10px 12px',
+              fontSize: '12px',
+              marginBottom: basvagVarning ? '8px' : '0',
+            }}>
+              <div style={{ fontWeight: '600', color: '#ef4444', marginBottom: '4px' }}>
+                Ej lämplig för avverkning utan specialåtgärder
+              </div>
+              <div style={{ opacity: 0.7, lineHeight: '1.4' }}>
+                Över hälften av trakten har dålig bärighet. Risning, kavling eller tjälad mark krävs för att undvika markskador.
+              </div>
+            </div>
+          )}
+
           {/* Basvägsvarning */}
-          {basvagVarning && (
+          {basvagVarning && !ejLamplig && (
             <div style={{
               background: 'rgba(251,191,36,0.12)',
               border: '1px solid rgba(251,191,36,0.25)',
