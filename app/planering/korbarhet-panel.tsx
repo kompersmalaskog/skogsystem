@@ -1,5 +1,5 @@
 'use client'
-import type { KorbarhetsResultat } from '../../lib/korbarhet'
+import type { KorbarhetsResultat, SmhiPrognosDag } from '../../lib/korbarhet'
 
 interface KorbarhetPanelProps {
   resultat: KorbarhetsResultat | null;
@@ -10,12 +10,16 @@ interface KorbarhetPanelProps {
 type Bedomning = 'kor' | 'planera' | 'undvik';
 
 const bedomningConfig: Record<Bedomning, { icon: string; label: string; color: string; bg: string }> = {
-  kor:     { icon: '\u2713', label: 'KÖR',     color: '#22c55e', bg: 'rgba(34,197,94,0.15)' },
-  planera: { icon: '!',      label: 'PLANERA',  color: '#eab308', bg: 'rgba(234,179,8,0.15)' },
-  undvik:  { icon: '\u2715', label: 'UNDVIK',   color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
+  kor:     { icon: '✓', label: 'KÖR',     color: '#22c55e', bg: 'rgba(34,197,94,0.15)' },
+  planera: { icon: '!', label: 'PLANERA',  color: '#eab308', bg: 'rgba(234,179,8,0.15)' },
+  undvik:  { icon: '✕', label: 'UNDVIK',   color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
 };
 
-const sasongText: Record<string, string> = { torrt: 'torrt just nu', normalt: 'normala förhållanden', blott: 'blött just nu' };
+const sasongText: Record<string, string> = {
+  torrt: 'torrt just nu',
+  normalt: 'normala förhållanden',
+  blott: 'blött just nu',
+};
 
 const bedomningText: Record<Bedomning, string> = {
   kor: 'bra bärighet',
@@ -23,16 +27,40 @@ const bedomningText: Record<Bedomning, string> = {
   undvik: 'dålig bärighet',
 };
 
-// Wsymb2 → väderikon
-function weatherIcon(symbol: number): string {
-  if (symbol <= 2) return '\u2600\uFE0F';       // sol
-  if (symbol <= 6) return '\u26C5';               // halvmoln
-  if (symbol <= 10) return '\u2601\uFE0F';       // moln
-  if (symbol <= 14) return '\uD83C\uDF27\uFE0F'; // regn
-  if (symbol <= 17) return '\u2744\uFE0F';       // snö
-  if (symbol <= 19) return '\u2601\uFE0F';       // moln
-  if (symbol <= 21) return '\uD83C\uDF27\uFE0F'; // regn
-  return '\u26A1';                                // åska
+// Wsymb2 + temperatur → väderikon
+function weatherIcon(dag: SmhiPrognosDag): string {
+  const { symbol, tempMin, tempMax, nederbord } = dag;
+  const avgTemp = (tempMin + tempMax) / 2;
+
+  // Åska (Wsymb2: 21, 11 med åska-varianter)
+  if (symbol === 21 || symbol === 11) return '⛈️';
+
+  // Nederbörd + temperatur → snö/regn
+  if (nederbord > 0 && symbol >= 11) {
+    if (avgTemp < 0) return '❄️';           // Snö
+    if (avgTemp < 2) return '🌨️';           // Snöblandat regn
+    if (nederbord > 8) return '🌧️🌧️';      // Kraftigt regn
+    return '🌧️';                             // Lätt–måttligt regn
+  }
+
+  // Wsymb2-baserade ikoner (utan betydande nederbörd)
+  if (symbol <= 2) return '☀️';              // Klart
+  if (symbol <= 4) return '⛅';              // Halvmoln
+  if (symbol <= 6) return '🌤️';             // Mest moln
+  if (symbol <= 10) return '☁️';             // Mulet
+  if (symbol <= 14) {                        // Regn-klasser
+    if (avgTemp < 0) return '❄️';
+    if (avgTemp < 2) return '🌨️';
+    if (nederbord > 8) return '🌧️🌧️';
+    return '🌧️';
+  }
+  if (symbol <= 17) return '❄️';             // Snö-klasser
+  if (symbol <= 19) return '☁️';             // Dimma/dis
+  if (symbol <= 21) {                        // Åska
+    if (avgTemp < 0) return '❄️';
+    return '🌧️';
+  }
+  return '⛈️';                               // Åska kraftigt
 }
 
 const VECKODAGAR = ['sön', 'mån', 'tis', 'ons', 'tor', 'fre', 'lör'];
@@ -63,38 +91,40 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
   const jordart = resultat?.dominantJordart ?? '';
   const lutning = resultat?.medelLutning ?? 0;
   const markstatus = sasongText[sasong] || 'normala förhållanden';
-  const sammanfattning = `${jordart}, ${lutning}\u00B0 lutning, ${markstatus} \u2013 ${bedomningText[bedomning]}`;
+  const sammanfattning = `${jordart}, ${lutning}° lutning, ${markstatus} – ${bedomningText[bedomning]}`;
 
   // Intelligent vädervarning
   const prognos = resultat?.smhi?.prognos;
-  let vaderVarning: string | null = null;
+  let väderVarning: string | null = null;
   if (prognos) {
     const summa3d = prognos.summa3d;
     const summa7d = prognos.summa7d;
 
     // Hitta första regniga dagen (>5mm)
-    const forstaRegnDag = prognos.dagar.findIndex(d => d.nederbord > 5);
+    const förstaRegnDag = prognos.dagar.findIndex(d => d.nederbord > 5);
 
-    if (sasong === 'torrt' && summa3d > 10 && forstaRegnDag >= 0) {
-      vaderVarning = `Torrt nu men regn om ${forstaRegnDag + 1} dag${forstaRegnDag > 0 ? 'ar' : ''} \u2013 planera skotning f\u00F6re`;
+    if (sasong === 'torrt' && summa3d > 10 && förstaRegnDag >= 0) {
+      väderVarning = `Torrt nu men regn om ${förstaRegnDag + 1} dag${förstaRegnDag > 0 ? 'ar' : ''} – planera skotning före`;
     } else if (summa3d > 15) {
-      const nyttLage = bedomning === 'kor' ? 'GUL' : 'R\u00D6D';
-      vaderVarning = `Regn v\u00E4ntas (${Math.round(summa3d)}mm/3d) \u2013 k\u00F6rbarheten sjunker till ${nyttLage}`;
+      const nyttLäge = bedomning === 'kor' ? 'GUL' : 'RÖD';
+      väderVarning = `Regn väntas (${Math.round(summa3d)}mm/3d) – körbarheten sjunker till ${nyttLäge}`;
     } else if (sasong === 'blott' && summa7d < 10) {
-      vaderVarning = `Bl\u00F6tt nu men uppeh\u00E5ll kommande veckan \u2013 b\u00E4ttre om 3\u20134 dagar`;
+      väderVarning = 'Blött nu men uppehåll kommande veckan – bättre om 3–4 dagar';
     }
   }
+
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <div style={{ marginTop: '16px' }}>
       <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', padding: '0 4px', marginBottom: '8px' }}>
-        K\u00F6rbarhetsanalys
+        Körbarhetsanalys
       </div>
 
       {loading && (
         <div style={{ textAlign: 'center', padding: '16px', fontSize: '13px', opacity: 0.5 }}>
           <div style={{ width: '24px', height: '24px', border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#60a5fa', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
-          Analyserar k\u00F6rbarhet...
+          Analyserar körbarhet...
         </div>
       )}
 
@@ -134,9 +164,9 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
             {ford.rod > 0 && <div style={{ width: `${ford.rod * 100}%`, background: '#ef4444' }} />}
           </div>
           <div style={{ display: 'flex', gap: '10px', fontSize: '11px', opacity: 0.7, marginBottom: '12px' }}>
-            {ford.gron > 0.01 && <span style={{ color: '#22c55e' }}>K\u00F6rbart {Math.round(ford.gron * 100)}%</span>}
-            {ford.gul > 0.01 && <span style={{ color: '#eab308' }}>Begr\u00E4nsat {Math.round(ford.gul * 100)}%</span>}
-            {ford.rod > 0.01 && <span style={{ color: '#ef4444' }}>Ej k\u00F6rbart {Math.round(ford.rod * 100)}%</span>}
+            {ford.gron > 0.01 && <span style={{ color: '#22c55e' }}>Körbart {Math.round(ford.gron * 100)}%</span>}
+            {ford.gul > 0.01 && <span style={{ color: '#eab308' }}>Begränsat {Math.round(ford.gul * 100)}%</span>}
+            {ford.rod > 0.01 && <span style={{ color: '#ef4444' }}>Ej körbart {Math.round(ford.rod * 100)}%</span>}
           </div>
 
           {/* 10-dagars väderprognos */}
@@ -144,56 +174,84 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
             <div style={{
               background: 'rgba(255,255,255,0.04)',
               borderRadius: '8px',
-              padding: '8px 6px',
+              padding: '8px 4px 6px',
               marginBottom: '12px',
             }}>
-              <div style={{ fontSize: '10px', opacity: 0.4, marginBottom: '6px', paddingLeft: '4px' }}>
-                SMHI 10-DAGARSPROGNOS {resultat.smhi?.station ? `\u2013 ${resultat.smhi.station}` : ''}
+              <div style={{ fontSize: '10px', opacity: 0.4, marginBottom: '6px', paddingLeft: '6px' }}>
+                SMHI 10-DAGARSPROGNOS{resultat.smhi?.station ? ` – ${resultat.smhi.station}` : ''}
               </div>
               <div style={{
                 display: 'flex',
-                gap: '0',
                 overflowX: 'auto',
-                WebkitOverflowScrolling: 'touch',
+                WebkitOverflowScrolling: 'touch' as never,
               }}>
                 {prognos.dagar.map((dag, i) => {
                   const dt = new Date(dag.datum + 'T12:00:00');
                   const veckodag = VECKODAGAR[dt.getDay()];
+                  const isToday = dag.datum === today;
                   const isHeavy = dag.nederbord > 5;
+                  const isFreezing = dag.tempMin < 0;
+
                   return (
                     <div key={dag.datum} style={{
                       flex: '1 0 auto',
-                      minWidth: '36px',
+                      minWidth: '38px',
                       textAlign: 'center',
-                      padding: '2px 3px',
-                      borderRight: i < prognos.dagar.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                      padding: '4px 2px 3px',
+                      borderRight: i < prognos.dagar.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                      background: isToday ? 'rgba(96,165,250,0.12)' : 'transparent',
+                      borderRadius: isToday ? '6px' : '0',
                     }}>
-                      <div style={{ fontSize: '9px', opacity: 0.5, textTransform: 'uppercase' }}>
-                        {veckodag}
-                      </div>
-                      <div style={{ fontSize: '16px', lineHeight: '1.2' }}>
-                        {weatherIcon(dag.symbol)}
-                      </div>
+                      {/* Veckodag */}
                       <div style={{
-                        fontSize: '10px',
-                        fontVariantNumeric: 'tabular-nums',
-                        color: isHeavy ? '#60a5fa' : 'rgba(255,255,255,0.5)',
-                        fontWeight: isHeavy ? '600' : '400',
+                        fontSize: '9px',
+                        opacity: isToday ? 0.9 : 0.5,
+                        textTransform: 'uppercase',
+                        fontWeight: isToday ? '600' : '400',
+                        color: isToday ? '#93c5fd' : 'inherit',
+                        marginBottom: '2px',
                       }}>
-                        {dag.nederbord > 0 ? `${dag.nederbord}` : '\u2013'}
+                        {isToday ? 'idag' : veckodag}
+                      </div>
+
+                      {/* Väderikon */}
+                      <div style={{ fontSize: '15px', lineHeight: '1.3' }}>
+                        {weatherIcon(dag)}
+                      </div>
+
+                      {/* Temperatur min/max */}
+                      <div style={{
+                        fontSize: '9px',
+                        fontVariantNumeric: 'tabular-nums',
+                        color: isFreezing ? '#93c5fd' : 'rgba(255,255,255,0.5)',
+                        lineHeight: '1.3',
+                        marginTop: '1px',
+                      }}>
+                        {dag.tempMin}/{dag.tempMax}°
+                      </div>
+
+                      {/* Nederbörd mm */}
+                      <div style={{
+                        fontSize: '9px',
+                        fontVariantNumeric: 'tabular-nums',
+                        color: isHeavy ? '#60a5fa' : 'rgba(255,255,255,0.35)',
+                        fontWeight: isHeavy ? '600' : '400',
+                        marginTop: '1px',
+                      }}>
+                        {dag.nederbord > 0 ? `${dag.nederbord}mm` : '–'}
                       </div>
                     </div>
                   );
                 })}
               </div>
-              <div style={{ fontSize: '10px', opacity: 0.4, marginTop: '4px', paddingLeft: '4px' }}>
-                3d: {prognos.summa3d}mm \u00B7 7d: {prognos.summa7d}mm
+              <div style={{ fontSize: '10px', opacity: 0.4, marginTop: '4px', paddingLeft: '6px' }}>
+                3d: {prognos.summa3d}mm · 7d: {prognos.summa7d}mm
               </div>
             </div>
           )}
 
           {/* Intelligent vädervarning */}
-          {vaderVarning && (
+          {väderVarning && (
             <div style={{
               background: 'rgba(96,165,250,0.12)',
               border: '1px solid rgba(96,165,250,0.25)',
@@ -204,7 +262,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
               color: '#93c5fd',
               lineHeight: '1.4',
             }}>
-              {vaderVarning}
+              {väderVarning}
             </div>
           )}
 
@@ -218,10 +276,10 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
               fontSize: '12px',
             }}>
               <div style={{ fontWeight: '600', color: '#ef4444', marginBottom: '4px' }}>
-                Ej l\u00E4mplig utan special\u00E5tg\u00E4rder
+                Ej lämplig utan specialåtgärder
               </div>
               <div style={{ opacity: 0.7, lineHeight: '1.4' }}>
-                Risning, kavling eller tj\u00E4lad mark kr\u00E4vs f\u00F6r att undvika markskador.
+                Risning, kavling eller tjälad mark krävs för att undvika markskador.
               </div>
             </div>
           )}
@@ -235,10 +293,10 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
               fontSize: '12px',
             }}>
               <div style={{ fontWeight: '600', color: '#fbbf24', marginBottom: '4px' }}>
-                H\u00F6g volym ({antalLass} lass) p\u00E5 k\u00E4nslig mark
+                Hög volym ({antalLass} lass) på känslig mark
               </div>
               <div style={{ opacity: 0.7, lineHeight: '1.4' }}>
-                Planera basv\u00E4gen p\u00E5 fastmark &ndash; det \u00E4r basv\u00E4gen som \u00E4r den kritiska punkten, inte avverkningsytan.
+                Planera basvägen på fastmark – det är basvägen som är den kritiska punkten, inte avverkningsytan.
               </div>
             </div>
           )}

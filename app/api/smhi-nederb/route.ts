@@ -39,11 +39,13 @@ function findNearest(stations: Station[], lat: number, lon: number): Station | n
   return nearest;
 }
 
-// SMHI PMP API: hämta 10-dagars prognos
+// SMHI PMP API: hämta 10-dagars prognos med temperatur
 interface PrognosDag {
   datum: string;
   nederbord: number;
   symbol: number;
+  tempMin: number;
+  tempMax: number;
 }
 
 async function fetchPrognos(lat: number, lon: number): Promise<{ dagar: PrognosDag[]; summa3d: number; summa7d: number } | null> {
@@ -55,8 +57,12 @@ async function fetchPrognos(lat: number, lon: number): Promise<{ dagar: PrognosD
 
     const timeSeries = data.timeSeries || [];
 
-    // Aggregera per dag: summera pmean (mm/h) och ta mest förekommande symbol
-    const dagMap = new Map<string, { nederbord: number; symbols: number[] }>();
+    // Aggregera per dag: nederbörd, symbol, temperatur
+    const dagMap = new Map<string, {
+      nederbord: number;
+      symbols: number[];
+      temps: number[];
+    }>();
 
     for (const ts of timeSeries) {
       const dt = new Date(ts.validTime);
@@ -64,15 +70,17 @@ async function fetchPrognos(lat: number, lon: number): Promise<{ dagar: PrognosD
 
       let pmean = 0;
       let wsymb2 = 1;
+      let temp = 0;
       for (const p of ts.parameters || []) {
         if (p.name === 'pmean') pmean = p.values?.[0] ?? 0;
         if (p.name === 'Wsymb2') wsymb2 = p.values?.[0] ?? 1;
+        if (p.name === 't') temp = p.values?.[0] ?? 0;
       }
 
-      const entry = dagMap.get(dag) || { nederbord: 0, symbols: [] };
-      // pmean is mm/h, each timestep is 1 hour
+      const entry = dagMap.get(dag) || { nederbord: 0, symbols: [], temps: [] };
       entry.nederbord += pmean;
-      // Only use daytime symbols (6-18) for representative weather
+      entry.temps.push(temp);
+      // Dagssymbol: använd dagtid (6-18) för representativt väder
       const hour = dt.getUTCHours();
       if (hour >= 6 && hour <= 18) {
         entry.symbols.push(wsymb2);
@@ -98,10 +106,16 @@ async function fetchPrognos(lat: number, lon: number): Promise<{ dagar: PrognosD
         }
       }
 
+      // Min/max temperatur
+      const tempMin = val.temps.length > 0 ? Math.round(Math.min(...val.temps)) : 0;
+      const tempMax = val.temps.length > 0 ? Math.round(Math.max(...val.temps)) : 0;
+
       dagar.push({
         datum,
         nederbord: Math.round(val.nederbord * 10) / 10,
         symbol,
+        tempMin,
+        tempMax,
       });
     }
 

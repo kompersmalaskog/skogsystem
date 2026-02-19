@@ -14,6 +14,8 @@ export interface SmhiPrognosDag {
   datum: string;       // 'YYYY-MM-DD'
   nederbord: number;   // mm total
   symbol: number;      // Wsymb2 1-27
+  tempMin: number;     // °C
+  tempMax: number;     // °C
 }
 
 export interface SmhiPrognos {
