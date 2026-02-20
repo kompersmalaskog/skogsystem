@@ -447,7 +447,103 @@ export default function PlannerPage() {
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
-  
+
+  // === MapLibre: Initialisering (dynamisk import för SSR-kompatibilitet) ===
+  const [mapLibreReady, setMapLibreReady] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !mapContainerRef.current || mapInstanceRef.current) return;
+    let cancelled = false;
+
+    // Lägg till MapLibre CSS via link-tag
+    if (!document.getElementById('maplibre-css')) {
+      const link = document.createElement('link');
+      link.id = 'maplibre-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
+      document.head.appendChild(link);
+    }
+
+    // Ladda MapLibre via CDN-script istället för npm-import (undviker SSR-problem)
+    const loadScript = () => new Promise<void>((resolve) => {
+      if ((window as any).maplibregl) { resolve(); return; }
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
+      script.onload = () => resolve();
+      document.head.appendChild(script);
+    });
+
+    loadScript().then(() => {
+      if (cancelled || !mapContainerRef.current) return;
+      const maplibregl = (window as any).maplibregl;
+      if (!maplibregl) return;
+
+      const map = new maplibregl.Map({
+        container: mapContainerRef.current,
+        style: {
+          version: 8,
+          sources: {
+            satellite: {
+              type: 'raster',
+              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+              tileSize: 256,
+              maxzoom: 18,
+              attribution: '&copy; Esri',
+            },
+            osm: {
+              type: 'raster',
+              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              maxzoom: 19,
+              attribution: '&copy; OpenStreetMap',
+            },
+            topographic: {
+              type: 'raster',
+              tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              maxzoom: 17,
+              attribution: '&copy; OpenTopoMap',
+            },
+            contours: {
+              type: 'raster',
+              tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              maxzoom: 17,
+            },
+          },
+          layers: [
+            { id: 'bg', type: 'background', paint: { 'background-color': '#0a0a0a' } },
+            { id: 'osm-layer', type: 'raster', source: 'osm', layout: { visibility: 'visible' } },
+            { id: 'satellite-layer', type: 'raster', source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.1 }, layout: { visibility: 'none' } },
+            { id: 'terrain-layer', type: 'raster', source: 'topographic', layout: { visibility: 'none' } },
+            { id: 'contours-layer', type: 'raster', source: 'contours', paint: { 'raster-opacity': 0.4 }, layout: { visibility: 'none' } },
+          ],
+          sky: { 'sky-color': '#000000', 'horizon-color': '#111111', 'sky-horizon-blend': 0.5 },
+        },
+        center: [mapCenter.lng, mapCenter.lat],
+        zoom: mapZoom,
+        pitch: 0,
+        bearing: 0,
+        interactive: false,
+        attributionControl: false,
+      });
+
+      map.on('load', () => {
+        map.resize();
+        setMapLibreReady(true);
+      });
+
+      mapInstanceRef.current = map;
+    });
+
+    return () => {
+      cancelled = true;
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
   const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<string[]>([]); // IDs av kvitterade
@@ -708,6 +804,10 @@ export default function PlannerPage() {
   // Karta
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
+
+  // MapLibre
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
   
@@ -761,6 +861,57 @@ export default function PlannerPage() {
     const maxSize = baseSize * 0.75;
     return Math.max(minSize, Math.min(maxSize, scaledSize));
   };
+
+  // === MapLibre: Synkronisera kamera med SVG pan/zoom ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    const svgCenterX = (screenSize.width / 2 - pan.x) / zoom;
+    const svgCenterY = (screenSize.height / 2 - pan.y) / zoom;
+
+    const mPerDegLat = 111320;
+    const mPerDegLon = 111320 * Math.cos(mapCenter.lat * Math.PI / 180);
+    const scl = 156543.03392 * Math.cos(mapCenter.lat * Math.PI / 180) / Math.pow(2, mapZoom);
+    const dxMeters = svgCenterX * scl;
+    const dyMeters = -svgCenterY * scl;
+    const visibleLng = mapCenter.lng + dxMeters / mPerDegLon;
+    const visibleLat = mapCenter.lat + dyMeters / mPerDegLat;
+
+    const effectiveZoom = mapZoom + Math.log2(zoom);
+
+    map.jumpTo({
+      center: [visibleLng, visibleLat],
+      zoom: effectiveZoom,
+    });
+  }, [pan.x, pan.y, zoom, mapCenter.lat, mapCenter.lng, mapZoom, screenSize.width, screenSize.height, mapLibreReady]);
+
+  // === MapLibre: Byt bakgrundskarta ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const setVis = (id: string, vis: boolean) => {
+      try { map.setLayoutProperty(id, 'visibility', vis ? 'visible' : 'none'); } catch {}
+    };
+    setVis('osm-layer', mapType === 'osm');
+    setVis('satellite-layer', mapType === 'satellite');
+    setVis('terrain-layer', mapType === 'terrain');
+  }, [mapType, mapLibreReady]);
+
+  // === MapLibre: Höjdkurvor overlay ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    try {
+      map.setLayoutProperty('contours-layer', 'visibility', overlays.contours && mapType !== 'terrain' ? 'visible' : 'none');
+      map.setPaintProperty('contours-layer', 'raster-opacity', mapType === 'satellite' ? 0.5 : 0.3);
+    } catch {}
+  }, [overlays.contours, mapType, mapLibreReady]);
+
+  // === MapLibre: Resize vid skärmändring ===
+  useEffect(() => {
+    mapInstanceRef.current?.resize();
+  }, [screenSize.width, screenSize.height]);
 
   // Centrera på GPS-position
   const centerOnMe = () => {
@@ -3640,15 +3791,27 @@ export default function PlannerPage() {
         </div>
       </div>
 
-      {/* === KARTBAKGRUND MED TILES === */}
-      {showMap && screenSize.width > 0 && (
-        <div 
-          style={{ 
-            position: 'absolute', 
-            inset: 0, 
+      {/* === MAPLIBRE BAKGRUNDSKARTA === */}
+      {showMap && (
+        <div
+          ref={mapContainerRef}
+          style={{
+            position: 'absolute',
+            inset: 0,
             zIndex: 0,
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+
+      {/* === WMS OVERLAY-LAGER === */}
+      {showMap && screenSize.width > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 1,
             overflow: 'hidden',
-            background: '#e8e4d9',
             pointerEvents: 'none',
           }}
         >
@@ -3657,102 +3820,29 @@ export default function PlannerPage() {
             const lat = mapCenter.lat;
             const lng = mapCenter.lng;
             const z = mapZoom;
-            
+
             // Konvertera lat/lng till tile-koordinater
             const n = Math.pow(2, z);
             const centerTileX = Math.floor((lng + 180) / 360 * n);
             const latRad = lat * Math.PI / 180;
             const centerTileY = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
-            
+
             // Beräkna pixel-offset inom tile
             const tileXFloat = (lng + 180) / 360 * n;
             const tileYFloat = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n;
             const offsetX = (tileXFloat - centerTileX) * tileSize;
             const offsetY = (tileYFloat - centerTileY) * tileSize;
-            
+
             // Beräkna hur många tiles vi behöver
             const tilesNeededX = Math.ceil(screenSize.width / tileSize / zoom) + 4;
             const tilesNeededY = Math.ceil(screenSize.height / tileSize / zoom) + 4;
             const tilesAround = Math.max(tilesNeededX, tilesNeededY, 8);
-            
+
             const tiles: any[] = [];
-            
+
             // Basposition för tiles (i SVG-koordinater, dvs före zoom/pan transform)
-            // Vi placerar tiles så att kartan centreras vid (0,0) i SVG-koordinater
             const basePosX = -offsetX;
             const basePosY = -offsetY;
-            
-            for (let dx = -tilesAround; dx <= tilesAround; dx++) {
-              for (let dy = -tilesAround; dy <= tilesAround; dy++) {
-                const tileX = centerTileX + dx;
-                const tileY = centerTileY + dy;
-                
-                // Position i "SVG-koordinater" (samma som ritningarna)
-                const svgX = basePosX + dx * tileSize;
-                const svgY = basePosY + dy * tileSize;
-                
-                // Applicera samma transform som SVG: pan + scale
-                const screenX = pan.x + svgX * zoom;
-                const screenY = pan.y + svgY * zoom;
-                
-                // Hoppa över tiles som är utanför skärmen
-                const scaledSize = tileSize * zoom;
-                if (screenX < -scaledSize * 2 || screenX > screenSize.width + scaledSize) continue;
-                if (screenY < -scaledSize * 2 || screenY > screenSize.height + scaledSize) continue;
-                
-                // Bakgrundskarta URL
-                let url: string;
-                if (mapType === 'satellite') {
-                  url = `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${tileY}/${tileX}`;
-                } else if (mapType === 'terrain') {
-                  url = `https://tile.opentopomap.org/${z}/${tileX}/${tileY}.png`;
-                } else {
-                  url = `https://tile.openstreetmap.org/${z}/${tileX}/${tileY}.png`;
-                }
-                
-                tiles.push(
-                  <img
-                    key={`tile-${tileX}-${tileY}-${z}`}
-                    src={url}
-                    alt=""
-                    crossOrigin="anonymous"
-                    style={{
-                      position: 'absolute',
-                      left: screenX,
-                      top: screenY,
-                      width: tileSize * zoom,
-                      height: tileSize * zoom,
-                    }}
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).style.opacity = '0.3';
-                    }}
-                  />
-                );
-                
-                // Overlay: Höjdkurvor (visas på satellit eller vanlig karta)
-                if (overlays.contours && mapType !== 'terrain') {
-                  tiles.push(
-                    <img
-                      key={`contour-${tileX}-${tileY}-${z}`}
-                      src={`https://tile.opentopomap.org/${z}/${tileX}/${tileY}.png`}
-                      alt=""
-                      style={{
-                        position: 'absolute',
-                        left: screenX,
-                        top: screenY,
-                        width: tileSize * zoom,
-                        height: tileSize * zoom,
-                        opacity: mapType === 'satellite' ? 0.5 : 0.3,
-                        mixBlendMode: mapType === 'satellite' ? 'normal' : 'multiply',
-                      }}
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  );
-                }
-              }
-            }
             
             // WMS Overlay: Sumpskog (gammal toggle) - nu tile-baserad
             if (overlays.wetlands) {

@@ -84,7 +84,7 @@ function sweref99ToWgs84(x: number, y: number): { lat: number; lng: number } {
 
 declare global {
   interface Window {
-    L: any
+    maplibregl: any
   }
 }
 
@@ -165,48 +165,65 @@ export default function KartaPage() {
     return o.typ === filter
   })
   
-  // Ladda Leaflet
+  // Ladda MapLibre GL JS
   useEffect(() => {
-    // Lägg till Leaflet CSS
-    if (!document.getElementById('leaflet-css')) {
+    if (!document.getElementById('maplibre-css')) {
       const link = document.createElement('link')
-      link.id = 'leaflet-css'
+      link.id = 'maplibre-css'
       link.rel = 'stylesheet'
-      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+      link.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css'
       document.head.appendChild(link)
     }
-    
-    // Lägg till Leaflet JS
-    if (!window.L) {
+
+    if (!window.maplibregl) {
       const script = document.createElement('script')
-      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+      script.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js'
       script.onload = () => setMapReady(true)
       document.head.appendChild(script)
     } else {
       setMapReady(true)
     }
   }, [])
-  
-  // Initiera karta när Leaflet är redo
+
+  // Initiera karta när MapLibre är redo
   useEffect(() => {
-    if (!mapReady || !mapRef.current || mapInstanceRef.current) return
-    
-    // Beräkna center
+    if (!mapReady || !mapRef.current || mapInstanceRef.current || !window.maplibregl) return
+
     const coords = objekt.map(o => sweref99ToWgs84(o.swerefX, o.swerefY))
     const centerLat = coords.reduce((sum, c) => sum + c.lat, 0) / coords.length
     const centerLng = coords.reduce((sum, c) => sum + c.lng, 0) / coords.length
-    
-    // Skapa karta
-    const map = window.L.map(mapRef.current).setView([centerLat, centerLng], 11)
-    
-    // Lägg till kartlager
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap'
-    }).addTo(map)
-    
+
+    const map = new window.maplibregl.Map({
+      container: mapRef.current,
+      style: {
+        version: 8,
+        sources: {
+          osm: {
+            type: 'raster',
+            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            maxzoom: 19,
+            attribution: '&copy; OpenStreetMap',
+          },
+        },
+        layers: [
+          { id: 'bg', type: 'background', paint: { 'background-color': '#e5e7eb' } },
+          { id: 'osm', type: 'raster', source: 'osm' },
+        ],
+      },
+      center: [centerLng, centerLat],
+      zoom: 11,
+      attributionControl: false,
+    })
+
+    map.addControl(new window.maplibregl.NavigationControl(), 'bottom-right')
+
     mapInstanceRef.current = map
-    updateMarkers()
-    
+
+    map.on('load', () => {
+      updateMarkers()
+    })
+
     return () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove()
@@ -214,84 +231,82 @@ export default function KartaPage() {
       }
     }
   }, [mapReady])
-  
+
   // Uppdatera markörer
   const updateMarkers = () => {
-    if (!mapInstanceRef.current || !window.L) return
-    
+    if (!mapInstanceRef.current || !window.maplibregl) return
+
     // Ta bort gamla markörer
     markersRef.current.forEach(m => m.remove())
     markersRef.current = []
-    
+
     // Lägg till nya markörer
     filtreradeObjekt.forEach(obj => {
       const coords = sweref99ToWgs84(obj.swerefX, obj.swerefY)
       const status = STATUS[obj.status]
-      
-      const icon = window.L.divIcon({
-        className: 'custom-marker',
-        html: `
-          <div style="position: relative;">
-            <div style="
-              position: absolute;
-              top: -28px;
-              left: 50%;
-              transform: translateX(-50%);
-              background: ${obj.typ === 'slut' ? '#f59e0b' : '#22c55e'};
-              color: white;
-              width: 20px;
-              height: 20px;
-              border-radius: 50%;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 11px;
-              font-weight: 700;
-              box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            ">${obj.ordning}</div>
-            <div style="
-              width: 36px;
-              height: 36px;
-              background: ${status.farg};
-              border-radius: 50% 50% 50% 0;
-              transform: rotate(-45deg);
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              box-shadow: 0 3px 10px rgba(0,0,0,0.3);
-              border: 2px solid white;
-            ">
-              <span style="transform: rotate(45deg); font-size: 16px;">
-                ${obj.typ === 'slut' ? '🪵' : '🌲'}
-              </span>
-            </div>
-            <div style="
-              position: absolute;
-              top: 42px;
-              left: 50%;
-              transform: translateX(-50%);
-              background: white;
-              padding: 2px 6px;
-              border-radius: 4px;
-              font-size: 10px;
-              font-weight: 600;
-              white-space: nowrap;
-              box-shadow: 0 1px 4px rgba(0,0,0,0.15);
-            ">${obj.namn}</div>
+
+      const el = document.createElement('div')
+      el.innerHTML = `
+        <div style="position: relative; cursor: pointer;">
+          <div style="
+            position: absolute;
+            top: -28px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: ${obj.typ === 'slut' ? '#f59e0b' : '#22c55e'};
+            color: white;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 700;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          ">${obj.ordning}</div>
+          <div style="
+            width: 36px;
+            height: 36px;
+            background: ${status.farg};
+            border-radius: 50% 50% 50% 0;
+            transform: rotate(-45deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.3);
+            border: 2px solid white;
+          ">
+            <span style="transform: rotate(45deg); font-size: 16px;">
+              ${obj.typ === 'slut' ? '🪵' : '🌲'}
+            </span>
           </div>
-        `,
-        iconSize: [40, 60],
-        iconAnchor: [20, 40]
-      })
-      
-      const marker = window.L.marker([coords.lat, coords.lng], { icon })
+          <div style="
+            position: absolute;
+            top: 42px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            white-space: nowrap;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+          ">${obj.namn}</div>
+        </div>
+      `
+
+      el.addEventListener('click', () => setValdtObjekt(obj))
+
+      const marker = new window.maplibregl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([coords.lng, coords.lat])
         .addTo(mapInstanceRef.current)
-        .on('click', () => setValdtObjekt(obj))
-      
+
       markersRef.current.push(marker)
     })
   }
-  
+
   useEffect(() => {
     if (mapReady && mapInstanceRef.current) {
       updateMarkers()

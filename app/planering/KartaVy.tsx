@@ -1,16 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
-
-// Fixa Leaflet marker-ikon i Next.js
-delete (L.Icon.Default.prototype as any)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-});
 
 interface KartaVyProps {
   objekt: any;
@@ -19,58 +9,135 @@ interface KartaVyProps {
 }
 
 export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps) {
-  const mapRef = useRef<L.Map | null>(null);
+  const mapRef = useRef<any>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const [showMenu, setShowMenu] = useState(false);
   const [showMarkagare, setShowMarkagare] = useState(false);
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
+    let cancelled = false;
 
-    // Centrera på objektets koordinater eller standardposition
-    const center: [number, number] = objekt.lat && objekt.lng
-      ? [objekt.lat, objekt.lng]
-      : [56.5, 14.7];
+    // Lägg till MapLibre CSS
+    if (!document.getElementById('maplibre-css')) {
+      const link = document.createElement('link');
+      link.id = 'maplibre-css';
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
+      document.head.appendChild(link);
+    }
 
-    // Skapa kartan
-    const map = L.map(mapContainerRef.current, {
-      center,
-      zoom: 15,
-      zoomControl: false,
+    const loadScript = () => new Promise<void>((resolve) => {
+      if ((window as any).maplibregl) { resolve(); return; }
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
+      script.onload = () => resolve();
+      document.head.appendChild(script);
     });
 
-    // Lägg till kartlager
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap'
-    }).addTo(map);
+    loadScript().then(() => {
+      if (cancelled || !mapContainerRef.current) return;
+      const maplibregl = (window as any).maplibregl;
+      if (!maplibregl) return;
 
-    // Lägg till zoom-kontroll nere till höger
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
+      // Centrera på objektets koordinater eller standardposition
+      const center: [number, number] = objekt.lat && objekt.lng
+        ? [objekt.lng, objekt.lat]
+        : [14.7, 56.5];
 
-    // Markör för objektets position
-    if (objekt.lat && objekt.lng) {
-      const marker = L.marker([objekt.lat, objekt.lng]).addTo(map);
-      marker.bindPopup(`<b>${objekt.namn}</b><br>${objekt.volym || 0} m³`);
-    }
+      const map = new maplibregl.Map({
+        container: mapContainerRef.current,
+        style: {
+          version: 8,
+          sources: {
+            satellite: {
+              type: 'raster',
+              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+              tileSize: 256,
+              maxzoom: 18,
+              attribution: '&copy; Esri',
+            },
+            'terrain-dem': {
+              type: 'raster-dem',
+              tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+              tileSize: 256,
+              maxzoom: 15,
+              encoding: 'terrarium',
+            },
+          },
+          layers: [
+            { id: 'bg', type: 'background', paint: { 'background-color': '#0a0a0a' } },
+            {
+              id: 'satellite',
+              type: 'raster',
+              source: 'satellite',
+              paint: {
+                'raster-brightness-max': 0.7,
+                'raster-contrast': 0.15,
+                'raster-saturation': -0.1,
+              },
+            },
+          ],
+          sky: {
+            'sky-color': '#000000',
+            'horizon-color': '#111111',
+            'sky-horizon-blend': 0.5,
+          },
+          terrain: {
+            source: 'terrain-dem',
+            exaggeration: 1.5,
+          },
+        },
+        center,
+        zoom: 15,
+        pitch: 50,
+        bearing: 20,
+        attributionControl: false,
+      });
 
-    // Lägg till kartbild-overlay om det finns
-    if (objekt.kartbild_url && objekt.kartbild_bounds) {
-      const bounds: L.LatLngBoundsExpression = [
-        [objekt.kartbild_bounds[0][0], objekt.kartbild_bounds[0][1]],
-        [objekt.kartbild_bounds[1][0], objekt.kartbild_bounds[1][1]]
-      ];
+      map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'bottomright');
 
-      L.imageOverlay(objekt.kartbild_url, bounds, {
-        opacity: 0.8,
-      }).addTo(map);
+      // Markör
+      if (objekt.lat && objekt.lng) {
+        const el = document.createElement('div');
+        el.style.cssText = 'width:20px;height:20px;background:#7cba3f;border:2px solid #fff;border-radius:50%;box-shadow:0 0 10px rgba(124,186,63,0.6);';
+        new maplibregl.Marker({ element: el })
+          .setLngLat([objekt.lng, objekt.lat])
+          .setPopup(new maplibregl.Popup({ offset: 10 }).setHTML(`<b>${objekt.namn}</b><br>${objekt.volym || 0} m³`))
+          .addTo(map);
+      }
 
-      // Zooma till kartbildens bounds
-      map.fitBounds(bounds, { padding: [20, 20] });
-    }
+      // Kartbild-overlay
+      map.on('load', () => {
+        if (objekt.kartbild_url && objekt.kartbild_bounds) {
+          const bounds = objekt.kartbild_bounds;
+          const sw: [number, number] = [bounds[0][1], bounds[0][0]]; // [lng, lat]
+          const ne: [number, number] = [bounds[1][1], bounds[1][0]];
+          const nw: [number, number] = [sw[0], ne[1]];
+          const se: [number, number] = [ne[0], sw[1]];
 
-    mapRef.current = map;
+          map.addSource('kartbild', {
+            type: 'image',
+            url: objekt.kartbild_url,
+            coordinates: [nw, ne, se, sw],
+          });
+          map.addLayer({
+            id: 'kartbild-layer',
+            type: 'raster',
+            source: 'kartbild',
+            paint: { 'raster-opacity': 0.8 },
+          });
+
+          // Zooma till kartbildens bounds
+          map.fitBounds([sw, ne], { padding: 20 });
+        }
+      });
+
+      mapRef.current = map;
+    });
 
     return () => {
+      cancelled = true;
       if (mapRef.current) {
         mapRef.current.remove();
         mapRef.current = null;
@@ -105,9 +172,12 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
         left: '16px',
         zIndex: 1000,
         backgroundColor: 'rgba(0,0,0,0.85)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
         borderRadius: '12px',
         padding: '12px 16px',
         maxWidth: 'calc(100% - 80px)',
+        border: '1px solid rgba(255,255,255,0.08)',
       }}>
         <div style={{
           fontSize: '16px',
@@ -135,7 +205,9 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
           width: '48px',
           height: '48px',
           backgroundColor: 'rgba(0,0,0,0.85)',
-          border: 'none',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.08)',
           borderRadius: '12px',
           color: '#fff',
           fontSize: '24px',
@@ -151,7 +223,6 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
       {/* Dropdown-meny */}
       {showMenu && (
         <>
-          {/* Bakgrund för att stänga menyn */}
           <div
             onClick={() => setShowMenu(false)}
             style={{
@@ -169,64 +240,40 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
             right: '16px',
             zIndex: 1002,
             backgroundColor: 'rgba(0,0,0,0.95)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
             borderRadius: '12px',
             overflow: 'hidden',
             minWidth: '180px',
+            border: '1px solid rgba(255,255,255,0.08)',
           }}>
             <button
-              onClick={() => {
-                setShowMenu(false);
-                onTillbaka();
-              }}
+              onClick={() => { setShowMenu(false); onTillbaka(); }}
               style={{
-                width: '100%',
-                padding: '16px 20px',
-                background: 'none',
-                border: 'none',
-                borderBottom: '1px solid #333',
-                color: '#fff',
-                fontSize: '16px',
-                textAlign: 'left',
-                cursor: 'pointer',
+                width: '100%', padding: '16px 20px', background: 'none',
+                border: 'none', borderBottom: '1px solid #333',
+                color: '#fff', fontSize: '16px', textAlign: 'left', cursor: 'pointer',
               }}
             >
               ← Tillbaka
             </button>
             <button
-              onClick={() => {
-                setShowMenu(false);
-                onTillbaka();
-              }}
+              onClick={() => { setShowMenu(false); onTillbaka(); }}
               style={{
-                width: '100%',
-                padding: '16px 20px',
-                background: 'none',
-                border: 'none',
-                borderBottom: '1px solid #333',
-                color: '#fff',
-                fontSize: '16px',
-                textAlign: 'left',
-                cursor: 'pointer',
+                width: '100%', padding: '16px 20px', background: 'none',
+                border: 'none', borderBottom: '1px solid #333',
+                color: '#fff', fontSize: '16px', textAlign: 'left', cursor: 'pointer',
               }}
             >
               Byt objekt
             </button>
             {objekt.markagare && (
               <button
-                onClick={() => {
-                  setShowMenu(false);
-                  setShowMarkagare(true);
-                }}
+                onClick={() => { setShowMenu(false); setShowMarkagare(true); }}
                 style={{
-                  width: '100%',
-                  padding: '16px 20px',
-                  background: 'none',
-                  border: 'none',
-                  borderBottom: '1px solid #333',
-                  color: '#fff',
-                  fontSize: '16px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
+                  width: '100%', padding: '16px 20px', background: 'none',
+                  border: 'none', borderBottom: '1px solid #333',
+                  color: '#fff', fontSize: '16px', textAlign: 'left', cursor: 'pointer',
                 }}
               >
                 Markägare
@@ -234,19 +281,10 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
             )}
             {objekt.lat && objekt.lng && (
               <button
-                onClick={() => {
-                  setShowMenu(false);
-                  onNavigera(objekt.lat, objekt.lng);
-                }}
+                onClick={() => { setShowMenu(false); onNavigera(objekt.lat, objekt.lng); }}
                 style={{
-                  width: '100%',
-                  padding: '16px 20px',
-                  background: 'none',
-                  border: 'none',
-                  color: '#fff',
-                  fontSize: '16px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
+                  width: '100%', padding: '16px 20px', background: 'none',
+                  border: 'none', color: '#fff', fontSize: '16px', textAlign: 'left', cursor: 'pointer',
                 }}
               >
                 Navigera
@@ -261,15 +299,9 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
         <div
           onClick={() => setShowMarkagare(false)}
           style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
             backgroundColor: 'rgba(0,0,0,0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
             zIndex: 2000,
           }}
         >
@@ -282,6 +314,7 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
               margin: '20px',
               maxWidth: '400px',
               width: '100%',
+              border: '1px solid rgba(255,255,255,0.08)',
             }}
           >
             <h3 style={{ margin: '0 0 16px', color: '#fff', fontSize: '18px' }}>
@@ -294,15 +327,9 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
               <a
                 href={`tel:${objekt.markagare_tel}`}
                 style={{
-                  display: 'inline-block',
-                  padding: '12px 24px',
-                  backgroundColor: '#22c55e',
-                  color: '#fff',
-                  borderRadius: '8px',
-                  textDecoration: 'none',
-                  fontSize: '18px',
-                  fontWeight: '600',
-                  marginTop: '8px',
+                  display: 'inline-block', padding: '12px 24px',
+                  backgroundColor: '#7cba3f', color: '#fff', borderRadius: '8px',
+                  textDecoration: 'none', fontSize: '18px', fontWeight: '600', marginTop: '8px',
                 }}
               >
                 {objekt.markagare_tel}
@@ -316,15 +343,9 @@ export default function KartaVy({ objekt, onTillbaka, onNavigera }: KartaVyProps
             <button
               onClick={() => setShowMarkagare(false)}
               style={{
-                width: '100%',
-                padding: '14px',
-                marginTop: '20px',
-                backgroundColor: '#333',
-                border: 'none',
-                borderRadius: '8px',
-                color: '#fff',
-                fontSize: '16px',
-                cursor: 'pointer',
+                width: '100%', padding: '14px', marginTop: '20px',
+                backgroundColor: '#333', border: 'none', borderRadius: '8px',
+                color: '#fff', fontSize: '16px', cursor: 'pointer',
               }}
             >
               Stäng
