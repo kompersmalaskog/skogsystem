@@ -4510,7 +4510,7 @@ export default function PlannerPage() {
     <div style={{
       height: '100vh',
       width: '100vw',
-      background: colors.bg,
+      background: 'transparent',
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
       color: colors.text,
       overflow: 'hidden',
