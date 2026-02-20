@@ -831,35 +831,8 @@ export default function PlannerPage() {
           }, 'zone-fill');
         } catch (e) { console.error('[MapLibre] korbarhet error:', e); }
 
-        // === Force WebGL canvas repaint ===
-        // Method 1: Force reflow by toggling canvas display
-        const canvas = map.getCanvas();
-        console.log('[MapLibre] Canvas before repaint:', canvas.width, 'x', canvas.height, 'display:', canvas.style.display, 'visibility:', canvas.style.visibility, 'opacity:', canvas.style.opacity);
-        canvas.style.display = 'none';
-        canvas.offsetHeight; // force reflow
-        canvas.style.display = 'block';
         map.resize();
         map.triggerRepaint();
-        console.log('[MapLibre] repaint triggered (method 1: display toggle)');
-
-        // Method 2: Minimal pan to force render pipeline
-        setTimeout(() => {
-          map.panBy([1, 0], { duration: 0 });
-          map.panBy([-1, 0], { duration: 0 });
-          console.log('[MapLibre] repaint triggered (method 2: panBy)');
-        }, 100);
-
-        // Method 3: requestAnimationFrame chain for delayed repaint
-        requestAnimationFrame(() => {
-          map.resize();
-          map.triggerRepaint();
-          requestAnimationFrame(() => {
-            map.resize();
-            map.triggerRepaint();
-            console.log('[MapLibre] repaint triggered (method 3: rAF chain)');
-          });
-        });
-
         setMapLibreReady(true);
       });
 
@@ -870,46 +843,17 @@ export default function PlannerPage() {
       mapInstanceRef.current = map;
       console.log('[MapLibre] Map-instans skapad');
 
-      // Aggressiv resize+repaint loop de första 3 sekunderna
-      let resizeAttempts = 0;
-      const forceResize = setInterval(() => {
-        if (map) {
-          map.resize();
-          map.triggerRepaint();
-          // Periodiskt tvinga canvas reflow
-          if (resizeAttempts % 10 === 0) {
-            const c = map.getCanvas();
-            c.style.display = 'none';
-            c.offsetHeight;
-            c.style.display = 'block';
-          }
-        }
-        resizeAttempts++;
-        if (resizeAttempts > 60) clearInterval(forceResize); // 60 * 50ms = 3s
-      }, 50);
-
-      // Window resize listener
+      // Window resize → map.resize()
       const onWindowResize = () => { map.resize(); };
       window.addEventListener('resize', onWindowResize);
-
-      // ResizeObserver on container and parent
-      const resizeObserver = new ResizeObserver(() => {
-        map.resize();
-      });
-      if (container) resizeObserver.observe(container);
-      if (container.parentElement) resizeObserver.observe(container.parentElement);
-      resizeObserverRef.current = resizeObserver;
-
-      // MutationObserver on parent for style/class changes
-      const mutationObserver = new MutationObserver(() => {
-        map.resize();
-      });
-      if (container.parentElement) {
-        mutationObserver.observe(container.parentElement, { attributes: true, attributeFilter: ['style', 'class'] });
-      }
-      mutationObserverRef.current = mutationObserver;
-
       windowResizeRef.current = onWindowResize;
+
+      // ResizeObserver on container
+      if (container) {
+        const resizeObserver = new ResizeObserver(() => { map.resize(); });
+        resizeObserver.observe(container);
+        resizeObserverRef.current = resizeObserver;
+      }
     }
 
     return () => {
@@ -919,15 +863,13 @@ export default function PlannerPage() {
       }
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
-      mutationObserverRef.current?.disconnect();
-      mutationObserverRef.current = null;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
         mapLibreInitialized.current = false;
       }
     };
-  }, [showMap, screenSize.width]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
@@ -1196,7 +1138,6 @@ export default function PlannerPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const mutationObserverRef = useRef<MutationObserver | null>(null);
   const windowResizeRef = useRef<(() => void) | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
