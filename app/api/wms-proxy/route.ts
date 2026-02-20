@@ -23,6 +23,14 @@ const WMS_LAYERS: Record<string, { url: string; layers: string }> = {
   },
 };
 
+// Convert EPSG:3857 (Web Mercator) coordinates to EPSG:4326 (WGS84)
+function mercatorToWgs84(x: number, y: number): [number, number] {
+  const lon = (x / 20037508.34) * 180;
+  let lat = (y / 20037508.34) * 180;
+  lat = (180 / Math.PI) * (2 * Math.atan(Math.exp(lat * Math.PI / 180)) - Math.PI / 2);
+  return [lon, lat];
+}
+
 function authHeaders(): Record<string, string> {
   const user = process.env.SKS_WMS_USER;
   const pass = process.env.SKS_WMS_PASS;
@@ -57,8 +65,13 @@ export async function GET(req: NextRequest) {
     const width = params.get('width') || '256';
     const height = params.get('height') || '256';
     if (!bbox) return NextResponse.json({ error: 'Missing bbox' }, { status: 400 });
-    url = `${wmsConfig.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${wmsConfig.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${bbox}&WIDTH=${width}&HEIGHT=${height}`;
-    console.log('[wms-proxy]', layer, bbox);
+    // bbox arrives in EPSG:3857 from MapLibre, convert to EPSG:4326 for WMS
+    const [minx, miny, maxx, maxy] = bbox.split(',').map(Number);
+    const [minLon, minLat] = mercatorToWgs84(minx, miny);
+    const [maxLon, maxLat] = mercatorToWgs84(maxx, maxy);
+    const wgs84Bbox = `${minLon},${minLat},${maxLon},${maxLat}`;
+    url = `${wmsConfig.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${wmsConfig.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${wgs84Bbox}&WIDTH=${width}&HEIGHT=${height}`;
+    console.log('[wms-proxy]', layer, wgs84Bbox);
   } else {
     // Legacy: full URL passed as ?url= parameter
     const legacyUrl = params.get('url');
