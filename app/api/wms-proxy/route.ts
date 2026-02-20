@@ -3,8 +3,12 @@ import { NextRequest, NextResponse } from 'next/server';
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-// Layer ID → WMS config
-const WMS_LAYERS: Record<string, { url: string; layers: string; auth?: boolean }> = {
+// Layer ID → WMS/ArcGIS config
+type LayerConfig =
+  | { type?: 'wms'; url: string; layers: string; auth?: boolean }
+  | { type: 'arcgis'; url: string; renderingRule: string; auth?: boolean };
+
+const WMS_LAYERS: Record<string, LayerConfig> = {
   sks_markfuktighet: {
     url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer',
     layers: 'Markfuktighet_SLU_2_0',
@@ -28,6 +32,12 @@ const WMS_LAYERS: Record<string, { url: string; layers: string; auth?: boolean }
   raa_lamningar: {
     url: 'https://pub.raa.se/visning/lamningar_v1/wms',
     layers: 'fornlamning',
+  },
+  sks_gallringsindex: {
+    type: 'arcgis',
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SkogligaGrunddata_3_1/ImageServer',
+    renderingRule: '{"rasterFunction":"Gallringsindex","rasterFunctionArguments":{"sis":"g16-g22"}}',
+    auth: true,
   },
 };
 
@@ -91,21 +101,26 @@ export async function GET(req: NextRequest) {
   let cacheKey = '';
 
   if (layer) {
-    // Construct WMS URL server-side from layer ID + bbox
-    const wmsConfig = WMS_LAYERS[layer];
-    if (!wmsConfig) return NextResponse.json({ error: `Unknown layer: ${layer}` }, { status: 400 });
+    const config = WMS_LAYERS[layer];
+    if (!config) return NextResponse.json({ error: `Unknown layer: ${layer}` }, { status: 400 });
     const bbox = params.get('bbox');
     const width = params.get('width') || '256';
     const height = params.get('height') || '256';
     if (!bbox) return NextResponse.json({ error: 'Missing bbox' }, { status: 400 });
-    // bbox arrives in EPSG:3857 from MapLibre, convert to EPSG:4326 for WMS
-    const [minx, miny, maxx, maxy] = bbox.split(',').map(Number);
-    const [minLon, minLat] = mercatorToWgs84(minx, miny);
-    const [maxLon, maxLat] = mercatorToWgs84(maxx, maxy);
-    const wgs84Bbox = `${minLon},${minLat},${maxLon},${maxLat}`;
-    url = `${wmsConfig.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${wmsConfig.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${wgs84Bbox}&WIDTH=${width}&HEIGHT=${height}`;
-    console.log('[wms-proxy]', layer, wgs84Bbox);
-    needsAuth = wmsConfig.auth === true;
+
+    if (config.type === 'arcgis') {
+      // ArcGIS REST exportImage — bbox stays in EPSG:3857
+      url = `${config.url}/exportImage?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${width},${height}&format=png&transparent=true&renderingRule=${encodeURIComponent(config.renderingRule)}&f=image`;
+    } else {
+      // Standard WMS — convert bbox from EPSG:3857 to EPSG:4326
+      const [minx, miny, maxx, maxy] = bbox.split(',').map(Number);
+      const [minLon, minLat] = mercatorToWgs84(minx, miny);
+      const [maxLon, maxLat] = mercatorToWgs84(maxx, maxy);
+      const wgs84Bbox = `${minLon},${minLat},${maxLon},${maxLat}`;
+      url = `${config.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${config.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${wgs84Bbox}&WIDTH=${width}&HEIGHT=${height}`;
+    }
+    console.log('[wms-proxy]', layer, bbox);
+    needsAuth = config.auth === true;
     cacheKey = `${layer}:${bbox}:${width}:${height}`;
   } else {
     // Legacy: full URL passed as ?url= parameter

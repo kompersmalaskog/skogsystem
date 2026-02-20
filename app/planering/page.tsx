@@ -581,6 +581,7 @@ export default function PlannerPage() {
       { id: 'sks_virkesvolym', tiles: ['/api/wms-proxy?layer=sks_virkesvolym&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'sks_tradhojd', tiles: ['/api/wms-proxy?layer=sks_tradhojd&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'sks_lutning', tiles: ['/api/wms-proxy?layer=sks_lutning&bbox={bbox-epsg-3857}&width=256&height=256'] },
+      { id: 'sks_gallringsindex', tiles: ['/api/wms-proxy?layer=sks_gallringsindex&bbox={bbox-epsg-3857}&width=256&height=256'] },
     ];
     wmsLayerDefs.forEach((def: { id: string; tiles: string[]; maxzoom?: number }) => {
       try {
@@ -1003,7 +1004,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
 
-    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'korbarhet'];
+    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet'];
 
     allWmsIds.forEach(id => {
       const layerId = `wms-layer-${id}`;
