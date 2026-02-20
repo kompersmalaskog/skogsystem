@@ -841,28 +841,59 @@ export default function PlannerPage() {
       mapInstanceRef.current = map;
       console.log('[MapLibre] Map-instans skapad');
 
-      // Polling resize: vänta tills canvasen faktiskt har storlek, sedan resize
-      const resizeInterval = setInterval(() => {
-        if (map && map.getContainer().offsetWidth > 0) {
+      // Logga parent-kedjan för debugging
+      let el: HTMLElement | null = container;
+      let depth = 0;
+      while (el && depth < 5) {
+        console.log(`[MapLibre] Parent ${depth}: ${el.tagName} ${el.offsetWidth}x${el.offsetHeight} style.height=${el.style.height}`);
+        el = el.parentElement;
+        depth++;
+      }
+
+      // Aggressiv resize-loop de första 3 sekunderna
+      let resizeAttempts = 0;
+      const forceResize = setInterval(() => {
+        if (map) {
           map.resize();
-          clearInterval(resizeInterval);
-          console.log('[MapLibre] Resize klar, canvas:', map.getCanvas().width, 'x', map.getCanvas().height);
+          map.triggerRepaint();
         }
+        resizeAttempts++;
+        if (resizeAttempts > 60) clearInterval(forceResize); // 60 * 50ms = 3s
       }, 50);
 
-      // ResizeObserver for dynamic container size changes
-      if (container) {
-        const resizeObserver = new ResizeObserver(() => {
-          map.resize();
-        });
-        resizeObserver.observe(container);
-        resizeObserverRef.current = resizeObserver;
+      // Window resize listener
+      const onWindowResize = () => { map.resize(); };
+      window.addEventListener('resize', onWindowResize);
+
+      // ResizeObserver on container and parent
+      const resizeObserver = new ResizeObserver(() => {
+        map.resize();
+      });
+      if (container) resizeObserver.observe(container);
+      if (container.parentElement) resizeObserver.observe(container.parentElement);
+      resizeObserverRef.current = resizeObserver;
+
+      // MutationObserver on parent for style/class changes
+      const mutationObserver = new MutationObserver(() => {
+        map.resize();
+      });
+      if (container.parentElement) {
+        mutationObserver.observe(container.parentElement, { attributes: true, attributeFilter: ['style', 'class'] });
       }
+      mutationObserverRef.current = mutationObserver;
+
+      windowResizeRef.current = onWindowResize;
     }
 
     return () => {
+      if (windowResizeRef.current) {
+        window.removeEventListener('resize', windowResizeRef.current);
+        windowResizeRef.current = null;
+      }
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
+      mutationObserverRef.current?.disconnect();
+      mutationObserverRef.current = null;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -1138,6 +1169,8 @@ export default function PlannerPage() {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const mutationObserverRef = useRef<MutationObserver | null>(null);
+  const windowResizeRef = useRef<(() => void) | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
   
