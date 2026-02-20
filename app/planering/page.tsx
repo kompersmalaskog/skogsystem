@@ -1023,11 +1023,12 @@ export default function PlannerPage() {
 
     const isDrawingMode = isDrawMode || isZoneMode;
 
-    // Set cursor on MapLibre canvas directly (CSS on wrapper div doesn't override canvas cursor)
+    // Override MapLibre's CSS cursor via !important on the canvas container
+    const canvasContainer = map.getCanvasContainer();
     if (isDrawingMode || selectedSymbol || isArrowMode) {
-      map.getCanvas().style.cursor = 'crosshair';
+      canvasContainer.style.setProperty('cursor', 'crosshair', 'important');
     } else {
-      map.getCanvas().style.cursor = '';
+      canvasContainer.style.removeProperty('cursor');
     }
     console.log('[MapLibre] Click handler registered, drawMode:', isDrawMode, 'zoneMode:', isZoneMode, 'isDrawingMode:', isDrawingMode);
 
@@ -1148,6 +1149,7 @@ export default function PlannerPage() {
     return () => {
       map.off('click', onClick);
       map.off('dblclick', onDblClick);
+      canvasContainer.style.removeProperty('cursor');
     };
   }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1273,9 +1275,10 @@ export default function PlannerPage() {
     map.on('click', 'line-hitbox', onLineClick);
     map.on('click', 'zone-fill', onZoneClick);
 
-    // Cursor change on hover
-    const onEnter = () => { if (!isDrawMode && !isZoneMode) map.getCanvas().style.cursor = 'pointer'; };
-    const onLeave = () => { if (!isDrawMode && !isZoneMode) map.getCanvas().style.cursor = ''; };
+    // Cursor change on hover (use container with !important to override MapLibre CSS)
+    const container = map.getCanvasContainer();
+    const onEnter = () => { if (!isDrawMode && !isZoneMode) container.style.setProperty('cursor', 'pointer', 'important'); };
+    const onLeave = () => { if (!isDrawMode && !isZoneMode) container.style.removeProperty('cursor'); };
     map.on('mouseenter', 'line-hitbox', onEnter);
     map.on('mouseleave', 'line-hitbox', onLeave);
     map.on('mouseenter', 'zone-fill', onEnter);
@@ -4329,7 +4332,6 @@ export default function PlannerPage() {
             width: '100%',
             height: '100%',
             zIndex: 0,
-            cursor: isDrawMode || isZoneMode || selectedSymbol || isArrowMode || measureMode || measureAreaMode ? 'crosshair' : undefined,
           }}
         />
       )}
@@ -5715,6 +5717,12 @@ export default function PlannerPage() {
                 <button
                   onClick={() => {
                     setCurrentPath([...marker.path]);
+                    // Convert SVG path to [lng, lat] for MapLibre drawing
+                    const lngLatCoords: [number, number][] = marker.path.map((p: any) => {
+                      const { lat, lon } = svgToLatLon(p.x, p.y);
+                      return [lon, lat] as [number, number];
+                    });
+                    setCurrentDrawCoords(lngLatCoords);
                     setDrawType(marker.lineType);
                     setIsDrawMode(true);
                     setDrawPaused(true);
@@ -6199,7 +6207,7 @@ export default function PlannerPage() {
       )}
 
       {/* === AKTIV RITNING INDIKATOR === */}
-      {(isDrawMode || isZoneMode) && !isDrawing && currentPath.length > 1 && (
+      {(isDrawMode || isZoneMode) && currentDrawCoords.length > 1 && (
         <div style={{
           position: 'absolute',
           bottom: menuHeight + 130,
@@ -6277,7 +6285,7 @@ export default function PlannerPage() {
       )}
       
       {/* Dra för att rita - visas innan man börjat */}
-      {(isDrawMode || isZoneMode) && !isDrawing && currentPath.length === 0 && (
+      {(isDrawMode || isZoneMode) && currentDrawCoords.length === 0 && (
         <div style={{
           position: 'absolute',
           bottom: menuHeight + 130,
@@ -6292,7 +6300,7 @@ export default function PlannerPage() {
           boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
           zIndex: 700,
         }}>
-          <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita</span>
+          <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Klicka för att rita</span>
           <button
             onClick={cancelDrawing}
             style={{
