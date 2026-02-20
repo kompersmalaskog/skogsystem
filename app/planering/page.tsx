@@ -1,11 +1,14 @@
 'use client'
 import { useState, useRef, useEffect, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import { createClient } from '@supabase/supabase-js'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
 import VolymPanel from './volym-panel'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
+
+const DynamicMapLibre = dynamic(() => import('@/components/MapLibreMap'), { ssr: false })
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -448,468 +451,156 @@ export default function PlannerPage() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // === MapLibre: Initialisering (dynamisk import för SSR-kompatibilitet) ===
+  // === MapLibre state ===
   const [mapLibreReady, setMapLibreReady] = useState(false);
-  const mapLibreInitialized = useRef(false);
 
-  // Ladda MapLibre CDN-resurser en gång
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+  // MapLibre map style config (stable constant)
+  const mapStyleConfig = useRef({
+    version: 8 as const,
+    sources: {
+      satellite: {
+        type: 'raster' as const,
+        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tileSize: 256,
+        maxzoom: 18,
+        attribution: '&copy; Esri',
+      },
+      osm: {
+        type: 'raster' as const,
+        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        maxzoom: 19,
+        attribution: '&copy; OpenStreetMap',
+      },
+      topographic: {
+        type: 'raster' as const,
+        tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        maxzoom: 17,
+        attribution: '&copy; OpenTopoMap',
+      },
+      contours: {
+        type: 'raster' as const,
+        tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        maxzoom: 17,
+      },
+    },
+    layers: [
+      { id: 'bg', type: 'background' as const, paint: { 'background-color': '#0a0a0a' } },
+      { id: 'osm-layer', type: 'raster' as const, source: 'osm', layout: { visibility: 'none' as const } },
+      { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 }, layout: { visibility: 'visible' as const } },
+      { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: 'none' as const } },
+      { id: 'contours-layer', type: 'raster' as const, source: 'contours', paint: { 'raster-opacity': 0.4 }, layout: { visibility: 'none' as const } },
+    ],
+    sky: { 'sky-color': '#000000', 'horizon-color': '#111111', 'sky-horizon-blend': 0.5 },
+  });
 
-    // Lägg till MapLibre CSS via link-tag
-    if (!document.getElementById('maplibre-css')) {
-      const link = document.createElement('link');
-      link.id = 'maplibre-css';
-      link.rel = 'stylesheet';
-      link.href = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
-      document.head.appendChild(link);
-    }
+  // Callback när MapLibre-kartan är laddad och redo
+  const handleMapReady = useCallback((map: any) => {
+    mapInstanceRef.current = map;
+    console.log('[MapLibre] handleMapReady — adding sources and layers');
 
-    // Ladda MapLibre JS via CDN-script
-    if (!(window as any).maplibregl && !document.getElementById('maplibre-js')) {
-      const script = document.createElement('script');
-      script.id = 'maplibre-js';
-      script.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
-      script.onload = () => {
-        console.log('[MapLibre] CDN-script laddat');
-      };
-      document.head.appendChild(script);
-    }
-  }, []);
+    // === GeoJSON Sources för linjer, zoner och ritning ===
+    map.addSource('lines-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addSource('zones-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addSource('drawing-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addSource('drawing-points-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addSource('tma-roads-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
-  // Skapa MapLibre-kartan när container och script är redo
-  useEffect(() => {
-    console.log('[MapLibre] === INIT useEffect ===', 'initialized:', mapLibreInitialized.current, 'instance:', !!mapInstanceRef.current, 'container:', !!mapContainerRef.current);
-    // Redan skapad? Bara sätt upp lyssnare igen (de rensas i cleanup vid varje dep-ändring)
-    if (mapLibreInitialized.current && mapInstanceRef.current) {
-      const map = mapInstanceRef.current;
-      const onResize = () => { map.resize(); };
-      window.addEventListener('resize', onResize);
-      windowResizeRef.current = onResize;
-      const c = mapContainerRef.current;
-      if (c) {
-        const ro = new ResizeObserver(() => { map.resize(); });
-        ro.observe(c);
-        resizeObserverRef.current = ro;
-      }
-      return;
-    }
-    if (!mapContainerRef.current) return;
+    // === Zone layers ===
+    map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.2 } });
+    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#ffffff', 'line-width': 4, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
 
-    const maplibregl = (window as any).maplibregl;
-    if (!maplibregl) {
-      // Scriptet har inte laddats ännu — vänta och försök igen
-      const interval = setInterval(() => {
-        const ml = (window as any).maplibregl;
-        if (ml && mapContainerRef.current && !mapInstanceRef.current) {
-          clearInterval(interval);
-          initMap(ml);
-        }
-      }, 100);
-      return () => clearInterval(interval);
-    }
-
-    initMap(maplibregl);
-
-    function initMap(ml: any) {
-      if (mapLibreInitialized.current || !mapContainerRef.current) return;
-
-      const container = mapContainerRef.current;
-      console.log('[MapLibre] Container size check:', container.offsetWidth, 'x', container.offsetHeight);
-
-      // Vänta tills containern har faktisk storlek i DOM innan vi skapar kartan
-      if (container.offsetWidth === 0 || container.offsetHeight === 0) {
-        console.log('[MapLibre] Container har ingen storlek ännu, väntar...');
-        const waitInterval = setInterval(() => {
-          const c = mapContainerRef.current;
-          if (c && c.offsetWidth > 0 && c.offsetHeight > 0 && !mapLibreInitialized.current) {
-            console.log('[MapLibre] Container redo:', c.offsetWidth, 'x', c.offsetHeight);
-            clearInterval(waitInterval);
-            initMap(ml);
-          }
-        }, 50);
-        return;
-      }
-
-      mapLibreInitialized.current = true;
-      console.log('[MapLibre] Initierar karta, container:', container.offsetWidth, 'x', container.offsetHeight);
-
-      const map = new ml.Map({
-        container,
-        style: {
-          version: 8,
-          sources: {
-            satellite: {
-              type: 'raster',
-              tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-              tileSize: 256,
-              maxzoom: 18,
-              attribution: '&copy; Esri',
-            },
-            osm: {
-              type: 'raster',
-              tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-              tileSize: 256,
-              maxzoom: 19,
-              attribution: '&copy; OpenStreetMap',
-            },
-            topographic: {
-              type: 'raster',
-              tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
-              tileSize: 256,
-              maxzoom: 17,
-              attribution: '&copy; OpenTopoMap',
-            },
-            contours: {
-              type: 'raster',
-              tiles: ['https://tile.opentopomap.org/{z}/{x}/{y}.png'],
-              tileSize: 256,
-              maxzoom: 17,
-            },
-          },
-          layers: [
-            { id: 'bg', type: 'background', paint: { 'background-color': '#0a0a0a' } },
-            { id: 'osm-layer', type: 'raster', source: 'osm', layout: { visibility: 'none' } },
-            { id: 'satellite-layer', type: 'raster', source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 }, layout: { visibility: 'visible' } },
-            { id: 'terrain-layer', type: 'raster', source: 'topographic', layout: { visibility: 'none' } },
-            { id: 'contours-layer', type: 'raster', source: 'contours', paint: { 'raster-opacity': 0.4 }, layout: { visibility: 'none' } },
-          ],
-          sky: { 'sky-color': '#000000', 'horizon-color': '#111111', 'sky-horizon-blend': 0.5 },
-        },
-        center: [mapCenter.lng, mapCenter.lat],
-        zoom: mapZoom,
-        pitch: 50,
-        bearing: 20,
-        interactive: true,
-        attributionControl: false,
-        dragRotate: true,
-        touchZoomRotate: true,
-        touchPitch: true,
+    // === Line layers per type ===
+    const lineTypeDefs = [
+      { id: 'boundary', color: '#ef4444', color2: '#fbbf24', striped: true },
+      { id: 'mainRoad', color: '#3b82f6', color2: '#fbbf24', striped: true },
+      { id: 'backRoadRed', color: '#ef4444' },
+      { id: 'backRoadYellow', color: '#fbbf24' },
+      { id: 'backRoadBlue', color: '#3b82f6' },
+      { id: 'sideRoadRed', color: '#ef4444' },
+      { id: 'sideRoadYellow', color: '#fbbf24' },
+      { id: 'sideRoadBlue', color: '#3b82f6' },
+      { id: 'stickvag', color: '#ff00ff' },
+      { id: 'nature', color: '#22c55e', color2: '#ef4444', striped: true },
+      { id: 'ditch', color: '#06b6d4', color2: '#0e7490', striped: true },
+      { id: 'trail', color: '#ffffff', dashed: true },
+    ];
+    lineTypeDefs.forEach((lt: any) => {
+      map.addLayer({
+        id: `line-${lt.id}-base`, type: 'line', source: 'lines-source',
+        filter: ['==', ['get', 'lineType'], lt.id],
+        paint: { 'line-color': lt.color, 'line-width': 5, ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}), ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}) },
+        layout: { 'line-cap': 'round', 'line-join': 'round' }
       });
-
-      // Högerklick + dra = luta (pitch), Ctrl + dra = rotera (bearing)
-      // MapLibre default: högerklick-dra roterar. Vi vill att högerklick lutar istället.
-      // Ctrl+dra ska rotera.
-      // Konfigurera detta via dragRotate-handlern
-
-      map.on('load', () => {
-        console.log('[MapLibre] Karta laddad, storlek:', map.getCanvas().width, 'x', map.getCanvas().height);
-        map.resize();
-
-        // === GeoJSON Sources för linjer, zoner och ritning ===
-        map.addSource('lines-source', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] }
-        });
-        map.addSource('zones-source', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] }
-        });
-        map.addSource('drawing-source', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] }
-        });
-        map.addSource('drawing-points-source', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] }
-        });
-        map.addSource('tma-roads-source', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] }
-        });
-
-        // === Zone layers ===
+      if (lt.striped && lt.color2) {
         map.addLayer({
-          id: 'zone-fill',
-          type: 'fill',
-          source: 'zones-source',
-          paint: {
-            'fill-color': ['get', 'color'],
-            'fill-opacity': 0.2,
-          }
-        });
-        map.addLayer({
-          id: 'zone-outline',
-          type: 'line',
-          source: 'zones-source',
-          paint: {
-            'line-color': ['get', 'color'],
-            'line-width': 4,
-          },
-          layout: {
-            'line-cap': 'round',
-            'line-join': 'round',
-          }
-        });
-        map.addLayer({
-          id: 'zone-outline-dash',
-          type: 'line',
-          source: 'zones-source',
-          paint: {
-            'line-color': '#ffffff',
-            'line-width': 4,
-            'line-dasharray': [2, 2],
-          },
-          layout: {
-            'line-cap': 'round',
-            'line-join': 'round',
-          }
-        });
-
-        // === Line layers per type ===
-        const lineTypeDefs = [
-          { id: 'boundary', color: '#ef4444', color2: '#fbbf24', striped: true },
-          { id: 'mainRoad', color: '#3b82f6', color2: '#fbbf24', striped: true },
-          { id: 'backRoadRed', color: '#ef4444' },
-          { id: 'backRoadYellow', color: '#fbbf24' },
-          { id: 'backRoadBlue', color: '#3b82f6' },
-          { id: 'sideRoadRed', color: '#ef4444' },
-          { id: 'sideRoadYellow', color: '#fbbf24' },
-          { id: 'sideRoadBlue', color: '#3b82f6' },
-          { id: 'stickvag', color: '#ff00ff' },
-          { id: 'nature', color: '#22c55e', color2: '#ef4444', striped: true },
-          { id: 'ditch', color: '#06b6d4', color2: '#0e7490', striped: true },
-          { id: 'trail', color: '#ffffff', dashed: true },
-        ];
-        lineTypeDefs.forEach(lt => {
-          // Base line
-          map.addLayer({
-            id: `line-${lt.id}-base`,
-            type: 'line',
-            source: 'lines-source',
-            filter: ['==', ['get', 'lineType'], lt.id],
-            paint: {
-              'line-color': lt.color,
-              'line-width': 5,
-              ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}),
-              ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}),
-            },
-            layout: {
-              'line-cap': 'round',
-              'line-join': 'round',
-            }
-          });
-          // Striped overlay
-          if (lt.striped && lt.color2) {
-            map.addLayer({
-              id: `line-${lt.id}-stripe`,
-              type: 'line',
-              source: 'lines-source',
-              filter: ['==', ['get', 'lineType'], lt.id],
-              paint: {
-                'line-color': lt.color2,
-                'line-width': 5,
-                'line-dasharray': [2, 2],
-              },
-              layout: {
-                'line-cap': 'round',
-                'line-join': 'round',
-              }
-            });
-          }
-        });
-
-        // === Line hitbox layer (transparent, wide, for click detection) ===
-        map.addLayer({
-          id: 'line-hitbox',
-          type: 'line',
-          source: 'lines-source',
-          paint: {
-            'line-color': 'rgba(0,0,0,0)',
-            'line-width': 20,
-          }
-        });
-
-        // === TMA road layers ===
-        map.addLayer({
-          id: 'tma-roads-glow',
-          type: 'line',
-          source: 'tma-roads-source',
-          paint: {
-            'line-color': 'rgba(239,68,68,0.3)',
-            'line-width': 20,
-            'line-blur': 4,
-          },
+          id: `line-${lt.id}-stripe`, type: 'line', source: 'lines-source',
+          filter: ['==', ['get', 'lineType'], lt.id],
+          paint: { 'line-color': lt.color2, 'line-width': 5, 'line-dasharray': [2, 2] },
           layout: { 'line-cap': 'round', 'line-join': 'round' }
         });
-        map.addLayer({
-          id: 'tma-roads-line',
-          type: 'line',
-          source: 'tma-roads-source',
-          paint: {
-            'line-color': '#ef4444',
-            'line-width': 8,
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round' }
-        });
-
-        // === Drawing preview layers ===
-        map.addLayer({
-          id: 'drawing-fill',
-          type: 'fill',
-          source: 'drawing-source',
-          filter: ['==', ['geometry-type'], 'Polygon'],
-          paint: {
-            'fill-color': '#7cba3f',
-            'fill-opacity': 0.15,
-          }
-        });
-        map.addLayer({
-          id: 'drawing-glow',
-          type: 'line',
-          source: 'drawing-source',
-          paint: {
-            'line-color': '#7cba3f',
-            'line-width': 12,
-            'line-opacity': 0.3,
-            'line-blur': 4,
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round' }
-        });
-        map.addLayer({
-          id: 'drawing-line',
-          type: 'line',
-          source: 'drawing-source',
-          paint: {
-            'line-color': '#7cba3f',
-            'line-width': 4,
-          },
-          layout: { 'line-cap': 'round', 'line-join': 'round' }
-        });
-        map.addLayer({
-          id: 'drawing-points-layer',
-          type: 'circle',
-          source: 'drawing-points-source',
-          paint: {
-            'circle-radius': 6,
-            'circle-color': '#ffffff',
-            'circle-stroke-color': '#7cba3f',
-            'circle-stroke-width': 2,
-          }
-        });
-
-        // === WMS overlay sources + layers (skapas här i load för att finnas innan visibility-toggle) ===
-        const wmsLayerDefs = [
-          { id: 'nyckelbiotoper', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Nyckelbiotop_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'naturvarde', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Objektnaturvarde_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'sumpskog', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'wetlands', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'biotopskydd', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Biotopskydd_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'naturvardsavtal', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNaturvardsavtal/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturvardsavtal_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'skoghistoria', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'avverkningsanmalan', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaAvverkningsanmalan/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Avverkningsanmalan_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'utfordavverkning', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaUtfordavverkning/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=UtfordAvverkning_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'fornlamningar', tiles: ['https://pub.raa.se/visning/lamningar/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=fornlamningar&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
-          { id: 'naturreservat', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturreservat&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'natura2000', tiles: ['https://geodata.naturvardsverket.se/n2000/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Habitatdirektivet,Fageldirektivet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'vattenskydd', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Vattenskyddsomrade&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'oversvamning', tiles: ['https://inspire.msb.se/oversvamning/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=NZ_Oversvamning_100,NZ_Oversvamning_200,NZ_Oversvamning_BHF&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'jordarter', tiles: ['https://maps3.sgu.se/geoserver/jord/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=jord:SE.GOV.SGU.JORD.GRUNDLAGER.25K&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'barighet', tiles: ['https://geo-netinfo.trafikverket.se/mapservice/wms.axd/NetInfo_1_8?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Barighet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'kraftledningar', tiles: ['https://inspire-skn.metria.se/geoserver/skn/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=US.ElectricityNetwork.Lines&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-          { id: 'sks_markfuktighet', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Markfuktighet_SLU_2_0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
-          { id: 'sks_virkesvolym', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkogligaGrunddata_3_1&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
-          { id: 'sks_tradhojd', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Tradhojd_3_1&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
-          { id: 'sks_lutning', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Lutning_1_0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
-        ];
-        wmsLayerDefs.forEach(def => {
-          try {
-            map.addSource(`wms-${def.id}`, {
-              type: 'raster',
-              tiles: def.tiles,
-              tileSize: 256,
-            });
-            map.addLayer({
-              id: `wms-layer-${def.id}`,
-              type: 'raster',
-              source: `wms-${def.id}`,
-              paint: { 'raster-opacity': 0.7 },
-              layout: { visibility: 'none' },
-            }, 'zone-fill');
-          } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
-        });
-
-        // Körbarhetstiles (custom API)
-        try {
-          map.addSource('wms-korbarhet', {
-            type: 'raster',
-            tiles: ['/api/korbarhet-tiles?bbox={bbox-epsg-4326}&width=256&height=256'],
-            tileSize: 256,
-          });
-          map.addLayer({
-            id: 'wms-layer-korbarhet',
-            type: 'raster',
-            source: 'wms-korbarhet',
-            paint: { 'raster-opacity': 0.7 },
-            layout: { visibility: 'none' },
-          }, 'zone-fill');
-        } catch (e) { console.error('[MapLibre] korbarhet error:', e); }
-
-        map.resize();
-        map.triggerRepaint();
-
-        // Simulera det F12/DevTools gör: tvinga layout-ändring
-        const mapContainer = map.getContainer();
-        const mapParent = mapContainer.parentElement;
-        if (mapParent) {
-          const origWidth = mapParent.style.width;
-          mapParent.style.width = (mapParent.offsetWidth - 1) + 'px';
-          requestAnimationFrame(() => {
-            mapParent.style.width = origWidth || '';
-            requestAnimationFrame(() => {
-              map.resize();
-              console.log('[MapLibre] Layout-toggle klar');
-            });
-          });
-        }
-
-        // Dispatcha resize-events som DevTools gör
-        setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 200);
-        setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 1000);
-
-        setMapLibreReady(true);
-      });
-
-      map.on('error', (e: any) => {
-        console.error('[MapLibre] Fel:', e.error || e);
-      });
-
-      mapInstanceRef.current = map;
-      console.log('[MapLibre] Map-instans skapad');
-
-      // Window resize → map.resize()
-      const onWindowResize = () => { map.resize(); };
-      window.addEventListener('resize', onWindowResize);
-      windowResizeRef.current = onWindowResize;
-
-      // ResizeObserver on container
-      if (container) {
-        const resizeObserver = new ResizeObserver(() => { map.resize(); });
-        resizeObserver.observe(container);
-        resizeObserverRef.current = resizeObserver;
       }
-    }
+    });
 
-    // Cleanup: bara rensa lyssnare, INTE förstör kartan (undvik destroy+recreate vid screenSize-ändring)
-    return () => {
-      if (windowResizeRef.current) {
-        window.removeEventListener('resize', windowResizeRef.current);
-        windowResizeRef.current = null;
-      }
-      resizeObserverRef.current?.disconnect();
-      resizeObserverRef.current = null;
-    };
-  }, [showMap, screenSize.width]); // eslint-disable-line react-hooks/exhaustive-deps
+    // === Line hitbox layer ===
+    map.addLayer({ id: 'line-hitbox', type: 'line', source: 'lines-source', paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': 20 } });
 
-  // Separat cleanup: förstör kartan bara vid unmount
-  useEffect(() => {
-    return () => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
-        mapLibreInitialized.current = false;
-      }
-    };
+    // === TMA road layers ===
+    map.addLayer({ id: 'tma-roads-glow', type: 'line', source: 'tma-roads-source', paint: { 'line-color': 'rgba(239,68,68,0.3)', 'line-width': 20, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'tma-roads-line', type: 'line', source: 'tma-roads-source', paint: { 'line-color': '#ef4444', 'line-width': 8 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+
+    // === Drawing preview layers ===
+    map.addLayer({ id: 'drawing-fill', type: 'fill', source: 'drawing-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#7cba3f', 'fill-opacity': 0.15 } });
+    map.addLayer({ id: 'drawing-glow', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 12, 'line-opacity': 0.3, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'drawing-line', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'drawing-points-layer', type: 'circle', source: 'drawing-points-source', paint: { 'circle-radius': 6, 'circle-color': '#ffffff', 'circle-stroke-color': '#7cba3f', 'circle-stroke-width': 2 } });
+
+    // === WMS overlay sources + layers ===
+    const wmsLayerDefs = [
+      { id: 'nyckelbiotoper', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Nyckelbiotop_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'naturvarde', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Objektnaturvarde_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'sumpskog', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'wetlands', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'biotopskydd', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Biotopskydd_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'naturvardsavtal', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNaturvardsavtal/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturvardsavtal_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'skoghistoria', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'avverkningsanmalan', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaAvverkningsanmalan/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Avverkningsanmalan_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'utfordavverkning', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaUtfordavverkning/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=UtfordAvverkning_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'fornlamningar', tiles: ['https://pub.raa.se/visning/lamningar/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=fornlamningar&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
+      { id: 'naturreservat', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturreservat&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'natura2000', tiles: ['https://geodata.naturvardsverket.se/n2000/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Habitatdirektivet,Fageldirektivet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'vattenskydd', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Vattenskyddsomrade&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'oversvamning', tiles: ['https://inspire.msb.se/oversvamning/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=NZ_Oversvamning_100,NZ_Oversvamning_200,NZ_Oversvamning_BHF&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'jordarter', tiles: ['https://maps3.sgu.se/geoserver/jord/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=jord:SE.GOV.SGU.JORD.GRUNDLAGER.25K&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'barighet', tiles: ['https://geo-netinfo.trafikverket.se/mapservice/wms.axd/NetInfo_1_8?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Barighet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'kraftledningar', tiles: ['https://inspire-skn.metria.se/geoserver/skn/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=US.ElectricityNetwork.Lines&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'sks_markfuktighet', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Markfuktighet_SLU_2_0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+      { id: 'sks_virkesvolym', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkogligaGrunddata_3_1&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+      { id: 'sks_tradhojd', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Tradhojd_3_1&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+      { id: 'sks_lutning', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Lutning_1_0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+    ];
+    wmsLayerDefs.forEach(def => {
+      try {
+        map.addSource(`wms-${def.id}`, { type: 'raster', tiles: def.tiles, tileSize: 256 });
+        map.addLayer({ id: `wms-layer-${def.id}`, type: 'raster', source: `wms-${def.id}`, paint: { 'raster-opacity': 0.7 }, layout: { visibility: 'none' } }, 'zone-fill');
+      } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
+    });
+
+    // Körbarhetstiles
+    try {
+      map.addSource('wms-korbarhet', { type: 'raster', tiles: ['/api/korbarhet-tiles?bbox={bbox-epsg-4326}&width=256&height=256'], tileSize: 256 });
+      map.addLayer({ id: 'wms-layer-korbarhet', type: 'raster', source: 'wms-korbarhet', paint: { 'raster-opacity': 0.7 }, layout: { visibility: 'none' } }, 'zone-fill');
+    } catch (e) { console.error('[MapLibre] korbarhet error:', e); }
+
+    setMapLibreReady(true);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleMapRemoved = useCallback(() => {
+    mapInstanceRef.current = null;
+    setMapLibreReady(false);
   }, []);
 
   // Körläge
@@ -1176,10 +867,7 @@ export default function PlannerPage() {
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
 
   // MapLibre
-  const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
-  const windowResizeRef = useRef<(() => void) | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
   
@@ -1255,10 +943,7 @@ export default function PlannerPage() {
     map.setPaintProperty('contours-layer', 'raster-opacity', mapType === 'satellite' ? 0.5 : 0.3);
   }, [overlays.contours, mapType, mapLibreReady]);
 
-  // === MapLibre: Resize vid skärmändring ===
-  useEffect(() => {
-    mapInstanceRef.current?.resize();
-  }, [screenSize.width, screenSize.height]);
+
 
   // === MapLibre: GeoJSON sync useEffects placerade efter alla state-deklarationer (undvik TDZ) ===
   // Se längre ner i filen för: lines sync, zones sync, TMA sync, layer visibility
@@ -4614,8 +4299,14 @@ export default function PlannerPage() {
 
       {/* === MAPLIBRE BAKGRUNDSKARTA === */}
       {showMap && (
-        <div
-          ref={mapContainerRef}
+        <DynamicMapLibre
+          onMapReady={handleMapReady}
+          onMapRemoved={handleMapRemoved}
+          initialCenter={[mapCenter.lng, mapCenter.lat] as [number, number]}
+          initialZoom={mapZoom}
+          initialPitch={50}
+          initialBearing={20}
+          mapStyle={mapStyleConfig.current as any}
           style={{
             position: 'absolute',
             top: 0,
@@ -4623,12 +4314,10 @@ export default function PlannerPage() {
             width: '100%',
             height: '100%',
             zIndex: 0,
-            willChange: 'transform',
             cursor: isDrawMode || isZoneMode || selectedSymbol || isArrowMode || measureMode || measureAreaMode ? 'crosshair' : undefined,
           }}
         />
       )}
-      <style>{`.maplibregl-canvas { visibility: visible !important; opacity: 1 !important; }`}</style>
 
       {/* === WMS OVERLAY-LAGER renderas nu som MapLibre raster sources === */}
       {false && showMap && screenSize.width > 0 && (
