@@ -499,9 +499,25 @@ export default function PlannerPage() {
 
     function initMap(ml: any) {
       if (mapLibreInitialized.current || !mapContainerRef.current) return;
-      mapLibreInitialized.current = true;
 
       const container = mapContainerRef.current;
+      console.log('[MapLibre] Container size check:', container.offsetWidth, 'x', container.offsetHeight);
+
+      // Vänta tills containern har faktisk storlek i DOM innan vi skapar kartan
+      if (container.offsetWidth === 0 || container.offsetHeight === 0) {
+        console.log('[MapLibre] Container har ingen storlek ännu, väntar...');
+        const waitInterval = setInterval(() => {
+          const c = mapContainerRef.current;
+          if (c && c.offsetWidth > 0 && c.offsetHeight > 0 && !mapLibreInitialized.current) {
+            console.log('[MapLibre] Container redo:', c.offsetWidth, 'x', c.offsetHeight);
+            clearInterval(waitInterval);
+            initMap(ml);
+          }
+        }, 50);
+        return;
+      }
+
+      mapLibreInitialized.current = true;
       console.log('[MapLibre] Initierar karta, container:', container.offsetWidth, 'x', container.offsetHeight);
 
       const map = new ml.Map({
@@ -825,10 +841,14 @@ export default function PlannerPage() {
       mapInstanceRef.current = map;
       console.log('[MapLibre] Map-instans skapad');
 
-      // Fix: Multiple resize calls to handle container not being fully sized at init
-      setTimeout(() => { map.resize(); }, 100);
-      setTimeout(() => { map.resize(); }, 500);
-      setTimeout(() => { map.resize(); }, 1500);
+      // Polling resize: vänta tills canvasen faktiskt har storlek, sedan resize
+      const resizeInterval = setInterval(() => {
+        if (map && map.getContainer().offsetWidth > 0) {
+          map.resize();
+          clearInterval(resizeInterval);
+          console.log('[MapLibre] Resize klar, canvas:', map.getCanvas().width, 'x', map.getCanvas().height);
+        }
+      }, 50);
 
       // ResizeObserver for dynamic container size changes
       if (container) {
