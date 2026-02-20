@@ -26,10 +26,31 @@ const WMS_LAYERS: Record<string, { url: string; layers: string; auth?: boolean }
     auth: true,
   },
   raa_lamningar: {
-    url: 'https://pub.raa.se/visning/lamningar/wms',
-    layers: 'SE.RAA.FMIS.KML.LAMNINGAR',
+    url: 'https://pub.raa.se/visning/lamningar_v1/wms',
+    layers: 'fornlamning',
   },
 };
+
+// In-memory tile cache (5 minute TTL)
+const CACHE_TTL = 5 * 60 * 1000;
+const tileCache = new Map<string, { data: ArrayBuffer; contentType: string; ts: number }>();
+
+function getCached(key: string): { data: ArrayBuffer; contentType: string } | null {
+  const entry = tileCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL) { tileCache.delete(key); return null; }
+  return { data: entry.data, contentType: entry.contentType };
+}
+
+function setCache(key: string, data: ArrayBuffer, contentType: string) {
+  // Limit cache size to ~200 MB (rough estimate: 200 entries * ~1MB max per tile is very generous)
+  if (tileCache.size > 2000) {
+    // Evict oldest entries
+    const oldest = [...tileCache.entries()].sort((a, b) => a[1].ts - b[1].ts).slice(0, 500);
+    for (const [k] of oldest) tileCache.delete(k);
+  }
+  tileCache.set(key, { data, contentType, ts: Date.now() });
+}
 
 // Convert EPSG:3857 (Web Mercator) coordinates to EPSG:4326 (WGS84)
 function mercatorToWgs84(x: number, y: number): [number, number] {
@@ -67,6 +88,7 @@ export async function GET(req: NextRequest) {
   const layer = params.get('layer');
   let url: string;
   let needsAuth = true;
+  let cacheKey = '';
 
   if (layer) {
     // Construct WMS URL server-side from layer ID + bbox
@@ -84,6 +106,7 @@ export async function GET(req: NextRequest) {
     url = `${wmsConfig.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${wmsConfig.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${wgs84Bbox}&WIDTH=${width}&HEIGHT=${height}`;
     console.log('[wms-proxy]', layer, wgs84Bbox);
     needsAuth = wmsConfig.auth === true;
+    cacheKey = `${layer}:${bbox}:${width}:${height}`;
   } else {
     // Legacy: full URL passed as ?url= parameter
     const legacyUrl = params.get('url');
@@ -91,7 +114,15 @@ export async function GET(req: NextRequest) {
     url = legacyUrl;
   }
 
-  console.log(`[wms-proxy GET] ${url.substring(0, 120)}...`);
+  // Check cache
+  if (cacheKey) {
+    const cached = getCached(cacheKey);
+    if (cached) {
+      return new NextResponse(cached.data, {
+        headers: { 'Content-Type': cached.contentType, 'Cache-Control': 'public, max-age=300', 'X-Cache': 'HIT' },
+      });
+    }
+  }
 
   try {
     validateHost(url);
@@ -111,11 +142,13 @@ export async function GET(req: NextRequest) {
     }
 
     const body = await resp.arrayBuffer();
+    const contentType = resp.headers.get('content-type') || 'image/png';
+
+    // Store in cache
+    if (cacheKey) setCache(cacheKey, body, contentType);
+
     return new NextResponse(body, {
-      headers: {
-        'Content-Type': resp.headers.get('content-type') || 'image/png',
-        'Cache-Control': 'public, max-age=300',
-      },
+      headers: { 'Content-Type': contentType, 'Cache-Control': 'public, max-age=300', 'X-Cache': 'MISS' },
     });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Proxy failed';

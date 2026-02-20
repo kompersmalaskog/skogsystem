@@ -569,7 +569,7 @@ export default function PlannerPage() {
       { id: 'skoghistoria', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
       { id: 'avverkningsanmalan', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaAvverkningsanmalan/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Avverkningsanmalan_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
       { id: 'utfordavverkning', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaUtfordavverkning/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=UtfordAvverkning_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
-      { id: 'fornlamningar', tiles: ['/api/wms-proxy?layer=raa_lamningar&bbox={bbox-epsg-3857}&width=256&height=256'] },
+      { id: 'fornlamningar', tiles: ['/api/wms-proxy?layer=raa_lamningar&bbox={bbox-epsg-3857}&width=256&height=256'], maxzoom: 14 },
       { id: 'naturreservat', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturreservat&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
       { id: 'natura2000', tiles: ['https://geodata.naturvardsverket.se/n2000/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Habitatdirektivet,Fageldirektivet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
       { id: 'vattenskydd', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Vattenskyddsomrade&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
@@ -582,9 +582,11 @@ export default function PlannerPage() {
       { id: 'sks_tradhojd', tiles: ['/api/wms-proxy?layer=sks_tradhojd&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'sks_lutning', tiles: ['/api/wms-proxy?layer=sks_lutning&bbox={bbox-epsg-3857}&width=256&height=256'] },
     ];
-    wmsLayerDefs.forEach(def => {
+    wmsLayerDefs.forEach((def: { id: string; tiles: string[]; maxzoom?: number }) => {
       try {
-        map.addSource(`wms-${def.id}`, { type: 'raster', tiles: def.tiles, tileSize: 256 });
+        const sourceOpts: any = { type: 'raster', tiles: def.tiles, tileSize: 256 };
+        if (def.maxzoom) sourceOpts.maxzoom = def.maxzoom;
+        map.addSource(`wms-${def.id}`, sourceOpts);
         map.addLayer({ id: `wms-layer-${def.id}`, type: 'raster', source: `wms-${def.id}`, paint: { 'raster-opacity': 0.7 }, layout: { visibility: 'none' } }, 'zone-fill');
         console.log(`[MapLibre] WMS layer created: wms-layer-${def.id}`);
       } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
