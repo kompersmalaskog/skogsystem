@@ -586,6 +586,7 @@ export default function PlannerPage() {
       try {
         map.addSource(`wms-${def.id}`, { type: 'raster', tiles: def.tiles, tileSize: 256 });
         map.addLayer({ id: `wms-layer-${def.id}`, type: 'raster', source: `wms-${def.id}`, paint: { 'raster-opacity': 0.7 }, layout: { visibility: 'none' } }, 'zone-fill');
+        console.log(`[MapLibre] WMS layer created: wms-layer-${def.id}`);
       } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
     });
 
@@ -1006,6 +1007,8 @@ export default function PlannerPage() {
       const layerId = `wms-layer-${id}`;
       if (map.getLayer(layerId)) {
         map.setLayoutProperty(layerId, 'visibility', overlays[id] ? 'visible' : 'none');
+      } else {
+        console.warn(`[MapLibre] WMS toggle: layer ${layerId} does not exist`);
       }
     });
   }, [overlays, mapLibreReady]);
