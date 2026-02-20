@@ -4,22 +4,30 @@ const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 // Layer ID → WMS base URL + layer name
-const LAYER_MAP: Record<string, { baseUrl: string; layers: string }> = {
+const WMS_LAYERS: Record<string, { url: string; layers: string }> = {
   sks_markfuktighet: {
-    baseUrl: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer',
-    layers: 'Markfuktighet_SLU_2_0',
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU/MapServer/WMSServer',
+    layers: 'Markfuktighet',
   },
   sks_virkesvolym: {
-    baseUrl: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer',
-    layers: 'SkogligaGrunddata_3_1',
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Skogskarta/MapServer/WMSServer',
+    layers: 'Virkesförråd',
   },
   sks_tradhojd: {
-    baseUrl: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer',
-    layers: 'Tradhojd_3_1',
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Skogskarta/MapServer/WMSServer',
+    layers: 'Medelhöjd',
   },
   sks_lutning: {
-    baseUrl: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer',
-    layers: 'Lutning_1_0',
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning/MapServer/WMSServer',
+    layers: 'Lutning',
+  },
+  sks_korbarhet: {
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU/MapServer/WMSServer',
+    layers: 'Markfuktighet',
+  },
+  sks_naturvarden: {
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Naturvarden/MapServer/WMSServer',
+    layers: 'Nyckelbiotoper',
   },
 };
 
@@ -50,14 +58,15 @@ export async function GET(req: NextRequest) {
   let url: string;
 
   if (layer) {
-    // New approach: construct WMS URL server-side from layer ID + bbox
-    const def = LAYER_MAP[layer];
-    if (!def) return NextResponse.json({ error: `Unknown layer: ${layer}` }, { status: 400 });
+    // Construct WMS URL server-side from layer ID + bbox
+    const wmsConfig = WMS_LAYERS[layer];
+    if (!wmsConfig) return NextResponse.json({ error: `Unknown layer: ${layer}` }, { status: 400 });
     const bbox = params.get('bbox');
     const width = params.get('width') || '256';
     const height = params.get('height') || '256';
     if (!bbox) return NextResponse.json({ error: 'Missing bbox' }, { status: 400 });
-    url = `${def.baseUrl}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${encodeURIComponent(def.layers)}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${bbox}&WIDTH=${width}&HEIGHT=${height}`;
+    url = `${wmsConfig.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${wmsConfig.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&WIDTH=${width}&HEIGHT=${height}&BBOX=${bbox}`;
+    console.log('[wms-proxy]', layer, bbox);
   } else {
     // Legacy: full URL passed as ?url= parameter
     const legacyUrl = params.get('url');
@@ -76,7 +85,9 @@ export async function GET(req: NextRequest) {
   try {
     const resp = await fetch(url, { headers: authHeaders() });
     if (!resp.ok) {
-      console.error(`[wms-proxy GET] Upstream ${resp.status}`);
+      const text = await resp.text().catch(() => '');
+      console.error(`[wms-proxy GET] Upstream ${resp.status}: ${url.substring(0, 200)}`);
+      console.error(`[wms-proxy GET] Response: ${text.substring(0, 300)}`);
       return new NextResponse(`Upstream ${resp.status}`, { status: resp.status });
     }
 
