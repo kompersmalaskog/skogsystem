@@ -1023,6 +1023,14 @@ export default function PlannerPage() {
 
     const isDrawingMode = isDrawMode || isZoneMode;
 
+    // Set cursor on MapLibre canvas directly (CSS on wrapper div doesn't override canvas cursor)
+    if (isDrawingMode || selectedSymbol || isArrowMode) {
+      map.getCanvas().style.cursor = 'crosshair';
+    } else {
+      map.getCanvas().style.cursor = '';
+    }
+    console.log('[MapLibre] Click handler registered, drawMode:', isDrawMode, 'zoneMode:', isZoneMode, 'isDrawingMode:', isDrawingMode);
+
     const onClick = (e: any) => {
       // Symbol/pil-placering
       if (!isDrawingMode && (selectedSymbol || (isArrowMode && arrowType))) {
@@ -1087,6 +1095,7 @@ export default function PlannerPage() {
 
       if (!isDrawingMode) return;
 
+      console.log('[MapLibre] Draw click at', e.lngLat.lng, e.lngLat.lat);
       const coord: [number, number] = [e.lngLat.lng, e.lngLat.lat];
 
       setCurrentDrawCoords(prev => {
@@ -1265,8 +1274,8 @@ export default function PlannerPage() {
     map.on('click', 'zone-fill', onZoneClick);
 
     // Cursor change on hover
-    const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
-    const onLeave = () => { map.getCanvas().style.cursor = ''; };
+    const onEnter = () => { if (!isDrawMode && !isZoneMode) map.getCanvas().style.cursor = 'pointer'; };
+    const onLeave = () => { if (!isDrawMode && !isZoneMode) map.getCanvas().style.cursor = ''; };
     map.on('mouseenter', 'line-hitbox', onEnter);
     map.on('mouseleave', 'line-hitbox', onLeave);
     map.on('mouseenter', 'zone-fill', onEnter);
@@ -7338,6 +7347,7 @@ export default function PlannerPage() {
                     <div
                       key={type.id}
                       onClick={() => {
+                        console.log('[Rita] Aktiverar ritläge:', type.id, type.name);
                         setDrawType(type.id);
                         setIsDrawMode(true);
                         setMenuOpen(false);
