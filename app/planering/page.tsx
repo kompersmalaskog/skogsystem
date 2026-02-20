@@ -450,9 +450,11 @@ export default function PlannerPage() {
 
   // === MapLibre: Initialisering (dynamisk import för SSR-kompatibilitet) ===
   const [mapLibreReady, setMapLibreReady] = useState(false);
+  const mapLibreInitialized = useRef(false);
+
+  // Ladda MapLibre CDN-resurser en gång
   useEffect(() => {
-    if (typeof window === 'undefined' || !mapContainerRef.current || mapInstanceRef.current) return;
-    let cancelled = false;
+    if (typeof window === 'undefined') return;
 
     // Lägg till MapLibre CSS via link-tag
     if (!document.getElementById('maplibre-css')) {
@@ -463,22 +465,47 @@ export default function PlannerPage() {
       document.head.appendChild(link);
     }
 
-    // Ladda MapLibre via CDN-script istället för npm-import (undviker SSR-problem)
-    const loadScript = () => new Promise<void>((resolve) => {
-      if ((window as any).maplibregl) { resolve(); return; }
+    // Ladda MapLibre JS via CDN-script
+    if (!(window as any).maplibregl && !document.getElementById('maplibre-js')) {
       const script = document.createElement('script');
+      script.id = 'maplibre-js';
       script.src = 'https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
-      script.onload = () => resolve();
+      script.onload = () => {
+        console.log('[MapLibre] CDN-script laddat');
+      };
       document.head.appendChild(script);
-    });
+    }
+  }, []);
 
-    loadScript().then(() => {
-      if (cancelled || !mapContainerRef.current) return;
-      const maplibregl = (window as any).maplibregl;
-      if (!maplibregl) return;
+  // Skapa MapLibre-kartan när container och script är redo
+  useEffect(() => {
+    if (mapLibreInitialized.current || mapInstanceRef.current) return;
+    if (!mapContainerRef.current) return;
 
-      const map = new maplibregl.Map({
-        container: mapContainerRef.current,
+    const maplibregl = (window as any).maplibregl;
+    if (!maplibregl) {
+      // Scriptet har inte laddats ännu — vänta och försök igen
+      const interval = setInterval(() => {
+        const ml = (window as any).maplibregl;
+        if (ml && mapContainerRef.current && !mapInstanceRef.current) {
+          clearInterval(interval);
+          initMap(ml);
+        }
+      }, 100);
+      return () => clearInterval(interval);
+    }
+
+    initMap(maplibregl);
+
+    function initMap(ml: any) {
+      if (mapLibreInitialized.current || !mapContainerRef.current) return;
+      mapLibreInitialized.current = true;
+
+      const container = mapContainerRef.current;
+      console.log('[MapLibre] Initierar karta, container:', container.offsetWidth, 'x', container.offsetHeight);
+
+      const map = new ml.Map({
+        container,
         style: {
           version: 8,
           sources: {
@@ -528,21 +555,27 @@ export default function PlannerPage() {
       });
 
       map.on('load', () => {
+        console.log('[MapLibre] Karta laddad, storlek:', map.getCanvas().width, 'x', map.getCanvas().height);
         map.resize();
         setMapLibreReady(true);
       });
 
+      map.on('error', (e: any) => {
+        console.error('[MapLibre] Fel:', e.error || e);
+      });
+
       mapInstanceRef.current = map;
-    });
+      console.log('[MapLibre] Map-instans skapad');
+    }
 
     return () => {
-      cancelled = true;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
+        mapLibreInitialized.current = false;
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showMap, screenSize.width]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
@@ -3797,9 +3830,11 @@ export default function PlannerPage() {
           ref={mapContainerRef}
           style={{
             position: 'absolute',
-            inset: 0,
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
             zIndex: 0,
-            pointerEvents: 'none',
           }}
         />
       )}
