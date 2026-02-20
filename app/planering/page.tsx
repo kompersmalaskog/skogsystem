@@ -1129,12 +1129,9 @@ export default function PlannerPage() {
   // Symboler ska vara mindre vid utzoom och större vid inzoom,
   // men inte växa linjärt med zoom (då blir de enorma)
   const getConstrainedSize = (baseSize: number) => {
-    // Kompensera för zoom-transform: dela med zoom för konstant visuell storlek,
-    // men använd sqrt för att symboler växer lite vid inzoom
-    const scaledSize = (baseSize * 0.5) / Math.sqrt(zoom);
-    const minSize = baseSize * 0.15;
-    const maxSize = baseSize * 0.75;
-    return Math.max(minSize, Math.min(maxSize, scaledSize));
+    // Symboler positioneras nu via map.project() utan grupp-transform.
+    // Returnera fast pixelstorlek (ca halva basvärdet).
+    return baseSize * 0.5;
   };
 
   // === MapLibre: Synkronisera React-state från MapLibre-kamera ===
@@ -1148,35 +1145,16 @@ export default function PlannerPage() {
     if (!map) return;
 
     const onMove = () => {
-      const center = map.getCenter();
-      const z = map.getZoom();
-
-      // Uppdatera mapCenter och mapZoom
-      setMapCenter({ lat: center.lat, lng: center.lng });
-      setMapZoom(z);
-
-      // Beräkna pan/zoom-ekvivalenter för SVG-transform
-      // SVG-systemet: (0,0) i SVG-space = mapCenter vid inläsning
-      // Med MapLibre som master behöver vi projicera mapCenter-origin till skärmkoordinater
-      // pan = screen offset, zoom = scale factor
-      // Enklast: beräkna var SVG-origin (den initiala mapCenter) hamnar på skärmen
-      const scl = 156543.03392 * Math.cos(center.lat * Math.PI / 180) / Math.pow(2, z);
-
-      // Effektiv zoom: förhållandet mellan nuvarande scale och den initiala scalen
-      // Vi använder z relativt till mapZoom=16 (default) → zoom = 2^(z-16) ungefär
-      // Men enklare: zoom = 1 alltid, pan beräknas från map.project()
-      const effectiveZoom = 1; // Symboler hanteras nu via map.project()
-      setZoom(effectiveZoom);
-      setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
-
-      // Trigga re-render för SVG-positionering
+      // mapCenter och mapZoom uppdateras INTE här — de är stabila referenspunkter
+      // för SVG-koordinatsystemet (sätts bara vid objektval).
+      // Istället triggar vi re-render så SVG-element kan positioneras via map.project().
       mapMoveCounterRef.current++;
       setMapMoveCounter(mapMoveCounterRef.current);
     };
 
     map.on('move', onMove);
     return () => { map.off('move', onMove); };
-  }, [mapLibreReady, screenSize.width, screenSize.height]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === MapLibre: Byt bakgrundskarta ===
   useEffect(() => {
@@ -2477,6 +2455,24 @@ export default function PlannerPage() {
     return { lat, lon };
   };
 
+  // Konvertera SVG-koordinater till skärmkoordinater via MapLibre-projektion
+  const svgToScreen = (x: number, y: number): { x: number, y: number } | null => {
+    const map = mapInstanceRef.current;
+    if (!map) return null;
+    try {
+      const { lat, lon } = svgToLatLon(x, y);
+      const pt = map.project([lon, lat]);
+      return { x: pt.x, y: pt.y };
+    } catch {
+      return null;
+    }
+  };
+
+  // Hämta aktuell MapLibre-zoom (för UI-beslut som storlek/synlighet)
+  const getMapLibreZoom = (): number => {
+    return mapInstanceRef.current?.getZoom() ?? mapZoom;
+  };
+
   // === MapLibre: GeoJSON sync useEffects (placerade här, EFTER alla state-deklarationer, för att undvika TDZ) ===
 
   // 1) Synka linjer → MapLibre lines-source
@@ -3538,27 +3534,30 @@ export default function PlannerPage() {
   
   const handleMarkerDragMove = (e, rect) => {
     if (!draggingMarker) return;
-    
+
     const clientX = e.touches ? e.touches[0].clientX : e.clientX;
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    
+
     // Kolla om vi har rört oss tillräckligt (5px tröskel)
     const dx = Math.abs(clientX - dragStart.x);
     const dy = Math.abs(clientY - dragStart.y);
-    
+
     if (dx > 5 || dy > 5) {
       if (!hasMoved) {
-        // Första gången vi rör oss - spara history
         saveToHistory([...markers]);
         setHasMoved(true);
       }
-      
-      const x = (clientX - rect.left - pan.x) / zoom;
-      const y = (clientY - rect.top - pan.y) / zoom;
-      
-      setMarkers(prev => prev.map(m => 
-        m.id === draggingMarker ? { ...m, x, y } : m
-      ));
+
+      // Konvertera skärmposition → lat/lng → SVG-koordinater via MapLibre
+      const map = mapInstanceRef.current;
+      if (map) {
+        const mapRect = map.getCanvas().getBoundingClientRect();
+        const lngLat = map.unproject([clientX - mapRect.left, clientY - mapRect.top]);
+        const svgPos = latLonToSvg(lngLat.lat, lngLat.lng);
+        setMarkers(prev => prev.map(m =>
+          m.id === draggingMarker ? { ...m, x: svgPos.x, y: svgPos.y } : m
+        ));
+      }
     }
   };
   
@@ -4733,7 +4732,6 @@ export default function PlannerPage() {
             linear-gradient(180deg, #1c1c1e 0%, #000000 100%)
           `,
         }}
-        onClick={handleMapClick}
       >
         {/* Defs */}
         <defs>
@@ -4743,10 +4741,8 @@ export default function PlannerPage() {
           </radialGradient>
         </defs>
 
-        {/* SVG-innehåll positioneras via map.project() */}
+        {/* SVG-innehåll positioneras via map.project() (ingen grupp-transform) */}
         <g style={{
-          transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-          transformOrigin: '0 0',
           pointerEvents: isInDrawingMode ? 'none' : 'auto',
         }}>
 
@@ -4761,15 +4757,17 @@ export default function PlannerPage() {
             const isDragging = draggingMarker === m.id;
             const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
             const isAcknowledged = acknowledgedWarnings.includes(m.id);
-            
+
+            // Projicera SVG-position till skärmkoordinater
+            const screenPos = svgToScreen(m.x, m.y);
+            if (!screenPos) return null;
+            const offsetX = screenPos.x - m.x;
+            const offsetY = screenPos.y - m.y;
+
             // === ZOOM-BASERAD SYNLIGHET ===
-            // Viktiga kategorier (visas alltid): naturvård och kultur
             const importantTypes = ['eternitytree', 'naturecorner', 'culturemonument', 'culturestump'];
             const isImportant = importantTypes.includes(m.type || '');
-            
-            // Vid utzoom (< 15): visa bara viktiga kategorier
-            // Vid inzoom (≥ 15): visa allt
-            const isZoomedOut = mapZoom < 15;
+            const isZoomedOut = getMapLibreZoom() < 15;
             const shouldShow = isImportant || !isZoomedOut;
             
             // Storlek baserat på zoom
@@ -4794,8 +4792,9 @@ export default function PlannerPage() {
             if (!shouldShow) return null;
             
             return (
-              <g 
-                key={m.id} 
+              <g
+                key={m.id}
+                transform={`translate(${offsetX}, ${offsetY})`}
                 onMouseDown={(e) => handleMarkerDragStart(e, m)}
                 onTouchStart={(e) => handleMarkerDragStart(e, m)}
                 onClick={(e) => {
@@ -4871,14 +4870,18 @@ export default function PlannerPage() {
             const isDragging = draggingMarker === m.id;
             const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
             const isAcknowledged = acknowledgedWarnings.includes(m.id);
-            // Begränsad storlek för pilar
             const arrowScale = getConstrainedSize(1);
             const ringRadius = getConstrainedSize(30);
             const photoRadius = getConstrainedSize(10);
             const photoOffset = getConstrainedSize(18);
             const photoFontSize = getConstrainedSize(10);
+            // Projicera position
+            const screenPos = svgToScreen(m.x, m.y);
+            if (!screenPos) return null;
+            const offsetX = screenPos.x - m.x;
+            const offsetY = screenPos.y - m.y;
             return (
-              <g key={m.id} style={{ opacity: opacity, transition: 'opacity 0.3s ease' }}>
+              <g key={m.id} transform={`translate(${offsetX}, ${offsetY})`} style={{ opacity: opacity, transition: 'opacity 0.3s ease' }}>
                 {/* Grön ring om kvitterad */}
                 {isAcknowledged && drivingMode && (
                   <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={getConstrainedSize(3)} />
@@ -4928,38 +4931,15 @@ export default function PlannerPage() {
             );
           })}
           
-          {/* Klickbara linjer (osynlig hitbox) */}
-          {visibleLayers.lines && markers.filter(m => m.isLine && visibleLines[m.lineType]).map(m => (
-            <path 
-              key={`click-${m.id}`}
-              d={m.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')} 
-              fill="none" 
-              stroke="transparent" 
-              strokeWidth="50"
-              style={{ cursor: 'pointer', pointerEvents: isInDrawingMode ? 'none' : 'auto' }}
-              onClick={(e) => handleMarkerClick(e, m)}
-              onTouchStart={(e) => e.stopPropagation()}
-              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleMarkerClick(e, m); }}
-            />
-          ))}
-
-          {/* Klickbara zoner (osynlig hitbox) */}
-          {visibleLayers.zones && markers.filter(m => m.isZone && visibleZones[m.zoneType]).map(m => (
-            <path
-              key={`click-zone-${m.id}`}
-              d={m.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'}
-              fill="transparent"
-              style={{ cursor: 'pointer', pointerEvents: isInDrawingMode ? 'none' : 'auto' }}
-              onClick={(e) => handleMarkerClick(e, m)}
-              onTouchStart={(e) => e.stopPropagation()}
-              onTouchEnd={(e) => { e.preventDefault(); e.stopPropagation(); handleMarkerClick(e, m); }}
-            />
-          ))}
+          {/* Linjer/zoner klickas nu via MapLibre layers (line-hitbox, zone-fill) */}
 
           {/* Förra stickvägen (visas under snitslande) */}
           {stickvagMode && previousStickvagRef.current?.path && (
             <path
-              d={previousStickvagRef.current.path.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')}
+              d={previousStickvagRef.current.path.map((p, i) => {
+                const s = svgToScreen(p.x, p.y);
+                return s ? `${i === 0 ? 'M' : 'L'} ${s.x} ${s.y}` : '';
+              }).join(' ')}
               fill="none"
               stroke={lineTypes.find(t => t.id === previousStickvagRef.current.lineType)?.color || '#ef4444'}
               strokeWidth={6}
@@ -4972,7 +4952,10 @@ export default function PlannerPage() {
           {/* GPS-spårad linje (live) */}
           {gpsLineType && gpsPath.length > 1 && (
             <path
-              d={gpsPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')}
+              d={gpsPath.map((p, i) => {
+                const s = svgToScreen(p.x, p.y);
+                return s ? `${i === 0 ? 'M' : 'L'} ${s.x} ${s.y}` : '';
+              }).join(' ')}
               fill="none"
               stroke={lineTypes.find(t => t.id === gpsLineType)?.color || '#fff'}
               strokeWidth={4}
@@ -4982,27 +4965,35 @@ export default function PlannerPage() {
           )}
 
           {/* GPS position med ljuskägla */}
-          {isTracking && (
+          {isTracking && (() => {
+            // Projicera GPS-position till skärm
+            const gpsScreen = gpsPosition
+              ? (() => { const map = mapInstanceRef.current; return map ? map.project([gpsPosition.lng, gpsPosition.lat]) : null; })()
+              : svgToScreen(gpsMapPosition.x, gpsMapPosition.y);
+            if (!gpsScreen) return null;
+            const gpx = gpsScreen.x;
+            const gpy = gpsScreen.y;
+            return (
             <g>
               {/* Ljuskägla - visar riktning när kompass är på */}
               {compassMode && isTracking && (() => {
                 const coneRadius = getConstrainedSize(80);
                 return (
                   <path
-                    d={`M ${gpsMapPosition.x} ${gpsMapPosition.y} 
-                        L ${gpsMapPosition.x + Math.sin((deviceHeading - 30) * Math.PI / 180) * coneRadius} ${gpsMapPosition.y - Math.cos((deviceHeading - 30) * Math.PI / 180) * coneRadius}
-                        A ${coneRadius} ${coneRadius} 0 0 1 ${gpsMapPosition.x + Math.sin((deviceHeading + 30) * Math.PI / 180) * coneRadius} ${gpsMapPosition.y - Math.cos((deviceHeading + 30) * Math.PI / 180) * coneRadius}
+                    d={`M ${gpx} ${gpy}
+                        L ${gpx + Math.sin((deviceHeading - 30) * Math.PI / 180) * coneRadius} ${gpy - Math.cos((deviceHeading - 30) * Math.PI / 180) * coneRadius}
+                        A ${coneRadius} ${coneRadius} 0 0 1 ${gpx + Math.sin((deviceHeading + 30) * Math.PI / 180) * coneRadius} ${gpy - Math.cos((deviceHeading + 30) * Math.PI / 180) * coneRadius}
                         Z`}
                     fill="url(#viewConeGradient)"
                     opacity={0.6}
                   />
                 );
               })()}
-              {/* GPS-prick - begränsad storlek */}
-              <circle 
-                cx={gpsMapPosition.x} cy={gpsMapPosition.y} r={getConstrainedSize(12)} 
-                fill={colors.blue} 
-                stroke="#fff" 
+              {/* GPS-prick */}
+              <circle
+                cx={gpx} cy={gpy} r={getConstrainedSize(12)}
+                fill={colors.blue}
+                stroke="#fff"
                 strokeWidth={getConstrainedSize(3)}
                 style={{ animation: 'pulse 1.5s infinite' }}
               />
@@ -5011,51 +5002,34 @@ export default function PlannerPage() {
                 const arrowScale = getConstrainedSize(1);
                 return (
                   <path
-                    d={`M ${gpsMapPosition.x} ${gpsMapPosition.y - 18 * arrowScale} 
-                        L ${gpsMapPosition.x - 6 * arrowScale} ${gpsMapPosition.y - 8 * arrowScale} 
-                        L ${gpsMapPosition.x + 6 * arrowScale} ${gpsMapPosition.y - 8 * arrowScale} Z`}
+                    d={`M ${gpx} ${gpy - 18 * arrowScale}
+                        L ${gpx - 6 * arrowScale} ${gpy - 8 * arrowScale}
+                        L ${gpx + 6 * arrowScale} ${gpy - 8 * arrowScale} Z`}
                     fill="#fff"
-                    transform={`rotate(${deviceHeading}, ${gpsMapPosition.x}, ${gpsMapPosition.y})`}
+                    transform={`rotate(${deviceHeading}, ${gpx}, ${gpy})`}
                   />
                 );
               })()}
             </g>
-          )}
+            );
+          })()}
           
           {/* Rotationsindikator */}
           {rotatingArrow && (() => {
             const arrow = markers.find(m => m.id === rotatingArrow);
             if (!arrow) return null;
+            const sp = svgToScreen(arrow.x, arrow.y);
+            if (!sp) return null;
             return (
               <g>
-                {/* Yttre cirkel */}
-                <circle 
-                  cx={arrow.x} 
-                  cy={arrow.y} 
-                  r={60} 
-                  fill="none"
-                  stroke={colors.blue}
-                  strokeWidth={2}
-                  strokeDasharray="8,4"
-                  opacity={0.5}
-                />
-                {/* Riktningslinje */}
+                <circle cx={sp.x} cy={sp.y} r={60} fill="none" stroke={colors.blue} strokeWidth={2} strokeDasharray="8,4" opacity={0.5} />
                 <line
-                  x1={arrow.x}
-                  y1={arrow.y}
-                  x2={arrow.x + Math.sin((arrow.rotation || 0) * Math.PI / 180) * 55}
-                  y2={arrow.y - Math.cos((arrow.rotation || 0) * Math.PI / 180) * 55}
-                  stroke={colors.blue}
-                  strokeWidth={3}
-                  strokeLinecap="round"
+                  x1={sp.x} y1={sp.y}
+                  x2={sp.x + Math.sin((arrow.rotation || 0) * Math.PI / 180) * 55}
+                  y2={sp.y - Math.cos((arrow.rotation || 0) * Math.PI / 180) * 55}
+                  stroke={colors.blue} strokeWidth={3} strokeLinecap="round"
                 />
-                {/* Center dot */}
-                <circle 
-                  cx={arrow.x} 
-                  cy={arrow.y} 
-                  r={6} 
-                  fill={colors.blue}
-                />
+                <circle cx={sp.x} cy={sp.y} r={6} fill={colors.blue} />
               </g>
             );
           })()}
