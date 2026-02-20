@@ -4783,12 +4783,14 @@ export default function PlannerPage() {
           touchAction: 'none',
           zIndex: 50,
           pointerEvents: 'none',
-          background: showMap ? 'transparent' : `
-            radial-gradient(ellipse at 30% 40%, rgba(52, 199, 89, 0.15) 0%, transparent 50%),
-            radial-gradient(ellipse at 70% 60%, rgba(10, 132, 255, 0.2) 0%, transparent 45%),
-            radial-gradient(ellipse at 50% 80%, rgba(10, 132, 255, 0.25) 0%, transparent 40%),
-            linear-gradient(180deg, #1c1c1e 0%, #000000 100%)
-          `,
+          ...(showMap ? {} : {
+            background: `
+              radial-gradient(ellipse at 30% 40%, rgba(52, 199, 89, 0.15) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 60%, rgba(10, 132, 255, 0.2) 0%, transparent 45%),
+              radial-gradient(ellipse at 50% 80%, rgba(10, 132, 255, 0.25) 0%, transparent 40%),
+              linear-gradient(180deg, #1c1c1e 0%, #000000 100%)
+            `,
+          }),
         }}
       >
         {/* Defs */}
