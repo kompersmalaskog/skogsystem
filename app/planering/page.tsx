@@ -831,6 +831,35 @@ export default function PlannerPage() {
           }, 'zone-fill');
         } catch (e) { console.error('[MapLibre] korbarhet error:', e); }
 
+        // === Force WebGL canvas repaint ===
+        // Method 1: Force reflow by toggling canvas display
+        const canvas = map.getCanvas();
+        console.log('[MapLibre] Canvas before repaint:', canvas.width, 'x', canvas.height, 'display:', canvas.style.display, 'visibility:', canvas.style.visibility, 'opacity:', canvas.style.opacity);
+        canvas.style.display = 'none';
+        canvas.offsetHeight; // force reflow
+        canvas.style.display = 'block';
+        map.resize();
+        map.triggerRepaint();
+        console.log('[MapLibre] repaint triggered (method 1: display toggle)');
+
+        // Method 2: Minimal pan to force render pipeline
+        setTimeout(() => {
+          map.panBy([1, 0], { duration: 0 });
+          map.panBy([-1, 0], { duration: 0 });
+          console.log('[MapLibre] repaint triggered (method 2: panBy)');
+        }, 100);
+
+        // Method 3: requestAnimationFrame chain for delayed repaint
+        requestAnimationFrame(() => {
+          map.resize();
+          map.triggerRepaint();
+          requestAnimationFrame(() => {
+            map.resize();
+            map.triggerRepaint();
+            console.log('[MapLibre] repaint triggered (method 3: rAF chain)');
+          });
+        });
+
         setMapLibreReady(true);
       });
 
@@ -841,21 +870,19 @@ export default function PlannerPage() {
       mapInstanceRef.current = map;
       console.log('[MapLibre] Map-instans skapad');
 
-      // Logga parent-kedjan för debugging
-      let el: HTMLElement | null = container;
-      let depth = 0;
-      while (el && depth < 5) {
-        console.log(`[MapLibre] Parent ${depth}: ${el.tagName} ${el.offsetWidth}x${el.offsetHeight} style.height=${el.style.height}`);
-        el = el.parentElement;
-        depth++;
-      }
-
-      // Aggressiv resize-loop de första 3 sekunderna
+      // Aggressiv resize+repaint loop de första 3 sekunderna
       let resizeAttempts = 0;
       const forceResize = setInterval(() => {
         if (map) {
           map.resize();
           map.triggerRepaint();
+          // Periodiskt tvinga canvas reflow
+          if (resizeAttempts % 10 === 0) {
+            const c = map.getCanvas();
+            c.style.display = 'none';
+            c.offsetHeight;
+            c.style.display = 'block';
+          }
         }
         resizeAttempts++;
         if (resizeAttempts > 60) clearInterval(forceResize); // 60 * 50ms = 3s
