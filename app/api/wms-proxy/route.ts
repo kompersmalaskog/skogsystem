@@ -24,8 +24,12 @@ function validateHost(url: string): URL {
 }
 
 // GET — pass-through proxy (images, simple requests)
+// URL is extracted from raw query string because WMS URLs contain & params
+// that would be split by searchParams if not encoded.
 export async function GET(req: NextRequest) {
-  const url = req.nextUrl.searchParams.get('url');
+  const search = req.nextUrl.search; // e.g. ?url=https://geodata...&BBOX=...
+  const prefix = '?url=';
+  const url = search?.startsWith(prefix) ? search.substring(prefix.length) : null;
   if (!url) return NextResponse.json({ error: 'Missing url' }, { status: 400 });
 
   try {
