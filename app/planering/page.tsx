@@ -479,6 +479,8 @@ export default function PlannerPage() {
 
   // Skapa MapLibre-kartan när container och script är redo
   useEffect(() => {
+    console.log('[MapLibre] === INIT useEffect ===', 'initialized:', mapLibreInitialized.current, 'instance:', !!mapInstanceRef.current, 'container:', !!mapContainerRef.current);
+    // Redan skapad? Gör ingenting (undvik destroy+recreate vid screenSize-ändring)
     if (mapLibreInitialized.current || mapInstanceRef.current) return;
     if (!mapContainerRef.current) return;
 
@@ -856,6 +858,7 @@ export default function PlannerPage() {
       }
     }
 
+    // Cleanup: bara rensa lyssnare, INTE förstör kartan (undvik destroy+recreate vid screenSize-ändring)
     return () => {
       if (windowResizeRef.current) {
         window.removeEventListener('resize', windowResizeRef.current);
@@ -863,13 +866,19 @@ export default function PlannerPage() {
       }
       resizeObserverRef.current?.disconnect();
       resizeObserverRef.current = null;
+    };
+  }, [showMap, screenSize.width]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Separat cleanup: förstör kartan bara vid unmount
+  useEffect(() => {
+    return () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
         mapLibreInitialized.current = false;
       }
     };
-  }, [showMap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
@@ -4582,10 +4591,12 @@ export default function PlannerPage() {
             width: '100%',
             height: '100%',
             zIndex: 0,
+            willChange: 'transform',
             cursor: isDrawMode || isZoneMode || selectedSymbol || isArrowMode || measureMode || measureAreaMode ? 'crosshair' : undefined,
           }}
         />
       )}
+      <style>{`.maplibregl-canvas { visibility: visible !important; opacity: 1 !important; }`}</style>
 
       {/* === WMS OVERLAY-LAGER renderas nu som MapLibre raster sources === */}
       {false && showMap && screenSize.width > 0 && (
