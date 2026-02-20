@@ -789,10 +789,16 @@ export default function PlannerPage() {
   const [hasMoved, setHasMoved] = useState(false);
   const [dragStart, setDragStart] = useState<Point>({ x: 0, y: 0 });
   const justEndedDrag = useRef(false);
-  
+  // Refs for document-level event handlers (avoid stale closures)
+  const draggingMarkerRef = useRef<string | null>(null);
+  const hasMovedRef = useRef(false);
+  const dragStartRef = useRef<Point>({ x: 0, y: 0 });
+
   // Rotera pilar
   const [rotatingArrow, setRotatingArrow] = useState<string | null>(null);
   const [rotationCenter, setRotationCenter] = useState<Point>({ x: 0, y: 0 });
+  const rotatingArrowRef = useRef<string | null>(null);
+  const rotationCenterRef = useRef<Point>({ x: 0, y: 0 });
   
   // Snabbval (senast använda)
   const [recentSymbols, setRecentSymbols] = useState<string[]>([]);
@@ -1094,7 +1100,13 @@ export default function PlannerPage() {
         }
       }
 
-      if (!isDrawingMode) return;
+      if (!isDrawingMode) {
+        // Klick på tom yta → stäng eventuell öppen meny
+        if (!justEndedDrag.current && markerMenuOpen) {
+          setMarkerMenuOpen(null);
+        }
+        return;
+      }
 
       console.log('[MapLibre] Draw click at', e.lngLat.lng, e.lngLat.lat);
       const coord: [number, number] = [e.lngLat.lng, e.lngLat.lat];
@@ -1151,7 +1163,7 @@ export default function PlannerPage() {
       map.off('dblclick', onDblClick);
       canvasContainer.style.removeProperty('cursor');
     };
-  }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Hjälpfunktioner för att avsluta ritning med [lng,lat]-coords
   const finishLineFromCoords = (coords: [number, number][]) => {
@@ -1253,8 +1265,8 @@ export default function PlannerPage() {
     const onLineClick = (e: any) => {
       if (isDrawMode || isZoneMode) return;
       if (e.features && e.features.length > 0) {
-        const markerId = e.features[0].properties.id;
-        const marker = markers.find(m => String(m.id) === markerId);
+        const featureId = e.features[0].properties.id;
+        const marker = markers.find(m => String(m.id) === String(featureId));
         if (marker) {
           setMarkerMenuOpen(marker.id === markerMenuOpen ? null : marker.id);
         }
@@ -1264,8 +1276,8 @@ export default function PlannerPage() {
     const onZoneClick = (e: any) => {
       if (isDrawMode || isZoneMode) return;
       if (e.features && e.features.length > 0) {
-        const markerId = e.features[0].properties.id;
-        const marker = markers.find(m => String(m.id) === markerId);
+        const featureId = e.features[0].properties.id;
+        const marker = markers.find(m => String(m.id) === String(featureId));
         if (marker) {
           setMarkerMenuOpen(marker.id === markerMenuOpen ? null : marker.id);
         }
@@ -3317,10 +3329,13 @@ export default function PlannerPage() {
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
     
     setDraggingMarker(marker.id);
+    draggingMarkerRef.current = marker.id;
     setDragStart({ x: clientX, y: clientY });
+    dragStartRef.current = { x: clientX, y: clientY };
     setHasMoved(false);
+    hasMovedRef.current = false;
   };
-  
+
   const handleMarkerDragMove = (e, rect) => {
     if (!draggingMarker) return;
 
@@ -3376,7 +3391,9 @@ export default function PlannerPage() {
   const startRotatingArrow = (arrowId, centerX, centerY) => {
     saveToHistory([...markers]);
     setRotatingArrow(arrowId);
+    rotatingArrowRef.current = arrowId;
     setRotationCenter({ x: centerX, y: centerY });
+    rotationCenterRef.current = { x: centerX, y: centerY };
     setMarkerMenuOpen(null);
   };
   
@@ -3409,8 +3426,88 @@ export default function PlannerPage() {
   
   const handleRotationEnd = () => {
     setRotatingArrow(null);
+    rotatingArrowRef.current = null;
   };
-  
+
+  // === Document-level event listeners for marker drag and arrow rotation ===
+  useEffect(() => {
+    if (!draggingMarker && !rotatingArrow) return;
+
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      const map = mapInstanceRef.current;
+      if (!map) return;
+      const clientX = 'touches' in e ? (e as TouchEvent).touches[0].clientX : (e as MouseEvent).clientX;
+      const clientY = 'touches' in e ? (e as TouchEvent).touches[0].clientY : (e as MouseEvent).clientY;
+
+      if (draggingMarkerRef.current) {
+        const dx = Math.abs(clientX - dragStartRef.current.x);
+        const dy = Math.abs(clientY - dragStartRef.current.y);
+        if (dx > 5 || dy > 5) {
+          if (!hasMovedRef.current) {
+            saveToHistory([...markers]);
+            hasMovedRef.current = true;
+            setHasMoved(true);
+          }
+          const mapRect = map.getCanvas().getBoundingClientRect();
+          const lngLat = map.unproject([clientX - mapRect.left, clientY - mapRect.top]);
+          const svgPos = latLonToSvg(lngLat.lat, lngLat.lng);
+          setMarkers((prev: any[]) => prev.map(m =>
+            m.id === draggingMarkerRef.current ? { ...m, x: svgPos.x, y: svgPos.y } : m
+          ));
+        }
+      }
+
+      if (rotatingArrowRef.current) {
+        const rc = rotationCenterRef.current;
+        const screenPos = svgToScreen(rc.x, rc.y);
+        if (screenPos) {
+          const dxr = clientX - screenPos.x;
+          const dyr = clientY - screenPos.y;
+          let angle = Math.atan2(dxr, -dyr) * (180 / Math.PI);
+          if (angle < 0) angle += 360;
+          angle = Math.round(angle / 15) * 15;
+          setMarkers((prev: any[]) => prev.map(m =>
+            m.id === rotatingArrowRef.current ? { ...m, rotation: angle } : m
+          ));
+        }
+      }
+    };
+
+    const onUp = () => {
+      if (draggingMarkerRef.current) {
+        const markerId = draggingMarkerRef.current;
+        const moved = hasMovedRef.current;
+        setDraggingMarker(null);
+        draggingMarkerRef.current = null;
+        setHasMoved(false);
+        hasMovedRef.current = false;
+        if (!moved) {
+          justEndedDrag.current = true;
+          setMarkerMenuOpen(markerId);
+          setTimeout(() => { justEndedDrag.current = false; }, 100);
+        } else if (navigator.vibrate) {
+          navigator.vibrate([20, 50, 20]);
+        }
+      }
+      if (rotatingArrowRef.current) {
+        setRotatingArrow(null);
+        rotatingArrowRef.current = null;
+      }
+    };
+
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
+
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+    };
+  }, [draggingMarker, rotatingArrow]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Hantera foto från kamera
   const handlePhotoCapture = (e) => {
     const file = e.target.files?.[0];
