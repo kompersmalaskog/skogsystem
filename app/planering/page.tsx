@@ -824,9 +824,25 @@ export default function PlannerPage() {
 
       mapInstanceRef.current = map;
       console.log('[MapLibre] Map-instans skapad');
+
+      // Fix: Multiple resize calls to handle container not being fully sized at init
+      setTimeout(() => { map.resize(); }, 100);
+      setTimeout(() => { map.resize(); }, 500);
+      setTimeout(() => { map.resize(); }, 1500);
+
+      // ResizeObserver for dynamic container size changes
+      if (container) {
+        const resizeObserver = new ResizeObserver(() => {
+          map.resize();
+        });
+        resizeObserver.observe(container);
+        resizeObserverRef.current = resizeObserver;
+      }
     }
 
     return () => {
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
@@ -1101,6 +1117,7 @@ export default function PlannerPage() {
   // MapLibre
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<any>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState<Point>({ x: 0, y: 0 });
   
@@ -1161,7 +1178,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map) return;
     const setVis = (id: string, vis: boolean) => {
-      try { map.setLayoutProperty(id, 'visibility', vis ? 'visible' : 'none'); } catch {}
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis ? 'visible' : 'none');
     };
     setVis('osm-layer', mapType === 'osm');
     setVis('satellite-layer', mapType === 'satellite');
@@ -1171,11 +1188,9 @@ export default function PlannerPage() {
   // === MapLibre: Höjdkurvor overlay ===
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map) return;
-    try {
-      map.setLayoutProperty('contours-layer', 'visibility', overlays.contours && mapType !== 'terrain' ? 'visible' : 'none');
-      map.setPaintProperty('contours-layer', 'raster-opacity', mapType === 'satellite' ? 0.5 : 0.3);
-    } catch {}
+    if (!map || !map.getLayer('contours-layer')) return;
+    map.setLayoutProperty('contours-layer', 'visibility', overlays.contours && mapType !== 'terrain' ? 'visible' : 'none');
+    map.setPaintProperty('contours-layer', 'raster-opacity', mapType === 'satellite' ? 0.5 : 0.3);
   }, [overlays.contours, mapType, mapLibreReady]);
 
   // === MapLibre: Resize vid skärmändring ===
@@ -1227,9 +1242,9 @@ export default function PlannerPage() {
         } catch (e) { console.error('[MapLibre] VIDA layer error:', e); }
       }
 
-      try { map.setLayoutProperty('vida-layer', 'visibility', 'visible'); } catch {}
+      if (map.getLayer('vida-layer')) map.setLayoutProperty('vida-layer', 'visibility', 'visible');
     } else {
-      try { map.setLayoutProperty('vida-layer', 'visibility', 'none'); } catch {}
+      if (map.getLayer('vida-layer')) map.setLayoutProperty('vida-layer', 'visibility', 'none');
     }
   }, [valtObjekt?.kartbild_url, valtObjekt?.kartbild_bounds, overlays.vidaKartbild, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1241,9 +1256,10 @@ export default function PlannerPage() {
     const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'korbarhet'];
 
     allWmsIds.forEach(id => {
-      try {
-        map.setLayoutProperty(`wms-layer-${id}`, 'visibility', overlays[id] ? 'visible' : 'none');
-      } catch {}
+      const layerId = `wms-layer-${id}`;
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, 'visibility', overlays[id] ? 'visible' : 'none');
+      }
     });
   }, [overlays, mapLibreReady]);
 
@@ -2551,25 +2567,33 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
+    const safeSetVisibility = (layerId: string, vis: string) => {
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, 'visibility', vis);
+      }
+    };
     try {
       // Line layers per type
       const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag', 'nature', 'ditch', 'trail'];
+      const stripedTypeIds = ['boundary', 'mainRoad', 'nature', 'ditch'];
       lineTypeIds.forEach(id => {
         const vis = visibleLayers.lines && visibleLines[id] ? 'visible' : 'none';
-        try { map.setLayoutProperty(`line-${id}-base`, 'visibility', vis); } catch {}
-        try { map.setLayoutProperty(`line-${id}-stripe`, 'visibility', vis); } catch {}
+        safeSetVisibility(`line-${id}-base`, vis);
+        if (stripedTypeIds.includes(id)) {
+          safeSetVisibility(`line-${id}-stripe`, vis);
+        }
       });
       // Line hitbox
-      try { map.setLayoutProperty('line-hitbox', 'visibility', visibleLayers.lines ? 'visible' : 'none'); } catch {}
+      safeSetVisibility('line-hitbox', visibleLayers.lines ? 'visible' : 'none');
       // Zone layers
       const zoneVis = visibleLayers.zones ? 'visible' : 'none';
-      try { map.setLayoutProperty('zone-fill', 'visibility', zoneVis); } catch {}
-      try { map.setLayoutProperty('zone-outline', 'visibility', zoneVis); } catch {}
-      try { map.setLayoutProperty('zone-outline-dash', 'visibility', zoneVis); } catch {}
-      try { map.setLayoutProperty('zone-hitbox', 'visibility', zoneVis); } catch {}
-      // TMA roads
-      try { map.setLayoutProperty('tma-roads-layer', 'visibility', visibleLayers.lines ? 'visible' : 'none'); } catch {}
-      try { map.setLayoutProperty('tma-roads-outline', 'visibility', visibleLayers.lines ? 'visible' : 'none'); } catch {}
+      safeSetVisibility('zone-fill', zoneVis);
+      safeSetVisibility('zone-outline', zoneVis);
+      safeSetVisibility('zone-outline-dash', zoneVis);
+      // TMA roads (actual layer names: tma-roads-glow, tma-roads-line)
+      const tmaVis = visibleLayers.lines ? 'visible' : 'none';
+      safeSetVisibility('tma-roads-glow', tmaVis);
+      safeSetVisibility('tma-roads-line', tmaVis);
     } catch (e) { /* map not ready */ }
   }, [visibleLayers, visibleLines, visibleZones, mapLibreReady]);
 
@@ -4432,12 +4456,14 @@ export default function PlannerPage() {
             // Flytta MapLibre-kartan om den finns
             if (mapInstanceRef.current) {
               mapInstanceRef.current.jumpTo({ center: [centerLng, centerLat], zoom: 15, pitch: 50, bearing: 20 });
+              setTimeout(() => mapInstanceRef.current?.resize(), 50);
             }
           } else if (obj.lat && obj.lng) {
             setMapCenter({ lat: obj.lat, lng: obj.lng });
             setMapZoom(16);
             if (mapInstanceRef.current) {
               mapInstanceRef.current.jumpTo({ center: [obj.lng, obj.lat], zoom: 16, pitch: 50, bearing: 20 });
+              setTimeout(() => mapInstanceRef.current?.resize(), 50);
             }
           }
           setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
