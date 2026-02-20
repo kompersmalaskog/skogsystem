@@ -548,15 +548,216 @@ export default function PlannerPage() {
         },
         center: [mapCenter.lng, mapCenter.lat],
         zoom: mapZoom,
-        pitch: 0,
-        bearing: 0,
-        interactive: false,
+        pitch: 50,
+        bearing: 20,
+        interactive: true,
         attributionControl: false,
+        dragRotate: true,
+        touchZoomRotate: true,
+        touchPitch: true,
       });
+
+      // Högerklick + dra = luta (pitch), Ctrl + dra = rotera (bearing)
+      // MapLibre default: högerklick-dra roterar. Vi vill att högerklick lutar istället.
+      // Ctrl+dra ska rotera.
+      // Konfigurera detta via dragRotate-handlern
 
       map.on('load', () => {
         console.log('[MapLibre] Karta laddad, storlek:', map.getCanvas().width, 'x', map.getCanvas().height);
         map.resize();
+
+        // === GeoJSON Sources för linjer, zoner och ritning ===
+        map.addSource('lines-source', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+        map.addSource('zones-source', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+        map.addSource('drawing-source', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+        map.addSource('drawing-points-source', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+        map.addSource('tma-roads-source', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+
+        // === Zone layers ===
+        map.addLayer({
+          id: 'zone-fill',
+          type: 'fill',
+          source: 'zones-source',
+          paint: {
+            'fill-color': ['get', 'color'],
+            'fill-opacity': 0.2,
+          }
+        });
+        map.addLayer({
+          id: 'zone-outline',
+          type: 'line',
+          source: 'zones-source',
+          paint: {
+            'line-color': ['get', 'color'],
+            'line-width': 4,
+          },
+          layout: {
+            'line-cap': 'round',
+            'line-join': 'round',
+          }
+        });
+        map.addLayer({
+          id: 'zone-outline-dash',
+          type: 'line',
+          source: 'zones-source',
+          paint: {
+            'line-color': '#ffffff',
+            'line-width': 4,
+            'line-dasharray': [2, 2],
+          },
+          layout: {
+            'line-cap': 'round',
+            'line-join': 'round',
+          }
+        });
+
+        // === Line layers per type ===
+        const lineTypeDefs = [
+          { id: 'boundary', color: '#ef4444', color2: '#fbbf24', striped: true },
+          { id: 'mainRoad', color: '#3b82f6', color2: '#fbbf24', striped: true },
+          { id: 'backRoadRed', color: '#ef4444' },
+          { id: 'backRoadYellow', color: '#fbbf24' },
+          { id: 'backRoadBlue', color: '#3b82f6' },
+          { id: 'sideRoadRed', color: '#ef4444' },
+          { id: 'sideRoadYellow', color: '#fbbf24' },
+          { id: 'sideRoadBlue', color: '#3b82f6' },
+          { id: 'stickvag', color: '#ff00ff' },
+          { id: 'nature', color: '#22c55e', color2: '#ef4444', striped: true },
+          { id: 'ditch', color: '#06b6d4', color2: '#0e7490', striped: true },
+          { id: 'trail', color: '#ffffff', dashed: true },
+        ];
+        lineTypeDefs.forEach(lt => {
+          // Base line
+          map.addLayer({
+            id: `line-${lt.id}-base`,
+            type: 'line',
+            source: 'lines-source',
+            filter: ['==', ['get', 'lineType'], lt.id],
+            paint: {
+              'line-color': lt.color,
+              'line-width': 5,
+              ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}),
+              ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}),
+            },
+            layout: {
+              'line-cap': 'round',
+              'line-join': 'round',
+            }
+          });
+          // Striped overlay
+          if (lt.striped && lt.color2) {
+            map.addLayer({
+              id: `line-${lt.id}-stripe`,
+              type: 'line',
+              source: 'lines-source',
+              filter: ['==', ['get', 'lineType'], lt.id],
+              paint: {
+                'line-color': lt.color2,
+                'line-width': 5,
+                'line-dasharray': [2, 2],
+              },
+              layout: {
+                'line-cap': 'round',
+                'line-join': 'round',
+              }
+            });
+          }
+        });
+
+        // === Line hitbox layer (transparent, wide, for click detection) ===
+        map.addLayer({
+          id: 'line-hitbox',
+          type: 'line',
+          source: 'lines-source',
+          paint: {
+            'line-color': 'rgba(0,0,0,0)',
+            'line-width': 20,
+          }
+        });
+
+        // === TMA road layers ===
+        map.addLayer({
+          id: 'tma-roads-glow',
+          type: 'line',
+          source: 'tma-roads-source',
+          paint: {
+            'line-color': 'rgba(239,68,68,0.3)',
+            'line-width': 20,
+            'line-blur': 4,
+          },
+          layout: { 'line-cap': 'round', 'line-join': 'round' }
+        });
+        map.addLayer({
+          id: 'tma-roads-line',
+          type: 'line',
+          source: 'tma-roads-source',
+          paint: {
+            'line-color': '#ef4444',
+            'line-width': 8,
+          },
+          layout: { 'line-cap': 'round', 'line-join': 'round' }
+        });
+
+        // === Drawing preview layers ===
+        map.addLayer({
+          id: 'drawing-fill',
+          type: 'fill',
+          source: 'drawing-source',
+          filter: ['==', ['geometry-type'], 'Polygon'],
+          paint: {
+            'fill-color': '#7cba3f',
+            'fill-opacity': 0.15,
+          }
+        });
+        map.addLayer({
+          id: 'drawing-glow',
+          type: 'line',
+          source: 'drawing-source',
+          paint: {
+            'line-color': '#7cba3f',
+            'line-width': 12,
+            'line-opacity': 0.3,
+            'line-blur': 4,
+          },
+          layout: { 'line-cap': 'round', 'line-join': 'round' }
+        });
+        map.addLayer({
+          id: 'drawing-line',
+          type: 'line',
+          source: 'drawing-source',
+          paint: {
+            'line-color': '#7cba3f',
+            'line-width': 4,
+          },
+          layout: { 'line-cap': 'round', 'line-join': 'round' }
+        });
+        map.addLayer({
+          id: 'drawing-points-layer',
+          type: 'circle',
+          source: 'drawing-points-source',
+          paint: {
+            'circle-radius': 6,
+            'circle-color': '#ffffff',
+            'circle-stroke-color': '#7cba3f',
+            'circle-stroke-width': 2,
+          }
+        });
+
         setMapLibreReady(true);
       });
 
@@ -789,7 +990,8 @@ export default function PlannerPage() {
   // Rita
   const [isDrawMode, setIsDrawMode] = useState(false);
   const [drawType, setDrawType] = useState<string | null>(null);
-  const [currentPath, setCurrentPath] = useState<Point[]>([]);
+  const [currentPath, setCurrentPath] = useState<Point[]>([]); // SVG coords (behålls för kompatibilitet)
+  const [currentDrawCoords, setCurrentDrawCoords] = useState<[number, number][]>([]); // [lng, lat] coords för MapLibre-ritning
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawPaused, setDrawPaused] = useState(false); // Pausad mellan drag
   
@@ -823,6 +1025,7 @@ export default function PlannerPage() {
   
   const [currentPosition, setCurrentPosition] = useState<GeolocationPosition | null>(null);
   const [gpsMapPosition, setGpsMapPosition] = useState<Point>({ x: 200, y: 300 }); // Var på kartan GPS-punkten är
+  const [gpsPosition, setGpsPosition] = useState<{lat: number, lng: number} | null>(null); // GPS lat/lng
   const [trackingPath, setTrackingPath] = useState<Point[]>([]);
   const [gpsLineType, setGpsLineType] = useState<string | null>(null); // Vilken linjetyp som spåras
   const gpsLineTypeRef = useRef<string | null>(null); // Ref för callback
@@ -854,33 +1057,15 @@ export default function PlannerPage() {
   const [deviceHeading, setDeviceHeading] = useState(0);
   const lastHeadingRef = useRef(0); // För smooth rotation
   
-  // Zoom funktioner - samma logik som pinch-zoom
+  // Zoom funktioner - delegerar till MapLibre
   const zoomIn = () => {
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
-    
-    const newZoom = Math.min(zoom * 1.3, 4);
-    const zoomRatio = newZoom / zoom;
-    
-    const newPanX = centerX - (centerX - pan.x) * zoomRatio;
-    const newPanY = centerY - (centerY - pan.y) * zoomRatio;
-    
-    setZoom(newZoom);
-    setPan({ x: newPanX, y: newPanY });
+    const map = mapInstanceRef.current;
+    if (map) map.zoomIn();
   };
-  
+
   const zoomOut = () => {
-    const centerX = window.innerWidth / 2;
-    const centerY = window.innerHeight / 2;
-    
-    const newZoom = Math.max(zoom / 1.3, 0.5);
-    const zoomRatio = newZoom / zoom;
-    
-    const newPanX = centerX - (centerX - pan.x) * zoomRatio;
-    const newPanY = centerY - (centerY - pan.y) * zoomRatio;
-    
-    setZoom(newZoom);
-    setPan({ x: newPanX, y: newPanY });
+    const map = mapInstanceRef.current;
+    if (map) map.zoomOut();
   };
   
   // Beräkna dynamisk storlek för symboler baserat på zoom
@@ -895,29 +1080,46 @@ export default function PlannerPage() {
     return Math.max(minSize, Math.min(maxSize, scaledSize));
   };
 
-  // === MapLibre: Synkronisera kamera med SVG pan/zoom ===
+  // === MapLibre: Synkronisera React-state från MapLibre-kamera ===
+  // MapLibre är nu master för kameran. Vi lyssnar på 'move' och beräknar
+  // pan/zoom-ekvivalenter så SVG-overlayen kan positionera symboler.
+  const mapMoveCounterRef = useRef(0);
+  const [mapMoveCounter, setMapMoveCounter] = useState(0);
+
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
-    const svgCenterX = (screenSize.width / 2 - pan.x) / zoom;
-    const svgCenterY = (screenSize.height / 2 - pan.y) / zoom;
+    const onMove = () => {
+      const center = map.getCenter();
+      const z = map.getZoom();
 
-    const mPerDegLat = 111320;
-    const mPerDegLon = 111320 * Math.cos(mapCenter.lat * Math.PI / 180);
-    const scl = 156543.03392 * Math.cos(mapCenter.lat * Math.PI / 180) / Math.pow(2, mapZoom);
-    const dxMeters = svgCenterX * scl;
-    const dyMeters = -svgCenterY * scl;
-    const visibleLng = mapCenter.lng + dxMeters / mPerDegLon;
-    const visibleLat = mapCenter.lat + dyMeters / mPerDegLat;
+      // Uppdatera mapCenter och mapZoom
+      setMapCenter({ lat: center.lat, lng: center.lng });
+      setMapZoom(z);
 
-    const effectiveZoom = mapZoom + Math.log2(zoom);
+      // Beräkna pan/zoom-ekvivalenter för SVG-transform
+      // SVG-systemet: (0,0) i SVG-space = mapCenter vid inläsning
+      // Med MapLibre som master behöver vi projicera mapCenter-origin till skärmkoordinater
+      // pan = screen offset, zoom = scale factor
+      // Enklast: beräkna var SVG-origin (den initiala mapCenter) hamnar på skärmen
+      const scl = 156543.03392 * Math.cos(center.lat * Math.PI / 180) / Math.pow(2, z);
 
-    map.jumpTo({
-      center: [visibleLng, visibleLat],
-      zoom: effectiveZoom,
-    });
-  }, [pan.x, pan.y, zoom, mapCenter.lat, mapCenter.lng, mapZoom, screenSize.width, screenSize.height, mapLibreReady]);
+      // Effektiv zoom: förhållandet mellan nuvarande scale och den initiala scalen
+      // Vi använder z relativt till mapZoom=16 (default) → zoom = 2^(z-16) ungefär
+      // Men enklare: zoom = 1 alltid, pan beräknas från map.project()
+      const effectiveZoom = 1; // Symboler hanteras nu via map.project()
+      setZoom(effectiveZoom);
+      setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
+
+      // Trigga re-render för SVG-positionering
+      mapMoveCounterRef.current++;
+      setMapMoveCounter(mapMoveCounterRef.current);
+    };
+
+    map.on('move', onMove);
+    return () => { map.off('move', onMove); };
+  }, [mapLibreReady, screenSize.width, screenSize.height]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === MapLibre: Byt bakgrundskarta ===
   useEffect(() => {
@@ -946,20 +1148,423 @@ export default function PlannerPage() {
     mapInstanceRef.current?.resize();
   }, [screenSize.width, screenSize.height]);
 
+  // === MapLibre: GeoJSON sync useEffects placerade efter alla state-deklarationer (undvik TDZ) ===
+  // Se längre ner i filen för: lines sync, zones sync, TMA sync, layer visibility
+
+  // === MapLibre: VIDA kartbild som image source ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+
+    const hasVida = valtObjekt?.kartbild_url && valtObjekt?.kartbild_bounds && overlays.vidaKartbild;
+
+    if (hasVida) {
+      const b = valtObjekt.kartbild_bounds; // [[south, west], [north, east]]
+      const coordinates: any = [
+        [b[0][1], b[1][0]], // top-left: [west_lng, north_lat]
+        [b[1][1], b[1][0]], // top-right: [east_lng, north_lat]
+        [b[1][1], b[0][0]], // bottom-right: [east_lng, south_lat]
+        [b[0][1], b[0][0]], // bottom-left: [west_lng, south_lat]
+      ];
+
+      if (map.getSource('vida-overlay')) {
+        try {
+          (map.getSource('vida-overlay') as any).updateImage({
+            url: valtObjekt.kartbild_url,
+            coordinates
+          });
+        } catch {}
+      } else {
+        try {
+          map.addSource('vida-overlay', {
+            type: 'image',
+            url: valtObjekt.kartbild_url,
+            coordinates
+          });
+          // Lägg vida-lagret ovanpå bakgrundskartan men under ritade features
+          const firstLineLayer = map.getStyle().layers?.find((l: any) => l.id.startsWith('zone-') || l.id.startsWith('line-'));
+          map.addLayer({
+            id: 'vida-layer',
+            type: 'raster',
+            source: 'vida-overlay',
+            paint: { 'raster-opacity': 0.8 }
+          }, firstLineLayer?.id);
+        } catch (e) { console.error('[MapLibre] VIDA layer error:', e); }
+      }
+
+      try { map.setLayoutProperty('vida-layer', 'visibility', 'visible'); } catch {}
+    } else {
+      try { map.setLayoutProperty('vida-layer', 'visibility', 'none'); } catch {}
+    }
+  }, [valtObjekt?.kartbild_url, valtObjekt?.kartbild_bounds, overlays.vidaKartbild, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // === MapLibre: WMS overlays som raster sources ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+
+    // Skapa WMS-sources vid första körningen
+    const wmsLayerDefs = [
+      // Skogsstyrelsen
+      { id: 'nyckelbiotoper', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Nyckelbiotop_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'naturvarde', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Objektnaturvarde_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'sumpskog', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'wetlands', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'biotopskydd', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Biotopskydd_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'naturvardsavtal', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNaturvardsavtal/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturvardsavtal_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'skoghistoria', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'avverkningsanmalan', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaAvverkningsanmalan/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Avverkningsanmalan_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'utfordavverkning', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaUtfordavverkning/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=UtfordAvverkning_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      // Riksantikvarieämbetet (EPSG:3857)
+      { id: 'fornlamningar', tiles: ['https://pub.raa.se/visning/lamningar/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=fornlamningar&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
+      // Naturvårdsverket
+      { id: 'naturreservat', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturreservat&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'natura2000', tiles: ['https://geodata.naturvardsverket.se/n2000/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Habitatdirektivet,Fageldirektivet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      { id: 'vattenskydd', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Vattenskyddsomrade&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      // MSB
+      { id: 'oversvamning', tiles: ['https://inspire.msb.se/oversvamning/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=NZ_Oversvamning_100,NZ_Oversvamning_200,NZ_Oversvamning_BHF&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      // SGU
+      { id: 'jordarter', tiles: ['https://maps3.sgu.se/geoserver/jord/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=jord:SE.GOV.SGU.JORD.GRUNDLAGER.25K&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      // Trafikverket
+      { id: 'barighet', tiles: ['https://geo-netinfo.trafikverket.se/mapservice/wms.axd/NetInfo_1_8?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Barighet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      // Svenska Kraftnät
+      { id: 'kraftledningar', tiles: ['https://inspire-skn.metria.se/geoserver/skn/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=US.ElectricityNetwork.Lines&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+      // Skogsstyrelsen Raster (via proxy)
+      { id: 'sks_markfuktighet', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Markfuktighet_SLU_2_0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+      { id: 'sks_virkesvolym', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkogligaGrunddata_3_1&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+      { id: 'sks_tradhojd', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Tradhojd_3_1&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+      { id: 'sks_lutning', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Lutning_1_0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+    ];
+
+    wmsLayerDefs.forEach(def => {
+      if (map.getSource(`wms-${def.id}`)) return; // Redan tillagd
+
+      try {
+        map.addSource(`wms-${def.id}`, {
+          type: 'raster',
+          tiles: def.tiles,
+          tileSize: 256,
+        });
+        // Lägg WMS-lager under ritade features (före zone-fill)
+        map.addLayer({
+          id: `wms-layer-${def.id}`,
+          type: 'raster',
+          source: `wms-${def.id}`,
+          paint: { 'raster-opacity': 0.7 },
+          layout: { visibility: 'none' },
+        }, 'zone-fill');
+      } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
+    });
+
+    // Körbarhetstiles (custom API)
+    if (!map.getSource('wms-korbarhet')) {
+      try {
+        map.addSource('wms-korbarhet', {
+          type: 'raster',
+          tiles: ['/api/korbarhet-tiles?bbox={bbox-epsg-4326}&width=256&height=256'],
+          tileSize: 256,
+        });
+        map.addLayer({
+          id: 'wms-layer-korbarhet',
+          type: 'raster',
+          source: 'wms-korbarhet',
+          paint: { 'raster-opacity': 0.7 },
+          layout: { visibility: 'none' },
+        }, 'zone-fill');
+      } catch (e) { console.error('[MapLibre] korbarhet error:', e); }
+    }
+  }, [mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // === MapLibre: Toggle WMS overlay visibility ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+
+    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'korbarhet'];
+
+    allWmsIds.forEach(id => {
+      try {
+        map.setLayoutProperty(`wms-layer-${id}`, 'visibility', overlays[id] ? 'visible' : 'none');
+      } catch {}
+    });
+  }, [overlays, mapLibreReady]);
+
+  // === MapLibre: Ritverktyg + symbolplacering via click-events ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+
+    const isDrawingMode = isDrawMode || isZoneMode;
+
+    const onClick = (e: any) => {
+      // Symbol/pil-placering
+      if (!isDrawingMode && (selectedSymbol || (isArrowMode && arrowType))) {
+        const lngLat = e.lngLat;
+        const svgPos = latLonToSvg(lngLat.lat, lngLat.lng);
+
+        if (selectedSymbol) {
+          saveToHistory([...markers]);
+          const newMarker: any = {
+            id: Date.now(),
+            type: selectedSymbol,
+            x: svgPos.x,
+            y: svgPos.y,
+            isMarker: true,
+            comment: '',
+          };
+
+          if (selectedSymbol === 'landing') {
+            newMarker.roadCheck = { status: 'loading', tillstand: 'ej_sokt' };
+            checkRoadSafety(lngLat.lat, lngLat.lng).then((result: any) => {
+              const gt = generelltTillstand;
+              const maxspeed = result.nearestRoad?.maxspeed;
+              const isAllman = result.roadCategory === 'allman' || result.roadCategory === 'kan_vara_allman';
+              if (isAllman && maxspeed && maxspeed > 80) {
+                result.requiresSpecialPermit = true;
+              } else if (isAllman && gt && (gt as any).lan && (gt as any).giltigtTom && new Date((gt as any).giltigtTom) >= new Date()) {
+                result.tillstand = 'beviljat';
+                result.generelltTillstandApplied = true;
+              }
+              setMarkers((prev: any[]) => prev.map(m =>
+                m.id === newMarker.id ? { ...m, roadCheck: result } : m
+              ));
+            });
+          }
+
+          setMarkers((prev: any[]) => [...prev, newMarker]);
+          if (navigator.vibrate) navigator.vibrate(30);
+          setRecentSymbols((prev: string[]) => {
+            const filtered = prev.filter(s => s !== selectedSymbol);
+            return [selectedSymbol!, ...filtered].slice(0, 4);
+          });
+          setSelectedSymbol(null);
+          return;
+        }
+
+        if (isArrowMode && arrowType) {
+          saveToHistory([...markers]);
+          const newArrow = {
+            id: Date.now(),
+            arrowType,
+            x: svgPos.x,
+            y: svgPos.y,
+            rotation: 0,
+            isArrow: true,
+          };
+          setMarkers((prev: any[]) => [...prev, newArrow]);
+          setIsArrowMode(false);
+          setArrowType(null);
+          return;
+        }
+      }
+
+      if (!isDrawingMode) return;
+
+      const coord: [number, number] = [e.lngLat.lng, e.lngLat.lat];
+
+      setCurrentDrawCoords(prev => {
+        // Klick nära första punkten → stäng polygon
+        if (prev.length >= 3) {
+          const first = prev[0];
+          const firstScreen = map.project(first as any);
+          const clickScreen = map.project(coord as any);
+          const dx = firstScreen.x - clickScreen.x;
+          const dy = firstScreen.y - clickScreen.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < 20) {
+            // Stäng polygonen
+            setTimeout(() => {
+              if (isDrawMode) finishLineFromCoords([...prev]);
+              if (isZoneMode) finishZoneFromCoords([...prev]);
+            }, 0);
+            return prev;
+          }
+        }
+        return [...prev, coord];
+      });
+    };
+
+    const onDblClick = (e: any) => {
+      if (!isDrawingMode) return;
+      e.preventDefault();
+
+      setCurrentDrawCoords(prev => {
+        if (prev.length >= 2) {
+          setTimeout(() => {
+            if (isDrawMode) finishLineFromCoords([...prev]);
+            if (isZoneMode) finishZoneFromCoords([...prev]);
+          }, 0);
+        }
+        return prev;
+      });
+    };
+
+    // Under ritning: disable double-click zoom
+    if (isDrawingMode) {
+      map.doubleClickZoom.disable();
+    } else {
+      map.doubleClickZoom.enable();
+    }
+
+    map.on('click', onClick);
+    map.on('dblclick', onDblClick);
+
+    return () => {
+      map.off('click', onClick);
+      map.off('dblclick', onDblClick);
+    };
+  }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hjälpfunktioner för att avsluta ritning med [lng,lat]-coords
+  const finishLineFromCoords = (coords: [number, number][]) => {
+    if (coords.length > 1 && drawType) {
+      saveToHistory([...markers]);
+      const svgPath = coords.map(([lng, lat]) => latLonToSvg(lat, lng));
+      const newLine = {
+        id: Date.now(),
+        lineType: drawType,
+        path: svgPath,
+        isLine: true,
+      };
+      setMarkers((prev: any[]) => [...prev, newLine]);
+    }
+    setCurrentDrawCoords([]);
+    setCurrentPath([]);
+    setIsDrawMode(false);
+    setDrawType(null);
+    setIsDrawing(false);
+    setDrawPaused(false);
+  };
+
+  const finishZoneFromCoords = (coords: [number, number][]) => {
+    if (coords.length > 2 && zoneType) {
+      saveToHistory([...markers]);
+      const svgPath = coords.map(([lng, lat]) => latLonToSvg(lat, lng));
+      const newZone = {
+        id: Date.now(),
+        zoneType,
+        path: svgPath,
+        isZone: true,
+      };
+      setMarkers((prev: any[]) => [...prev, newZone]);
+    }
+    setCurrentDrawCoords([]);
+    setCurrentPath([]);
+    setIsZoneMode(false);
+    setZoneType(null);
+    setIsDrawing(false);
+    setDrawPaused(false);
+  };
+
+  // === MapLibre: Uppdatera ritnings-preview layers ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      const drawSrc = map.getSource('drawing-source') as any;
+      const ptsSrc = map.getSource('drawing-points-source') as any;
+      if (!drawSrc || !ptsSrc) return;
+
+      if (currentDrawCoords.length < 2) {
+        drawSrc.setData({ type: 'FeatureCollection', features: [] });
+        // Visa enskilda punkter
+        if (currentDrawCoords.length === 1) {
+          ptsSrc.setData({
+            type: 'FeatureCollection',
+            features: [{
+              type: 'Feature',
+              properties: {},
+              geometry: { type: 'Point', coordinates: currentDrawCoords[0] }
+            }]
+          });
+        } else {
+          ptsSrc.setData({ type: 'FeatureCollection', features: [] });
+        }
+        return;
+      }
+
+      const isPolygon = isZoneMode && currentDrawCoords.length >= 3;
+      const feature = {
+        type: 'Feature' as const,
+        properties: {},
+        geometry: isPolygon ? {
+          type: 'Polygon' as const,
+          coordinates: [[...currentDrawCoords, currentDrawCoords[0]]]
+        } : {
+          type: 'LineString' as const,
+          coordinates: currentDrawCoords
+        }
+      };
+      drawSrc.setData({ type: 'FeatureCollection', features: [feature] });
+
+      // Ritpunkter (vertices)
+      const pointFeatures = currentDrawCoords.map((coord, i) => ({
+        type: 'Feature' as const,
+        properties: { index: i },
+        geometry: { type: 'Point' as const, coordinates: coord }
+      }));
+      ptsSrc.setData({ type: 'FeatureCollection', features: pointFeatures });
+    } catch (e) { console.error('[MapLibre] drawing preview error:', e); }
+  }, [currentDrawCoords, isDrawMode, isZoneMode, mapLibreReady]);
+
+  // === MapLibre: Click-handlers för linjer/zoner ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+
+    const onLineClick = (e: any) => {
+      if (isDrawMode || isZoneMode) return;
+      if (e.features && e.features.length > 0) {
+        const markerId = e.features[0].properties.id;
+        const marker = markers.find(m => String(m.id) === markerId);
+        if (marker) {
+          setMarkerMenuOpen(marker.id === markerMenuOpen ? null : marker.id);
+        }
+      }
+    };
+
+    const onZoneClick = (e: any) => {
+      if (isDrawMode || isZoneMode) return;
+      if (e.features && e.features.length > 0) {
+        const markerId = e.features[0].properties.id;
+        const marker = markers.find(m => String(m.id) === markerId);
+        if (marker) {
+          setMarkerMenuOpen(marker.id === markerMenuOpen ? null : marker.id);
+        }
+      }
+    };
+
+    map.on('click', 'line-hitbox', onLineClick);
+    map.on('click', 'zone-fill', onZoneClick);
+
+    // Cursor change on hover
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const onLeave = () => { map.getCanvas().style.cursor = ''; };
+    map.on('mouseenter', 'line-hitbox', onEnter);
+    map.on('mouseleave', 'line-hitbox', onLeave);
+    map.on('mouseenter', 'zone-fill', onEnter);
+    map.on('mouseleave', 'zone-fill', onLeave);
+
+    return () => {
+      map.off('click', 'line-hitbox', onLineClick);
+      map.off('click', 'zone-fill', onZoneClick);
+      map.off('mouseenter', 'line-hitbox', onEnter);
+      map.off('mouseleave', 'line-hitbox', onLeave);
+      map.off('mouseenter', 'zone-fill', onEnter);
+      map.off('mouseleave', 'zone-fill', onLeave);
+    };
+  }, [mapLibreReady, isDrawMode, isZoneMode, markers, markerMenuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Centrera på GPS-position
   const centerOnMe = () => {
-    // Sätt zoom till en bekväm nivå
-    const targetZoom = 1.5;
-    setZoom(targetZoom);
-    
-    // Beräkna pan så att gpsMapPosition hamnar i mitten av skärmen
-    const screenCenterX = window.innerWidth / 2;
-    const screenCenterY = window.innerHeight / 2;
-    
-    const newPanX = screenCenterX - gpsMapPosition.x * targetZoom;
-    const newPanY = screenCenterY - gpsMapPosition.y * targetZoom;
-    
-    setPan({ x: newPanX, y: newPanY });
+    const map = mapInstanceRef.current;
+    if (map && gpsPosition) {
+      map.flyTo({
+        center: [gpsPosition.lng, gpsPosition.lat],
+        zoom: 16.5,
+        duration: 500,
+      });
+    }
   };
   
   // Kompass - rotera kartan efter enhetens riktning
@@ -1892,6 +2497,106 @@ export default function PlannerPage() {
     return { lat, lon };
   };
 
+  // === MapLibre: GeoJSON sync useEffects (placerade här, EFTER alla state-deklarationer, för att undvika TDZ) ===
+
+  // 1) Synka linjer → MapLibre lines-source
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      const src = map.getSource('lines-source') as any;
+      if (!src) return;
+      const features: any[] = [];
+      markers.filter(m => m.isLine && m.path && m.path.length > 1).forEach(m => {
+        const coords = m.path.map((p: any) => {
+          const ll = svgToLatLon(p.x, p.y);
+          return [ll.lon, ll.lat];
+        });
+        features.push({
+          type: 'Feature',
+          properties: { lineType: m.lineType, id: m.id },
+          geometry: { type: 'LineString', coordinates: coords },
+        });
+      });
+      src.setData({ type: 'FeatureCollection', features });
+    } catch (e) { /* source not ready */ }
+  }, [markers, mapLibreReady, mapCenter, visibleLines]);
+
+  // 2) Synka zoner → MapLibre zones-source
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      const src = map.getSource('zones-source') as any;
+      if (!src) return;
+      const features: any[] = [];
+      markers.filter(m => m.isZone && m.path && m.path.length > 2).forEach(m => {
+        const coords = m.path.map((p: any) => {
+          const ll = svgToLatLon(p.x, p.y);
+          return [ll.lon, ll.lat];
+        });
+        // Stäng polygon
+        if (coords.length > 0) coords.push(coords[0]);
+        const zt = zoneTypes.find(z => z.id === m.zoneType);
+        features.push({
+          type: 'Feature',
+          properties: { zoneType: m.zoneType, id: m.id, color: zt?.color || '#3b82f6' },
+          geometry: { type: 'Polygon', coordinates: [coords] },
+        });
+      });
+      src.setData({ type: 'FeatureCollection', features });
+    } catch (e) { /* source not ready */ }
+  }, [markers, mapLibreReady, mapCenter, visibleZones]);
+
+  // 3) Synka TMA-vägar → MapLibre tma-roads-source
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      const src = map.getSource('tma-roads-source') as any;
+      if (!src) return;
+      const features: any[] = [];
+      tmaWithRoads.forEach(([markerId, result]) => {
+        result.roads.forEach((road: any, idx: number) => {
+          if (road.geometry?.coordinates) {
+            features.push({
+              type: 'Feature',
+              properties: { markerId, roadIndex: idx, category: road.category || 'enskild' },
+              geometry: road.geometry,
+            });
+          }
+        });
+      });
+      src.setData({ type: 'FeatureCollection', features });
+    } catch (e) { /* source not ready */ }
+  }, [tmaWithRoads, mapLibreReady]);
+
+  // 4) Synka layer-visibility → MapLibre
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      // Line layers per type
+      const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag', 'nature', 'ditch', 'trail'];
+      lineTypeIds.forEach(id => {
+        const vis = visibleLayers.lines && visibleLines[id] ? 'visible' : 'none';
+        try { map.setLayoutProperty(`line-${id}-base`, 'visibility', vis); } catch {}
+        try { map.setLayoutProperty(`line-${id}-stripe`, 'visibility', vis); } catch {}
+      });
+      // Line hitbox
+      try { map.setLayoutProperty('line-hitbox', 'visibility', visibleLayers.lines ? 'visible' : 'none'); } catch {}
+      // Zone layers
+      const zoneVis = visibleLayers.zones ? 'visible' : 'none';
+      try { map.setLayoutProperty('zone-fill', 'visibility', zoneVis); } catch {}
+      try { map.setLayoutProperty('zone-outline', 'visibility', zoneVis); } catch {}
+      try { map.setLayoutProperty('zone-outline-dash', 'visibility', zoneVis); } catch {}
+      try { map.setLayoutProperty('zone-hitbox', 'visibility', zoneVis); } catch {}
+      // TMA roads
+      try { map.setLayoutProperty('tma-roads-layer', 'visibility', visibleLayers.lines ? 'visible' : 'none'); } catch {}
+      try { map.setLayoutProperty('tma-roads-outline', 'visibility', visibleLayers.lines ? 'visible' : 'none'); } catch {}
+    } catch (e) { /* map not ready */ }
+  }, [visibleLayers, visibleLines, visibleZones, mapLibreReady]);
+
   // Klassificera vägtyp: allmän, kan vara allmän, eller enskild
   const getRoadCategory = (highway: string): 'allman' | 'kan_vara_allman' | 'enskild' => {
     switch (highway) {
@@ -2494,6 +3199,7 @@ export default function PlannerPage() {
         if (accuracy > 10) return;
         
         setCurrentPosition(newPos);
+        setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
         setTrackingPath(prev => [...prev, newPos]);
         
         // Första punkten - sätt startposition
@@ -3095,6 +3801,11 @@ export default function PlannerPage() {
   };
 
   const finishLine = () => {
+    // Använd MapLibre-coords om de finns, annars SVG-coords
+    if (currentDrawCoords.length > 1 && drawType) {
+      finishLineFromCoords(currentDrawCoords);
+      return;
+    }
     if (currentPath.length > 1 && drawType) {
       saveToHistory([...markers]);
       const newLine = {
@@ -3106,6 +3817,7 @@ export default function PlannerPage() {
       setMarkers(prev => [...prev, newLine]);
     }
     setCurrentPath([]);
+    setCurrentDrawCoords([]);
     setIsDrawMode(false);
     setDrawType(null);
     setIsDrawing(false);
@@ -3113,6 +3825,11 @@ export default function PlannerPage() {
   };
 
   const finishZone = () => {
+    // Använd MapLibre-coords om de finns, annars SVG-coords
+    if (currentDrawCoords.length > 2 && zoneType) {
+      finishZoneFromCoords(currentDrawCoords);
+      return;
+    }
     if (currentPath.length > 2 && zoneType) {
       saveToHistory([...markers]);
       const newZone = {
@@ -3124,6 +3841,7 @@ export default function PlannerPage() {
       setMarkers(prev => [...prev, newZone]);
     }
     setCurrentPath([]);
+    setCurrentDrawCoords([]);
     setIsZoneMode(false);
     setZoneType(null);
     setIsDrawing(false);
@@ -3262,20 +3980,18 @@ export default function PlannerPage() {
     }
   };
   
-  // Ångra senaste segmentet medan man ritar
+  // Ångra senaste punkten medan man ritar
   const undoLastSegment = () => {
-    if (currentPath.length <= 1) {
-      // Bara en punkt - avbryt helt
+    if (currentDrawCoords.length <= 1) {
       cancelDrawing();
       return;
     }
-    // Ta bort ca 20% av punkterna (minst 3)
-    const removeCount = Math.max(3, Math.floor(currentPath.length * 0.2));
-    setCurrentPath(prev => prev.slice(0, -removeCount));
+    setCurrentDrawCoords(prev => prev.slice(0, -1));
   };
-  
+
   const cancelDrawing = () => {
     setCurrentPath([]);
+    setCurrentDrawCoords([]);
     setIsDrawMode(false);
     setIsZoneMode(false);
     setDrawType(null);
@@ -3729,17 +4445,22 @@ export default function PlannerPage() {
           setValtObjekt(obj);
           // Centrera kartan på objektets koordinater eller kartbild
           if (obj.kartbild_bounds) {
-            // Centrera på mitten av kartbilden
             const bounds = obj.kartbild_bounds;
             const centerLat = (bounds[0][0] + bounds[1][0]) / 2;
             const centerLng = (bounds[0][1] + bounds[1][1]) / 2;
             setMapCenter({ lat: centerLat, lng: centerLng });
             setMapZoom(15);
+            // Flytta MapLibre-kartan om den finns
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.jumpTo({ center: [centerLng, centerLat], zoom: 15, pitch: 50, bearing: 20 });
+            }
           } else if (obj.lat && obj.lng) {
             setMapCenter({ lat: obj.lat, lng: obj.lng });
             setMapZoom(16);
+            if (mapInstanceRef.current) {
+              mapInstanceRef.current.jumpTo({ center: [obj.lng, obj.lat], zoom: 16, pitch: 50, bearing: 20 });
+            }
           }
-          // Återställ pan/zoom till centrerat läge
           setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
           setZoom(1);
         }}
@@ -3835,12 +4556,13 @@ export default function PlannerPage() {
             width: '100%',
             height: '100%',
             zIndex: 0,
+            cursor: isDrawMode || isZoneMode || selectedSymbol || isArrowMode || measureMode || measureAreaMode ? 'crosshair' : undefined,
           }}
         />
       )}
 
-      {/* === WMS OVERLAY-LAGER === */}
-      {showMap && screenSize.width > 0 && (
+      {/* === WMS OVERLAY-LAGER renderas nu som MapLibre raster sources === */}
+      {false && showMap && screenSize.width > 0 && (
         <div
           style={{
             position: 'absolute',
@@ -4012,66 +4734,9 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === VIDA KARTBILD OVERLAY === */}
-      {(() => {
-        console.log('=== OVERLAY CHECK ===', {
-          url: valtObjekt?.kartbild_url,
-          bounds: valtObjekt?.kartbild_bounds,
-          boundsType: typeof valtObjekt?.kartbild_bounds,
-          showMap,
-        });
-        return null;
-      })()}
-      {valtObjekt?.kartbild_url && valtObjekt?.kartbild_bounds && showMap && overlays.vidaKartbild && (() => {
-        const tileSize = 256;
-        const z = mapZoom;
-        const n = Math.pow(2, z);
-        const centerLatRad = mapCenter.lat * Math.PI / 180;
-        const centerTileXFloat = (mapCenter.lng + 180) / 360 * n;
-        const centerTileYFloat = (1 - Math.log(Math.tan(centerLatRad) + 1 / Math.cos(centerLatRad)) / Math.PI) / 2 * n;
+      {/* === VIDA KARTBILD renderas nu som MapLibre image source === */}
 
-        // Konvertera bounds [[south, west], [north, east]] till SVG-koordinater
-        const bounds = valtObjekt.kartbild_bounds;
-        const northLatRad = bounds[1][0] * Math.PI / 180;
-        const southLatRad = bounds[0][0] * Math.PI / 180;
-
-        const westTileX = (bounds[0][1] + 180) / 360 * n;
-        const eastTileX = (bounds[1][1] + 180) / 360 * n;
-        const northTileY = (1 - Math.log(Math.tan(northLatRad) + 1 / Math.cos(northLatRad)) / Math.PI) / 2 * n;
-        const southTileY = (1 - Math.log(Math.tan(southLatRad) + 1 / Math.cos(southLatRad)) / Math.PI) / 2 * n;
-
-        const svgLeft = (westTileX - centerTileXFloat) * tileSize;
-        const svgTop = (northTileY - centerTileYFloat) * tileSize;
-        const svgRight = (eastTileX - centerTileXFloat) * tileSize;
-        const svgBottom = (southTileY - centerTileYFloat) * tileSize;
-
-        const screenLeft = pan.x + svgLeft * zoom;
-        const screenTop = pan.y + svgTop * zoom;
-        const screenWidth = (svgRight - svgLeft) * zoom;
-        const screenHeight = (svgBottom - svgTop) * zoom;
-
-        return (
-          <img
-            src={valtObjekt.kartbild_url}
-            alt="VIDA kartbild"
-            style={{
-              position: 'absolute',
-              left: screenLeft,
-              top: screenTop,
-              width: screenWidth,
-              height: screenHeight,
-              zIndex: 25,
-              opacity: 0.8,
-              pointerEvents: 'none',
-            }}
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
-          />
-        );
-      })()}
-
-      {/* === KARTA === */}
+      {/* === SVG OVERLAY (symboler, GPS, mätverktyg) === */}
       <svg
         style={{
           position: 'absolute',
@@ -4080,280 +4745,32 @@ export default function PlannerPage() {
           height: '100%',
           touchAction: 'none',
           zIndex: 50,
-          pointerEvents: stickvagOversikt ? 'none' : 'auto',
+          pointerEvents: 'none',
           background: showMap ? 'transparent' : `
             radial-gradient(ellipse at 30% 40%, rgba(52, 199, 89, 0.15) 0%, transparent 50%),
             radial-gradient(ellipse at 70% 60%, rgba(10, 132, 255, 0.2) 0%, transparent 45%),
             radial-gradient(ellipse at 50% 80%, rgba(10, 132, 255, 0.25) 0%, transparent 40%),
             linear-gradient(180deg, #1c1c1e 0%, #000000 100%)
           `,
-          cursor: isPanning ? 'grabbing' : isDrawing || isMeasuring ? 'crosshair' : selectedSymbol || isDrawMode || isZoneMode || isArrowMode || measureMode || measureAreaMode ? 'crosshair' : 'grab',
         }}
         onClick={handleMapClick}
-        onMouseDown={(e) => {
-          handleMouseDown(e);
-          if (isDrawMode || isZoneMode || measureMode || measureAreaMode) {
-            const rect = e.currentTarget.getBoundingClientRect();
-            handleDrawStart(e, rect);
-          }
-        }}
-        onMouseMove={(e) => {
-          handleMouseMove(e);
-          if (draggingMarker) {
-            const rect = e.currentTarget.getBoundingClientRect();
-            handleMarkerDragMove(e, rect);
-          }
-          if (isDrawing || isMeasuring) {
-            const rect = e.currentTarget.getBoundingClientRect();
-            handleDrawMove(e, rect);
-          }
-          if (rotatingArrow) {
-            const rect = e.currentTarget.getBoundingClientRect();
-            handleRotationMove(e, rect);
-          }
-        }}
-        onMouseUp={() => {
-          handleMouseUp();
-          handleDragEnd();
-          handleDrawEnd();
-          handleRotationEnd();
-        }}
-        onMouseLeave={() => {
-          handleMouseUp();
-          handleDragEnd();
-          handleDrawEnd();
-          handleRotationEnd();
-        }}
-        onTouchStart={(e) => {
-          // I översiktsläge - blockera pan/pinch/draw men inte element-klick
-          if (stickvagOversikt) {
-            // Låt touch-events på markers/linjer/zoner bubbla genom
-            // De har sina egna handlers
-            return;
-          }
-          
-          // Pinch-to-zoom och rotation med två fingrar
-          if (e.touches.length === 2) {
-            e.preventDefault();
-            const touch1 = e.touches[0];
-            const touch2 = e.touches[1];
-            const distance = Math.sqrt(
-              Math.pow(touch2.clientX - touch1.clientX, 2) + 
-              Math.pow(touch2.clientY - touch1.clientY, 2)
-            );
-            const centerX = (touch1.clientX + touch2.clientX) / 2;
-            const centerY = (touch1.clientY + touch2.clientY) / 2;
-            
-            // Beräkna initial vinkel mellan fingrarna
-            const angle = Math.atan2(
-              touch2.clientY - touch1.clientY,
-              touch2.clientX - touch1.clientX
-            ) * (180 / Math.PI);
-            
-            pinchRef.current = {
-              initialDistance: distance,
-              initialZoom: zoom,
-              initialPan: { ...pan },
-              center: { x: centerX, y: centerY },
-              initialAngle: angle,
-              initialRotation: mapRotation
-            };
-            setIsPinching(true);
-            return;
-          }
-          
-          // Rita/mäta med ett finger
-          if (isDrawMode || isZoneMode || measureMode || measureAreaMode) {
-            const rect = e.currentTarget.getBoundingClientRect();
-            handleDrawStart(e, rect);
-            return;
-          }
-          
-          // Pan med ett finger (om inte i ritläge eller mätläge)
-          if (e.touches.length === 1 && !selectedSymbol && !isArrowMode && !measureMode && !measureAreaMode && !isDrawMode && !isZoneMode) {
-            setIsPanning(true);
-            setPanStart({ x: e.touches[0].clientX - pan.x, y: e.touches[0].clientY - pan.y });
-          }
-        }}
-        onTouchMove={(e) => {
-          // Pinch-to-zoom och rotation med två fingrar
-          if (e.touches.length === 2 && isPinching) {
-            e.preventDefault();
-            const touch1 = e.touches[0];
-            const touch2 = e.touches[1];
-            const distance = Math.sqrt(
-              Math.pow(touch2.clientX - touch1.clientX, 2) + 
-              Math.pow(touch2.clientY - touch1.clientY, 2)
-            );
-            
-            // Beräkna ny zoom baserat på pinch-avstånd
-            const scale = distance / pinchRef.current.initialDistance;
-            const newZoom = Math.min(Math.max(pinchRef.current.initialZoom * scale, 0.5), 4);
-            
-            // Beräkna ny pan så vi zoomar mot mittpunkten mellan fingrarna
-            const centerX = (touch1.clientX + touch2.clientX) / 2;
-            const centerY = (touch1.clientY + touch2.clientY) / 2;
-            
-            // Justera pan för att hålla mittpunkten stilla
-            const zoomRatio = newZoom / pinchRef.current.initialZoom;
-            const newPanX = centerX - (centerX - pinchRef.current.initialPan.x) * zoomRatio;
-            const newPanY = centerY - (centerY - pinchRef.current.initialPan.y) * zoomRatio;
-            
-            // Beräkna rotation (bara om kompass är av)
-            // Finger-rotation avstängd - kartan pekar alltid norrut
-            
-            setZoom(newZoom);
-            setPan({ x: newPanX, y: newPanY });
-            return;
-          }
-          
-          // Pan med ett finger
-          if (e.touches.length === 1 && isPanning && !isDrawing && !isMeasuring && !draggingMarker && !rotatingArrow) {
-            e.preventDefault();
-            setPan({ x: e.touches[0].clientX - panStart.x, y: e.touches[0].clientY - panStart.y });
-            return;
-          }
-          
-          if (draggingMarker) {
-            e.preventDefault();
-            const rect = e.currentTarget.getBoundingClientRect();
-            handleMarkerDragMove(e, rect);
-          }
-          if (isDrawing || isMeasuring) {
-            e.preventDefault();
-            const rect = e.currentTarget.getBoundingClientRect();
-            handleDrawMove(e, rect);
-          }
-          if (rotatingArrow) {
-            e.preventDefault();
-            const rect = e.currentTarget.getBoundingClientRect();
-            handleRotationMove(e, rect);
-          }
-        }}
-        onTouchEnd={() => {
-          setIsPinching(false);
-          setIsPanning(false);
-          handleDragEnd();
-          handleDrawEnd();
-          handleRotationEnd();
-        }}
       >
-        {/* Grid */}
+        {/* Defs */}
         <defs>
-          <pattern id="grid" width="60" height="60" patternUnits="userSpaceOnUse">
-            <path d="M 60 0 L 0 0 0 60" fill="none" stroke="rgba(132,204,22,0.05)" strokeWidth="1"/>
-          </pattern>
-          {/* Gradient för ljuskägla */}
           <radialGradient id="viewConeGradient" cx="0%" cy="0%" r="100%">
             <stop offset="0%" stopColor="#0a84ff" stopOpacity="0.4" />
             <stop offset="100%" stopColor="#0a84ff" stopOpacity="0" />
           </radialGradient>
         </defs>
-        <rect width="100%" height="100%" fill="url(#grid)" />
 
-        {/* Rotation wrapper - avstängd, kartan pekar alltid norrut */}
-        <g style={{ 
-          transform: 'none',
-          transformOrigin: '50% 50%',
-        }}>
-        {/* Kart-rotation från finger-gester - avstängd */}
-        <g style={{ 
-          transform: 'none',
-          transformOrigin: '50% 50%',
-        }}>
+        {/* SVG-innehåll positioneras via map.project() */}
         <g style={{
           transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
           transformOrigin: '0 0',
           pointerEvents: isInDrawingMode ? 'none' : 'auto',
         }}>
 
-          {/* Zoner */}
-          {visibleLayers.zones && markers.filter(m => m.isZone && visibleZones[m.zoneType]).map(m => 
-            renderZone(m)
-          )}
-          
-          {/* Pågående zon */}
-          {isZoneMode && currentPath.length > 0 && (
-            <g>
-              {/* Fyllning */}
-              <path
-                d={currentPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + (currentPath.length > 2 ? ' Z' : '')}
-                fill={zoneTypes.find(t => t.id === zoneType)?.color || '#fff'}
-                fillOpacity={0.15}
-                stroke="none"
-              />
-              {/* Streckad kant */}
-              <path
-                d={currentPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + (currentPath.length > 2 ? ' Z' : '')}
-                fill="none"
-                stroke={zoneTypes.find(t => t.id === zoneType)?.color || '#fff'}
-                strokeWidth={5 / zoom}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d={currentPath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + (currentPath.length > 2 ? ' Z' : '')}
-                fill="none"
-                stroke="#fff"
-                strokeWidth={5 / zoom}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeDasharray={`${10 / zoom},${10 / zoom}`}
-              />
-            </g>
-          )}
-
-          {/* Linjer */}
-          {visibleLayers.lines && markers.filter(m => m.isLine && visibleLines[m.lineType]).map(m => 
-            renderLine(m.path, m.lineType)
-          )}
-          
-          {/* Mått-labels för linjer - borttagna */}
-
-          {/* TMA: Vägsträcka nära traktgräns (röd glöd + linje) – per boundary */}
-          {tmaWithRoads.flatMap(([bmId, result]) => result.roads.map((road, ri) => {
-            if (!road.nearbyGeom || road.nearbyGeom.length < 2) return null;
-            const svgPts = road.nearbyGeom.map(p => latLonToSvg(p.lat, p.lon));
-            const d = svgPts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
-            return (
-              <g key={`tma-road-${bmId}-${ri}`}>
-                {/* Bred glöd bakom */}
-                <path
-                  d={d}
-                  fill="none"
-                  stroke="rgba(239,68,68,0.3)"
-                  strokeWidth={20 / zoom}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ filter: 'blur(4px)' }}
-                >
-                  <animate attributeName="stroke-opacity" values="0.3;0.6;0.3" dur="2s" repeatCount="indefinite" />
-                </path>
-                {/* Röd vägsträcka */}
-                <path
-                  d={d}
-                  fill="none"
-                  stroke="#ef4444"
-                  strokeWidth={8 / zoom}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <animate attributeName="opacity" values="0.6;1;0.6" dur="2s" repeatCount="indefinite" />
-                </path>
-              </g>
-            );
-          }))}
-
-          {/* Pågående linje */}
-          {isDrawMode && currentPath.length > 0 && (
-            <path
-              d={createSmoothPath(currentPath)}
-              fill="none"
-              stroke={lineTypes.find(t => t.id === drawType)?.color || '#fff'}
-              strokeWidth={5 / zoom}
-              strokeDasharray={`${8 / zoom},${8 / zoom}`}
-            />
-          )}
+          {/* Zoner, linjer, TMA och ritning renderas nu i MapLibre native layers */}
           
           {/* Mätlinje - ritas nu utanför transform så den alltid syns där man drar */}
           
@@ -4728,8 +5145,6 @@ export default function PlannerPage() {
               />
             </g>
           )}
-        </g>
-        </g>
         </g>
       </svg>
       
