@@ -306,7 +306,7 @@ export default function PlannerPage() {
   const [mapCenter, setMapCenter] = useState({ lat: 57.1052, lng: 14.8261 }); // Stenshult ungefär
   const [mapZoom, setMapZoom] = useState(16);
   const [showMap, setShowMap] = useState(true);
-  const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain'>('osm');
+  const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain'>('satellite');
   
   // Overlay-lager
   const [overlays, setOverlays] = useState({
@@ -539,8 +539,8 @@ export default function PlannerPage() {
           },
           layers: [
             { id: 'bg', type: 'background', paint: { 'background-color': '#0a0a0a' } },
-            { id: 'osm-layer', type: 'raster', source: 'osm', layout: { visibility: 'visible' } },
-            { id: 'satellite-layer', type: 'raster', source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.1 }, layout: { visibility: 'none' } },
+            { id: 'osm-layer', type: 'raster', source: 'osm', layout: { visibility: 'none' } },
+            { id: 'satellite-layer', type: 'raster', source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 }, layout: { visibility: 'visible' } },
             { id: 'terrain-layer', type: 'raster', source: 'topographic', layout: { visibility: 'none' } },
             { id: 'contours-layer', type: 'raster', source: 'contours', paint: { 'raster-opacity': 0.4 }, layout: { visibility: 'none' } },
           ],
@@ -757,6 +757,63 @@ export default function PlannerPage() {
             'circle-stroke-width': 2,
           }
         });
+
+        // === WMS overlay sources + layers (skapas här i load för att finnas innan visibility-toggle) ===
+        const wmsLayerDefs = [
+          { id: 'nyckelbiotoper', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Nyckelbiotop_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'naturvarde', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Objektnaturvarde_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'sumpskog', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'wetlands', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'biotopskydd', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Biotopskydd_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'naturvardsavtal', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNaturvardsavtal/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturvardsavtal_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'skoghistoria', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'avverkningsanmalan', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaAvverkningsanmalan/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Avverkningsanmalan_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'utfordavverkning', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaUtfordavverkning/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=UtfordAvverkning_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'fornlamningar', tiles: ['https://pub.raa.se/visning/lamningar/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=fornlamningar&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
+          { id: 'naturreservat', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturreservat&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'natura2000', tiles: ['https://geodata.naturvardsverket.se/n2000/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Habitatdirektivet,Fageldirektivet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'vattenskydd', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Vattenskyddsomrade&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'oversvamning', tiles: ['https://inspire.msb.se/oversvamning/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=NZ_Oversvamning_100,NZ_Oversvamning_200,NZ_Oversvamning_BHF&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'jordarter', tiles: ['https://maps3.sgu.se/geoserver/jord/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=jord:SE.GOV.SGU.JORD.GRUNDLAGER.25K&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'barighet', tiles: ['https://geo-netinfo.trafikverket.se/mapservice/wms.axd/NetInfo_1_8?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Barighet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'kraftledningar', tiles: ['https://inspire-skn.metria.se/geoserver/skn/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=US.ElectricityNetwork.Lines&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
+          { id: 'sks_markfuktighet', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Markfuktighet_SLU_2_0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+          { id: 'sks_virkesvolym', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkogligaGrunddata_3_1&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+          { id: 'sks_tradhojd', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Tradhojd_3_1&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+          { id: 'sks_lutning', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Lutning_1_0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
+        ];
+        wmsLayerDefs.forEach(def => {
+          try {
+            map.addSource(`wms-${def.id}`, {
+              type: 'raster',
+              tiles: def.tiles,
+              tileSize: 256,
+            });
+            map.addLayer({
+              id: `wms-layer-${def.id}`,
+              type: 'raster',
+              source: `wms-${def.id}`,
+              paint: { 'raster-opacity': 0.7 },
+              layout: { visibility: 'none' },
+            }, 'zone-fill');
+          } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
+        });
+
+        // Körbarhetstiles (custom API)
+        try {
+          map.addSource('wms-korbarhet', {
+            type: 'raster',
+            tiles: ['/api/korbarhet-tiles?bbox={bbox-epsg-4326}&width=256&height=256'],
+            tileSize: 256,
+          });
+          map.addLayer({
+            id: 'wms-layer-korbarhet',
+            type: 'raster',
+            source: 'wms-korbarhet',
+            paint: { 'raster-opacity': 0.7 },
+            layout: { visibility: 'none' },
+          }, 'zone-fill');
+        } catch (e) { console.error('[MapLibre] korbarhet error:', e); }
 
         setMapLibreReady(true);
       });
@@ -1197,83 +1254,6 @@ export default function PlannerPage() {
       try { map.setLayoutProperty('vida-layer', 'visibility', 'none'); } catch {}
     }
   }, [valtObjekt?.kartbild_url, valtObjekt?.kartbild_bounds, overlays.vidaKartbild, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // === MapLibre: WMS overlays som raster sources ===
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-
-    // Skapa WMS-sources vid första körningen
-    const wmsLayerDefs = [
-      // Skogsstyrelsen
-      { id: 'nyckelbiotoper', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Nyckelbiotop_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      { id: 'naturvarde', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Objektnaturvarde_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      { id: 'sumpskog', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      { id: 'wetlands', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Sumpskog_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      { id: 'biotopskydd', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Biotopskydd_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      { id: 'naturvardsavtal', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNaturvardsavtal/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturvardsavtal_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      { id: 'skoghistoria', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      { id: 'avverkningsanmalan', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaAvverkningsanmalan/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Avverkningsanmalan_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      { id: 'utfordavverkning', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaUtfordavverkning/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=UtfordAvverkning_Skogsstyrelsen&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      // Riksantikvarieämbetet (EPSG:3857)
-      { id: 'fornlamningar', tiles: ['https://pub.raa.se/visning/lamningar/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=fornlamningar&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'] },
-      // Naturvårdsverket
-      { id: 'naturreservat', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Naturreservat&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      { id: 'natura2000', tiles: ['https://geodata.naturvardsverket.se/n2000/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Habitatdirektivet,Fageldirektivet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      { id: 'vattenskydd', tiles: ['https://geodata.naturvardsverket.se/naturvardsregistret/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Vattenskyddsomrade&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      // MSB
-      { id: 'oversvamning', tiles: ['https://inspire.msb.se/oversvamning/wms?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=NZ_Oversvamning_100,NZ_Oversvamning_200,NZ_Oversvamning_BHF&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      // SGU
-      { id: 'jordarter', tiles: ['https://maps3.sgu.se/geoserver/jord/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=jord:SE.GOV.SGU.JORD.GRUNDLAGER.25K&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      // Trafikverket
-      { id: 'barighet', tiles: ['https://geo-netinfo.trafikverket.se/mapservice/wms.axd/NetInfo_1_8?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Barighet&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      // Svenska Kraftnät
-      { id: 'kraftledningar', tiles: ['https://inspire-skn.metria.se/geoserver/skn/ows?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=US.ElectricityNetwork.Lines&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX={bbox-epsg-4326}&WIDTH=256&HEIGHT=256'] },
-      // Skogsstyrelsen Raster (via proxy)
-      { id: 'sks_markfuktighet', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Markfuktighet_SLU_2_0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
-      { id: 'sks_virkesvolym', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=SkogligaGrunddata_3_1&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
-      { id: 'sks_tradhojd', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Tradhojd_3_1&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
-      { id: 'sks_lutning', tiles: ['/api/wms-proxy?url=' + encodeURIComponent('https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Lutning_1_0&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=') + '{bbox-epsg-4326}' + encodeURIComponent('&WIDTH=256&HEIGHT=256')] },
-    ];
-
-    wmsLayerDefs.forEach(def => {
-      if (map.getSource(`wms-${def.id}`)) return; // Redan tillagd
-
-      try {
-        map.addSource(`wms-${def.id}`, {
-          type: 'raster',
-          tiles: def.tiles,
-          tileSize: 256,
-        });
-        // Lägg WMS-lager under ritade features (före zone-fill)
-        map.addLayer({
-          id: `wms-layer-${def.id}`,
-          type: 'raster',
-          source: `wms-${def.id}`,
-          paint: { 'raster-opacity': 0.7 },
-          layout: { visibility: 'none' },
-        }, 'zone-fill');
-      } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
-    });
-
-    // Körbarhetstiles (custom API)
-    if (!map.getSource('wms-korbarhet')) {
-      try {
-        map.addSource('wms-korbarhet', {
-          type: 'raster',
-          tiles: ['/api/korbarhet-tiles?bbox={bbox-epsg-4326}&width=256&height=256'],
-          tileSize: 256,
-        });
-        map.addLayer({
-          id: 'wms-layer-korbarhet',
-          type: 'raster',
-          source: 'wms-korbarhet',
-          paint: { 'raster-opacity': 0.7 },
-          layout: { visibility: 'none' },
-        }, 'zone-fill');
-      } catch (e) { console.error('[MapLibre] korbarhet error:', e); }
-    }
-  }, [mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === MapLibre: Toggle WMS overlay visibility ===
   useEffect(() => {
