@@ -3,23 +3,31 @@ import { NextRequest, NextResponse } from 'next/server';
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-// Layer ID → WMS base URL + layer name (matching original working URLs)
-const WMS_LAYERS: Record<string, { url: string; layers: string }> = {
+// Layer ID → WMS config
+const WMS_LAYERS: Record<string, { url: string; layers: string; auth?: boolean }> = {
   sks_markfuktighet: {
     url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer',
     layers: 'Markfuktighet_SLU_2_0',
+    auth: true,
   },
   sks_virkesvolym: {
     url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer',
     layers: 'SkogligaGrunddata_3_1',
+    auth: true,
   },
   sks_tradhojd: {
     url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer',
     layers: 'Tradhojd_3_1',
+    auth: true,
   },
   sks_lutning: {
     url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer',
     layers: 'Lutning_1_0',
+    auth: true,
+  },
+  raa_lamningar: {
+    url: 'https://pub.raa.se/visning/lamningar/wms',
+    layers: 'SE.RAA.FMIS.KML.LAMNINGAR',
   },
 };
 
@@ -41,9 +49,11 @@ function authHeaders(): Record<string, string> {
   };
 }
 
+const ALLOWED_HOSTS = ['geodata.skogsstyrelsen.se', 'pub.raa.se'];
+
 function validateHost(url: string): URL {
   const parsed = new URL(url);
-  if (parsed.hostname !== 'geodata.skogsstyrelsen.se') {
+  if (!ALLOWED_HOSTS.includes(parsed.hostname)) {
     throw new Error('Host not allowed');
   }
   return parsed;
@@ -56,6 +66,7 @@ export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const layer = params.get('layer');
   let url: string;
+  let needsAuth = true;
 
   if (layer) {
     // Construct WMS URL server-side from layer ID + bbox
@@ -72,6 +83,7 @@ export async function GET(req: NextRequest) {
     const wgs84Bbox = `${minLon},${minLat},${maxLon},${maxLat}`;
     url = `${wmsConfig.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${wmsConfig.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${wgs84Bbox}&WIDTH=${width}&HEIGHT=${height}`;
     console.log('[wms-proxy]', layer, wgs84Bbox);
+    needsAuth = wmsConfig.auth === true;
   } else {
     // Legacy: full URL passed as ?url= parameter
     const legacyUrl = params.get('url');
@@ -88,7 +100,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const resp = await fetch(url, { headers: authHeaders() });
+    const headers: Record<string, string> = { 'User-Agent': UA };
+    if (needsAuth) Object.assign(headers, authHeaders());
+    const resp = await fetch(url, { headers });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       console.error(`[wms-proxy GET] Upstream ${resp.status}: ${url.substring(0, 200)}`);
