@@ -3,31 +3,23 @@ import { NextRequest, NextResponse } from 'next/server';
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-// Layer ID → WMS base URL + layer name
+// Layer ID → WMS base URL + layer name (matching original working URLs)
 const WMS_LAYERS: Record<string, { url: string; layers: string }> = {
   sks_markfuktighet: {
-    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU/MapServer/WMSServer',
-    layers: 'Markfuktighet',
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer',
+    layers: 'Markfuktighet_SLU_2_0',
   },
   sks_virkesvolym: {
-    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Skogskarta/MapServer/WMSServer',
-    layers: 'Virkesförråd',
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer',
+    layers: 'SkogligaGrunddata_3_1',
   },
   sks_tradhojd: {
-    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Skogskarta/MapServer/WMSServer',
-    layers: 'Medelhöjd',
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer',
+    layers: 'Tradhojd_3_1',
   },
   sks_lutning: {
-    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning/MapServer/WMSServer',
-    layers: 'Lutning',
-  },
-  sks_korbarhet: {
-    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU/MapServer/WMSServer',
-    layers: 'Markfuktighet',
-  },
-  sks_naturvarden: {
-    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Naturvarden/MapServer/WMSServer',
-    layers: 'Nyckelbiotoper',
+    url: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer',
+    layers: 'Lutning_1_0',
   },
 };
 
@@ -65,7 +57,7 @@ export async function GET(req: NextRequest) {
     const width = params.get('width') || '256';
     const height = params.get('height') || '256';
     if (!bbox) return NextResponse.json({ error: 'Missing bbox' }, { status: 400 });
-    url = `${wmsConfig.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${wmsConfig.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&WIDTH=${width}&HEIGHT=${height}&BBOX=${bbox}`;
+    url = `${wmsConfig.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${wmsConfig.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${bbox}&WIDTH=${width}&HEIGHT=${height}`;
     console.log('[wms-proxy]', layer, bbox);
   } else {
     // Legacy: full URL passed as ?url= parameter
