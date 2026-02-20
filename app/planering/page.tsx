@@ -480,8 +480,20 @@ export default function PlannerPage() {
   // Skapa MapLibre-kartan när container och script är redo
   useEffect(() => {
     console.log('[MapLibre] === INIT useEffect ===', 'initialized:', mapLibreInitialized.current, 'instance:', !!mapInstanceRef.current, 'container:', !!mapContainerRef.current);
-    // Redan skapad? Gör ingenting (undvik destroy+recreate vid screenSize-ändring)
-    if (mapLibreInitialized.current || mapInstanceRef.current) return;
+    // Redan skapad? Bara sätt upp lyssnare igen (de rensas i cleanup vid varje dep-ändring)
+    if (mapLibreInitialized.current && mapInstanceRef.current) {
+      const map = mapInstanceRef.current;
+      const onResize = () => { map.resize(); };
+      window.addEventListener('resize', onResize);
+      windowResizeRef.current = onResize;
+      const c = mapContainerRef.current;
+      if (c) {
+        const ro = new ResizeObserver(() => { map.resize(); });
+        ro.observe(c);
+        resizeObserverRef.current = ro;
+      }
+      return;
+    }
     if (!mapContainerRef.current) return;
 
     const maplibregl = (window as any).maplibregl;
@@ -835,6 +847,26 @@ export default function PlannerPage() {
 
         map.resize();
         map.triggerRepaint();
+
+        // Simulera det F12/DevTools gör: tvinga layout-ändring
+        const mapContainer = map.getContainer();
+        const mapParent = mapContainer.parentElement;
+        if (mapParent) {
+          const origWidth = mapParent.style.width;
+          mapParent.style.width = (mapParent.offsetWidth - 1) + 'px';
+          requestAnimationFrame(() => {
+            mapParent.style.width = origWidth || '';
+            requestAnimationFrame(() => {
+              map.resize();
+              console.log('[MapLibre] Layout-toggle klar');
+            });
+          });
+        }
+
+        // Dispatcha resize-events som DevTools gör
+        setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 200);
+        setTimeout(() => { window.dispatchEvent(new Event('resize')); }, 1000);
+
         setMapLibreReady(true);
       });
 
@@ -4510,7 +4542,7 @@ export default function PlannerPage() {
     <div style={{
       height: '100vh',
       width: '100vw',
-      background: 'transparent',
+      background: colors.bg,
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
       color: colors.text,
       overflow: 'hidden',
