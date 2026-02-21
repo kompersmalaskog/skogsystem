@@ -1159,11 +1159,11 @@ export default function PlannerPage() {
       if (!freehandActiveRef.current && startDx < 5 && startDy < 5) return;
       freehandActiveRef.current = true;
 
-      // Sampla var ~5px skärmavstånd
+      // Sampla var ~3px skärmavstånd (tätare = mjukare kurvor)
       const dx = clientX - lastScreenX;
       const dy = clientY - lastScreenY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 5) return;
+      if (dist < 3) return;
 
       lastScreenX = clientX;
       lastScreenY = clientY;
@@ -1175,13 +1175,14 @@ export default function PlannerPage() {
         const drawSrc = map.getSource('drawing-source') as any;
         if (drawSrc && freehandCoordsRef.current.length >= 2) {
           const coords = freehandCoordsRef.current;
-          const isPolygon = isZoneMode && coords.length >= 3;
+          // Visa alltid som stängd polygon under freehand (3+ punkter)
+          const showAsPolygon = coords.length >= 3;
           drawSrc.setData({
             type: 'FeatureCollection',
             features: [{
               type: 'Feature',
               properties: {},
-              geometry: isPolygon
+              geometry: showAsPolygon
                 ? { type: 'Polygon', coordinates: [[...coords, coords[0]]] }
                 : { type: 'LineString', coordinates: coords },
             }],
@@ -1202,12 +1203,15 @@ export default function PlannerPage() {
       setIsDrawing(false);
 
       if (wasFreehand && coords.length >= 3) {
-        // Freehand-ritning klar → förenkla och spara
+        // Stäng polygonen: lägg till första punkten som sista
+        coords.push(coords[0]);
+        // Förenkla → smootha → spara
         const simplified = simplifyCoords(coords, 0.00002);
+        const smoothed = smoothPolygon(simplified, 2);
         if (isDrawMode) {
-          finishLineFromCoords(simplified);
+          finishLineFromCoords(smoothed);
         } else if (isZoneMode) {
-          finishZoneFromCoords(simplified);
+          finishZoneFromCoords(smoothed);
         }
       } else if (!wasFreehand && coords.length > 0) {
         // Kort klick (ingen drag) → lägg till punkt (punkt-för-punkt-läge)
@@ -1293,6 +1297,25 @@ export default function PlannerPage() {
       return [...left.slice(0, -1), ...right];
     }
     return [coords[0], coords[coords.length - 1]];
+  };
+
+  // Chaikin's corner-cutting algorithm för mjuka kurvor
+  const smoothPolygon = (coords: [number, number][], iterations: number = 2): [number, number][] => {
+    if (coords.length < 3) return coords;
+    let pts = coords;
+    for (let iter = 0; iter < iterations; iter++) {
+      const smoothed: [number, number][] = [];
+      for (let j = 0; j < pts.length - 1; j++) {
+        const p0 = pts[j];
+        const p1 = pts[j + 1];
+        smoothed.push([p0[0] * 0.75 + p1[0] * 0.25, p0[1] * 0.75 + p1[1] * 0.25]);
+        smoothed.push([p0[0] * 0.25 + p1[0] * 0.75, p0[1] * 0.25 + p1[1] * 0.75]);
+      }
+      // Stäng polygonen
+      if (smoothed.length > 0) smoothed.push(smoothed[0]);
+      pts = smoothed;
+    }
+    return pts;
   };
 
   // Hjälpfunktioner för att avsluta ritning med [lng,lat]-coords
