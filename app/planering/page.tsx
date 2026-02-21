@@ -557,6 +557,9 @@ export default function PlannerPage() {
     map.addLayer({ id: 'drawing-glow', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 12, 'line-opacity': 0.3, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'drawing-line', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'drawing-points-layer', type: 'circle', source: 'drawing-points-source', paint: { 'circle-radius': 6, 'circle-color': '#ffffff', 'circle-stroke-color': '#7cba3f', 'circle-stroke-width': 2 } });
+    // Streckad stängningslinje (sista→första punkt)
+    map.addSource('drawing-close-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'drawing-close-line', type: 'line', source: 'drawing-close-source', paint: { 'line-color': '#7cba3f', 'line-width': 3, 'line-dasharray': [4, 4], 'line-opacity': 0.6 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
 
     // === WMS overlay sources + layers ===
     const wmsLayerDefs = [
@@ -1217,7 +1220,7 @@ export default function PlannerPage() {
         // Kort klick (ingen drag) → lägg till punkt (punkt-för-punkt-läge)
         const lastCoord = coords[coords.length - 1];
 
-        // Klick nära första punkten → stäng polygon
+        // Klick nära första punkten → stäng polygon + smootha
         if (currentDrawCoords.length >= 3) {
           const first = currentDrawCoords[0];
           const firstScreen = map.project(first as any);
@@ -1226,12 +1229,27 @@ export default function PlannerPage() {
           const ddy = firstScreen.y - clickScreen.y;
           const closeDist = Math.sqrt(ddx * ddx + ddy * ddy);
           if (closeDist < 20) {
-            if (isDrawMode) finishLineFromCoords([...currentDrawCoords]);
-            if (isZoneMode) finishZoneFromCoords([...currentDrawCoords]);
+            // Stäng + smootha punkt-för-punkt polygon
+            const closed = [...currentDrawCoords, currentDrawCoords[0]];
+            const smoothed = smoothPolygon(closed, 2);
+            if (isDrawMode) finishLineFromCoords(smoothed);
+            if (isZoneMode) finishZoneFromCoords(smoothed);
             return;
           }
         }
         setCurrentDrawCoords(prev => [...prev, lastCoord]);
+      }
+    };
+
+    // Dubbelklick → avsluta punkt-för-punkt polygon (stäng + smootha)
+    const onDblClick = (e: any) => {
+      if (!isDrawingMode) return;
+      e.preventDefault();
+      if (currentDrawCoords.length >= 2) {
+        const closed = [...currentDrawCoords, currentDrawCoords[0]];
+        const smoothed = smoothPolygon(closed, 2);
+        if (isDrawMode) finishLineFromCoords(smoothed);
+        if (isZoneMode) finishZoneFromCoords(smoothed);
       }
     };
 
@@ -1244,6 +1262,7 @@ export default function PlannerPage() {
 
     // Registrera MapLibre click för symbol/pil och menystängning
     map.on('click', onClick);
+    map.on('dblclick', onDblClick);
 
     // Registrera DOM events för freehand drawing
     if (isDrawingMode) {
@@ -1257,6 +1276,7 @@ export default function PlannerPage() {
 
     return () => {
       map.off('click', onClick);
+      map.off('dblclick', onDblClick);
       canvas.removeEventListener('mousedown', onPointerDown);
       canvas.removeEventListener('touchstart', onPointerDown);
       document.removeEventListener('mousemove', onPointerMove);
@@ -1319,6 +1339,20 @@ export default function PlannerPage() {
   };
 
   // Hjälpfunktioner för att avsluta ritning med [lng,lat]-coords
+  // Rensa ritnings-preview layers
+  const clearDrawingPreview = () => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    try {
+      const s1 = map.getSource('drawing-source') as any;
+      const s2 = map.getSource('drawing-points-source') as any;
+      const s3 = map.getSource('drawing-close-source') as any;
+      if (s1) s1.setData({ type: 'FeatureCollection', features: [] });
+      if (s2) s2.setData({ type: 'FeatureCollection', features: [] });
+      if (s3) s3.setData({ type: 'FeatureCollection', features: [] });
+    } catch { /* ok */ }
+  };
+
   const finishLineFromCoords = (coords: [number, number][]) => {
     if (coords.length > 1 && drawType) {
       saveToHistory([...markers]);
@@ -1331,6 +1365,7 @@ export default function PlannerPage() {
       };
       setMarkers((prev: any[]) => [...prev, newLine]);
     }
+    clearDrawingPreview();
     setCurrentDrawCoords([]);
     setCurrentPath([]);
     setIsDrawMode(false);
@@ -1351,6 +1386,7 @@ export default function PlannerPage() {
       };
       setMarkers((prev: any[]) => [...prev, newZone]);
     }
+    clearDrawingPreview();
     setCurrentDrawCoords([]);
     setCurrentPath([]);
     setIsZoneMode(false);
@@ -1366,10 +1402,12 @@ export default function PlannerPage() {
     try {
       const drawSrc = map.getSource('drawing-source') as any;
       const ptsSrc = map.getSource('drawing-points-source') as any;
+      const closeSrc = map.getSource('drawing-close-source') as any;
       if (!drawSrc || !ptsSrc) return;
 
       if (currentDrawCoords.length < 2) {
         drawSrc.setData({ type: 'FeatureCollection', features: [] });
+        if (closeSrc) closeSrc.setData({ type: 'FeatureCollection', features: [] });
         // Visa enskilda punkter
         if (currentDrawCoords.length === 1) {
           ptsSrc.setData({
@@ -1386,11 +1424,12 @@ export default function PlannerPage() {
         return;
       }
 
-      const isPolygon = isZoneMode && currentDrawCoords.length >= 3;
+      // Visa alltid som stängd polygon vid 3+ punkter (punkt-för-punkt)
+      const showAsPolygon = currentDrawCoords.length >= 3;
       const feature = {
         type: 'Feature' as const,
         properties: {},
-        geometry: isPolygon ? {
+        geometry: showAsPolygon ? {
           type: 'Polygon' as const,
           coordinates: [[...currentDrawCoords, currentDrawCoords[0]]]
         } : {
@@ -1399,6 +1438,21 @@ export default function PlannerPage() {
         }
       };
       drawSrc.setData({ type: 'FeatureCollection', features: [feature] });
+
+      // Streckad stängningslinje (sista → första punkt) vid 2+ punkter
+      if (closeSrc && currentDrawCoords.length >= 2) {
+        closeSrc.setData({
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            properties: {},
+            geometry: {
+              type: 'LineString',
+              coordinates: [currentDrawCoords[currentDrawCoords.length - 1], currentDrawCoords[0]]
+            }
+          }]
+        });
+      }
 
       // Ritpunkter (vertices)
       const pointFeatures = currentDrawCoords.map((coord, i) => ({
