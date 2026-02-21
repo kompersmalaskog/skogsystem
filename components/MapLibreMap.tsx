@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useRef } from 'react'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 
 interface Props {
@@ -44,7 +44,7 @@ export default function MapLibreMap({
       zoom: initialZoom,
       pitch: initialPitch,
       bearing: initialBearing,
-      maxPitch: 30,
+      maxPitch: 60,
       interactive: true,
       attributionControl: false,
       dragRotate: true,
@@ -71,6 +71,34 @@ export default function MapLibreMap({
         console.log('[MapLibre] 3D terrain: AWS 30m (default)')
       } catch (e) {
         console.error('[MapLibre] Terrain setup failed:', e)
+      }
+
+      // 3D forest — synchronous add, MapLibre fetches GeoJSON internally
+      try {
+        map.addSource('forest-height', { type: 'geojson', data: '/forest-height.geojson' });
+        map.addLayer({
+          id: 'forest-3d',
+          type: 'fill-extrusion',
+          source: 'forest-height',
+          minzoom: 10,
+          layout: { visibility: 'none' },
+          paint: {
+            'fill-extrusion-height': ['*', ['get', 'height'], 3],
+            'fill-extrusion-base': 0,
+            'fill-extrusion-color': [
+              'interpolate', ['linear'], ['get', 'height'],
+              2, '#8bc34a',
+              10, '#4caf50',
+              18, '#2e7d32',
+              25, '#1b5e20',
+              35, '#0d3b0f',
+            ],
+            'fill-extrusion-opacity': 0.85,
+          },
+        });
+        console.log('[MapLibre] 3D forest layer added (bbox: [15.76,56.59]-[15.94,56.71])');
+      } catch (e) {
+        console.error('[MapLibre] Failed to add 3D forest layer:', e);
       }
 
       onMapReadyRef.current(map)

@@ -356,6 +356,8 @@ export default function PlannerPage() {
     // Lantmäteriet (via proxy)
     lm_skuggning: false,
     lm_ortofoto: false,
+    // 3D Skog (fill-extrusion)
+    forest3d: false,
   });
 
   const wmsLayerGroups = [
@@ -1058,6 +1060,20 @@ export default function PlannerPage() {
       }
     });
   }, [overlays, mapLibreReady]);
+
+  // === MapLibre: Toggle 3D forest layer visibility ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+
+    if (map.getLayer('forest-3d')) {
+      map.setLayoutProperty('forest-3d', 'visibility', overlays.forest3d ? 'visible' : 'none');
+      // Fly to forest data area when toggled on
+      if (overlays.forest3d) {
+        map.flyTo({ center: [15.85, 56.65], zoom: 14, pitch: 55, bearing: 30, duration: 2000 });
+      }
+    }
+  }, [overlays.forest3d, mapLibreReady]);
 
   // === MapLibre: Ritverktyg (freehand + klick) + symbolplacering ===
   useEffect(() => {
@@ -4926,7 +4942,7 @@ export default function PlannerPage() {
           onMapRemoved={handleMapRemoved}
           initialCenter={[mapCenter.lng, mapCenter.lat] as [number, number]}
           initialZoom={mapZoom}
-          initialPitch={30}
+          initialPitch={45}
           initialBearing={20}
           mapStyle={mapStyleConfig.current as any}
           style={{
@@ -7108,6 +7124,7 @@ export default function PlannerPage() {
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
                 { id: 'contours', name: 'Höjdkurvor', desc: 'Terräng ovanpå karta/satellit', enabled: true },
                 { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
+                { id: 'forest3d', name: '3D Skog', desc: 'Skogens höjd i 3D (tungt)', enabled: true },
                 { id: 'propertyLines', name: 'Fastighetsgränser', desc: 'Kommer snart', enabled: false },
               ].map(overlay => (
                 <div
