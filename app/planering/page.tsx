@@ -829,6 +829,10 @@ export default function PlannerPage() {
   const [currentDrawCoords, setCurrentDrawCoords] = useState<[number, number][]>([]); // [lng, lat] coords för MapLibre-ritning
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawPaused, setDrawPaused] = useState(false); // Pausad mellan drag
+  // Freehand drawing refs (avoid stale closures in document-level listeners)
+  const freehandCoordsRef = useRef<[number, number][]>([]);
+  const freehandActiveRef = useRef(false);
+  const freehandStartScreenRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   
   // Zoner
   const [isZoneMode, setIsZoneMode] = useState(false);
@@ -1022,24 +1026,24 @@ export default function PlannerPage() {
     });
   }, [overlays, mapLibreReady]);
 
-  // === MapLibre: Ritverktyg + symbolplacering via click-events ===
+  // === MapLibre: Ritverktyg (freehand + klick) + symbolplacering ===
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
 
     const isDrawingMode = isDrawMode || isZoneMode;
-
-    // Override MapLibre's CSS cursor via !important on the canvas container
+    const canvas = map.getCanvas();
     const canvasContainer = map.getCanvasContainer();
+
+    // Override MapLibre's CSS cursor
     if (isDrawingMode || selectedSymbol || isArrowMode) {
       canvasContainer.style.setProperty('cursor', 'crosshair', 'important');
     } else {
       canvasContainer.style.removeProperty('cursor');
     }
-    console.log('[MapLibre] Click handler registered, drawMode:', isDrawMode, 'zoneMode:', isZoneMode, 'isDrawingMode:', isDrawingMode);
 
+    // --- Symbol/pil-placering via MapLibre click ---
     const onClick = (e: any) => {
-      // Symbol/pil-placering
       if (!isDrawingMode && (selectedSymbol || (isArrowMode && arrowType))) {
         const lngLat = e.lngLat;
         const svgPos = latLonToSvg(lngLat.lat, lngLat.lng);
@@ -1101,51 +1105,130 @@ export default function PlannerPage() {
       }
 
       if (!isDrawingMode) {
-        // Klick på tom yta → stäng eventuell öppen meny
         if (!justEndedDrag.current && markerMenuOpen) {
           setMarkerMenuOpen(null);
         }
         return;
       }
-
-      console.log('[MapLibre] Draw click at', e.lngLat.lng, e.lngLat.lat);
-      const coord: [number, number] = [e.lngLat.lng, e.lngLat.lat];
-
-      setCurrentDrawCoords(prev => {
-        // Klick nära första punkten → stäng polygon
-        if (prev.length >= 3) {
-          const first = prev[0];
-          const firstScreen = map.project(first as any);
-          const clickScreen = map.project(coord as any);
-          const dx = firstScreen.x - clickScreen.x;
-          const dy = firstScreen.y - clickScreen.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist < 20) {
-            // Stäng polygonen
-            setTimeout(() => {
-              if (isDrawMode) finishLineFromCoords([...prev]);
-              if (isZoneMode) finishZoneFromCoords([...prev]);
-            }, 0);
-            return prev;
-          }
-        }
-        return [...prev, coord];
-      });
+      // Klick-till-punkt hanteras inte här längre — hanteras i onPointerUp som fallback
     };
 
-    const onDblClick = (e: any) => {
-      if (!isDrawingMode) return;
-      e.preventDefault();
+    // --- Freehand drawing via DOM events ---
+    let lastScreenX = 0;
+    let lastScreenY = 0;
 
-      setCurrentDrawCoords(prev => {
-        if (prev.length >= 2) {
-          setTimeout(() => {
-            if (isDrawMode) finishLineFromCoords([...prev]);
-            if (isZoneMode) finishZoneFromCoords([...prev]);
-          }, 0);
+    const screenToLngLat = (clientX: number, clientY: number): [number, number] => {
+      const rect = canvas.getBoundingClientRect();
+      const pt = map.unproject([clientX - rect.left, clientY - rect.top]);
+      return [pt.lng, pt.lat];
+    };
+
+    const onPointerDown = (e: MouseEvent | TouchEvent) => {
+      if (!isDrawingMode) return;
+      // Bara vänsterklick (touch räknas alltid)
+      if ('button' in e && e.button !== 0) return;
+
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+      freehandStartScreenRef.current = { x: clientX, y: clientY };
+      freehandActiveRef.current = false; // Blir true om man drar > 5px
+      lastScreenX = clientX;
+      lastScreenY = clientY;
+
+      // Starta freehand-koordinater med nuvarande + ny punkt
+      const coord = screenToLngLat(clientX, clientY);
+      freehandCoordsRef.current = [...currentDrawCoords, coord];
+
+      // Disable map drag under ritning
+      map.dragPan.disable();
+      setIsDrawing(true);
+    };
+
+    const onPointerMove = (e: MouseEvent | TouchEvent) => {
+      if (!freehandCoordsRef.current.length || !isDrawingMode) return;
+      // Kolla att vi fortfarande håller ner (kan missa mouseup om man lämnar fönstret)
+      if ('buttons' in e && e.buttons === 0) return;
+
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+
+      // Kolla om vi har rört oss tillräckligt för att aktivera freehand
+      const startDx = Math.abs(clientX - freehandStartScreenRef.current.x);
+      const startDy = Math.abs(clientY - freehandStartScreenRef.current.y);
+      if (!freehandActiveRef.current && startDx < 5 && startDy < 5) return;
+      freehandActiveRef.current = true;
+
+      // Sampla var ~5px skärmavstånd
+      const dx = clientX - lastScreenX;
+      const dy = clientY - lastScreenY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 5) return;
+
+      lastScreenX = clientX;
+      lastScreenY = clientY;
+      const coord = screenToLngLat(clientX, clientY);
+      freehandCoordsRef.current.push(coord);
+
+      // Uppdatera GeoJSON preview direkt via source (snabbare än setState varje punkt)
+      try {
+        const drawSrc = map.getSource('drawing-source') as any;
+        if (drawSrc && freehandCoordsRef.current.length >= 2) {
+          const coords = freehandCoordsRef.current;
+          const isPolygon = isZoneMode && coords.length >= 3;
+          drawSrc.setData({
+            type: 'FeatureCollection',
+            features: [{
+              type: 'Feature',
+              properties: {},
+              geometry: isPolygon
+                ? { type: 'Polygon', coordinates: [[...coords, coords[0]]] }
+                : { type: 'LineString', coordinates: coords },
+            }],
+          });
         }
-        return prev;
-      });
+      } catch { /* source not ready */ }
+    };
+
+    const onPointerUp = (e: MouseEvent | TouchEvent) => {
+      if (!isDrawingMode) return;
+      const wasFreehand = freehandActiveRef.current;
+      const coords = freehandCoordsRef.current;
+      freehandActiveRef.current = false;
+      freehandCoordsRef.current = [];
+
+      // Återaktivera map drag
+      map.dragPan.enable();
+      setIsDrawing(false);
+
+      if (wasFreehand && coords.length >= 3) {
+        // Freehand-ritning klar → förenkla och spara
+        const simplified = simplifyCoords(coords, 0.00002);
+        if (isDrawMode) {
+          finishLineFromCoords(simplified);
+        } else if (isZoneMode) {
+          finishZoneFromCoords(simplified);
+        }
+      } else if (!wasFreehand && coords.length > 0) {
+        // Kort klick (ingen drag) → lägg till punkt (punkt-för-punkt-läge)
+        const lastCoord = coords[coords.length - 1];
+
+        // Klick nära första punkten → stäng polygon
+        if (currentDrawCoords.length >= 3) {
+          const first = currentDrawCoords[0];
+          const firstScreen = map.project(first as any);
+          const clickScreen = map.project(lastCoord as any);
+          const ddx = firstScreen.x - clickScreen.x;
+          const ddy = firstScreen.y - clickScreen.y;
+          const closeDist = Math.sqrt(ddx * ddx + ddy * ddy);
+          if (closeDist < 20) {
+            if (isDrawMode) finishLineFromCoords([...currentDrawCoords]);
+            if (isZoneMode) finishZoneFromCoords([...currentDrawCoords]);
+            return;
+          }
+        }
+        setCurrentDrawCoords(prev => [...prev, lastCoord]);
+      }
     };
 
     // Under ritning: disable double-click zoom
@@ -1155,15 +1238,62 @@ export default function PlannerPage() {
       map.doubleClickZoom.enable();
     }
 
+    // Registrera MapLibre click för symbol/pil och menystängning
     map.on('click', onClick);
-    map.on('dblclick', onDblClick);
+
+    // Registrera DOM events för freehand drawing
+    if (isDrawingMode) {
+      canvas.addEventListener('mousedown', onPointerDown);
+      canvas.addEventListener('touchstart', onPointerDown, { passive: true });
+      document.addEventListener('mousemove', onPointerMove);
+      document.addEventListener('touchmove', onPointerMove, { passive: true });
+      document.addEventListener('mouseup', onPointerUp);
+      document.addEventListener('touchend', onPointerUp);
+    }
 
     return () => {
       map.off('click', onClick);
-      map.off('dblclick', onDblClick);
+      canvas.removeEventListener('mousedown', onPointerDown);
+      canvas.removeEventListener('touchstart', onPointerDown);
+      document.removeEventListener('mousemove', onPointerMove);
+      document.removeEventListener('touchmove', onPointerMove);
+      document.removeEventListener('mouseup', onPointerUp);
+      document.removeEventListener('touchend', onPointerUp);
       canvasContainer.style.removeProperty('cursor');
+      // Säkerställ att dragPan är aktiverad vid cleanup
+      if (map.dragPan) map.dragPan.enable();
     };
-  }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen, currentDrawCoords]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Douglas-Peucker linjeförenkling (tar [lng,lat][] och returnerar förenklad version)
+  const simplifyCoords = (coords: [number, number][], tolerance: number): [number, number][] => {
+    if (coords.length <= 2) return coords;
+    // Hitta punkten längst bort från linjen start→slut
+    const [sx, sy] = coords[0];
+    const [ex, ey] = coords[coords.length - 1];
+    let maxDist = 0;
+    let maxIdx = 0;
+    const lineLenSq = (ex - sx) ** 2 + (ey - sy) ** 2;
+    for (let i = 1; i < coords.length - 1; i++) {
+      const [px, py] = coords[i];
+      let dist: number;
+      if (lineLenSq === 0) {
+        dist = Math.sqrt((px - sx) ** 2 + (py - sy) ** 2);
+      } else {
+        const t = Math.max(0, Math.min(1, ((px - sx) * (ex - sx) + (py - sy) * (ey - sy)) / lineLenSq));
+        const projX = sx + t * (ex - sx);
+        const projY = sy + t * (ey - sy);
+        dist = Math.sqrt((px - projX) ** 2 + (py - projY) ** 2);
+      }
+      if (dist > maxDist) { maxDist = dist; maxIdx = i; }
+    }
+    if (maxDist > tolerance) {
+      const left = simplifyCoords(coords.slice(0, maxIdx + 1), tolerance);
+      const right = simplifyCoords(coords.slice(maxIdx), tolerance);
+      return [...left.slice(0, -1), ...right];
+    }
+    return [coords[0], coords[coords.length - 1]];
+  };
 
   // Hjälpfunktioner för att avsluta ritning med [lng,lat]-coords
   const finishLineFromCoords = (coords: [number, number][]) => {
@@ -6397,7 +6527,7 @@ export default function PlannerPage() {
           boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
           zIndex: 700,
         }}>
-          <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Klicka för att rita</span>
+          <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita fritt</span>
           <button
             onClick={cancelDrawing}
             style={{
