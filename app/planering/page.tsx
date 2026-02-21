@@ -1650,6 +1650,7 @@ export default function PlannerPage() {
   // TMA-varning (traktgräns nära väg) – per boundary
   const [tmaResults, setTmaResults] = useState<Record<string, TmaCheckResult>>({});
   const tmaCheckedRef = useRef<Record<string, string>>({}); // markerId → hash, undviker dubbelkoll
+  const tmaWarningMarkersRef = useRef<any[]>([]); // MapLibre Markers för ⚠-ikoner
   const [tmaOpen, setTmaOpen] = useState<string | null>(null); // boundary-id för öppen panel
   const [tmaRisk, setTmaRisk] = useState<Record<string, (boolean | null)[]>>({}); // per boundary: 7 riskfrågor
   const [tmaWeather, setTmaWeather] = useState<SmhiWeather | null>(null);
@@ -2683,6 +2684,101 @@ export default function PlannerPage() {
       map.off('mouseleave', 'tma-warning-hitbox', onLeave);
     };
   }, [mapLibreReady]);
+
+  // 3d) TMA ⚠-ikoner som MapLibre Markers (förankrade till lngLat, mitt på varningslinjen)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+
+    // Ta bort gamla markers
+    tmaWarningMarkersRef.current.forEach(m => m.remove());
+    tmaWarningMarkersRef.current = [];
+
+    if (tmaOpen) return; // Göm ikoner när TMA-panel är öppen
+
+    tmaWithRoads.forEach(([bmId, result]) => {
+      // Hitta boundary-markern och beräkna varningslinjens mittpunkt
+      const bm = markers.find(m => String(m.id) === bmId);
+      if (!bm || !bm.path || bm.path.length < 2) return;
+
+      // Beräkna boundary-segment nära vägen (samma logik som sync)
+      const bCoords: [number, number][] = bm.path.map((p: any) => {
+        const ll = svgToLatLon(p.x, p.y);
+        return [ll.lon, ll.lat] as [number, number];
+      });
+      const roadPoints: { lat: number; lon: number }[] = [];
+      result.roads.forEach((road: any) => {
+        if (road.nearbyGeom) roadPoints.push(...road.nearbyGeom);
+      });
+      if (roadPoints.length === 0) return;
+
+      // Hitta alla boundary-punkter nära vägen
+      const nearCoords: [number, number][] = [];
+      bCoords.forEach(([lon, lat]) => {
+        const isNear = roadPoints.some(rp => {
+          const dlat = (lat - rp.lat) * 111000;
+          const dlon = (lon - rp.lon) * 111000 * Math.cos(lat * Math.PI / 180);
+          return Math.sqrt(dlat * dlat + dlon * dlon) < 80;
+        });
+        if (isNear) nearCoords.push([lon, lat]);
+      });
+
+      if (nearCoords.length === 0) return;
+
+      // Mittpunkt av varningslinjen
+      const midIdx = Math.floor(nearCoords.length / 2);
+      const midLng = nearCoords[midIdx][0];
+      const midLat = nearCoords[midIdx][1];
+
+      // Status
+      const bSamrad = tmaSamrad[bmId];
+      const bRisk = tmaRisk[bmId];
+      const isKvitterad = bSamrad?.kvitterad === true;
+      const riskDone = bRisk ? bRisk.every(v => v !== null) : false;
+      const allDone = isKvitterad && riskDone;
+
+      // Skapa DOM-element för markern
+      const el = document.createElement('div');
+      el.style.cssText = `
+        width: 28px; height: 28px; border-radius: 6px;
+        background: #eab308; border: 2px solid rgba(0,0,0,0.3);
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+        opacity: ${isKvitterad ? '0.4' : '1'}; transition: opacity 0.3s;
+      `;
+      el.innerHTML = '<span style="font-size:16px;line-height:1;color:#000;font-weight:700">⚠</span>';
+
+      // Notifikationsprick
+      if (!allDone) {
+        const dot = document.createElement('div');
+        dot.style.cssText = `
+          position: absolute; top: -3px; right: -3px;
+          width: 8px; height: 8px; border-radius: 50%;
+          background: #fff; border: 1.5px solid rgba(0,0,0,0.3);
+        `;
+        el.style.position = 'relative';
+        el.appendChild(dot);
+      }
+
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setTmaOpen(bmId);
+      });
+
+      // Skapa MapLibre Marker (maplibre-gl är redan laddad via DynamicMapLibre)
+      import('maplibre-gl').then(({ Marker }) => {
+        const mlMarker = new Marker({ element: el, anchor: 'center' })
+          .setLngLat([midLng, midLat])
+          .addTo(map);
+        tmaWarningMarkersRef.current.push(mlMarker);
+      }).catch(() => { /* MapLibre not available */ });
+    });
+
+    return () => {
+      tmaWarningMarkersRef.current.forEach(m => m.remove());
+      tmaWarningMarkersRef.current = [];
+    };
+  }, [tmaWithRoads, markers, tmaOpen, tmaSamrad, tmaRisk, mapLibreReady]);
 
   // 4) Synka layer-visibility → MapLibre
   useEffect(() => {
