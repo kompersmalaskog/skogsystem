@@ -73,44 +73,6 @@ export default function MapLibreMap({
         console.error('[MapLibre] Terrain setup failed:', e)
       }
 
-      // 3D forest — synchronous add, MapLibre fetches GeoJSON internally
-      try {
-        map.addSource('forest-height', { type: 'geojson', data: '/forest-height.geojson' });
-        map.addLayer({
-          id: 'forest-3d',
-          type: 'fill-extrusion',
-          source: 'forest-height',
-          minzoom: 10,
-          layout: { visibility: 'none' },
-          paint: {
-            'fill-extrusion-height': ['get', 'height'],
-            'fill-extrusion-base': 0,
-            'fill-extrusion-color': [
-              'interpolate', ['linear'], ['get', 'height'],
-              2, '#a5d6a7',
-              8, '#66bb6a',
-              14, '#43a047',
-              20, '#2e7d32',
-              28, '#1b5e20',
-              35, '#0d3b0f',
-            ],
-            'fill-extrusion-opacity': 0.5,
-            'fill-extrusion-vertical-gradient': true,
-          },
-        });
-        console.log('[MapLibre] 3D forest layer added');
-      } catch (e) {
-        console.error('[MapLibre] Failed to add 3D forest layer:', e);
-      }
-
-      // Directional light for realistic 3D shading
-      map.setLight({
-        anchor: 'viewport',
-        color: '#ffffff',
-        intensity: 0.4,
-        position: [1.5, 210, 30],
-      });
-
       onMapReadyRef.current(map)
 
       // Asynkront: kolla om lokala 1m terrain tiles finns (Lantmäteriet DEM)
