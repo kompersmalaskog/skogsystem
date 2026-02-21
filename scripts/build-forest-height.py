@@ -28,8 +28,8 @@ from pathlib import Path
 # Bbox in EPSG:4326 (lon/lat) covering Kompersmala area
 BBOX_4326 = [15.76, 56.59, 15.94, 56.71]
 
-# Target cell size in meters (100m keeps GeoJSON < 10 MB)
-CELL_SIZE_M = 100
+# Target cell size in meters (50m ideal but GeoJSON > 15MB, 65m = ~14MB)
+CELL_SIZE_M = 65
 
 # Minimum tree height to keep (filters open land / clear-cuts)
 MIN_HEIGHT_M = 2.0
@@ -233,7 +233,7 @@ def build_geojson(data, nodata, bbox_3857, cell_w, cell_h, is_decimeters=False):
     def to_4326(x, y):
         lon = x * 180.0 / 20037508.34
         lat = math.atan(math.exp(y * math.pi / 20037508.34)) * 360.0 / math.pi - 90.0
-        return round(lon, 6), round(lat, 6)
+        return round(lon, 4), round(lat, 4)
 
     features = []
     n_cells_x = cols // px_per_cell_x

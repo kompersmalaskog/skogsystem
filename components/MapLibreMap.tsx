@@ -83,23 +83,33 @@ export default function MapLibreMap({
           minzoom: 10,
           layout: { visibility: 'none' },
           paint: {
-            'fill-extrusion-height': ['*', ['get', 'height'], 3],
+            'fill-extrusion-height': ['get', 'height'],
             'fill-extrusion-base': 0,
             'fill-extrusion-color': [
               'interpolate', ['linear'], ['get', 'height'],
-              2, '#8bc34a',
-              10, '#4caf50',
-              18, '#2e7d32',
-              25, '#1b5e20',
+              2, '#a5d6a7',
+              8, '#66bb6a',
+              14, '#43a047',
+              20, '#2e7d32',
+              28, '#1b5e20',
               35, '#0d3b0f',
             ],
-            'fill-extrusion-opacity': 0.85,
+            'fill-extrusion-opacity': 0.5,
+            'fill-extrusion-vertical-gradient': true,
           },
         });
-        console.log('[MapLibre] 3D forest layer added (bbox: [15.76,56.59]-[15.94,56.71])');
+        console.log('[MapLibre] 3D forest layer added');
       } catch (e) {
         console.error('[MapLibre] Failed to add 3D forest layer:', e);
       }
+
+      // Directional light for realistic 3D shading
+      map.setLight({
+        anchor: 'viewport',
+        color: '#ffffff',
+        intensity: 0.4,
+        position: [1.5, 210, 30],
+      });
 
       onMapReadyRef.current(map)
 
