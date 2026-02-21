@@ -119,6 +119,9 @@ interface ManuellPrognos {
   skotare: string;
 }
 
+// Linjetyper som ritas som stängda polygoner (gränslinjer)
+const POLYGON_LINE_TYPES = new Set(['boundary', 'nature']);
+
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
@@ -1178,8 +1181,9 @@ export default function PlannerPage() {
         const drawSrc = map.getSource('drawing-source') as any;
         if (drawSrc && freehandCoordsRef.current.length >= 2) {
           const coords = freehandCoordsRef.current;
-          // Visa alltid som stängd polygon under freehand (3+ punkter)
-          const showAsPolygon = coords.length >= 3;
+          // Visa som polygon BARA för polygon-typer (boundary, nature, zoner)
+          const isPolygonType = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
+          const showAsPolygon = isPolygonType && coords.length >= 3;
           drawSrc.setData({
             type: 'FeatureCollection',
             features: [{
@@ -1206,11 +1210,16 @@ export default function PlannerPage() {
       setIsDrawing(false);
 
       if (wasFreehand && coords.length >= 3) {
-        // Stäng polygonen: lägg till första punkten som sista
-        coords.push(coords[0]);
-        // Förenkla → smootha → spara
+        const shouldClose = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
+        if (shouldClose) {
+          coords.push(coords[0]); // Stäng polygon
+        }
         const simplified = simplifyCoords(coords, 0.00002);
-        const smoothed = smoothPolygon(simplified, 2);
+        const smoothed = smoothCoords(simplified, 2, shouldClose);
+        console.log('Freehand klar, shouldClose:', shouldClose, 'punkter:', coords.length, 'efter smooth:', smoothed.length);
+        if (shouldClose) {
+          console.log('Polygon stängd, första:', smoothed[0], 'sista:', smoothed[smoothed.length-1]);
+        }
         if (isDrawMode) {
           finishLineFromCoords(smoothed);
         } else if (isZoneMode) {
@@ -1219,9 +1228,10 @@ export default function PlannerPage() {
       } else if (!wasFreehand && coords.length > 0) {
         // Kort klick (ingen drag) → lägg till punkt (punkt-för-punkt-läge)
         const lastCoord = coords[coords.length - 1];
+        const shouldClose = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
 
-        // Klick nära första punkten → stäng polygon + smootha
-        if (currentDrawCoords.length >= 3) {
+        // Klick nära första punkten → stäng polygon (bara för polygon-typer)
+        if (shouldClose && currentDrawCoords.length >= 3) {
           const first = currentDrawCoords[0];
           const firstScreen = map.project(first as any);
           const clickScreen = map.project(lastCoord as any);
@@ -1229,9 +1239,9 @@ export default function PlannerPage() {
           const ddy = firstScreen.y - clickScreen.y;
           const closeDist = Math.sqrt(ddx * ddx + ddy * ddy);
           if (closeDist < 20) {
-            // Stäng + smootha punkt-för-punkt polygon
             const closed = [...currentDrawCoords, currentDrawCoords[0]];
-            const smoothed = smoothPolygon(closed, 2);
+            const smoothed = smoothCoords(closed, 2, true);
+            console.log('Polygon stängd (nära start), antal punkter:', closed.length, 'första:', closed[0], 'sista:', closed[closed.length-1], 'efter smooth:', smoothed.length);
             if (isDrawMode) finishLineFromCoords(smoothed);
             if (isZoneMode) finishZoneFromCoords(smoothed);
             return;
@@ -1241,15 +1251,23 @@ export default function PlannerPage() {
       }
     };
 
-    // Dubbelklick → avsluta punkt-för-punkt polygon (stäng + smootha)
+    // Dubbelklick → avsluta ritning (stäng polygon-typer, smootha alla)
     const onDblClick = (e: any) => {
       if (!isDrawingMode) return;
       e.preventDefault();
       if (currentDrawCoords.length >= 2) {
-        const closed = [...currentDrawCoords, currentDrawCoords[0]];
-        const smoothed = smoothPolygon(closed, 2);
-        if (isDrawMode) finishLineFromCoords(smoothed);
-        if (isZoneMode) finishZoneFromCoords(smoothed);
+        const shouldClose = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
+        let finalCoords: [number, number][];
+        if (shouldClose) {
+          const closed = [...currentDrawCoords, currentDrawCoords[0]];
+          finalCoords = smoothCoords(closed, 2, true);
+          console.log('Polygon stängd (dblclick), punkter:', closed.length, 'första:', closed[0], 'sista:', closed[closed.length-1], 'efter smooth:', finalCoords.length);
+        } else {
+          finalCoords = currentDrawCoords.length >= 3 ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
+          console.log('Linje avslutad (dblclick), punkter:', currentDrawCoords.length, 'efter smooth:', finalCoords.length);
+        }
+        if (isDrawMode) finishLineFromCoords(finalCoords);
+        if (isZoneMode) finishZoneFromCoords(finalCoords);
       }
     };
 
@@ -1320,8 +1338,10 @@ export default function PlannerPage() {
   };
 
   // Chaikin's corner-cutting algorithm för mjuka kurvor
-  const smoothPolygon = (coords: [number, number][], iterations: number = 2): [number, number][] => {
+  // closed=true → stäng polygonen efter varje iteration, closed=false → öppen linje
+  const smoothCoords = (coords: [number, number][], iterations: number = 2, closed: boolean = true): [number, number][] => {
     if (coords.length < 3) return coords;
+    const beforeLen = coords.length;
     let pts = coords;
     for (let iter = 0; iter < iterations; iter++) {
       const smoothed: [number, number][] = [];
@@ -1331,10 +1351,10 @@ export default function PlannerPage() {
         smoothed.push([p0[0] * 0.75 + p1[0] * 0.25, p0[1] * 0.75 + p1[1] * 0.25]);
         smoothed.push([p0[0] * 0.25 + p1[0] * 0.75, p0[1] * 0.25 + p1[1] * 0.75]);
       }
-      // Stäng polygonen
-      if (smoothed.length > 0) smoothed.push(smoothed[0]);
+      if (closed && smoothed.length > 0) smoothed.push(smoothed[0]);
       pts = smoothed;
     }
+    console.log('Smoothing applied, before:', beforeLen, 'after:', pts.length, 'closed:', closed);
     return pts;
   };
 
@@ -1424,8 +1444,9 @@ export default function PlannerPage() {
         return;
       }
 
-      // Visa alltid som stängd polygon vid 3+ punkter (punkt-för-punkt)
-      const showAsPolygon = currentDrawCoords.length >= 3;
+      // Visa som polygon BARA för polygon-typer (boundary, nature, zoner)
+      const isPolygonType = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
+      const showAsPolygon = isPolygonType && currentDrawCoords.length >= 3;
       const feature = {
         type: 'Feature' as const,
         properties: {},
@@ -1439,8 +1460,8 @@ export default function PlannerPage() {
       };
       drawSrc.setData({ type: 'FeatureCollection', features: [feature] });
 
-      // Streckad stängningslinje (sista → första punkt) vid 2+ punkter
-      if (closeSrc && currentDrawCoords.length >= 2) {
+      // Streckad stängningslinje (sista → första punkt) — bara för polygon-typer
+      if (closeSrc && isPolygonType && currentDrawCoords.length >= 2) {
         closeSrc.setData({
           type: 'FeatureCollection',
           features: [{
@@ -1452,6 +1473,8 @@ export default function PlannerPage() {
             }
           }]
         });
+      } else if (closeSrc) {
+        closeSrc.setData({ type: 'FeatureCollection', features: [] });
       }
 
       // Ritpunkter (vertices)
@@ -1462,7 +1485,7 @@ export default function PlannerPage() {
       }));
       ptsSrc.setData({ type: 'FeatureCollection', features: pointFeatures });
     } catch (e) { console.error('[MapLibre] drawing preview error:', e); }
-  }, [currentDrawCoords, isDrawMode, isZoneMode, mapLibreReady]);
+  }, [currentDrawCoords, isDrawMode, isZoneMode, drawType, mapLibreReady]);
 
   // === MapLibre: Click-handlers för linjer/zoner ===
   useEffect(() => {
@@ -2511,8 +2534,11 @@ export default function PlannerPage() {
           const ll = svgToLatLon(p.x, p.y);
           return [ll.lon, ll.lat];
         });
-        // Stäng polygon
-        if (coords.length > 0) coords.push(coords[0]);
+        // Stäng polygon (om inte redan stängd)
+        if (coords.length > 0) {
+          const f = coords[0]; const l = coords[coords.length - 1];
+          if (f[0] !== l[0] || f[1] !== l[1]) coords.push(coords[0]);
+        }
         const zt = zoneTypes.find(z => z.id === m.zoneType);
         features.push({
           type: 'Feature',
@@ -3875,7 +3901,17 @@ export default function PlannerPage() {
   const finishLine = () => {
     // Använd MapLibre-coords om de finns, annars SVG-coords
     if (currentDrawCoords.length > 1 && drawType) {
-      finishLineFromCoords(currentDrawCoords);
+      const shouldClose = POLYGON_LINE_TYPES.has(drawType);
+      let finalCoords = [...currentDrawCoords];
+      if (shouldClose && finalCoords.length >= 3) {
+        finalCoords.push(finalCoords[0]);
+        finalCoords = smoothCoords(finalCoords, 2, true);
+        console.log('Polygon stängd (knapp), antal punkter:', currentDrawCoords.length, 'första:', finalCoords[0], 'sista:', finalCoords[finalCoords.length-1], 'efter smooth:', finalCoords.length);
+      } else if (finalCoords.length >= 3) {
+        finalCoords = smoothCoords(finalCoords, 2, false);
+        console.log('Linje avslutad (knapp), punkter:', currentDrawCoords.length, 'efter smooth:', finalCoords.length);
+      }
+      finishLineFromCoords(finalCoords);
       return;
     }
     if (currentPath.length > 1 && drawType) {
@@ -3899,7 +3935,10 @@ export default function PlannerPage() {
   const finishZone = () => {
     // Använd MapLibre-coords om de finns, annars SVG-coords
     if (currentDrawCoords.length > 2 && zoneType) {
-      finishZoneFromCoords(currentDrawCoords);
+      let finalCoords = [...currentDrawCoords, currentDrawCoords[0]];
+      finalCoords = smoothCoords(finalCoords, 2, true);
+      console.log('Zon stängd (knapp), antal punkter:', currentDrawCoords.length, 'första:', finalCoords[0], 'sista:', finalCoords[finalCoords.length-1], 'efter smooth:', finalCoords.length);
+      finishZoneFromCoords(finalCoords);
       return;
     }
     if (currentPath.length > 2 && zoneType) {
