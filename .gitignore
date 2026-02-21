@@ -31,6 +31,12 @@ yarn-error.log*
 # SLU Skogskarta GeoTIFF data (~5 GB)
 /data/slu-skogskarta/
 
+# Lantmäteriet DEM raw data (temp processing files)
+/data/terrain-tmp/
+
+# Generated terrain tiles (run scripts/build-terrain-tiles.py to create)
+/public/terrain-tiles/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

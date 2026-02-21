@@ -58,7 +58,7 @@ export default function MapLibreMap({
       console.log('[MapLibre] Map loaded, canvas:', map.getCanvas().width, 'x', map.getCanvas().height)
       map.resize()
 
-      // 3D-terräng (AWS Terrarium 30m DEM)
+      // 3D-terräng — starta med AWS 30m, uppgradera till lokal 1m om tillgänglig
       try {
         map.addSource('terrain-dem', {
           type: 'raster-dem',
@@ -68,12 +68,33 @@ export default function MapLibreMap({
           encoding: 'terrarium',
         })
         map.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 })
-        console.log('[MapLibre] 3D terrain enabled')
+        console.log('[MapLibre] 3D terrain: AWS 30m (default)')
       } catch (e) {
         console.error('[MapLibre] Terrain setup failed:', e)
       }
 
       onMapReadyRef.current(map)
+
+      // Asynkront: kolla om lokala 1m terrain tiles finns (Lantmäteriet DEM)
+      fetch('/terrain-tiles/bounds.json')
+        .then(r => r.ok ? r.json() : null)
+        .then(bounds => {
+          if (!bounds || !mapRef.current) return
+          console.log('[MapLibre] Local 1m terrain tiles found:', bounds)
+          const m = mapRef.current
+          m.addSource('terrain-dem-local', {
+            type: 'raster-dem',
+            tiles: [window.location.origin + '/terrain-tiles/{z}/{x}/{y}.png'],
+            tileSize: 256,
+            minzoom: bounds.minZoom || 10,
+            maxzoom: bounds.maxZoom || 15,
+            encoding: 'terrarium',
+            bounds: bounds.bbox,
+          })
+          m.setTerrain({ source: 'terrain-dem-local', exaggeration: 1.5 })
+          console.log('[MapLibre] 3D terrain upgraded: local 1m DEM (Lantmäteriet)')
+        })
+        .catch(() => { /* No local tiles, keep AWS 30m */ })
     })
 
     map.on('error', (e: any) => {
