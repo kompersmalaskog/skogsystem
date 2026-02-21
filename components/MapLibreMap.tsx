@@ -44,6 +44,7 @@ export default function MapLibreMap({
       zoom: initialZoom,
       pitch: initialPitch,
       bearing: initialBearing,
+      maxPitch: 30,
       interactive: true,
       attributionControl: false,
       dragRotate: true,
@@ -67,12 +68,6 @@ export default function MapLibreMap({
           encoding: 'terrarium',
         })
         map.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 })
-        map.setSky({
-          'sky-color': '#1a1a2e',
-          'horizon-color': '#2a3a1e',
-          'fog-color': '#0d1508',
-          'sky-horizon-blend': 0.5,
-        })
         console.log('[MapLibre] 3D terrain enabled')
       } catch (e) {
         console.error('[MapLibre] Terrain setup failed:', e)

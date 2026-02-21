@@ -506,7 +506,6 @@ export default function PlannerPage() {
       { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: 'none' as const } },
       { id: 'contours-layer', type: 'raster' as const, source: 'contours', paint: { 'raster-opacity': 0.4 }, layout: { visibility: 'none' as const } },
     ],
-    sky: { 'sky-color': '#000000', 'horizon-color': '#111111', 'sky-horizon-blend': 0.5 },
   });
 
   // Callback när MapLibre-kartan är laddad och redo
@@ -623,6 +622,15 @@ export default function PlannerPage() {
       map.addSource('wms-korbarhet', { type: 'raster', tiles: ['/api/korbarhet-tiles?bbox={bbox-epsg-3857}&width=256&height=256'], tileSize: 256 });
       map.addLayer({ id: 'wms-layer-korbarhet', type: 'raster', source: 'wms-korbarhet', paint: { 'raster-opacity': 0.7 }, layout: { visibility: 'none' } }, 'zone-fill');
     } catch (e) { console.error('[MapLibre] korbarhet error:', e); }
+
+    // Ensure base map layer visibility matches current mapType
+    const setBaseVis = (id: string, vis: boolean) => {
+      if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis ? 'visible' : 'none');
+    };
+    setBaseVis('satellite-layer', true); // Default: satellite visible
+    setBaseVis('osm-layer', false);
+    setBaseVis('terrain-layer', false);
+    console.log('[MapLibre] Base layers initialized — satellite visible');
 
     setMapLibreReady(true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -4918,7 +4926,7 @@ export default function PlannerPage() {
           onMapRemoved={handleMapRemoved}
           initialCenter={[mapCenter.lng, mapCenter.lat] as [number, number]}
           initialZoom={mapZoom}
-          initialPitch={50}
+          initialPitch={30}
           initialBearing={20}
           mapStyle={mapStyleConfig.current as any}
           style={{
