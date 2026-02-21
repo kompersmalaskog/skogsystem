@@ -39,18 +39,16 @@ const WMS_LAYERS: Record<string, LayerConfig> = {
     renderingRule: '{"rasterFunction":"Gallringsindex","rasterFunctionArguments":{"sis":"g16-g22"}}',
     auth: true,
   },
-  // Lantmäteriet (separat autentisering)
+  // Lantmäteriet (öppen tjänst via minkarta — inget lösenord behövs)
   lm_skuggning: {
-    url: 'https://minkarta.lantmateriet.se/map/hojdmodell',
+    url: 'https://minkarta.lantmateriet.se/map/hojdmodell/wms/v1.3',
     layers: 'terrangskuggning',
     srs: 'EPSG:3857',
-    auth: 'lm',
   },
   lm_ortofoto: {
-    url: 'https://minkarta.lantmateriet.se/map/ortofoto',
+    url: 'https://minkarta.lantmateriet.se/map/ortofoto/wms/v1.3',
     layers: 'Ortofoto_0.5',
     srs: 'EPSG:3857',
-    auth: 'lm',
   },
 };
 
