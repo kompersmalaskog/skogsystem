@@ -555,6 +555,13 @@ export default function PlannerPage() {
     map.addLayer({ id: 'tma-roads-glow', type: 'line', source: 'tma-roads-source', paint: { 'line-color': 'rgba(239,68,68,0.3)', 'line-width': 20, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'tma-roads-line', type: 'line', source: 'tma-roads-source', paint: { 'line-color': '#ef4444', 'line-width': 8 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
 
+    // === TMA varningslinje (traktgräns nära väg – pulserande röd linje) ===
+    map.addSource('tma-warning-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({ id: 'tma-warning-glow', type: 'line', source: 'tma-warning-source', paint: { 'line-color': '#ef4444', 'line-width': 18, 'line-opacity': 0.4, 'line-blur': 6 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'tma-warning-line', type: 'line', source: 'tma-warning-source', paint: { 'line-color': '#ef4444', 'line-width': 5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'tma-warning-dash', type: 'line', source: 'tma-warning-source', paint: { 'line-color': '#ffffff', 'line-width': 5, 'line-dasharray': [2, 4], 'line-opacity': 0.7 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'tma-warning-hitbox', type: 'line', source: 'tma-warning-source', paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': 30 } });
+
     // === Drawing preview layers ===
     map.addLayer({ id: 'drawing-fill', type: 'fill', source: 'drawing-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#7cba3f', 'fill-opacity': 0.15 } });
     map.addLayer({ id: 'drawing-glow', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 12, 'line-opacity': 0.3, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
@@ -2550,28 +2557,132 @@ export default function PlannerPage() {
     } catch (e) { /* source not ready */ }
   }, [markers, mapLibreReady, mapCenter, visibleZones]);
 
-  // 3) Synka TMA-vägar → MapLibre tma-roads-source
+  // 3) Synka TMA-vägar → MapLibre tma-roads-source + tma-warning-source
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     try {
-      const src = map.getSource('tma-roads-source') as any;
-      if (!src) return;
-      const features: any[] = [];
-      tmaWithRoads.forEach(([markerId, result]) => {
-        result.roads.forEach((road: any, idx: number) => {
-          if (road.geometry?.coordinates) {
-            features.push({
+      // === TMA vägar (röda linjer för närliggande vägar) ===
+      const roadSrc = map.getSource('tma-roads-source') as any;
+      if (roadSrc) {
+        const roadFeatures: any[] = [];
+        tmaWithRoads.forEach(([markerId, result]) => {
+          result.roads.forEach((road: any, idx: number) => {
+            // Använd nearbyGeom (vägsegment inom 50m av boundary)
+            if (road.nearbyGeom && road.nearbyGeom.length >= 2) {
+              roadFeatures.push({
+                type: 'Feature',
+                properties: { markerId, roadIndex: idx, category: road.category || 'enskild' },
+                geometry: { type: 'LineString', coordinates: road.nearbyGeom.map((p: any) => [p.lon, p.lat]) },
+              });
+            }
+          });
+        });
+        roadSrc.setData({ type: 'FeatureCollection', features: roadFeatures });
+      }
+
+      // === TMA varningslinjer (traktgränssegment nära vägar – pulserande rött) ===
+      const warnSrc = map.getSource('tma-warning-source') as any;
+      if (warnSrc) {
+        const warnFeatures: any[] = [];
+        tmaWithRoads.forEach(([markerId, result]) => {
+          // Hitta boundary-markern
+          const bm = markers.find(m => String(m.id) === markerId);
+          if (!bm || !bm.path || bm.path.length < 2) return;
+
+          // Konvertera boundary-path till lnglat
+          const bCoords: [number, number][] = bm.path.map((p: any) => {
+            const ll = svgToLatLon(p.x, p.y);
+            return [ll.lon, ll.lat] as [number, number];
+          });
+
+          // Samla alla road nearbyGeom-punkter för denna boundary
+          const roadPoints: { lat: number; lon: number }[] = [];
+          result.roads.forEach((road: any) => {
+            if (road.nearbyGeom) roadPoints.push(...road.nearbyGeom);
+          });
+          if (roadPoints.length === 0) return;
+
+          // Markera boundary-punkter nära vägen (< 80m)
+          const nearMask = bCoords.map(([lon, lat]) => {
+            return roadPoints.some(rp => {
+              const dlat = (lat - rp.lat) * 111000;
+              const dlon = (lon - rp.lon) * 111000 * Math.cos(lat * Math.PI / 180);
+              return Math.sqrt(dlat * dlat + dlon * dlon) < 80;
+            });
+          });
+
+          // Extrahera sammanhängande nära-väg-segment av boundary
+          let segment: [number, number][] = [];
+          for (let i = 0; i < bCoords.length; i++) {
+            if (nearMask[i]) {
+              segment.push(bCoords[i]);
+            } else {
+              if (segment.length >= 2) {
+                warnFeatures.push({
+                  type: 'Feature',
+                  properties: { markerId },
+                  geometry: { type: 'LineString', coordinates: segment },
+                });
+              }
+              segment = [];
+            }
+          }
+          if (segment.length >= 2) {
+            warnFeatures.push({
               type: 'Feature',
-              properties: { markerId, roadIndex: idx, category: road.category || 'enskild' },
-              geometry: road.geometry,
+              properties: { markerId },
+              geometry: { type: 'LineString', coordinates: segment },
             });
           }
         });
-      });
-      src.setData({ type: 'FeatureCollection', features });
+        warnSrc.setData({ type: 'FeatureCollection', features: warnFeatures });
+      }
     } catch (e) { /* source not ready */ }
-  }, [tmaWithRoads, mapLibreReady]);
+  }, [tmaWithRoads, markers, mapLibreReady]);
+
+  // 3b) TMA varningslinje – pulserande animation (glow oscillation)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || tmaWithRoads.length === 0) return;
+    let frame: number;
+    let t = 0;
+    const animate = () => {
+      t += 0.04;
+      const opacity = 0.25 + 0.35 * Math.sin(t); // oscillerar 0.25–0.60
+      try {
+        if (map.getLayer('tma-warning-glow')) {
+          map.setPaintProperty('tma-warning-glow', 'line-opacity', Math.max(0, opacity));
+        }
+      } catch { /* layer not ready */ }
+      frame = requestAnimationFrame(animate);
+    };
+    frame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(frame);
+  }, [tmaWithRoads.length, mapLibreReady]);
+
+  // 3c) TMA varningslinje – klickbar → öppna TMA-panel
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const onClick = (e: any) => {
+      if (e.features && e.features.length > 0) {
+        const bmId = e.features[0].properties.markerId;
+        if (bmId) setTmaOpen(bmId);
+      }
+    };
+    map.on('click', 'tma-warning-hitbox', onClick);
+    // Cursor pointer på hover
+    const onEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const onLeave = () => { map.getCanvas().style.cursor = ''; };
+    map.on('mouseenter', 'tma-warning-hitbox', onEnter);
+    map.on('mouseleave', 'tma-warning-hitbox', onLeave);
+    return () => {
+      map.off('click', 'tma-warning-hitbox', onClick);
+      map.off('mouseenter', 'tma-warning-hitbox', onEnter);
+      map.off('mouseleave', 'tma-warning-hitbox', onLeave);
+    };
+  }, [mapLibreReady]);
 
   // 4) Synka layer-visibility → MapLibre
   useEffect(() => {
@@ -10650,59 +10761,7 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* TMA: Varningsikoner som HTML-overlay (klickbar) – en per boundary med varning */}
-      {!tmaOpen && tmaWithRoads.map(([bmId, result]) => {
-        const cp = result.roads[0].closestPoint;
-        if (!cp) return null;
-        const svgPt = latLonToSvg(cp.lat, cp.lon);
-        const screenX = svgPt.x * zoom + pan.x;
-        const screenY = svgPt.y * zoom + pan.y;
-        const bSamrad = tmaSamrad[bmId];
-        const bRisk = tmaRisk[bmId];
-        const isKvitterad = bSamrad?.kvitterad === true;
-        const riskDone = bRisk ? bRisk.every(v => v !== null) : false;
-        const allDone = isKvitterad && riskDone;
-        return (
-          <div
-            key={`tma-icon-${bmId}`}
-            onClick={(e) => { e.stopPropagation(); setTmaOpen(bmId); }}
-            style={{
-              position: 'absolute',
-              left: screenX - 14,
-              top: screenY - 14,
-              width: '28px',
-              height: '28px',
-              borderRadius: '6px',
-              background: '#eab308',
-              border: '2px solid rgba(0,0,0,0.3)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer',
-              zIndex: 100,
-              boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-              pointerEvents: 'auto',
-              opacity: isKvitterad ? 0.4 : 1,
-              transition: 'opacity 0.3s',
-            }}
-          >
-            <span style={{ fontSize: '16px', lineHeight: '1', color: '#000', fontWeight: '700' }}>⚠</span>
-            {/* Vit notifikationsprick – visas tills samråd OCH riskbedömning är klara */}
-            {!allDone && (
-              <div style={{
-                position: 'absolute',
-                top: '-3px',
-                right: '-3px',
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                background: '#fff',
-                border: '1.5px solid rgba(0,0,0,0.3)',
-              }} />
-            )}
-          </div>
-        );
-      })}
+      {/* TMA: Varning visas som pulserande röd linje på kartan (MapLibre layer, klickbar) */}
 
       {/* === TMA / VÄG-PANEL === */}
       {tmaOpen && tmaResults[tmaOpen] && tmaResults[tmaOpen].status === 'done' && tmaResults[tmaOpen].roads.length > 0 && (() => {
