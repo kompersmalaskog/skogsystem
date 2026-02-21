@@ -56,6 +56,28 @@ export default function MapLibreMap({
     map.on('load', () => {
       console.log('[MapLibre] Map loaded, canvas:', map.getCanvas().width, 'x', map.getCanvas().height)
       map.resize()
+
+      // 3D-terräng (AWS Terrarium 30m DEM)
+      try {
+        map.addSource('terrain-dem', {
+          type: 'raster-dem',
+          tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          maxzoom: 15,
+          encoding: 'terrarium',
+        })
+        map.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 })
+        map.setSky({
+          'sky-color': '#1a1a2e',
+          'horizon-color': '#2a3a1e',
+          'fog-color': '#0d1508',
+          'sky-horizon-blend': 0.5,
+        })
+        console.log('[MapLibre] 3D terrain enabled')
+      } catch (e) {
+        console.error('[MapLibre] Terrain setup failed:', e)
+      }
+
       onMapReadyRef.current(map)
     })
 

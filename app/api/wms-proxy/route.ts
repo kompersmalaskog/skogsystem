@@ -5,8 +5,8 @@ const UA =
 
 // Layer ID → WMS/ArcGIS config
 type LayerConfig =
-  | { type?: 'wms'; url: string; layers: string; auth?: boolean }
-  | { type: 'arcgis'; url: string; renderingRule: string; auth?: boolean };
+  | { type?: 'wms'; url: string; layers: string; auth?: boolean | 'lm'; srs?: string }
+  | { type: 'arcgis'; url: string; renderingRule: string; auth?: boolean | 'lm' };
 
 const WMS_LAYERS: Record<string, LayerConfig> = {
   sks_markfuktighet: {
@@ -39,6 +39,19 @@ const WMS_LAYERS: Record<string, LayerConfig> = {
     renderingRule: '{"rasterFunction":"Gallringsindex","rasterFunctionArguments":{"sis":"g16-g22"}}',
     auth: true,
   },
+  // Lantmäteriet (separat autentisering)
+  lm_skuggning: {
+    url: 'https://minkarta.lantmateriet.se/map/hojdmodell',
+    layers: 'terrangskuggning',
+    srs: 'EPSG:3857',
+    auth: 'lm',
+  },
+  lm_ortofoto: {
+    url: 'https://minkarta.lantmateriet.se/map/ortofoto',
+    layers: 'Ortofoto_0.5',
+    srs: 'EPSG:3857',
+    auth: 'lm',
+  },
 };
 
 // In-memory tile cache (5 minute TTL)
@@ -70,17 +83,27 @@ function mercatorToWgs84(x: number, y: number): [number, number] {
   return [lon, lat];
 }
 
-function authHeaders(): Record<string, string> {
+function sksAuthHeaders(): Record<string, string> {
   const user = process.env.SKS_WMS_USER;
   const pass = process.env.SKS_WMS_PASS;
-  if (!user || !pass) throw new Error('Credentials not configured');
+  if (!user || !pass) throw new Error('SKS credentials not configured');
   return {
     Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
     'User-Agent': UA,
   };
 }
 
-const ALLOWED_HOSTS = ['geodata.skogsstyrelsen.se', 'pub.raa.se'];
+function lmAuthHeaders(): Record<string, string> {
+  const user = process.env.LM_USERNAME;
+  const pass = process.env.LM_PASSWORD;
+  if (!user || !pass) throw new Error('LM credentials not configured');
+  return {
+    Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
+    'User-Agent': UA,
+  };
+}
+
+const ALLOWED_HOSTS = ['geodata.skogsstyrelsen.se', 'pub.raa.se', 'minkarta.lantmateriet.se'];
 
 function validateHost(url: string): URL {
   const parsed = new URL(url);
@@ -97,7 +120,7 @@ export async function GET(req: NextRequest) {
   const params = req.nextUrl.searchParams;
   const layer = params.get('layer');
   let url: string;
-  let needsAuth = true;
+  let authType: false | 'sks' | 'lm' = 'sks'; // Which credentials to use
   let cacheKey = '';
 
   if (layer) {
@@ -112,15 +135,22 @@ export async function GET(req: NextRequest) {
       // ArcGIS REST exportImage — bbox stays in EPSG:3857
       url = `${config.url}/exportImage?bbox=${bbox}&bboxSR=3857&imageSR=3857&size=${width},${height}&format=png&transparent=true&renderingRule=${encodeURIComponent(config.renderingRule)}&f=image`;
     } else {
-      // Standard WMS — convert bbox from EPSG:3857 to EPSG:4326
-      const [minx, miny, maxx, maxy] = bbox.split(',').map(Number);
-      const [minLon, minLat] = mercatorToWgs84(minx, miny);
-      const [maxLon, maxLat] = mercatorToWgs84(maxx, maxy);
-      const wgs84Bbox = `${minLon},${minLat},${maxLon},${maxLat}`;
-      url = `${config.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${config.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${wgs84Bbox}&WIDTH=${width}&HEIGHT=${height}`;
+      // Standard WMS — check if layer specifies SRS
+      const useSrs = config.srs || 'EPSG:4326';
+      if (useSrs === 'EPSG:3857') {
+        // Keep bbox as EPSG:3857 (no conversion needed)
+        url = `${config.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${config.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX=${bbox}&WIDTH=${width}&HEIGHT=${height}`;
+      } else {
+        // Convert bbox from EPSG:3857 to EPSG:4326
+        const [minx, miny, maxx, maxy] = bbox.split(',').map(Number);
+        const [minLon, minLat] = mercatorToWgs84(minx, miny);
+        const [maxLon, maxLat] = mercatorToWgs84(maxx, maxy);
+        const wgs84Bbox = `${minLon},${minLat},${maxLon},${maxLat}`;
+        url = `${config.url}?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=${config.layers}&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:4326&BBOX=${wgs84Bbox}&WIDTH=${width}&HEIGHT=${height}`;
+      }
     }
     console.log('[wms-proxy]', layer, bbox);
-    needsAuth = config.auth === true;
+    authType = config.auth === 'lm' ? 'lm' : config.auth === true ? 'sks' : false;
     cacheKey = `${layer}:${bbox}:${width}:${height}`;
   } else {
     // Legacy: full URL passed as ?url= parameter
@@ -147,7 +177,8 @@ export async function GET(req: NextRequest) {
 
   try {
     const headers: Record<string, string> = { 'User-Agent': UA };
-    if (needsAuth) Object.assign(headers, authHeaders());
+    if (authType === 'sks') Object.assign(headers, sksAuthHeaders());
+    else if (authType === 'lm') Object.assign(headers, lmAuthHeaders());
     const resp = await fetch(url, { headers });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
@@ -196,7 +227,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const hdrs = authHeaders();
+    const hdrs = sksAuthHeaders();
     hdrs['Content-Type'] = 'application/x-www-form-urlencoded';
 
     console.log(`[wms-proxy POST] ${targetUrl} body_length=${formBody.length}`);

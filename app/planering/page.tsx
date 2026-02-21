@@ -353,6 +353,9 @@ export default function PlannerPage() {
     sks_tradhojd: false,
     sks_lutning: false,
     sks_gallringsindex: false,
+    // Lantmäteriet (via proxy)
+    lm_skuggning: false,
+    lm_ortofoto: false,
   });
 
   const wmsLayerGroups = [
@@ -421,6 +424,13 @@ export default function PlannerPage() {
         { id: 'sks_tradhojd', url: '/api/wms-proxy', layers: 'Tradhojd_3_1', name: 'Trädhöjd', color: '#AED581', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer' },
         { id: 'sks_lutning', url: '/api/wms-proxy', layers: 'Lutning_1_0', name: 'Lutning', color: '#FF8A65', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer' },
         { id: 'sks_gallringsindex', url: '/api/wms-proxy', layers: '', name: 'Gallringsindex', color: '#E91E63', exportImage: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SkogligaGrunddata_3_1/ImageServer', renderingRule: '{"rasterFunction":"Gallringsindex","rasterFunctionArguments":{"sis":"g16-g22"}}' },
+      ],
+    },
+    {
+      group: 'Lantmäteriet',
+      layers: [
+        { id: 'lm_skuggning', url: '/api/wms-proxy', layers: 'terrangskuggning', name: 'Höjdmodell (skuggning)', color: '#78909C', proxyTarget: 'https://minkarta.lantmateriet.se/map/hojdmodell' },
+        { id: 'lm_ortofoto', url: '/api/wms-proxy', layers: 'Ortofoto_0.5', name: 'Ortofoto LM', color: '#8D6E63', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto' },
       ],
     },
   ];
@@ -594,13 +604,16 @@ export default function PlannerPage() {
       { id: 'sks_tradhojd', tiles: ['/api/wms-proxy?layer=sks_tradhojd&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'sks_lutning', tiles: ['/api/wms-proxy?layer=sks_lutning&bbox={bbox-epsg-3857}&width=256&height=256'] },
       { id: 'sks_gallringsindex', tiles: ['/api/wms-proxy?layer=sks_gallringsindex&bbox={bbox-epsg-3857}&width=256&height=256'] },
+      // Lantmäteriet
+      { id: 'lm_skuggning', tiles: ['/api/wms-proxy?layer=lm_skuggning&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 0.35 },
+      { id: 'lm_ortofoto', tiles: ['/api/wms-proxy?layer=lm_ortofoto&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 1.0 },
     ];
-    wmsLayerDefs.forEach((def: { id: string; tiles: string[]; maxzoom?: number }) => {
+    wmsLayerDefs.forEach((def: { id: string; tiles: string[]; maxzoom?: number; opacity?: number }) => {
       try {
         const sourceOpts: any = { type: 'raster', tiles: def.tiles, tileSize: 256 };
         if (def.maxzoom) sourceOpts.maxzoom = def.maxzoom;
         map.addSource(`wms-${def.id}`, sourceOpts);
-        map.addLayer({ id: `wms-layer-${def.id}`, type: 'raster', source: `wms-${def.id}`, paint: { 'raster-opacity': 0.7 }, layout: { visibility: 'none' } }, 'zone-fill');
+        map.addLayer({ id: `wms-layer-${def.id}`, type: 'raster', source: `wms-${def.id}`, paint: { 'raster-opacity': def.opacity ?? 0.7 }, layout: { visibility: 'none' } }, 'zone-fill');
         console.log(`[MapLibre] WMS layer created: wms-layer-${def.id}`);
       } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
     });
@@ -1026,7 +1039,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
 
-    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet'];
+    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto'];
 
     allWmsIds.forEach(id => {
       const layerId = `wms-layer-${id}`;
