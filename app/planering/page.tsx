@@ -2226,10 +2226,14 @@ export default function PlannerPage() {
           .select('settings')
           .eq('objekt_id', valtObjekt.id)
           .maybeSingle();
+        console.log('[Varning] Supabase load result:', data);
         if (data?.settings) {
           const { _showAll, ...cats } = data.settings;
+          console.log('[Varning] Loaded: _showAll=', _showAll, 'categories=', Object.keys(cats).map(k => `${k}:enabled=${cats[k]?.enabled}`).join(', '));
           if (Object.keys(cats).length > 0) setWarningSettings(cats);
           if (typeof _showAll === 'boolean') setWarningShowAll(_showAll);
+        } else {
+          console.log('[Varning] Inga sparade inställningar, använder defaults');
         }
       } catch (err) {
         console.error('[Varning] Kunde inte ladda inställningar:', err);
@@ -2898,32 +2902,42 @@ export default function PlannerPage() {
 
   const syncMarkersToMapLibre = () => {
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
+    if (!map || !mapLibreReady) {
+      if (drivingMode) console.log('[Proximity] SKIP: map=', !!map, 'mapLibreReady=', mapLibreReady);
+      return;
+    }
     try {
       const src = map.getSource('markers-source') as any;
-      if (!src) return;
+      if (!src) {
+        if (drivingMode) console.log('[Proximity] SKIP: markers-source not found');
+        return;
+      }
       const features: any[] = [];
       const symbolMarkers = markers.filter(m => m.isMarker);
       const userPos = effectiveUserPos;
-      if (drivingMode && symbolMarkers.length > 0) {
-        console.log(`[Proximity] tick=${proximityTick}, symbols=${symbolMarkers.length}, userPos=${userPos ? `${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)}` : 'null'}, drivingMode=${drivingMode}, showAll=${warningShowAll}`);
+      if (drivingMode) {
+        console.log(`[Proximity] === SYNC tick=${proximityTick} ===`);
+        console.log(`[Proximity] symbols=${symbolMarkers.length}, userPos=${userPos ? `svg(${userPos.svg.x.toFixed(0)},${userPos.svg.y.toFixed(0)}) latLng(${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)})` : 'NULL'}, showAll=${warningShowAll}`);
+        console.log(`[Proximity] simulatedPos=${simulatedPos ? 'SET' : 'null'}, gpsPosition=${gpsPosition ? 'SET' : 'null'}, scale=${scale.toFixed(3)}`);
       }
+      let minOp = 1, maxOp = 0;
       symbolMarkers.forEach(m => {
         const ll = svgToLatLon(m.x, m.y);
         const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id }, m);
-        if (drivingMode && userPos) {
-          const dist = calculateDistanceMeters(userPos.svg, { x: m.x, y: m.y });
-          console.log(`[Proximity] ${m.type} id=${String(m.id).slice(0,8)}: dist=${dist.toFixed(0)}m, opacity=${opacity.toFixed(2)}, cat=${getWarningCategoryId(m)}`);
-        }
+        if (opacity < minOp) minOp = opacity;
+        if (opacity > maxOp) maxOp = opacity;
         features.push({
           type: 'Feature',
           properties: { type: m.type || 'default', id: m.id, opacity },
           geometry: { type: 'Point', coordinates: [ll.lon, ll.lat] },
         });
       });
+      if (drivingMode && symbolMarkers.length > 0) {
+        console.log(`[Proximity] opacity range: min=${minOp.toFixed(2)}, max=${maxOp.toFixed(2)} (should NOT be all 1.0 if proximity active)`);
+      }
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) {
-      console.error('[Proximity] syncMarkersToMapLibre error:', e);
+      console.error('[Proximity] syncMarkersToMapLibre ERROR:', e);
     }
   };
 
@@ -4900,13 +4914,19 @@ export default function PlannerPage() {
     return pixelDistance * scale;
   };
   
+  // Debug: spåra senaste opacity-beräkning
+  const lastProximityDebugRef = useRef<string>('');
+
   // Beräkna opacity baserat på avstånd (för körläge) — använder warningSettings per kategori
-  const getMarkerOpacity = (markerPos, marker?: Marker) => {
+  const getMarkerOpacity = (markerPos: any, marker?: Marker) => {
     // Utanför körläge: full opacity (planerarvyn)
     if (!drivingMode) return 1;
 
     // Master toggle: visa alla med full opacity
-    if (warningShowAll) return 1;
+    if (warningShowAll) {
+      lastProximityDebugRef.current = 'RETURN 1: warningShowAll=true';
+      return 1;
+    }
 
     // Per-kategori toggle (enabled):
     // enabled=true (default) → proximity-logik gäller, fadear in/ut
@@ -4914,11 +4934,17 @@ export default function PlannerPage() {
     if (marker) {
       const catId = getWarningCategoryId(marker);
       const catSettings = warningSettings[catId];
-      if (catSettings && catSettings.enabled === false) return 1;
+      if (catSettings && catSettings.enabled === false) {
+        lastProximityDebugRef.current = `RETURN 1: cat=${catId} enabled=false`;
+        return 1;
+      }
     }
 
     const userSvg = effectiveUserPos?.svg;
-    if (!userSvg) return 0.15;
+    if (!userSvg) {
+      lastProximityDebugRef.current = 'RETURN 0.15: effectiveUserPos=null';
+      return 0.15;
+    }
 
     const distance = calculateDistanceMeters(userSvg, markerPos);
     const markerId = markerPos.id;
@@ -4931,17 +4957,25 @@ export default function PlannerPage() {
     const minOp = dists.minOpacity ?? 0.1;
 
     // Utanför fade-avstånd = minOpacity
-    if (distance > dists.fadeDist) return minOp;
+    if (distance > dists.fadeDist) {
+      lastProximityDebugRef.current = `dist=${distance.toFixed(0)}m > fade=${dists.fadeDist}m → op=${minOp}`;
+      return minOp;
+    }
 
     // Inom varningsavstånd = full styrka
-    if (distance <= dists.warnDist) return 1;
+    if (distance <= dists.warnDist) {
+      lastProximityDebugRef.current = `dist=${distance.toFixed(0)}m <= warn=${dists.warnDist}m → op=1`;
+      return 1;
+    }
 
     // Gradvis fade mellan fadeDist och warnDist
     const fadeRange = dists.fadeDist - dists.warnDist;
     const distanceIntoFade = dists.fadeDist - distance;
     const fadeProgress = distanceIntoFade / fadeRange; // 0 till 1
+    const result = minOp + (fadeProgress * (1 - minOp)); // minOpacity till 1.0
 
-    return minOp + (fadeProgress * (1 - minOp)); // minOpacity till 1.0
+    lastProximityDebugRef.current = `dist=${distance.toFixed(0)}m fade=[${dists.warnDist}-${dists.fadeDist}] → op=${result.toFixed(2)}`;
+    return result;
   };
   
   // Hitta aktiva varningar — använder warningSettings per kategori
@@ -5082,7 +5116,7 @@ export default function PlannerPage() {
         console.log('Audio not supported');
       }
     }
-  }, [drivingMode, gpsMapPosition, markers, acknowledgedWarnings, simulatedPos, warningSettings]);
+  }, [drivingMode, gpsMapPosition, markers, acknowledgedWarnings, simulatedPos, warningSettings, warningShowAll]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Kvittera varning — logga till Supabase
   const acknowledgeWarning = async () => {
@@ -12942,26 +12976,43 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* Proximity debug status (visas i körläge) */}
+      {/* Proximity debug panel (visas i körläge) */}
       {drivingMode && (
         <div style={{
           position: 'fixed',
           top: simulatedPos ? '90px' : '55px',
-          right: '12px',
-          background: effectiveUserPos ? '#22c55e' : '#ef4444',
+          right: '8px',
+          background: 'rgba(0,0,0,0.9)',
           color: '#fff',
-          padding: '6px 12px',
-          borderRadius: '20px',
+          padding: '8px 10px',
+          borderRadius: '10px',
           fontSize: '10px',
-          fontWeight: '700',
+          fontFamily: 'monospace',
           zIndex: 400,
-          maxWidth: '200px',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.3)',
+          maxWidth: '260px',
+          lineHeight: '1.5',
+          border: `2px solid ${effectiveUserPos ? '#22c55e' : '#ef4444'}`,
+          boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
         }}>
-          {effectiveUserPos
-            ? `PROXIMITY: ON (${markers.filter(m => m.isMarker).length} symboler)`
-            : 'PROXIMITY: Ingen position'
-          }
+          <div style={{ fontWeight: '700', fontSize: '11px', color: effectiveUserPos ? '#22c55e' : '#ef4444', marginBottom: '4px' }}>
+            PROXIMITY DEBUG
+          </div>
+          <div>drivingMode: <span style={{ color: '#22c55e' }}>true</span></div>
+          <div>warningShowAll: <span style={{ color: warningShowAll ? '#ef4444' : '#22c55e' }}>{String(warningShowAll)}</span></div>
+          <div>effectiveUserPos: <span style={{ color: effectiveUserPos ? '#22c55e' : '#ef4444' }}>
+            {effectiveUserPos ? `${effectiveUserPos.latLng.lat.toFixed(5)},${effectiveUserPos.latLng.lng.toFixed(5)}` : 'NULL'}
+          </span></div>
+          <div>userSvg: {effectiveUserPos?.svg ? `x=${effectiveUserPos.svg.x.toFixed(0)},y=${effectiveUserPos.svg.y.toFixed(0)}` : 'null'}</div>
+          <div>simulatedPos: {simulatedPos ? `${simulatedPos.lat.toFixed(5)},${simulatedPos.lng.toFixed(5)}` : 'null'}</div>
+          <div>gpsPosition: <span style={{ color: gpsPosition ? '#22c55e' : '#ef4444' }}>{gpsPosition ? `${gpsPosition.lat.toFixed(5)},${gpsPosition.lng.toFixed(5)}` : 'NULL'}</span></div>
+          <div>isTracking: {String(isTracking)}</div>
+          <div>markers: {markers.length} (isMarker: {markers.filter(m => m.isMarker).length})</div>
+          <div>scale: {scale.toFixed(3)} m/px</div>
+          <div>tick: {proximityTick}</div>
+          <div>cats enabled: {Object.entries(warningSettings).filter(([k]) => !k.startsWith('_')).map(([k, v]) => `${k.slice(0,4)}:${v.enabled !== false ? 'Y' : 'N'}`).join(' ')}</div>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: '4px', paddingTop: '4px', color: '#f59e0b', wordBreak: 'break-all' }}>
+            {lastProximityDebugRef.current || 'Ingen beräkning ännu'}
+          </div>
         </div>
       )}
 
