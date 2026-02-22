@@ -546,6 +546,7 @@ export default function PlannerPage() {
     lineTypeDefs.forEach((lt: any) => {
       const isBoundary = lt.id === 'boundary';
       const isTrail = lt.id === 'trail';
+      const isMainRoad = lt.id === 'mainRoad';
       // Zoom-interpolerade linjebredder
       // Traktgräns: alltid tydlig — minst 4px vid utzoom
       const lw = isBoundary
@@ -554,11 +555,12 @@ export default function PlannerPage() {
       const cwLw = isBoundary
         ? ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 7, 13, 7, 15, 9, 17, 10]
         : ['interpolate', ['linear'], ['zoom'], 5, 4, 8, 4, 11, 5, 13, 6, 15, 8, 17, 9];
-      // Svart casing bakom varje linje för kontrast (trail: starkare svart casing)
+      // Svart casing bakom varje linje — traktgräns/basväg/stig: helt svart för max kontrast
+      const casingColor = (isBoundary || isMainRoad || isTrail) ? 'rgba(0,0,0,0.9)' : 'rgba(0,0,0,0.5)';
       map.addLayer({
         id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
-        paint: { 'line-color': isTrail ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.5)', 'line-width': cwLw },
+        paint: { 'line-color': casingColor, 'line-width': cwLw },
         layout: { 'line-cap': 'round', 'line-join': 'round' }
       });
       map.addLayer({
@@ -818,7 +820,7 @@ export default function PlannerPage() {
           source: 'markers-source',
           layout: {
             'icon-image': ['concat', 'marker-', ['get', 'type']],
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.15, 11, 0.25, 13, 0.45, 15, 0.75, 17, 1.0],
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.15, 12, 0.4, 13, 0.5, 14, 0.65, 15, 0.8, 16, 1.0],
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
             'icon-padding': 2,
