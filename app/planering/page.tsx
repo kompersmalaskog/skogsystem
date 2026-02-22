@@ -2903,9 +2903,18 @@ export default function PlannerPage() {
       const src = map.getSource('markers-source') as any;
       if (!src) return;
       const features: any[] = [];
-      markers.filter(m => m.isMarker).forEach(m => {
+      const symbolMarkers = markers.filter(m => m.isMarker);
+      const userPos = effectiveUserPos;
+      if (drivingMode && symbolMarkers.length > 0) {
+        console.log(`[Proximity] tick=${proximityTick}, symbols=${symbolMarkers.length}, userPos=${userPos ? `${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)}` : 'null'}, drivingMode=${drivingMode}, showAll=${warningShowAll}`);
+      }
+      symbolMarkers.forEach(m => {
         const ll = svgToLatLon(m.x, m.y);
         const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id }, m);
+        if (drivingMode && userPos) {
+          const dist = calculateDistanceMeters(userPos.svg, { x: m.x, y: m.y });
+          console.log(`[Proximity] ${m.type} id=${String(m.id).slice(0,8)}: dist=${dist.toFixed(0)}m, opacity=${opacity.toFixed(2)}, cat=${getWarningCategoryId(m)}`);
+        }
         features.push({
           type: 'Feature',
           properties: { type: m.type || 'default', id: m.id, opacity },
@@ -2913,7 +2922,9 @@ export default function PlannerPage() {
         });
       });
       src.setData({ type: 'FeatureCollection', features });
-    } catch (e) { /* source not ready */ }
+    } catch (e) {
+      console.error('[Proximity] syncMarkersToMapLibre error:', e);
+    }
   };
 
   // Synka vid dataändringar och proximity-tick
@@ -5026,8 +5037,12 @@ export default function PlannerPage() {
   // Kolla varningar när GPS uppdateras
   useEffect(() => {
     if (!drivingMode) return;
-    
+
+    const userPos = effectiveUserPos;
+    console.log(`[Varning] Checking warnings: userPos=${userPos ? `${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)}` : 'null'}, markers=${markers.length}, showAll=${warningShowAll}`);
+
     const warnings = getActiveWarnings();
+    console.log(`[Varning] ${warnings.length} varningar hittade${warnings.length > 0 ? ': ' + warnings.map(w => `${w.name} ${w.distance}m`).join(', ') : ''}`);
     if (warnings.length > 0 && !activeWarning) {
       const warning = warnings[0];
       
@@ -5634,28 +5649,12 @@ export default function PlannerPage() {
 
             // Visuell rendering sker nu via MapLibre symbol layer (GPU).
             // SVG-overlayen renderar bara en osynlig hit-area för drag/klick.
+            // Varningsringen renderas UTANFÖR opacity:0-gruppen så den alltid syns.
             return (
-              <g
-                key={m.id}
-                transform={`translate(${offsetX}, ${offsetY})`}
-                onMouseDown={(e) => handleMarkerDragStart(e, m)}
-                onTouchStart={(e) => handleMarkerDragStart(e, m)}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (stickvagOversikt) {
-                    setSelectedOversiktItem(m);
-                    setSelectedOversiktVag(null);
-                  }
-                }}
-                style={{
-                  cursor: isDragging ? 'grabbing' : 'pointer',
-                  opacity: isDragging ? 1 : 0,
-                  pointerEvents: isInDrawingMode ? 'none' : 'auto',
-                }}
-              >
-                {/* Pulsande varningsring (röd glöd) när inom varningsavstånd */}
+              <g key={m.id}>
+                {/* Pulsande varningsring (röd glöd) — renderas utanför hit-area-gruppen */}
                 {isInWarningRange && (
-                  <>
+                  <g transform={`translate(${offsetX}, ${offsetY})`} style={{ pointerEvents: 'none' }}>
                     <circle
                       cx={m.x} cy={m.y}
                       r={symbolRadius + 12}
@@ -5674,17 +5673,35 @@ export default function PlannerPage() {
                       opacity={0.4}
                       style={{ animation: 'pulse 0.8s infinite 0.2s' }}
                     />
-                  </>
+                  </g>
                 )}
-                {/* Osynlig hit-area (synlig bara vid drag) */}
-                <circle
-                  cx={m.x}
-                  cy={m.y}
-                  r={symbolRadius}
-                  fill={isDragging && hasMoved ? colors.blue : 'transparent'}
-                  stroke={isDragging && hasMoved ? '#fff' : 'transparent'}
-                  strokeWidth={getConstrainedSize(4)}
-                />
+                {/* Osynlig hit-area för drag/klick (opacity: 0 utom vid drag) */}
+                <g
+                  transform={`translate(${offsetX}, ${offsetY})`}
+                  onMouseDown={(e) => handleMarkerDragStart(e, m)}
+                  onTouchStart={(e) => handleMarkerDragStart(e, m)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (stickvagOversikt) {
+                      setSelectedOversiktItem(m);
+                      setSelectedOversiktVag(null);
+                    }
+                  }}
+                  style={{
+                    cursor: isDragging ? 'grabbing' : 'pointer',
+                    opacity: isDragging ? 1 : 0,
+                    pointerEvents: isInDrawingMode ? 'none' : 'auto',
+                  }}
+                >
+                  <circle
+                    cx={m.x}
+                    cy={m.y}
+                    r={symbolRadius}
+                    fill={isDragging && hasMoved ? colors.blue : 'transparent'}
+                    stroke={isDragging && hasMoved ? '#fff' : 'transparent'}
+                    strokeWidth={getConstrainedSize(4)}
+                  />
+                </g>
               </g>
             );
           })}
@@ -12858,6 +12875,7 @@ export default function PlannerPage() {
           >
             <div
               onClick={() => {
+                console.log(`[SimPos] Sätter simulerad position: ${showSimPosMenu.lat.toFixed(5)}, ${showSimPosMenu.lng.toFixed(5)}, drivingMode=${drivingMode}`);
                 setSimulatedPos({ lat: showSimPosMenu.lat, lng: showSimPosMenu.lng });
                 setShowSimPosMenu(null);
               }}
@@ -12921,6 +12939,29 @@ export default function PlannerPage() {
         }} onClick={() => setSimulatedPos(null)}>
           📍 SIM-POSITION
           <span style={{ opacity: 0.7 }}>✕</span>
+        </div>
+      )}
+
+      {/* Proximity debug status (visas i körläge) */}
+      {drivingMode && (
+        <div style={{
+          position: 'fixed',
+          top: simulatedPos ? '90px' : '55px',
+          right: '12px',
+          background: effectiveUserPos ? '#22c55e' : '#ef4444',
+          color: '#fff',
+          padding: '6px 12px',
+          borderRadius: '20px',
+          fontSize: '10px',
+          fontWeight: '700',
+          zIndex: 400,
+          maxWidth: '200px',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.3)',
+        }}>
+          {effectiveUserPos
+            ? `PROXIMITY: ON (${markers.filter(m => m.isMarker).length} symboler)`
+            : 'PROXIMITY: Ingen position'
+          }
         </div>
       )}
 
