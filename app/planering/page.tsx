@@ -119,8 +119,9 @@ interface ManuellPrognos {
   skotare: string;
 }
 
-// Linjetyper som ritas som stängda polygoner (gränslinjer)
-const POLYGON_LINE_TYPES = new Set(['boundary', 'nature']);
+// Linjetyper som ritas som stängda polygoner — inga! Alla linjer är LineString.
+// Zoner (isZoneMode) hanteras separat och är alltid polygoner.
+const POLYGON_LINE_TYPES = new Set<string>();
 
 export default function PlannerPage() {
   // === OBJEKTVAL ===
