@@ -9,6 +9,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.0",
+    "@turf/boolean-intersects": "^7.3.4",
+    "@turf/boolean-point-in-polygon": "^7.3.4",
+    "@turf/helpers": "^7.3.4",
     "geotiff": "^3.0.3",
     "jszip": "^3.10.1",
     "maplibre-gl": "^5.18.0",

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import booleanIntersects from '@turf/boolean-intersects';
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import { polygon as turfPolygon, point as turfPoint, multiPolygon as turfMultiPolygon } from '@turf/helpers';
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-// === WFS-baserad traktanalys ===
-// Tar emot en polygon (lat/lon), beräknar bbox, och frågar WFS-tjänster
-// för att hitta överlappande skyddade områden, fornlämningar etc.
+// === WFS/ArcGIS-baserad traktanalys med Turf.js geometrisk intersect ===
+// Tar emot en polygon (lat/lon), beräknar bbox, frågar tjänster,
+// och filtrerar med exakt polygon-polygon intersection (inte bara bbox).
 
 interface AnalysisRequest {
   polygon: { lat: number; lon: number }[];
@@ -43,56 +46,75 @@ function computeBbox(polygon: { lat: number; lon: number }[]) {
   };
 }
 
-// Point-in-polygon test (ray casting)
-function pointInPolygon(lat: number, lon: number, polygon: { lat: number; lon: number }[]): boolean {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
-    const xi = polygon[i].lon, yi = polygon[i].lat;
-    const xj = polygon[j].lon, yj = polygon[j].lat;
-    const intersect = ((yi > lat) !== (yj > lat)) &&
-      (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
-    if (intersect) inside = !inside;
+// Bygg Turf-polygon från traktens {lat, lon}[]
+function buildTractPolygon(polygon: { lat: number; lon: number }[]) {
+  const ring = polygon.map(p => [p.lon, p.lat] as [number, number]);
+  // Slut ringen om den inte redan är sluten
+  if (ring.length > 0 && (ring[0][0] !== ring[ring.length - 1][0] || ring[0][1] !== ring[ring.length - 1][1])) {
+    ring.push([...ring[0]] as [number, number]);
   }
-  return inside;
+  return turfPolygon([ring]);
 }
 
-// Feature intersects polygon (any vertex inside, or polygon centroid inside feature bbox)
+// Exakt geometrisk intersect-check: WFS GeoJSON feature mot traktpolygon
 function featureIntersectsPolygon(
   featureGeom: any,
-  polygon: { lat: number; lon: number }[]
+  tractPoly: ReturnType<typeof buildTractPolygon>
 ): boolean {
-  // Extract coordinates from GeoJSON geometry
-  const coords = extractCoords(featureGeom);
-  if (!coords || coords.length === 0) return true; // If can't parse, assume hit
+  if (!featureGeom || !featureGeom.type) return true; // Kan ej parsa → anta träff
 
-  // Check if any feature point is inside the tract polygon
-  for (const [lon, lat] of coords) {
-    if (pointInPolygon(lat, lon, polygon)) return true;
-  }
+  try {
+    const type = featureGeom.type;
 
-  // Check if any tract polygon vertex is inside the feature (simple bbox check)
-  let fMinLon = Infinity, fMaxLon = -Infinity, fMinLat = Infinity, fMaxLat = -Infinity;
-  for (const [lon, lat] of coords) {
-    if (lon < fMinLon) fMinLon = lon;
-    if (lon > fMaxLon) fMaxLon = lon;
-    if (lat < fMinLat) fMinLat = lat;
-    if (lat > fMaxLat) fMaxLat = lat;
-  }
-  for (const p of polygon) {
-    if (p.lon >= fMinLon && p.lon <= fMaxLon && p.lat >= fMinLat && p.lat <= fMaxLat) return true;
-  }
+    // Punkt-features: kolla om punkten ligger innanför traktpolygonen
+    if (type === 'Point') {
+      return booleanPointInPolygon(turfPoint(featureGeom.coordinates), tractPoly);
+    }
 
-  return false;
+    // Skapa GeoJSON Feature för intersect-test
+    const feature = { type: 'Feature' as const, properties: {}, geometry: featureGeom };
+    return booleanIntersects(feature as any, tractPoly as any);
+  } catch (e) {
+    // Om Turf kastar (ogiltig geometri etc.) → anta träff för säkerhets skull
+    console.warn('[tract-analysis] Turf intersect error, assuming hit:', (e as Error).message);
+    return true;
+  }
 }
 
-function extractCoords(geom: any): [number, number][] {
-  if (!geom) return [];
-  const type = geom.type;
-  if (type === 'Point') return [geom.coordinates];
-  if (type === 'MultiPoint' || type === 'LineString') return geom.coordinates;
-  if (type === 'MultiLineString' || type === 'Polygon') return geom.coordinates.flat();
-  if (type === 'MultiPolygon') return geom.coordinates.flat(2);
-  return [];
+// Exakt geometrisk intersect-check: ArcGIS Esri-geometri mot traktpolygon
+function arcgisFeatureIntersectsPolygon(
+  geom: any,
+  tractPoly: ReturnType<typeof buildTractPolygon>
+): boolean {
+  if (!geom) return true;
+
+  try {
+    // ArcGIS punkt
+    if (geom.x !== undefined && geom.y !== undefined) {
+      return booleanPointInPolygon(turfPoint([geom.x, geom.y]), tractPoly);
+    }
+
+    // ArcGIS polygon (rings)
+    if (geom.rings && geom.rings.length > 0) {
+      // Slut varje ring om den inte redan är sluten
+      const rings = geom.rings.map((ring: number[][]) => {
+        const r = ring as [number, number][];
+        if (r.length > 0 && (r[0][0] !== r[r.length - 1][0] || r[0][1] !== r[r.length - 1][1])) {
+          return [...r, [...r[0]] as [number, number]];
+        }
+        return r;
+      });
+      const featurePoly = rings.length === 1
+        ? turfPolygon(rings)
+        : turfMultiPolygon([rings]);
+      return booleanIntersects(featurePoly as any, tractPoly as any);
+    }
+
+    return true; // Okänd geometrityp → anta träff
+  } catch (e) {
+    console.warn('[tract-analysis] Turf ArcGIS intersect error, assuming hit:', (e as Error).message);
+    return true;
+  }
 }
 
 async function queryWFS(
@@ -168,45 +190,6 @@ async function queryArcGIS(
   return data.features || [];
 }
 
-// Konvertera ArcGIS Esri-geometri (rings) till [lon, lat][] för intersection-test
-function extractArcGISCoords(geom: any): [number, number][] {
-  if (!geom) return [];
-  const rings = geom.rings;
-  if (rings && rings.length > 0) {
-    return rings.flat() as [number, number][];
-  }
-  // Point
-  if (geom.x !== undefined && geom.y !== undefined) {
-    return [[geom.x, geom.y]];
-  }
-  return [];
-}
-
-function arcgisFeatureIntersectsPolygon(
-  geom: any,
-  polygon: { lat: number; lon: number }[]
-): boolean {
-  const coords = extractArcGISCoords(geom);
-  if (!coords || coords.length === 0) return true;
-
-  for (const [lon, lat] of coords) {
-    if (pointInPolygon(lat, lon, polygon)) return true;
-  }
-
-  let fMinLon = Infinity, fMaxLon = -Infinity, fMinLat = Infinity, fMaxLat = -Infinity;
-  for (const [lon, lat] of coords) {
-    if (lon < fMinLon) fMinLon = lon;
-    if (lon > fMaxLon) fMaxLon = lon;
-    if (lat < fMinLat) fMinLat = lat;
-    if (lat > fMaxLat) fMaxLat = lat;
-  }
-  for (const p of polygon) {
-    if (p.lon >= fMinLon && p.lon <= fMaxLon && p.lat >= fMinLat && p.lat <= fMaxLat) return true;
-  }
-
-  return false;
-}
-
 // Deduplicera hits baserat på namn+typ (eller id om det finns)
 function deduplicateHits(hits: AnalysisHit[]): AnalysisHit[] {
   const seen = new Set<string>();
@@ -219,14 +202,14 @@ function deduplicateHits(hits: AnalysisHit[]): AnalysisHit[] {
 }
 
 // Naturvårdsverket: Vattenskyddsområde
-async function checkVattenskydd(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
+async function checkVattenskydd(bbox: ReturnType<typeof computeBbox>, tractPoly: ReturnType<typeof buildTractPolygon>): Promise<AnalysisHit[]> {
   const features = await queryWFS(
     'https://geodata.naturvardsverket.se/geoserver/am-restriction/wfs',
     'am-restriction:AM.drinkingWaterProtectionArea',
     bbox,
   );
   const hits = features
-    .filter(f => featureIntersectsPolygon(f.geometry, polygon))
+    .filter(f => featureIntersectsPolygon(f.geometry, tractPoly))
     .map(f => {
       const p = f.properties || {};
       const detailParts: string[] = [];
@@ -254,14 +237,14 @@ async function checkVattenskydd(bbox: ReturnType<typeof computeBbox>, polygon: {
 }
 
 // Naturvårdsverket: Naturreservat
-async function checkNaturreservat(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
+async function checkNaturreservat(bbox: ReturnType<typeof computeBbox>, tractPoly: ReturnType<typeof buildTractPolygon>): Promise<AnalysisHit[]> {
   const features = await queryWFS(
     'https://geodata.naturvardsverket.se/geoserver/ps-nvr/wfs',
     'ps-nvr:PS.ProtectedSites.NR',
     bbox,
   );
   return deduplicateHits(features
-    .filter(f => featureIntersectsPolygon(f.geometry, polygon))
+    .filter(f => featureIntersectsPolygon(f.geometry, tractPoly))
     .map(f => ({
       type: 'naturreservat',
       name: f.properties?.namn || 'Naturreservat',
@@ -272,14 +255,14 @@ async function checkNaturreservat(bbox: ReturnType<typeof computeBbox>, polygon:
 }
 
 // Naturvårdsverket: Natura 2000
-async function checkNatura2000(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
+async function checkNatura2000(bbox: ReturnType<typeof computeBbox>, tractPoly: ReturnType<typeof buildTractPolygon>): Promise<AnalysisHit[]> {
   const features = await queryWFS(
     'https://geodata.naturvardsverket.se/geoserver/ps-n2k/wfs',
     'ps-n2k:PS.ProtectedSites.Natura2000',
     bbox,
   );
   return deduplicateHits(features
-    .filter(f => featureIntersectsPolygon(f.geometry, polygon))
+    .filter(f => featureIntersectsPolygon(f.geometry, tractPoly))
     .map(f => ({
       type: 'natura2000',
       name: f.properties?.omradesnamn || 'Natura 2000',
@@ -290,14 +273,14 @@ async function checkNatura2000(bbox: ReturnType<typeof computeBbox>, polygon: { 
 }
 
 // Riksantikvarieämbetet: Fornlämningar
-async function checkFornlamningar(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
+async function checkFornlamningar(bbox: ReturnType<typeof computeBbox>, tractPoly: ReturnType<typeof buildTractPolygon>): Promise<AnalysisHit[]> {
   const features = await queryWFS(
     'https://pub.raa.se/visning/lamningar_v1/wfs',
     'fornlamning',
     bbox,
   );
   return deduplicateHits(features
-    .filter(f => featureIntersectsPolygon(f.geometry, polygon))
+    .filter(f => featureIntersectsPolygon(f.geometry, tractPoly))
     .map(f => ({
       type: 'fornlamning',
       name: `${f.properties?.lamningstyp || 'Fornlämning'} (${f.properties?.lamningsnummer || ''})`,
@@ -308,13 +291,13 @@ async function checkFornlamningar(bbox: ReturnType<typeof computeBbox>, polygon:
 }
 
 // Skogsstyrelsen: Nyckelbiotoper
-async function checkNyckelbiotoper(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
+async function checkNyckelbiotoper(bbox: ReturnType<typeof computeBbox>, tractPoly: ReturnType<typeof buildTractPolygon>): Promise<AnalysisHit[]> {
   const features = await queryArcGIS(
     'https://geodpags.skogsstyrelsen.se/arcgis/rest/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer',
     0, bbox,
   );
   return deduplicateHits(features
-    .filter(f => arcgisFeatureIntersectsPolygon(f.geometry, polygon))
+    .filter(f => arcgisFeatureIntersectsPolygon(f.geometry, tractPoly))
     .map(f => {
       const a = f.attributes || {};
       const detailParts: string[] = [];
@@ -334,13 +317,13 @@ async function checkNyckelbiotoper(bbox: ReturnType<typeof computeBbox>, polygon
 }
 
 // Skogsstyrelsen: Biotopskydd
-async function checkBiotopskydd(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
+async function checkBiotopskydd(bbox: ReturnType<typeof computeBbox>, tractPoly: ReturnType<typeof buildTractPolygon>): Promise<AnalysisHit[]> {
   const features = await queryArcGIS(
     'https://geodpags.skogsstyrelsen.se/arcgis/rest/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer',
     0, bbox,
   );
   return deduplicateHits(features
-    .filter(f => arcgisFeatureIntersectsPolygon(f.geometry, polygon))
+    .filter(f => arcgisFeatureIntersectsPolygon(f.geometry, tractPoly))
     .map(f => {
       const a = f.attributes || {};
       const detailParts: string[] = [];
@@ -360,13 +343,13 @@ async function checkBiotopskydd(bbox: ReturnType<typeof computeBbox>, polygon: {
 }
 
 // Skogsstyrelsen: Skog och Historia
-async function checkSkogOchHistoria(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
+async function checkSkogOchHistoria(bbox: ReturnType<typeof computeBbox>, tractPoly: ReturnType<typeof buildTractPolygon>): Promise<AnalysisHit[]> {
   const features = await queryArcGIS(
     'https://geodpags.skogsstyrelsen.se/arcgis/rest/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer',
     0, bbox,
   );
   return deduplicateHits(features
-    .filter(f => arcgisFeatureIntersectsPolygon(f.geometry, polygon))
+    .filter(f => arcgisFeatureIntersectsPolygon(f.geometry, tractPoly))
     .map(f => {
       const a = f.attributes || {};
       return {
@@ -390,20 +373,20 @@ export async function POST(req: NextRequest) {
   }
 
   const bbox = computeBbox(body.polygon);
-  const polygon = body.polygon;
+  const tractPoly = buildTractPolygon(body.polygon);
   const result: AnalysisResult = { hits: [], errors: [], bbox };
 
-  console.log(`[tract-analysis] Analyzing polygon with ${polygon.length} points, bbox: ${JSON.stringify(bbox)}`);
+  console.log(`[tract-analysis] Analyzing polygon with ${body.polygon.length} points, bbox: ${JSON.stringify(bbox)}`);
 
-  // Run all checks in parallel
+  // Run all checks in parallel — använder Turf.js för exakt geometrisk intersect
   const checks = [
-    { name: 'Vattenskyddsområde', fn: () => checkVattenskydd(bbox, polygon) },
-    { name: 'Naturreservat', fn: () => checkNaturreservat(bbox, polygon) },
-    { name: 'Natura 2000', fn: () => checkNatura2000(bbox, polygon) },
-    { name: 'Fornlämningar', fn: () => checkFornlamningar(bbox, polygon) },
-    { name: 'Nyckelbiotoper', fn: () => checkNyckelbiotoper(bbox, polygon) },
-    { name: 'Biotopskydd', fn: () => checkBiotopskydd(bbox, polygon) },
-    { name: 'Skog och Historia', fn: () => checkSkogOchHistoria(bbox, polygon) },
+    { name: 'Vattenskyddsområde', fn: () => checkVattenskydd(bbox, tractPoly) },
+    { name: 'Naturreservat', fn: () => checkNaturreservat(bbox, tractPoly) },
+    { name: 'Natura 2000', fn: () => checkNatura2000(bbox, tractPoly) },
+    { name: 'Fornlämningar', fn: () => checkFornlamningar(bbox, tractPoly) },
+    { name: 'Nyckelbiotoper', fn: () => checkNyckelbiotoper(bbox, tractPoly) },
+    { name: 'Biotopskydd', fn: () => checkBiotopskydd(bbox, tractPoly) },
+    { name: 'Skog och Historia', fn: () => checkSkogOchHistoria(bbox, tractPoly) },
   ];
 
   const results = await Promise.allSettled(checks.map(c => c.fn()));
