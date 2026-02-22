@@ -632,6 +632,130 @@ export default function PlannerPage() {
     setBaseVis('terrain-layer', false);
     console.log('[MapLibre] Base layers initialized — satellite visible');
 
+    // === Marker symbol layer (GPU-renderad, smidig i 3D) ===
+    map.addSource('markers-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+
+    // Generera ikon-bilder för varje symboltyp
+    const iconSize = 64; // px
+    const markerIconDefs: { id: string; bg: string; outline: string }[] = [
+      { id: 'eternitytree', bg: '#22c55e', outline: '#ffffff' },
+      { id: 'naturecorner', bg: '#22c55e', outline: '#ffffff' },
+      { id: 'culturemonument', bg: '#f59e0b', outline: 'rgba(0,0,0,0.8)' },
+      { id: 'culturestump', bg: '#f59e0b', outline: 'rgba(0,0,0,0.8)' },
+      { id: 'highstump', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'landing', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'brashpile', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'windfall', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'manualfelling', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'powerline', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'road', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'turningpoint', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'ditch', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'bridge', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'corduroy', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'wet', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'steep', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'trail', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'warning', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'default', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+    ];
+
+    // SVG-sökvägar för varje ikon (viewBox 0 0 24 24, vit stroke/fill)
+    const iconSvgPaths: Record<string, string> = {
+      'eternitytree': '<path d="M12 3 Q4 6 4 12 Q4 16 12 16 Q20 16 20 12 Q20 6 12 3Z" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="16" x2="12" y2="22" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M9 22 Q12 20 15 22" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>',
+      'naturecorner': '<circle cx="8" cy="10" r="4" stroke="#fff" stroke-width="2" fill="none"/><circle cx="16" cy="10" r="4" stroke="#fff" stroke-width="2" fill="none"/><circle cx="12" cy="7" r="3" stroke="#fff" stroke-width="2" fill="none"/><path d="M3 20 Q12 16 21 20" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="8" y1="14" x2="8" y2="17" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="14" x2="16" y2="17" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
+      'culturemonument': '<text x="12" y="17" text-anchor="middle" font-size="16" font-weight="bold" font-family="Arial, sans-serif" fill="#fff">R</text>',
+      'culturestump': '<path d="M8 22 L8 14 Q8 11 12 11 Q16 11 16 14 L16 22" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 14 Q10 10 12 12 Q14 10 16 14" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/><text x="12" y="19" text-anchor="middle" font-size="7" font-weight="bold" font-family="Arial, sans-serif" fill="#fff">R</text>',
+      'highstump': '<path d="M9 22 L9 8 Q9 5 12 5 Q15 5 15 8 L15 22" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 8 L8 4 L10 6 L12 3 L14 6 L16 4 L15 8" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="5" y1="22" x2="5" y2="10" stroke="#fff" stroke-width="1.5" stroke-dasharray="3,3" stroke-linecap="round"/><path d="M4 10 L6 10" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/><path d="M4 22 L6 22" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/>',
+      'landing': '<ellipse cx="6" cy="18" rx="4" ry="2" stroke="#fff" stroke-width="2" fill="none"/><ellipse cx="14" cy="18" rx="4" ry="2" stroke="#fff" stroke-width="2" fill="none"/><ellipse cx="18" cy="18" rx="4" ry="2" stroke="#fff" stroke-width="2" fill="none"/><ellipse cx="10" cy="13" rx="4" ry="2" stroke="#fff" stroke-width="2" fill="none"/><ellipse cx="14" cy="13" rx="4" ry="2" stroke="#fff" stroke-width="2" fill="none"/><ellipse cx="12" cy="8" rx="4" ry="2" stroke="#fff" stroke-width="2" fill="none"/>',
+      'brashpile': '<path d="M4 20 Q4 14 8 12 Q6 10 8 8 Q10 6 12 8 Q14 6 16 8 Q18 10 16 12 Q20 14 20 20 Z" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="10" y1="10" x2="8" y2="5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="14" y1="10" x2="16" y2="4" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="6" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
+      'windfall': '<path d="M3 17 L5 14 L4 12 L6 13 L5 10" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="5" y1="15" x2="21" y2="9" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M9 14 L7 18" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M13 12 L11 17" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M17 10 L15 15" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
+      'manualfelling': '<line x1="5" y1="22" x2="13" y2="9" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><path d="M11 11 L13 6 Q19 3 18 8 Q20 10 17 12 L13 10 Z" fill="#fff" stroke="#fff" stroke-width="1" stroke-linejoin="round"/>',
+      'powerline': '<path d="M13 2 L3 14 L10 14 L10 22 L21 10 L14 10 Z" fill="#fff"/>',
+      'road': '<path d="M8 22 L11 2" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M16 22 L13 2" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="20" x2="12" y2="15" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><line x1="12" y1="12" x2="12" y2="7" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><line x1="12" y1="5" x2="12" y2="2" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>',
+      'turningpoint': '<circle cx="12" cy="12" r="7" stroke="#fff" stroke-width="2" fill="none"/><path d="M12 5 A7 7 0 1 1 5 12" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M5 8 L5 12 L9 12" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+      'ditch': '<path d="M2 8 L8 16 L16 16 L22 8" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M9 14 Q12 12 15 14" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/><line x1="2" y1="8" x2="2" y2="5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="22" y1="8" x2="22" y2="5" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
+      'bridge': '<path d="M2 17 L6 22 L18 22 L22 17" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M8 20 Q12 18 16 20" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/><rect x="4" y="11" width="16" height="4" rx="1" fill="#fff"/><line x1="6" y1="15" x2="6" y2="19" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><line x1="18" y1="15" x2="18" y2="19" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/>',
+      'corduroy': '<line x1="3" y1="8" x2="21" y2="8" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><line x1="3" y1="12" x2="21" y2="12" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><line x1="3" y1="16" x2="21" y2="16" stroke="#fff" stroke-width="3.5" stroke-linecap="round"/><path d="M12 3 L12 5 M10 4 L12 2 L14 4" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 21 L12 19 M10 20 L12 22 L14 20" stroke="#fff" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>',
+      'wet': '<path d="M12 3 Q7 10 7 14 Q7 19 12 19 Q17 19 17 14 Q17 10 12 3Z" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 22 Q7 19 11 22 Q15 25 19 22" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round"/>',
+      'steep': '<path d="M3 20 L12 5 L21 20 Z" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="7" y1="16" x2="17" y2="16" stroke="#fff" stroke-width="2" stroke-linecap="round"/><line x1="9" y1="12" x2="15" y2="12" stroke="#fff" stroke-width="2" stroke-linecap="round"/>',
+      'trail': '<ellipse cx="6" cy="19" rx="2.2" ry="3.5" fill="#fff"/><ellipse cx="4.5" cy="14.5" rx="0.9" ry="1.1" fill="#fff"/><ellipse cx="5.8" cy="14" rx="0.8" ry="1" fill="#fff"/><ellipse cx="7" cy="14.2" rx="0.7" ry="0.9" fill="#fff"/><ellipse cx="8" cy="14.8" rx="0.6" ry="0.8" fill="#fff"/><ellipse cx="14" cy="12" rx="2.2" ry="3.5" fill="#fff"/><ellipse cx="12.5" cy="7.5" rx="0.9" ry="1.1" fill="#fff"/><ellipse cx="13.8" cy="7" rx="0.8" ry="1" fill="#fff"/><ellipse cx="15" cy="7.2" rx="0.7" ry="0.9" fill="#fff"/><ellipse cx="16" cy="7.8" rx="0.6" ry="0.8" fill="#fff"/><ellipse cx="20" cy="5" rx="1.8" ry="2.8" fill="#fff"/><ellipse cx="18.8" cy="1.8" rx="0.7" ry="0.8" fill="#fff"/><ellipse cx="19.8" cy="1.5" rx="0.6" ry="0.7" fill="#fff"/>',
+      'warning': '<path d="M12 3 L22 21 L2 21 Z" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="9" x2="12" y2="14" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="17" r="1.2" fill="#fff"/>',
+      'default': '<circle cx="12" cy="12" r="4" fill="#fff"/>',
+    };
+
+    // Generera och ladda alla ikon-bilder asynkront
+    const loadIconPromises = markerIconDefs.map((def) => new Promise<void>((resolve) => {
+      const svgInner = iconSvgPaths[def.id] || iconSvgPaths['default'];
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${iconSize}" height="${iconSize}" viewBox="0 0 ${iconSize} ${iconSize}">
+        <circle cx="${iconSize/2}" cy="${iconSize/2}" r="${iconSize/2 - 2}" fill="${def.bg}" stroke="${def.outline}" stroke-width="3"/>
+        <g transform="translate(${(iconSize - 36) / 2}, ${(iconSize - 36) / 2}) scale(1.5)">${svgInner}</g>
+      </svg>`;
+      const img = new Image(iconSize, iconSize);
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = iconSize;
+        canvas.height = iconSize;
+        const ctx = canvas.getContext('2d');
+        if (ctx) ctx.drawImage(img, 0, 0);
+        if (!map.hasImage(`marker-${def.id}`)) {
+          map.addImage(`marker-${def.id}`, canvas, { pixelRatio: 2 });
+        }
+        resolve();
+      };
+      img.onerror = () => {
+        // Fallback: enkel färgad cirkel
+        const canvas = document.createElement('canvas');
+        canvas.width = iconSize;
+        canvas.height = iconSize;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.beginPath();
+          ctx.arc(iconSize/2, iconSize/2, iconSize/2 - 2, 0, Math.PI * 2);
+          ctx.fillStyle = def.bg;
+          ctx.fill();
+          ctx.strokeStyle = def.outline;
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+        if (!map.hasImage(`marker-${def.id}`)) {
+          map.addImage(`marker-${def.id}`, canvas, { pixelRatio: 2 });
+        }
+        resolve();
+      };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    }));
+
+    Promise.all(loadIconPromises).then(() => {
+      console.log('[MapLibre] All marker icons loaded');
+      // Lägg till symbol layer efter att alla ikoner laddats
+      try {
+        map.addLayer({
+          id: 'markers-layer',
+          type: 'symbol',
+          source: 'markers-source',
+          layout: {
+            'icon-image': ['concat', 'marker-', ['get', 'type']],
+            'icon-size': 0.6,
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'icon-pitch-alignment': 'viewport',
+            'icon-rotation-alignment': 'viewport',
+            'icon-anchor': 'center',
+            'symbol-placement': 'point',
+            'symbol-z-order': 'source',
+          },
+          paint: {
+            'icon-opacity': 1,
+            'icon-opacity-transition': { duration: 0 },
+          },
+        });
+        console.log('[MapLibre] markers-layer added');
+      } catch (e) {
+        console.error('[MapLibre] markers-layer error:', e);
+      }
+    });
+
     setMapLibreReady(true);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2575,6 +2699,37 @@ export default function PlannerPage() {
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) { /* source not ready */ }
   }, [markers, mapLibreReady, mapCenter, visibleZones]);
+
+  // 2b) Synka markeringar → MapLibre markers-source (GPU-renderad symbol layer)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      const src = map.getSource('markers-source') as any;
+      if (!src) return;
+      const features: any[] = [];
+      markers.filter(m => m.isMarker).forEach(m => {
+        const ll = svgToLatLon(m.x, m.y);
+        features.push({
+          type: 'Feature',
+          properties: { type: m.type || 'default', id: m.id },
+          geometry: { type: 'Point', coordinates: [ll.lon, ll.lat] },
+        });
+      });
+      src.setData({ type: 'FeatureCollection', features });
+    } catch (e) { /* source not ready */ }
+  }, [markers, mapLibreReady, mapCenter]);
+
+  // 2c) Visa/dölj markers-layer beroende på visibleLayers.symbols
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      if (map.getLayer('markers-layer')) {
+        map.setLayoutProperty('markers-layer', 'visibility', visibleLayers.symbols ? 'visible' : 'none');
+      }
+    } catch (e) { /* layer not ready */ }
+  }, [visibleLayers.symbols, mapLibreReady]);
 
   // 3) Synka TMA-vägar → MapLibre tma-roads-source + tma-warning-source
   useEffect(() => {
@@ -5189,7 +5344,9 @@ export default function PlannerPage() {
             
             // Returnera null om symbolen inte ska visas
             if (!shouldShow) return null;
-            
+
+            // Visuell rendering sker nu via MapLibre symbol layer (GPU).
+            // SVG-overlayen renderar bara en osynlig hit-area för drag/klick.
             return (
               <g
                 key={m.id}
@@ -5205,53 +5362,19 @@ export default function PlannerPage() {
                 }}
                 style={{
                   cursor: isDragging ? 'grabbing' : 'pointer',
-                  opacity: opacity,
+                  opacity: isDragging ? 1 : 0,
                   pointerEvents: isInDrawingMode ? 'none' : 'auto',
                 }}
               >
-                {/* Skugga (billig SVG-cirkel istället för CSS filter) */}
-                <circle cx={m.x} cy={m.y + 2} r={symbolRadius + 1} fill="rgba(0,0,0,0.25)" />
-                {/* Grön ring om kvitterad */}
-                {isAcknowledged && drivingMode && (
-                  <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={strokeW} />
-                )}
-                {/* Vägkontroll-ring för avlägg — ej enskild väg */}
-                {m.type === 'landing' && m.roadCheck && m.roadCheck.status !== 'loading' && m.roadCheck.roadCategory !== 'enskild' && (
-                  <circle
-                    cx={m.x} cy={m.y}
-                    r={ringRadius}
-                    fill="none"
-                    stroke={m.roadCheck.tillstand === 'beviljat' ? '#22c55e' : m.roadCheck.tillstand === 'sokt' ? '#eab308' : '#ef4444'}
-                    strokeWidth={strokeW}
-                    strokeDasharray={m.roadCheck.tillstand === 'ej_sokt' ? '6 4' : 'none'}
-                    opacity={0.7}
-                  />
-                )}
-                {/* Bakgrundscirkel med outline */}
+                {/* Osynlig hit-area (synlig bara vid drag) */}
                 <circle
                   cx={m.x}
                   cy={m.y}
                   r={symbolRadius}
-                  fill={isDragging && hasMoved ? colors.blue : isMenuOpen ? 'rgba(10,132,255,0.3)' : darkBg}
-                  stroke={isDragging && hasMoved ? '#fff' : isMenuOpen ? colors.blue : outlineColor}
+                  fill={isDragging && hasMoved ? colors.blue : 'transparent'}
+                  stroke={isDragging && hasMoved ? '#fff' : 'transparent'}
                   strokeWidth={getConstrainedSize(4)}
                 />
-                {/* SVG-ikon */}
-                <g
-                  transform={`translate(${m.x - iconSize/2}, ${m.y - iconSize/2})`}
-                  style={{ pointerEvents: 'none' }}
-                >
-                  {renderIcon(m.type || 'default', iconSize, '#fff')}
-                </g>
-                {/* Foto-indikator */}
-                {m.photoData && (
-                  <>
-                    <circle cx={m.x + photoOffset} cy={m.y - photoOffset} r={photoRadius} fill="#22c55e" stroke="#fff" strokeWidth={getConstrainedSize(4)} />
-                    <text x={m.x + photoOffset} y={m.y - photoOffset} textAnchor="middle" dominantBaseline="central" fontSize={photoFontSize} style={{ pointerEvents: 'none' }}>
-                      📷
-                    </text>
-                  </>
-                )}
               </g>
             );
           })}
