@@ -545,13 +545,15 @@ export default function PlannerPage() {
     ];
     lineTypeDefs.forEach((lt: any) => {
       const isBoundary = lt.id === 'boundary';
-      // Zoom-interpolerade linjebredder (smalare vid utzoom, tjockare vid inzoom)
+      // Zoom-interpolerade linjebredder
+      // Traktgräns: alltid tydlig, minst 3px vid utzoom
+      // Övriga: minst 2px vid utzoom
       const lw = isBoundary
-        ? ['interpolate', ['linear'], ['zoom'], 8, 1.5, 10, 2.5, 13, 4, 15, 7, 17, 8]
-        : ['interpolate', ['linear'], ['zoom'], 8, 1, 10, 2, 13, 3, 15, 6, 17, 7];
+        ? ['interpolate', ['linear'], ['zoom'], 8, 3, 11, 4, 13, 5, 15, 7, 17, 8]
+        : ['interpolate', ['linear'], ['zoom'], 8, 2, 11, 3, 13, 4, 15, 6, 17, 7];
       const cwLw = isBoundary
-        ? ['interpolate', ['linear'], ['zoom'], 8, 3, 10, 4, 13, 6, 15, 9, 17, 10]
-        : ['interpolate', ['linear'], ['zoom'], 8, 2.5, 10, 3.5, 13, 5, 15, 8, 17, 9];
+        ? ['interpolate', ['linear'], ['zoom'], 8, 5, 11, 6, 13, 7, 15, 9, 17, 10]
+        : ['interpolate', ['linear'], ['zoom'], 8, 4, 11, 5, 13, 6, 15, 8, 17, 9];
       // Svart casing bakom varje linje för kontrast
       map.addLayer({
         id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
@@ -775,7 +777,7 @@ export default function PlannerPage() {
           source: 'markers-source',
           layout: {
             'icon-image': ['concat', 'marker-', ['get', 'type']],
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 13, 0.5, 15, 0.75, 17, 1.0],
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.15, 11, 0.25, 13, 0.45, 15, 0.75, 17, 1.0],
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
             'icon-padding': 2,
