@@ -104,6 +104,21 @@ interface SmhiWeather {
   precipLabel?: string;
 }
 
+interface TraktAnalysisHit {
+  type: string;
+  name: string;
+  details?: string;
+  url?: string;
+  id?: string;
+}
+
+interface TraktAnalysisResult {
+  status: 'loading' | 'done' | 'error';
+  hits: TraktAnalysisHit[];
+  errors: string[];
+  timestamp?: number;
+}
+
 interface TraktData {
   volym: number;
   areal: number;
@@ -1991,6 +2006,11 @@ export default function PlannerPage() {
   const brandLoadedRef = useRef(false);
   const [brandTestMode, setBrandTestMode] = useState<number | null>(null);
 
+  // === TRAKTANALYS ===
+  const [tractAnalysis, setTractAnalysis] = useState<Record<string, TraktAnalysisResult>>({}); // per boundary id
+  const [tractAnalysisOpen, setTractAnalysisOpen] = useState<string | null>(null); // boundary id for open panel
+  const tractAnalysisCheckedRef = useRef<Record<string, string>>({}); // boundary id → hash
+
   // Hjälpare: alla TMA-resultat som har vägar (för rendering)
   const tmaWithRoads = Object.entries(tmaResults).filter(([, r]) => r.status === 'done' && r.roads.length > 0);
 
@@ -2037,6 +2057,65 @@ export default function PlannerPage() {
         const { lat: wLat, lon: wLon } = svgToLatLon(midPt.x, midPt.y);
         fetchSmhiWeather(wLat, wLon);
       }
+    }
+  }, [markers]);
+
+  // === TRAKTANALYS: Trigga automatisk analys per boundary ===
+  const runTractAnalysis = async (boundaryId: string, path: Point[]) => {
+    if (path.length < 3) return;
+    setTractAnalysis(prev => ({ ...prev, [boundaryId]: { status: 'loading', hits: [], errors: [] } }));
+    try {
+      const polygon = path.map(p => svgToLatLon(p.x, p.y));
+      const resp = await fetch('/api/tract-analysis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ polygon }),
+      });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      setTractAnalysis(prev => ({
+        ...prev,
+        [boundaryId]: { status: 'done', hits: data.hits || [], errors: data.errors || [], timestamp: Date.now() },
+      }));
+      // Auto-open panel if hits found
+      if (data.hits && data.hits.length > 0) {
+        setTractAnalysisOpen(boundaryId);
+      }
+    } catch (e: any) {
+      console.error('[TractAnalysis] Error:', e);
+      setTractAnalysis(prev => ({
+        ...prev,
+        [boundaryId]: { status: 'error', hits: [], errors: [e.message || 'Analys misslyckades'] },
+      }));
+    }
+  };
+
+  useEffect(() => {
+    const boundaryMarkers = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 2);
+    const currentIds = new Set(boundaryMarkers.map(m => String(m.id)));
+
+    // Ta bort resultat för raderade boundaries
+    setTractAnalysis(prev => {
+      const next = { ...prev };
+      let changed = false;
+      for (const id of Object.keys(next)) {
+        if (!currentIds.has(id)) {
+          delete next[id];
+          delete tractAnalysisCheckedRef.current[id];
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+
+    // Kör analys per boundary
+    for (const bm of boundaryMarkers) {
+      const bmId = String(bm.id);
+      const hash = bmId + ':' + (bm.path?.length || 0);
+      if (tractAnalysisCheckedRef.current[bmId] === hash) continue;
+      tractAnalysisCheckedRef.current[bmId] = hash;
+      console.log('[TractAnalysis] Startar analys för boundary', bmId);
+      runTractAnalysis(bmId, bm.path!);
     }
   }, [markers]);
 
@@ -6974,6 +7053,73 @@ export default function PlannerPage() {
                   </svg>
                 </button>
               )}
+
+              {/* Traktanalys (bara för traktgränser) */}
+              {marker.isLine && marker.lineType === 'boundary' && marker.path && marker.path.length >= 3 && (() => {
+                const aId = String(marker.id);
+                const a = tractAnalysis[aId];
+                const hitCount = a?.status === 'done' ? a.hits.length : 0;
+                const isLoading = a?.status === 'loading';
+                return (
+                  <button
+                    onClick={() => {
+                      setMarkerMenuOpen(null);
+                      if (a?.status === 'done') {
+                        setTractAnalysisOpen(aId);
+                      } else {
+                        runTractAnalysis(aId, marker.path!);
+                        setTractAnalysisOpen(aId);
+                      }
+                    }}
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '24px',
+                      border: 'none',
+                      background: hitCount > 0 ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.15)',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      position: 'relative',
+                    }}
+                  >
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={hitCount > 0 ? 'rgba(239,68,68,0.8)' : 'rgba(59,130,246,0.8)'} strokeWidth="2">
+                      <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" />
+                    </svg>
+                    {hitCount > 0 && (
+                      <span style={{
+                        position: 'absolute',
+                        top: '-2px',
+                        right: '-2px',
+                        background: '#ef4444',
+                        color: '#fff',
+                        borderRadius: '50%',
+                        width: '18px',
+                        height: '18px',
+                        fontSize: '10px',
+                        fontWeight: '700',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>{hitCount}</span>
+                    )}
+                    {isLoading && (
+                      <span style={{
+                        position: 'absolute',
+                        top: '-2px',
+                        right: '-2px',
+                        width: '18px',
+                        height: '18px',
+                        borderRadius: '50%',
+                        border: '2px solid rgba(59,130,246,0.3)',
+                        borderTopColor: '#3b82f6',
+                        animation: 'spin 0.8s linear infinite',
+                      }} />
+                    )}
+                  </button>
+                );
+              })()}
 
               {/* Radera */}
               <button
@@ -13111,6 +13257,276 @@ export default function PlannerPage() {
           border: none;
         }
       `}</style>
+
+      {/* === TRAKTANALYS PANEL === */}
+      {tractAnalysisOpen && tractAnalysis[tractAnalysisOpen] && (() => {
+        const analysis = tractAnalysis[tractAnalysisOpen];
+        const boundaryId = tractAnalysisOpen;
+        const boundaryIds = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1).map(m => String(m.id));
+        const traktIndex = boundaryIds.indexOf(boundaryId) + 1;
+        const traktLabel = traktIndex > 0 ? `Trakt ${traktIndex}` : 'Trakt';
+
+        const typeConfig: Record<string, { icon: string; color: string; label: string; link?: string }> = {
+          vattenskydd: { icon: '\u26A0\uFE0F', color: '#3b82f6', label: 'Vattenskyddsomr\u00E5de', link: 'https://www.havochvatten.se/vattenskyddsomrade' },
+          naturreservat: { icon: '\uD83D\uDED1', color: '#22c55e', label: 'Naturreservat' },
+          natura2000: { icon: '\uD83C\uDDEA\uD83C\uDDFA', color: '#6366f1', label: 'Natura 2000' },
+          fornlamning: { icon: '\uD83C\uDFDB\uFE0F', color: '#f59e0b', label: 'Fornl\u00E4mning' },
+          naturvardsavtal: { icon: '\uD83C\uDF32', color: '#22c55e', label: 'Naturv\u00E5rdsavtal' },
+        };
+
+        return (
+          <div style={{
+            position: 'fixed',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            zIndex: 600,
+            background: '#000',
+            borderTop: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: '16px 16px 0 0',
+            maxHeight: '70vh',
+            overflowY: 'auto',
+            padding: '20px 16px',
+            paddingBottom: 'max(20px, env(safe-area-inset-bottom))',
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div>
+                <div style={{ fontSize: '18px', fontWeight: '700', color: '#fff' }}>Traktanalys</div>
+                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>{traktLabel}</div>
+              </div>
+              <button
+                onClick={() => setTractAnalysisOpen(null)}
+                style={{
+                  background: 'rgba(255,255,255,0.1)',
+                  border: 'none',
+                  borderRadius: '50%',
+                  width: '36px',
+                  height: '36px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#fff',
+                  fontSize: '18px',
+                }}>
+                \u2715
+              </button>
+            </div>
+
+            {/* Loading */}
+            {analysis.status === 'loading' && (
+              <div style={{
+                padding: '32px 0',
+                textAlign: 'center',
+                color: 'rgba(255,255,255,0.6)',
+                fontSize: '14px',
+              }}>
+                <div style={{ fontSize: '28px', marginBottom: '12px', animation: 'pulse 1.5s infinite' }}>\uD83D\uDD0D</div>
+                Analyserar trakten mot register...
+              </div>
+            )}
+
+            {/* Results */}
+            {analysis.status === 'done' && (
+              <>
+                {analysis.hits.length === 0 ? (
+                  <div style={{
+                    background: 'rgba(34,197,94,0.1)',
+                    border: '1px solid rgba(34,197,94,0.3)',
+                    borderRadius: '12px',
+                    padding: '20px',
+                    textAlign: 'center',
+                  }}>
+                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>\u2705</div>
+                    <div style={{ fontSize: '16px', fontWeight: '600', color: '#22c55e' }}>Inga k\u00E4nda restriktioner</div>
+                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
+                      Inga tr\u00E4ffar i vattenskydd, naturreservat, Natura 2000 eller fornl\u00E4mningsregister
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {analysis.hits.map((hit, i) => {
+                      const cfg = typeConfig[hit.type] || { icon: '\u2753', color: '#888', label: hit.type };
+                      return (
+                        <div key={i} style={{
+                          background: '#0a0a0a',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '12px',
+                          padding: '14px 16px',
+                          borderLeft: `3px solid ${cfg.color}`,
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                            <span style={{ fontSize: '20px' }}>{cfg.icon}</span>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff' }}>{hit.name}</div>
+                              {hit.details && (
+                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>{hit.details}</div>
+                              )}
+                            </div>
+                            {(hit.url || cfg.link) && (
+                              <a
+                                href={hit.url || cfg.link}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                  background: 'rgba(255,255,255,0.08)',
+                                  border: 'none',
+                                  borderRadius: '8px',
+                                  padding: '6px 12px',
+                                  color: cfg.color,
+                                  fontSize: '12px',
+                                  fontWeight: '500',
+                                  textDecoration: 'none',
+                                  whiteSpace: 'nowrap',
+                                }}>
+                                Info \u2197
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Errors */}
+                {analysis.errors.length > 0 && (
+                  <div style={{ marginTop: '12px', padding: '10px 14px', background: 'rgba(239,68,68,0.1)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)' }}>
+                    <div style={{ fontSize: '12px', color: 'rgba(239,68,68,0.8)' }}>
+                      {analysis.errors.map((e, i) => <div key={i}>{e}</div>)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Summary footer */}
+                <div style={{
+                  marginTop: '16px',
+                  display: 'flex',
+                  gap: '8px',
+                  justifyContent: 'center',
+                }}>
+                  <button
+                    onClick={() => {
+                      const bm = markers.find(m => String(m.id) === boundaryId);
+                      if (bm?.path) runTractAnalysis(boundaryId, bm.path);
+                    }}
+                    style={{
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '10px',
+                      padding: '10px 20px',
+                      color: '#fff',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      cursor: 'pointer',
+                    }}>
+                    \uD83D\uDD04 K\u00F6r igen
+                  </button>
+                  <button
+                    onClick={() => setTractAnalysisOpen(null)}
+                    style={{
+                      background: 'rgba(255,255,255,0.08)',
+                      border: '1px solid rgba(255,255,255,0.15)',
+                      borderRadius: '10px',
+                      padding: '10px 20px',
+                      color: '#fff',
+                      fontSize: '13px',
+                      fontWeight: '500',
+                      cursor: 'pointer',
+                    }}>
+                    St\u00E4ng
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Error state */}
+            {analysis.status === 'error' && (
+              <div style={{
+                background: 'rgba(239,68,68,0.1)',
+                border: '1px solid rgba(239,68,68,0.3)',
+                borderRadius: '12px',
+                padding: '20px',
+                textAlign: 'center',
+              }}>
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>\u274C</div>
+                <div style={{ fontSize: '14px', color: 'rgba(239,68,68,0.8)' }}>Analysen misslyckades</div>
+                {analysis.errors.map((e, i) => (
+                  <div key={i} style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>{e}</div>
+                ))}
+                <button
+                  onClick={() => {
+                    const bm = markers.find(m => String(m.id) === boundaryId);
+                    if (bm?.path) runTractAnalysis(boundaryId, bm.path);
+                  }}
+                  style={{
+                    marginTop: '12px',
+                    background: 'rgba(255,255,255,0.1)',
+                    border: '1px solid rgba(255,255,255,0.15)',
+                    borderRadius: '8px',
+                    padding: '8px 16px',
+                    color: '#fff',
+                    fontSize: '13px',
+                    cursor: 'pointer',
+                  }}>
+                  F\u00F6rs\u00F6k igen
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* === TRAKTANALYS: Körläge sammanfattning === */}
+      {drivingMode && (() => {
+        const allHits = Object.values(tractAnalysis)
+          .filter(a => a.status === 'done' && a.hits.length > 0)
+          .flatMap(a => a.hits);
+        if (allHits.length === 0) return null;
+        const summary = new Map<string, number>();
+        for (const h of allHits) {
+          summary.set(h.type, (summary.get(h.type) || 0) + 1);
+        }
+        const typeLabels: Record<string, string> = {
+          vattenskydd: 'vattenskyddsomr\u00E5de',
+          naturreservat: 'naturreservat',
+          natura2000: 'Natura 2000',
+          fornlamning: 'fornl\u00E4mning',
+          naturvardsavtal: 'naturv\u00E5rdsavtal',
+        };
+        const parts = [...summary.entries()].map(([type, count]) => {
+          const label = typeLabels[type] || type;
+          return count > 1 ? `${count} ${label}` : label;
+        });
+        return (
+          <div
+            onClick={() => {
+              const firstBoundaryWithHits = Object.entries(tractAnalysis).find(([, a]) => a.status === 'done' && a.hits.length > 0);
+              if (firstBoundaryWithHits) setTractAnalysisOpen(firstBoundaryWithHits[0]);
+            }}
+            style={{
+              position: 'fixed',
+              top: '60px',
+              left: '50%',
+              transform: 'translateX(-50%)',
+              zIndex: 500,
+              background: 'rgba(239,68,68,0.9)',
+              color: '#fff',
+              padding: '8px 16px',
+              borderRadius: '10px',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              maxWidth: '90vw',
+              textAlign: 'center',
+              boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+            }}>
+            \u26A0\uFE0F Denna trakt har: {parts.join(', ')}
+          </div>
+        );
+      })()}
 
       {/* Sparat-toast */}
       {showSaveToast && (
