@@ -4084,11 +4084,14 @@ export default function PlannerPage() {
           (pos) => {
             const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
             const accuracy = pos.coords.accuracy;
-            
-            // Ignorera osäkra positioner (över 10 meter för bättre kvalitet)
-            if (accuracy > 10) return;
-            
+
+            // ALLTID uppdatera gpsPosition (för proximity/varningssystemet)
             setCurrentPosition(newPos);
+            setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
+
+            const isAccurate = accuracy <= 30;
+            if (!isAccurate) return;
+
             setTrackingPath(prev => [...prev, newPos]);
             
             // Uppdatera kartposition
@@ -9118,11 +9121,10 @@ export default function PlannerPage() {
                           (pos) => {
                             const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
                             const accuracy = pos.coords.accuracy;
-                            
-                            // Ignorera osäkra positioner (över 10 meter)
-                            if (accuracy > 10) return;
-                            
+
+                            // ALLTID uppdatera gpsPosition (för proximity/varningssystemet)
                             setCurrentPosition(newPos);
+                            setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
                             
                             setGpsStartPos(prev => {
                               if (!prev) {
