@@ -108,6 +108,7 @@ interface TraktAnalysisHit {
   type: string;
   name: string;
   details?: string;
+  warning?: string;
   url?: string;
   id?: string;
 }
@@ -13267,9 +13268,9 @@ export default function PlannerPage() {
         const traktLabel = traktIndex > 0 ? `Trakt ${traktIndex}` : 'Trakt';
 
         const typeConfig: Record<string, { icon: string; color: string; label: string; link?: string }> = {
-          vattenskydd: { icon: '⚠️', color: '#3b82f6', label: 'Vattenskyddsområde', link: 'https://www.havochvatten.se/vattenskyddsomrade' },
-          naturreservat: { icon: '🛑', color: '#22c55e', label: 'Naturreservat' },
-          natura2000: { icon: '🇪🇺', color: '#6366f1', label: 'Natura 2000' },
+          vattenskydd: { icon: '⚠️', color: '#3b82f6', label: 'Vattenskyddsområde', link: 'https://skyddadnatur.naturvardsverket.se/' },
+          naturreservat: { icon: '🛑', color: '#22c55e', label: 'Naturreservat', link: 'https://skyddadnatur.naturvardsverket.se/' },
+          natura2000: { icon: '🇪🇺', color: '#6366f1', label: 'Natura 2000', link: 'https://skyddadnatur.naturvardsverket.se/' },
           fornlamning: { icon: '🏛️', color: '#f59e0b', label: 'Fornlämning' },
         };
 
@@ -13361,6 +13362,17 @@ export default function PlannerPage() {
                               <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff' }}>{hit.name}</div>
                               {hit.details && (
                                 <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>{hit.details}</div>
+                              )}
+                              {hit.warning && (
+                                <div style={{
+                                  fontSize: '12px',
+                                  color: '#fbbf24',
+                                  marginTop: '6px',
+                                  padding: '6px 8px',
+                                  background: 'rgba(251,191,36,0.08)',
+                                  borderRadius: '6px',
+                                  lineHeight: '1.4',
+                                }}>⚠️ {hit.warning}</div>
                               )}
                             </div>
                             {(hit.url || cfg.link) && (

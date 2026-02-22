@@ -14,6 +14,7 @@ interface AnalysisHit {
   type: string;       // vattenskydd, naturreservat, natura2000, fornlamning, nyckelbiotop, biotopskydd
   name: string;
   details?: string;
+  warning?: string;
   url?: string;
   id?: string;
 }
@@ -121,6 +122,17 @@ async function queryWFS(
   return data.features || [];
 }
 
+// Deduplicera hits baserat på namn+typ (eller id om det finns)
+function deduplicateHits(hits: AnalysisHit[]): AnalysisHit[] {
+  const seen = new Set<string>();
+  return hits.filter(h => {
+    const key = h.id ? `${h.type}:${h.id}` : `${h.type}:${h.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // Naturvårdsverket: Vattenskyddsområde
 async function checkVattenskydd(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
   const features = await queryWFS(
@@ -128,14 +140,32 @@ async function checkVattenskydd(bbox: ReturnType<typeof computeBbox>, polygon: {
     'am-restriction:AM.drinkingWaterProtectionArea',
     bbox,
   );
-  return features
+  const hits = features
     .filter(f => featureIntersectsPolygon(f.geometry, polygon))
-    .map(f => ({
-      type: 'vattenskydd',
-      name: f.properties?.namn || 'Vattenskyddsområde',
-      details: f.properties?.skyddstyp || '',
-      id: f.properties?.nvrid || '',
-    }));
+    .map(f => {
+      const p = f.properties || {};
+      const detailParts: string[] = [];
+      if (p.beslutsstatus) detailParts.push(p.beslutsstatus);
+      if (p.kommun) detailParts.push(`Kommun: ${p.kommun}`);
+      if (p.area_ha) detailParts.push(`${Math.round(p.area_ha)} ha`);
+      if (p.skog_ha) detailParts.push(`varav skog: ${Math.round(p.skog_ha)} ha`);
+      if (p.urspr_beslutsdatum) {
+        const d = p.urspr_beslutsdatum;
+        const formatted = d.length === 8 ? `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}` : d;
+        detailParts.push(`Beslut: ${formatted}`);
+      }
+      if (p.beslutsmyndighet && p.beslutsmyndighet.trim()) detailParts.push(`Myndighet: ${p.beslutsmyndighet}`);
+      return {
+        type: 'vattenskydd' as const,
+        name: p.namn || 'Vattenskyddsområde',
+        details: detailParts.join(' | '),
+        warning: 'Särskilda restriktioner gäller för bränslehantering. Invallning krävs vid tankning. Kontrollera föreskrifterna hos Länsstyrelsen.',
+        url: 'https://skyddadnatur.naturvardsverket.se/',
+        id: p.nvrid || '',
+      };
+    });
+  // Deduplicera baserat på namn
+  return deduplicateHits(hits);
 }
 
 // Naturvårdsverket: Naturreservat
@@ -145,14 +175,15 @@ async function checkNaturreservat(bbox: ReturnType<typeof computeBbox>, polygon:
     'ps-nvr:PS.ProtectedSites.NR',
     bbox,
   );
-  return features
+  return deduplicateHits(features
     .filter(f => featureIntersectsPolygon(f.geometry, polygon))
     .map(f => ({
       type: 'naturreservat',
       name: f.properties?.namn || 'Naturreservat',
       details: `${f.properties?.skyddstyp || 'Naturreservat'}, ${f.properties?.area_ha ? Math.round(f.properties.area_ha) + ' ha' : ''}`,
+      url: 'https://skyddadnatur.naturvardsverket.se/',
       id: f.properties?.nvrid || '',
-    }));
+    })));
 }
 
 // Naturvårdsverket: Natura 2000
@@ -162,14 +193,15 @@ async function checkNatura2000(bbox: ReturnType<typeof computeBbox>, polygon: { 
     'ps-n2k:PS.ProtectedSites.Natura2000',
     bbox,
   );
-  return features
+  return deduplicateHits(features
     .filter(f => featureIntersectsPolygon(f.geometry, polygon))
     .map(f => ({
       type: 'natura2000',
       name: f.properties?.omradesnamn || 'Natura 2000',
       details: `${f.properties?.omradestyp || ''}, naturtyper: ${f.properties?.naturtyper || ''}`,
+      url: 'https://skyddadnatur.naturvardsverket.se/',
       id: f.properties?.objectid ? String(f.properties.objectid) : '',
-    }));
+    })));
 }
 
 // Riksantikvarieämbetet: Fornlämningar
@@ -179,7 +211,7 @@ async function checkFornlamningar(bbox: ReturnType<typeof computeBbox>, polygon:
     'fornlamning',
     bbox,
   );
-  return features
+  return deduplicateHits(features
     .filter(f => featureIntersectsPolygon(f.geometry, polygon))
     .map(f => ({
       type: 'fornlamning',
@@ -187,7 +219,7 @@ async function checkFornlamningar(bbox: ReturnType<typeof computeBbox>, polygon:
       details: f.properties?.egenskap || '',
       id: f.properties?.id || '',
       url: f.properties?.url || '',
-    }));
+    })));
 }
 
 export async function POST(req: NextRequest) {
@@ -228,6 +260,9 @@ export async function POST(req: NextRequest) {
       console.error(`[tract-analysis] FEL: ${msg}`);
     }
   }
+
+  // Slutgiltig deduplicering
+  result.hits = deduplicateHits(result.hits);
 
   console.log(`[tract-analysis] Klart: ${result.hits.length} träffar, ${result.errors.length} fel`);
 
