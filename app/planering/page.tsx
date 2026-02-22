@@ -319,6 +319,7 @@ export default function PlannerPage() {
     vidaKartbild: true,    // VIDA traktdirektiv-kartbild
     propertyLines: false,  // Fastighetsgränser (legacy, unused)
     fastighetsgranser: false, // Fastighetsgränser LM WMS
+    hydrografi: false,     // Diken & vattendrag (SKS Flödesackumulation)
     moisture: false,       // Markfuktighet (kräver konto)
     contours: false,       // Höjdkurvor
     wetlands: false,       // Sumpskog (öppet)
@@ -371,6 +372,7 @@ export default function PlannerPage() {
         { id: 'skoghistoria', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer', layers: 'SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen', name: 'Skog & historia', color: '#f59e0b' },
         { id: 'avverkningsanmalan', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaAvverkningsanmalan/MapServer/WmsServer', layers: 'Avverkningsanmalan_Skogsstyrelsen', name: 'Avverkningsanmälningar', color: '#eab308' },
         { id: 'utfordavverkning', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaUtfordavverkning/MapServer/WmsServer', layers: 'UtfordAvverkning_Skogsstyrelsen', name: 'Utförda avverkningar', color: '#92400e' },
+        { id: 'hydrografi', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaFlodesackumulation/MapServer/WmsServer', layers: 'Vattenyta,Flödesackumulation__70ha41670,Flödesackumulation_20ha-70ha48822,Flödesackumulation_10ha-20ha19752', name: 'Diken & vattendrag', color: '#38bdf8' },
       ],
     },
     {
@@ -672,6 +674,7 @@ export default function PlannerPage() {
       { id: 'lm_skuggning', tiles: ['/api/wms-proxy?layer=lm_skuggning&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 0.35 },
       { id: 'lm_ortofoto', tiles: ['/api/wms-proxy?layer=lm_ortofoto&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 1.0 },
       { id: 'fastighetsgranser', tiles: ['https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=granser&STYLES=morkbakgrund&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], opacity: 0.7 },
+      { id: 'hydrografi', tiles: ['https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaFlodesackumulation/MapServer/WmsServer?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=Vattenyta,Fl%C3%B6desackumulation__70ha41670,Fl%C3%B6desackumulation_20ha-70ha48822,Fl%C3%B6desackumulation_10ha-20ha19752&STYLES=&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], opacity: 0.7 },
     ];
     wmsLayerDefs.forEach((def: { id: string; tiles: string[]; maxzoom?: number; opacity?: number }) => {
       try {
@@ -1275,7 +1278,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
 
-    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto', 'fastighetsgranser'];
+    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto', 'fastighetsgranser', 'hydrografi'];
 
     allWmsIds.forEach(id => {
       const layerId = `wms-layer-${id}`;
@@ -7635,6 +7638,7 @@ export default function PlannerPage() {
                 { id: 'contours', name: 'Höjdkurvor', desc: 'Terräng ovanpå karta/satellit', enabled: true },
                 { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
                 { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
+                { id: 'hydrografi', name: 'Diken & vattendrag', desc: 'Vattenytor och flödesackumulation (SKS)', enabled: true },
               ].map(overlay => (
                 <div
                   key={overlay.id}
