@@ -820,7 +820,7 @@ export default function PlannerPage() {
           source: 'markers-source',
           layout: {
             'icon-image': ['concat', 'marker-', ['get', 'type']],
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.2, 12, 0.3, 13, 0.4, 14, 0.5, 15, 0.65, 16, 0.8, 17, 1.0],
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.15, 12, 0.2, 13, 0.3, 14, 0.4, 15, 0.5, 16, 0.6, 17, 0.75],
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
             'icon-padding': 2,
