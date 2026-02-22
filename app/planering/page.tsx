@@ -1880,21 +1880,22 @@ export default function PlannerPage() {
   });
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
   const [warningMenuOpen, setWarningMenuOpen] = useState(false);
-  const [warningSettings, setWarningSettings] = useState<Record<string, { warnDist: number; fadeDist: number; minOpacity: number }>>({
+  const [warningShowAll, setWarningShowAll] = useState(false);
+  const [warningSettings, setWarningSettings] = useState<Record<string, { warnDist: number; fadeDist: number; minOpacity: number; enabled: boolean }>>({
     // Symbolkategorier
-    naturvard:     { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
-    kultur:        { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
-    avverkning:    { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
-    infrastruktur: { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
-    terrang:       { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
-    ovrigt:        { warnDist: 50, fadeDist: 300, minOpacity: 0.1 },
+    naturvard:     { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
+    kultur:        { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
+    avverkning:    { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
+    infrastruktur: { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
+    terrang:       { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
+    ovrigt:        { warnDist: 50, fadeDist: 300, minOpacity: 0.1, enabled: true },
     // Zonkategorier
-    zone_wet:       { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
-    zone_steep:     { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
-    zone_protected: { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
-    zone_culture:   { warnDist: 50, fadeDist: 300, minOpacity: 0.1 },
-    zone_noentry:   { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
-    zone_fornlamning: { warnDist: 50, fadeDist: 300, minOpacity: 0.1 },
+    zone_wet:       { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
+    zone_steep:     { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
+    zone_protected: { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
+    zone_culture:   { warnDist: 50, fadeDist: 300, minOpacity: 0.1, enabled: true },
+    zone_noentry:   { warnDist: 30, fadeDist: 200, minOpacity: 0.1, enabled: true },
+    zone_fornlamning: { warnDist: 50, fadeDist: 300, minOpacity: 0.1, enabled: true },
   });
 
   // Volymberäkning
@@ -2225,7 +2226,11 @@ export default function PlannerPage() {
           .select('settings')
           .eq('objekt_id', valtObjekt.id)
           .maybeSingle();
-        if (data?.settings) setWarningSettings(data.settings);
+        if (data?.settings) {
+          const { _showAll, ...cats } = data.settings;
+          if (Object.keys(cats).length > 0) setWarningSettings(cats);
+          if (typeof _showAll === 'boolean') setWarningShowAll(_showAll);
+        }
       } catch (err) {
         console.error('[Varning] Kunde inte ladda inställningar:', err);
       }
@@ -2243,7 +2248,7 @@ export default function PlannerPage() {
       try {
         await supabase
           .from('warning_settings')
-          .upsert({ objekt_id: valtObjekt.id, settings: warningSettings, updated_at: new Date().toISOString() },
+          .upsert({ objekt_id: valtObjekt.id, settings: { ...warningSettings, _showAll: warningShowAll }, updated_at: new Date().toISOString() },
             { onConflict: 'objekt_id' });
         console.log('[Varning] Sparade inställningar till Supabase');
       } catch (err) {
@@ -2251,7 +2256,7 @@ export default function PlannerPage() {
       }
     }, 1500);
     return () => { if (warnSaveRef.current) clearTimeout(warnSaveRef.current); };
-  }, [warningSettings, valtObjekt?.id]);
+  }, [warningSettings, warningShowAll, valtObjekt?.id]);
 
   // Drag för meny
   const dragStartY = useRef(0);
@@ -4884,6 +4889,17 @@ export default function PlannerPage() {
   // Beräkna opacity baserat på avstånd (för körläge) — använder warningSettings per kategori
   const getMarkerOpacity = (markerPos, marker?: Marker) => {
     if (!drivingMode) return 1;
+
+    // Master toggle: visa alla med full opacity
+    if (warningShowAll) return 1;
+
+    // Per-kategori toggle: dold om disabled
+    if (marker) {
+      const catId = getWarningCategoryId(marker);
+      const catSettings = warningSettings[catId];
+      if (catSettings && catSettings.enabled === false) return 0;
+    }
+
     const userSvg = effectiveUserPos?.svg;
     if (!userSvg) return 0.15;
 
@@ -4945,6 +4961,12 @@ export default function PlannerPage() {
 
     markers.forEach(m => {
       if (acknowledgedWarnings.includes(m.id)) return;
+
+      // Hoppa över disabled kategorier
+      if (!warningShowAll) {
+        const catId = getWarningCategoryId(m);
+        if (warningSettings[catId]?.enabled === false) return;
+      }
 
       let distance: number | null = null;
       let type: string | null = null;
@@ -7943,6 +7965,55 @@ export default function PlannerPage() {
             padding: '20px',
             WebkitOverflowScrolling: 'touch',
           }}>
+            {/* Master toggle: Visa alla symboler */}
+            <div style={{
+              background: '#0a0a0a',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              <div
+                onClick={() => setWarningShowAll(prev => !prev)}
+                style={{
+                  padding: '16px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '14px',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={warningShowAll ? '#22c55e' : 'rgba(255,255,255,0.4)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+                <span style={{ flex: 1, fontSize: '15px', color: '#fff', fontWeight: '500' }}>Visa alla symboler</span>
+                <div style={{
+                  width: '44px',
+                  height: '26px',
+                  borderRadius: '13px',
+                  background: warningShowAll ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                  padding: '2px',
+                  transition: 'background 0.2s ease',
+                }}>
+                  <div style={{
+                    width: '22px',
+                    height: '22px',
+                    borderRadius: '50%',
+                    background: '#fff',
+                    transform: warningShowAll ? 'translateX(18px)' : 'translateX(0)',
+                    transition: 'transform 0.2s ease',
+                  }} />
+                </div>
+              </div>
+              {warningShowAll && (
+                <div style={{ padding: '0 16px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
+                  Alla symboler visas med full synlighet, ingen fade-effekt
+                </div>
+              )}
+            </div>
+
             {warningCategories.map(section => (
               <div key={section.section} style={{
                 background: '#0a0a0a',
@@ -7950,6 +8021,8 @@ export default function PlannerPage() {
                 borderRadius: '20px',
                 padding: '8px',
                 marginBottom: '16px',
+                opacity: warningShowAll ? 0.4 : 1,
+                transition: 'opacity 0.2s ease',
               }}>
                 <div style={{
                   padding: '12px 16px 8px',
@@ -7960,23 +8033,61 @@ export default function PlannerPage() {
                 }}>
                   {section.section}
                 </div>
-                {section.items.map(item => (
+                {section.items.map(item => {
+                  const catEnabled = warningSettings[item.id]?.enabled !== false;
+                  const slidersDisabled = warningShowAll || !catEnabled;
+                  return (
                   <div key={item.id} style={{
                     padding: '14px 16px',
                     borderRadius: '12px',
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                    {/* Kategorinamn + toggle */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: catEnabled && !warningShowAll ? '12px' : '0' }}>
                       <div style={{
                         width: '12px',
                         height: '12px',
                         borderRadius: '50%',
                         background: item.color,
                         flexShrink: 0,
+                        opacity: catEnabled ? 1 : 0.3,
+                        transition: 'opacity 0.2s ease',
                       }} />
-                      <span style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>{item.name}</span>
+                      <span style={{ flex: 1, fontSize: '15px', color: '#fff', fontWeight: '500', opacity: catEnabled ? 1 : 0.4 }}>{item.name}</span>
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (warningShowAll) return;
+                          setWarningSettings(prev => ({
+                            ...prev,
+                            [item.id]: { ...prev[item.id], enabled: !catEnabled },
+                          }));
+                        }}
+                        style={{
+                          width: '44px',
+                          height: '26px',
+                          borderRadius: '13px',
+                          background: catEnabled ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                          padding: '2px',
+                          transition: 'background 0.2s ease',
+                          cursor: warningShowAll ? 'default' : 'pointer',
+                          opacity: warningShowAll ? 0.3 : 1,
+                          flexShrink: 0,
+                        }}
+                      >
+                        <div style={{
+                          width: '22px',
+                          height: '22px',
+                          borderRadius: '50%',
+                          background: '#fff',
+                          transform: catEnabled ? 'translateX(18px)' : 'translateX(0)',
+                          transition: 'transform 0.2s ease',
+                        }} />
+                      </div>
                     </div>
+                    {/* Sliders — dolda om kategori är av eller master toggle är på */}
+                    {catEnabled && !warningShowAll && (<>
                     {/* Varningsavstånd slider */}
-                    <div style={{ marginBottom: '10px' }}>
+                    <div style={{ marginBottom: '10px', opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                         <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Varningsavstånd</span>
                         <span style={{ fontSize: '12px', color: '#f59e0b', fontWeight: '600' }}>
@@ -8009,7 +8120,7 @@ export default function PlannerPage() {
                       />
                     </div>
                     {/* Synlighetsavstånd slider */}
-                    <div style={{ marginBottom: '10px' }}>
+                    <div style={{ marginBottom: '10px', opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                         <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Synlighetsavstånd</span>
                         <span style={{ fontSize: '12px', color: '#22c55e', fontWeight: '600' }}>
@@ -8042,7 +8153,7 @@ export default function PlannerPage() {
                       />
                     </div>
                     {/* Synlighet på avstånd slider (minOpacity) */}
-                    <div>
+                    <div style={{ opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                         <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Synlighet på avstånd</span>
                         <span style={{ fontSize: '12px', color: '#a78bfa', fontWeight: '600' }}>
@@ -8074,8 +8185,10 @@ export default function PlannerPage() {
                         }}
                       />
                     </div>
+                    </>)}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ))}
           </div>
