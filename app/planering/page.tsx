@@ -522,8 +522,9 @@ export default function PlannerPage() {
 
     // === Zone layers ===
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.2 } });
-    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#ffffff', 'line-width': 4, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': 7 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': 5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#ffffff', 'line-width': 5, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
 
     // === Line layers per type ===
     const lineTypeDefs = [
@@ -541,17 +542,26 @@ export default function PlannerPage() {
       { id: 'trail', color: '#ffffff', dashed: true },
     ];
     lineTypeDefs.forEach((lt: any) => {
+      const isBoundary = lt.id === 'boundary';
+      const lineWidth = isBoundary ? 7 : 6;
+      // Svart casing bakom varje linje för kontrast
+      map.addLayer({
+        id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
+        filter: ['==', ['get', 'lineType'], lt.id],
+        paint: { 'line-color': 'rgba(0,0,0,0.5)', 'line-width': lineWidth + 2 },
+        layout: { 'line-cap': 'round', 'line-join': 'round' }
+      });
       map.addLayer({
         id: `line-${lt.id}-base`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
-        paint: { 'line-color': lt.color, 'line-width': 5, ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}), ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}) },
+        paint: { 'line-color': lt.color, 'line-width': lineWidth, ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}), ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}) },
         layout: { 'line-cap': 'round', 'line-join': 'round' }
       });
       if (lt.striped && lt.color2) {
         map.addLayer({
           id: `line-${lt.id}-stripe`, type: 'line', source: 'lines-source',
           filter: ['==', ['get', 'lineType'], lt.id],
-          paint: { 'line-color': lt.color2, 'line-width': 5, 'line-dasharray': [2, 2] },
+          paint: { 'line-color': lt.color2, 'line-width': lineWidth, 'line-dasharray': [2, 2] },
           layout: { 'line-cap': 'round', 'line-join': 'round' }
         });
       }
@@ -757,7 +767,7 @@ export default function PlannerPage() {
           source: 'markers-source',
           layout: {
             'icon-image': ['concat', 'marker-', ['get', 'type']],
-            'icon-size': 0.6,
+            'icon-size': 0.75,
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
             'icon-pitch-alignment': 'viewport',
@@ -3023,6 +3033,7 @@ export default function PlannerPage() {
       const stripedTypeIds = ['boundary', 'mainRoad', 'nature', 'ditch'];
       lineTypeIds.forEach(id => {
         const vis = visibleLayers.lines && visibleLines[id] ? 'visible' : 'none';
+        safeSetVisibility(`line-${id}-casing`, vis);
         safeSetVisibility(`line-${id}-base`, vis);
         if (stripedTypeIds.includes(id)) {
           safeSetVisibility(`line-${id}-stripe`, vis);
@@ -3033,6 +3044,7 @@ export default function PlannerPage() {
       // Zone layers
       const zoneVis = visibleLayers.zones ? 'visible' : 'none';
       safeSetVisibility('zone-fill', zoneVis);
+      safeSetVisibility('zone-outline-casing', zoneVis);
       safeSetVisibility('zone-outline', zoneVis);
       safeSetVisibility('zone-outline-dash', zoneVis);
       // TMA roads (actual layer names: tma-roads-glow, tma-roads-line)
