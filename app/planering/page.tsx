@@ -4888,17 +4888,18 @@ export default function PlannerPage() {
   
   // Beräkna opacity baserat på avstånd (för körläge) — använder warningSettings per kategori
   const getMarkerOpacity = (markerPos, marker?: Marker) => {
-    if (!drivingMode) return 1;
-
-    // Master toggle: visa alla med full opacity
-    if (warningShowAll) return 1;
-
-    // Per-kategori toggle: dold om disabled
+    // Per-kategori toggle: dold om disabled (gäller alltid, oavsett körläge)
     if (marker) {
       const catId = getWarningCategoryId(marker);
       const catSettings = warningSettings[catId];
       if (catSettings && catSettings.enabled === false) return 0;
     }
+
+    // Utanför körläge: full opacity (per-kategori toggle hanterades ovan)
+    if (!drivingMode) return 1;
+
+    // Master toggle: visa alla med full opacity
+    if (warningShowAll) return 1;
 
     const userSvg = effectiveUserPos?.svg;
     if (!userSvg) return 0.15;
@@ -7965,26 +7966,51 @@ export default function PlannerPage() {
             padding: '20px',
             WebkitOverflowScrolling: 'touch',
           }}>
-            {/* Master toggle: Visa alla symboler */}
+            {/* Körläge-status */}
+            <div style={{
+              background: drivingMode ? 'rgba(34,197,94,0.1)' : '#0a0a0a',
+              border: `1px solid ${drivingMode ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)'}`,
+              borderRadius: '20px',
+              padding: '14px 18px',
+              marginBottom: '16px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+            }}>
+              <div style={{
+                width: '10px',
+                height: '10px',
+                borderRadius: '50%',
+                background: drivingMode ? '#22c55e' : 'rgba(255,255,255,0.2)',
+                boxShadow: drivingMode ? '0 0 8px rgba(34,197,94,0.5)' : 'none',
+              }} />
+              <span style={{ fontSize: '14px', color: drivingMode ? '#22c55e' : 'rgba(255,255,255,0.4)', fontWeight: '500' }}>
+                {drivingMode ? 'Körläge aktivt — proximity-varningar på' : 'Körläge av — alla symboler visas normalt'}
+              </span>
+            </div>
+
+            {/* Master toggle: Visa alla symboler (bara relevant i körläge) */}
             <div style={{
               background: '#0a0a0a',
               border: '1px solid rgba(255,255,255,0.08)',
               borderRadius: '20px',
               padding: '8px',
               marginBottom: '16px',
+              opacity: drivingMode ? 1 : 0.4,
+              transition: 'opacity 0.2s ease',
             }}>
               <div
-                onClick={() => setWarningShowAll(prev => !prev)}
+                onClick={() => { if (drivingMode) setWarningShowAll(prev => !prev); }}
                 style={{
                   padding: '16px 16px',
                   display: 'flex',
                   alignItems: 'center',
                   gap: '14px',
                   borderRadius: '12px',
-                  cursor: 'pointer',
+                  cursor: drivingMode ? 'pointer' : 'default',
                 }}
               >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={warningShowAll ? '#22c55e' : 'rgba(255,255,255,0.4)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={warningShowAll && drivingMode ? '#22c55e' : 'rgba(255,255,255,0.4)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                   <circle cx="12" cy="12" r="3"/>
                 </svg>
@@ -7993,7 +8019,7 @@ export default function PlannerPage() {
                   width: '44px',
                   height: '26px',
                   borderRadius: '13px',
-                  background: warningShowAll ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                  background: warningShowAll && drivingMode ? '#22c55e' : 'rgba(255,255,255,0.1)',
                   padding: '2px',
                   transition: 'background 0.2s ease',
                 }}>
@@ -8002,14 +8028,19 @@ export default function PlannerPage() {
                     height: '22px',
                     borderRadius: '50%',
                     background: '#fff',
-                    transform: warningShowAll ? 'translateX(18px)' : 'translateX(0)',
+                    transform: warningShowAll && drivingMode ? 'translateX(18px)' : 'translateX(0)',
                     transition: 'transform 0.2s ease',
                   }} />
                 </div>
               </div>
-              {warningShowAll && (
+              {warningShowAll && drivingMode && (
                 <div style={{ padding: '0 16px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
                   Alla symboler visas med full synlighet, ingen fade-effekt
+                </div>
+              )}
+              {!drivingMode && (
+                <div style={{ padding: '0 16px 12px', fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>
+                  Aktivera körläge för att använda denna inställning
                 </div>
               )}
             </div>
@@ -8035,7 +8066,7 @@ export default function PlannerPage() {
                 </div>
                 {section.items.map(item => {
                   const catEnabled = warningSettings[item.id]?.enabled !== false;
-                  const slidersDisabled = warningShowAll || !catEnabled;
+                  const slidersDisabled = warningShowAll || !catEnabled || !drivingMode;
                   return (
                   <div key={item.id} style={{
                     padding: '14px 16px',
@@ -8084,8 +8115,13 @@ export default function PlannerPage() {
                         }} />
                       </div>
                     </div>
-                    {/* Sliders — dolda om kategori är av eller master toggle är på */}
-                    {catEnabled && !warningShowAll && (<>
+                    {/* Sliders — dolda om kategori är av eller master toggle (i körläge) är på */}
+                    {catEnabled && !(warningShowAll && drivingMode) && (<>
+                    {!drivingMode && (
+                      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', marginBottom: '8px', fontStyle: 'italic' }}>
+                        Avståndsinställningar gäller i körläge
+                      </div>
+                    )}
                     {/* Varningsavstånd slider */}
                     <div style={{ marginBottom: '10px', opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
