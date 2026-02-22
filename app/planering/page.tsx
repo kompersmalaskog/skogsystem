@@ -4891,18 +4891,20 @@ export default function PlannerPage() {
   
   // Beräkna opacity baserat på avstånd (för körläge) — använder warningSettings per kategori
   const getMarkerOpacity = (markerPos, marker?: Marker) => {
-    // Per-kategori toggle: dold om disabled (gäller alltid, oavsett körläge)
-    if (marker) {
-      const catId = getWarningCategoryId(marker);
-      const catSettings = warningSettings[catId];
-      if (catSettings && catSettings.enabled === false) return 0;
-    }
-
-    // Utanför körläge: full opacity (per-kategori toggle hanterades ovan)
+    // Utanför körläge: full opacity (planerarvyn)
     if (!drivingMode) return 1;
 
     // Master toggle: visa alla med full opacity
     if (warningShowAll) return 1;
+
+    // Per-kategori toggle (enabled):
+    // enabled=true (default) → proximity-logik gäller, fadear in/ut
+    // enabled=false → alltid synlig, undantagen från proximity
+    if (marker) {
+      const catId = getWarningCategoryId(marker);
+      const catSettings = warningSettings[catId];
+      if (catSettings && catSettings.enabled === false) return 1;
+    }
 
     const userSvg = effectiveUserPos?.svg;
     if (!userSvg) return 0.15;
@@ -4966,7 +4968,7 @@ export default function PlannerPage() {
     markers.forEach(m => {
       if (acknowledgedWarnings.includes(m.id)) return;
 
-      // Hoppa över disabled kategorier
+      // Kategorier med avståndsdämpning AV = alltid synliga, ingen varning behövs
       if (!warningShowAll) {
         const catId = getWarningCategoryId(m);
         if (warningSettings[catId]?.enabled === false) return;
@@ -8068,58 +8070,67 @@ export default function PlannerPage() {
                   {section.section}
                 </div>
                 {section.items.map(item => {
-                  const catEnabled = warningSettings[item.id]?.enabled !== false;
-                  const slidersDisabled = warningShowAll || !catEnabled || !drivingMode;
+                  const proximityOn = warningSettings[item.id]?.enabled !== false;
+                  const slidersDisabled = warningShowAll || !proximityOn || !drivingMode;
                   return (
                   <div key={item.id} style={{
                     padding: '14px 16px',
                     borderRadius: '12px',
                   }}>
-                    {/* Kategorinamn + toggle */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: catEnabled && !warningShowAll ? '12px' : '0' }}>
+                    {/* Kategorinamn */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
                       <div style={{
                         width: '12px',
                         height: '12px',
                         borderRadius: '50%',
                         background: item.color,
                         flexShrink: 0,
-                        opacity: catEnabled ? 1 : 0.3,
-                        transition: 'opacity 0.2s ease',
                       }} />
-                      <span style={{ flex: 1, fontSize: '15px', color: '#fff', fontWeight: '500', opacity: catEnabled ? 1 : 0.4 }}>{item.name}</span>
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (warningShowAll) return;
-                          setWarningSettings(prev => ({
-                            ...prev,
-                            [item.id]: { ...prev[item.id], enabled: !catEnabled },
-                          }));
-                        }}
-                        style={{
-                          width: '44px',
-                          height: '26px',
-                          borderRadius: '13px',
-                          background: catEnabled ? '#22c55e' : 'rgba(255,255,255,0.1)',
-                          padding: '2px',
-                          transition: 'background 0.2s ease',
-                          cursor: warningShowAll ? 'default' : 'pointer',
-                          opacity: warningShowAll ? 0.3 : 1,
-                          flexShrink: 0,
-                        }}
-                      >
+                      <span style={{ flex: 1, fontSize: '15px', color: '#fff', fontWeight: '500' }}>{item.name}</span>
+                    </div>
+                    {/* Avståndsdämpning toggle */}
+                    <div
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (warningShowAll) return;
+                        setWarningSettings(prev => ({
+                          ...prev,
+                          [item.id]: { ...prev[item.id], enabled: !proximityOn },
+                        }));
+                      }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        marginBottom: proximityOn && !(warningShowAll && drivingMode) ? '12px' : '0',
+                        cursor: warningShowAll ? 'default' : 'pointer',
+                        opacity: warningShowAll ? 0.3 : 1,
+                      }}
+                    >
+                      <div style={{
+                        width: '36px',
+                        height: '20px',
+                        borderRadius: '10px',
+                        background: proximityOn ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                        padding: '2px',
+                        transition: 'background 0.2s ease',
+                        flexShrink: 0,
+                      }}>
                         <div style={{
-                          width: '22px',
-                          height: '22px',
+                          width: '16px',
+                          height: '16px',
                           borderRadius: '50%',
                           background: '#fff',
-                          transform: catEnabled ? 'translateX(18px)' : 'translateX(0)',
+                          transform: proximityOn ? 'translateX(16px)' : 'translateX(0)',
                           transition: 'transform 0.2s ease',
                         }} />
                       </div>
+                      <span style={{ fontSize: '12px', color: proximityOn ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.35)' }}>
+                        {proximityOn ? 'Avståndsdämpning på' : 'Alltid synlig'}
+                      </span>
                     </div>
-                    {/* Sliders — dolda om kategori är av eller master toggle (i körläge) är på */}
-                    {catEnabled && !(warningShowAll && drivingMode) && (<>
+                    {/* Sliders — visas om proximity är på och master toggle inte overridar */}
+                    {proximityOn && !(warningShowAll && drivingMode) && (<>
                     {!drivingMode && (
                       <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', marginBottom: '8px', fontStyle: 'italic' }}>
                         Avståndsinställningar gäller i körläge
