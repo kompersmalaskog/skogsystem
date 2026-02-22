@@ -2896,7 +2896,7 @@ export default function PlannerPage() {
     return () => clearInterval(iv);
   }, [drivingMode, simulatedPos]);
 
-  useEffect(() => {
+  const syncMarkersToMapLibre = () => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     try {
@@ -2914,7 +2914,10 @@ export default function PlannerPage() {
       });
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos]);
+  };
+
+  // Synka vid dataändringar och proximity-tick
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2c) Visa/dölj markers-layer beroende på visibleLayers.symbols
   useEffect(() => {
