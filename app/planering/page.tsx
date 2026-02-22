@@ -1170,10 +1170,11 @@ export default function PlannerPage() {
   };
 
   // === MapLibre: Synkronisera React-state från MapLibre-kamera ===
-  // MapLibre är nu master för kameran. Vi lyssnar på 'move' och beräknar
-  // pan/zoom-ekvivalenter så SVG-overlayen kan positionera symboler.
+  // MapLibre är nu master för kameran. Vi lyssnar på 'move' och triggar
+  // re-render via rAF-throttle (max 1 per frame) så SVG-overlayen uppdateras.
   const mapMoveCounterRef = useRef(0);
   const [mapMoveCounter, setMapMoveCounter] = useState(0);
+  const rafIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -1181,11 +1182,20 @@ export default function PlannerPage() {
 
     const onMove = () => {
       mapMoveCounterRef.current++;
-      setMapMoveCounter(mapMoveCounterRef.current);
+      // Throttle till max 1 React re-render per animationsframe
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          setMapMoveCounter(mapMoveCounterRef.current);
+          rafIdRef.current = null;
+        });
+      }
     };
 
     map.on('move', onMove);
-    return () => { map.off('move', onMove); };
+    return () => {
+      map.off('move', onMove);
+      if (rafIdRef.current !== null) cancelAnimationFrame(rafIdRef.current);
+    };
   }, [mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Tangent 'D' för debug-panel

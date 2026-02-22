@@ -50,6 +50,8 @@ export default function MapLibreMap({
       dragRotate: true,
       touchZoomRotate: true,
       touchPitch: true,
+      renderWorldCopies: false,
+      fadeDuration: 0,
     })
 
     mapRef.current = map
@@ -67,7 +69,7 @@ export default function MapLibreMap({
           maxzoom: 15,
           encoding: 'terrarium',
         })
-        map.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 })
+        map.setTerrain({ source: 'terrain-dem', exaggeration: 1.0 })
         console.log('[MapLibre] 3D terrain: AWS 30m (default)')
       } catch (e) {
         console.error('[MapLibre] Terrain setup failed:', e)
@@ -91,7 +93,7 @@ export default function MapLibreMap({
             encoding: 'terrarium',
             bounds: bounds.bbox,
           })
-          m.setTerrain({ source: 'terrain-dem-local', exaggeration: 1.5 })
+          m.setTerrain({ source: 'terrain-dem-local', exaggeration: 1.0 })
           console.log('[MapLibre] 3D terrain upgraded: local 1m DEM (Lantmäteriet)')
         })
         .catch(() => { /* No local tiles, keep AWS 30m */ })
@@ -114,5 +116,5 @@ export default function MapLibreMap({
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return <div ref={containerRef} style={style} />
+  return <div ref={containerRef} style={{ ...style, willChange: 'transform', transform: 'translateZ(0)' }} />
 }
