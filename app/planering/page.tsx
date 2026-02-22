@@ -317,7 +317,8 @@ export default function PlannerPage() {
   // Overlay-lager
   const [overlays, setOverlays] = useState({
     vidaKartbild: true,    // VIDA traktdirektiv-kartbild
-    propertyLines: false,  // Fastighetsgränser
+    propertyLines: false,  // Fastighetsgränser (legacy, unused)
+    fastighetsgranser: false, // Fastighetsgränser LM WMS
     moisture: false,       // Markfuktighet (kräver konto)
     contours: false,       // Höjdkurvor
     wetlands: false,       // Sumpskog (öppet)
@@ -431,6 +432,7 @@ export default function PlannerPage() {
       layers: [
         { id: 'lm_skuggning', url: '/api/wms-proxy', layers: 'terrangskuggning', name: 'Höjdmodell (skuggning)', color: '#78909C', proxyTarget: 'https://minkarta.lantmateriet.se/map/hojdmodell' },
         { id: 'lm_ortofoto', url: '/api/wms-proxy', layers: 'Ortofoto_0.5', name: 'Ortofoto LM', color: '#8D6E63', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto' },
+        { id: 'fastighetsgranser', url: 'https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3', layers: 'granser', name: 'Fastighetsgränser', color: '#f59e0b' },
       ],
     },
   ];
@@ -669,6 +671,7 @@ export default function PlannerPage() {
       // Lantmäteriet
       { id: 'lm_skuggning', tiles: ['/api/wms-proxy?layer=lm_skuggning&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 0.35 },
       { id: 'lm_ortofoto', tiles: ['/api/wms-proxy?layer=lm_ortofoto&bbox={bbox-epsg-3857}&width=256&height=256'], opacity: 1.0 },
+      { id: 'fastighetsgranser', tiles: ['https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=granser&STYLES=morkbakgrund&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256'], opacity: 0.7 },
     ];
     wmsLayerDefs.forEach((def: { id: string; tiles: string[]; maxzoom?: number; opacity?: number }) => {
       try {
@@ -1272,7 +1275,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
 
-    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto'];
+    const allWmsIds = ['nyckelbiotoper', 'naturvarde', 'sumpskog', 'wetlands', 'biotopskydd', 'naturvardsavtal', 'skoghistoria', 'avverkningsanmalan', 'utfordavverkning', 'fornlamningar', 'naturreservat', 'natura2000', 'vattenskydd', 'oversvamning', 'jordarter', 'barighet', 'kraftledningar', 'sks_markfuktighet', 'sks_virkesvolym', 'sks_tradhojd', 'sks_lutning', 'sks_gallringsindex', 'korbarhet', 'lm_skuggning', 'lm_ortofoto', 'fastighetsgranser'];
 
     allWmsIds.forEach(id => {
       const layerId = `wms-layer-${id}`;
@@ -7631,7 +7634,7 @@ export default function PlannerPage() {
                 { id: 'wetlands', name: 'Sumpskog', desc: 'Blöta skogsområden', enabled: true },
                 { id: 'contours', name: 'Höjdkurvor', desc: 'Terräng ovanpå karta/satellit', enabled: true },
                 { id: 'sks_markfuktighet', name: 'Markfuktighet', desc: 'SLU via Skogsstyrelsen', enabled: true },
-                { id: 'propertyLines', name: 'Fastighetsgränser', desc: 'Kommer snart', enabled: false },
+                { id: 'fastighetsgranser', name: 'Fastighetsgränser', desc: 'Lantmäteriet fastighetsindelning', enabled: true },
               ].map(overlay => (
                 <div
                   key={overlay.id}
