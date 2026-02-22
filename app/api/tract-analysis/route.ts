@@ -104,6 +104,7 @@ async function queryWFS(
   const wfsUrl = `${url}?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature` +
     `&TYPENAMES=${encodeURIComponent(typeName)}` +
     `&BBOX=${bboxStr}` +
+    `&SRSNAME=EPSG:4326` +
     `&COUNT=${maxFeatures}` +
     `&OUTPUTFORMAT=${encodeURIComponent('application/json')}`;
 
