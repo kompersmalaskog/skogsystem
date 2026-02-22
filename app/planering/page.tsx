@@ -831,8 +831,8 @@ export default function PlannerPage() {
             'symbol-z-order': 'source',
           },
           paint: {
-            'icon-opacity': 1,
-            'icon-opacity-transition': { duration: 0 },
+            'icon-opacity': ['number', ['get', 'opacity'], 1],
+            'icon-opacity-transition': { duration: 300 },
           },
         });
         console.log('[MapLibre] markers-layer added');
@@ -1117,7 +1117,11 @@ export default function PlannerPage() {
   const gpsPathRef = useRef<Point[]>([]);
   const gpsHistoryRef = useRef<Point[]>([]); // Senaste 20 positioner för medelvärde
   const lastConfirmedPosRef = useRef<Point>({ x: 200, y: 300 }); // Sista bekräftade position (efter minDistance-filter)
-  
+
+  // Simulerad position (för testning vid dator)
+  const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
+  const [showSimPosMenu, setShowSimPosMenu] = useState<{x: number, y: number, lat: number, lng: number} | null>(null);
+
   // Karta
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
@@ -1540,6 +1544,19 @@ export default function PlannerPage() {
     };
   }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen, currentDrawCoords]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Högerklick / långtryck på karta → "Sätt min position här" (simulerad position)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const onContextMenu = (e: any) => {
+      e.preventDefault();
+      const lngLat = e.lngLat;
+      setShowSimPosMenu({ x: e.point.x, y: e.point.y, lat: lngLat.lat, lng: lngLat.lng });
+    };
+    map.on('contextmenu', onContextMenu);
+    return () => { map.off('contextmenu', onContextMenu); };
+  }, [mapLibreReady]);
+
   // Douglas-Peucker linjeförenkling (tar [lng,lat][] och returnerar förenklad version)
   const simplifyCoords = (coords: [number, number][], tolerance: number): [number, number][] => {
     if (coords.length <= 2) return coords;
@@ -1853,7 +1870,7 @@ export default function PlannerPage() {
     sideRoadYellow: true, sideRoadBlue: true, nature: true, ditch: true,
   });
   const [visibleZones, setVisibleZones] = useState({
-    wet: true, steep: true, protected: true, culture: true, noentry: true,
+    wet: true, steep: true, protected: true, culture: true, noentry: true, fornlamning: true,
   });
   const [visibleLayers, setVisibleLayers] = useState({
     symbols: true,
@@ -1862,6 +1879,23 @@ export default function PlannerPage() {
     lines: true,
   });
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
+  const [warningMenuOpen, setWarningMenuOpen] = useState(false);
+  const [warningSettings, setWarningSettings] = useState<Record<string, { warnDist: number; fadeDist: number }>>({
+    // Symbolkategorier
+    naturvard:     { warnDist: 30, fadeDist: 200 },
+    kultur:        { warnDist: 30, fadeDist: 200 },
+    avverkning:    { warnDist: 30, fadeDist: 200 },
+    infrastruktur: { warnDist: 30, fadeDist: 200 },
+    terrang:       { warnDist: 30, fadeDist: 200 },
+    ovrigt:        { warnDist: 50, fadeDist: 300 },
+    // Zonkategorier
+    zone_wet:       { warnDist: 30, fadeDist: 200 },
+    zone_steep:     { warnDist: 30, fadeDist: 200 },
+    zone_protected: { warnDist: 30, fadeDist: 200 },
+    zone_culture:   { warnDist: 50, fadeDist: 300 },
+    zone_noentry:   { warnDist: 30, fadeDist: 200 },
+    zone_fornlamning: { warnDist: 50, fadeDist: 300 },
+  });
 
   // Volymberäkning
   const [volymResultat, setVolymResultat] = useState<VolymResultat | null>(null);
@@ -2178,6 +2212,46 @@ export default function PlannerPage() {
     }, 1500);
     return () => { if (tmaSaveTimeoutRef.current) clearTimeout(tmaSaveTimeoutRef.current); };
   }, [tmaRisk, tmaSamrad, tmaResults, valtObjekt?.id]);
+
+  // === Varningsinställningar: Ladda från Supabase ===
+  const warningSettingsLoadedRef = useRef(false);
+  useEffect(() => {
+    warningSettingsLoadedRef.current = false;
+    if (!valtObjekt?.id) return;
+    const load = async () => {
+      try {
+        const { data } = await supabase
+          .from('warning_settings')
+          .select('settings')
+          .eq('objekt_id', valtObjekt.id)
+          .maybeSingle();
+        if (data?.settings) setWarningSettings(data.settings);
+      } catch (err) {
+        console.error('[Varning] Kunde inte ladda inställningar:', err);
+      }
+      warningSettingsLoadedRef.current = true;
+    };
+    load();
+  }, [valtObjekt?.id]);
+
+  // === Varningsinställningar: Spara till Supabase (debounced) ===
+  const warnSaveRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!valtObjekt?.id || !warningSettingsLoadedRef.current) return;
+    if (warnSaveRef.current) clearTimeout(warnSaveRef.current);
+    warnSaveRef.current = setTimeout(async () => {
+      try {
+        await supabase
+          .from('warning_settings')
+          .upsert({ objekt_id: valtObjekt.id, settings: warningSettings, updated_at: new Date().toISOString() },
+            { onConflict: 'objekt_id' });
+        console.log('[Varning] Sparade inställningar till Supabase');
+      } catch (err) {
+        console.error('[Varning] Kunde inte spara inställningar:', err);
+      }
+    }, 1500);
+    return () => { if (warnSaveRef.current) clearTimeout(warnSaveRef.current); };
+  }, [warningSettings, valtObjekt?.id]);
 
   // Drag för meny
   const dragStartY = useRef(0);
@@ -2647,6 +2721,25 @@ export default function PlannerPage() {
     { id: 'protected', name: 'Naturvård', color: '#22c55e', icon: 'naturecorner' },
     { id: 'culture', name: 'Kulturmiljö', color: '#f59e0b', icon: 'culturemonument' },
     { id: 'noentry', name: 'Ej framkomlig', color: '#ef4444', icon: 'warning' },
+    { id: 'fornlamning', name: 'Fornlämning', color: '#ef4444', icon: 'culturemonument' },
+  ];
+
+  const warningCategories = [
+    { section: 'Punkter', items: [
+      { id: 'naturvard',     name: 'Naturvård',     color: '#22c55e', defaultWarn: 30, defaultFade: 200 },
+      { id: 'kultur',        name: 'Kultur',        color: '#f59e0b', defaultWarn: 30, defaultFade: 200 },
+      { id: 'avverkning',    name: 'Avverkning',    color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
+      { id: 'infrastruktur', name: 'Infrastruktur', color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
+      { id: 'terrang',       name: 'Terräng',       color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
+      { id: 'ovrigt',        name: 'Övrigt/Varning', color: '#E53935', defaultWarn: 50, defaultFade: 300 },
+    ]},
+    { section: 'Zoner', items: [
+      { id: 'zone_wet',        name: 'Blött område',     color: '#3b82f6', defaultWarn: 30, defaultFade: 200 },
+      { id: 'zone_steep',      name: 'Brant',            color: '#a855f7', defaultWarn: 30, defaultFade: 200 },
+      { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#22c55e', defaultWarn: 30, defaultFade: 200 },
+      { id: 'zone_culture',    name: 'Fornlämningszon',  color: '#ef4444', defaultWarn: 50, defaultFade: 300 },
+      { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ef4444', defaultWarn: 30, defaultFade: 200 },
+    ]},
   ];
 
   const arrowTypes = [
@@ -2790,6 +2883,14 @@ export default function PlannerPage() {
   }, [markers, mapLibreReady, mapCenter, visibleZones]);
 
   // 2b) Synka markeringar → MapLibre markers-source (GPU-renderad symbol layer)
+  // Inkluderar opacity per feature baserat på proximity
+  const [proximityTick, setProximityTick] = useState(0);
+  useEffect(() => {
+    if (!drivingMode && !simulatedPos) return;
+    const iv = setInterval(() => setProximityTick(t => t + 1), 1000);
+    return () => clearInterval(iv);
+  }, [drivingMode, simulatedPos]);
+
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -2799,15 +2900,16 @@ export default function PlannerPage() {
       const features: any[] = [];
       markers.filter(m => m.isMarker).forEach(m => {
         const ll = svgToLatLon(m.x, m.y);
+        const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id }, m);
         features.push({
           type: 'Feature',
-          properties: { type: m.type || 'default', id: m.id },
+          properties: { type: m.type || 'default', id: m.id, opacity },
           geometry: { type: 'Point', coordinates: [ll.lon, ll.lat] },
         });
       });
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter]);
+  }, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos]);
 
   // 2c) Visa/dölj markers-layer beroende på visibleLayers.symbols
   useEffect(() => {
@@ -4728,7 +4830,48 @@ export default function PlannerPage() {
   };
   
   // === KÖRLÄGE FUNKTIONER ===
-  
+
+  // Effektiv användarposition (simulerad eller riktig GPS)
+  const effectiveUserPos = (() => {
+    if (simulatedPos) {
+      const svgPos = latLonToSvg(simulatedPos.lat, simulatedPos.lng);
+      return { svg: svgPos, latLng: simulatedPos };
+    }
+    if (gpsPosition) {
+      return { svg: gpsMapPosition, latLng: gpsPosition };
+    }
+    return null;
+  })();
+
+  // Hämta varningskategori-ID för en markör
+  const getWarningCategoryId = (m: Marker): string => {
+    if (m.isMarker) {
+      const cat = symbolCategories.find(c => c.symbols.some(s => s.id === m.type));
+      if (cat) {
+        const catName = cat.name.toLowerCase();
+        if (catName.includes('naturvård')) return 'naturvard';
+        if (catName.includes('kultur')) return 'kultur';
+        if (catName.includes('avverkning')) return 'avverkning';
+        if (catName.includes('infrastruktur')) return 'infrastruktur';
+        if (catName.includes('terräng')) return 'terrang';
+        return 'ovrigt';
+      }
+      return 'ovrigt';
+    }
+    if (m.isZone) return `zone_${m.zoneType || 'wet'}`;
+    return 'ovrigt';
+  };
+
+  // Hämta warn/fade-avstånd för en markör baserat på warningSettings
+  const getWarningDistances = (m: Marker) => {
+    const catId = getWarningCategoryId(m);
+    const settings = warningSettings[catId];
+    return {
+      warnDist: settings?.warnDist || 40,
+      fadeDist: settings?.fadeDist || 200,
+    };
+  };
+
   // Beräkna avstånd i meter mellan två punkter
   const calculateDistanceMeters = (p1, p2) => {
     const dx = p2.x - p1.x;
@@ -4737,107 +4880,105 @@ export default function PlannerPage() {
     return pixelDistance * scale;
   };
   
-  // Beräkna opacity baserat på avstånd (för körläge)
-  const getMarkerOpacity = (markerPos) => {
+  // Beräkna opacity baserat på avstånd (för körläge) — använder warningSettings per kategori
+  const getMarkerOpacity = (markerPos, marker?: Marker) => {
     if (!drivingMode) return 1;
-    if (!gpsMapPosition) return 0.2;
-    
-    const distance = calculateDistanceMeters(gpsMapPosition, markerPos);
+    const userSvg = effectiveUserPos?.svg;
+    if (!userSvg) return 0.15;
+
+    const distance = calculateDistanceMeters(userSvg, markerPos);
     const markerId = markerPos.id;
-    
-    // Kvitterade = alltid gröna och synliga
+
+    // Kvitterade = alltid synliga
     if (acknowledgedWarnings.includes(markerId)) return 1;
-    
-    // Utanför fade-avstånd = svag
-    if (distance > FADE_START_DISTANCE) return 0.2;
-    
+
+    // Hämta kategori-avstånd
+    const dists = marker ? getWarningDistances(marker) : { warnDist: WARNING_DISTANCE, fadeDist: FADE_START_DISTANCE };
+
+    // Utanför fade-avstånd = nästan osynlig
+    if (distance > dists.fadeDist) return 0.1;
+
     // Inom varningsavstånd = full styrka
-    if (distance <= WARNING_DISTANCE) return 1;
-    
-    // Gradvis fade mellan 100m och 40m
-    const fadeRange = FADE_START_DISTANCE - WARNING_DISTANCE; // 60m
-    const distanceIntoFade = FADE_START_DISTANCE - distance;
+    if (distance <= dists.warnDist) return 1;
+
+    // Gradvis fade mellan fadeDist och warnDist
+    const fadeRange = dists.fadeDist - dists.warnDist;
+    const distanceIntoFade = dists.fadeDist - distance;
     const fadeProgress = distanceIntoFade / fadeRange; // 0 till 1
-    
-    return 0.2 + (fadeProgress * 0.8); // 0.2 till 1.0
+
+    return 0.1 + (fadeProgress * 0.9); // 0.1 till 1.0
   };
   
-  // Hitta aktiva varningar (inom 40m)
+  // Hitta aktiva varningar — använder warningSettings per kategori
   const getActiveWarnings = () => {
-    if (!drivingMode || !gpsMapPosition) return [];
-    
-    const warnings = [];
-    
+    if (!drivingMode) return [];
+    const userSvg = effectiveUserPos?.svg;
+    if (!userSvg) return [];
+
+    const warnings: Warning[] = [];
+
     // Hjälpfunktion: hitta närmaste punkt på en linje
-    const distanceToLine = (point, path) => {
+    const distanceToLine = (point: Point, path: Point[]) => {
       let minDist = Infinity;
       for (let i = 0; i < path.length - 1; i++) {
         const a = path[i];
         const b = path[i + 1];
-        
-        // Vektor från a till b
         const abx = b.x - a.x;
         const aby = b.y - a.y;
         const abLen = Math.sqrt(abx * abx + aby * aby);
-        
         if (abLen === 0) continue;
-        
-        // Projicera punkt på linjen
-        const t = Math.max(0, Math.min(1, 
+        const t = Math.max(0, Math.min(1,
           ((point.x - a.x) * abx + (point.y - a.y) * aby) / (abLen * abLen)
         ));
-        
-        // Närmaste punkt på linjesegmentet
         const closestX = a.x + t * abx;
         const closestY = a.y + t * aby;
-        
         const dist = Math.sqrt(
-          Math.pow(point.x - closestX, 2) + 
+          Math.pow(point.x - closestX, 2) +
           Math.pow(point.y - closestY, 2)
         );
-        
         if (dist < minDist) minDist = dist;
       }
-      return minDist * scale; // Konvertera till meter
+      return minDist * scale;
     };
-    
+
     markers.forEach(m => {
       if (acknowledgedWarnings.includes(m.id)) return;
-      
-      let distance = null;
-      let type = null;
-      let icon = null;
-      let name = null;
-      
+
+      let distance: number | null = null;
+      let type: string | null = null;
+      let icon: string | null = null;
+      let name: string | null = null;
+
       if (m.isMarker) {
         const pos = { x: m.x, y: m.y };
-        distance = calculateDistanceMeters(gpsMapPosition, pos);
+        distance = calculateDistanceMeters(userSvg, pos);
         const markerType = markerTypes.find(t => t.id === m.type);
         type = 'symbol';
         icon = markerType?.icon || '📍';
         name = markerType?.name || 'Markering';
-      } else if (m.isZone && m.path?.length > 0) {
-        // Kolla avstånd till zonens kant (inte mittpunkt)
-        distance = distanceToLine(gpsMapPosition, [...m.path, m.path[0]]); // Stäng polygonen
+      } else if (m.isZone && m.path && m.path.length > 0) {
+        distance = distanceToLine(userSvg, [...m.path, m.path[0]]);
         const zoneType = zoneTypes.find(t => t.id === m.zoneType);
         type = 'zone';
         icon = zoneType?.icon || '⬡';
         name = zoneType?.name || 'Zon';
-      } else if (m.isLine && m.path?.length > 1) {
-        // Kolla avstånd till linjen
-        distance = distanceToLine(gpsMapPosition, m.path);
+      } else if (m.isLine && m.path && m.path.length > 1) {
+        distance = distanceToLine(userSvg, m.path);
         const lineType = lineTypes.find(t => t.id === m.lineType);
         type = 'line';
         icon = m.lineType === 'boundary' ? '🚧' : '━';
         name = lineType?.name || 'Linje';
       }
-      
-      if (distance !== null && distance <= WARNING_DISTANCE) {
+
+      // Använd per-kategori warnDist
+      const dists = getWarningDistances(m);
+
+      if (distance !== null && distance <= dists.warnDist) {
         warnings.push({
           id: m.id,
-          type,
-          icon,
-          name,
+          type: type || 'symbol',
+          icon: icon || '📍',
+          name: name || 'Markering',
           distance: Math.round(distance),
           comment: m.comment,
           photoData: m.photoData,
@@ -4845,7 +4986,7 @@ export default function PlannerPage() {
         });
       }
     });
-    
+
     return warnings.sort((a, b) => a.distance - b.distance);
   };
   
@@ -4896,13 +5037,30 @@ export default function PlannerPage() {
         console.log('Audio not supported');
       }
     }
-  }, [drivingMode, gpsMapPosition, markers, acknowledgedWarnings]);
-  
-  // Kvittera varning
-  const acknowledgeWarning = () => {
+  }, [drivingMode, gpsMapPosition, markers, acknowledgedWarnings, simulatedPos, warningSettings]);
+
+  // Kvittera varning — logga till Supabase
+  const acknowledgeWarning = async () => {
     if (activeWarning) {
       setAcknowledgedWarnings(prev => [...prev, activeWarning.id]);
       setActiveWarning(null);
+      // Logga kvittering till Supabase
+      try {
+        const pos = effectiveUserPos?.latLng;
+        await supabase.from('warning_acknowledgments').insert({
+          objekt_id: valtObjekt?.id || null,
+          marker_id: activeWarning.id,
+          marker_type: activeWarning.type,
+          marker_name: activeWarning.name,
+          distance: activeWarning.distance,
+          user_lat: pos?.lat || null,
+          user_lng: pos?.lng || null,
+          acknowledged_at: new Date().toISOString(),
+        });
+        console.log('[Varning] Kvittering loggad för', activeWarning.name);
+      } catch (err) {
+        console.error('[Varning] Kunde inte logga kvittering:', err);
+      }
     }
   };
   
@@ -4983,7 +5141,7 @@ export default function PlannerPage() {
     const centerY = path.reduce((sum, p) => sum + p.y, 0) / path.length;
     
     // Körläge opacity
-    const opacity = getMarkerOpacity({ x: centerX, y: centerY, id: marker.id });
+    const opacity = getMarkerOpacity({ x: centerX, y: centerY, id: marker.id }, marker);
     const isAcknowledged = acknowledgedWarnings.includes(marker.id);
     
     // Begränsad storlek för zon-ikoner
@@ -5404,8 +5562,13 @@ export default function PlannerPage() {
             const type = markerTypes.find(t => t.id === m.type);
             const isMenuOpen = markerMenuOpen === m.id;
             const isDragging = draggingMarker === m.id;
-            const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
+            const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id }, m);
             const isAcknowledged = acknowledgedWarnings.includes(m.id);
+            // Kolla om inom varningsavstånd (för pulsering)
+            const dists = getWarningDistances(m);
+            const userSvg = effectiveUserPos?.svg;
+            const distToUser = userSvg ? calculateDistanceMeters(userSvg, { x: m.x, y: m.y }) : Infinity;
+            const isInWarningRange = drivingMode && distToUser <= dists.warnDist && !isAcknowledged;
 
             // Projicera SVG-position till skärmkoordinater
             const screenPos = svgToScreen(m.x, m.y);
@@ -5460,6 +5623,29 @@ export default function PlannerPage() {
                   pointerEvents: isInDrawingMode ? 'none' : 'auto',
                 }}
               >
+                {/* Pulsande varningsring (röd glöd) när inom varningsavstånd */}
+                {isInWarningRange && (
+                  <>
+                    <circle
+                      cx={m.x} cy={m.y}
+                      r={symbolRadius + 12}
+                      fill="none"
+                      stroke="#ef4444"
+                      strokeWidth={4}
+                      opacity={0.8}
+                      style={{ animation: 'pulse 0.8s infinite' }}
+                    />
+                    <circle
+                      cx={m.x} cy={m.y}
+                      r={symbolRadius + 20}
+                      fill="none"
+                      stroke="#ef4444"
+                      strokeWidth={2}
+                      opacity={0.4}
+                      style={{ animation: 'pulse 0.8s infinite 0.2s' }}
+                    />
+                  </>
+                )}
                 {/* Osynlig hit-area (synlig bara vid drag) */}
                 <circle
                   cx={m.x}
@@ -5573,12 +5759,29 @@ export default function PlannerPage() {
             />
           )}
 
+          {/* Simulerad position (blå pulsande prick med orange ring) */}
+          {simulatedPos && !isTracking && (() => {
+            const map = mapInstanceRef.current;
+            if (!map) return null;
+            const sp = map.project([simulatedPos.lng, simulatedPos.lat]);
+            if (!sp) return null;
+            return (
+              <g>
+                <circle cx={sp.x} cy={sp.y} r={20} fill="none" stroke="#f59e0b" strokeWidth={2} opacity={0.4} style={{ animation: 'simPulse 2s infinite' }} />
+                <circle cx={sp.x} cy={sp.y} r={10} fill="#3b82f6" stroke="#fff" strokeWidth={3} style={{ animation: 'pulse 1.5s infinite' }} />
+                <text x={sp.x} y={sp.y - 18} textAnchor="middle" fontSize="10" fill="#f59e0b" fontWeight="600" style={{ pointerEvents: 'none' }}>SIM</text>
+              </g>
+            );
+          })()}
+
           {/* GPS position med ljuskägla */}
           {isTracking && (() => {
-            // Projicera GPS-position till skärm
-            const gpsScreen = gpsPosition
-              ? (() => { const map = mapInstanceRef.current; return map ? map.project([gpsPosition.lng, gpsPosition.lat]) : null; })()
-              : svgToScreen(gpsMapPosition.x, gpsMapPosition.y);
+            // Projicera GPS-position till skärm (eller simulerad)
+            const gpsScreen = simulatedPos
+              ? (() => { const map = mapInstanceRef.current; return map ? map.project([simulatedPos.lng, simulatedPos.lat]) : null; })()
+              : gpsPosition
+                ? (() => { const map = mapInstanceRef.current; return map ? map.project([gpsPosition.lng, gpsPosition.lat]) : null; })()
+                : svgToScreen(gpsMapPosition.x, gpsMapPosition.y);
             if (!gpsScreen) return null;
             const gpx = gpsScreen.x;
             const gpy = gpsScreen.y;
@@ -7605,18 +7808,18 @@ export default function PlannerPage() {
             {/* Linjetyper - visas om linjer är på */}
             {visibleLayers.lines && (
               <div style={{
-                background: '#0a0a0a', 
+                background: '#0a0a0a',
                 border: '1px solid rgba(255,255,255,0.08)',
                 borderRadius: '20px',
                 padding: '8px',
                 marginBottom: '16px',
               }}>
-                <div style={{ 
-                  padding: '12px 16px 8px', 
-                  fontSize: '11px', 
-                  opacity: 0.4, 
-                  textTransform: 'uppercase', 
-                  letterSpacing: '1px' 
+                <div style={{
+                  padding: '12px 16px 8px',
+                  fontSize: '11px',
+                  opacity: 0.4,
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px'
                 }}>
                   Linjetyper
                 </div>
@@ -7633,11 +7836,11 @@ export default function PlannerPage() {
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ 
-                      width: '36px', 
-                      height: '4px', 
+                    <div style={{
+                      width: '36px',
+                      height: '4px',
                       borderRadius: '2px',
-                      background: line.striped 
+                      background: line.striped
                         ? `repeating-linear-gradient(90deg, ${line.color} 0px, ${line.color} 4px, ${line.color2} 4px, ${line.color2} 8px)`
                         : line.color,
                     }} />
@@ -7662,6 +7865,184 @@ export default function PlannerPage() {
                 ))}
               </div>
             )}
+
+            {/* Varningsinställningar - öppna knapp */}
+            <div
+              onClick={() => setWarningMenuOpen(true)}
+              style={{
+                background: '#0a0a0a',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '20px',
+                padding: '18px 20px',
+                marginBottom: '16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '14px',
+                cursor: 'pointer',
+              }}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>Varningsinställningar</span>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" style={{ opacity: 0.4 }}>
+                <path d="M9 18l6-6-6-6"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === VARNINGSINSTÄLLNINGAR MENY === */}
+      {warningMenuOpen && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: '#000',
+          zIndex: 510,
+          display: 'flex',
+          flexDirection: 'column',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", sans-serif',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '55px 20px 20px',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}>
+            <div
+              onClick={() => setWarningMenuOpen(false)}
+              style={{
+                padding: '8px',
+                marginLeft: '-8px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" style={{ opacity: 0.6 }}>
+                <path d="M15 18l-6-6 6-6"/>
+              </svg>
+              <span style={{ fontSize: '17px', opacity: 0.6 }}>Tillbaka</span>
+            </div>
+            <span style={{ fontSize: '17px', fontWeight: '600', color: '#fff' }}>Varningar</span>
+            <div style={{ width: '80px' }} />
+          </div>
+
+          {/* Content */}
+          <div style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '20px',
+            WebkitOverflowScrolling: 'touch',
+          }}>
+            {warningCategories.map(section => (
+              <div key={section.section} style={{
+                background: '#0a0a0a',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '20px',
+                padding: '8px',
+                marginBottom: '16px',
+              }}>
+                <div style={{
+                  padding: '12px 16px 8px',
+                  fontSize: '11px',
+                  opacity: 0.4,
+                  textTransform: 'uppercase',
+                  letterSpacing: '1px',
+                }}>
+                  {section.section}
+                </div>
+                {section.items.map(item => (
+                  <div key={item.id} style={{
+                    padding: '14px 16px',
+                    borderRadius: '12px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+                      <div style={{
+                        width: '12px',
+                        height: '12px',
+                        borderRadius: '50%',
+                        background: item.color,
+                        flexShrink: 0,
+                      }} />
+                      <span style={{ fontSize: '15px', color: '#fff', fontWeight: '500' }}>{item.name}</span>
+                    </div>
+                    {/* Varningsavstånd slider */}
+                    <div style={{ marginBottom: '10px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Varningsavstånd</span>
+                        <span style={{ fontSize: '12px', color: '#f59e0b', fontWeight: '600' }}>
+                          {warningSettings[item.id]?.warnDist || item.defaultWarn}m
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={10}
+                        max={100}
+                        step={5}
+                        value={warningSettings[item.id]?.warnDist || item.defaultWarn}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setWarningSettings(prev => ({
+                            ...prev,
+                            [item.id]: { ...prev[item.id], warnDist: val },
+                          }));
+                        }}
+                        style={{
+                          width: '100%',
+                          height: '6px',
+                          WebkitAppearance: 'none',
+                          appearance: 'none' as any,
+                          background: `linear-gradient(to right, #f59e0b 0%, #f59e0b ${((warningSettings[item.id]?.warnDist || item.defaultWarn) - 10) / 90 * 100}%, rgba(255,255,255,0.1) ${((warningSettings[item.id]?.warnDist || item.defaultWarn) - 10) / 90 * 100}%, rgba(255,255,255,0.1) 100%)`,
+                          borderRadius: '3px',
+                          outline: 'none',
+                          cursor: 'pointer',
+                        }}
+                      />
+                    </div>
+                    {/* Synlighetsavstånd slider */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Synlighetsavstånd</span>
+                        <span style={{ fontSize: '12px', color: '#22c55e', fontWeight: '600' }}>
+                          {warningSettings[item.id]?.fadeDist || item.defaultFade}m
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={50}
+                        max={500}
+                        step={10}
+                        value={warningSettings[item.id]?.fadeDist || item.defaultFade}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setWarningSettings(prev => ({
+                            ...prev,
+                            [item.id]: { ...prev[item.id], fadeDist: val },
+                          }));
+                        }}
+                        style={{
+                          width: '100%',
+                          height: '6px',
+                          WebkitAppearance: 'none',
+                          appearance: 'none' as any,
+                          background: `linear-gradient(to right, #22c55e 0%, #22c55e ${((warningSettings[item.id]?.fadeDist || item.defaultFade) - 50) / 450 * 100}%, rgba(255,255,255,0.1) ${((warningSettings[item.id]?.fadeDist || item.defaultFade) - 50) / 450 * 100}%, rgba(255,255,255,0.1) 100%)`,
+                          borderRadius: '3px',
+                          outline: 'none',
+                          cursor: 'pointer',
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -12235,6 +12616,98 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* === SIMULERAD POSITION KONTEXTMENY === */}
+      {showSimPosMenu && (
+        <div
+          onClick={() => setShowSimPosMenu(null)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 600,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute',
+              left: Math.min(showSimPosMenu.x, window.innerWidth - 220),
+              top: Math.min(showSimPosMenu.y, window.innerHeight - 120),
+              background: '#1a1a1a',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: '12px',
+              padding: '4px',
+              minWidth: '200px',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+            }}
+          >
+            <div
+              onClick={() => {
+                setSimulatedPos({ lat: showSimPosMenu.lat, lng: showSimPosMenu.lng });
+                setShowSimPosMenu(null);
+              }}
+              style={{
+                padding: '12px 16px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                color: '#fff',
+                fontSize: '14px',
+              }}
+            >
+              <span style={{ fontSize: '18px' }}>📍</span>
+              Sätt min position här
+            </div>
+            {simulatedPos && (
+              <div
+                onClick={() => {
+                  setSimulatedPos(null);
+                  setShowSimPosMenu(null);
+                }}
+                style={{
+                  padding: '12px 16px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  color: '#ef4444',
+                  fontSize: '14px',
+                }}
+              >
+                <span style={{ fontSize: '18px' }}>✕</span>
+                Ta bort simulerad position
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Simulerad position indikator (liten badge) */}
+      {simulatedPos && (
+        <div style={{
+          position: 'fixed',
+          top: '55px',
+          right: '12px',
+          background: '#f59e0b',
+          color: '#000',
+          padding: '6px 12px',
+          borderRadius: '20px',
+          fontSize: '11px',
+          fontWeight: '700',
+          zIndex: 400,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          cursor: 'pointer',
+          boxShadow: '0 2px 10px rgba(0,0,0,0.3)',
+        }} onClick={() => setSimulatedPos(null)}>
+          📍 SIM-POSITION
+          <span style={{ opacity: 0.7 }}>✕</span>
+        </div>
+      )}
+
       {/* === ANIMATIONS === */}
       <style>{`
         @keyframes pulse {
@@ -12249,6 +12722,19 @@ export default function PlannerPage() {
           0% { background: #dc2626; }
           100% { background: #991b1b; }
         }
+        @keyframes simPulse {
+          0% { r: 20; opacity: 0.4; }
+          50% { r: 30; opacity: 0.1; }
+          100% { r: 20; opacity: 0.4; }
+        }
+        @keyframes markerPulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.3); }
+        }
+        @keyframes warningGlow {
+          0%, 100% { box-shadow: 0 0 10px 4px rgba(239,68,68,0.6); }
+          50% { box-shadow: 0 0 25px 10px rgba(239,68,68,0.9); }
+        }
         /* Dölja number input spinners */
         input[type=number]::-webkit-inner-spin-button,
         input[type=number]::-webkit-outer-spin-button {
@@ -12257,6 +12743,24 @@ export default function PlannerPage() {
         }
         input[type=number] {
           -moz-appearance: textfield;
+        }
+        /* Range slider thumb styling */
+        input[type=range]::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background: #fff;
+          cursor: pointer;
+          margin-top: -6px;
+        }
+        input[type=range]::-moz-range-thumb {
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background: #fff;
+          cursor: pointer;
+          border: none;
         }
       `}</style>
 
