@@ -8072,20 +8072,38 @@ export default function PlannerPage() {
                 {section.items.map(item => {
                   const proximityOn = warningSettings[item.id]?.enabled !== false;
                   const slidersDisabled = warningShowAll || !proximityOn || !drivingMode;
+                  const previewOpacity = warningSettings[item.id]?.minOpacity ?? 0.1;
+                  const isZone = item.id.startsWith('zone_');
                   return (
                   <div key={item.id} style={{
                     padding: '14px 16px',
                     borderRadius: '12px',
                   }}>
-                    {/* Kategorinamn */}
+                    {/* Kategorinamn + preview-ikon */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-                      <div style={{
-                        width: '12px',
-                        height: '12px',
-                        borderRadius: '50%',
-                        background: item.color,
-                        flexShrink: 0,
-                      }} />
+                      {isZone ? (
+                        <div style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '6px',
+                          background: `${item.color}30`,
+                          border: `2px solid ${item.color}`,
+                          flexShrink: 0,
+                          opacity: previewOpacity,
+                          transition: 'opacity 0.15s ease',
+                        }} />
+                      ) : (
+                        <div style={{
+                          width: '28px',
+                          height: '28px',
+                          borderRadius: '50%',
+                          background: item.color,
+                          border: item.color.startsWith('rgba') ? '2px solid rgba(255,255,255,0.3)' : '2px solid rgba(255,255,255,0.8)',
+                          flexShrink: 0,
+                          opacity: previewOpacity,
+                          transition: 'opacity 0.15s ease',
+                        }} />
+                      )}
                       <span style={{ flex: 1, fontSize: '15px', color: '#fff', fontWeight: '500' }}>{item.name}</span>
                     </div>
                     {/* Avståndsdämpning toggle */}
