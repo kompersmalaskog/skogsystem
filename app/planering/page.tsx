@@ -5346,14 +5346,14 @@ export default function PlannerPage() {
             setMapZoom(15);
             // Flytta MapLibre-kartan om den finns
             if (mapInstanceRef.current) {
-              mapInstanceRef.current.jumpTo({ center: [centerLng, centerLat], zoom: 15, pitch: 50, bearing: 20 });
+              mapInstanceRef.current.jumpTo({ center: [centerLng, centerLat], zoom: 15, pitch: 50, bearing: 0 });
               setTimeout(() => mapInstanceRef.current?.resize(), 50);
             }
           } else if (obj.lat && obj.lng) {
             setMapCenter({ lat: obj.lat, lng: obj.lng });
             setMapZoom(16);
             if (mapInstanceRef.current) {
-              mapInstanceRef.current.jumpTo({ center: [obj.lng, obj.lat], zoom: 16, pitch: 50, bearing: 20 });
+              mapInstanceRef.current.jumpTo({ center: [obj.lng, obj.lat], zoom: 16, pitch: 50, bearing: 0 });
               setTimeout(() => mapInstanceRef.current?.resize(), 50);
             }
           }
@@ -5449,7 +5449,7 @@ export default function PlannerPage() {
           initialCenter={[mapCenter.lng, mapCenter.lat] as [number, number]}
           initialZoom={mapZoom}
           initialPitch={45}
-          initialBearing={20}
+          initialBearing={0}
           mapStyle={mapStyleConfig.current as any}
           style={{
             position: 'absolute',
