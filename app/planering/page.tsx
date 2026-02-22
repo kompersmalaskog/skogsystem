@@ -854,6 +854,7 @@ export default function PlannerPage() {
   const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<string[]>([]); // IDs av kvitterade
   const [activeWarning, setActiveWarning] = useState<Warning | null>(null); // Markör som visar varning
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // Foto i fullskärm
+  const [showDebugPanel, setShowDebugPanel] = useState(false); // Tryck D för att visa
   const WARNING_DISTANCE = 40; // meter - varning triggas
   const FADE_START_DISTANCE = 100; // meter - börjar synas starkare
   
@@ -1179,6 +1180,20 @@ export default function PlannerPage() {
     map.on('move', onMove);
     return () => { map.off('move', onMove); };
   }, [mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tangent 'D' för debug-panel
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'd' || e.key === 'D') {
+        // Ignorera om vi skriver i ett textfält
+        const tag = (e.target as HTMLElement)?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        setShowDebugPanel(p => !p);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   // === MapLibre: Byt bakgrundskarta ===
   useEffect(() => {
@@ -2915,10 +2930,8 @@ export default function PlannerPage() {
       const features: any[] = [];
       const symbolMarkers = markers.filter(m => m.isMarker);
       const userPos = effectiveUserPos;
-      if (drivingMode) {
-        console.log(`[Proximity] === SYNC tick=${proximityTick} ===`);
-        console.log(`[Proximity] symbols=${symbolMarkers.length}, userPos=${userPos ? `svg(${userPos.svg.x.toFixed(0)},${userPos.svg.y.toFixed(0)}) latLng(${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)})` : 'NULL'}, showAll=${warningShowAll}`);
-        console.log(`[Proximity] simulatedPos=${simulatedPos ? 'SET' : 'null'}, gpsPosition=${gpsPosition ? 'SET' : 'null'}, scale=${scale.toFixed(3)}`);
+      if (drivingMode && proximityTick % 5 === 0) {
+        console.log(`[Proximity] tick=${proximityTick}, symbols=${symbolMarkers.length}, userPos=${userPos ? `(${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)})` : 'NULL'}, showAll=${warningShowAll}, gps=${gpsPosition ? 'SET' : 'null'}, sim=${simulatedPos ? 'SET' : 'null'}`);
       }
       let minOp = 1, maxOp = 0;
       symbolMarkers.forEach(m => {
@@ -2932,8 +2945,8 @@ export default function PlannerPage() {
           geometry: { type: 'Point', coordinates: [ll.lon, ll.lat] },
         });
       });
-      if (drivingMode && symbolMarkers.length > 0) {
-        console.log(`[Proximity] opacity range: min=${minOp.toFixed(2)}, max=${maxOp.toFixed(2)} (should NOT be all 1.0 if proximity active)`);
+      if (drivingMode && symbolMarkers.length > 0 && proximityTick % 5 === 0) {
+        console.log(`[Proximity] opacity range: min=${minOp.toFixed(2)}, max=${maxOp.toFixed(2)}`);
       }
       src.setData({ type: 'FeatureCollection', features });
     } catch (e) {
@@ -3847,26 +3860,31 @@ export default function PlannerPage() {
       (pos) => {
         const newPos = { lat: pos.coords.latitude, lon: pos.coords.longitude };
         const accuracy = pos.coords.accuracy; // meter
-        
-        // Ignorera osäkra positioner (över 10 meter för bättre kvalitet)
-        if (accuracy > 10) return;
-        
+
+        // ALLTID uppdatera gpsPosition (för proximity/varningssystemet)
+        // Även osäkra positioner (20-50m) är bra nog för varningar
         setCurrentPosition(newPos);
         setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
-        setTrackingPath(prev => [...prev, newPos]);
-        
-        // Första punkten - sätt startposition
+
+        // Ignorera osäkra positioner för linjespårning (kräver precision)
+        const isAccurate = accuracy <= 30;
+
+        if (isAccurate) {
+          setTrackingPath(prev => [...prev, newPos]);
+        }
+
+        // Första punkten - sätt startposition (acceptera upp till 30m)
         setGpsStartPos(prev => {
-          if (!prev) {
+          if (!prev && isAccurate) {
             // Beräkna SVG-koordinater från lat/lon
             const svgPos = latLonToSvg(newPos.lat, newPos.lon);
             gpsMapPositionRef.current = svgPos;
             setGpsMapPosition(svgPos);
-            const startPos = { 
-              lat: newPos.lat, 
-              lon: newPos.lon, 
-              x: svgPos.x, 
-              y: svgPos.y 
+            const startPos = {
+              lat: newPos.lat,
+              lon: newPos.lon,
+              x: svgPos.x,
+              y: svgPos.y
             };
             const firstPoint = { x: svgPos.x, y: svgPos.y };
             gpsPathRef.current = [firstPoint];
@@ -3875,38 +3893,45 @@ export default function PlannerPage() {
             gpsHistoryRef.current = [firstPoint];
             return startPos;
           }
-          
+          if (!prev) {
+            // Osäker position men vi har ingen startpunkt ännu — sätt ändå så pricken hamnar rätt
+            const svgPos = latLonToSvg(newPos.lat, newPos.lon);
+            gpsMapPositionRef.current = svgPos;
+            setGpsMapPosition(svgPos);
+            return null; // Returnera null — vi väntar på bättre precision för linjespårning
+          }
+
           // Konvertera GPS till kartkoordinater
           const rawMapPos = gpsToMap(newPos.lat, newPos.lon, prev.lat, prev.lon, prev.x, prev.y);
-          
+
           // Lägg till i historik för medelvärde (max 20 punkter för jämnare resultat)
           gpsHistoryRef.current = [...gpsHistoryRef.current.slice(-19), rawMapPos];
-          
+
           // Beräkna medelvärde av senaste positionerna
           const history = gpsHistoryRef.current;
           const smoothedPos = {
             x: history.reduce((sum, p) => sum + p.x, 0) / history.length,
             y: history.reduce((sum, p) => sum + p.y, 0) / history.length
           };
-          
+
           // Kolla avstånd från senast bekräftade position
           const distFromConfirmed = Math.sqrt(
-            Math.pow(smoothedPos.x - lastConfirmedPosRef.current.x, 2) + 
+            Math.pow(smoothedPos.x - lastConfirmedPosRef.current.x, 2) +
             Math.pow(smoothedPos.y - lastConfirmedPosRef.current.y, 2)
           );
-          
+
           // Minsta rörelse för att uppdatera pricken (ca 2 meter vid scale=1)
           const minPixelMove = 2 / scale; // 2 meter i pixlar
-          
+
           if (distFromConfirmed > minPixelMove) {
             // Uppdatera bekräftad position
             lastConfirmedPosRef.current = smoothedPos;
             gpsMapPositionRef.current = smoothedPos;
             setGpsMapPosition(smoothedPos);
-            
+
             // Lägg till punkt i spårad linje om vi rört oss tillräckligt (5 meter)
-            // Men INTE om spårningen är pausad
-            if (!gpsPausedRef.current) {
+            // Men INTE om spårningen är pausad och positionen är tillräckligt exakt
+            if (!gpsPausedRef.current && isAccurate) {
               const currentPath = gpsPathRef.current;
               if (currentPath.length === 0) {
                 gpsPathRef.current = [smoothedPos];
@@ -4865,13 +4890,16 @@ export default function PlannerPage() {
   // === KÖRLÄGE FUNKTIONER ===
 
   // Effektiv användarposition (simulerad eller riktig GPS)
+  // Använder latLonToSvg direkt från gpsPosition för att undvika race condition
+  // där gpsMapPosition inte hunnit uppdateras ännu
   const effectiveUserPos = (() => {
     if (simulatedPos) {
       const svgPos = latLonToSvg(simulatedPos.lat, simulatedPos.lng);
       return { svg: svgPos, latLng: simulatedPos };
     }
     if (gpsPosition) {
-      return { svg: gpsMapPosition, latLng: gpsPosition };
+      const svgPos = latLonToSvg(gpsPosition.lat, gpsPosition.lng);
+      return { svg: svgPos, latLng: gpsPosition };
     }
     return null;
   })();
@@ -5072,11 +5100,10 @@ export default function PlannerPage() {
   useEffect(() => {
     if (!drivingMode) return;
 
-    const userPos = effectiveUserPos;
-    console.log(`[Varning] Checking warnings: userPos=${userPos ? `${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)}` : 'null'}, markers=${markers.length}, showAll=${warningShowAll}`);
-
     const warnings = getActiveWarnings();
-    console.log(`[Varning] ${warnings.length} varningar hittade${warnings.length > 0 ? ': ' + warnings.map(w => `${w.name} ${w.distance}m`).join(', ') : ''}`);
+    if (warnings.length > 0) {
+      console.log(`[Varning] ${warnings.length} aktiva:`, warnings.map(w => `${w.name} ${w.distance}m`).join(', '));
+    }
     if (warnings.length > 0 && !activeWarning) {
       const warning = warnings[0];
       
@@ -12976,8 +13003,8 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* Proximity debug panel (visas i körläge) */}
-      {drivingMode && (
+      {/* Proximity debug panel (tryck D för att visa) */}
+      {drivingMode && showDebugPanel && (
         <div style={{
           position: 'fixed',
           top: simulatedPos ? '90px' : '55px',
