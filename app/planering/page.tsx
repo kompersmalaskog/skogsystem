@@ -541,7 +541,7 @@ export default function PlannerPage() {
       { id: 'stickvag', color: '#ff00ff' },
       { id: 'nature', color: '#22c55e', color2: '#ef4444', striped: true },
       { id: 'ditch', color: '#06b6d4', color2: '#0e7490', striped: true },
-      { id: 'trail', color: '#E53935', dashed: true },
+      { id: 'trail', color: '#ffffff', dashed: true },
     ];
     lineTypeDefs.forEach((lt: any) => {
       const isBoundary = lt.id === 'boundary';
@@ -581,11 +581,11 @@ export default function PlannerPage() {
     {
       const fpSize = 24;
       const fpSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${fpSize}" height="${fpSize}" viewBox="0 0 24 24">
-        <ellipse cx="12" cy="16" rx="4" ry="6" fill="#E53935"/>
-        <ellipse cx="8" cy="8" rx="1.6" ry="2" fill="#E53935"/>
-        <ellipse cx="10.5" cy="7" rx="1.4" ry="1.8" fill="#E53935"/>
-        <ellipse cx="13.5" cy="7" rx="1.4" ry="1.8" fill="#E53935"/>
-        <ellipse cx="16" cy="8" rx="1.6" ry="2" fill="#E53935"/>
+        <ellipse cx="12" cy="16" rx="4" ry="6" fill="#ffffff"/>
+        <ellipse cx="8" cy="8" rx="1.6" ry="2" fill="#ffffff"/>
+        <ellipse cx="10.5" cy="7" rx="1.4" ry="1.8" fill="#ffffff"/>
+        <ellipse cx="13.5" cy="7" rx="1.4" ry="1.8" fill="#ffffff"/>
+        <ellipse cx="16" cy="8" rx="1.6" ry="2" fill="#ffffff"/>
       </svg>`;
       const fpImg = new Image();
       fpImg.onload = () => {
@@ -717,7 +717,7 @@ export default function PlannerPage() {
       { id: 'wet', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
       { id: 'steep', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
       { id: 'trail', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
-      { id: 'warning', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
+      { id: 'warning', bg: '#E53935', outline: '#ffffff' },
       { id: 'default', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
     ];
 
@@ -2636,7 +2636,7 @@ export default function PlannerPage() {
     { id: 'stickvag', name: 'Test-stickväg', color: '#ff00ff', striped: false },
     { id: 'nature', name: 'Naturvård', color: '#22c55e', color2: '#ef4444', striped: true },
     { id: 'ditch', name: 'Dike', color: '#06b6d4', color2: '#0e7490', striped: true },
-    { id: 'trail', name: 'Stig/Led', color: '#E53935', striped: false, dashed: true },
+    { id: 'trail', name: 'Stig/Led', color: '#ffffff', striped: false, dashed: true },
   ];
 
   const zoneTypes = [
