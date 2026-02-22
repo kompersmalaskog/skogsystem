@@ -541,10 +541,11 @@ export default function PlannerPage() {
       { id: 'stickvag', color: '#ff00ff' },
       { id: 'nature', color: '#22c55e', color2: '#ef4444', striped: true },
       { id: 'ditch', color: '#06b6d4', color2: '#0e7490', striped: true },
-      { id: 'trail', color: '#ffffff', dashed: true },
+      { id: 'trail', color: '#E53935', dashed: true },
     ];
     lineTypeDefs.forEach((lt: any) => {
       const isBoundary = lt.id === 'boundary';
+      const isTrail = lt.id === 'trail';
       // Zoom-interpolerade linjebredder
       // Traktgräns: alltid tydlig — minst 4px vid utzoom
       const lw = isBoundary
@@ -553,11 +554,11 @@ export default function PlannerPage() {
       const cwLw = isBoundary
         ? ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 7, 13, 7, 15, 9, 17, 10]
         : ['interpolate', ['linear'], ['zoom'], 5, 4, 8, 4, 11, 5, 13, 6, 15, 8, 17, 9];
-      // Svart casing bakom varje linje för kontrast
+      // Svart casing bakom varje linje för kontrast (trail: starkare svart casing)
       map.addLayer({
         id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
-        paint: { 'line-color': 'rgba(0,0,0,0.5)', 'line-width': cwLw },
+        paint: { 'line-color': isTrail ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.5)', 'line-width': cwLw },
         layout: { 'line-cap': 'round', 'line-join': 'round' }
       });
       map.addLayer({
@@ -575,6 +576,47 @@ export default function PlannerPage() {
         });
       }
     });
+
+    // === Fotspår-ikon för stig/led (symbol-placement: 'line') ===
+    {
+      const fpSize = 24;
+      const fpSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${fpSize}" height="${fpSize}" viewBox="0 0 24 24">
+        <ellipse cx="12" cy="16" rx="4" ry="6" fill="#E53935"/>
+        <ellipse cx="8" cy="8" rx="1.6" ry="2" fill="#E53935"/>
+        <ellipse cx="10.5" cy="7" rx="1.4" ry="1.8" fill="#E53935"/>
+        <ellipse cx="13.5" cy="7" rx="1.4" ry="1.8" fill="#E53935"/>
+        <ellipse cx="16" cy="8" rx="1.6" ry="2" fill="#E53935"/>
+      </svg>`;
+      const fpImg = new Image();
+      fpImg.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = fpSize; c.height = fpSize;
+          const ctx = c.getContext('2d');
+          if (ctx) ctx.drawImage(fpImg, 0, 0, fpSize, fpSize);
+          const mapImg = canvasToMapImage(c);
+          if (mapImg && !map.hasImage('footprint-icon')) {
+            map.addImage('footprint-icon', mapImg);
+            map.addLayer({
+              id: 'trail-footprints', type: 'symbol', source: 'lines-source',
+              filter: ['==', ['get', 'lineType'], 'trail'],
+              layout: {
+                'icon-image': 'footprint-icon',
+                'icon-size': ['interpolate', ['linear'], ['zoom'], 8, 0.4, 13, 0.7, 15, 1.0, 17, 1.2],
+                'symbol-placement': 'line',
+                'symbol-spacing': 50,
+                'icon-allow-overlap': true,
+                'icon-rotation-alignment': 'map',
+                'icon-pitch-alignment': 'map',
+              },
+              paint: { 'icon-opacity': 0.9 },
+            });
+            console.log('[MapLibre] Footprint icon + layer added for trail');
+          }
+        } catch (e) { console.error('[MapLibre] Footprint icon error:', e); }
+      };
+      fpImg.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(fpSvg);
+    }
 
     // === Line hitbox layer ===
     map.addLayer({ id: 'line-hitbox', type: 'line', source: 'lines-source', paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': 20 } });
@@ -2594,7 +2636,7 @@ export default function PlannerPage() {
     { id: 'stickvag', name: 'Test-stickväg', color: '#ff00ff', striped: false },
     { id: 'nature', name: 'Naturvård', color: '#22c55e', color2: '#ef4444', striped: true },
     { id: 'ditch', name: 'Dike', color: '#06b6d4', color2: '#0e7490', striped: true },
-    { id: 'trail', name: 'Stig/Led', color: '#ffffff', striped: false, dashed: true },
+    { id: 'trail', name: 'Stig/Led', color: '#E53935', striped: false, dashed: true },
   ];
 
   const zoneTypes = [
@@ -3051,6 +3093,9 @@ export default function PlannerPage() {
         safeSetVisibility(`line-${id}-base`, vis);
         if (stripedTypeIds.includes(id)) {
           safeSetVisibility(`line-${id}-stripe`, vis);
+        }
+        if (id === 'trail') {
+          safeSetVisibility('trail-footprints', vis);
         }
       });
       // Line hitbox
