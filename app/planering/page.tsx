@@ -2524,10 +2524,6 @@ export default function PlannerPage() {
     return mapInstanceRef.current?.getZoom() ?? mapZoom;
   };
 
-  // Hämta aktuell MapLibre-pitch (för 3D-anpassning av symboler)
-  const getMapLibrePitch = (): number => {
-    return mapInstanceRef.current?.getPitch() ?? 0;
-  };
 
   // === MapLibre: GeoJSON sync useEffects (placerade här, EFTER alla state-deklarationer, för att undvika TDZ) ===
 
@@ -5177,17 +5173,9 @@ export default function PlannerPage() {
             const isZoomedOut = getMapLibreZoom() < 15;
             const shouldShow = isImportant || !isZoomedOut;
 
-            // === 3D-ANPASSNING (pitch > 20°) ===
-            const pitch = getMapLibrePitch();
-            const is3D = pitch > 20;
-            const scale3D = is3D ? 1.5 : 1.0;
-
-            // Storlek baserat på zoom, skalas upp i 3D
-            // Utzoomad: mindre (14px radie, 12px ikon)
-            // Inzoomad: normal (19px radie, 17px ikon)
-            // 3D: 1.5x större
-            const baseRadius = (isZoomedOut ? 14 : 19) * scale3D;
-            const baseIconSize = (isZoomedOut ? 12 : 17) * scale3D;
+            // Fast storlek — ändras INTE av pitch/tilt
+            const baseRadius = isZoomedOut ? 14 : 19;
+            const baseIconSize = isZoomedOut ? 12 : 17;
             
             const symbolRadius = getConstrainedSize(isDragging && hasMoved ? baseRadius + 4 : baseRadius);
             const iconSize = getConstrainedSize(isDragging && hasMoved ? baseIconSize + 3 : baseIconSize);
@@ -5220,9 +5208,7 @@ export default function PlannerPage() {
                 style={{
                   cursor: isDragging ? 'grabbing' : 'pointer',
                   opacity: opacity,
-                  transition: 'opacity 0.3s ease',
                   pointerEvents: isInDrawingMode ? 'none' : 'auto',
-                  ...(is3D ? { filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' } : {}),
                 }}
               >
                 {/* Skugga när man drar */}
@@ -5245,33 +5231,21 @@ export default function PlannerPage() {
                     opacity={0.7}
                   />
                 )}
-                {/* Vit halo-ring (syns i 3D och platt vy) */}
-                {is3D && (
-                  <circle
-                    cx={m.x}
-                    cy={m.y}
-                    r={symbolRadius + getConstrainedSize(3)}
-                    fill="none"
-                    stroke="rgba(255,255,255,0.9)"
-                    strokeWidth={getConstrainedSize(2)}
-                  />
-                )}
                 {/* Bakgrundscirkel med kant */}
                 <circle
                   cx={m.x}
                   cy={m.y}
                   r={symbolRadius}
                   fill={isDragging && hasMoved ? colors.blue : isMenuOpen ? 'rgba(10,132,255,0.3)' : darkBg}
-                  stroke={isDragging && hasMoved ? '#fff' : isMenuOpen ? colors.blue : is3D ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.7)'}
-                  strokeWidth={getConstrainedSize(is3D ? 3 : 2)}
-                  style={{ transition: isDragging ? 'none' : 'all 0.2s ease' }}
+                  stroke={isDragging && hasMoved ? '#fff' : isMenuOpen ? colors.blue : 'rgba(255,255,255,0.7)'}
+                  strokeWidth={getConstrainedSize(2)}
                 />
                 {/* SVG-ikon med glow-effekt */}
                 <g
                   transform={`translate(${m.x - iconSize/2}, ${m.y - iconSize/2})`}
                   style={{
                     pointerEvents: 'none',
-                    filter: is3D ? 'drop-shadow(0 0 4px rgba(255,255,255,0.9))' : 'drop-shadow(0 0 3px rgba(255,255,255,0.8))',
+                    filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.8))',
                   }}
                 >
                   {renderIcon(m.type || 'default', iconSize, '#fff')}
@@ -5295,22 +5269,18 @@ export default function PlannerPage() {
             const isDragging = draggingMarker === m.id;
             const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
             const isAcknowledged = acknowledgedWarnings.includes(m.id);
-            // 3D-anpassning för pilar
-            const arrowPitch = getMapLibrePitch();
-            const arrowIs3D = arrowPitch > 20;
-            const arrowScale3D = arrowIs3D ? 1.5 : 1.0;
-            const arrowScale = getConstrainedSize(1) * arrowScale3D;
-            const ringRadius = getConstrainedSize(30) * arrowScale3D;
-            const photoRadius = getConstrainedSize(10) * arrowScale3D;
-            const photoOffset = getConstrainedSize(18) * arrowScale3D;
-            const photoFontSize = getConstrainedSize(10) * arrowScale3D;
+            const arrowScale = getConstrainedSize(1);
+            const ringRadius = getConstrainedSize(30);
+            const photoRadius = getConstrainedSize(10);
+            const photoOffset = getConstrainedSize(18);
+            const photoFontSize = getConstrainedSize(10);
             // Projicera position
             const screenPos = svgToScreen(m.x, m.y);
             if (!screenPos) return null;
             const offsetX = screenPos.x - m.x;
             const offsetY = screenPos.y - m.y;
             return (
-              <g key={m.id} transform={`translate(${offsetX}, ${offsetY})`} style={{ opacity: opacity, transition: 'opacity 0.3s ease', ...(arrowIs3D ? { filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.5))' } : {}) }}>
+              <g key={m.id} transform={`translate(${offsetX}, ${offsetY})`} style={{ opacity: opacity }}>
                 {/* Grön ring om kvitterad */}
                 {isAcknowledged && drivingMode && (
                   <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={getConstrainedSize(3)} />
@@ -5344,7 +5314,7 @@ export default function PlannerPage() {
                     fill={arrow?.color || '#fff'}
                     stroke={isDragging && hasMoved ? '#fff' : 'rgba(0,0,0,0.5)'}
                     strokeWidth={1}
-                    style={{ transform: isDragging && hasMoved ? 'scale(1.2)' : 'scale(1)', transition: isDragging ? 'none' : 'transform 0.2s ease' }}
+                    style={{ transform: isDragging && hasMoved ? 'scale(1.2)' : 'scale(1)' }}
                   />
                 </g>
                 {/* Foto-indikator (utanför rotation) */}
