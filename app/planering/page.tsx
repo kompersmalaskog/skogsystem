@@ -1459,7 +1459,7 @@ export default function PlannerPage() {
     const onPointerUp = (e: MouseEvent | TouchEvent) => {
       if (!isDrawingMode) return;
       const wasFreehand = freehandActiveRef.current;
-      const coords = freehandCoordsRef.current;
+      const coords = [...freehandCoordsRef.current];
       freehandActiveRef.current = false;
       freehandCoordsRef.current = [];
 
@@ -1467,22 +1467,12 @@ export default function PlannerPage() {
       map.dragPan.enable();
       setIsDrawing(false);
 
-      if (wasFreehand && coords.length >= 3) {
-        const shouldClose = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
-        if (shouldClose) {
-          coords.push(coords[0]); // Stäng polygon
-        }
+      if (wasFreehand && coords.length >= 2) {
+        // Freehand: ackumulera punkter i currentDrawCoords (pausa, inte avsluta)
+        // Användaren trycker ✓ för att spara, precis som i v17
         const simplified = simplifyCoords(coords, 0.00002);
-        const smoothed = smoothCoords(simplified, 2, shouldClose);
-        console.log('Freehand klar, shouldClose:', shouldClose, 'punkter:', coords.length, 'efter smooth:', smoothed.length);
-        if (shouldClose) {
-          console.log('Polygon stängd, första:', smoothed[0], 'sista:', smoothed[smoothed.length-1]);
-        }
-        if (isDrawMode) {
-          finishLineFromCoords(smoothed);
-        } else if (isZoneMode) {
-          finishZoneFromCoords(smoothed);
-        }
+        setCurrentDrawCoords(simplified);
+        setDrawPaused(true);
       } else if (!wasFreehand && coords.length > 0) {
         // Kort klick (ingen drag) → lägg till punkt (punkt-för-punkt-läge)
         const lastCoord = coords[coords.length - 1];
@@ -1499,7 +1489,6 @@ export default function PlannerPage() {
           if (closeDist < 20) {
             const closed = [...currentDrawCoords, currentDrawCoords[0]];
             const smoothed = smoothCoords(closed, 2, true);
-            console.log('Polygon stängd (nära start), antal punkter:', closed.length, 'första:', closed[0], 'sista:', closed[closed.length-1], 'efter smooth:', smoothed.length);
             if (isDrawMode) finishLineFromCoords(smoothed);
             if (isZoneMode) finishZoneFromCoords(smoothed);
             return;
@@ -4768,16 +4757,18 @@ export default function PlannerPage() {
     }
   };
   
-  // Ångra senaste punkten medan man ritar
+  // Ångra senaste segmentet medan man ritar (ta bort ~20%, minst 3 punkter)
   const undoLastSegment = () => {
     if (currentDrawCoords.length <= 1) {
       cancelDrawing();
       return;
     }
-    setCurrentDrawCoords(prev => prev.slice(0, -1));
+    const removeCount = Math.max(3, Math.floor(currentDrawCoords.length * 0.2));
+    setCurrentDrawCoords(prev => prev.slice(0, -removeCount));
   };
 
   const cancelDrawing = () => {
+    clearDrawingPreview();
     setCurrentPath([]);
     setCurrentDrawCoords([]);
     setIsDrawMode(false);
@@ -7433,7 +7424,7 @@ export default function PlannerPage() {
           boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
           zIndex: 700,
         }}>
-          <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita fritt</span>
+          <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita</span>
           <button
             onClick={cancelDrawing}
             style={{
