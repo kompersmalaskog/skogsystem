@@ -546,14 +546,13 @@ export default function PlannerPage() {
     lineTypeDefs.forEach((lt: any) => {
       const isBoundary = lt.id === 'boundary';
       // Zoom-interpolerade linjebredder
-      // Traktgräns: alltid tydlig, minst 3px vid utzoom
-      // Övriga: minst 2px vid utzoom
+      // Traktgräns: alltid tydlig — minst 4px vid utzoom
       const lw = isBoundary
-        ? ['interpolate', ['linear'], ['zoom'], 8, 3, 11, 4, 13, 5, 15, 7, 17, 8]
-        : ['interpolate', ['linear'], ['zoom'], 8, 2, 11, 3, 13, 4, 15, 6, 17, 7];
+        ? ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 5, 15, 7, 17, 8]
+        : ['interpolate', ['linear'], ['zoom'], 5, 2, 8, 2, 11, 3, 13, 4, 15, 6, 17, 7];
       const cwLw = isBoundary
-        ? ['interpolate', ['linear'], ['zoom'], 8, 5, 11, 6, 13, 7, 15, 9, 17, 10]
-        : ['interpolate', ['linear'], ['zoom'], 8, 4, 11, 5, 13, 6, 15, 8, 17, 9];
+        ? ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 7, 13, 7, 15, 9, 17, 10]
+        : ['interpolate', ['linear'], ['zoom'], 5, 4, 8, 4, 11, 5, 13, 6, 15, 8, 17, 9];
       // Svart casing bakom varje linje för kontrast
       map.addLayer({
         id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
@@ -2710,6 +2709,10 @@ export default function PlannerPage() {
         });
       });
       src.setData({ type: 'FeatureCollection', features });
+      if (features.length > 0) {
+        const types = features.reduce((acc: Record<string, number>, f: any) => { acc[f.properties.lineType] = (acc[f.properties.lineType] || 0) + 1; return acc; }, {});
+        console.log('[MapLibre] lines-source synced:', features.length, 'features', types);
+      }
     } catch (e) { /* source not ready */ }
   }, [markers, mapLibreReady, mapCenter, visibleLines]);
 
