@@ -684,6 +684,31 @@ export default function PlannerPage() {
       'default': '<circle cx="12" cy="12" r="4" fill="#fff"/>',
     };
 
+    // Hjälpfunktion: canvas → {width, height, data} som MapLibre accepterar
+    const canvasToMapImage = (canvas: HTMLCanvasElement) => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx || canvas.width === 0 || canvas.height === 0) return null;
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      return { width: canvas.width, height: canvas.height, data: new Uint8Array(imageData.data.buffer) };
+    };
+
+    // Generera fallback-cirkel (canvas-ritad, ingen SVG-bild behövs)
+    const makeCircleImage = (bg: string, outline: string) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = iconSize;
+      canvas.height = iconSize;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.beginPath();
+      ctx.arc(iconSize/2, iconSize/2, iconSize/2 - 2, 0, Math.PI * 2);
+      ctx.fillStyle = bg;
+      ctx.fill();
+      ctx.strokeStyle = outline;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      return canvasToMapImage(canvas);
+    };
+
     // Generera och ladda alla ikon-bilder asynkront
     const loadIconPromises = markerIconDefs.map((def) => new Promise<void>((resolve) => {
       const svgInner = iconSvgPaths[def.id] || iconSvgPaths['default'];
@@ -691,35 +716,31 @@ export default function PlannerPage() {
         <circle cx="${iconSize/2}" cy="${iconSize/2}" r="${iconSize/2 - 2}" fill="${def.bg}" stroke="${def.outline}" stroke-width="3"/>
         <g transform="translate(${(iconSize - 36) / 2}, ${(iconSize - 36) / 2}) scale(1.5)">${svgInner}</g>
       </svg>`;
-      const img = new Image(iconSize, iconSize);
+      const img = new Image();
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        canvas.width = iconSize;
-        canvas.height = iconSize;
-        const ctx = canvas.getContext('2d');
-        if (ctx) ctx.drawImage(img, 0, 0);
-        if (!map.hasImage(`marker-${def.id}`)) {
-          map.addImage(`marker-${def.id}`, canvas, { pixelRatio: 2 });
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = iconSize;
+          canvas.height = iconSize;
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.drawImage(img, 0, 0, iconSize, iconSize);
+          const mapImg = canvasToMapImage(canvas);
+          if (mapImg && !map.hasImage(`marker-${def.id}`)) {
+            map.addImage(`marker-${def.id}`, mapImg);
+          }
+        } catch (e) {
+          // Fallback vid canvas-fel
+          const fallback = makeCircleImage(def.bg, def.outline);
+          if (fallback && !map.hasImage(`marker-${def.id}`)) {
+            map.addImage(`marker-${def.id}`, fallback);
+          }
         }
         resolve();
       };
       img.onerror = () => {
-        // Fallback: enkel färgad cirkel
-        const canvas = document.createElement('canvas');
-        canvas.width = iconSize;
-        canvas.height = iconSize;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.beginPath();
-          ctx.arc(iconSize/2, iconSize/2, iconSize/2 - 2, 0, Math.PI * 2);
-          ctx.fillStyle = def.bg;
-          ctx.fill();
-          ctx.strokeStyle = def.outline;
-          ctx.lineWidth = 3;
-          ctx.stroke();
-        }
-        if (!map.hasImage(`marker-${def.id}`)) {
-          map.addImage(`marker-${def.id}`, canvas, { pixelRatio: 2 });
+        const fallback = makeCircleImage(def.bg, def.outline);
+        if (fallback && !map.hasImage(`marker-${def.id}`)) {
+          map.addImage(`marker-${def.id}`, fallback);
         }
         resolve();
       };
