@@ -122,6 +122,91 @@ async function queryWFS(
   return data.features || [];
 }
 
+// === Skogsstyrelsen ArcGIS REST API (geodpags) ===
+// Kräver Basic Auth + User-Agent för att passera WAF
+function sksAuthHeaders(): Record<string, string> {
+  const user = process.env.SKS_WMS_USER;
+  const pass = process.env.SKS_WMS_PASS;
+  if (!user || !pass) throw new Error('SKS credentials not configured');
+  return {
+    Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
+    'User-Agent': UA,
+  };
+}
+
+async function queryArcGIS(
+  serviceUrl: string,
+  layerIndex: number,
+  bbox: ReturnType<typeof computeBbox>,
+  maxFeatures: number = 50,
+): Promise<any[]> {
+  const geom = `${bbox.minLon},${bbox.minLat},${bbox.maxLon},${bbox.maxLat}`;
+  const queryUrl = `${serviceUrl}/${layerIndex}/query?` +
+    `where=1%3D1` +
+    `&geometry=${encodeURIComponent(geom)}` +
+    `&geometryType=esriGeometryEnvelope` +
+    `&inSR=4326&outSR=4326` +
+    `&spatialRel=esriSpatialRelIntersects` +
+    `&outFields=*` +
+    `&returnGeometry=true` +
+    `&f=json` +
+    `&resultRecordCount=${maxFeatures}`;
+
+  const resp = await fetch(queryUrl, {
+    headers: sksAuthHeaders(),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`ArcGIS ${resp.status}: ${serviceUrl}`);
+  }
+
+  const data = await resp.json();
+  if (data.error) {
+    throw new Error(`ArcGIS error: ${data.error.message || JSON.stringify(data.error)}`);
+  }
+  return data.features || [];
+}
+
+// Konvertera ArcGIS Esri-geometri (rings) till [lon, lat][] för intersection-test
+function extractArcGISCoords(geom: any): [number, number][] {
+  if (!geom) return [];
+  const rings = geom.rings;
+  if (rings && rings.length > 0) {
+    return rings.flat() as [number, number][];
+  }
+  // Point
+  if (geom.x !== undefined && geom.y !== undefined) {
+    return [[geom.x, geom.y]];
+  }
+  return [];
+}
+
+function arcgisFeatureIntersectsPolygon(
+  geom: any,
+  polygon: { lat: number; lon: number }[]
+): boolean {
+  const coords = extractArcGISCoords(geom);
+  if (!coords || coords.length === 0) return true;
+
+  for (const [lon, lat] of coords) {
+    if (pointInPolygon(lat, lon, polygon)) return true;
+  }
+
+  let fMinLon = Infinity, fMaxLon = -Infinity, fMinLat = Infinity, fMaxLat = -Infinity;
+  for (const [lon, lat] of coords) {
+    if (lon < fMinLon) fMinLon = lon;
+    if (lon > fMaxLon) fMaxLon = lon;
+    if (lat < fMinLat) fMinLat = lat;
+    if (lat > fMaxLat) fMaxLat = lat;
+  }
+  for (const p of polygon) {
+    if (p.lon >= fMinLon && p.lon <= fMaxLon && p.lat >= fMinLat && p.lat <= fMaxLat) return true;
+  }
+
+  return false;
+}
+
 // Deduplicera hits baserat på namn+typ (eller id om det finns)
 function deduplicateHits(hits: AnalysisHit[]): AnalysisHit[] {
   const seen = new Set<string>();
@@ -222,6 +307,77 @@ async function checkFornlamningar(bbox: ReturnType<typeof computeBbox>, polygon:
     })));
 }
 
+// Skogsstyrelsen: Nyckelbiotoper
+async function checkNyckelbiotoper(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
+  const features = await queryArcGIS(
+    'https://geodpags.skogsstyrelsen.se/arcgis/rest/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer',
+    0, bbox,
+  );
+  return deduplicateHits(features
+    .filter(f => arcgisFeatureIntersectsPolygon(f.geometry, polygon))
+    .map(f => {
+      const a = f.attributes || {};
+      const detailParts: string[] = [];
+      if (a.Biotop1) detailParts.push(a.Biotop1);
+      if (a.Biotop2) detailParts.push(a.Biotop2);
+      if (a.Hektar) detailParts.push(`${a.Hektar} ha`);
+      if (a.Kommun) detailParts.push(a.Kommun);
+      if (a.Beskrivn1) detailParts.push(a.Beskrivn1);
+      return {
+        type: 'nyckelbiotop',
+        name: a.Objnamn || a.Beteckn || 'Nyckelbiotop',
+        details: detailParts.join(' | '),
+        url: a.Url || 'https://www.skogsstyrelsen.se/skogensparlor',
+        id: a.Beteckn || String(a.ObjectId || ''),
+      };
+    }));
+}
+
+// Skogsstyrelsen: Biotopskydd
+async function checkBiotopskydd(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
+  const features = await queryArcGIS(
+    'https://geodpags.skogsstyrelsen.se/arcgis/rest/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer',
+    0, bbox,
+  );
+  return deduplicateHits(features
+    .filter(f => arcgisFeatureIntersectsPolygon(f.geometry, polygon))
+    .map(f => {
+      const a = f.attributes || {};
+      const detailParts: string[] = [];
+      if (a.Biotyp) detailParts.push(a.Biotyp);
+      if (a.Naturtyp) detailParts.push(a.Naturtyp);
+      if (a.AreaTot) detailParts.push(`${a.AreaTot} ha`);
+      if (a.Kommun) detailParts.push(a.Kommun);
+      return {
+        type: 'biotopskydd',
+        name: a.Beteckn || 'Biotopskydd',
+        details: detailParts.join(' | '),
+        warning: 'Biotopskyddsområde — avverkning och markberedning är förbjuden utan dispens från Skogsstyrelsen.',
+        url: a.Url || 'https://www.skogsstyrelsen.se/skogensparlor',
+        id: a.Beteckn || String(a.OBJECTID || ''),
+      };
+    }));
+}
+
+// Skogsstyrelsen: Skog och Historia
+async function checkSkogOchHistoria(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
+  const features = await queryArcGIS(
+    'https://geodpags.skogsstyrelsen.se/arcgis/rest/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer',
+    0, bbox,
+  );
+  return deduplicateHits(features
+    .filter(f => arcgisFeatureIntersectsPolygon(f.geometry, polygon))
+    .map(f => {
+      const a = f.attributes || {};
+      return {
+        type: 'skogochhistoria',
+        name: a.Lamnnamn || a.Sakord || 'Kulturlämning',
+        details: a.Beskrivnin || a.Sakord || '',
+        id: String(a.Objectid || a.Objektnr || ''),
+      };
+    }));
+}
+
 export async function POST(req: NextRequest) {
   let body: AnalysisRequest;
   try {
@@ -245,6 +401,9 @@ export async function POST(req: NextRequest) {
     { name: 'Naturreservat', fn: () => checkNaturreservat(bbox, polygon) },
     { name: 'Natura 2000', fn: () => checkNatura2000(bbox, polygon) },
     { name: 'Fornlämningar', fn: () => checkFornlamningar(bbox, polygon) },
+    { name: 'Nyckelbiotoper', fn: () => checkNyckelbiotoper(bbox, polygon) },
+    { name: 'Biotopskydd', fn: () => checkBiotopskydd(bbox, polygon) },
+    { name: 'Skog och Historia', fn: () => checkSkogOchHistoria(bbox, polygon) },
   ];
 
   const results = await Promise.allSettled(checks.map(c => c.fn()));

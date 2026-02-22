@@ -13272,6 +13272,9 @@ export default function PlannerPage() {
           naturreservat: { icon: '🛑', color: '#22c55e', label: 'Naturreservat', link: 'https://skyddadnatur.naturvardsverket.se/' },
           natura2000: { icon: '🇪🇺', color: '#6366f1', label: 'Natura 2000', link: 'https://skyddadnatur.naturvardsverket.se/' },
           fornlamning: { icon: '🏛️', color: '#f59e0b', label: 'Fornlämning' },
+          nyckelbiotop: { icon: '🌿', color: '#22c55e', label: 'Nyckelbiotop', link: 'https://www.skogsstyrelsen.se/skogensparlor' },
+          biotopskydd: { icon: '🛡️', color: '#16a34a', label: 'Biotopskydd', link: 'https://www.skogsstyrelsen.se/skogensparlor' },
+          skogochhistoria: { icon: '🏚️', color: '#a16207', label: 'Skog och Historia' },
         };
 
         return (
@@ -13341,7 +13344,7 @@ export default function PlannerPage() {
                     <div style={{ fontSize: '32px', marginBottom: '8px' }}>✅</div>
                     <div style={{ fontSize: '16px', fontWeight: '600', color: '#22c55e' }}>Inga kända restriktioner</div>
                     <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
-                      Inga träffar i vattenskydd, naturreservat, Natura 2000 eller fornlämningsregister
+                      Inga träffar i vattenskydd, naturreservat, Natura 2000, nyckelbiotoper, biotopskydd eller fornlämningsregister
                     </div>
                   </div>
                 ) : (
@@ -13505,6 +13508,9 @@ export default function PlannerPage() {
           naturreservat: 'naturreservat',
           natura2000: 'Natura 2000',
           fornlamning: 'fornlämning',
+          nyckelbiotop: 'nyckelbiotop',
+          biotopskydd: 'biotopskydd',
+          skogochhistoria: 'kulturlämning',
         };
         const parts = [...summary.entries()].map(([type, count]) => {
           const label = typeLabels[type] || type;
