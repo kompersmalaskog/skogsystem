@@ -1880,21 +1880,21 @@ export default function PlannerPage() {
   });
   const [layerMenuOpen, setLayerMenuOpen] = useState(false);
   const [warningMenuOpen, setWarningMenuOpen] = useState(false);
-  const [warningSettings, setWarningSettings] = useState<Record<string, { warnDist: number; fadeDist: number }>>({
+  const [warningSettings, setWarningSettings] = useState<Record<string, { warnDist: number; fadeDist: number; minOpacity: number }>>({
     // Symbolkategorier
-    naturvard:     { warnDist: 30, fadeDist: 200 },
-    kultur:        { warnDist: 30, fadeDist: 200 },
-    avverkning:    { warnDist: 30, fadeDist: 200 },
-    infrastruktur: { warnDist: 30, fadeDist: 200 },
-    terrang:       { warnDist: 30, fadeDist: 200 },
-    ovrigt:        { warnDist: 50, fadeDist: 300 },
+    naturvard:     { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
+    kultur:        { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
+    avverkning:    { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
+    infrastruktur: { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
+    terrang:       { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
+    ovrigt:        { warnDist: 50, fadeDist: 300, minOpacity: 0.1 },
     // Zonkategorier
-    zone_wet:       { warnDist: 30, fadeDist: 200 },
-    zone_steep:     { warnDist: 30, fadeDist: 200 },
-    zone_protected: { warnDist: 30, fadeDist: 200 },
-    zone_culture:   { warnDist: 50, fadeDist: 300 },
-    zone_noentry:   { warnDist: 30, fadeDist: 200 },
-    zone_fornlamning: { warnDist: 50, fadeDist: 300 },
+    zone_wet:       { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
+    zone_steep:     { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
+    zone_protected: { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
+    zone_culture:   { warnDist: 50, fadeDist: 300, minOpacity: 0.1 },
+    zone_noentry:   { warnDist: 30, fadeDist: 200, minOpacity: 0.1 },
+    zone_fornlamning: { warnDist: 50, fadeDist: 300, minOpacity: 0.1 },
   });
 
   // Volymberäkning
@@ -4869,6 +4869,7 @@ export default function PlannerPage() {
     return {
       warnDist: settings?.warnDist || 40,
       fadeDist: settings?.fadeDist || 200,
+      minOpacity: settings?.minOpacity ?? 0.1,
     };
   };
 
@@ -4892,11 +4893,12 @@ export default function PlannerPage() {
     // Kvitterade = alltid synliga
     if (acknowledgedWarnings.includes(markerId)) return 1;
 
-    // Hämta kategori-avstånd
-    const dists = marker ? getWarningDistances(marker) : { warnDist: WARNING_DISTANCE, fadeDist: FADE_START_DISTANCE };
+    // Hämta kategori-avstånd och minOpacity
+    const dists = marker ? getWarningDistances(marker) : { warnDist: WARNING_DISTANCE, fadeDist: FADE_START_DISTANCE, minOpacity: 0.1 };
+    const minOp = dists.minOpacity ?? 0.1;
 
-    // Utanför fade-avstånd = nästan osynlig
-    if (distance > dists.fadeDist) return 0.1;
+    // Utanför fade-avstånd = minOpacity
+    if (distance > dists.fadeDist) return minOp;
 
     // Inom varningsavstånd = full styrka
     if (distance <= dists.warnDist) return 1;
@@ -4906,7 +4908,7 @@ export default function PlannerPage() {
     const distanceIntoFade = dists.fadeDist - distance;
     const fadeProgress = distanceIntoFade / fadeRange; // 0 till 1
 
-    return 0.1 + (fadeProgress * 0.9); // 0.1 till 1.0
+    return minOp + (fadeProgress * (1 - minOp)); // minOpacity till 1.0
   };
   
   // Hitta aktiva varningar — använder warningSettings per kategori
@@ -8007,7 +8009,7 @@ export default function PlannerPage() {
                       />
                     </div>
                     {/* Synlighetsavstånd slider */}
-                    <div>
+                    <div style={{ marginBottom: '10px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                         <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Synlighetsavstånd</span>
                         <span style={{ fontSize: '12px', color: '#22c55e', fontWeight: '600' }}>
@@ -8033,6 +8035,39 @@ export default function PlannerPage() {
                           WebkitAppearance: 'none',
                           appearance: 'none' as any,
                           background: `linear-gradient(to right, #22c55e 0%, #22c55e ${((warningSettings[item.id]?.fadeDist || item.defaultFade) - 50) / 450 * 100}%, rgba(255,255,255,0.1) ${((warningSettings[item.id]?.fadeDist || item.defaultFade) - 50) / 450 * 100}%, rgba(255,255,255,0.1) 100%)`,
+                          borderRadius: '3px',
+                          outline: 'none',
+                          cursor: 'pointer',
+                        }}
+                      />
+                    </div>
+                    {/* Synlighet på avstånd slider (minOpacity) */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>Synlighet på avstånd</span>
+                        <span style={{ fontSize: '12px', color: '#a78bfa', fontWeight: '600' }}>
+                          {Math.round((warningSettings[item.id]?.minOpacity ?? 0.1) * 100)}%
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={Math.round((warningSettings[item.id]?.minOpacity ?? 0.1) * 100)}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value) / 100;
+                          setWarningSettings(prev => ({
+                            ...prev,
+                            [item.id]: { ...prev[item.id], minOpacity: val },
+                          }));
+                        }}
+                        style={{
+                          width: '100%',
+                          height: '6px',
+                          WebkitAppearance: 'none',
+                          appearance: 'none' as any,
+                          background: `linear-gradient(to right, #a78bfa 0%, #a78bfa ${(warningSettings[item.id]?.minOpacity ?? 0.1) * 100}%, rgba(255,255,255,0.1) ${(warningSettings[item.id]?.minOpacity ?? 0.1) * 100}%, rgba(255,255,255,0.1) 100%)`,
                           borderRadius: '3px',
                           outline: 'none',
                           cursor: 'pointer',
