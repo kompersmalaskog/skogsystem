@@ -951,29 +951,20 @@ export default function PlannerPage() {
   // === MapLibre: Synkronisera React-state från MapLibre-kamera ===
   // MapLibre är nu master för kameran. Vi lyssnar på 'move' och beräknar
   // pan/zoom-ekvivalenter så SVG-overlayen kan positionera symboler.
-  // Throttlad via requestAnimationFrame — max 1 re-render per bildruta.
   const mapMoveCounterRef = useRef(0);
   const [mapMoveCounter, setMapMoveCounter] = useState(0);
-  const rafIdRef = useRef(0);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
     const onMove = () => {
-      if (rafIdRef.current) return; // Redan schemalagd
-      rafIdRef.current = requestAnimationFrame(() => {
-        rafIdRef.current = 0;
-        mapMoveCounterRef.current++;
-        setMapMoveCounter(mapMoveCounterRef.current);
-      });
+      mapMoveCounterRef.current++;
+      setMapMoveCounter(mapMoveCounterRef.current);
     };
 
     map.on('move', onMove);
-    return () => {
-      map.off('move', onMove);
-      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
-    };
+    return () => { map.off('move', onMove); };
   }, [mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === MapLibre: Byt bakgrundskarta ===
