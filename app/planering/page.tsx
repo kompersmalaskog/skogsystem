@@ -520,11 +520,13 @@ export default function PlannerPage() {
     map.addSource('drawing-points-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addSource('tma-roads-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
 
-    // === Zone layers ===
+    // === Zone layers (zoom-interpolerade bredder) ===
+    const zoneWidth = ['interpolate', ['linear'], ['zoom'], 10, 1.5, 13, 3, 15, 5, 17, 6] as any;
+    const zoneCasingWidth = ['interpolate', ['linear'], ['zoom'], 10, 3, 13, 5, 15, 7, 17, 8] as any;
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.2 } });
-    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': 7 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': 5 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#ffffff', 'line-width': 5, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#ffffff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
 
     // === Line layers per type ===
     const lineTypeDefs = [
@@ -543,25 +545,31 @@ export default function PlannerPage() {
     ];
     lineTypeDefs.forEach((lt: any) => {
       const isBoundary = lt.id === 'boundary';
-      const lineWidth = isBoundary ? 7 : 6;
+      // Zoom-interpolerade linjebredder (smalare vid utzoom, tjockare vid inzoom)
+      const lw = isBoundary
+        ? ['interpolate', ['linear'], ['zoom'], 8, 1.5, 10, 2.5, 13, 4, 15, 7, 17, 8]
+        : ['interpolate', ['linear'], ['zoom'], 8, 1, 10, 2, 13, 3, 15, 6, 17, 7];
+      const cwLw = isBoundary
+        ? ['interpolate', ['linear'], ['zoom'], 8, 3, 10, 4, 13, 6, 15, 9, 17, 10]
+        : ['interpolate', ['linear'], ['zoom'], 8, 2.5, 10, 3.5, 13, 5, 15, 8, 17, 9];
       // Svart casing bakom varje linje för kontrast
       map.addLayer({
         id: `line-${lt.id}-casing`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
-        paint: { 'line-color': 'rgba(0,0,0,0.5)', 'line-width': lineWidth + 2 },
+        paint: { 'line-color': 'rgba(0,0,0,0.5)', 'line-width': cwLw },
         layout: { 'line-cap': 'round', 'line-join': 'round' }
       });
       map.addLayer({
         id: `line-${lt.id}-base`, type: 'line', source: 'lines-source',
         filter: ['==', ['get', 'lineType'], lt.id],
-        paint: { 'line-color': lt.color, 'line-width': lineWidth, ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}), ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}) },
+        paint: { 'line-color': lt.color, 'line-width': lw, ...(lt.dashed ? { 'line-dasharray': [3, 2] } : {}), ...(!lt.striped && !lt.dashed ? { 'line-dasharray': [2.5, 1.5] } : {}) },
         layout: { 'line-cap': 'round', 'line-join': 'round' }
       });
       if (lt.striped && lt.color2) {
         map.addLayer({
           id: `line-${lt.id}-stripe`, type: 'line', source: 'lines-source',
           filter: ['==', ['get', 'lineType'], lt.id],
-          paint: { 'line-color': lt.color2, 'line-width': lineWidth, 'line-dasharray': [2, 2] },
+          paint: { 'line-color': lt.color2, 'line-width': lw, 'line-dasharray': [2, 2] },
           layout: { 'line-cap': 'round', 'line-join': 'round' }
         });
       }
@@ -767,9 +775,10 @@ export default function PlannerPage() {
           source: 'markers-source',
           layout: {
             'icon-image': ['concat', 'marker-', ['get', 'type']],
-            'icon-size': 0.75,
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.3, 13, 0.5, 15, 0.75, 17, 1.0],
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
+            'icon-padding': 2,
             'icon-pitch-alignment': 'viewport',
             'icon-rotation-alignment': 'viewport',
             'icon-anchor': 'center',
