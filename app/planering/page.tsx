@@ -6316,13 +6316,15 @@ export default function PlannerPage() {
           }
           
           if (isTracking && currentPosition) {
-            // Flytta kartcentrum till din GPS-position
-            setMapCenter({ lat: currentPosition.lat, lng: currentPosition.lon });
-            // Återställ GPS-position till centrum (0,0) och pan
-            gpsMapPositionRef.current = { x: 0, y: 0 };
-            setGpsMapPosition({ x: 0, y: 0 });
-            setGpsStartPos({ lat: currentPosition.lat, lon: currentPosition.lon, x: 0, y: 0 });
-            setPan({ x: screenSize.width / 2, y: screenSize.height / 2 });
+            // Flytta BARA kameravyn till GPS-position (rör inte markers/koordinater)
+            const map = mapInstanceRef.current;
+            if (map) {
+              map.flyTo({
+                center: [currentPosition.lon, currentPosition.lat],
+                zoom: Math.max(map.getZoom(), 15),
+                duration: 500,
+              });
+            }
           }
           // Om GPS är av, gör ingenting - GPS startas via objekt-menyn
         }}
