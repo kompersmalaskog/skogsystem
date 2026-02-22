@@ -5173,21 +5173,22 @@ export default function PlannerPage() {
             const isZoomedOut = getMapLibreZoom() < 15;
             const shouldShow = isImportant || !isZoomedOut;
 
-            // Fast storlek — ändras INTE av pitch/tilt
-            const baseRadius = isZoomedOut ? 14 : 19;
-            const baseIconSize = isZoomedOut ? 12 : 17;
-            
-            const symbolRadius = getConstrainedSize(isDragging && hasMoved ? baseRadius + 4 : baseRadius);
-            const iconSize = getConstrainedSize(isDragging && hasMoved ? baseIconSize + 3 : baseIconSize);
-            const photoRadius = getConstrainedSize(isZoomedOut ? 7 : 9);
-            const photoOffset = getConstrainedSize(isZoomedOut ? 11 : 14);
-            const photoFontSize = getConstrainedSize(isZoomedOut ? 7 : 9);
-            const ringRadius = getConstrainedSize(isZoomedOut ? 20 : 27);
-            const strokeW = getConstrainedSize(3);
+            // Fast storlek — 2x större för tydlighet
+            const baseRadius = isZoomedOut ? 28 : 38;
+            const baseIconSize = isZoomedOut ? 24 : 34;
+
+            const symbolRadius = getConstrainedSize(isDragging && hasMoved ? baseRadius + 8 : baseRadius);
+            const iconSize = getConstrainedSize(isDragging && hasMoved ? baseIconSize + 6 : baseIconSize);
+            const photoRadius = getConstrainedSize(isZoomedOut ? 14 : 18);
+            const photoOffset = getConstrainedSize(isZoomedOut ? 22 : 28);
+            const photoFontSize = getConstrainedSize(isZoomedOut ? 14 : 18);
+            const ringRadius = getConstrainedSize(isZoomedOut ? 40 : 54);
+            const strokeW = getConstrainedSize(6);
             const bgColor = getIconBackground(m.type || '');
-            const borderColor = getIconBorder(m.type || '');
-            // Mörkare bakgrund för bättre kontrast (0.9 istället för 0.6)
+            // Mörkare bakgrund för bättre kontrast
             const darkBg = bgColor === 'rgba(0,0,0,0.6)' ? 'rgba(0,0,0,0.9)' : bgColor;
+            // Outline-färg per typ: gul → svart outline, grön/svart → vit outline
+            const outlineColor = bgColor === '#f59e0b' ? 'rgba(0,0,0,0.8)' : '#ffffff';
             
             // Returnera null om symbolen inte ska visas
             if (!shouldShow) return null;
@@ -5209,6 +5210,7 @@ export default function PlannerPage() {
                   cursor: isDragging ? 'grabbing' : 'pointer',
                   opacity: opacity,
                   pointerEvents: isInDrawingMode ? 'none' : 'auto',
+                  filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))',
                 }}
               >
                 {/* Skugga när man drar */}
@@ -5231,29 +5233,26 @@ export default function PlannerPage() {
                     opacity={0.7}
                   />
                 )}
-                {/* Bakgrundscirkel med kant */}
+                {/* Bakgrundscirkel med outline */}
                 <circle
                   cx={m.x}
                   cy={m.y}
                   r={symbolRadius}
                   fill={isDragging && hasMoved ? colors.blue : isMenuOpen ? 'rgba(10,132,255,0.3)' : darkBg}
-                  stroke={isDragging && hasMoved ? '#fff' : isMenuOpen ? colors.blue : 'rgba(255,255,255,0.7)'}
-                  strokeWidth={getConstrainedSize(2)}
+                  stroke={isDragging && hasMoved ? '#fff' : isMenuOpen ? colors.blue : outlineColor}
+                  strokeWidth={getConstrainedSize(4)}
                 />
-                {/* SVG-ikon med glow-effekt */}
+                {/* SVG-ikon */}
                 <g
                   transform={`translate(${m.x - iconSize/2}, ${m.y - iconSize/2})`}
-                  style={{
-                    pointerEvents: 'none',
-                    filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.8))',
-                  }}
+                  style={{ pointerEvents: 'none' }}
                 >
                   {renderIcon(m.type || 'default', iconSize, '#fff')}
                 </g>
                 {/* Foto-indikator */}
                 {m.photoData && (
                   <>
-                    <circle cx={m.x + photoOffset} cy={m.y - photoOffset} r={photoRadius} fill="#22c55e" stroke="#fff" strokeWidth={getConstrainedSize(2)} />
+                    <circle cx={m.x + photoOffset} cy={m.y - photoOffset} r={photoRadius} fill="#22c55e" stroke="#fff" strokeWidth={getConstrainedSize(4)} />
                     <text x={m.x + photoOffset} y={m.y - photoOffset} textAnchor="middle" dominantBaseline="central" fontSize={photoFontSize} style={{ pointerEvents: 'none' }}>
                       📷
                     </text>
@@ -5262,25 +5261,25 @@ export default function PlannerPage() {
               </g>
             );
           })}
-          
+
           {/* Pilar */}
           {visibleLayers.arrows && markers.filter(m => m.isArrow).map(m => {
             const arrow = arrowTypes.find(t => t.id === m.arrowType);
             const isDragging = draggingMarker === m.id;
             const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
             const isAcknowledged = acknowledgedWarnings.includes(m.id);
-            const arrowScale = getConstrainedSize(1);
-            const ringRadius = getConstrainedSize(30);
-            const photoRadius = getConstrainedSize(10);
-            const photoOffset = getConstrainedSize(18);
-            const photoFontSize = getConstrainedSize(10);
+            const arrowScale = getConstrainedSize(2);
+            const ringRadius = getConstrainedSize(50);
+            const photoRadius = getConstrainedSize(18);
+            const photoOffset = getConstrainedSize(32);
+            const photoFontSize = getConstrainedSize(18);
             // Projicera position
             const screenPos = svgToScreen(m.x, m.y);
             if (!screenPos) return null;
             const offsetX = screenPos.x - m.x;
             const offsetY = screenPos.y - m.y;
             return (
-              <g key={m.id} transform={`translate(${offsetX}, ${offsetY})`} style={{ opacity: opacity }}>
+              <g key={m.id} transform={`translate(${offsetX}, ${offsetY})`} style={{ opacity: opacity, filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}>
                 {/* Grön ring om kvitterad */}
                 {isAcknowledged && drivingMode && (
                   <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={getConstrainedSize(3)} />
