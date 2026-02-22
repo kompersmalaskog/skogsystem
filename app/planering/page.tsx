@@ -13267,11 +13267,10 @@ export default function PlannerPage() {
         const traktLabel = traktIndex > 0 ? `Trakt ${traktIndex}` : 'Trakt';
 
         const typeConfig: Record<string, { icon: string; color: string; label: string; link?: string }> = {
-          vattenskydd: { icon: '\u26A0\uFE0F', color: '#3b82f6', label: 'Vattenskyddsomr\u00E5de', link: 'https://www.havochvatten.se/vattenskyddsomrade' },
-          naturreservat: { icon: '\uD83D\uDED1', color: '#22c55e', label: 'Naturreservat' },
-          natura2000: { icon: '\uD83C\uDDEA\uD83C\uDDFA', color: '#6366f1', label: 'Natura 2000' },
-          fornlamning: { icon: '\uD83C\uDFDB\uFE0F', color: '#f59e0b', label: 'Fornl\u00E4mning' },
-          naturvardsavtal: { icon: '\uD83C\uDF32', color: '#22c55e', label: 'Naturv\u00E5rdsavtal' },
+          vattenskydd: { icon: '⚠️', color: '#3b82f6', label: 'Vattenskyddsområde', link: 'https://www.havochvatten.se/vattenskyddsomrade' },
+          naturreservat: { icon: '🛑', color: '#22c55e', label: 'Naturreservat' },
+          natura2000: { icon: '🇪🇺', color: '#6366f1', label: 'Natura 2000' },
+          fornlamning: { icon: '🏛️', color: '#f59e0b', label: 'Fornlämning' },
         };
 
         return (
@@ -13310,7 +13309,7 @@ export default function PlannerPage() {
                   color: '#fff',
                   fontSize: '18px',
                 }}>
-                \u2715
+                ✕
               </button>
             </div>
 
@@ -13322,7 +13321,7 @@ export default function PlannerPage() {
                 color: 'rgba(255,255,255,0.6)',
                 fontSize: '14px',
               }}>
-                <div style={{ fontSize: '28px', marginBottom: '12px', animation: 'pulse 1.5s infinite' }}>\uD83D\uDD0D</div>
+                <div style={{ fontSize: '28px', marginBottom: '12px', animation: 'pulse 1.5s infinite' }}>🔍</div>
                 Analyserar trakten mot register...
               </div>
             )}
@@ -13338,16 +13337,16 @@ export default function PlannerPage() {
                     padding: '20px',
                     textAlign: 'center',
                   }}>
-                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>\u2705</div>
-                    <div style={{ fontSize: '16px', fontWeight: '600', color: '#22c55e' }}>Inga k\u00E4nda restriktioner</div>
+                    <div style={{ fontSize: '32px', marginBottom: '8px' }}>✅</div>
+                    <div style={{ fontSize: '16px', fontWeight: '600', color: '#22c55e' }}>Inga kända restriktioner</div>
                     <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
-                      Inga tr\u00E4ffar i vattenskydd, naturreservat, Natura 2000 eller fornl\u00E4mningsregister
+                      Inga träffar i vattenskydd, naturreservat, Natura 2000 eller fornlämningsregister
                     </div>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {analysis.hits.map((hit, i) => {
-                      const cfg = typeConfig[hit.type] || { icon: '\u2753', color: '#888', label: hit.type };
+                      const cfg = typeConfig[hit.type] || { icon: '❓', color: '#888', label: hit.type };
                       return (
                         <div key={i} style={{
                           background: '#0a0a0a',
@@ -13381,7 +13380,7 @@ export default function PlannerPage() {
                                   textDecoration: 'none',
                                   whiteSpace: 'nowrap',
                                 }}>
-                                Info \u2197
+                                Info ↗
                               </a>
                             )}
                           </div>
@@ -13422,7 +13421,7 @@ export default function PlannerPage() {
                       fontWeight: '500',
                       cursor: 'pointer',
                     }}>
-                    \uD83D\uDD04 K\u00F6r igen
+                    🔄 Kör igen
                   </button>
                   <button
                     onClick={() => setTractAnalysisOpen(null)}
@@ -13436,7 +13435,7 @@ export default function PlannerPage() {
                       fontWeight: '500',
                       cursor: 'pointer',
                     }}>
-                    St\u00E4ng
+                    Stäng
                   </button>
                 </div>
               </>
@@ -13451,7 +13450,7 @@ export default function PlannerPage() {
                 padding: '20px',
                 textAlign: 'center',
               }}>
-                <div style={{ fontSize: '32px', marginBottom: '8px' }}>\u274C</div>
+                <div style={{ fontSize: '32px', marginBottom: '8px' }}>❌</div>
                 <div style={{ fontSize: '14px', color: 'rgba(239,68,68,0.8)' }}>Analysen misslyckades</div>
                 {analysis.errors.map((e, i) => (
                   <div key={i} style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>{e}</div>
@@ -13471,7 +13470,7 @@ export default function PlannerPage() {
                     fontSize: '13px',
                     cursor: 'pointer',
                   }}>
-                  F\u00F6rs\u00F6k igen
+                  Försök igen
                 </button>
               </div>
             )}
@@ -13490,11 +13489,10 @@ export default function PlannerPage() {
           summary.set(h.type, (summary.get(h.type) || 0) + 1);
         }
         const typeLabels: Record<string, string> = {
-          vattenskydd: 'vattenskyddsomr\u00E5de',
+          vattenskydd: 'vattenskyddsområde',
           naturreservat: 'naturreservat',
           natura2000: 'Natura 2000',
-          fornlamning: 'fornl\u00E4mning',
-          naturvardsavtal: 'naturv\u00E5rdsavtal',
+          fornlamning: 'fornlämning',
         };
         const parts = [...summary.entries()].map(([type, count]) => {
           const label = typeLabels[type] || type;
@@ -13523,7 +13521,7 @@ export default function PlannerPage() {
               textAlign: 'center',
               boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
             }}>
-            \u26A0\uFE0F Denna trakt har: {parts.join(', ')}
+            ⚠️ Denna trakt har: {parts.join(', ')}
           </div>
         );
       })()}

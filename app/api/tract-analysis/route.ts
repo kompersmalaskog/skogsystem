@@ -189,23 +189,6 @@ async function checkFornlamningar(bbox: ReturnType<typeof computeBbox>, polygon:
     }));
 }
 
-// Naturvårdsverket: Naturvårdsavtal
-async function checkNaturvardsavtal(bbox: ReturnType<typeof computeBbox>, polygon: { lat: number; lon: number }[]): Promise<AnalysisHit[]> {
-  const features = await queryWFS(
-    'https://geodata.naturvardsverket.se/geoserver/am-restriction/wfs',
-    'am-restriction:AM.natureConservationAgreement',
-    bbox,
-  );
-  return features
-    .filter(f => featureIntersectsPolygon(f.geometry, polygon))
-    .map(f => ({
-      type: 'naturvardsavtal',
-      name: f.properties?.namn || 'Naturvårdsavtal',
-      details: f.properties?.skyddstyp || '',
-      id: f.properties?.nvrid || '',
-    }));
-}
-
 export async function POST(req: NextRequest) {
   let body: AnalysisRequest;
   try {
@@ -229,7 +212,6 @@ export async function POST(req: NextRequest) {
     { name: 'Naturreservat', fn: () => checkNaturreservat(bbox, polygon) },
     { name: 'Natura 2000', fn: () => checkNatura2000(bbox, polygon) },
     { name: 'Fornlämningar', fn: () => checkFornlamningar(bbox, polygon) },
-    { name: 'Naturvårdsavtal', fn: () => checkNaturvardsavtal(bbox, polygon) },
   ];
 
   const results = await Promise.allSettled(checks.map(c => c.fn()));
