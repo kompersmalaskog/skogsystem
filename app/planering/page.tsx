@@ -951,23 +951,29 @@ export default function PlannerPage() {
   // === MapLibre: Synkronisera React-state från MapLibre-kamera ===
   // MapLibre är nu master för kameran. Vi lyssnar på 'move' och beräknar
   // pan/zoom-ekvivalenter så SVG-overlayen kan positionera symboler.
+  // Throttlad via requestAnimationFrame — max 1 re-render per bildruta.
   const mapMoveCounterRef = useRef(0);
   const [mapMoveCounter, setMapMoveCounter] = useState(0);
+  const rafIdRef = useRef(0);
 
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map) return;
 
     const onMove = () => {
-      // mapCenter och mapZoom uppdateras INTE här — de är stabila referenspunkter
-      // för SVG-koordinatsystemet (sätts bara vid objektval).
-      // Istället triggar vi re-render så SVG-element kan positioneras via map.project().
-      mapMoveCounterRef.current++;
-      setMapMoveCounter(mapMoveCounterRef.current);
+      if (rafIdRef.current) return; // Redan schemalagd
+      rafIdRef.current = requestAnimationFrame(() => {
+        rafIdRef.current = 0;
+        mapMoveCounterRef.current++;
+        setMapMoveCounter(mapMoveCounterRef.current);
+      });
     };
 
     map.on('move', onMove);
-    return () => { map.off('move', onMove); };
+    return () => {
+      map.off('move', onMove);
+      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
+    };
   }, [mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === MapLibre: Byt bakgrundskarta ===
@@ -5210,13 +5216,10 @@ export default function PlannerPage() {
                   cursor: isDragging ? 'grabbing' : 'pointer',
                   opacity: opacity,
                   pointerEvents: isInDrawingMode ? 'none' : 'auto',
-                  filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))',
                 }}
               >
-                {/* Skugga när man drar */}
-                {isDragging && hasMoved && (
-                  <circle cx={m.x} cy={m.y + 4} r={symbolRadius} fill="rgba(0,0,0,0.3)" />
-                )}
+                {/* Skugga (billig SVG-cirkel istället för CSS filter) */}
+                <circle cx={m.x} cy={m.y + 2} r={symbolRadius + 1} fill="rgba(0,0,0,0.25)" />
                 {/* Grön ring om kvitterad */}
                 {isAcknowledged && drivingMode && (
                   <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={strokeW} />
@@ -5279,7 +5282,7 @@ export default function PlannerPage() {
             const offsetX = screenPos.x - m.x;
             const offsetY = screenPos.y - m.y;
             return (
-              <g key={m.id} transform={`translate(${offsetX}, ${offsetY})`} style={{ opacity: opacity, filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.5))' }}>
+              <g key={m.id} transform={`translate(${offsetX}, ${offsetY})`} style={{ opacity: opacity }}>
                 {/* Grön ring om kvitterad */}
                 {isAcknowledged && drivingMode && (
                   <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={getConstrainedSize(3)} />
