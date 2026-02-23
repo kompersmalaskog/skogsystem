@@ -9,6 +9,7 @@ import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 
 const DynamicMapLibre = dynamic(() => import('@/components/MapLibreMap'), { ssr: false })
+const TraktBriefing = dynamic(() => import('./TraktBriefing'), { ssr: false })
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -871,6 +872,9 @@ export default function PlannerPage() {
     mapInstanceRef.current = null;
     setMapLibreReady(false);
   }, []);
+
+  // Briefing-läge
+  const [briefingMode, setBriefingMode] = useState(false);
 
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
@@ -10271,6 +10275,26 @@ export default function PlannerPage() {
                     </div>
                   </div>
 
+                  {/* Briefing */}
+                  <div
+                    onClick={() => { setBriefingMode(true); setLayerMenuOpen(false); }}
+                    style={{
+                      padding: '16px 20px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '16px',
+                      borderRadius: '12px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{ opacity: 0.6, fontSize: '22px', width: '26px', textAlign: 'center' }}>🎬</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>Briefing</div>
+                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Guidad genomgång för föraren</div>
+                    </div>
+                    <div style={{ fontSize: '18px', opacity: 0.3 }}>›</div>
+                  </div>
+
                   {/* Kompass */}
                   <div
                     onClick={() => toggleCompass()}
@@ -13562,6 +13586,22 @@ export default function PlannerPage() {
         }}>
           Sparat!
         </div>
+      )}
+
+      {/* === TRAKTBRIEFING === */}
+      {briefingMode && (
+        <TraktBriefing
+          markers={markers}
+          mapInstanceRef={mapInstanceRef}
+          svgToLatLon={svgToLatLon}
+          symbolCategories={symbolCategories}
+          lineTypes={lineTypes}
+          zoneTypes={zoneTypes}
+          overlays={overlays}
+          setOverlays={setOverlays}
+          traktName={valtObjekt?.namn || valtObjekt?.beteckning || 'Trakt'}
+          onClose={() => setBriefingMode(false)}
+        />
       )}
     </div>
   );
