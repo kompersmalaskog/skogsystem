@@ -259,10 +259,11 @@ export default function TraktBriefing({
       });
     }
 
-    // 4. PROPERTY BOUNDARY (fastighetsgräns/markägargräns) — if overlay exists
-    if (overlays.fastighetsgranser !== undefined && boundaries.length > 0) {
-      const propPathLL = boundaries[0].path!.map(p => svgToLatLon(p.x, p.y));
-      const propStart = propPathLL[0] || { lat: centerLat, lon: centerLon };
+    // 4. PROPERTY BOUNDARY (fastighetsgräns/markägargräns) — WMS overlay, not drawn lines
+    // Shows Lantmäteriet's property boundaries (where land ownership changes).
+    // This is a raster WMS layer — we don't have vector coordinates, so we show
+    // an overview of the tract with the overlay toggled on + slow rotation.
+    if (overlays.fastighetsgranser !== undefined) {
       built.push({
         id: 'property',
         type: 'property',
@@ -270,11 +271,9 @@ export default function TraktBriefing({
         icon: '📐',
         tag: 'caution',
         tagText: 'VAR FÖRSIKTIG',
-        center: propStart,
-        zoom: 16,
-        pitch: 60,
-        path: propPathLL,
-        marker: boundaries[0],
+        center: { lat: centerLat, lon: centerLon },
+        zoom: 15,
+        pitch: 50,
         categoryColor: '#e879f9',
       });
     }
@@ -421,8 +420,8 @@ export default function TraktBriefing({
       });
     }
 
-    // Slow rotation for done step
-    if (step.type === 'done') {
+    // Slow rotation for property (WMS overview) and done step
+    if (step.type === 'done' || step.type === 'property') {
       let bearing = 0;
       rotationRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
@@ -431,9 +430,9 @@ export default function TraktBriefing({
       }, 100);
     }
 
-    // Animate camera along path for property and mainroad
-    if ((step.type === 'property' || step.type === 'mainroad') && step.path && step.path.length > 1) {
-      const isProperty = step.type === 'property';
+    // Animate camera along path for mainroad
+    if (step.type === 'mainroad' && step.path && step.path.length > 1) {
+      const isProperty = false;
       const pathPts = step.path!;
       const totalPts = pathPts.length;
       const sampleCount = Math.min(totalPts, isProperty ? 25 : 12);
@@ -805,10 +804,10 @@ export default function TraktBriefing({
               marginBottom: '12px',
             }}>
               <div style={{ fontSize: '12px', color: '#e879f9', fontWeight: '600', marginBottom: '4px' }}>
-                📐 Fastighetsgräns / Markägargräns
+                📐 Fastighetsgräns (Lantmäteriet)
               </div>
               <div style={{ fontSize: '13px', color: '#e8f0e0', lineHeight: '1.5' }}>
-                Här byter det markägare. Rosa linjer visar fastighetsgränser — kontrollera att avverkning sker inom rätt fastighet.
+                Rosa linjer visar var det byter markägare. Kontrollera att avverkning sker inom rätt fastighet. Traktgränsen (röd/gul) visas som referens.
               </div>
             </div>
           )}
