@@ -38,6 +38,9 @@ interface BriefingStep {
   marker?: Marker;
   path?: { lat: number; lon: number }[];
   categoryColor?: string;
+  // Flyover bounds (overview step)
+  flyoverSouth?: { lat: number; lon: number };
+  flyoverNorth?: { lat: number; lon: number };
 }
 
 interface SymbolCategory {
@@ -140,7 +143,7 @@ export default function TraktBriefing({
   const [currentStep, setCurrentStep] = useState(-1); // -1 = start screen
   const [steps, setSteps] = useState<BriefingStep[]>([]);
   const [fadeIn, setFadeIn] = useState(false);
-  const rotationRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const rotationRef = useRef<any>(null);
   const prevOverlaysRef = useRef<Record<string, boolean> | null>(null);
 
   // Build steps from markers
@@ -167,7 +170,16 @@ export default function TraktBriefing({
       centerLon /= allPoints.length;
     }
 
-    // 1. OVERVIEW
+    // 1. OVERVIEW — compute bounding box for flyover
+    let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    for (const p of allPoints) {
+      if (p.lat < minLat) minLat = p.lat;
+      if (p.lat > maxLat) maxLat = p.lat;
+      if (p.lon < minLon) minLon = p.lon;
+      if (p.lon > maxLon) maxLon = p.lon;
+    }
+    // Add ~20% padding outside the tract edges
+    const latPad = (maxLat - minLat) * 0.2 || 0.001;
     built.push({
       id: 'overview',
       type: 'overview',
@@ -179,6 +191,8 @@ export default function TraktBriefing({
       zoom: 16,
       pitch: 68,
       bearing: 0,
+      flyoverSouth: { lat: minLat - latPad, lon: centerLon },
+      flyoverNorth: { lat: maxLat + latPad, lon: centerLon },
     });
 
     // 2. LANDINGS
@@ -194,8 +208,8 @@ export default function TraktBriefing({
         comment: m.comment || undefined,
         photoData: m.photoData || undefined,
         center: ll,
-        zoom: 17,
-        pitch: 50,
+        zoom: 17.5,
+        pitch: 62,
         marker: m,
         categoryColor: '#8ab460',
       });
@@ -214,8 +228,8 @@ export default function TraktBriefing({
         tagText: 'BASVÄG',
         comment: m.comment || undefined,
         center: mid,
-        zoom: 15.5,
-        pitch: 50,
+        zoom: 16,
+        pitch: 60,
         path: pathLL,
         marker: m,
         categoryColor: '#3b82f6',
@@ -267,13 +281,27 @@ export default function TraktBriefing({
     });
 
     for (const m of sorted) {
-      const ll = m.isZone && m.path && m.path.length > 0
-        ? (() => {
-            let cx = 0, cy = 0;
-            for (const p of m.path!) { cx += p.x; cy += p.y; }
-            return svgToLatLon(cx / m.path!.length, cy / m.path!.length);
-          })()
-        : svgToLatLon(m.x, m.y);
+      let ll: { lat: number; lon: number };
+      let stepZoom = 17.5;
+      if (m.isZone && m.path && m.path.length > 0) {
+        let cx = 0, cy = 0;
+        for (const p of m.path!) { cx += p.x; cy += p.y; }
+        ll = svgToLatLon(cx / m.path!.length, cy / m.path!.length);
+        // Compute zone radius in meters to set zoom
+        const pts = m.path!.map(p => svgToLatLon(p.x, p.y));
+        let maxDist = 0;
+        for (const p of pts) {
+          const d = Math.sqrt(((p.lat - ll.lat) * 111320) ** 2 + ((p.lon - ll.lon) * 111320 * Math.cos(ll.lat * Math.PI / 180)) ** 2);
+          if (d > maxDist) maxDist = d;
+        }
+        // Adapt zoom: small zone (<30m) = 17, medium (<80m) = 16, large = 15
+        if (maxDist < 30) stepZoom = 17;
+        else if (maxDist < 80) stepZoom = 16;
+        else if (maxDist < 200) stepZoom = 15.5;
+        else stepZoom = 15;
+      } else {
+        ll = svgToLatLon(m.x, m.y);
+      }
       const t = getTag(m, symbolCategories);
       built.push({
         id: `symbol-${m.id}`,
@@ -285,8 +313,8 @@ export default function TraktBriefing({
         comment: m.comment || undefined,
         photoData: m.photoData || undefined,
         center: ll,
-        zoom: m.isZone ? 16 : 17,
-        pitch: 50,
+        zoom: stepZoom,
+        pitch: 62,
         marker: m,
         categoryColor: t.color,
       });
@@ -307,10 +335,10 @@ export default function TraktBriefing({
     setSteps(built);
   }, [markers, svgToLatLon, symbolCategories, zoneTypes, overlays.fastighetsgranser]);
 
-  // Stop rotation on unmount
+  // Stop animation on unmount
   useEffect(() => {
     return () => {
-      if (rotationRef.current) clearInterval(rotationRef.current);
+      if (rotationRef.current) { clearInterval(rotationRef.current); cancelAnimationFrame(rotationRef.current as any); }
       // Restore overlays
       if (prevOverlaysRef.current) {
         setOverlays(() => prevOverlaysRef.current!);
@@ -327,9 +355,10 @@ export default function TraktBriefing({
     // Notify parent which marker is active (for highlight effect)
     onActiveMarkerChange?.(step.marker?.id || null);
 
-    // Stop previous rotation
+    // Stop previous animation (interval or requestAnimationFrame)
     if (rotationRef.current) {
       clearInterval(rotationRef.current);
+      cancelAnimationFrame(rotationRef.current as any);
       rotationRef.current = null;
     }
 
@@ -342,23 +371,52 @@ export default function TraktBriefing({
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
     }
 
-    if (step.center) {
+    // Overview: straight south-to-north flyover
+    if (step.type === 'overview' && step.flyoverSouth && step.flyoverNorth) {
+      const south = step.flyoverSouth;
+      const north = step.flyoverNorth;
+      // Start camera at southern edge, facing north
+      map.jumpTo({
+        center: [south.lon, south.lat],
+        zoom: step.zoom || 16,
+        pitch: step.pitch || 68,
+        bearing: 0,
+      });
+      // Animate northward over 12 seconds
+      const duration = 12000;
+      const startTime = performance.now();
+      const tick = () => {
+        if (!mapInstanceRef.current) return;
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(elapsed / duration, 1);
+        // Smooth easing (ease-in-out)
+        const ease = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+        const lat = south.lat + (north.lat - south.lat) * ease;
+        const lon = south.lon + (north.lon - south.lon) * ease;
+        mapInstanceRef.current.jumpTo({ center: [lon, lat] });
+        if (t < 1) {
+          rotationRef.current = requestAnimationFrame(tick) as any;
+        }
+      };
+      rotationRef.current = requestAnimationFrame(tick) as any;
+    } else if (step.center) {
+      // All other steps: smooth flyTo
       map.flyTo({
         center: [step.center.lon, step.center.lat],
         zoom: step.zoom || 15,
-        pitch: step.pitch || 50,
-        bearing: step.bearing ?? map.getBearing(),
-        duration: 1200,
+        pitch: step.pitch || 60,
+        bearing: step.bearing ?? 0,
+        duration: 1800,
         essential: true,
       });
     }
 
-    // Rotation for overview/boundary/property/done
-    if (['overview', 'boundary', 'property', 'done'].includes(step.type)) {
-      let bearing = map.getBearing();
+    // Slow rotation for boundary/property/done
+    if (['boundary', 'property', 'done'].includes(step.type)) {
+      let bearing = 0;
       rotationRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
-        bearing += 2;
+        bearing += 0.5;
         mapInstanceRef.current.easeTo({ bearing, duration: 100 });
       }, 100);
     }
@@ -375,13 +433,11 @@ export default function TraktBriefing({
         mapInstanceRef.current.easeTo({
           center: [p.lon, p.lat],
           duration: 800,
-          pitch: 50,
-          zoom: 16,
+          pitch: 60,
+          zoom: 16.5,
         });
         idx += Math.max(1, Math.floor(step.path!.length / 10));
       }, 900);
-      // Store for cleanup
-      const prevRotation = rotationRef.current;
       rotationRef.current = pathAnim;
     }
 
@@ -400,6 +456,7 @@ export default function TraktBriefing({
   const handleClose = useCallback(() => {
     if (rotationRef.current) {
       clearInterval(rotationRef.current);
+      cancelAnimationFrame(rotationRef.current as any);
       rotationRef.current = null;
     }
     onActiveMarkerChange?.(null);
