@@ -3069,52 +3069,105 @@ export default function PlannerPage() {
     } catch (e) { /* layer not ready */ }
   }, [visibleLayers.symbols, mapLibreReady]);
 
-  // 2d) Briefing highlight: dim/brighten lines and zones
+  // 2d) Briefing highlight: dim non-active, pulse active element
+  const briefingPulseRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
-    try {
-      const activeMarker = briefingHighlightId ? markers.find(m => m.id === briefingHighlightId) : null;
-      const activeLineId = activeMarker?.isLine ? activeMarker.id : null;
-      const activeZoneId = activeMarker?.isZone ? activeMarker.id : null;
 
-      // Line layers: data-driven opacity based on feature id
-      const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue',
-        'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag', 'nature', 'ditch', 'trail'];
-      lineTypeIds.forEach(lt => {
-        ['base', 'casing', 'stripe'].forEach(suffix => {
-          const layerId = `line-${lt}-${suffix}`;
-          if (!map.getLayer(layerId)) return;
-          if (!briefingMode) {
-            map.setPaintProperty(layerId, 'line-opacity', 1);
-          } else if (activeLineId) {
-            map.setPaintProperty(layerId, 'line-opacity', ['case', ['==', ['get', 'id'], activeLineId], 1, 0.15]);
+    // Clear any existing pulse interval
+    if (briefingPulseRef.current) {
+      clearInterval(briefingPulseRef.current);
+      briefingPulseRef.current = null;
+    }
+
+    const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue',
+      'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag', 'nature', 'ditch', 'trail'];
+
+    // Restore defaults when briefing off
+    if (!briefingMode) {
+      try {
+        lineTypeIds.forEach(lt => {
+          ['base', 'casing', 'stripe'].forEach(suffix => {
+            const id = `line-${lt}-${suffix}`;
+            if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
+          });
+        });
+        ['zone-fill', 'zone-outline-casing', 'zone-outline', 'zone-outline-dash'].forEach(id => {
+          if (!map.getLayer(id)) return;
+          if (id === 'zone-fill') map.setPaintProperty(id, 'fill-opacity', 0.2);
+          else map.setPaintProperty(id, 'line-opacity', 1);
+        });
+        if (map.getLayer('markers-layer')) {
+          map.setPaintProperty('markers-layer', 'icon-opacity', ['number', ['get', 'opacity'], 1]);
+        }
+      } catch (e) { /* */ }
+      return;
+    }
+
+    const activeMarker = briefingHighlightId ? markers.find(m => m.id === briefingHighlightId) : null;
+    const activeLineId = activeMarker?.isLine ? activeMarker.id : null;
+    const activeZoneId = activeMarker?.isZone ? activeMarker.id : null;
+    const activeSymbolId = activeMarker?.isMarker ? activeMarker.id : null;
+
+    // Apply function: sets dim + active opacity for all layers
+    const applyOpacity = (activeOp: number) => {
+      try {
+        // Lines
+        lineTypeIds.forEach(lt => {
+          ['base', 'casing', 'stripe'].forEach(suffix => {
+            const id = `line-${lt}-${suffix}`;
+            if (!map.getLayer(id)) return;
+            if (activeLineId) {
+              map.setPaintProperty(id, 'line-opacity', ['case', ['==', ['get', 'id'], activeLineId], activeOp, 0.15]);
+            } else {
+              map.setPaintProperty(id, 'line-opacity', briefingHighlightId ? 0.15 : 0.7);
+            }
+          });
+        });
+
+        // Zones
+        ['zone-fill', 'zone-outline-casing', 'zone-outline', 'zone-outline-dash'].forEach(id => {
+          if (!map.getLayer(id)) return;
+          if (activeZoneId) {
+            if (id === 'zone-fill') {
+              map.setPaintProperty(id, 'fill-opacity', ['case', ['==', ['get', 'id'], activeZoneId], activeOp * 0.35, 0.05]);
+            } else {
+              map.setPaintProperty(id, 'line-opacity', ['case', ['==', ['get', 'id'], activeZoneId], activeOp, 0.15]);
+            }
           } else {
-            // No specific line active — dim all if another element is highlighted
-            map.setPaintProperty(layerId, 'line-opacity', briefingHighlightId ? 0.15 : 0.7);
+            if (id === 'zone-fill') map.setPaintProperty(id, 'fill-opacity', briefingHighlightId ? 0.05 : 0.2);
+            else map.setPaintProperty(id, 'line-opacity', briefingHighlightId ? 0.15 : 1);
           }
         });
-      });
 
-      // Zone layers: data-driven opacity based on feature id
-      ['zone-fill', 'zone-outline-casing', 'zone-outline', 'zone-outline-dash'].forEach(layerId => {
-        if (!map.getLayer(layerId)) return;
-        if (!briefingMode) {
-          if (layerId === 'zone-fill') map.setPaintProperty(layerId, 'fill-opacity', 0.2);
-          else map.setPaintProperty(layerId, 'line-opacity', 1);
-        } else if (activeZoneId) {
-          if (layerId === 'zone-fill') {
-            map.setPaintProperty(layerId, 'fill-opacity', ['case', ['==', ['get', 'id'], activeZoneId], 0.35, 0.05]);
-          } else {
-            map.setPaintProperty(layerId, 'line-opacity', ['case', ['==', ['get', 'id'], activeZoneId], 1, 0.15]);
-          }
-        } else {
-          // No specific zone active — dim all if another element is highlighted
-          if (layerId === 'zone-fill') map.setPaintProperty(layerId, 'fill-opacity', briefingHighlightId ? 0.05 : 0.2);
-          else map.setPaintProperty(layerId, 'line-opacity', briefingHighlightId ? 0.15 : 1);
+        // Markers (symbol layer)
+        if (activeSymbolId && map.getLayer('markers-layer')) {
+          map.setPaintProperty('markers-layer', 'icon-opacity',
+            ['case', ['==', ['get', 'id'], activeSymbolId], activeOp, 0.2]);
         }
-      });
-    } catch (e) { /* layers not ready */ }
+      } catch (e) { /* */ }
+    };
+
+    // Initial apply
+    applyOpacity(1);
+
+    // Pulse animation: smoothly oscillate active element opacity 0.5 → 1 → 0.5
+    if (briefingHighlightId) {
+      let t = 0;
+      briefingPulseRef.current = setInterval(() => {
+        t += 0.08;
+        const op = 0.5 + 0.5 * Math.sin(t); // oscillates 0..1, shifted to 0.5..1.0
+        applyOpacity(op);
+      }, 50);
+    }
+
+    return () => {
+      if (briefingPulseRef.current) {
+        clearInterval(briefingPulseRef.current);
+        briefingPulseRef.current = null;
+      }
+    };
   }, [briefingMode, briefingHighlightId, mapLibreReady, markers]);
 
   // 3) Synka TMA-vägar → MapLibre tma-roads-source + tma-warning-source
@@ -5865,18 +5918,8 @@ export default function PlannerPage() {
             // Visuell rendering sker nu via MapLibre symbol layer (GPU).
             // SVG-overlayen renderar bara en osynlig hit-area för drag/klick.
             // Varningsringen renderas UTANFÖR opacity:0-gruppen så den alltid syns.
-            const isBriefingActive = briefingMode && briefingHighlightId === m.id;
             return (
               <g key={m.id}>
-                {/* Briefing glow — pulsande ring runt aktiv markör */}
-                {isBriefingActive && (
-                  <g transform={`translate(${offsetX}, ${offsetY})`} style={{ pointerEvents: 'none' }}>
-                    <circle cx={m.x} cy={m.y} r={symbolRadius + 18} fill="none" stroke="#fff" strokeWidth={3} opacity={0.7}
-                      style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
-                    <circle cx={m.x} cy={m.y} r={symbolRadius + 30} fill="none" stroke="#fff" strokeWidth={1.5} opacity={0.3}
-                      style={{ animation: 'pulse 1.5s ease-in-out infinite 0.3s' }} />
-                  </g>
-                )}
                 {/* Pulsande varningsring (röd glöd) — renderas utanför hit-area-gruppen */}
                 {isInWarningRange && (
                   <g transform={`translate(${offsetX}, ${offsetY})`} style={{ pointerEvents: 'none' }}>
