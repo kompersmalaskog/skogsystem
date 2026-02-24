@@ -175,8 +175,8 @@ export default function TraktBriefing({
       tag: 'info',
       tagText: 'ÖVERFLYGNING',
       center: { lat: centerLat, lon: centerLon },
-      zoom: 14.5,
-      pitch: 55,
+      zoom: 16,
+      pitch: 68,
       bearing: 0,
     });
 
@@ -354,7 +354,7 @@ export default function TraktBriefing({
       let bearing = map.getBearing();
       rotationRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
-        bearing += 4;
+        bearing += 2;
         mapInstanceRef.current.easeTo({ bearing, duration: 100 });
       }, 100);
     }
