@@ -3142,9 +3142,30 @@ export default function PlannerPage() {
     } catch (e) { /* */ }
 
     const activeMarker = briefingHighlightId ? markers.find(m => m.id === briefingHighlightId) : null;
-    const activeLineId = activeMarker?.isLine ? activeMarker.id : null;
+    const isBoundaryStep = activeMarker?.isLine && (activeMarker as any).lineType === 'boundary';
+    const activeLineId = (activeMarker?.isLine && !isBoundaryStep) ? activeMarker.id : null;
     const activeZoneId = activeMarker?.isZone ? activeMarker.id : null;
     const activeSymbolId = activeMarker?.isMarker ? activeMarker.id : null;
+
+    // Boundary step: extra thick lines + glow
+    try {
+      if (isBoundaryStep) {
+        const bndLwExtra = ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 8, 13, 9, 15, 11, 17, 12] as any;
+        const bndCwExtra = ['interpolate', ['linear'], ['zoom'], 5, 8, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18] as any;
+        if (map.getLayer('line-boundary-base')) map.setPaintProperty('line-boundary-base', 'line-width', bndLwExtra);
+        if (map.getLayer('line-boundary-stripe')) map.setPaintProperty('line-boundary-stripe', 'line-width', bndLwExtra);
+        if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCwExtra);
+        if (map.getLayer('line-boundary-glow')) map.setPaintProperty('line-boundary-glow', 'line-opacity', 0.45);
+      } else {
+        // Restore to briefing-boosted (not extra thick)
+        const bndLwBoosted2 = ['interpolate', ['linear'], ['zoom'], 5, 4, 8, 5, 11, 6, 13, 7, 15, 9, 17, 10] as any;
+        const bndCwBoosted2 = ['interpolate', ['linear'], ['zoom'], 5, 6, 8, 8, 11, 9, 13, 10, 15, 12, 17, 14] as any;
+        if (map.getLayer('line-boundary-base')) map.setPaintProperty('line-boundary-base', 'line-width', bndLwBoosted2);
+        if (map.getLayer('line-boundary-stripe')) map.setPaintProperty('line-boundary-stripe', 'line-width', bndLwBoosted2);
+        if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCwBoosted2);
+        if (map.getLayer('line-boundary-glow')) map.setPaintProperty('line-boundary-glow', 'line-opacity', 0.3);
+      }
+    } catch (e) { /* */ }
 
     // Apply function: sets dim + active opacity for all layers (boundary excluded — always full)
     const applyOpacity = (activeOp: number) => {
@@ -3161,6 +3182,16 @@ export default function PlannerPage() {
             }
           });
         });
+
+        // Boundary pulse during boundary step
+        if (isBoundaryStep) {
+          ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing'].forEach(id => {
+            if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', activeOp);
+          });
+          if (map.getLayer('line-boundary-glow')) {
+            map.setPaintProperty('line-boundary-glow', 'line-opacity', activeOp * 0.45);
+          }
+        }
 
         // Zones
         ['zone-fill', 'zone-outline-casing', 'zone-outline', 'zone-outline-dash'].forEach(id => {
@@ -3188,14 +3219,24 @@ export default function PlannerPage() {
     // Initial apply
     applyOpacity(1);
 
-    // Pulse animation: smoothly oscillate active element opacity 0.5 → 1 → 0.5
+    // Pulse animation
     if (briefingHighlightId) {
-      let t = 0;
-      briefingPulseRef.current = setInterval(() => {
-        t += 0.08;
-        const op = 0.5 + 0.5 * Math.sin(t); // oscillates 0..1, shifted to 0.5..1.0
-        applyOpacity(op);
-      }, 50);
+      if (isBoundaryStep) {
+        // Boundary: distinct on/off blink (~2s cycle)
+        let on = true;
+        briefingPulseRef.current = setInterval(() => {
+          on = !on;
+          applyOpacity(on ? 1 : 0.4);
+        }, 1000);
+      } else {
+        // Other elements: smooth sine wave pulse
+        let t = 0;
+        briefingPulseRef.current = setInterval(() => {
+          t += 0.08;
+          const op = 0.5 + 0.5 * Math.sin(t);
+          applyOpacity(op);
+        }, 50);
+      }
     }
 
     return () => {

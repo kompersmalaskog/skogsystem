@@ -252,9 +252,10 @@ export default function TraktBriefing({
       });
     }
 
-    // 5. BOUNDARY
+    // 5. BOUNDARY — camera follows the boundary path
     for (const m of boundaries) {
       const pathLL = m.path!.map(p => svgToLatLon(p.x, p.y));
+      const startPt = pathLL[0] || { lat: centerLat, lon: centerLon };
       built.push({
         id: `boundary-${m.id}`,
         type: 'boundary',
@@ -263,9 +264,9 @@ export default function TraktBriefing({
         tag: 'caution',
         tagText: 'TRAKTGRÄNS',
         comment: m.comment || undefined,
-        center: { lat: centerLat, lon: centerLon },
-        zoom: 14.5,
-        pitch: 50,
+        center: startPt,
+        zoom: 16.5,
+        pitch: 60,
         path: pathLL,
         marker: m,
         categoryColor: '#ef4444',
@@ -411,8 +412,8 @@ export default function TraktBriefing({
       });
     }
 
-    // Slow rotation for boundary/property/done
-    if (['boundary', 'property', 'done'].includes(step.type)) {
+    // Slow rotation for property/done
+    if (['property', 'done'].includes(step.type)) {
       let bearing = 0;
       rotationRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
@@ -421,23 +422,56 @@ export default function TraktBriefing({
       }, 100);
     }
 
-    // Animate along path for mainroad
-    if (step.type === 'mainroad' && step.path && step.path.length > 1) {
+    // Animate camera along path for boundary and mainroad
+    if ((step.type === 'boundary' || step.type === 'mainroad') && step.path && step.path.length > 1) {
+      const isBoundary = step.type === 'boundary';
+      const pathPts = step.path!;
+      // Sample ~20 points along the path for smooth animation
+      const totalPts = pathPts.length;
+      const sampleCount = Math.min(totalPts, isBoundary ? 25 : 12);
+      const stepSize = Math.max(1, Math.floor(totalPts / sampleCount));
+      const interval = isBoundary ? 700 : 900;
       let idx = 0;
+
+      // Compute bearing from current point to next for boundary
+      const getBearing = (from: {lat:number;lon:number}, to: {lat:number;lon:number}) => {
+        const dLon = (to.lon - from.lon) * Math.PI / 180;
+        const lat1 = from.lat * Math.PI / 180;
+        const lat2 = to.lat * Math.PI / 180;
+        const y = Math.sin(dLon) * Math.cos(lat2);
+        const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+        return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
+      };
+
+      // Initial flyTo to the start of the path
+      const startPt = pathPts[0];
+      const nextPt = pathPts[Math.min(stepSize, totalPts - 1)];
+      const startBearing = isBoundary ? getBearing(startPt, nextPt) : 0;
+      map.flyTo({
+        center: [startPt.lon, startPt.lat],
+        zoom: isBoundary ? 16.5 : 16.5,
+        pitch: isBoundary ? 60 : 60,
+        bearing: startBearing,
+        duration: 1500,
+        essential: true,
+      });
+
       const pathAnim = setInterval(() => {
-        if (!mapInstanceRef.current || idx >= step.path!.length) {
-          clearInterval(pathAnim);
-          return;
-        }
-        const p = step.path![idx];
+        if (!mapInstanceRef.current) { clearInterval(pathAnim); return; }
+        idx += stepSize;
+        if (idx >= totalPts) { clearInterval(pathAnim); return; }
+        const p = pathPts[idx];
+        const nextIdx = Math.min(idx + stepSize, totalPts - 1);
+        const np = pathPts[nextIdx];
+        const bear = isBoundary ? getBearing(p, np) : undefined;
         mapInstanceRef.current.easeTo({
           center: [p.lon, p.lat],
-          duration: 800,
-          pitch: 60,
-          zoom: 16.5,
+          duration: interval - 50,
+          pitch: isBoundary ? 60 : 60,
+          zoom: isBoundary ? 16.5 : 16.5,
+          ...(bear !== undefined ? { bearing: bear } : {}),
         });
-        idx += Math.max(1, Math.floor(step.path!.length / 10));
-      }, 900);
+      }, interval);
       rotationRef.current = pathAnim;
     }
 
