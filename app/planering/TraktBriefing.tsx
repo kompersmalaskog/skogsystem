@@ -344,7 +344,7 @@ export default function TraktBriefing({
         zoom: step.zoom || 15,
         pitch: step.pitch || 50,
         bearing: step.bearing ?? map.getBearing(),
-        duration: 2000,
+        duration: 1200,
         essential: true,
       });
     }
@@ -354,7 +354,7 @@ export default function TraktBriefing({
       let bearing = map.getBearing();
       rotationRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
-        bearing += 0.3;
+        bearing += 4;
         mapInstanceRef.current.easeTo({ bearing, duration: 100 });
       }, 100);
     }
