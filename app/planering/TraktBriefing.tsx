@@ -24,7 +24,7 @@ interface Marker {
 
 interface BriefingStep {
   id: string;
-  type: 'overview' | 'landing' | 'mainroad' | 'boundary' | 'property' | 'symbol' | 'zone' | 'done';
+  type: 'overview' | 'landing' | 'mainroad' | 'property' | 'symbol' | 'zone' | 'done';
   title: string;
   icon: string;
   tag?: 'danger' | 'caution' | 'info';
@@ -259,35 +259,14 @@ export default function TraktBriefing({
       });
     }
 
-    // 4. BOUNDARY — camera follows the tract boundary
-    for (const m of boundaries) {
-      const bndPathLL = m.path!.map(p => svgToLatLon(p.x, p.y));
-      const bndStart = bndPathLL[0] || { lat: centerLat, lon: centerLon };
-      built.push({
-        id: `boundary-${m.id}`,
-        type: 'boundary',
-        title: 'Traktgräns',
-        icon: '🔴',
-        tag: 'caution',
-        tagText: 'TRAKTGRÄNS',
-        comment: m.comment || undefined,
-        center: bndStart,
-        zoom: 16.5,
-        pitch: 60,
-        path: bndPathLL,
-        marker: m,
-        categoryColor: '#ef4444',
-      });
-    }
-
-    // 5. PROPERTY BOUNDARY (fastighetsgräns) — if overlay exists, show warning step
+    // 4. PROPERTY BOUNDARY (fastighetsgräns/markägargräns) — if overlay exists
     if (overlays.fastighetsgranser !== undefined && boundaries.length > 0) {
       const propPathLL = boundaries[0].path!.map(p => svgToLatLon(p.x, p.y));
       const propStart = propPathLL[0] || { lat: centerLat, lon: centerLon };
       built.push({
         id: 'property',
         type: 'property',
-        title: 'Fastighetsgräns',
+        title: 'Fastighetsgräns / Markägargräns',
         icon: '📐',
         tag: 'caution',
         tagText: 'VAR FÖRSIKTIG',
@@ -300,7 +279,7 @@ export default function TraktBriefing({
       });
     }
 
-    // 6. SYMBOLS sorted: danger first, then caution, then info
+    // 5. SYMBOLS sorted: danger first, then caution, then info
     const tagOrder = { danger: 0, caution: 1, info: 2 };
     const sorted = [...symbolMarkers].sort((a, b) => {
       const ta = getTag(a, symbolCategories);
@@ -348,7 +327,7 @@ export default function TraktBriefing({
       });
     }
 
-    // 7. DONE
+    // 6. DONE
     built.push({
       id: 'done',
       type: 'done',
@@ -452,20 +431,20 @@ export default function TraktBriefing({
       }, 100);
     }
 
-    // Animate camera along path for boundary, property, and mainroad
-    if ((step.type === 'boundary' || step.type === 'property' || step.type === 'mainroad') && step.path && step.path.length > 1) {
-      const followsBoundary = step.type === 'boundary' || step.type === 'property';
+    // Animate camera along path for property and mainroad
+    if ((step.type === 'property' || step.type === 'mainroad') && step.path && step.path.length > 1) {
+      const isProperty = step.type === 'property';
       const pathPts = step.path!;
       const totalPts = pathPts.length;
-      const sampleCount = Math.min(totalPts, followsBoundary ? 25 : 12);
+      const sampleCount = Math.min(totalPts, isProperty ? 25 : 12);
       const stepSize = Math.max(1, Math.floor(totalPts / sampleCount));
-      const interval = followsBoundary ? 700 : 900;
+      const interval = isProperty ? 700 : 900;
       const pathZoom = step.zoom || 16.5;
       let idx = 0;
 
       const startPt = pathPts[0];
       const nextPt = pathPts[Math.min(stepSize, totalPts - 1)];
-      const startBearing = followsBoundary ? getBearing(startPt, nextPt) : 0;
+      const startBearing = isProperty ? getBearing(startPt, nextPt) : 0;
       map.flyTo({
         center: [startPt.lon, startPt.lat],
         zoom: pathZoom,
@@ -482,7 +461,7 @@ export default function TraktBriefing({
         const p = pathPts[idx];
         const nextIdx = Math.min(idx + stepSize, totalPts - 1);
         const np = pathPts[nextIdx];
-        const bear = followsBoundary ? getBearing(p, np) : undefined;
+        const bear = isProperty ? getBearing(p, np) : undefined;
         mapInstanceRef.current.easeTo({
           center: [p.lon, p.lat],
           duration: interval - 50,
@@ -817,20 +796,6 @@ export default function TraktBriefing({
             </div>
           )}
 
-          {/* Boundary info */}
-          {step.type === 'boundary' && (
-            <div style={{
-              padding: '14px 16px', borderRadius: '10px',
-              background: 'rgba(239,68,68,0.08)',
-              border: '1px solid rgba(239,68,68,0.15)',
-              marginBottom: '12px',
-            }}>
-              <div style={{ fontSize: '13px', color: '#e8f0e0', lineHeight: '1.5' }}>
-                Röd/gul streckad linje markerar traktens yttre gräns. Avverka inte utanför.
-              </div>
-            </div>
-          )}
-
           {/* Property boundary info */}
           {step.type === 'property' && (
             <div style={{
@@ -840,10 +805,10 @@ export default function TraktBriefing({
               marginBottom: '12px',
             }}>
               <div style={{ fontSize: '12px', color: '#e879f9', fontWeight: '600', marginBottom: '4px' }}>
-                📐 Fastighetsgräns
+                📐 Fastighetsgräns / Markägargräns
               </div>
               <div style={{ fontSize: '13px', color: '#e8f0e0', lineHeight: '1.5' }}>
-                Rosa linjer visar fastighetsgränser. Kontrollera att avverkning sker inom rätt fastighet.
+                Här byter det markägare. Rosa linjer visar fastighetsgränser — kontrollera att avverkning sker inom rätt fastighet.
               </div>
             </div>
           )}
