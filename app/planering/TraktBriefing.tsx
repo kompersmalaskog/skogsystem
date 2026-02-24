@@ -24,7 +24,7 @@ interface Marker {
 
 interface BriefingStep {
   id: string;
-  type: 'overview' | 'landing' | 'mainroad' | 'property' | 'symbol' | 'zone' | 'done';
+  type: 'overview' | 'landing' | 'mainroad' | 'boundary' | 'symbol' | 'zone' | 'done';
   title: string;
   icon: string;
   tag?: 'danger' | 'caution' | 'info';
@@ -38,7 +38,6 @@ interface BriefingStep {
   marker?: Marker;
   path?: { lat: number; lon: number }[];
   categoryColor?: string;
-  landingCenter?: { lat: number; lon: number };
 }
 
 interface SymbolCategory {
@@ -151,7 +150,6 @@ export default function TraktBriefing({
   const [steps, setSteps] = useState<BriefingStep[]>([]);
   const [fadeIn, setFadeIn] = useState(false);
   const rotationRef = useRef<any>(null);
-  const prevOverlaysRef = useRef<Record<string, boolean> | null>(null);
 
   // Build steps from markers — only rebuild before briefing starts (currentStep === -1)
   // Once briefing is active, steps are locked to prevent "jumping" from mid-briefing rebuilds
@@ -206,7 +204,6 @@ export default function TraktBriefing({
         lon: centerLon + rLon * Math.cos(angleRad),
       });
     }
-    const firstLandingLL = landings.length > 0 ? svgToLatLon(landings[0].x, landings[0].y) : null;
     built.push({
       id: 'overview',
       type: 'overview',
@@ -218,7 +215,6 @@ export default function TraktBriefing({
       zoom: overviewZoom,
       pitch: 57,
       path: arcPoints,
-      landingCenter: firstLandingLL || undefined,
     });
 
     // 2. LANDINGS
@@ -262,39 +258,25 @@ export default function TraktBriefing({
       });
     }
 
-    // 4. PROPERTY BOUNDARY (fastighetsgräns) — camera follows tract perimeter with WMS overlay
-    if (overlays.fastighetsgranser !== undefined) {
-      if (boundaries.length > 0) {
-        const propPathLL = boundaries[0].path!.map(p => svgToLatLon(p.x, p.y));
-        const propStart = propPathLL[0] || { lat: centerLat, lon: centerLon };
-        built.push({
-          id: 'property',
-          type: 'property',
-          title: 'Fastighetsgränser',
-          icon: '📐',
-          tag: 'caution',
-          tagText: 'FASTIGHETSGRÄNS',
-          center: propStart,
-          zoom: 16.5,
-          pitch: 60,
-          path: propPathLL,
-          marker: boundaries[0],
-          categoryColor: '#e879f9',
-        });
-      } else {
-        built.push({
-          id: 'property',
-          type: 'property',
-          title: 'Fastighetsgränser',
-          icon: '📐',
-          tag: 'caution',
-          tagText: 'FASTIGHETSGRÄNS',
-          center: { lat: centerLat, lon: centerLon },
-          zoom: 14.5,
-          pitch: 45,
-          categoryColor: '#e879f9',
-        });
-      }
+    // 4. BOUNDARY — camera follows the tract boundary
+    for (const m of boundaries) {
+      const bndPathLL = m.path!.map(p => svgToLatLon(p.x, p.y));
+      const bndStart = bndPathLL[0] || { lat: centerLat, lon: centerLon };
+      built.push({
+        id: `boundary-${m.id}`,
+        type: 'boundary',
+        title: 'Traktgräns',
+        icon: '🔴',
+        tag: 'caution',
+        tagText: 'TRAKTGRÄNS',
+        comment: m.comment || undefined,
+        center: bndStart,
+        zoom: 16.5,
+        pitch: 60,
+        path: bndPathLL,
+        marker: m,
+        categoryColor: '#ef4444',
+      });
     }
 
     // 5. SYMBOLS sorted: danger first, then caution, then info
@@ -358,18 +340,14 @@ export default function TraktBriefing({
     });
 
     setSteps(built);
-  }, [markers, svgToLatLon, symbolCategories, zoneTypes, overlays.fastighetsgranser, currentStep]);
+  }, [markers, svgToLatLon, symbolCategories, zoneTypes, currentStep]);
 
   // Stop animation on unmount
   useEffect(() => {
     return () => {
       if (rotationRef.current) { clearInterval(rotationRef.current); cancelAnimationFrame(rotationRef.current as any); }
-      // Restore overlays
-      if (prevOverlaysRef.current) {
-        setOverlays(() => prevOverlaysRef.current!);
-      }
     };
-  }, [setOverlays]);
+  }, []);
 
   // Animate to step
   const animateToStep = useCallback((stepIdx: number) => {
@@ -387,16 +365,7 @@ export default function TraktBriefing({
       rotationRef.current = null;
     }
 
-    // Property line effect
-    if (step.type === 'property') {
-      prevOverlaysRef.current = { ...overlays };
-      setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
-    } else if (prevOverlaysRef.current && overlays.fastighetsgranser && steps[stepIdx]?.type !== 'property') {
-      // Only restore if we changed it
-      setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
-    }
-
-    // Overview: curved arc flyover around the tract (~15s)
+    // Overview: curved arc flyover around the tract (~15s), returns to start
     if (step.type === 'overview' && step.path && step.path.length > 1) {
       const arcPath = step.path;
       const arcCenter = step.center!;
@@ -408,12 +377,13 @@ export default function TraktBriefing({
         bearing: startBear,
       });
       const arcDuration = 12000;
-      const landDuration = step.landingCenter ? 3000 : 0;
+      const returnDuration = 3000;
       const startTime = performance.now();
       const tick = () => {
         if (!mapInstanceRef.current) return;
         const elapsed = performance.now() - startTime;
         if (elapsed < arcDuration) {
+          // Arc phase
           const t = Math.min(elapsed / arcDuration, 1);
           const ease = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
           const idx = ease * (arcPath.length - 1);
@@ -426,15 +396,16 @@ export default function TraktBriefing({
           const bear = getBearing({ lat, lon }, arcCenter);
           mapInstanceRef.current.jumpTo({ center: [lon, lat], bearing: bear });
           rotationRef.current = requestAnimationFrame(tick) as any;
-        } else if (step.landingCenter && elapsed < arcDuration + landDuration) {
-          const lt = Math.min((elapsed - arcDuration) / landDuration, 1);
+        } else if (elapsed < arcDuration + returnDuration) {
+          // Return to start position
+          const lt = Math.min((elapsed - arcDuration) / returnDuration, 1);
           const ease = lt < 0.5 ? 2 * lt * lt : 1 - (-2 * lt + 2) ** 2 / 2;
           const lastArc = arcPath[arcPath.length - 1];
-          const lat = lastArc.lat + (step.landingCenter.lat - lastArc.lat) * ease;
-          const lon = lastArc.lon + (step.landingCenter.lon - lastArc.lon) * ease;
-          const zoom = (step.zoom || 15) + (17 - (step.zoom || 15)) * ease;
-          const bear = getBearing({ lat, lon }, step.landingCenter);
-          mapInstanceRef.current.jumpTo({ center: [lon, lat], zoom, bearing: bear });
+          const startPos = arcPath[0];
+          const lat = lastArc.lat + (startPos.lat - lastArc.lat) * ease;
+          const lon = lastArc.lon + (startPos.lon - lastArc.lon) * ease;
+          const bear = getBearing({ lat, lon }, arcCenter);
+          mapInstanceRef.current.jumpTo({ center: [lon, lat], bearing: bear });
           rotationRef.current = requestAnimationFrame(tick) as any;
         }
       };
@@ -451,8 +422,8 @@ export default function TraktBriefing({
       });
     }
 
-    // Slow rotation for done (and property without path)
-    if (step.type === 'done' || (step.type === 'property' && (!step.path || step.path.length <= 1))) {
+    // Slow rotation for done step
+    if (step.type === 'done') {
       let bearing = 0;
       rotationRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
@@ -461,22 +432,22 @@ export default function TraktBriefing({
       }, 100);
     }
 
-    // Animate camera along path for property and mainroad
-    if ((step.type === 'property' || step.type === 'mainroad') && step.path && step.path.length > 1) {
-      const isProperty = step.type === 'property';
+    // Animate camera along path for boundary and mainroad
+    if ((step.type === 'boundary' || step.type === 'mainroad') && step.path && step.path.length > 1) {
+      const isBoundary = step.type === 'boundary';
       const pathPts = step.path!;
       const totalPts = pathPts.length;
-      const sampleCount = Math.min(totalPts, isProperty ? 25 : 12);
+      const sampleCount = Math.min(totalPts, isBoundary ? 25 : 12);
       const stepSize = Math.max(1, Math.floor(totalPts / sampleCount));
-      const interval = isProperty ? 700 : 900;
+      const interval = isBoundary ? 700 : 900;
       let idx = 0;
 
       const startPt = pathPts[0];
       const nextPt = pathPts[Math.min(stepSize, totalPts - 1)];
-      const startBearing = isProperty ? getBearing(startPt, nextPt) : 0;
+      const startBearing = isBoundary ? getBearing(startPt, nextPt) : 0;
       map.flyTo({
         center: [startPt.lon, startPt.lat],
-        zoom: 16.5,
+        zoom: isBoundary ? 16.5 : 16.5,
         pitch: 60,
         bearing: startBearing,
         duration: 1500,
@@ -490,12 +461,12 @@ export default function TraktBriefing({
         const p = pathPts[idx];
         const nextIdx = Math.min(idx + stepSize, totalPts - 1);
         const np = pathPts[nextIdx];
-        const bear = isProperty ? getBearing(p, np) : undefined;
+        const bear = isBoundary ? getBearing(p, np) : undefined;
         mapInstanceRef.current.easeTo({
           center: [p.lon, p.lat],
           duration: interval - 50,
           pitch: 60,
-          zoom: 16.5,
+          zoom: isBoundary ? 16.5 : 16.5,
           ...(bear !== undefined ? { bearing: bear } : {}),
         });
       }, interval);
@@ -507,7 +478,7 @@ export default function TraktBriefing({
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setFadeIn(true));
     });
-  }, [steps, mapInstanceRef, overlays, setOverlays, onActiveMarkerChange]);
+  }, [steps, mapInstanceRef, onActiveMarkerChange]);
 
   const goToStep = useCallback((idx: number) => {
     setCurrentStep(idx);
@@ -825,19 +796,16 @@ export default function TraktBriefing({
             </div>
           )}
 
-          {/* Property line info */}
-          {step.type === 'property' && (
+          {/* Boundary info */}
+          {step.type === 'boundary' && (
             <div style={{
               padding: '14px 16px', borderRadius: '10px',
-              background: 'rgba(232,121,249,0.08)',
-              border: '1px solid rgba(232,121,249,0.15)',
+              background: 'rgba(239,68,68,0.08)',
+              border: '1px solid rgba(239,68,68,0.15)',
               marginBottom: '12px',
             }}>
-              <div style={{ fontSize: '12px', color: '#e879f9', fontWeight: '600', marginBottom: '4px' }}>
-                📐 Fastighetsgränser
-              </div>
               <div style={{ fontSize: '13px', color: '#e8f0e0', lineHeight: '1.5' }}>
-                Kameran följer traktens kant. Rosa linjer visar fastighetsgränser — kontrollera var gränserna korsar trakten.
+                Röd/gul streckad linje markerar traktens yttre gräns. Avverka inte utanför.
               </div>
             </div>
           )}
