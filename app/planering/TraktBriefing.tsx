@@ -151,6 +151,7 @@ export default function TraktBriefing({
   const [steps, setSteps] = useState<BriefingStep[]>([]);
   const [fadeIn, setFadeIn] = useState(false);
   const rotationRef = useRef<any>(null);
+  const wmsPulseRef = useRef<any>(null);
   const prevOverlaysRef = useRef<Record<string, boolean> | null>(null);
 
   // Build steps from markers — only rebuild before briefing starts (currentStep === -1)
@@ -290,14 +291,48 @@ export default function TraktBriefing({
       });
     }
 
-    // 4. PROPERTY BOUNDARY — Lantmäteriet WMS layer (wms-layer-fastighetsgranser)
-    // This is a raster WMS overlay showing real land ownership boundaries — NOT drawn lines.
-    // Only include this step if the MapLibre WMS layer actually exists in the map.
-    // TODO: Om fastighetsgräns-lagret (wms-layer-fastighetsgranser) saknas i kartinstansen,
-    // kontrollera att WMS-lagret skapas korrekt i page.tsx för att aktivera detta steg.
+    // 4. PROPERTY BOUNDARY — fly over tract to show Lantmäteriet WMS fastighetsgräns
+    // WMS is raster — can't extract vector geometry for a colored overlay line.
+    // Instead: fly straight across the tract at low altitude, WMS pulsed for emphasis,
+    // tract boundary (line-boundary-*) hidden during this step to avoid confusion.
     const mapInst = mapInstanceRef.current;
     const hasPropertyWMS = mapInst && mapInst.getLayer && mapInst.getLayer('wms-layer-fastighetsgranser');
     if (hasPropertyWMS) {
+      // Compute longest axis of tract for straight flyover path
+      let maxAxisDist = 0;
+      let flyA = allPoints[0] || { lat: centerLat, lon: centerLon };
+      let flyB = allPoints.length > 1 ? allPoints[allPoints.length - 1] : flyA;
+      for (let ai = 0; ai < allPoints.length; ai++) {
+        for (let bi = ai + 1; bi < allPoints.length; bi++) {
+          const dLat = allPoints[bi].lat - allPoints[ai].lat;
+          const dLon = (allPoints[bi].lon - allPoints[ai].lon) * Math.cos(centerLat * Math.PI / 180);
+          const d = dLat * dLat + dLon * dLon;
+          if (d > maxAxisDist) { maxAxisDist = d; flyA = allPoints[ai]; flyB = allPoints[bi]; }
+        }
+      }
+      if (maxAxisDist < 1e-10) {
+        flyA = { lat: centerLat, lon: centerLon - 0.002 };
+        flyB = { lat: centerLat, lon: centerLon + 0.002 };
+      }
+      // Extend path slightly beyond tract edges for context
+      const ext = 0.15;
+      const propStart = {
+        lat: flyA.lat - (flyB.lat - flyA.lat) * ext,
+        lon: flyA.lon - (flyB.lon - flyA.lon) * ext,
+      };
+      const propEnd = {
+        lat: flyB.lat + (flyB.lat - flyA.lat) * ext,
+        lon: flyB.lon + (flyB.lon - flyA.lon) * ext,
+      };
+      const propPath: { lat: number; lon: number }[] = [];
+      const propPts = 20;
+      for (let pi = 0; pi <= propPts; pi++) {
+        const pt = pi / propPts;
+        propPath.push({
+          lat: propStart.lat + (propEnd.lat - propStart.lat) * pt,
+          lon: propStart.lon + (propEnd.lon - propStart.lon) * pt,
+        });
+      }
       built.push({
         id: 'property',
         type: 'property',
@@ -306,8 +341,10 @@ export default function TraktBriefing({
         tag: 'caution',
         tagText: 'VAR FÖRSIKTIG',
         center: { lat: centerLat, lon: centerLon },
-        zoom: 16,
-        pitch: 50,
+        zoom: 16.5,
+        pitch: 63,
+        bearing: getBearing(propStart, propEnd),
+        path: propPath,
         categoryColor: '#e879f9',
       });
     }
@@ -379,11 +416,23 @@ export default function TraktBriefing({
   useEffect(() => {
     return () => {
       if (rotationRef.current) { clearInterval(rotationRef.current); cancelAnimationFrame(rotationRef.current as any); }
+      if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
+      // Restore boundary layers and WMS state
+      const map = mapInstanceRef.current;
+      if (map) {
+        ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing', 'line-boundary-glow'].forEach(id => {
+          if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
+        });
+        if (map.getLayer('wms-layer-fastighetsgranser')) {
+          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
+          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
+        }
+      }
       if (prevOverlaysRef.current) {
         setOverlays(() => prevOverlaysRef.current!);
       }
     };
-  }, [setOverlays]);
+  }, [setOverlays, mapInstanceRef]);
 
   // Animate to step
   const animateToStep = useCallback((stepIdx: number) => {
@@ -400,23 +449,52 @@ export default function TraktBriefing({
       cancelAnimationFrame(rotationRef.current as any);
       rotationRef.current = null;
     }
+    if (wmsPulseRef.current) {
+      clearInterval(wmsPulseRef.current);
+      wmsPulseRef.current = null;
+    }
 
-    // Property boundary: directly toggle the WMS layer for immediate effect
-    // The fastighetsgräns is Lantmäteriet's WMS raster layer (wms-layer-fastighetsgranser),
-    // NOT drawn boundary lines. We toggle the MapLibre layer directly for instant visibility.
+    // Property boundary: WMS layer + hide tract boundary + pulse for emphasis
+    // Fastighetsgräns = Lantmäteriet WMS raster (wms-layer-fastighetsgranser)
+    // Traktgräns = drawn boundary lines (line-boundary-*) — DIFFERENT thing, hide during this step
+    const boundaryLayerIds = ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing', 'line-boundary-glow'];
     if (step.type === 'property') {
       prevOverlaysRef.current = { ...overlays };
+      // Enable WMS fastighetsgräns with enhanced visibility
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', 'visible');
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.9);
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1.0);
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0.4);
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1.3);
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
+      // Hide tract boundary so only fastighetsgräns is visible
+      boundaryLayerIds.forEach(id => {
+        if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 0);
+      });
+      // Pulse WMS layer opacity for emphasis (sine wave 0.5 → 1.0)
+      let pulseT = 0;
+      wmsPulseRef.current = setInterval(() => {
+        if (!mapInstanceRef.current) return;
+        pulseT += 0.08;
+        const op = 0.75 + 0.25 * Math.sin(pulseT);
+        if (mapInstanceRef.current.getLayer('wms-layer-fastighetsgranser')) {
+          mapInstanceRef.current.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', op);
+        }
+      }, 50);
     } else if (prevOverlaysRef.current) {
+      // Restore: WMS layer, boundary layers, overlay state
       const wasOn = prevOverlaysRef.current.fastighetsgranser;
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
-        if (wasOn) map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
       }
+      // Restore tract boundary visibility
+      boundaryLayerIds.forEach(id => {
+        if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
+      });
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
       prevOverlaysRef.current = null;
     }
@@ -482,6 +560,38 @@ export default function TraktBriefing({
         rotationRef.current = requestAnimationFrame(tick) as any;
       };
       rotationRef.current = requestAnimationFrame(tick) as any;
+    } else if (step.type === 'property' && step.path && step.path.length > 1) {
+      // Property: fly straight across the tract at low altitude, bearing-aligned
+      const propPath = step.path;
+      const propBearing = step.bearing || getBearing(propPath[0], propPath[propPath.length - 1]);
+      map.flyTo({
+        center: [propPath[0].lon, propPath[0].lat],
+        zoom: step.zoom || 16.5,
+        pitch: step.pitch || 63,
+        bearing: propBearing,
+        duration: 2000,
+        essential: true,
+      });
+      const totalPropPts = propPath.length;
+      const propInterval = 700;
+      let propIdx = 0;
+      const propStepSz = Math.max(1, Math.floor(totalPropPts / 15));
+      const propAnim = setInterval(() => {
+        if (!mapInstanceRef.current) { clearInterval(propAnim); return; }
+        propIdx += propStepSz;
+        if (propIdx >= totalPropPts) { clearInterval(propAnim); return; }
+        const p = propPath[propIdx];
+        const nextI = Math.min(propIdx + propStepSz, totalPropPts - 1);
+        const np = propPath[nextI];
+        mapInstanceRef.current.easeTo({
+          center: [p.lon, p.lat],
+          bearing: getBearing(p, np),
+          duration: propInterval - 50,
+          pitch: step.pitch || 63,
+          zoom: step.zoom || 16.5,
+        });
+      }, propInterval);
+      rotationRef.current = propAnim;
     } else if (step.center) {
       // All other steps: smooth flyTo
       map.flyTo({
@@ -494,8 +604,8 @@ export default function TraktBriefing({
       });
     }
 
-    // Slow rotation for property (WMS overview) and done step
-    if (step.type === 'done' || step.type === 'property') {
+    // Slow rotation for done step
+    if (step.type === 'done') {
       let bearing = 0;
       rotationRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
@@ -564,9 +674,24 @@ export default function TraktBriefing({
       cancelAnimationFrame(rotationRef.current as any);
       rotationRef.current = null;
     }
+    if (wmsPulseRef.current) {
+      clearInterval(wmsPulseRef.current);
+      wmsPulseRef.current = null;
+    }
+    // Restore boundary + WMS state if we were on property step
+    const map = mapInstanceRef.current;
+    if (map && prevOverlaysRef.current) {
+      ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing', 'line-boundary-glow'].forEach(id => {
+        if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
+      });
+      if (map.getLayer('wms-layer-fastighetsgranser')) {
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
+      }
+    }
     onActiveMarkerChange?.(null);
     onClose();
-  }, [onClose, onActiveMarkerChange]);
+  }, [onClose, onActiveMarkerChange, mapInstanceRef]);
 
   // Keyboard
   useEffect(() => {
@@ -881,7 +1006,7 @@ export default function TraktBriefing({
                 📐 Fastighetsgräns (Lantmäteriet)
               </div>
               <div style={{ fontSize: '13px', color: '#e8f0e0', lineHeight: '1.5' }}>
-                Rosa linjer visar var det byter markägare. Kontrollera att avverkning sker inom rätt fastighet. Traktgränsen (röd/gul) visas som referens.
+                Kameran flyger över trakten. Linjerna i kartan visar var det byter markägare. Kontrollera att avverkning sker inom rätt fastighet.
               </div>
             </div>
           )}
