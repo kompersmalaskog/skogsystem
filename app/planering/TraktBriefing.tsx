@@ -150,6 +150,8 @@ export default function TraktBriefing({
   const [currentStep, setCurrentStep] = useState(-1); // -1 = start screen
   const [steps, setSteps] = useState<BriefingStep[]>([]);
   const [fadeIn, setFadeIn] = useState(false);
+  const [overviewBusy, setOverviewBusy] = useState(false);
+  const overviewBusyRef = useRef(false);
   const rotationRef = useRef<any>(null);
   const wmsPulseRef = useRef<any>(null);
   const prevOverlaysRef = useRef<Record<string, boolean> | null>(null);
@@ -453,6 +455,11 @@ export default function TraktBriefing({
       clearInterval(wmsPulseRef.current);
       wmsPulseRef.current = null;
     }
+    // Clear overview busy state (will be re-set if entering overview step)
+    if (overviewBusyRef.current) {
+      overviewBusyRef.current = false;
+      setOverviewBusy(false);
+    }
 
     // Property boundary: WMS layer + hide tract boundary + pulse for emphasis
     // Fastighetsgräns = Lantmäteriet WMS raster (wms-layer-fastighetsgranser)
@@ -522,14 +529,27 @@ export default function TraktBriefing({
         const segLen = cdf[lo + 1] - cdf[lo];
         return segLen > 0 ? (lo + (t - cdf[lo]) / segLen) / (cdf.length - 1) : lo / (cdf.length - 1);
       };
+      // Set overview busy — button disabled until top-down hold finishes
+      overviewBusyRef.current = true;
+      setOverviewBusy(true);
       const tick = () => {
         if (!mapInstanceRef.current) return;
         const elapsed = performance.now() - startTime;
         if (elapsed >= arcDuration) {
-          // End exactly at start position (full loop)
-          const endPt = arcPath[0];
-          const endBear = getBearing(endPt, arcCenter);
-          mapInstanceRef.current.jumpTo({ center: [endPt.lon, endPt.lat], bearing: endBear, zoom: baseZoom, pitch: 57 });
+          // Orbit complete — lift up to top-down view of whole tract
+          mapInstanceRef.current.flyTo({
+            center: [arcCenter.lon, arcCenter.lat],
+            zoom: baseZoom - 0.8,
+            pitch: 0,
+            bearing: 0,
+            duration: 2000,
+            essential: true,
+          });
+          // Hold top-down for 2.5s, then enable "Kör vidare"
+          rotationRef.current = setTimeout(() => {
+            overviewBusyRef.current = false;
+            setOverviewBusy(false);
+          }, 4500) as any; // 2000ms flyTo + 2500ms hold
           return;
         }
         const rawT = elapsed / arcDuration;
@@ -664,6 +684,7 @@ export default function TraktBriefing({
   }, [steps, mapInstanceRef, overlays, setOverlays, onActiveMarkerChange]);
 
   const goToStep = useCallback((idx: number) => {
+    if (overviewBusyRef.current && idx !== 0) return; // Block navigation during overview animation
     setCurrentStep(idx);
     if (idx >= 0) animateToStep(idx);
   }, [animateToStep]);
@@ -1033,17 +1054,19 @@ export default function TraktBriefing({
               </button>
             )}
             <button
-              onClick={() => goToStep(currentStep + 1)}
+              onClick={() => !overviewBusy && goToStep(currentStep + 1)}
               style={{
                 flex: currentStep > 0 ? 1 : undefined,
                 width: currentStep > 0 ? undefined : '100%',
                 padding: '14px',
-                background: stepColor,
-                color: step.tag === 'info' ? '#0a0f08' : '#fff',
+                background: overviewBusy ? 'rgba(138,180,96,0.3)' : stepColor,
+                color: overviewBusy ? 'rgba(255,255,255,0.4)' : (step.tag === 'info' ? '#0a0f08' : '#fff'),
                 border: 'none', borderRadius: '12px',
-                fontSize: '14px', fontWeight: '700', cursor: 'pointer',
+                fontSize: '14px', fontWeight: '700',
+                cursor: overviewBusy ? 'default' : 'pointer',
+                transition: 'background 0.5s ease, color 0.5s ease',
               }}>
-              Kör vidare →
+              {overviewBusy ? 'Flygning pågår...' : 'Kör vidare →'}
             </button>
           </div>
         </div>
