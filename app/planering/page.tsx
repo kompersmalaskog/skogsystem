@@ -2731,6 +2731,11 @@ export default function PlannerPage() {
           <path d="M12 22C12 22 9 19 9 16C9 13 12 10 12 10C12 10 15 13 15 16C15 19 12 22 12 22Z" fill="#ef4444" opacity="0.6" />
         </svg>
       ),
+      'menu-briefing': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M5 3 L19 12 L5 21 Z" />
+        </svg>
+      ),
     };
     return icons[iconId] || (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5">
@@ -2887,6 +2892,7 @@ export default function PlannerPage() {
     { id: 'settings', name: 'Inställningar', desc: 'Anpassa appen', icon: 'menu-settings' },
     { id: 'brandrisk', name: 'Brandrisk', desc: 'FWI, samråd, utrustning', icon: 'menu-brandrisk' },
     { id: 'emergency', name: 'Nödläge', desc: 'SOS, position, sjukvård', icon: 'menu-emergency' },
+    { id: 'briefing', name: 'Briefing', desc: 'Guidad traktgenomgång', icon: 'menu-briefing' },
   ];
 
   // === GPS ===
@@ -5468,7 +5474,7 @@ export default function PlannerPage() {
     }}>
       
       {/* === HEADER === */}
-      <div style={{
+      {!briefingMode && <div style={{
         position: 'absolute',
         top: 0,
         left: 0,
@@ -5523,7 +5529,7 @@ export default function PlannerPage() {
             </span>
           )}
         </div>
-      </div>
+      </div>}
 
       {/* === MAPLIBRE BAKGRUNDSKARTA === */}
       {showMap && (
@@ -6308,7 +6314,7 @@ export default function PlannerPage() {
         </svg>
       )}
       {/* === ZOOM-KNAPPAR (behålls) === */}
-      <div style={{
+      {!briefingMode && <div style={{
         position: 'absolute',
         top: '120px',
         left: '15px',
@@ -6355,10 +6361,10 @@ export default function PlannerPage() {
         >
           −
         </button>
-      </div>
+      </div>}
 
       {/* === KOMPASS-WIDGET (vänster nere) === */}
-      {compassMode && (
+      {compassMode && !briefingMode && (
         <div style={{
           position: 'absolute',
           bottom: menuOpen ? menuHeight + 110 : 100,
@@ -6400,7 +6406,7 @@ export default function PlannerPage() {
       )}
 
       {/* === GPS-CENTRERING-KNAPP (höger nere) === */}
-      <button
+      {!briefingMode && <button
         onClick={() => {
           // Vibrera för feedback
           if (navigator.vibrate) {
@@ -6446,10 +6452,10 @@ export default function PlannerPage() {
           <line x1="2" y1="12" x2="6" y2="12"/>
           <line x1="18" y1="12" x2="22" y2="12"/>
         </svg>
-      </button>
+      </button>}
 
       {/* === ÅNGRA-KNAPP === */}
-      {showUndo && history.length > 0 && (
+      {showUndo && history.length > 0 && !briefingMode && (
         <button
           onClick={undo}
           style={{
@@ -7152,7 +7158,7 @@ export default function PlannerPage() {
       })()}
 
       {/* === VOLYMBERÄKNING + KÖRBARHET === */}
-      {(volymLoading || volymResultat) && (
+      {(volymLoading || volymResultat) && !briefingMode && (
         <VolymPanel
           resultat={volymResultat}
           loading={volymLoading}
@@ -7163,7 +7169,7 @@ export default function PlannerPage() {
       )}
 
       {/* === SMHI BRANDRISK-BADGE === */}
-      {overlays.brandrisk && brandriskData && (
+      {overlays.brandrisk && brandriskData && !briefingMode && (
         <div style={{
           position: 'absolute',
           top: 60,
@@ -7668,7 +7674,7 @@ export default function PlannerPage() {
       )}
 
       {/* === LAGER-MENY === */}
-      {layerMenuOpen && (
+      {layerMenuOpen && !briefingMode && (
         <div style={{
           position: 'fixed',
           inset: 0,
@@ -8169,7 +8175,7 @@ export default function PlannerPage() {
       )}
 
       {/* === VARNINGSINSTÄLLNINGAR MENY === */}
-      {warningMenuOpen && (
+      {warningMenuOpen && !briefingMode && (
         <div style={{
           position: 'fixed',
           inset: 0,
@@ -8508,7 +8514,7 @@ export default function PlannerPage() {
 
 
       {/* === FULLSKÄRMSMENY === */}
-      {menuOpen && (
+      {menuOpen && !briefingMode && (
         <div style={{
           position: 'fixed',
           inset: 0,
@@ -8624,6 +8630,12 @@ export default function PlannerPage() {
                         setPrognosOpen(true);
                         setMenuOpen(false);
                         setMenuHeight(0);
+                      } else if (cat.id === 'briefing') {
+                        setBriefingMode(true);
+                        setMenuOpen(false);
+                        setMenuHeight(0);
+                        setLayerMenuOpen(false);
+                        setActiveCategory(null);
                       } else {
                         setActiveCategory(cat.id);
                       }
@@ -10275,26 +10287,6 @@ export default function PlannerPage() {
                     </div>
                   </div>
 
-                  {/* Briefing */}
-                  <div
-                    onClick={() => { setBriefingMode(true); setLayerMenuOpen(false); }}
-                    style={{
-                      padding: '16px 20px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '16px',
-                      borderRadius: '12px',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <div style={{ opacity: 0.6, fontSize: '22px', width: '26px', textAlign: 'center' }}>🎬</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff' }}>Briefing</div>
-                      <div style={{ fontSize: '12px', opacity: 0.5, marginTop: '2px' }}>Guidad genomgång för föraren</div>
-                    </div>
-                    <div style={{ fontSize: '18px', opacity: 0.3 }}>›</div>
-                  </div>
-
                   {/* Kompass */}
                   <div
                     onClick={() => toggleCompass()}
@@ -10790,7 +10782,7 @@ export default function PlannerPage() {
       )}
 
       {/* Meny-knapp (när stängd) */}
-      {!menuOpen && (
+      {!menuOpen && !briefingMode && (
         <div 
           onClick={() => {
             setMenuOpen(true);
