@@ -875,6 +875,7 @@ export default function PlannerPage() {
 
   // Briefing-läge
   const [briefingMode, setBriefingMode] = useState(false);
+  const [briefingHighlightId, setBriefingHighlightId] = useState<string | null>(null);
 
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
@@ -3032,7 +3033,11 @@ export default function PlannerPage() {
       let minOp = 1, maxOp = 0;
       symbolMarkers.forEach(m => {
         const ll = svgToLatLon(m.x, m.y);
-        const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id }, m);
+        let opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id }, m);
+        // Briefing highlight: active marker full opacity, others dimmed
+        if (briefingMode && briefingHighlightId) {
+          opacity = m.id === briefingHighlightId ? 1 : 0.2;
+        }
         if (opacity < minOp) minOp = opacity;
         if (opacity > maxOp) maxOp = opacity;
         features.push({
@@ -3051,7 +3056,7 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2c) Visa/dölj markers-layer beroende på visibleLayers.symbols
   useEffect(() => {
@@ -3063,6 +3068,54 @@ export default function PlannerPage() {
       }
     } catch (e) { /* layer not ready */ }
   }, [visibleLayers.symbols, mapLibreReady]);
+
+  // 2d) Briefing highlight: dim/brighten lines and zones
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      const activeMarker = briefingHighlightId ? markers.find(m => m.id === briefingHighlightId) : null;
+      const activeLineId = activeMarker?.isLine ? activeMarker.id : null;
+      const activeZoneId = activeMarker?.isZone ? activeMarker.id : null;
+
+      // Line layers: data-driven opacity based on feature id
+      const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue',
+        'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag', 'nature', 'ditch', 'trail'];
+      lineTypeIds.forEach(lt => {
+        ['base', 'casing', 'stripe'].forEach(suffix => {
+          const layerId = `line-${lt}-${suffix}`;
+          if (!map.getLayer(layerId)) return;
+          if (!briefingMode) {
+            map.setPaintProperty(layerId, 'line-opacity', 1);
+          } else if (activeLineId) {
+            map.setPaintProperty(layerId, 'line-opacity', ['case', ['==', ['get', 'id'], activeLineId], 1, 0.15]);
+          } else {
+            // No specific line active — dim all if another element is highlighted
+            map.setPaintProperty(layerId, 'line-opacity', briefingHighlightId ? 0.15 : 0.7);
+          }
+        });
+      });
+
+      // Zone layers: data-driven opacity based on feature id
+      ['zone-fill', 'zone-outline-casing', 'zone-outline', 'zone-outline-dash'].forEach(layerId => {
+        if (!map.getLayer(layerId)) return;
+        if (!briefingMode) {
+          if (layerId === 'zone-fill') map.setPaintProperty(layerId, 'fill-opacity', 0.2);
+          else map.setPaintProperty(layerId, 'line-opacity', 1);
+        } else if (activeZoneId) {
+          if (layerId === 'zone-fill') {
+            map.setPaintProperty(layerId, 'fill-opacity', ['case', ['==', ['get', 'id'], activeZoneId], 0.35, 0.05]);
+          } else {
+            map.setPaintProperty(layerId, 'line-opacity', ['case', ['==', ['get', 'id'], activeZoneId], 1, 0.15]);
+          }
+        } else {
+          // No specific zone active — dim all if another element is highlighted
+          if (layerId === 'zone-fill') map.setPaintProperty(layerId, 'fill-opacity', briefingHighlightId ? 0.05 : 0.2);
+          else map.setPaintProperty(layerId, 'line-opacity', briefingHighlightId ? 0.15 : 1);
+        }
+      });
+    } catch (e) { /* layers not ready */ }
+  }, [briefingMode, briefingHighlightId, mapLibreReady, markers]);
 
   // 3) Synka TMA-vägar → MapLibre tma-roads-source + tma-warning-source
   useEffect(() => {
@@ -5812,8 +5865,18 @@ export default function PlannerPage() {
             // Visuell rendering sker nu via MapLibre symbol layer (GPU).
             // SVG-overlayen renderar bara en osynlig hit-area för drag/klick.
             // Varningsringen renderas UTANFÖR opacity:0-gruppen så den alltid syns.
+            const isBriefingActive = briefingMode && briefingHighlightId === m.id;
             return (
               <g key={m.id}>
+                {/* Briefing glow — pulsande ring runt aktiv markör */}
+                {isBriefingActive && (
+                  <g transform={`translate(${offsetX}, ${offsetY})`} style={{ pointerEvents: 'none' }}>
+                    <circle cx={m.x} cy={m.y} r={symbolRadius + 18} fill="none" stroke="#fff" strokeWidth={3} opacity={0.7}
+                      style={{ animation: 'pulse 1.5s ease-in-out infinite' }} />
+                    <circle cx={m.x} cy={m.y} r={symbolRadius + 30} fill="none" stroke="#fff" strokeWidth={1.5} opacity={0.3}
+                      style={{ animation: 'pulse 1.5s ease-in-out infinite 0.3s' }} />
+                  </g>
+                )}
                 {/* Pulsande varningsring (röd glöd) — renderas utanför hit-area-gruppen */}
                 {isInWarningRange && (
                   <g transform={`translate(${offsetX}, ${offsetY})`} style={{ pointerEvents: 'none' }}>
@@ -5872,7 +5935,10 @@ export default function PlannerPage() {
           {visibleLayers.arrows && markers.filter(m => m.isArrow).map(m => {
             const arrow = arrowTypes.find(t => t.id === m.arrowType);
             const isDragging = draggingMarker === m.id;
-            const opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
+            let opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id });
+            if (briefingMode && briefingHighlightId) {
+              opacity = m.id === briefingHighlightId ? 1 : 0.2;
+            }
             const isAcknowledged = acknowledgedWarnings.includes(m.id);
             const arrowScale = getConstrainedSize(2);
             const ringRadius = getConstrainedSize(50);
@@ -13592,7 +13658,8 @@ export default function PlannerPage() {
           overlays={overlays}
           setOverlays={setOverlays}
           traktName={valtObjekt?.namn || valtObjekt?.beteckning || 'Trakt'}
-          onClose={() => setBriefingMode(false)}
+          onClose={() => { setBriefingMode(false); setBriefingHighlightId(null); }}
+          onActiveMarkerChange={setBriefingHighlightId}
         />
       )}
     </div>

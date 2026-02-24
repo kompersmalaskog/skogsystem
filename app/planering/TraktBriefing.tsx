@@ -57,6 +57,7 @@ interface Props {
   setOverlays: (fn: (prev: any) => any) => void;
   traktName?: string;
   onClose: () => void;
+  onActiveMarkerChange?: (markerId: string | null) => void;
 }
 
 // Tag mappings
@@ -134,7 +135,7 @@ function getSymbolIcon(marker: Marker): string {
 
 export default function TraktBriefing({
   markers, mapInstanceRef, svgToLatLon, symbolCategories,
-  lineTypes, zoneTypes, overlays, setOverlays, traktName, onClose,
+  lineTypes, zoneTypes, overlays, setOverlays, traktName, onClose, onActiveMarkerChange,
 }: Props) {
   const [currentStep, setCurrentStep] = useState(-1); // -1 = start screen
   const [steps, setSteps] = useState<BriefingStep[]>([]);
@@ -323,6 +324,9 @@ export default function TraktBriefing({
     if (!map || !steps[stepIdx]) return;
     const step = steps[stepIdx];
 
+    // Notify parent which marker is active (for highlight effect)
+    onActiveMarkerChange?.(step.marker?.id || null);
+
     // Stop previous rotation
     if (rotationRef.current) {
       clearInterval(rotationRef.current);
@@ -386,7 +390,7 @@ export default function TraktBriefing({
     requestAnimationFrame(() => {
       requestAnimationFrame(() => setFadeIn(true));
     });
-  }, [steps, mapInstanceRef, overlays, setOverlays]);
+  }, [steps, mapInstanceRef, overlays, setOverlays, onActiveMarkerChange]);
 
   const goToStep = useCallback((idx: number) => {
     setCurrentStep(idx);
@@ -398,8 +402,9 @@ export default function TraktBriefing({
       clearInterval(rotationRef.current);
       rotationRef.current = null;
     }
+    onActiveMarkerChange?.(null);
     onClose();
-  }, [onClose]);
+  }, [onClose, onActiveMarkerChange]);
 
   // Keyboard
   useEffect(() => {
