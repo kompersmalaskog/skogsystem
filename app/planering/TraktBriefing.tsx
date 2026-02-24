@@ -146,8 +146,11 @@ export default function TraktBriefing({
   const rotationRef = useRef<any>(null);
   const prevOverlaysRef = useRef<Record<string, boolean> | null>(null);
 
-  // Build steps from markers
+  // Build steps from markers — only rebuild before briefing starts (currentStep === -1)
+  // Once briefing is active, steps are locked to prevent "jumping" from mid-briefing rebuilds
   useEffect(() => {
+    if (currentStep >= 0) return;
+
     const built: BriefingStep[] = [];
 
     // Collect data
@@ -334,7 +337,7 @@ export default function TraktBriefing({
     });
 
     setSteps(built);
-  }, [markers, svgToLatLon, symbolCategories, zoneTypes, overlays.fastighetsgranser]);
+  }, [markers, svgToLatLon, symbolCategories, zoneTypes, overlays.fastighetsgranser, currentStep]);
 
   // Stop animation on unmount
   useEffect(() => {
