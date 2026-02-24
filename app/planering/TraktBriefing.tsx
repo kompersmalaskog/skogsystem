@@ -155,6 +155,9 @@ export default function TraktBriefing({
   const rotationRef = useRef<any>(null);
   const wmsPulseRef = useRef<any>(null);
   const prevOverlaysRef = useRef<Record<string, boolean> | null>(null);
+  const [exploreMode, setExploreMode] = useState(false);
+  const exploreModeRef = useRef(false);
+  const [selectedExploreStep, setSelectedExploreStep] = useState<BriefingStep | null>(null);
 
   // Build steps from markers — only rebuild before briefing starts (currentStep === -1)
   // Once briefing is active, steps are locked to prevent "jumping" from mid-briefing rebuilds
@@ -399,15 +402,15 @@ export default function TraktBriefing({
       });
     }
 
-    // 6. DONE
+    // 6. DONE — top-down view of whole tract, all symbols visible
     built.push({
       id: 'done',
       type: 'done',
       title: 'Briefing klar',
       icon: '✅',
       center: { lat: centerLat, lon: centerLon },
-      zoom: 14.5,
-      pitch: 55,
+      zoom: overviewZoom - 1.5,
+      pitch: 0,
       bearing: 0,
     });
 
@@ -624,16 +627,6 @@ export default function TraktBriefing({
       });
     }
 
-    // Slow rotation for done step
-    if (step.type === 'done') {
-      let bearing = 0;
-      rotationRef.current = setInterval(() => {
-        if (!mapInstanceRef.current) return;
-        bearing += 0.5;
-        mapInstanceRef.current.easeTo({ bearing, duration: 100 });
-      }, 100);
-    }
-
     // Animate camera along path for mainroad
     if (step.type === 'mainroad' && step.path && step.path.length > 1) {
       const isProperty = false;
@@ -684,7 +677,8 @@ export default function TraktBriefing({
   }, [steps, mapInstanceRef, overlays, setOverlays, onActiveMarkerChange]);
 
   const goToStep = useCallback((idx: number) => {
-    if (overviewBusyRef.current && idx !== 0) return; // Block navigation during overview animation
+    if (overviewBusyRef.current && idx !== 0) return;
+    if (exploreModeRef.current) return;
     setCurrentStep(idx);
     if (idx >= 0) animateToStep(idx);
   }, [animateToStep]);
@@ -724,6 +718,48 @@ export default function TraktBriefing({
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [handleClose, currentStep, steps.length, goToStep]);
+
+  // Explore mode: map click → select nearest symbol/zone and show info card
+  useEffect(() => {
+    if (!exploreMode) {
+      setSelectedExploreStep(null);
+      return;
+    }
+    const map = mapInstanceRef.current;
+    if (!map) return;
+    const handleMapClick = (e: any) => {
+      const cLat = e.lngLat.lat;
+      const cLon = e.lngLat.lng;
+      let best: BriefingStep | null = null;
+      let bestDist = Infinity;
+      for (const s of steps) {
+        if (!s.center || s.type === 'overview' || s.type === 'done') continue;
+        const dLat = (s.center.lat - cLat) * 111320;
+        const dLon = (s.center.lon - cLon) * 111320 * Math.cos(cLat * Math.PI / 180);
+        const dist = Math.sqrt(dLat * dLat + dLon * dLon);
+        if (dist < bestDist) { bestDist = dist; best = s; }
+      }
+      if (best && bestDist < 75) {
+        setSelectedExploreStep(best);
+        onActiveMarkerChange?.(best.marker?.id || null);
+        map.flyTo({
+          center: [best.center!.lon, best.center!.lat],
+          zoom: Math.max(map.getZoom(), best.zoom || 16),
+          pitch: 50,
+          duration: 1000,
+          essential: true,
+        });
+      } else {
+        setSelectedExploreStep(null);
+        onActiveMarkerChange?.(null);
+      }
+    };
+    map.on('click', handleMapClick);
+    return () => {
+      map.off('click', handleMapClick);
+      onActiveMarkerChange?.(null);
+    };
+  }, [exploreMode, steps, mapInstanceRef, onActiveMarkerChange]);
 
   // Count warnings for start screen
   const dangerCount = steps.filter(s => s.tag === 'danger').length;
@@ -817,6 +853,124 @@ export default function TraktBriefing({
   const step = steps[currentStep];
   if (!step) return null;
 
+  // === EXPLORE MODE — interactive reference after guided briefing ===
+  if (exploreMode) {
+    const es = selectedExploreStep;
+    const esColor = es ? (es.categoryColor || tagColor[es.tag || 'info']) : '#8a9a78';
+    return (
+      <div style={{
+        position: 'fixed', inset: 0, zIndex: 700,
+        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+        pointerEvents: 'none',
+      }}>
+        {/* Top bar */}
+        <div style={{
+          position: 'fixed', top: '16px', left: '16px', right: '16px', zIndex: 710,
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          pointerEvents: 'none',
+        }}>
+          <button
+            onClick={handleClose}
+            style={{
+              pointerEvents: 'auto',
+              padding: '10px 18px', borderRadius: '24px',
+              background: 'rgba(10,15,8,0.85)', color: '#8a9a78',
+              border: '1px solid rgba(138,180,96,0.2)',
+              fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+              backdropFilter: 'blur(8px)',
+            }}>
+            Stäng briefing
+          </button>
+          <div style={{
+            padding: '8px 14px', borderRadius: '20px',
+            background: 'rgba(10,15,8,0.8)', color: '#8a9a78',
+            fontSize: '12px', fontWeight: '500',
+          }}>
+            Tryck på symboler för detaljer
+          </div>
+        </div>
+
+        {/* Selected step info card */}
+        {es && (
+          <div style={{
+            pointerEvents: 'auto',
+            background: 'linear-gradient(transparent, rgba(10,15,8,0.94) 30%)',
+            padding: '60px 20px 32px',
+            paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
+          }}>
+            <div style={{
+              maxWidth: '420px', margin: '0 auto',
+              background: 'rgba(10,15,8,0.96)',
+              borderRadius: '16px',
+              border: `1px solid ${esColor}33`,
+              padding: '24px 20px',
+              maxHeight: '40vh', overflowY: 'auto',
+            }}>
+              {es.tagText && (
+                <div style={{
+                  display: 'inline-block',
+                  padding: '4px 12px', borderRadius: '10px',
+                  fontSize: '11px', fontWeight: '800', letterSpacing: '0.5px',
+                  background: tagBg[es.tag || 'info'],
+                  color: tagColor[es.tag || 'info'],
+                  marginBottom: '12px',
+                }}>
+                  {es.tagText}
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                <div style={{ fontSize: '32px' }}>{es.icon}</div>
+                <div style={{ fontSize: '20px', fontWeight: '700', color: '#e8f0e0' }}>{es.title}</div>
+              </div>
+              {es.comment && (
+                <div style={{
+                  padding: '14px 16px', borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.06)',
+                  marginBottom: '12px',
+                }}>
+                  <div style={{ fontSize: '12px', color: '#8a9a78', fontWeight: '600', marginBottom: '6px' }}>
+                    💬 Planerarens kommentarer
+                  </div>
+                  <div style={{ fontSize: '14px', color: '#e8f0e0', lineHeight: '1.5' }}>
+                    {es.comment}
+                  </div>
+                </div>
+              )}
+              {es.photoData && (
+                <div style={{
+                  padding: '14px 16px', borderRadius: '10px',
+                  background: 'rgba(138,180,96,0.06)',
+                  border: '1px solid rgba(138,180,96,0.12)',
+                  marginBottom: '12px',
+                }}>
+                  <div style={{ fontSize: '12px', color: '#8a9a78', fontWeight: '600', marginBottom: '8px' }}>
+                    🎯 Målbild
+                  </div>
+                  <img
+                    src={es.photoData}
+                    alt="Målbild"
+                    style={{ width: '100%', borderRadius: '8px', maxHeight: '200px', objectFit: 'cover' }}
+                  />
+                </div>
+              )}
+              <button
+                onClick={() => { setSelectedExploreStep(null); onActiveMarkerChange?.(null); }}
+                style={{
+                  width: '100%', padding: '12px',
+                  background: 'rgba(255,255,255,0.06)',
+                  color: '#8a9a78', border: '1px solid rgba(138,180,96,0.15)',
+                  borderRadius: '12px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+                }}>
+                Stäng
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // === DONE SCREEN ===
   if (step.type === 'done') {
     const warningSteps = steps.filter(s => s.tag === 'danger' || s.tag === 'caution');
@@ -890,14 +1044,14 @@ export default function TraktBriefing({
                 ← Visa igen
               </button>
               <button
-                onClick={handleClose}
+                onClick={() => { exploreModeRef.current = true; setExploreMode(true); }}
                 style={{
                   flex: 1, padding: '14px',
                   background: '#8ab460', color: '#0a0f08',
                   border: 'none', borderRadius: '12px',
                   fontSize: '14px', fontWeight: '700', cursor: 'pointer',
                 }}>
-                Klar – börja köra 🌲
+                Utforska kartan 🗺️
               </button>
             </div>
           </div>
