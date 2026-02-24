@@ -3083,6 +3083,8 @@ export default function PlannerPage() {
 
     const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue',
       'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag', 'nature', 'ditch', 'trail'];
+    // Non-boundary lines (boundary is always visible during briefing)
+    const dimmableLineTypes = lineTypeIds.filter(lt => lt !== 'boundary');
 
     // Restore defaults when briefing off
     if (!briefingMode) {
@@ -3093,6 +3095,17 @@ export default function PlannerPage() {
             if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
           });
         });
+        // Remove briefing glow layer + restore boundary widths and colors
+        if (map.getLayer('line-boundary-glow')) map.removeLayer('line-boundary-glow');
+        const bndLw = ['interpolate', ['linear'], ['zoom'], 5, 3, 8, 4, 11, 5, 13, 5, 15, 7, 17, 8] as any;
+        const bndCw = ['interpolate', ['linear'], ['zoom'], 5, 5, 8, 6, 11, 7, 13, 7, 15, 9, 17, 10] as any;
+        if (map.getLayer('line-boundary-base')) map.setPaintProperty('line-boundary-base', 'line-width', bndLw);
+        if (map.getLayer('line-boundary-stripe')) {
+          map.setPaintProperty('line-boundary-stripe', 'line-width', bndLw);
+          map.setPaintProperty('line-boundary-stripe', 'line-color', '#fbbf24');
+        }
+        if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCw);
+
         ['zone-fill', 'zone-outline-casing', 'zone-outline', 'zone-outline-dash'].forEach(id => {
           if (!map.getLayer(id)) return;
           if (id === 'zone-fill') map.setPaintProperty(id, 'fill-opacity', 0.2);
@@ -3105,16 +3118,39 @@ export default function PlannerPage() {
       return;
     }
 
+    // === Briefing is ON: boost boundary visibility ===
+    try {
+      // Thicker boundary lines
+      const bndLwBoosted = ['interpolate', ['linear'], ['zoom'], 5, 4, 8, 5, 11, 6, 13, 7, 15, 9, 17, 10] as any;
+      const bndCwBoosted = ['interpolate', ['linear'], ['zoom'], 5, 6, 8, 8, 11, 9, 13, 10, 15, 12, 17, 14] as any;
+      if (map.getLayer('line-boundary-base')) map.setPaintProperty('line-boundary-base', 'line-width', bndLwBoosted);
+      if (map.getLayer('line-boundary-stripe')) {
+        map.setPaintProperty('line-boundary-stripe', 'line-width', bndLwBoosted);
+        map.setPaintProperty('line-boundary-stripe', 'line-color', '#ffdd00');
+      }
+      if (map.getLayer('line-boundary-casing')) map.setPaintProperty('line-boundary-casing', 'line-width', bndCwBoosted);
+      // Add a wide glow layer behind the boundary (once)
+      if (!map.getLayer('line-boundary-glow')) {
+        const glowWidth = ['interpolate', ['linear'], ['zoom'], 5, 10, 8, 14, 11, 18, 13, 22, 15, 28, 17, 32] as any;
+        map.addLayer({
+          id: 'line-boundary-glow', type: 'line', source: 'lines-source',
+          filter: ['==', ['get', 'lineType'], 'boundary'],
+          paint: { 'line-color': '#fbbf24', 'line-width': glowWidth, 'line-opacity': 0.3, 'line-blur': 4 },
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+        }, 'line-boundary-casing'); // Insert below casing
+      }
+    } catch (e) { /* */ }
+
     const activeMarker = briefingHighlightId ? markers.find(m => m.id === briefingHighlightId) : null;
     const activeLineId = activeMarker?.isLine ? activeMarker.id : null;
     const activeZoneId = activeMarker?.isZone ? activeMarker.id : null;
     const activeSymbolId = activeMarker?.isMarker ? activeMarker.id : null;
 
-    // Apply function: sets dim + active opacity for all layers
+    // Apply function: sets dim + active opacity for all layers (boundary excluded — always full)
     const applyOpacity = (activeOp: number) => {
       try {
-        // Lines
-        lineTypeIds.forEach(lt => {
+        // Lines (skip boundary — always visible)
+        dimmableLineTypes.forEach(lt => {
           ['base', 'casing', 'stripe'].forEach(suffix => {
             const id = `line-${lt}-${suffix}`;
             if (!map.getLayer(id)) return;
