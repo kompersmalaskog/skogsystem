@@ -38,6 +38,7 @@ interface BriefingStep {
   marker?: Marker;
   path?: { lat: number; lon: number }[];
   categoryColor?: string;
+  arcCDF?: number[];
 }
 
 interface SymbolCategory {
@@ -179,7 +180,7 @@ export default function TraktBriefing({
       centerLon /= allPoints.length;
     }
 
-    // 1. OVERVIEW — curved arc flyover around the tract (~15s)
+    // 1. OVERVIEW — dynamic 360° flyover orbit with zoom/pitch/bearing/speed variation
     let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
     for (const p of allPoints) {
       if (p.lat < minLat) minLat = p.lat;
@@ -187,23 +188,52 @@ export default function TraktBriefing({
       if (p.lon < minLon) minLon = p.lon;
       if (p.lon > maxLon) maxLon = p.lon;
     }
-    // Compute zoom from tract extent — zoomed in enough to see details
     const extentKm = Math.max(maxLat - minLat, (maxLon - minLon) * Math.cos(centerLat * Math.PI / 180)) * 111;
-    const overviewZoom = extentKm < 0.5 ? 16.5 : extentKm < 1 ? 16 : extentKm < 2 ? 15.5 : 15;
-    // Arc radius — tighter orbit to see details
-    const rLat = (maxLat - minLat) * 0.6 + 0.0015;
-    const rLon = (maxLon - minLon) * 0.6 + 0.002;
-    // Generate arc waypoints: 225° clockwise sweep from South through West to NE
+    const overviewZoom = extentKm < 0.5 ? 17 : extentKm < 1 ? 16.5 : extentKm < 2 ? 16 : 15.5;
+    // Tight orbit radius for closer detail
+    const rLat = (maxLat - minLat) * 0.45 + 0.001;
+    const rLon = (maxLon - minLon) * 0.45 + 0.0015;
+    // Full 360° orbit — starts and ends at same position (South)
     const arcPoints: { lat: number; lon: number }[] = [];
-    const arcCount = 30;
+    const arcCount = 60;
     for (let i = 0; i <= arcCount; i++) {
       const t = i / arcCount;
-      const angleDeg = 270 - 225 * t; // 270° (S) → 45° (NE)
+      const angleDeg = 270 - 360 * t;
       const angleRad = angleDeg * Math.PI / 180;
       arcPoints.push({
         lat: centerLat + rLat * Math.sin(angleRad),
         lon: centerLon + rLon * Math.cos(angleRad),
       });
+    }
+    // Compute symbol/landing angles for speed variation (slower near interesting points)
+    const interestMarkers = [...landings, ...symbolMarkers];
+    const symAngles: number[] = [];
+    for (const m of interestMarkers) {
+      let sll: { lat: number; lon: number };
+      if (m.isZone && m.path && m.path.length > 0) {
+        let cx = 0, cy = 0;
+        for (const p of m.path!) { cx += p.x; cy += p.y; }
+        sll = svgToLatLon(cx / m.path!.length, cy / m.path!.length);
+      } else {
+        sll = svgToLatLon(m.x, m.y);
+      }
+      symAngles.push(Math.atan2(sll.lat - centerLat, sll.lon - centerLon) * 180 / Math.PI);
+    }
+    // Build CDF: weight each arc segment by proximity to symbols (more time near symbols)
+    const arcWeightsArr: number[] = [];
+    for (let i = 0; i < arcCount; i++) {
+      const segAngle = 270 - 360 * (i + 0.5) / arcCount;
+      let w = 1.0;
+      for (const sa of symAngles) {
+        const diff = Math.abs(((segAngle - sa + 540) % 360) - 180);
+        if (diff < 30) w += 1.5 * (1 - diff / 30);
+      }
+      arcWeightsArr.push(w);
+    }
+    const wTotal = arcWeightsArr.reduce((a, b) => a + b, 0);
+    const arcCDF = [0];
+    for (let i = 0; i < arcCount; i++) {
+      arcCDF.push(arcCDF[i] + arcWeightsArr[i] / wTotal);
     }
     built.push({
       id: 'overview',
@@ -216,6 +246,7 @@ export default function TraktBriefing({
       zoom: overviewZoom,
       pitch: 57,
       path: arcPoints,
+      arcCDF,
     });
 
     // 2. LANDINGS
@@ -259,11 +290,14 @@ export default function TraktBriefing({
       });
     }
 
-    // 4. PROPERTY BOUNDARY (fastighetsgräns/markägargräns) — WMS overlay, not drawn lines
-    // Shows Lantmäteriet's property boundaries (where land ownership changes).
-    // This is a raster WMS layer — we don't have vector coordinates, so we show
-    // an overview of the tract with the overlay toggled on + slow rotation.
-    if (overlays.fastighetsgranser !== undefined) {
+    // 4. PROPERTY BOUNDARY — Lantmäteriet WMS layer (wms-layer-fastighetsgranser)
+    // This is a raster WMS overlay showing real land ownership boundaries — NOT drawn lines.
+    // Only include this step if the MapLibre WMS layer actually exists in the map.
+    // TODO: Om fastighetsgräns-lagret (wms-layer-fastighetsgranser) saknas i kartinstansen,
+    // kontrollera att WMS-lagret skapas korrekt i page.tsx för att aktivera detta steg.
+    const mapInst = mapInstanceRef.current;
+    const hasPropertyWMS = mapInst && mapInst.getLayer && mapInst.getLayer('wms-layer-fastighetsgranser');
+    if (hasPropertyWMS) {
       built.push({
         id: 'property',
         type: 'property',
@@ -272,7 +306,7 @@ export default function TraktBriefing({
         tag: 'caution',
         tagText: 'VAR FÖRSIKTIG',
         center: { lat: centerLat, lon: centerLon },
-        zoom: 15,
+        zoom: 16,
         pitch: 50,
         categoryColor: '#e879f9',
       });
@@ -339,7 +373,7 @@ export default function TraktBriefing({
     });
 
     setSteps(built);
-  }, [markers, svgToLatLon, symbolCategories, zoneTypes, overlays.fastighetsgranser, currentStep]);
+  }, [markers, svgToLatLon, symbolCategories, zoneTypes, currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stop animation on unmount
   useEffect(() => {
@@ -367,45 +401,85 @@ export default function TraktBriefing({
       rotationRef.current = null;
     }
 
-    // Property boundary overlay effect
+    // Property boundary: directly toggle the WMS layer for immediate effect
+    // The fastighetsgräns is Lantmäteriet's WMS raster layer (wms-layer-fastighetsgranser),
+    // NOT drawn boundary lines. We toggle the MapLibre layer directly for instant visibility.
     if (step.type === 'property') {
       prevOverlaysRef.current = { ...overlays };
+      if (map.getLayer('wms-layer-fastighetsgranser')) {
+        map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', 'visible');
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.9);
+      }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
-    } else if (prevOverlaysRef.current && steps[stepIdx]?.type !== 'property') {
+    } else if (prevOverlaysRef.current) {
+      const wasOn = prevOverlaysRef.current.fastighetsgranser;
+      if (map.getLayer('wms-layer-fastighetsgranser')) {
+        map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
+        if (wasOn) map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
+      }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
       prevOverlaysRef.current = null;
     }
 
-    // Overview: curved arc flyover around the tract (~15s), stops at end
+    // Overview: dynamic 360° orbit — zoom dips, bearing oscillation, speed varies near symbols
     if (step.type === 'overview' && step.path && step.path.length > 1) {
       const arcPath = step.path;
       const arcCenter = step.center!;
+      const baseZoom = step.zoom || 16;
+      const cdf = step.arcCDF;
       const startBear = getBearing(arcPath[0], arcCenter);
       map.jumpTo({
         center: [arcPath[0].lon, arcPath[0].lat],
-        zoom: step.zoom || 16,
+        zoom: baseZoom,
         pitch: step.pitch || 57,
         bearing: startBear,
       });
-      const arcDuration = 15000;
+      const arcDuration = 18000;
       const startTime = performance.now();
+      // Inverse CDF: map uniform time → arc position (slower near symbols)
+      const mapTime = (t: number): number => {
+        if (!cdf || cdf.length < 2) return t;
+        let lo = 0, hi = cdf.length - 2;
+        while (lo < hi) { const mid = (lo + hi) >> 1; cdf[mid + 1] < t ? lo = mid + 1 : hi = mid; }
+        const segLen = cdf[lo + 1] - cdf[lo];
+        return segLen > 0 ? (lo + (t - cdf[lo]) / segLen) / (cdf.length - 1) : lo / (cdf.length - 1);
+      };
       const tick = () => {
         if (!mapInstanceRef.current) return;
         const elapsed = performance.now() - startTime;
-        if (elapsed < arcDuration) {
-          const t = Math.min(elapsed / arcDuration, 1);
-          const ease = t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
-          const idx = ease * (arcPath.length - 1);
-          const i = Math.floor(idx);
-          const frac = idx - i;
-          const p0 = arcPath[Math.min(i, arcPath.length - 1)];
-          const p1 = arcPath[Math.min(i + 1, arcPath.length - 1)];
-          const lat = p0.lat + (p1.lat - p0.lat) * frac;
-          const lon = p0.lon + (p1.lon - p0.lon) * frac;
-          const bear = getBearing({ lat, lon }, arcCenter);
-          mapInstanceRef.current.jumpTo({ center: [lon, lat], bearing: bear });
-          rotationRef.current = requestAnimationFrame(tick) as any;
+        if (elapsed >= arcDuration) {
+          // End exactly at start position (full loop)
+          const endPt = arcPath[0];
+          const endBear = getBearing(endPt, arcCenter);
+          mapInstanceRef.current.jumpTo({ center: [endPt.lon, endPt.lat], bearing: endBear, zoom: baseZoom, pitch: 57 });
+          return;
         }
+        const rawT = elapsed / arcDuration;
+        // Ease in/out for smooth start and landing
+        const eased = rawT < 0.5 ? 2 * rawT * rawT : 1 - (-2 * rawT + 2) ** 2 / 2;
+        // Remap through CDF for speed variation near symbols
+        const arcT = mapTime(eased);
+        const idx = arcT * (arcPath.length - 1);
+        const i = Math.floor(idx);
+        const frac = idx - i;
+        const p0 = arcPath[Math.min(i, arcPath.length - 1)];
+        const p1 = arcPath[Math.min(i + 1, arcPath.length - 1)];
+        const lat = p0.lat + (p1.lat - p0.lat) * frac;
+        const lon = p0.lon + (p1.lon - p0.lon) * frac;
+        // Bearing: look toward center + gentle oscillation
+        const baseBear = getBearing({ lat, lon }, arcCenter);
+        const bearOff = 12 * Math.sin(arcT * Math.PI * 3);
+        // Zoom: dip closer twice during orbit
+        const zoomVar = 0.7 * Math.sin(arcT * Math.PI * 4);
+        // Pitch: subtle variation
+        const pitch = 57 + 5 * Math.sin(arcT * Math.PI * 2);
+        mapInstanceRef.current.jumpTo({
+          center: [lon, lat],
+          bearing: baseBear + bearOff,
+          zoom: baseZoom + zoomVar,
+          pitch,
+        });
+        rotationRef.current = requestAnimationFrame(tick) as any;
       };
       rotationRef.current = requestAnimationFrame(tick) as any;
     } else if (step.center) {
