@@ -59,6 +59,10 @@ interface Props {
   traktName?: string;
   onClose: () => void;
   onActiveMarkerChange?: (markerId: string | null) => void;
+  mode?: 'briefing' | 'checklist';
+  checkedStepIds?: string[];
+  onChecklistChange?: (checkedIds: string[]) => void;
+  onBriefingComplete?: (totalSteps: number) => void;
 }
 
 // Tag mappings
@@ -146,6 +150,7 @@ function getBearing(from: {lat:number;lon:number}, to: {lat:number;lon:number}) 
 export default function TraktBriefing({
   markers, mapInstanceRef, svgToLatLon, symbolCategories,
   lineTypes, zoneTypes, overlays, setOverlays, traktName, onClose, onActiveMarkerChange,
+  mode = 'briefing', checkedStepIds, onChecklistChange, onBriefingComplete,
 }: Props) {
   const [currentStep, setCurrentStep] = useState(-1); // -1 = start screen
   const [steps, setSteps] = useState<BriefingStep[]>([]);
@@ -155,9 +160,12 @@ export default function TraktBriefing({
   const rotationRef = useRef<any>(null);
   const wmsPulseRef = useRef<any>(null);
   const prevOverlaysRef = useRef<Record<string, boolean> | null>(null);
-  const [exploreMode, setExploreMode] = useState(false);
-  const exploreModeRef = useRef(false);
-  const [selectedExploreStep, setSelectedExploreStep] = useState<BriefingStep | null>(null);
+  // Checklist state (replaces explore mode)
+  const [checklistOpen, setChecklistOpen] = useState(false);
+  const [checkedItems, setCheckedItems] = useState<Set<string>>(() => new Set(checkedStepIds || []));
+  const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [panelHeight, setPanelHeight] = useState(50); // % of viewport
+  const dragStartRef = useRef<{ y: number; h: number } | null>(null);
 
   // Build steps from markers — only rebuild before briefing starts (currentStep === -1)
   // Once briefing is active, steps are locked to prevent "jumping" from mid-briefing rebuilds
@@ -416,6 +424,13 @@ export default function TraktBriefing({
 
     setSteps(built);
   }, [markers, svgToLatLon, symbolCategories, zoneTypes, currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-open checklist when mounted in checklist mode
+  useEffect(() => {
+    if (mode === 'checklist' && steps.length > 0 && !checklistOpen) {
+      setChecklistOpen(true);
+    }
+  }, [mode, steps.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Stop animation on unmount
   useEffect(() => {
@@ -678,10 +693,10 @@ export default function TraktBriefing({
 
   const goToStep = useCallback((idx: number) => {
     if (overviewBusyRef.current && idx !== 0) return;
-    if (exploreModeRef.current) return;
+    if (checklistOpen) return;
     setCurrentStep(idx);
     if (idx >= 0) animateToStep(idx);
-  }, [animateToStep]);
+  }, [animateToStep, checklistOpen]);
 
   const handleClose = useCallback(() => {
     if (rotationRef.current) {
@@ -704,9 +719,11 @@ export default function TraktBriefing({
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
       }
     }
+    // Emit checklist state before closing
+    onChecklistChange?.(Array.from(checkedItems));
     onActiveMarkerChange?.(null);
     onClose();
-  }, [onClose, onActiveMarkerChange, mapInstanceRef]);
+  }, [onClose, onActiveMarkerChange, mapInstanceRef, checkedItems, onChecklistChange]);
 
   // Keyboard
   useEffect(() => {
@@ -719,12 +736,9 @@ export default function TraktBriefing({
     return () => window.removeEventListener('keydown', handler);
   }, [handleClose, currentStep, steps.length, goToStep]);
 
-  // Explore mode: map click → select nearest symbol/zone and show info card
+  // Checklist: map click → select nearest symbol and expand in list
   useEffect(() => {
-    if (!exploreMode) {
-      setSelectedExploreStep(null);
-      return;
-    }
+    if (!checklistOpen) return;
     const map = mapInstanceRef.current;
     if (!map) return;
     const handleMapClick = (e: any) => {
@@ -740,17 +754,10 @@ export default function TraktBriefing({
         if (dist < bestDist) { bestDist = dist; best = s; }
       }
       if (best && bestDist < 75) {
-        setSelectedExploreStep(best);
+        setExpandedItem(prev => prev === best!.id ? null : best!.id);
         onActiveMarkerChange?.(best.marker?.id || null);
-        map.flyTo({
-          center: [best.center!.lon, best.center!.lat],
-          zoom: Math.max(map.getZoom(), best.zoom || 16),
-          pitch: 50,
-          duration: 1000,
-          essential: true,
-        });
       } else {
-        setSelectedExploreStep(null);
+        setExpandedItem(null);
         onActiveMarkerChange?.(null);
       }
     };
@@ -759,7 +766,7 @@ export default function TraktBriefing({
       map.off('click', handleMapClick);
       onActiveMarkerChange?.(null);
     };
-  }, [exploreMode, steps, mapInstanceRef, onActiveMarkerChange]);
+  }, [checklistOpen, steps, mapInstanceRef, onActiveMarkerChange]);
 
   // Count warnings for start screen
   const dangerCount = steps.filter(s => s.tag === 'danger').length;
@@ -853,26 +860,31 @@ export default function TraktBriefing({
   const step = steps[currentStep];
   if (!step) return null;
 
-  // === EXPLORE MODE — interactive reference after guided briefing ===
-  if (exploreMode) {
-    const es = selectedExploreStep;
-    const esColor = es ? (es.categoryColor || tagColor[es.tag || 'info']) : '#8a9a78';
+  // === CHECKLIST MODE — grouped list with kvittering after briefing ===
+  if (checklistOpen) {
+    const checklistSteps = steps.filter(s => s.type !== 'overview' && s.type !== 'done');
+    const groups = [
+      { tag: 'danger' as const, title: 'KÖR INTE HÄR', color: '#ef4444', items: checklistSteps.filter(s => s.tag === 'danger') },
+      { tag: 'caution' as const, title: 'VAR FÖRSIKTIG', color: '#f59e0b', items: checklistSteps.filter(s => s.tag === 'caution') },
+      { tag: 'info' as const, title: 'INFO', color: '#8ab460', items: checklistSteps.filter(s => s.tag === 'info') },
+    ].filter(g => g.items.length > 0);
+    const totalItems = checklistSteps.length;
+    const checkedCount = checklistSteps.filter(s => checkedItems.has(s.id)).length;
+
     return (
       <div style={{
         position: 'fixed', inset: 0, zIndex: 700,
         display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
         pointerEvents: 'none',
       }}>
-        {/* Top bar */}
+        {/* Top bar: Stäng button */}
         <div style={{
-          position: 'fixed', top: '16px', left: '16px', right: '16px', zIndex: 710,
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          pointerEvents: 'none',
+          position: 'fixed', top: '16px', left: '16px', zIndex: 710,
+          pointerEvents: 'auto',
         }}>
           <button
             onClick={handleClose}
             style={{
-              pointerEvents: 'auto',
               padding: '10px 18px', borderRadius: '24px',
               background: 'rgba(10,15,8,0.85)', color: '#8a9a78',
               border: '1px solid rgba(138,180,96,0.2)',
@@ -881,92 +893,214 @@ export default function TraktBriefing({
             }}>
             Stäng briefing
           </button>
-          <div style={{
-            padding: '8px 14px', borderRadius: '20px',
-            background: 'rgba(10,15,8,0.8)', color: '#8a9a78',
-            fontSize: '12px', fontWeight: '500',
-          }}>
-            Tryck på symboler för detaljer
-          </div>
         </div>
 
-        {/* Selected step info card */}
-        {es && (
-          <div style={{
+        {/* Bottom panel — slide up/down */}
+        <div
+          style={{
             pointerEvents: 'auto',
-            background: 'linear-gradient(transparent, rgba(10,15,8,0.94) 30%)',
-            padding: '60px 20px 32px',
-            paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
+            height: `${panelHeight}vh`,
+            background: 'rgba(10,15,8,0.97)',
+            borderTopLeftRadius: '16px',
+            borderTopRightRadius: '16px',
+            border: '1px solid rgba(138,180,96,0.15)',
+            borderBottom: 'none',
+            display: 'flex',
+            flexDirection: 'column',
+            transition: dragStartRef.current ? 'none' : 'height 0.3s ease',
+          }}
+        >
+          {/* Drag handle */}
+          <div
+            onPointerDown={(e) => {
+              dragStartRef.current = { y: e.clientY, h: panelHeight };
+              (e.target as HTMLElement).setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={(e) => {
+              if (!dragStartRef.current) return;
+              const dy = dragStartRef.current.y - e.clientY;
+              const dPct = (dy / window.innerHeight) * 100;
+              setPanelHeight(Math.max(10, Math.min(85, dragStartRef.current.h + dPct)));
+            }}
+            onPointerUp={() => {
+              if (!dragStartRef.current) return;
+              dragStartRef.current = null;
+              setPanelHeight(h => h < 25 ? 10 : h < 60 ? 50 : 85);
+            }}
+            style={{ padding: '12px 0', cursor: 'grab', touchAction: 'none', flexShrink: 0 }}
+          >
+            <div style={{ width: '40px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.2)', margin: '0 auto' }} />
+          </div>
+
+          {/* Header: counter */}
+          <div style={{
+            padding: '0 20px 12px',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            flexShrink: 0,
           }}>
-            <div style={{
-              maxWidth: '420px', margin: '0 auto',
-              background: 'rgba(10,15,8,0.96)',
-              borderRadius: '16px',
-              border: `1px solid ${esColor}33`,
-              padding: '24px 20px',
-              maxHeight: '40vh', overflowY: 'auto',
-            }}>
-              {es.tagText && (
-                <div style={{
-                  display: 'inline-block',
-                  padding: '4px 12px', borderRadius: '10px',
-                  fontSize: '11px', fontWeight: '800', letterSpacing: '0.5px',
-                  background: tagBg[es.tag || 'info'],
-                  color: tagColor[es.tag || 'info'],
-                  marginBottom: '12px',
-                }}>
-                  {es.tagText}
-                </div>
-              )}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                <div style={{ fontSize: '32px' }}>{es.icon}</div>
-                <div style={{ fontSize: '20px', fontWeight: '700', color: '#e8f0e0' }}>{es.title}</div>
-              </div>
-              {es.comment && (
-                <div style={{
-                  padding: '14px 16px', borderRadius: '10px',
-                  background: 'rgba(255,255,255,0.04)',
-                  border: '1px solid rgba(255,255,255,0.06)',
-                  marginBottom: '12px',
-                }}>
-                  <div style={{ fontSize: '12px', color: '#8a9a78', fontWeight: '600', marginBottom: '6px' }}>
-                    💬 Planerarens kommentarer
-                  </div>
-                  <div style={{ fontSize: '14px', color: '#e8f0e0', lineHeight: '1.5' }}>
-                    {es.comment}
-                  </div>
-                </div>
-              )}
-              {es.photoData && (
-                <div style={{
-                  padding: '14px 16px', borderRadius: '10px',
-                  background: 'rgba(138,180,96,0.06)',
-                  border: '1px solid rgba(138,180,96,0.12)',
-                  marginBottom: '12px',
-                }}>
-                  <div style={{ fontSize: '12px', color: '#8a9a78', fontWeight: '600', marginBottom: '8px' }}>
-                    🎯 Målbild
-                  </div>
-                  <img
-                    src={es.photoData}
-                    alt="Målbild"
-                    style={{ width: '100%', borderRadius: '8px', maxHeight: '200px', objectFit: 'cover' }}
-                  />
-                </div>
-              )}
-              <button
-                onClick={() => { setSelectedExploreStep(null); onActiveMarkerChange?.(null); }}
-                style={{
-                  width: '100%', padding: '12px',
-                  background: 'rgba(255,255,255,0.06)',
-                  color: '#8a9a78', border: '1px solid rgba(138,180,96,0.15)',
-                  borderRadius: '12px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-                }}>
-                Stäng
-              </button>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: '#e8f0e0' }}>
+              {checkedCount} av {totalItems} kvitterade
             </div>
           </div>
-        )}
+
+          {/* Scrollable list */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0', WebkitOverflowScrolling: 'touch' }}>
+            {groups.map(group => (
+              <div key={group.tag}>
+                {/* Section header */}
+                <div style={{
+                  padding: '14px 20px 6px',
+                  fontSize: '11px', fontWeight: '800', letterSpacing: '1px',
+                  textTransform: 'uppercase',
+                  color: group.color, opacity: 0.7,
+                }}>
+                  {group.title}
+                </div>
+
+                {group.items.map(item => {
+                  const isChecked = checkedItems.has(item.id);
+                  const isExpanded = expandedItem === item.id;
+                  return (
+                    <div key={item.id}>
+                      {/* Row */}
+                      <div
+                        onClick={() => {
+                          if (isExpanded) {
+                            setExpandedItem(null);
+                            onActiveMarkerChange?.(null);
+                          } else {
+                            setExpandedItem(item.id);
+                            onActiveMarkerChange?.(item.marker?.id || null);
+                            const map = mapInstanceRef.current;
+                            if (map && item.center) {
+                              map.flyTo({
+                                center: [item.center.lon, item.center.lat],
+                                zoom: Math.max(map.getZoom(), item.zoom || 16),
+                                pitch: 50,
+                                duration: 1000,
+                                essential: true,
+                              });
+                            }
+                          }
+                        }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '10px',
+                          padding: '10px 20px',
+                          opacity: isChecked ? 0.4 : 1,
+                          background: isExpanded ? 'rgba(138,180,96,0.08)' : 'transparent',
+                          cursor: 'pointer',
+                          transition: 'opacity 0.3s, background 0.2s',
+                        }}
+                      >
+                        {/* Checkbox */}
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCheckedItems(prev => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              onChecklistChange?.(Array.from(next));
+                              return next;
+                            });
+                          }}
+                          style={{
+                            width: '24px', height: '24px', borderRadius: '6px',
+                            border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                            background: isChecked ? '#8ab460' : 'transparent',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            flexShrink: 0, cursor: 'pointer',
+                          }}
+                        >
+                          {isChecked && <span style={{ color: '#0a0f08', fontSize: '14px', fontWeight: '700' }}>&#10003;</span>}
+                        </div>
+
+                        {/* Icon */}
+                        <div style={{ fontSize: '20px', flexShrink: 0 }}>{item.icon}</div>
+
+                        {/* Title */}
+                        <div style={{
+                          flex: 1, fontSize: '14px', fontWeight: '600',
+                          color: isChecked ? 'rgba(255,255,255,0.3)' : '#e8f0e0',
+                        }}>
+                          {item.title}
+                        </div>
+
+                        {/* Tag badge */}
+                        <div style={{
+                          padding: '2px 8px', borderRadius: '6px',
+                          fontSize: '10px', fontWeight: '700',
+                          background: tagBg[item.tag || 'info'],
+                          color: isChecked ? 'rgba(255,255,255,0.3)' : tagColor[item.tag || 'info'],
+                          flexShrink: 0,
+                        }}>
+                          {item.tagText}
+                        </div>
+                      </div>
+
+                      {/* Expanded detail */}
+                      {isExpanded && (
+                        <div style={{ padding: '4px 20px 12px 74px' }}>
+                          {item.comment && (
+                            <div style={{
+                              padding: '10px 14px', borderRadius: '8px',
+                              background: 'rgba(255,255,255,0.04)',
+                              border: '1px solid rgba(255,255,255,0.06)',
+                              marginBottom: '8px',
+                            }}>
+                              <div style={{ fontSize: '11px', color: '#8a9a78', fontWeight: '600', marginBottom: '4px' }}>
+                                Kommentar
+                              </div>
+                              <div style={{ fontSize: '13px', color: '#e8f0e0', lineHeight: '1.5' }}>
+                                {item.comment}
+                              </div>
+                            </div>
+                          )}
+                          {item.photoData && (
+                            <div style={{
+                              padding: '10px 14px', borderRadius: '8px',
+                              background: 'rgba(138,180,96,0.06)',
+                              border: '1px solid rgba(138,180,96,0.12)',
+                              marginBottom: '8px',
+                            }}>
+                              <div style={{ fontSize: '11px', color: '#8a9a78', fontWeight: '600', marginBottom: '6px' }}>
+                                Målbild
+                              </div>
+                              <img
+                                src={item.photoData}
+                                alt="Målbild"
+                                style={{ width: '100%', borderRadius: '6px', maxHeight: '180px', objectFit: 'cover' }}
+                              />
+                            </div>
+                          )}
+                          {item.type === 'property' && (
+                            <div style={{
+                              padding: '10px 14px', borderRadius: '8px',
+                              background: 'rgba(232,121,249,0.08)',
+                              border: '1px solid rgba(232,121,249,0.15)',
+                            }}>
+                              <div style={{ fontSize: '11px', color: '#e879f9', fontWeight: '600', marginBottom: '4px' }}>
+                                Fastighetsgräns
+                              </div>
+                              <div style={{ fontSize: '13px', color: '#e8f0e0', lineHeight: '1.5' }}>
+                                Kontrollera att avverkning sker inom rätt fastighet.
+                              </div>
+                            </div>
+                          )}
+                          {!item.comment && !item.photoData && item.type !== 'property' && (
+                            <div style={{ fontSize: '13px', color: 'rgba(138,154,120,0.5)', fontStyle: 'italic' }}>
+                              Ingen extra information
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -1044,14 +1178,18 @@ export default function TraktBriefing({
                 ← Visa igen
               </button>
               <button
-                onClick={() => { exploreModeRef.current = true; setExploreMode(true); }}
+                onClick={() => {
+                  const total = steps.filter(s => s.type !== 'overview' && s.type !== 'done').length;
+                  setChecklistOpen(true);
+                  onBriefingComplete?.(total);
+                }}
                 style={{
                   flex: 1, padding: '14px',
                   background: '#8ab460', color: '#0a0f08',
                   border: 'none', borderRadius: '12px',
                   fontSize: '14px', fontWeight: '700', cursor: 'pointer',
                 }}>
-                Utforska kartan 🗺️
+                Checklista
               </button>
             </div>
           </div>

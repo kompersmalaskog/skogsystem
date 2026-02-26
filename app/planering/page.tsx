@@ -876,6 +876,10 @@ export default function PlannerPage() {
   // Briefing-läge
   const [briefingMode, setBriefingMode] = useState(false);
   const [briefingHighlightId, setBriefingHighlightId] = useState<string | null>(null);
+  const [briefingCompleted, setBriefingCompleted] = useState(false);
+  const [briefingCheckedIds, setBriefingCheckedIds] = useState<string[]>([]);
+  const [briefingChecklistMode, setBriefingChecklistMode] = useState(false);
+  const [briefingStepTotal, setBriefingStepTotal] = useState(0);
 
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
@@ -6639,6 +6643,46 @@ export default function PlannerPage() {
           <line x1="18" y1="12" x2="22" y2="12"/>
         </svg>
       </button>}
+
+      {/* === BRIEFING CHECKLISTA-KNAPP (persistent efter briefing) === */}
+      {briefingCompleted && !briefingMode && !briefingChecklistMode && (
+        <button
+          onClick={() => { setBriefingChecklistMode(true); }}
+          style={{
+            position: 'absolute',
+            bottom: menuOpen ? menuHeight + 170 : 160,
+            right: '15px',
+            width: '48px',
+            height: '48px',
+            borderRadius: '12px',
+            border: '1px solid rgba(138,180,96,0.3)',
+            background: 'rgba(138,180,96,0.15)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 150,
+            transition: 'all 0.3s ease',
+            cursor: 'pointer',
+          }}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8ab460" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 3 L19 12 L5 21 Z" />
+          </svg>
+          {/* Badge with unchecked count */}
+          {briefingStepTotal - briefingCheckedIds.length > 0 && (
+            <div style={{
+              position: 'absolute', top: '-4px', right: '-4px',
+              minWidth: '20px', height: '20px', borderRadius: '10px',
+              background: '#ef4444', color: '#fff',
+              fontSize: '11px', fontWeight: '700',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '0 4px',
+            }}>
+              {briefingStepTotal - briefingCheckedIds.length}
+            </div>
+          )}
+        </button>
+      )}
 
       {/* === ÅNGRA-KNAPP === */}
       {showUndo && history.length > 0 && !briefingMode && (
@@ -13767,7 +13811,7 @@ export default function PlannerPage() {
       )}
 
       {/* === TRAKTBRIEFING === */}
-      {briefingMode && (
+      {(briefingMode || briefingChecklistMode) && (
         <TraktBriefing
           markers={markers}
           mapInstanceRef={mapInstanceRef}
@@ -13778,8 +13822,12 @@ export default function PlannerPage() {
           overlays={overlays}
           setOverlays={setOverlays}
           traktName={valtObjekt?.namn || valtObjekt?.beteckning || 'Trakt'}
-          onClose={() => { setBriefingMode(false); setBriefingHighlightId(null); }}
+          onClose={() => { setBriefingMode(false); setBriefingChecklistMode(false); setBriefingHighlightId(null); }}
           onActiveMarkerChange={setBriefingHighlightId}
+          mode={briefingChecklistMode ? 'checklist' : 'briefing'}
+          checkedStepIds={briefingCheckedIds}
+          onChecklistChange={setBriefingCheckedIds}
+          onBriefingComplete={(total: number) => { setBriefingCompleted(true); setBriefingStepTotal(total); }}
         />
       )}
     </div>
