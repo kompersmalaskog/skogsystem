@@ -24,21 +24,23 @@ interface Marker {
 
 interface BriefingStep {
   id: string;
-  type: 'overview' | 'landing' | 'mainroad' | 'property' | 'symbol' | 'zone' | 'done';
+  type: 'overview' | 'about' | 'landing' | 'mainroad' | 'property' | 'symbol' | 'zone' | 'done';
   title: string;
   icon: string;
-  tag?: 'danger' | 'caution' | 'info';
-  tagText?: string;
   comment?: string;
-  photoData?: string;
   center?: { lat: number; lon: number };
   zoom?: number;
   pitch?: number;
   bearing?: number;
   marker?: Marker;
   path?: { lat: number; lon: number }[];
-  categoryColor?: string;
   arcCDF?: number[];
+  boundaryCoords?: [number, number][];
+  // Kept for checklist compatibility
+  tag?: 'danger' | 'caution' | 'info';
+  tagText?: string;
+  categoryColor?: string;
+  photoData?: string;
 }
 
 interface SymbolCategory {
@@ -59,37 +61,41 @@ interface Props {
   traktName?: string;
   onClose: () => void;
   onActiveMarkerChange?: (markerId: string | null) => void;
+  onStartDriving?: () => void;
   mode?: 'briefing' | 'checklist';
   checkedStepIds?: string[];
   onChecklistChange?: (checkedIds: string[]) => void;
   onBriefingComplete?: (totalSteps: number) => void;
 }
 
-// Tag mappings
-function getTag(marker: Marker, symbolCategories: SymbolCategory[]): { tag: 'danger' | 'caution' | 'info'; text: string; color: string } {
+// Accent
+const A = '#8ab460';
+
+// Tag for checklist compat
+function getTag(marker: Marker, symbolCategories: SymbolCategory[]): { tag: 'danger' | 'caution' | 'info'; text: string } {
   if (marker.isZone) {
     const zt = marker.zoneType || '';
     if (['protected', 'culture', 'fornlamning', 'noentry'].includes(zt))
-      return { tag: 'danger', text: 'KÖR INTE HÄR', color: '#ef4444' };
+      return { tag: 'danger', text: 'KÖR INTE HÄR' };
     if (['wet', 'steep'].includes(zt))
-      return { tag: 'caution', text: 'VAR FÖRSIKTIG', color: '#f59e0b' };
-    return { tag: 'info', text: 'INFO', color: '#8ab460' };
+      return { tag: 'caution', text: 'VAR FÖRSIKTIG' };
+    return { tag: 'info', text: 'INFO' };
   }
   if (marker.isMarker) {
     const cat = symbolCategories.find(c => c.symbols.some(s => s.id === marker.type));
     if (cat) {
       const n = cat.name.toLowerCase();
       if (n.includes('naturv') || n.includes('kultur'))
-        return { tag: 'danger', text: 'KÖR INTE HÄR', color: '#ef4444' };
+        return { tag: 'danger', text: 'KÖR INTE HÄR' };
       if (n.includes('terr'))
-        return { tag: 'caution', text: 'VAR FÖRSIKTIG', color: '#f59e0b' };
+        return { tag: 'caution', text: 'VAR FÖRSIKTIG' };
       if (n.includes('övr') || n.includes('ovrigt'))
-        return { tag: 'danger', text: 'KÖR INTE HÄR', color: '#ef4444' };
+        return { tag: 'danger', text: 'KÖR INTE HÄR' };
     }
     if (marker.type === 'landing')
-      return { tag: 'info', text: 'AVLÄGG', color: '#8ab460' };
+      return { tag: 'info', text: 'AVLÄGG' };
   }
-  return { tag: 'info', text: 'INFO', color: '#8ab460' };
+  return { tag: 'info', text: 'INFO' };
 }
 
 function getSymbolName(marker: Marker, symbolCategories: SymbolCategory[], zoneTypes: { id: string; name: string }[]): string {
@@ -150,39 +156,35 @@ function getBearing(from: {lat:number;lon:number}, to: {lat:number;lon:number}) 
 export default function TraktBriefing({
   markers, mapInstanceRef, svgToLatLon, symbolCategories,
   lineTypes, zoneTypes, overlays, setOverlays, traktName, onClose, onActiveMarkerChange,
+  onStartDriving,
   mode = 'briefing', checkedStepIds, onChecklistChange, onBriefingComplete,
 }: Props) {
-  const [currentStep, setCurrentStep] = useState(-1); // -1 = start screen
+  const [currentStep, setCurrentStep] = useState(-1);
   const [steps, setSteps] = useState<BriefingStep[]>([]);
   const [fadeIn, setFadeIn] = useState(false);
   const [overviewBusy, setOverviewBusy] = useState(false);
   const overviewBusyRef = useRef(false);
+  const [overviewPhase, setOverviewPhase] = useState<'orbit' | 'topdown'>('orbit');
   const rotationRef = useRef<any>(null);
   const wmsPulseRef = useRef<any>(null);
   const prevOverlaysRef = useRef<Record<string, boolean> | null>(null);
-  // Checklist state (replaces explore mode)
+  // Checklist state (for toolbar compat)
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [checkedItems, setCheckedItems] = useState<Set<string>>(() => new Set(checkedStepIds || []));
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
-  const [panelHeight, setPanelHeight] = useState(50); // % of viewport
+  const [panelHeight, setPanelHeight] = useState(50);
   const dragStartRef = useRef<{ y: number; h: number } | null>(null);
 
-  // Build steps from markers — only rebuild before briefing starts (currentStep === -1)
-  // Once briefing is active, steps are locked to prevent "jumping" from mid-briefing rebuilds
+  // === BUILD STEPS ===
   useEffect(() => {
     if (currentStep >= 0) return;
-
     const built: BriefingStep[] = [];
 
-    // Collect data
     const boundaries = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 2);
     const landings = markers.filter(m => m.isMarker && m.type === 'landing');
     const mainRoads = markers.filter(m => m.isLine && m.lineType === 'mainRoad' && m.path && m.path.length > 1);
-    const symbolMarkers = markers.filter(m =>
-      (m.isMarker && m.type !== 'landing') || m.isZone
-    );
+    const symbolMarkers = markers.filter(m => (m.isMarker && m.type !== 'landing') || m.isZone);
 
-    // Compute tract center from boundary or all markers
     const allPoints = boundaries.length > 0
       ? boundaries[0].path!.map(p => svgToLatLon(p.x, p.y))
       : markers.filter(m => m.x !== undefined).map(m => svgToLatLon(m.x, m.y));
@@ -190,11 +192,9 @@ export default function TraktBriefing({
     let centerLat = 0, centerLon = 0;
     if (allPoints.length > 0) {
       for (const p of allPoints) { centerLat += p.lat; centerLon += p.lon; }
-      centerLat /= allPoints.length;
-      centerLon /= allPoints.length;
+      centerLat /= allPoints.length; centerLon /= allPoints.length;
     }
 
-    // 1. OVERVIEW — dynamic 360° flyover orbit with zoom/pitch/bearing/speed variation
     let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
     for (const p of allPoints) {
       if (p.lat < minLat) minLat = p.lat;
@@ -204,22 +204,22 @@ export default function TraktBriefing({
     }
     const extentKm = Math.max(maxLat - minLat, (maxLon - minLon) * Math.cos(centerLat * Math.PI / 180)) * 111;
     const overviewZoom = extentKm < 0.5 ? 17 : extentKm < 1 ? 16.5 : extentKm < 2 ? 16 : 15.5;
-    // Tight orbit radius for closer detail
+
+    // 1. OVERVIEW — smooth organic arc orbit
     const rLat = (maxLat - minLat) * 0.45 + 0.001;
     const rLon = (maxLon - minLon) * 0.45 + 0.0015;
-    // Full 360° orbit — starts and ends at same position (South)
     const arcPoints: { lat: number; lon: number }[] = [];
     const arcCount = 60;
     for (let i = 0; i <= arcCount; i++) {
       const t = i / arcCount;
       const angleDeg = 270 - 360 * t;
       const angleRad = angleDeg * Math.PI / 180;
+      const rVar = 1 + 0.15 * Math.sin(t * Math.PI * 3);
       arcPoints.push({
-        lat: centerLat + rLat * Math.sin(angleRad),
-        lon: centerLon + rLon * Math.cos(angleRad),
+        lat: centerLat + rLat * rVar * Math.sin(angleRad),
+        lon: centerLon + rLon * rVar * Math.cos(angleRad),
       });
     }
-    // Compute symbol/landing angles for speed variation (slower near interesting points)
     const interestMarkers = [...landings, ...symbolMarkers];
     const symAngles: number[] = [];
     for (const m of interestMarkers) {
@@ -233,7 +233,6 @@ export default function TraktBriefing({
       }
       symAngles.push(Math.atan2(sll.lat - centerLat, sll.lon - centerLon) * 180 / Math.PI);
     }
-    // Build CDF: weight each arc segment by proximity to symbols (more time near symbols)
     const arcWeightsArr: number[] = [];
     for (let i = 0; i < arcCount; i++) {
       const segAngle = 270 - 360 * (i + 0.5) / arcCount;
@@ -250,68 +249,48 @@ export default function TraktBriefing({
       arcCDF.push(arcCDF[i] + arcWeightsArr[i] / wTotal);
     }
     built.push({
-      id: 'overview',
-      type: 'overview',
-      title: 'Hela trakten',
-      icon: '🗺️',
-      tag: 'info',
-      tagText: 'ÖVERFLYGNING',
-      center: { lat: centerLat, lon: centerLon },
-      zoom: overviewZoom,
-      pitch: 57,
-      path: arcPoints,
-      arcCDF,
+      id: 'overview', type: 'overview', title: 'Överflygning', icon: '🗺️',
+      center: { lat: centerLat, lon: centerLon }, zoom: overviewZoom, pitch: 60,
+      path: arcPoints, arcCDF,
     });
 
-    // 2. LANDINGS
-    for (const m of landings) {
-      const ll = svgToLatLon(m.x, m.y);
+    // 2. OM TRAKTEN — if boundary marker has a comment
+    const traktComment = boundaries.length > 0 ? boundaries[0].comment : undefined;
+    if (traktComment) {
       built.push({
-        id: `landing-${m.id}`,
-        type: 'landing',
-        title: 'Avlägg',
-        icon: '📦',
-        tag: 'info',
-        tagText: 'AVLÄGG',
-        comment: m.comment || undefined,
-        photoData: m.photoData || undefined,
-        center: ll,
-        zoom: 18,
-        pitch: 62,
-        marker: m,
-        categoryColor: '#8ab460',
+        id: 'about', type: 'about', title: 'Om trakten', icon: '📝',
+        comment: traktComment,
+        center: { lat: centerLat, lon: centerLon }, zoom: overviewZoom - 0.5, pitch: 0,
       });
     }
 
-    // 3. MAIN ROAD
+    // 3. LANDINGS
+    for (const m of landings) {
+      const ll = svgToLatLon(m.x, m.y);
+      built.push({
+        id: `landing-${m.id}`, type: 'landing', title: 'Avlägg', icon: '📦',
+        comment: m.comment || undefined,
+        center: ll, zoom: 18, pitch: 62, marker: m,
+        tag: 'info', tagText: 'AVLÄGG', categoryColor: A, photoData: m.photoData || undefined,
+      });
+    }
+
+    // 4. MAIN ROADS
     for (const m of mainRoads) {
       const pathLL = m.path!.map(p => svgToLatLon(p.x, p.y));
       const mid = pathLL[Math.floor(pathLL.length / 2)];
       built.push({
-        id: `mainroad-${m.id}`,
-        type: 'mainroad',
-        title: 'Basväg',
-        icon: '🛤️',
-        tag: 'info',
-        tagText: 'BASVÄG',
+        id: `mainroad-${m.id}`, type: 'mainroad', title: 'Basväg', icon: '🛤️',
         comment: m.comment || undefined,
-        center: mid,
-        zoom: 17,
-        pitch: 60,
-        path: pathLL,
-        marker: m,
-        categoryColor: '#3b82f6',
+        center: mid, zoom: 17, pitch: 60, path: pathLL, marker: m,
+        tag: 'info', tagText: 'BASVÄG', categoryColor: A,
       });
     }
 
-    // 4. PROPERTY BOUNDARY — fly over tract to show Lantmäteriet WMS fastighetsgräns
-    // WMS is raster — can't extract vector geometry for a colored overlay line.
-    // Instead: fly straight across the tract at low altitude, WMS pulsed for emphasis,
-    // tract boundary (line-boundary-*) hidden during this step to avoid confusion.
+    // 5. PROPERTY BOUNDARY
     const mapInst = mapInstanceRef.current;
     const hasPropertyWMS = mapInst && mapInst.getLayer && mapInst.getLayer('wms-layer-fastighetsgranser');
     if (hasPropertyWMS) {
-      // Compute longest axis of tract for straight flyover path
       let maxAxisDist = 0;
       let flyA = allPoints[0] || { lat: centerLat, lon: centerLon };
       let flyB = allPoints.length > 1 ? allPoints[allPoints.length - 1] : flyA;
@@ -327,64 +306,37 @@ export default function TraktBriefing({
         flyA = { lat: centerLat, lon: centerLon - 0.002 };
         flyB = { lat: centerLat, lon: centerLon + 0.002 };
       }
-      // Extend path slightly beyond tract edges for context
       const ext = 0.15;
-      const propStart = {
-        lat: flyA.lat - (flyB.lat - flyA.lat) * ext,
-        lon: flyA.lon - (flyB.lon - flyA.lon) * ext,
-      };
-      const propEnd = {
-        lat: flyB.lat + (flyB.lat - flyA.lat) * ext,
-        lon: flyB.lon + (flyB.lon - flyA.lon) * ext,
-      };
+      const propStart = { lat: flyA.lat - (flyB.lat - flyA.lat) * ext, lon: flyA.lon - (flyB.lon - flyA.lon) * ext };
+      const propEnd = { lat: flyB.lat + (flyB.lat - flyA.lat) * ext, lon: flyB.lon + (flyB.lon - flyA.lon) * ext };
       const propPath: { lat: number; lon: number }[] = [];
-      const propPts = 20;
-      for (let pi = 0; pi <= propPts; pi++) {
-        const pt = pi / propPts;
-        propPath.push({
-          lat: propStart.lat + (propEnd.lat - propStart.lat) * pt,
-          lon: propStart.lon + (propEnd.lon - propStart.lon) * pt,
-        });
+      for (let pi = 0; pi <= 20; pi++) {
+        const pt = pi / 20;
+        propPath.push({ lat: propStart.lat + (propEnd.lat - propStart.lat) * pt, lon: propStart.lon + (propEnd.lon - propStart.lon) * pt });
       }
+      const bndCoords = allPoints.map(p => [p.lon, p.lat] as [number, number]);
       built.push({
-        id: 'property',
-        type: 'property',
-        title: 'Fastighetsgräns / Markägargräns',
-        icon: '📐',
-        tag: 'caution',
-        tagText: 'VAR FÖRSIKTIG',
-        center: { lat: centerLat, lon: centerLon },
-        zoom: 16.5,
-        pitch: 63,
-        bearing: getBearing(propStart, propEnd),
-        path: propPath,
-        categoryColor: '#e879f9',
+        id: 'property', type: 'property', title: 'Fastighetsgräns', icon: '📐',
+        center: { lat: centerLat, lon: centerLon }, zoom: 16.5, pitch: 63,
+        bearing: getBearing(propStart, propEnd), path: propPath, boundaryCoords: bndCoords,
+        tag: 'caution', tagText: 'FASTIGHETSGRÄNS', categoryColor: A,
       });
     }
 
-    // 5. SYMBOLS sorted: danger first, then caution, then info
-    const tagOrder = { danger: 0, caution: 1, info: 2 };
-    const sorted = [...symbolMarkers].sort((a, b) => {
-      const ta = getTag(a, symbolCategories);
-      const tb = getTag(b, symbolCategories);
-      return tagOrder[ta.tag] - tagOrder[tb.tag];
-    });
-
-    for (const m of sorted) {
+    // 6. SYMBOLS — all markers/zones
+    for (const m of symbolMarkers) {
       let ll: { lat: number; lon: number };
       let stepZoom = 18;
       if (m.isZone && m.path && m.path.length > 0) {
         let cx = 0, cy = 0;
         for (const p of m.path!) { cx += p.x; cy += p.y; }
         ll = svgToLatLon(cx / m.path!.length, cy / m.path!.length);
-        // Compute zone radius in meters to set zoom
         const pts = m.path!.map(p => svgToLatLon(p.x, p.y));
         let maxDist = 0;
         for (const p of pts) {
           const d = Math.sqrt(((p.lat - ll.lat) * 111320) ** 2 + ((p.lon - ll.lon) * 111320 * Math.cos(ll.lat * Math.PI / 180)) ** 2);
           if (d > maxDist) maxDist = d;
         }
-        // Adapt zoom: small zone (<30m) = 17.5, medium (<80m) = 16.5, large = 16
         if (maxDist < 30) stepZoom = 17.5;
         else if (maxDist < 80) stepZoom = 16.5;
         else if (maxDist < 200) stepZoom = 16;
@@ -394,32 +346,19 @@ export default function TraktBriefing({
       }
       const t = getTag(m, symbolCategories);
       built.push({
-        id: `symbol-${m.id}`,
-        type: m.isZone ? 'zone' : 'symbol',
-        title: getSymbolName(m, symbolCategories, zoneTypes),
-        icon: getSymbolIcon(m),
-        tag: t.tag,
-        tagText: t.text,
+        id: `symbol-${m.id}`, type: m.isZone ? 'zone' : 'symbol',
+        title: getSymbolName(m, symbolCategories, zoneTypes), icon: getSymbolIcon(m),
         comment: m.comment || undefined,
+        center: ll, zoom: stepZoom, pitch: 62, marker: m,
+        tag: t.tag, tagText: t.text, categoryColor: A,
         photoData: m.photoData || undefined,
-        center: ll,
-        zoom: stepZoom,
-        pitch: 62,
-        marker: m,
-        categoryColor: t.color,
       });
     }
 
-    // 6. DONE — top-down view of whole tract, all symbols visible
+    // 7. DONE
     built.push({
-      id: 'done',
-      type: 'done',
-      title: 'Briefing klar',
-      icon: '✅',
-      center: { lat: centerLat, lon: centerLon },
-      zoom: overviewZoom - 1.5,
-      pitch: 0,
-      bearing: 0,
+      id: 'done', type: 'done', title: 'Briefing klar', icon: '✅',
+      center: { lat: centerLat, lon: centerLon }, zoom: overviewZoom - 1.5, pitch: 0, bearing: 0,
     });
 
     setSteps(built);
@@ -432,60 +371,51 @@ export default function TraktBriefing({
     }
   }, [mode, steps.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Stop animation on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (rotationRef.current) { clearInterval(rotationRef.current); cancelAnimationFrame(rotationRef.current as any); }
       if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
-      // Restore boundary layers and WMS state
       const map = mapInstanceRef.current;
       if (map) {
         ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing', 'line-boundary-glow'].forEach(id => {
-          if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
+          if (map.getLayer(id)) try { map.setPaintProperty(id, 'line-opacity', 1); } catch {}
         });
         if (map.getLayer('wms-layer-fastighetsgranser')) {
-          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
-          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
+          try {
+            map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
+            map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
+          } catch {}
         }
+        try { if (map.getLayer('briefing-prop-line')) map.removeLayer('briefing-prop-line'); } catch {}
+        try { if (map.getSource('briefing-prop-src')) map.removeSource('briefing-prop-src'); } catch {}
       }
-      if (prevOverlaysRef.current) {
-        setOverlays(() => prevOverlaysRef.current!);
-      }
+      if (prevOverlaysRef.current) setOverlays(() => prevOverlaysRef.current!);
     };
   }, [setOverlays, mapInstanceRef]);
 
-  // Animate to step
+  // === ANIMATE TO STEP ===
   const animateToStep = useCallback((stepIdx: number) => {
     const map = mapInstanceRef.current;
     if (!map || !steps[stepIdx]) return;
     const step = steps[stepIdx];
 
-    // Notify parent which marker is active (for highlight effect)
     onActiveMarkerChange?.(step.marker?.id || null);
 
-    // Stop previous animation (interval or requestAnimationFrame)
-    if (rotationRef.current) {
-      clearInterval(rotationRef.current);
-      cancelAnimationFrame(rotationRef.current as any);
-      rotationRef.current = null;
-    }
-    if (wmsPulseRef.current) {
-      clearInterval(wmsPulseRef.current);
-      wmsPulseRef.current = null;
-    }
-    // Clear overview busy state (will be re-set if entering overview step)
-    if (overviewBusyRef.current) {
-      overviewBusyRef.current = false;
-      setOverviewBusy(false);
-    }
+    // Stop previous animation
+    if (rotationRef.current) { clearInterval(rotationRef.current); cancelAnimationFrame(rotationRef.current as any); rotationRef.current = null; }
+    if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
+    if (overviewBusyRef.current) { overviewBusyRef.current = false; setOverviewBusy(false); }
+    setOverviewPhase('orbit');
 
-    // Property boundary: WMS layer + hide tract boundary + pulse for emphasis
-    // Fastighetsgräns = Lantmäteriet WMS raster (wms-layer-fastighetsgranser)
-    // Traktgräns = drawn boundary lines (line-boundary-*) — DIFFERENT thing, hide during this step
+    // Clean up property red warning line
+    try { if (map.getLayer('briefing-prop-line')) map.removeLayer('briefing-prop-line'); } catch {}
+    try { if (map.getSource('briefing-prop-src')) map.removeSource('briefing-prop-src'); } catch {}
+
+    // Property step: WMS + red pulsing line + hide boundary
     const boundaryLayerIds = ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing', 'line-boundary-glow'];
     if (step.type === 'property') {
       prevOverlaysRef.current = { ...overlays };
-      // Enable WMS fastighetsgräns with enhanced visibility
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', 'visible');
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1.0);
@@ -493,22 +423,30 @@ export default function TraktBriefing({
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1.3);
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
-      // Hide tract boundary so only fastighetsgräns is visible
-      boundaryLayerIds.forEach(id => {
-        if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 0);
-      });
-      // Pulse WMS layer opacity for emphasis (sine wave 0.5 → 1.0)
+      boundaryLayerIds.forEach(id => { if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 0); });
+      // Add red pulsing warning line along boundary
+      if (step.boundaryCoords && step.boundaryCoords.length > 1) {
+        try {
+          map.addSource('briefing-prop-src', {
+            type: 'geojson',
+            data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: step.boundaryCoords } },
+          });
+          map.addLayer({
+            id: 'briefing-prop-line', type: 'line', source: 'briefing-prop-src',
+            paint: { 'line-color': '#ef4444', 'line-width': 5, 'line-opacity': 1 },
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+          });
+        } catch {}
+      }
+      // Pulse the red line (1.0 → 0.15)
       let pulseT = 0;
       wmsPulseRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
-        pulseT += 0.08;
-        const op = 0.75 + 0.25 * Math.sin(pulseT);
-        if (mapInstanceRef.current.getLayer('wms-layer-fastighetsgranser')) {
-          mapInstanceRef.current.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', op);
-        }
+        pulseT += 0.06;
+        const op = 0.575 + 0.425 * Math.sin(pulseT);
+        try { if (mapInstanceRef.current.getLayer('briefing-prop-line')) mapInstanceRef.current.setPaintProperty('briefing-prop-line', 'line-opacity', op); } catch {}
       }, 50);
     } else if (prevOverlaysRef.current) {
-      // Restore: WMS layer, boundary layers, overlay state
       const wasOn = prevOverlaysRef.current.fastighetsgranser;
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
@@ -516,30 +454,21 @@ export default function TraktBriefing({
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
       }
-      // Restore tract boundary visibility
-      boundaryLayerIds.forEach(id => {
-        if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
-      });
+      boundaryLayerIds.forEach(id => { if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1); });
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
       prevOverlaysRef.current = null;
     }
 
-    // Overview: dynamic 360° orbit — zoom dips, bearing oscillation, speed varies near symbols
+    // OVERVIEW: smooth organic arc, 12s, pitch 55-65
     if (step.type === 'overview' && step.path && step.path.length > 1) {
       const arcPath = step.path;
       const arcCenter = step.center!;
       const baseZoom = step.zoom || 16;
       const cdf = step.arcCDF;
       const startBear = getBearing(arcPath[0], arcCenter);
-      map.jumpTo({
-        center: [arcPath[0].lon, arcPath[0].lat],
-        zoom: baseZoom,
-        pitch: step.pitch || 57,
-        bearing: startBear,
-      });
-      const arcDuration = 18000;
+      map.jumpTo({ center: [arcPath[0].lon, arcPath[0].lat], zoom: baseZoom, pitch: 60, bearing: startBear });
+      const arcDuration = 12000;
       const startTime = performance.now();
-      // Inverse CDF: map uniform time → arc position (slower near symbols)
       const mapTime = (t: number): number => {
         if (!cdf || cdf.length < 2) return t;
         let lo = 0, hi = cdf.length - 2;
@@ -547,33 +476,21 @@ export default function TraktBriefing({
         const segLen = cdf[lo + 1] - cdf[lo];
         return segLen > 0 ? (lo + (t - cdf[lo]) / segLen) / (cdf.length - 1) : lo / (cdf.length - 1);
       };
-      // Set overview busy — button disabled until top-down hold finishes
       overviewBusyRef.current = true;
       setOverviewBusy(true);
       const tick = () => {
         if (!mapInstanceRef.current) return;
         const elapsed = performance.now() - startTime;
         if (elapsed >= arcDuration) {
-          // Orbit complete — lift up to top-down view of whole tract
+          setOverviewPhase('topdown');
           mapInstanceRef.current.flyTo({
-            center: [arcCenter.lon, arcCenter.lat],
-            zoom: baseZoom - 0.8,
-            pitch: 0,
-            bearing: 0,
-            duration: 2000,
-            essential: true,
+            center: [arcCenter.lon, arcCenter.lat], zoom: baseZoom - 0.8, pitch: 0, bearing: 0, duration: 2000, essential: true,
           });
-          // Hold top-down for 2.5s, then enable "Kör vidare"
-          rotationRef.current = setTimeout(() => {
-            overviewBusyRef.current = false;
-            setOverviewBusy(false);
-          }, 4500) as any; // 2000ms flyTo + 2500ms hold
+          rotationRef.current = setTimeout(() => { overviewBusyRef.current = false; setOverviewBusy(false); }, 4500) as any;
           return;
         }
         const rawT = elapsed / arcDuration;
-        // Ease in/out for smooth start and landing
         const eased = rawT < 0.5 ? 2 * rawT * rawT : 1 - (-2 * rawT + 2) ** 2 / 2;
-        // Remap through CDF for speed variation near symbols
         const arcT = mapTime(eased);
         const idx = arcT * (arcPath.length - 1);
         const i = Math.floor(idx);
@@ -582,34 +499,20 @@ export default function TraktBriefing({
         const p1 = arcPath[Math.min(i + 1, arcPath.length - 1)];
         const lat = p0.lat + (p1.lat - p0.lat) * frac;
         const lon = p0.lon + (p1.lon - p0.lon) * frac;
-        // Bearing: look toward center + gentle oscillation
         const baseBear = getBearing({ lat, lon }, arcCenter);
-        const bearOff = 12 * Math.sin(arcT * Math.PI * 3);
-        // Zoom: dip closer twice during orbit
-        const zoomVar = 0.7 * Math.sin(arcT * Math.PI * 4);
-        // Pitch: subtle variation
-        const pitch = 57 + 5 * Math.sin(arcT * Math.PI * 2);
-        mapInstanceRef.current.jumpTo({
-          center: [lon, lat],
-          bearing: baseBear + bearOff,
-          zoom: baseZoom + zoomVar,
-          pitch,
-        });
+        const bearOff = 10 * Math.sin(arcT * Math.PI * 3);
+        const zoomVar = 0.6 * Math.sin(arcT * Math.PI * 4);
+        const pitch = 60 + 5 * Math.sin(arcT * Math.PI * 2);
+        mapInstanceRef.current.jumpTo({ center: [lon, lat], bearing: baseBear + bearOff, zoom: baseZoom + zoomVar, pitch });
         rotationRef.current = requestAnimationFrame(tick) as any;
       };
       rotationRef.current = requestAnimationFrame(tick) as any;
-    } else if (step.type === 'property' && step.path && step.path.length > 1) {
-      // Property: fly straight across the tract at low altitude, bearing-aligned
+    }
+    // PROPERTY: fly straight
+    else if (step.type === 'property' && step.path && step.path.length > 1) {
       const propPath = step.path;
       const propBearing = step.bearing || getBearing(propPath[0], propPath[propPath.length - 1]);
-      map.flyTo({
-        center: [propPath[0].lon, propPath[0].lat],
-        zoom: step.zoom || 16.5,
-        pitch: step.pitch || 63,
-        bearing: propBearing,
-        duration: 2000,
-        essential: true,
-      });
+      map.flyTo({ center: [propPath[0].lon, propPath[0].lat], zoom: step.zoom || 16.5, pitch: step.pitch || 63, bearing: propBearing, duration: 2000, essential: true });
       const totalPropPts = propPath.length;
       const propInterval = 700;
       let propIdx = 0;
@@ -621,74 +524,34 @@ export default function TraktBriefing({
         const p = propPath[propIdx];
         const nextI = Math.min(propIdx + propStepSz, totalPropPts - 1);
         const np = propPath[nextI];
-        mapInstanceRef.current.easeTo({
-          center: [p.lon, p.lat],
-          bearing: getBearing(p, np),
-          duration: propInterval - 50,
-          pitch: step.pitch || 63,
-          zoom: step.zoom || 16.5,
-        });
+        mapInstanceRef.current.easeTo({ center: [p.lon, p.lat], bearing: getBearing(p, np), duration: propInterval - 50, pitch: step.pitch || 63, zoom: step.zoom || 16.5 });
       }, propInterval);
       rotationRef.current = propAnim;
-    } else if (step.center) {
-      // All other steps: smooth flyTo
-      map.flyTo({
-        center: [step.center.lon, step.center.lat],
-        zoom: step.zoom || 15,
-        pitch: step.pitch || 60,
-        bearing: step.bearing ?? 0,
-        duration: 1800,
-        essential: true,
-      });
     }
-
-    // Animate camera along path for mainroad
-    if (step.type === 'mainroad' && step.path && step.path.length > 1) {
-      const isProperty = false;
-      const pathPts = step.path!;
+    // MAINROAD: animate along path
+    else if (step.type === 'mainroad' && step.path && step.path.length > 1) {
+      const pathPts = step.path;
       const totalPts = pathPts.length;
-      const sampleCount = Math.min(totalPts, isProperty ? 25 : 12);
-      const stepSize = Math.max(1, Math.floor(totalPts / sampleCount));
-      const interval = isProperty ? 700 : 900;
-      const pathZoom = step.zoom || 16.5;
+      const stepSize = Math.max(1, Math.floor(totalPts / 12));
+      const interval = 900;
       let idx = 0;
-
-      const startPt = pathPts[0];
-      const nextPt = pathPts[Math.min(stepSize, totalPts - 1)];
-      const startBearing = isProperty ? getBearing(startPt, nextPt) : 0;
-      map.flyTo({
-        center: [startPt.lon, startPt.lat],
-        zoom: pathZoom,
-        pitch: 60,
-        bearing: startBearing,
-        duration: 1500,
-        essential: true,
-      });
-
+      map.flyTo({ center: [pathPts[0].lon, pathPts[0].lat], zoom: step.zoom || 16.5, pitch: 60, bearing: 0, duration: 1500, essential: true });
       const pathAnim = setInterval(() => {
         if (!mapInstanceRef.current) { clearInterval(pathAnim); return; }
         idx += stepSize;
         if (idx >= totalPts) { clearInterval(pathAnim); return; }
         const p = pathPts[idx];
-        const nextIdx = Math.min(idx + stepSize, totalPts - 1);
-        const np = pathPts[nextIdx];
-        const bear = isProperty ? getBearing(p, np) : undefined;
-        mapInstanceRef.current.easeTo({
-          center: [p.lon, p.lat],
-          duration: interval - 50,
-          pitch: 60,
-          zoom: pathZoom,
-          ...(bear !== undefined ? { bearing: bear } : {}),
-        });
+        mapInstanceRef.current.easeTo({ center: [p.lon, p.lat], duration: interval - 50, pitch: 60, zoom: step.zoom || 16.5 });
       }, interval);
       rotationRef.current = pathAnim;
     }
+    // ALL OTHER: smooth flyTo
+    else if (step.center) {
+      map.flyTo({ center: [step.center.lon, step.center.lat], zoom: step.zoom || 15, pitch: step.pitch || 60, bearing: step.bearing ?? 0, duration: 1800, essential: true });
+    }
 
-    // Trigger fade-in animation
     setFadeIn(false);
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => setFadeIn(true));
-    });
+    requestAnimationFrame(() => { requestAnimationFrame(() => setFadeIn(true)); });
   }, [steps, mapInstanceRef, overlays, setOverlays, onActiveMarkerChange]);
 
   const goToStep = useCallback((idx: number) => {
@@ -699,27 +562,22 @@ export default function TraktBriefing({
   }, [animateToStep, checklistOpen]);
 
   const handleClose = useCallback(() => {
-    if (rotationRef.current) {
-      clearInterval(rotationRef.current);
-      cancelAnimationFrame(rotationRef.current as any);
-      rotationRef.current = null;
-    }
-    if (wmsPulseRef.current) {
-      clearInterval(wmsPulseRef.current);
-      wmsPulseRef.current = null;
-    }
-    // Restore boundary + WMS state if we were on property step
+    if (rotationRef.current) { clearInterval(rotationRef.current); cancelAnimationFrame(rotationRef.current as any); rotationRef.current = null; }
+    if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
     const map = mapInstanceRef.current;
-    if (map && prevOverlaysRef.current) {
-      ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing', 'line-boundary-glow'].forEach(id => {
-        if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
-      });
-      if (map.getLayer('wms-layer-fastighetsgranser')) {
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
+    if (map) {
+      try { if (map.getLayer('briefing-prop-line')) map.removeLayer('briefing-prop-line'); } catch {}
+      try { if (map.getSource('briefing-prop-src')) map.removeSource('briefing-prop-src'); } catch {}
+      if (prevOverlaysRef.current) {
+        ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing', 'line-boundary-glow'].forEach(id => {
+          if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
+        });
+        if (map.getLayer('wms-layer-fastighetsgranser')) {
+          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
+          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
+        }
       }
     }
-    // Emit checklist state before closing
     onChecklistChange?.(Array.from(checkedItems));
     onActiveMarkerChange?.(null);
     onClose();
@@ -736,7 +594,7 @@ export default function TraktBriefing({
     return () => window.removeEventListener('keydown', handler);
   }, [handleClose, currentStep, steps.length, goToStep]);
 
-  // Checklist: map click → select nearest symbol and expand in list
+  // Checklist: map click handler (for toolbar compat)
   useEffect(() => {
     if (!checklistOpen) return;
     const map = mapInstanceRef.current;
@@ -747,7 +605,7 @@ export default function TraktBriefing({
       let best: BriefingStep | null = null;
       let bestDist = Infinity;
       for (const s of steps) {
-        if (!s.center || s.type === 'overview' || s.type === 'done') continue;
+        if (!s.center || s.type === 'overview' || s.type === 'done' || s.type === 'about') continue;
         const dLat = (s.center.lat - cLat) * 111320;
         const dLon = (s.center.lon - cLon) * 111320 * Math.cos(cLat * Math.PI / 180);
         const dist = Math.sqrt(dLat * dLat + dLon * dLon);
@@ -762,107 +620,46 @@ export default function TraktBriefing({
       }
     };
     map.on('click', handleMapClick);
-    return () => {
-      map.off('click', handleMapClick);
-      onActiveMarkerChange?.(null);
-    };
+    return () => { map.off('click', handleMapClick); onActiveMarkerChange?.(null); };
   }, [checklistOpen, steps, mapInstanceRef, onActiveMarkerChange]);
 
-  // Count warnings for start screen
-  const dangerCount = steps.filter(s => s.tag === 'danger').length;
-  const cautionCount = steps.filter(s => s.tag === 'caution').length;
-  const totalSymbols = steps.filter(s => ['symbol', 'zone'].includes(s.type)).length;
+  const tagBg: Record<string, string> = { danger: 'rgba(239,68,68,0.25)', caution: 'rgba(245,158,11,0.25)', info: 'rgba(138,180,96,0.2)' };
+  const tagColor: Record<string, string> = { danger: '#ef4444', caution: '#f59e0b', info: '#8ab460' };
 
-  const tagBg = { danger: 'rgba(239,68,68,0.25)', caution: 'rgba(245,158,11,0.25)', info: 'rgba(138,180,96,0.2)' };
-  const tagColor = { danger: '#ef4444', caution: '#f59e0b', info: '#8ab460' };
+  // Shared button style
+  const glassBtnStyle: React.CSSProperties = {
+    pointerEvents: 'auto',
+    padding: '16px 40px',
+    background: 'rgba(138,180,96,0.12)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    color: A,
+    border: '1px solid rgba(138,180,96,0.2)',
+    borderRadius: '16px',
+    fontSize: '16px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    letterSpacing: '0.3px',
+  };
 
-  // === START SCREEN ===
-  if (currentStep === -1) {
+  // ============================================================
+  // === START SCREEN — just map + button ===
+  // ============================================================
+  if (currentStep === -1 && !checklistOpen) {
     return (
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: 700,
-        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-        pointerEvents: 'none',
-      }}>
-        <div style={{
-          pointerEvents: 'auto',
-          background: 'linear-gradient(transparent, rgba(10,15,8,0.94) 30%)',
-          padding: '60px 20px 32px',
-          paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
-        }}>
-          <div style={{
-            maxWidth: '420px', margin: '0 auto',
-            background: 'rgba(10,15,8,0.96)',
-            borderRadius: '16px',
-            border: '1px solid rgba(138,180,96,0.15)',
-            padding: '28px 24px',
-          }}>
-            <div style={{ fontSize: '13px', color: '#8a9a78', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '6px' }}>
-              Traktbriefing
-            </div>
-            <div style={{ fontSize: '22px', fontWeight: '700', color: '#e8f0e0', marginBottom: '16px' }}>
-              {traktName || 'Trakt'}
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '20px' }}>
-              <span style={{
-                padding: '4px 12px', borderRadius: '10px', fontSize: '13px', fontWeight: '600',
-                background: 'rgba(255,255,255,0.06)', color: '#8a9a78',
-              }}>
-                {totalSymbols} punkter
-              </span>
-              {dangerCount > 0 && (
-                <span style={{
-                  padding: '4px 12px', borderRadius: '10px', fontSize: '13px', fontWeight: '600',
-                  background: tagBg.danger, color: tagColor.danger,
-                }}>
-                  {dangerCount}× KÖR INTE HÄR
-                </span>
-              )}
-              {cautionCount > 0 && (
-                <span style={{
-                  padding: '4px 12px', borderRadius: '10px', fontSize: '13px', fontWeight: '600',
-                  background: tagBg.caution, color: tagColor.caution,
-                }}>
-                  {cautionCount}× VAR FÖRSIKTIG
-                </span>
-              )}
-            </div>
-
-            <button
-              onClick={() => goToStep(0)}
-              style={{
-                width: '100%', padding: '16px',
-                background: '#8ab460', color: '#0a0f08',
-                border: 'none', borderRadius: '12px',
-                fontSize: '16px', fontWeight: '700',
-                cursor: 'pointer',
-              }}>
-              Starta briefing
-            </button>
-
-            <button
-              onClick={handleClose}
-              style={{
-                width: '100%', padding: '12px', marginTop: '10px',
-                background: 'transparent', color: '#8a9a78',
-                border: '1px solid rgba(138,180,96,0.2)', borderRadius: '12px',
-                fontSize: '14px', cursor: 'pointer',
-              }}>
-              Avbryt
-            </button>
-          </div>
-        </div>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', pointerEvents: 'none' }}>
+        <button onClick={() => goToStep(0)} style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}>
+          ▶ Starta briefing
+        </button>
       </div>
     );
   }
 
-  const step = steps[currentStep];
-  if (!step) return null;
-
-  // === CHECKLIST MODE — grouped list with kvittering after briefing ===
+  // ============================================================
+  // === CHECKLIST MODE (toolbar compat) ===
+  // ============================================================
   if (checklistOpen) {
-    const checklistSteps = steps.filter(s => s.type !== 'overview' && s.type !== 'done');
+    const checklistSteps = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about');
     const groups = [
       { tag: 'danger' as const, title: 'KÖR INTE HÄR', color: '#ef4444', items: checklistSteps.filter(s => s.tag === 'danger') },
       { tag: 'caution' as const, title: 'VAR FÖRSIKTIG', color: '#f59e0b', items: checklistSteps.filter(s => s.tag === 'caution') },
@@ -872,226 +669,64 @@ export default function TraktBriefing({
     const checkedCount = checklistSteps.filter(s => checkedItems.has(s.id)).length;
 
     return (
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: 700,
-        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-        pointerEvents: 'none',
-      }}>
-        {/* Top bar: Stäng button */}
-        <div style={{
-          position: 'fixed', top: '16px', left: '16px', zIndex: 710,
-          pointerEvents: 'auto',
-        }}>
-          <button
-            onClick={handleClose}
-            style={{
-              padding: '10px 18px', borderRadius: '24px',
-              background: 'rgba(10,15,8,0.85)', color: '#8a9a78',
-              border: '1px solid rgba(138,180,96,0.2)',
-              fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-              backdropFilter: 'blur(8px)',
-            }}>
-            Stäng briefing
+      <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', pointerEvents: 'none' }}>
+        <div style={{ position: 'fixed', top: '16px', left: '16px', zIndex: 710, pointerEvents: 'auto' }}>
+          <button onClick={handleClose} style={{ padding: '10px 18px', borderRadius: '24px', background: 'rgba(10,15,8,0.85)', color: 'rgba(138,180,96,0.6)', border: '1px solid rgba(255,255,255,0.06)', fontSize: '14px', fontWeight: '600', cursor: 'pointer', backdropFilter: 'blur(8px)' }}>
+            Stäng
           </button>
         </div>
-
-        {/* Bottom panel — slide up/down */}
-        <div
-          style={{
-            pointerEvents: 'auto',
-            height: `${panelHeight}vh`,
-            background: 'rgba(10,15,8,0.97)',
-            borderTopLeftRadius: '16px',
-            borderTopRightRadius: '16px',
-            border: '1px solid rgba(138,180,96,0.15)',
-            borderBottom: 'none',
-            display: 'flex',
-            flexDirection: 'column',
-            transition: dragStartRef.current ? 'none' : 'height 0.3s ease',
-          }}
-        >
-          {/* Drag handle */}
+        <div style={{ pointerEvents: 'auto', height: `${panelHeight}vh`, background: 'rgba(10,15,8,0.97)', borderTopLeftRadius: '16px', borderTopRightRadius: '16px', border: '1px solid rgba(255,255,255,0.06)', borderBottom: 'none', display: 'flex', flexDirection: 'column', transition: dragStartRef.current ? 'none' : 'height 0.3s ease' }}>
           <div
-            onPointerDown={(e) => {
-              dragStartRef.current = { y: e.clientY, h: panelHeight };
-              (e.target as HTMLElement).setPointerCapture(e.pointerId);
-            }}
-            onPointerMove={(e) => {
-              if (!dragStartRef.current) return;
-              const dy = dragStartRef.current.y - e.clientY;
-              const dPct = (dy / window.innerHeight) * 100;
-              setPanelHeight(Math.max(10, Math.min(85, dragStartRef.current.h + dPct)));
-            }}
-            onPointerUp={() => {
-              if (!dragStartRef.current) return;
-              dragStartRef.current = null;
-              setPanelHeight(h => h < 25 ? 10 : h < 60 ? 50 : 85);
-            }}
+            onPointerDown={(e) => { dragStartRef.current = { y: e.clientY, h: panelHeight }; (e.target as HTMLElement).setPointerCapture(e.pointerId); }}
+            onPointerMove={(e) => { if (!dragStartRef.current) return; const dy = dragStartRef.current.y - e.clientY; const dPct = (dy / window.innerHeight) * 100; setPanelHeight(Math.max(10, Math.min(85, dragStartRef.current.h + dPct))); }}
+            onPointerUp={() => { if (!dragStartRef.current) return; dragStartRef.current = null; setPanelHeight(h => h < 25 ? 10 : h < 60 ? 50 : 85); }}
             style={{ padding: '12px 0', cursor: 'grab', touchAction: 'none', flexShrink: 0 }}
           >
-            <div style={{ width: '40px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.2)', margin: '0 auto' }} />
+            <div style={{ width: '40px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.15)', margin: '0 auto' }} />
           </div>
-
-          {/* Header: counter */}
-          <div style={{
-            padding: '0 20px 12px',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
-            flexShrink: 0,
-          }}>
-            <div style={{ fontSize: '14px', fontWeight: '600', color: '#e8f0e0' }}>
+          <div style={{ padding: '0 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: 'rgba(232,240,224,0.6)' }}>
               {checkedCount} av {totalItems} kvitterade
             </div>
           </div>
-
-          {/* Scrollable list */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0', WebkitOverflowScrolling: 'touch' }}>
             {groups.map(group => (
               <div key={group.tag}>
-                {/* Section header */}
-                <div style={{
-                  padding: '14px 20px 6px',
-                  fontSize: '11px', fontWeight: '800', letterSpacing: '1px',
-                  textTransform: 'uppercase',
-                  color: group.color, opacity: 0.7,
-                }}>
-                  {group.title}
-                </div>
-
+                <div style={{ padding: '14px 20px 6px', fontSize: '11px', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase', color: group.color, opacity: 0.6 }}>{group.title}</div>
                 {group.items.map(item => {
                   const isChecked = checkedItems.has(item.id);
                   const isExpanded = expandedItem === item.id;
                   return (
                     <div key={item.id}>
-                      {/* Row */}
                       <div
                         onClick={() => {
-                          if (isExpanded) {
-                            setExpandedItem(null);
-                            onActiveMarkerChange?.(null);
-                          } else {
+                          if (isExpanded) { setExpandedItem(null); onActiveMarkerChange?.(null); }
+                          else {
                             setExpandedItem(item.id);
                             onActiveMarkerChange?.(item.marker?.id || null);
-                            const map = mapInstanceRef.current;
-                            if (map && item.center) {
-                              map.flyTo({
-                                center: [item.center.lon, item.center.lat],
-                                zoom: Math.max(map.getZoom(), item.zoom || 16),
-                                pitch: 50,
-                                duration: 1000,
-                                essential: true,
-                              });
-                            }
+                            const m = mapInstanceRef.current;
+                            if (m && item.center) m.flyTo({ center: [item.center.lon, item.center.lat], zoom: Math.max(m.getZoom(), item.zoom || 16), pitch: 50, duration: 1000, essential: true });
                           }
                         }}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: '10px',
-                          padding: '10px 20px',
-                          opacity: isChecked ? 0.4 : 1,
-                          background: isExpanded ? 'rgba(138,180,96,0.08)' : 'transparent',
-                          cursor: 'pointer',
-                          transition: 'opacity 0.3s, background 0.2s',
-                        }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 20px', opacity: isChecked ? 0.35 : 1, background: isExpanded ? 'rgba(138,180,96,0.06)' : 'transparent', cursor: 'pointer', transition: 'opacity 0.3s, background 0.2s' }}
                       >
-                        {/* Checkbox */}
                         <div
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCheckedItems(prev => {
-                              const next = new Set(prev);
-                              if (next.has(item.id)) next.delete(item.id);
-                              else next.add(item.id);
-                              onChecklistChange?.(Array.from(next));
-                              return next;
-                            });
-                          }}
-                          style={{
-                            width: '24px', height: '24px', borderRadius: '6px',
-                            border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                            background: isChecked ? '#8ab460' : 'transparent',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            flexShrink: 0, cursor: 'pointer',
-                          }}
+                          onClick={(e) => { e.stopPropagation(); setCheckedItems(prev => { const next = new Set(prev); if (next.has(item.id)) next.delete(item.id); else next.add(item.id); onChecklistChange?.(Array.from(next)); return next; }); }}
+                          style={{ width: '22px', height: '22px', borderRadius: '6px', border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.15)', background: isChecked ? A : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
                         >
-                          {isChecked && <span style={{ color: '#0a0f08', fontSize: '14px', fontWeight: '700' }}>&#10003;</span>}
+                          {isChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
                         </div>
-
-                        {/* Icon */}
-                        <div style={{ fontSize: '20px', flexShrink: 0 }}>{item.icon}</div>
-
-                        {/* Title */}
-                        <div style={{
-                          flex: 1, fontSize: '14px', fontWeight: '600',
-                          color: isChecked ? 'rgba(255,255,255,0.3)' : '#e8f0e0',
-                        }}>
-                          {item.title}
-                        </div>
-
-                        {/* Tag badge */}
-                        <div style={{
-                          padding: '2px 8px', borderRadius: '6px',
-                          fontSize: '10px', fontWeight: '700',
-                          background: tagBg[item.tag || 'info'],
-                          color: isChecked ? 'rgba(255,255,255,0.3)' : tagColor[item.tag || 'info'],
-                          flexShrink: 0,
-                        }}>
-                          {item.tagText}
-                        </div>
+                        <div style={{ fontSize: '18px', flexShrink: 0 }}>{item.icon}</div>
+                        <div style={{ flex: 1, fontSize: '14px', fontWeight: '600', color: isChecked ? 'rgba(255,255,255,0.25)' : '#e8f0e0' }}>{item.title}</div>
                       </div>
-
-                      {/* Expanded detail */}
                       {isExpanded && (
-                        <div style={{ padding: '4px 20px 12px 74px' }}>
+                        <div style={{ padding: '4px 20px 12px 72px' }}>
                           {item.comment && (
-                            <div style={{
-                              padding: '10px 14px', borderRadius: '8px',
-                              background: 'rgba(255,255,255,0.04)',
-                              border: '1px solid rgba(255,255,255,0.06)',
-                              marginBottom: '8px',
-                            }}>
-                              <div style={{ fontSize: '11px', color: '#8a9a78', fontWeight: '600', marginBottom: '4px' }}>
-                                Kommentar
-                              </div>
-                              <div style={{ fontSize: '13px', color: '#e8f0e0', lineHeight: '1.5' }}>
-                                {item.comment}
-                              </div>
+                            <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)', marginBottom: '8px' }}>
+                              <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.6)', lineHeight: '1.5' }}>{item.comment}</div>
                             </div>
                           )}
-                          {item.photoData && (
-                            <div style={{
-                              padding: '10px 14px', borderRadius: '8px',
-                              background: 'rgba(138,180,96,0.06)',
-                              border: '1px solid rgba(138,180,96,0.12)',
-                              marginBottom: '8px',
-                            }}>
-                              <div style={{ fontSize: '11px', color: '#8a9a78', fontWeight: '600', marginBottom: '6px' }}>
-                                Målbild
-                              </div>
-                              <img
-                                src={item.photoData}
-                                alt="Målbild"
-                                style={{ width: '100%', borderRadius: '6px', maxHeight: '180px', objectFit: 'cover' }}
-                              />
-                            </div>
-                          )}
-                          {item.type === 'property' && (
-                            <div style={{
-                              padding: '10px 14px', borderRadius: '8px',
-                              background: 'rgba(232,121,249,0.08)',
-                              border: '1px solid rgba(232,121,249,0.15)',
-                            }}>
-                              <div style={{ fontSize: '11px', color: '#e879f9', fontWeight: '600', marginBottom: '4px' }}>
-                                Fastighetsgräns
-                              </div>
-                              <div style={{ fontSize: '13px', color: '#e8f0e0', lineHeight: '1.5' }}>
-                                Kontrollera att avverkning sker inom rätt fastighet.
-                              </div>
-                            </div>
-                          )}
-                          {!item.comment && !item.photoData && item.type !== 'property' && (
-                            <div style={{ fontSize: '13px', color: 'rgba(138,154,120,0.5)', fontStyle: 'italic' }}>
-                              Ingen extra information
-                            </div>
-                          )}
+                          {!item.comment && <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>Ingen extra information</div>}
                         </div>
                       )}
                     </div>
@@ -1105,241 +740,100 @@ export default function TraktBriefing({
     );
   }
 
-  // === DONE SCREEN ===
+  const step = steps[currentStep];
+  if (!step) return null;
+
+  // ============================================================
+  // === DONE SCREEN — just map + button ===
+  // ============================================================
   if (step.type === 'done') {
-    const warningSteps = steps.filter(s => s.tag === 'danger' || s.tag === 'caution');
     return (
-      <div style={{
-        position: 'fixed', inset: 0, zIndex: 700,
-        display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-        pointerEvents: 'none',
-      }}>
-        {/* Step counter */}
-        <div style={{
-          position: 'fixed', top: '16px', right: '16px', zIndex: 710,
-          pointerEvents: 'auto',
-          padding: '6px 14px', borderRadius: '20px',
-          background: 'rgba(10,15,8,0.8)', color: '#8a9a78',
-          fontSize: '13px', fontWeight: '600',
-        }}>
-          {currentStep + 1} / {steps.length}
-        </div>
-
-        <div style={{
-          pointerEvents: 'auto',
-          background: 'linear-gradient(transparent, rgba(10,15,8,0.94) 30%)',
-          padding: '60px 20px 32px',
-          paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
-        }}>
-          <div style={{
-            maxWidth: '420px', margin: '0 auto',
-            background: 'rgba(10,15,8,0.96)',
-            borderRadius: '16px',
-            border: '1px solid rgba(138,180,96,0.15)',
-            padding: '28px 24px',
-            maxHeight: '50vh', overflowY: 'auto',
-          }}>
-            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-              <div style={{ fontSize: '48px', marginBottom: '8px' }}>✅</div>
-              <div style={{ fontSize: '20px', fontWeight: '700', color: '#e8f0e0' }}>Briefing klar</div>
-            </div>
-
-            {warningSteps.length > 0 && (
-              <div style={{
-                display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px',
-                marginBottom: '20px',
-              }}>
-                {warningSteps.map(s => (
-                  <div key={s.id} style={{
-                    padding: '10px 12px', borderRadius: '10px',
-                    background: s.tag === 'danger' ? 'rgba(239,68,68,0.1)' : 'rgba(245,158,11,0.1)',
-                    borderLeft: `3px solid ${s.tag === 'danger' ? '#ef4444' : '#f59e0b'}`,
-                  }}>
-                    <div style={{ fontSize: '16px', marginBottom: '2px' }}>{s.icon}</div>
-                    <div style={{ fontSize: '12px', color: '#e8f0e0', fontWeight: '500' }}>{s.title}</div>
-                    <div style={{
-                      fontSize: '10px', fontWeight: '700', marginTop: '2px',
-                      color: s.tag === 'danger' ? '#ef4444' : '#f59e0b',
-                    }}>{s.tagText}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: '10px' }}>
-              <button
-                onClick={() => goToStep(0)}
-                style={{
-                  flex: 1, padding: '14px',
-                  background: 'rgba(255,255,255,0.06)',
-                  color: '#8a9a78', border: '1px solid rgba(138,180,96,0.15)',
-                  borderRadius: '12px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-                }}>
-                ← Visa igen
-              </button>
-              <button
-                onClick={() => {
-                  const total = steps.filter(s => s.type !== 'overview' && s.type !== 'done').length;
-                  setChecklistOpen(true);
-                  onBriefingComplete?.(total);
-                }}
-                style={{
-                  flex: 1, padding: '14px',
-                  background: '#8ab460', color: '#0a0f08',
-                  border: 'none', borderRadius: '12px',
-                  fontSize: '14px', fontWeight: '700', cursor: 'pointer',
-                }}>
-                Checklista
-              </button>
-            </div>
-          </div>
-        </div>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', pointerEvents: 'none' }}>
+        <button
+          onClick={() => {
+            const total = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about').length;
+            onBriefingComplete?.(total);
+            onStartDriving?.();
+            handleClose();
+          }}
+          style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}
+        >
+          Klar – börja köra 🌲
+        </button>
       </div>
     );
   }
 
-  // === STEP SCREEN ===
-  const stepColor = step.categoryColor || tagColor[step.tag || 'info'];
-
+  // ============================================================
+  // === STEP SCREEN — gradient + card ===
+  // ============================================================
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 700,
-      display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
-      pointerEvents: 'none',
-    }}>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', pointerEvents: 'none' }}>
       {/* Step counter */}
       <div style={{
-        position: 'fixed', top: '16px', right: '16px', zIndex: 710,
-        pointerEvents: 'auto',
+        position: 'fixed', top: '16px', right: '16px', zIndex: 710, pointerEvents: 'auto',
         padding: '6px 14px', borderRadius: '20px',
-        background: 'rgba(10,15,8,0.8)', color: '#8a9a78',
-        fontSize: '13px', fontWeight: '600',
+        background: 'rgba(10,15,8,0.6)', color: 'rgba(138,180,96,0.5)',
+        fontSize: '13px', fontWeight: '600', backdropFilter: 'blur(8px)',
       }}>
         {currentStep + 1} / {steps.length}
       </div>
 
       <div style={{
         pointerEvents: 'auto',
-        background: 'linear-gradient(transparent, rgba(10,15,8,0.94) 30%)',
-        padding: '60px 20px 32px',
+        background: 'linear-gradient(transparent, rgba(10,15,8,0.92) 35%)',
+        padding: '80px 20px 32px',
         paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
       }}>
         <div style={{
           maxWidth: '420px', margin: '0 auto',
-          background: 'rgba(10,15,8,0.96)',
-          borderRadius: '16px',
-          border: '1px solid rgba(138,180,96,0.15)',
-          padding: '24px 20px',
-          maxHeight: '50vh', overflowY: 'auto',
           opacity: fadeIn ? 1 : 0,
-          transform: fadeIn ? 'translateY(0)' : 'translateY(24px)',
+          transform: fadeIn ? 'translateY(0)' : 'translateY(20px)',
           transition: 'opacity 0.4s ease, transform 0.4s ease',
         }}>
-          {/* Progress dots */}
-          <div style={{
-            display: 'flex', gap: '4px', justifyContent: 'center',
-            marginBottom: '16px',
-          }}>
+          {/* Progress dots — accent green */}
+          <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', marginBottom: '20px' }}>
             {steps.map((_, i) => (
               <div key={i} style={{
-                width: i === currentStep ? '24px' : '6px',
-                height: '6px',
-                borderRadius: '3px',
-                background: i === currentStep ? stepColor : 'rgba(255,255,255,0.15)',
+                width: i === currentStep ? '24px' : '6px', height: '6px', borderRadius: '3px',
+                background: i === currentStep ? A : 'rgba(138,180,96,0.2)',
                 transition: 'all 0.3s ease',
               }} />
             ))}
           </div>
 
-          {/* Tag badge */}
-          {step.tagText && (
-            <div style={{
-              display: 'inline-block',
-              padding: '4px 12px', borderRadius: '10px',
-              fontSize: '11px', fontWeight: '800', letterSpacing: '0.5px',
-              background: tagBg[step.tag || 'info'],
-              color: tagColor[step.tag || 'info'],
-              marginBottom: '12px',
-            }}>
-              {step.tagText}
-            </div>
-          )}
-
           {/* Icon + title */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '32px' }}>{step.icon}</div>
-            <div style={{ fontSize: '20px', fontWeight: '700', color: '#e8f0e0' }}>{step.title}</div>
+            <div style={{ fontSize: '28px' }}>{step.icon}</div>
+            <div style={{ fontSize: '18px', fontWeight: '600', color: '#e8f0e0' }}>
+              {step.type === 'overview' ? (overviewPhase === 'orbit' ? 'Överflygning' : 'Hela trakten') : step.title}
+            </div>
           </div>
 
           {/* Comment */}
           {step.comment && (
             <div style={{
-              padding: '14px 16px', borderRadius: '10px',
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.06)',
-              marginBottom: '12px',
+              padding: '12px 16px', borderRadius: '10px',
+              background: 'rgba(255,255,255,0.03)',
+              border: '1px solid rgba(255,255,255,0.05)',
+              marginBottom: '16px',
             }}>
-              <div style={{ fontSize: '12px', color: '#8a9a78', fontWeight: '600', marginBottom: '6px' }}>
-                💬 Planerarens kommentarer
-              </div>
-              <div style={{ fontSize: '14px', color: '#e8f0e0', lineHeight: '1.5' }}>
+              <div style={{ fontSize: '14px', color: 'rgba(232,240,224,0.65)', lineHeight: '1.5' }}>
                 {step.comment}
               </div>
             </div>
           )}
 
-          {/* Photo */}
-          {step.photoData && (
-            <div style={{
-              padding: '14px 16px', borderRadius: '10px',
-              background: 'rgba(138,180,96,0.06)',
-              border: '1px solid rgba(138,180,96,0.12)',
-              marginBottom: '12px',
-            }}>
-              <div style={{ fontSize: '12px', color: '#8a9a78', fontWeight: '600', marginBottom: '8px' }}>
-                🎯 Målbild
-              </div>
-              <img
-                src={step.photoData}
-                alt="Målbild"
-                style={{ width: '100%', borderRadius: '8px', maxHeight: '200px', objectFit: 'cover' }}
-              />
-            </div>
-          )}
-
-          {/* Property boundary info */}
-          {step.type === 'property' && (
-            <div style={{
-              padding: '14px 16px', borderRadius: '10px',
-              background: 'rgba(232,121,249,0.08)',
-              border: '1px solid rgba(232,121,249,0.15)',
-              marginBottom: '12px',
-            }}>
-              <div style={{ fontSize: '12px', color: '#e879f9', fontWeight: '600', marginBottom: '4px' }}>
-                📐 Fastighetsgräns (Lantmäteriet)
-              </div>
-              <div style={{ fontSize: '13px', color: '#e8f0e0', lineHeight: '1.5' }}>
-                Kameran flyger över trakten. Linjerna i kartan visar var det byter markägare. Kontrollera att avverkning sker inom rätt fastighet.
-              </div>
-            </div>
-          )}
-
-          {/* Overview info */}
-          {step.type === 'overview' && (
-            <div style={{ fontSize: '14px', color: '#8a9a78', lineHeight: '1.5' }}>
-              Kameran visar hela trakten ovanifrån. Tryck Kör vidare för att gå igenom alla punkter.
-            </div>
-          )}
-
-          {/* Navigation buttons */}
-          <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+          {/* Navigation */}
+          <div style={{ display: 'flex', gap: '10px' }}>
             {currentStep > 0 && (
               <button
                 onClick={() => goToStep(currentStep - 1)}
                 style={{
                   flex: 1, padding: '14px',
-                  background: 'rgba(255,255,255,0.06)',
-                  color: '#8a9a78', border: '1px solid rgba(138,180,96,0.15)',
+                  background: 'rgba(255,255,255,0.03)',
+                  color: 'rgba(138,180,96,0.45)',
+                  border: '1px solid rgba(255,255,255,0.05)',
                   borderRadius: '12px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
                 }}>
                 ← Tillbaka
@@ -1351,8 +845,8 @@ export default function TraktBriefing({
                 flex: currentStep > 0 ? 1 : undefined,
                 width: currentStep > 0 ? undefined : '100%',
                 padding: '14px',
-                background: overviewBusy ? 'rgba(138,180,96,0.3)' : stepColor,
-                color: overviewBusy ? 'rgba(255,255,255,0.4)' : (step.tag === 'info' ? '#0a0f08' : '#fff'),
+                background: overviewBusy ? 'rgba(138,180,96,0.15)' : A,
+                color: overviewBusy ? 'rgba(255,255,255,0.3)' : '#0a0f08',
                 border: 'none', borderRadius: '12px',
                 fontSize: '14px', fontWeight: '700',
                 cursor: overviewBusy ? 'default' : 'pointer',

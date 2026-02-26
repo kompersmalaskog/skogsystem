@@ -13828,6 +13828,7 @@ export default function PlannerPage() {
           checkedStepIds={briefingCheckedIds}
           onChecklistChange={setBriefingCheckedIds}
           onBriefingComplete={(total: number) => { setBriefingCompleted(true); setBriefingStepTotal(total); }}
+          onStartDriving={() => setDrivingMode(true)}
         />
       )}
     </div>
