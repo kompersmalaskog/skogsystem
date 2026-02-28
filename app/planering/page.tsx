@@ -9615,6 +9615,36 @@ export default function PlannerPage() {
                     Byt objekt
                   </span>
                 </div>
+
+                {/* Förslag */}
+                <div
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setMenuHeight(0);
+                    window.location.href = '/forbattringsforslag';
+                  }}
+                  style={{
+                    background: 'rgba(255,255,255,0.04)',
+                    borderRadius: '16px',
+                    padding: '20px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: '10px',
+                    cursor: 'pointer',
+                    border: '1px solid rgba(255,255,255,0.1)',
+                  }}
+                >
+                  <div style={{ fontSize: '28px' }}>💡</div>
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: '500',
+                    color: '#fff',
+                    textAlign: 'center',
+                  }}>
+                    Förslag
+                  </span>
+                </div>
               </div>
             )}
 
