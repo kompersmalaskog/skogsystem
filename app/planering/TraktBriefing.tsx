@@ -1040,193 +1040,310 @@ export default function TraktBriefing({
       }
     };
 
-    // Card style per row
-    const cardStyle = (isChecked: boolean): React.CSSProperties => ({
-      background: 'rgba(255,255,255,0.03)',
-      border: '1px solid rgba(138,180,96,0.1)',
-      borderRadius: '12px',
-      padding: '14px 16px',
-      marginBottom: '8px',
-      opacity: isChecked ? 0.4 : 1,
-      transition: 'opacity 0.3s, background 0.15s',
-      cursor: 'pointer',
-    });
-    const checkboxStyle = (isChecked: boolean): React.CSSProperties => ({
-      width: '24px', height: '24px', borderRadius: '12px',
-      border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.15)',
-      background: isChecked ? A : 'transparent',
+    const allDone = checkedCount === totalItems && totalItems > 0;
+    const newNotesCount = checklistNotes.filter(n => checkedStepIds && !checkedStepIds.includes(`about-note-${n.id}`)).length;
+    const hasNotes = checklistNotes.length > 0 || hasChecklistLegacy;
+
+    // Checkbox with gradient green + glow
+    const cbx = (isChecked: boolean): React.CSSProperties => ({
+      width: '22px', height: '22px', borderRadius: '11px',
+      border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.12)',
+      background: isChecked ? 'linear-gradient(135deg, #6abf40, #8ab460)' : 'transparent',
+      boxShadow: isChecked ? '0 0 8px rgba(138,180,96,0.4)' : 'none',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexShrink: 0, cursor: 'pointer',
+      flexShrink: 0, cursor: 'pointer', transition: 'all 0.2s',
     });
-    const iconBtnStyle: React.CSSProperties = {
-      width: '32px', height: '32px', borderRadius: '16px',
-      background: 'transparent', border: '1px solid rgba(255,255,255,0.08)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      cursor: 'pointer', flexShrink: 0, fontSize: '14px',
-    };
 
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 700, background: 'rgba(10,15,8,0.96)', backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)', display: 'flex', flexDirection: 'column' }}>
-        {/* Header */}
-        <div style={{ padding: '20px 20px 0', flexShrink: 0 }}>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 700, background: '#0c0f0a', display: 'flex', flexDirection: 'column' }}>
+        {/* ── HEADER (sticky + blur) ── */}
+        <div style={{
+          position: 'sticky', top: 0, zIndex: 10, flexShrink: 0,
+          background: 'rgba(12,15,10,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          padding: '0 20px', borderBottom: '1px solid rgba(255,255,255,0.04)',
+        }}>
           <div style={{ paddingTop: 'env(safe-area-inset-top)' }} />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-            <div style={{ fontSize: '17px', fontWeight: '700', color: '#e8f0e0', letterSpacing: '-0.3px' }}>Kvittering</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0 12px' }}>
+            <div style={{ fontSize: '18px', fontWeight: '700', color: '#f0f4ec', letterSpacing: '-0.3px' }}>Kvittering</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.35)', fontWeight: '500' }}>{checkedCount} av {totalItems}</div>
-              <div onClick={handleClose} style={{ width: '30px', height: '30px', borderRadius: '15px', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round"><path d="M1 1L11 11"/><path d="M11 1L1 11"/></svg>
+              <div style={{ fontSize: '13px', color: 'rgba(240,244,236,0.3)', fontWeight: '500' }}>{checkedCount} av {totalItems}</div>
+              <div onClick={handleClose} style={{
+                width: '32px', height: '32px', borderRadius: '16px',
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.06)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+              }}>
+                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round"><path d="M1 1L11 11"/><path d="M11 1L1 11"/></svg>
               </div>
             </div>
           </div>
-          {/* Progress */}
-          <div style={{ height: '2px', borderRadius: '1px', background: 'rgba(255,255,255,0.06)', marginBottom: '0' }}>
-            <div style={{ height: '100%', borderRadius: '1px', background: A, width: `${progressPctCL}%`, transition: 'width 0.4s ease', boxShadow: `0 0 8px ${A}66` }} />
+          {/* Progress bar */}
+          <div style={{ height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.04)', marginBottom: '12px' }}>
+            <div style={{
+              height: '100%', borderRadius: '2px',
+              background: 'linear-gradient(90deg, #6abf40, #8ab460)',
+              width: `${progressPctCL}%`, transition: 'width 0.4s ease',
+              boxShadow: '0 0 10px rgba(138,180,96,0.35)',
+            }} />
           </div>
-          {/* Separator */}
-          <div style={{ height: '1px', background: 'rgba(255,255,255,0.04)', marginTop: '12px' }} />
         </div>
 
-        {/* Content */}
-        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '16px 20px' }}>
-          {/* === OM TRAKTEN — anteckningar === */}
-          {checklistNotes.map((note, idx) => {
-            const noteKey = `about-note-${note.id}`;
-            const isNChecked = checkedItems.has(noteKey);
-            const isNew = checkedStepIds && !checkedStepIds.includes(noteKey);
-            const isAudioOpen = expandedItem === `audio-${noteKey}`;
-            return (
-              <div key={note.id} style={cardStyle(isNChecked)}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {/* Checkbox */}
-                  <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has(noteKey)) n.delete(noteKey); else n.add(noteKey); onChecklistChange?.(Array.from(n)); return n; }); }} style={checkboxStyle(isNChecked)}>
-                    {isNChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
-                  </div>
-                  {/* Icon circle */}
-                  <div style={{ width: '28px', height: '28px', borderRadius: '14px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '14px' }}>📝</div>
-                  {/* Title + preview */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <div style={{ fontSize: '15px', fontWeight: '600', color: isNChecked ? 'rgba(255,255,255,0.3)' : '#e8f0e0', textDecoration: isNChecked ? 'line-through' : 'none' }}>
-                        {fmtDateCL(note.date)}
-                      </div>
-                      {isNew && !isNChecked && (
-                        <div style={{ width: '6px', height: '6px', borderRadius: '3px', background: A, flexShrink: 0 }} />
-                      )}
-                    </div>
-                    {(note.text || note.audioData) && (
-                      <div style={{ fontSize: '12px', color: isNChecked ? 'rgba(255,255,255,0.15)' : 'rgba(232,240,224,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, marginTop: '2px' }}>
-                        {note.text || 'Röstmeddelande'}
-                      </div>
-                    )}
-                  </div>
-                  {/* Audio button */}
-                  {note.audioData && (
-                    <div onClick={(e) => { e.stopPropagation(); toggleAudio(note.audioData!, `audio-${noteKey}`); }} style={iconBtnStyle}>
-                      <span style={{ fontSize: '13px' }}>{isAudioOpen ? '⏹' : '🎤'}</span>
-                    </div>
-                  )}
-                </div>
-                {/* Inline audio player */}
-                {isAudioOpen && note.audioData && (
-                  <div style={{ marginTop: '10px', paddingLeft: '64px' }}>
-                    <audio controls autoPlay src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {/* Legacy about */}
-          {hasChecklistLegacy && (() => {
-            const isLChecked = checkedItems.has('about');
-            const isAudioOpen = expandedItem === 'audio-about';
-            return (
-              <div style={cardStyle(isLChecked)}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has('about')) n.delete('about'); else n.add('about'); onChecklistChange?.(Array.from(n)); return n; }); }} style={checkboxStyle(isLChecked)}>
-                    {isLChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
-                  </div>
-                  <div style={{ width: '28px', height: '28px', borderRadius: '14px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '14px' }}>📝</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '15px', fontWeight: '600', color: isLChecked ? 'rgba(255,255,255,0.3)' : '#e8f0e0', textDecoration: isLChecked ? 'line-through' : 'none' }}>Om trakten</div>
-                    {checklistLegacyComment && (
-                      <div style={{ fontSize: '12px', color: isLChecked ? 'rgba(255,255,255,0.15)' : 'rgba(232,240,224,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, marginTop: '2px' }}>{checklistLegacyComment}</div>
-                    )}
-                  </div>
-                  {checklistLegacyAudio && (
-                    <div onClick={(e) => { e.stopPropagation(); toggleAudio(checklistLegacyAudio!, 'audio-about'); }} style={iconBtnStyle}>
-                      <span style={{ fontSize: '13px' }}>{isAudioOpen ? '⏹' : '🎤'}</span>
-                    </div>
-                  )}
-                </div>
-                {isAudioOpen && checklistLegacyAudio && (
-                  <div style={{ marginTop: '10px', paddingLeft: '64px' }}>
-                    <audio controls autoPlay src={checklistLegacyAudio} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+        {/* ── SCROLLABLE CONTENT ── */}
+        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '20px 16px 120px' }}>
 
-          {/* Separator between notes and markers */}
-          {(checklistNotes.length > 0 || hasChecklistLegacy) && checklistSteps.length > 0 && (
-            <div style={{ height: '1px', background: 'rgba(255,255,255,0.04)', margin: '8px 0 16px' }} />
+          {/* ══════════ FRÅN PLANERAREN ══════════ */}
+          {hasNotes && (
+            <div style={{
+              background: 'rgba(138,180,96,0.04)',
+              border: '1px solid rgba(138,180,96,0.1)',
+              borderRadius: '16px',
+              padding: '16px',
+              marginBottom: '24px',
+            }}>
+              {/* Section header */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '15px' }}>📝</span>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: 'rgba(138,180,96,0.7)', letterSpacing: '0.5px' }}>Från planeraren</span>
+                </div>
+                {newNotesCount > 0 && (
+                  <div style={{
+                    padding: '2px 8px', borderRadius: '8px',
+                    background: 'rgba(138,180,96,0.12)', color: A,
+                    fontSize: '11px', fontWeight: '600',
+                  }}>{newNotesCount} {newNotesCount === 1 ? 'ny' : 'nya'}</div>
+                )}
+              </div>
+
+              {/* Notes */}
+              {checklistNotes.map((note) => {
+                const noteKey = `about-note-${note.id}`;
+                const isNChecked = checkedItems.has(noteKey);
+                const isNew = checkedStepIds && !checkedStepIds.includes(noteKey);
+                const isAudioOpen = expandedItem === `audio-${noteKey}`;
+                return (
+                  <div key={note.id} style={{
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)',
+                    borderRadius: '14px', padding: '14px 16px', marginBottom: '8px',
+                    opacity: isNChecked ? 0.35 : 1, transition: 'opacity 0.3s',
+                  }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                      {/* Checkbox */}
+                      <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has(noteKey)) n.delete(noteKey); else n.add(noteKey); onChecklistChange?.(Array.from(n)); return n; }); }} style={{ ...cbx(isNChecked), marginTop: '2px' }}>
+                        {isNChecked && <span style={{ color: '#0a0f08', fontSize: '11px', fontWeight: '800' }}>&#10003;</span>}
+                      </div>
+                      {/* Content */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {/* Date + new dot */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '12px', color: 'rgba(138,180,96,0.5)', fontWeight: '500' }}>{fmtDateCL(note.date)}</span>
+                          {isNew && !isNChecked && (
+                            <div style={{ width: '6px', height: '6px', borderRadius: '3px', background: A, boxShadow: `0 0 6px ${A}` }} />
+                          )}
+                        </div>
+                        {/* Text — LARGE and dominant */}
+                        {note.text && (
+                          <div style={{
+                            fontSize: '17px', fontWeight: '500', color: isNChecked ? 'rgba(255,255,255,0.3)' : '#f0f4ec',
+                            textDecoration: isNChecked ? 'line-through' : 'none',
+                            lineHeight: '1.45', wordBreak: 'break-word',
+                          }}>{note.text}</div>
+                        )}
+                        {!note.text && note.audioData && (
+                          <div style={{ fontSize: '15px', color: isNChecked ? 'rgba(255,255,255,0.25)' : 'rgba(240,244,236,0.5)', fontStyle: 'italic', textDecoration: isNChecked ? 'line-through' : 'none' }}>Röstmeddelande</div>
+                        )}
+                        {/* Audio: "Lyssna" button with text */}
+                        {note.audioData && (
+                          <div style={{ marginTop: '10px' }}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleAudio(note.audioData!, `audio-${noteKey}`); }}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                padding: '6px 12px', borderRadius: '10px',
+                                background: isAudioOpen ? 'rgba(138,180,96,0.15)' : 'rgba(138,180,96,0.06)',
+                                border: `1px solid ${isAudioOpen ? 'rgba(138,180,96,0.25)' : 'rgba(138,180,96,0.1)'}`,
+                                color: A, fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                                transition: 'all 0.15s',
+                              }}
+                            >
+                              <span style={{ fontSize: '13px' }}>{isAudioOpen ? '⏹' : '🎤'}</span>
+                              {isAudioOpen ? 'Stoppa' : 'Lyssna'}
+                            </button>
+                            {isAudioOpen && (
+                              <div style={{ marginTop: '8px' }}>
+                                <audio controls autoPlay src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Legacy about */}
+              {hasChecklistLegacy && (() => {
+                const isLChecked = checkedItems.has('about');
+                const isAudioOpen = expandedItem === 'audio-about';
+                return (
+                  <div style={{
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)',
+                    borderRadius: '14px', padding: '14px 16px',
+                    opacity: isLChecked ? 0.35 : 1, transition: 'opacity 0.3s',
+                  }}>
+                    <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                      <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has('about')) n.delete('about'); else n.add('about'); onChecklistChange?.(Array.from(n)); return n; }); }} style={{ ...cbx(isLChecked), marginTop: '2px' }}>
+                        {isLChecked && <span style={{ color: '#0a0f08', fontSize: '11px', fontWeight: '800' }}>&#10003;</span>}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        {checklistLegacyComment && (
+                          <div style={{
+                            fontSize: '17px', fontWeight: '500', color: isLChecked ? 'rgba(255,255,255,0.3)' : '#f0f4ec',
+                            textDecoration: isLChecked ? 'line-through' : 'none',
+                            lineHeight: '1.45', wordBreak: 'break-word',
+                          }}>{checklistLegacyComment}</div>
+                        )}
+                        {checklistLegacyAudio && (
+                          <div style={{ marginTop: checklistLegacyComment ? '10px' : '0' }}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); toggleAudio(checklistLegacyAudio!, 'audio-about'); }}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: '6px',
+                                padding: '6px 12px', borderRadius: '10px',
+                                background: isAudioOpen ? 'rgba(138,180,96,0.15)' : 'rgba(138,180,96,0.06)',
+                                border: `1px solid ${isAudioOpen ? 'rgba(138,180,96,0.25)' : 'rgba(138,180,96,0.1)'}`,
+                                color: A, fontSize: '12px', fontWeight: '600', cursor: 'pointer',
+                              }}
+                            >
+                              <span style={{ fontSize: '13px' }}>{isAudioOpen ? '⏹' : '🎤'}</span>
+                              {isAudioOpen ? 'Stoppa' : 'Lyssna'}
+                            </button>
+                            {isAudioOpen && (
+                              <div style={{ marginTop: '8px' }}>
+                                <audio controls autoPlay src={checklistLegacyAudio} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
           )}
 
-          {/* === MARKERINGAR === */}
-          {checklistSteps.map(item => {
-            const isChecked = checkedItems.has(item.id);
-            const isAudioOpen = expandedItem === `audio-${item.id}`;
-            return (
-              <div key={item.id} style={cardStyle(isChecked)}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  {/* Checkbox */}
-                  <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); onChecklistChange?.(Array.from(n)); return n; }); }} style={checkboxStyle(isChecked)}>
-                    {isChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
-                  </div>
-                  {/* Icon — same as map */}
-                  <MarkerIconSvg marker={item.marker} fallbackEmoji={item.icon} size={28} />
-                  {/* Title + comment */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: '15px', fontWeight: '600', color: isChecked ? 'rgba(255,255,255,0.3)' : '#e8f0e0', textDecoration: isChecked ? 'line-through' : 'none' }}>{item.title}</div>
-                    {item.comment && (
-                      <div style={{ fontSize: '12px', color: isChecked ? 'rgba(255,255,255,0.15)' : 'rgba(232,240,224,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, marginTop: '2px' }}>{item.comment}</div>
+          {/* ══════════ MARKERINGAR ══════════ */}
+          {checklistSteps.length > 0 && (
+            <div style={{ marginBottom: '8px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.15)', letterSpacing: '0.8px', textTransform: 'uppercase', padding: '0 4px 10px' }}>
+                Markeringar
+              </div>
+
+              {checklistSteps.map(item => {
+                const isChecked = checkedItems.has(item.id);
+                const isAudioOpen = expandedItem === `audio-${item.id}`;
+                return (
+                  <div key={item.id} style={{
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)',
+                    borderRadius: '16px', padding: '14px 16px', marginBottom: '10px',
+                    opacity: isChecked ? 0.35 : 1, transition: 'opacity 0.3s',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      {/* Checkbox */}
+                      <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); onChecklistChange?.(Array.from(n)); return n; }); }} style={cbx(isChecked)}>
+                        {isChecked && <span style={{ color: '#0a0f08', fontSize: '11px', fontWeight: '800' }}>&#10003;</span>}
+                      </div>
+                      {/* Map icon — same as on the map */}
+                      <MarkerIconSvg marker={item.marker} fallbackEmoji={item.icon} size={32} />
+                      {/* Title + subtitle (full text, no ellipsis) */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: '15px', fontWeight: '600',
+                          color: isChecked ? 'rgba(255,255,255,0.3)' : '#f0f4ec',
+                          textDecoration: isChecked ? 'line-through' : 'none',
+                        }}>{item.title}</div>
+                        {item.comment && (
+                          <div style={{
+                            fontSize: '13px', color: isChecked ? 'rgba(255,255,255,0.15)' : 'rgba(240,244,236,0.4)',
+                            marginTop: '3px', lineHeight: '1.4', wordBreak: 'break-word',
+                          }}>{item.comment}</div>
+                        )}
+                      </div>
+                      {/* Right-side buttons */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                        {item.audioData && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleAudio(item.audioData!, `audio-${item.id}`); }}
+                            style={{
+                              width: '32px', height: '32px', borderRadius: '16px',
+                              background: isAudioOpen ? 'rgba(138,180,96,0.12)' : 'rgba(255,255,255,0.04)',
+                              border: '1px solid rgba(255,255,255,0.06)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              cursor: 'pointer', fontSize: '14px',
+                            }}
+                          >
+                            {isAudioOpen ? '⏹' : '🎤'}
+                          </button>
+                        )}
+                        {item.center && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (onShowOnMap && item.center) {
+                                onChecklistChange?.(Array.from(checkedItems));
+                                onShowOnMap(item.id, item.center, item.marker?.id, 'checklist', {
+                                  bbox: item.bbox, zoom: item.zoom, type: item.type,
+                                  comment: item.comment, audioData: item.audioData, photoData: item.photoData, title: item.title, icon: item.icon,
+                                });
+                              }
+                            }}
+                            style={{
+                              width: '32px', height: '32px', borderRadius: '16px',
+                              background: 'rgba(138,180,96,0.06)',
+                              border: '1px solid rgba(138,180,96,0.12)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              cursor: 'pointer', fontSize: '14px',
+                            }}
+                          >📍</button>
+                        )}
+                      </div>
+                    </div>
+                    {/* Inline audio player */}
+                    {isAudioOpen && item.audioData && (
+                      <div style={{ marginTop: '10px', paddingLeft: '66px' }}>
+                        <audio controls autoPlay src={item.audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
+                      </div>
                     )}
                   </div>
-                  {/* Audio button */}
-                  {item.audioData && (
-                    <div onClick={(e) => { e.stopPropagation(); toggleAudio(item.audioData!, `audio-${item.id}`); }} style={iconBtnStyle}>
-                      <span style={{ fontSize: '13px' }}>{isAudioOpen ? '⏹' : '🎤'}</span>
-                    </div>
-                  )}
-                  {/* Map button */}
-                  {item.center && (
-                    <div
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (onShowOnMap && item.center) {
-                          onChecklistChange?.(Array.from(checkedItems));
-                          onShowOnMap(item.id, item.center, item.marker?.id, 'checklist', {
-                            bbox: item.bbox, zoom: item.zoom, type: item.type,
-                            comment: item.comment, audioData: item.audioData, photoData: item.photoData, title: item.title, icon: item.icon,
-                          });
-                        }
-                      }}
-                      style={iconBtnStyle}
-                    >
-                      <span style={{ fontSize: '13px' }}>📍</span>
-                    </div>
-                  )}
-                </div>
-                {/* Inline audio player */}
-                {isAudioOpen && item.audioData && (
-                  <div style={{ marginTop: '10px', paddingLeft: '64px' }}>
-                    <audio controls autoPlay src={item.audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── BOTTOM BUTTON ── */}
+        <div style={{
+          position: 'absolute', bottom: 0, left: 0, right: 0,
+          padding: '16px 20px', paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+          background: 'linear-gradient(transparent, #0c0f0a 40%)',
+          pointerEvents: 'none',
+        }}>
+          <button
+            onClick={handleClose}
+            style={{
+              width: '100%', padding: '16px', borderRadius: '14px', border: 'none',
+              background: allDone
+                ? 'linear-gradient(135deg, #6abf40, #8ab460)'
+                : 'rgba(255,255,255,0.06)',
+              color: allDone ? '#0c0f0a' : 'rgba(255,255,255,0.3)',
+              fontSize: '15px', fontWeight: '700', cursor: 'pointer',
+              boxShadow: allDone ? '0 0 20px rgba(138,180,96,0.3)' : 'none',
+              transition: 'all 0.3s', pointerEvents: 'auto',
+            }}
+          >
+            {allDone ? 'Allt kvitterat' : `${totalItems - checkedCount} kvar att kvittera`}
+          </button>
         </div>
       </div>
     );
