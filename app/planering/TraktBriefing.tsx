@@ -954,35 +954,27 @@ export default function TraktBriefing({
       }
     };
 
-    // Shared row style
-    const rowStyle = (isChecked: boolean): React.CSSProperties => ({
-      display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 16px',
-      borderBottom: '1px solid rgba(255,255,255,0.03)',
-      opacity: isChecked ? 0.35 : 1,
-      transition: 'opacity 0.3s',
+    // Card style per row
+    const cardStyle = (isChecked: boolean): React.CSSProperties => ({
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(138,180,96,0.1)',
+      borderRadius: '12px',
+      padding: '14px 16px',
+      marginBottom: '8px',
+      opacity: isChecked ? 0.4 : 1,
+      transition: 'opacity 0.3s, background 0.15s',
+      cursor: 'pointer',
     });
     const checkboxStyle = (isChecked: boolean): React.CSSProperties => ({
-      width: '20px', height: '20px', borderRadius: '6px',
-      border: isChecked ? 'none' : '1.5px solid rgba(255,255,255,0.15)',
+      width: '24px', height: '24px', borderRadius: '12px',
+      border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.15)',
       background: isChecked ? A : 'transparent',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       flexShrink: 0, cursor: 'pointer',
     });
-    const titleStyle = (isChecked: boolean): React.CSSProperties => ({
-      fontSize: '14px', fontWeight: '500',
-      color: isChecked ? 'rgba(255,255,255,0.3)' : '#e8f0e0',
-      textDecoration: isChecked ? 'line-through' : 'none',
-      flexShrink: 0, maxWidth: '35%',
-      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
-    });
-    const previewStyle = (isChecked: boolean): React.CSSProperties => ({
-      fontSize: '12px', color: isChecked ? 'rgba(255,255,255,0.15)' : 'rgba(232,240,224,0.4)',
-      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const,
-      flex: 1, minWidth: 0,
-    });
     const iconBtnStyle: React.CSSProperties = {
-      width: '30px', height: '30px', borderRadius: '8px',
-      background: 'rgba(138,180,96,0.08)', border: 'none',
+      width: '32px', height: '32px', borderRadius: '16px',
+      background: 'transparent', border: '1px solid rgba(255,255,255,0.08)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       cursor: 'pointer', flexShrink: 0, fontSize: '14px',
     };
@@ -990,9 +982,9 @@ export default function TraktBriefing({
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 700, background: 'rgba(10,15,8,0.96)', backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)', display: 'flex', flexDirection: 'column' }}>
         {/* Header */}
-        <div style={{ padding: '20px 16px 0', flexShrink: 0 }}>
+        <div style={{ padding: '20px 20px 0', flexShrink: 0 }}>
           <div style={{ paddingTop: 'env(safe-area-inset-top)' }} />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
             <div style={{ fontSize: '17px', fontWeight: '700', color: '#e8f0e0', letterSpacing: '-0.3px' }}>Kvittering</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.35)', fontWeight: '500' }}>{checkedCount} av {totalItems}</div>
@@ -1002,43 +994,46 @@ export default function TraktBriefing({
             </div>
           </div>
           {/* Progress */}
-          <div style={{ height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)', marginBottom: '4px' }}>
-            <div style={{ height: '100%', borderRadius: '2px', background: A, width: `${progressPctCL}%`, transition: 'width 0.3s ease' }} />
+          <div style={{ height: '2px', borderRadius: '1px', background: 'rgba(255,255,255,0.06)', marginBottom: '0' }}>
+            <div style={{ height: '100%', borderRadius: '1px', background: A, width: `${progressPctCL}%`, transition: 'width 0.4s ease', boxShadow: `0 0 8px ${A}66` }} />
           </div>
+          {/* Separator */}
+          <div style={{ height: '1px', background: 'rgba(255,255,255,0.04)', marginTop: '12px' }} />
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '16px 20px' }}>
           {/* === OM TRAKTEN — anteckningar === */}
-          {(checklistNotes.length > 0 || hasChecklistLegacy) && (
-            <div style={{ padding: '14px 16px 4px', fontSize: '10px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(138,180,96,0.35)' }}>
-              Om trakten
-            </div>
-          )}
           {checklistNotes.map((note, idx) => {
             const noteKey = `about-note-${note.id}`;
             const isNChecked = checkedItems.has(noteKey);
             const isNew = checkedStepIds && !checkedStepIds.includes(noteKey);
             const isAudioOpen = expandedItem === `audio-${noteKey}`;
             return (
-              <div key={note.id}>
-                <div style={rowStyle(isNChecked)}>
+              <div key={note.id} style={cardStyle(isNChecked)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   {/* Checkbox */}
                   <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has(noteKey)) n.delete(noteKey); else n.add(noteKey); onChecklistChange?.(Array.from(n)); return n; }); }} style={checkboxStyle(isNChecked)}>
-                    {isNChecked && <span style={{ color: '#0a0f08', fontSize: '12px', fontWeight: '700' }}>&#10003;</span>}
+                    {isNChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
                   </div>
-                  {/* Number badge */}
-                  <div style={{ width: '20px', height: '20px', borderRadius: '10px', background: 'rgba(138,180,96,0.12)', color: A, fontSize: '10px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</div>
-                  {/* Date */}
-                  <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)', flexShrink: 0 }}>{fmtDateCL(note.date)}</div>
-                  {/* Text preview */}
-                  <div style={previewStyle(isNChecked)}>
-                    {note.text || (note.audioData ? 'Röstmeddelande' : '')}
+                  {/* Icon circle */}
+                  <div style={{ width: '28px', height: '28px', borderRadius: '14px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '14px' }}>📝</div>
+                  {/* Title + preview */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <div style={{ fontSize: '15px', fontWeight: '600', color: isNChecked ? 'rgba(255,255,255,0.3)' : '#e8f0e0', textDecoration: isNChecked ? 'line-through' : 'none' }}>
+                        {fmtDateCL(note.date)}
+                      </div>
+                      {isNew && !isNChecked && (
+                        <div style={{ width: '6px', height: '6px', borderRadius: '3px', background: A, flexShrink: 0 }} />
+                      )}
+                    </div>
+                    {(note.text || note.audioData) && (
+                      <div style={{ fontSize: '12px', color: isNChecked ? 'rgba(255,255,255,0.15)' : 'rgba(232,240,224,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, marginTop: '2px' }}>
+                        {note.text || 'Röstmeddelande'}
+                      </div>
+                    )}
                   </div>
-                  {/* NY badge */}
-                  {isNew && !isNChecked && (
-                    <div style={{ padding: '1px 5px', borderRadius: '3px', background: 'rgba(138,180,96,0.2)', color: A, fontSize: '9px', fontWeight: '700', flexShrink: 0 }}>NY</div>
-                  )}
                   {/* Audio button */}
                   {note.audioData && (
                     <div onClick={(e) => { e.stopPropagation(); toggleAudio(note.audioData!, `audio-${noteKey}`); }} style={iconBtnStyle}>
@@ -1048,8 +1043,8 @@ export default function TraktBriefing({
                 </div>
                 {/* Inline audio player */}
                 {isAudioOpen && note.audioData && (
-                  <div style={{ padding: '4px 16px 8px 68px' }}>
-                    <audio controls autoPlay src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                  <div style={{ marginTop: '10px', paddingLeft: '64px' }}>
+                    <audio controls autoPlay src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
                   </div>
                 )}
               </div>
@@ -1060,14 +1055,18 @@ export default function TraktBriefing({
             const isLChecked = checkedItems.has('about');
             const isAudioOpen = expandedItem === 'audio-about';
             return (
-              <div>
-                <div style={rowStyle(isLChecked)}>
+              <div style={cardStyle(isLChecked)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has('about')) n.delete('about'); else n.add('about'); onChecklistChange?.(Array.from(n)); return n; }); }} style={checkboxStyle(isLChecked)}>
-                    {isLChecked && <span style={{ color: '#0a0f08', fontSize: '12px', fontWeight: '700' }}>&#10003;</span>}
+                    {isLChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
                   </div>
-                  <div style={{ fontSize: '16px', flexShrink: 0 }}>📝</div>
-                  <div style={titleStyle(isLChecked)}>Om trakten</div>
-                  <div style={previewStyle(isLChecked)}>{checklistLegacyComment || ''}</div>
+                  <div style={{ width: '28px', height: '28px', borderRadius: '14px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '14px' }}>📝</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '15px', fontWeight: '600', color: isLChecked ? 'rgba(255,255,255,0.3)' : '#e8f0e0', textDecoration: isLChecked ? 'line-through' : 'none' }}>Om trakten</div>
+                    {checklistLegacyComment && (
+                      <div style={{ fontSize: '12px', color: isLChecked ? 'rgba(255,255,255,0.15)' : 'rgba(232,240,224,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, marginTop: '2px' }}>{checklistLegacyComment}</div>
+                    )}
+                  </div>
                   {checklistLegacyAudio && (
                     <div onClick={(e) => { e.stopPropagation(); toggleAudio(checklistLegacyAudio!, 'audio-about'); }} style={iconBtnStyle}>
                       <span style={{ fontSize: '13px' }}>{isAudioOpen ? '⏹' : '🎤'}</span>
@@ -1075,36 +1074,39 @@ export default function TraktBriefing({
                   )}
                 </div>
                 {isAudioOpen && checklistLegacyAudio && (
-                  <div style={{ padding: '4px 16px 8px 56px' }}>
-                    <audio controls autoPlay src={checklistLegacyAudio} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                  <div style={{ marginTop: '10px', paddingLeft: '64px' }}>
+                    <audio controls autoPlay src={checklistLegacyAudio} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
                   </div>
                 )}
               </div>
             );
           })()}
 
-          {/* === MARKERINGAR === */}
-          {checklistSteps.length > 0 && (
-            <div style={{ padding: '14px 16px 4px', fontSize: '10px', fontWeight: '700', letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(138,180,96,0.35)' }}>
-              Markeringar
-            </div>
+          {/* Separator between notes and markers */}
+          {(checklistNotes.length > 0 || hasChecklistLegacy) && checklistSteps.length > 0 && (
+            <div style={{ height: '1px', background: 'rgba(255,255,255,0.04)', margin: '8px 0 16px' }} />
           )}
+
+          {/* === MARKERINGAR === */}
           {checklistSteps.map(item => {
             const isChecked = checkedItems.has(item.id);
             const isAudioOpen = expandedItem === `audio-${item.id}`;
             return (
-              <div key={item.id}>
-                <div style={rowStyle(isChecked)}>
+              <div key={item.id} style={cardStyle(isChecked)}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   {/* Checkbox */}
                   <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); onChecklistChange?.(Array.from(n)); return n; }); }} style={checkboxStyle(isChecked)}>
-                    {isChecked && <span style={{ color: '#0a0f08', fontSize: '12px', fontWeight: '700' }}>&#10003;</span>}
+                    {isChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
                   </div>
-                  {/* Icon */}
-                  <div style={{ fontSize: '16px', flexShrink: 0 }}>{item.icon}</div>
-                  {/* Title */}
-                  <div style={titleStyle(isChecked)}>{item.title}</div>
-                  {/* Comment preview */}
-                  <div style={previewStyle(isChecked)}>{item.comment || ''}</div>
+                  {/* Icon circle */}
+                  <div style={{ width: '28px', height: '28px', borderRadius: '14px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '14px' }}>{item.icon}</div>
+                  {/* Title + comment */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '15px', fontWeight: '600', color: isChecked ? 'rgba(255,255,255,0.3)' : '#e8f0e0', textDecoration: isChecked ? 'line-through' : 'none' }}>{item.title}</div>
+                    {item.comment && (
+                      <div style={{ fontSize: '12px', color: isChecked ? 'rgba(255,255,255,0.15)' : 'rgba(232,240,224,0.4)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, marginTop: '2px' }}>{item.comment}</div>
+                    )}
+                  </div>
                   {/* Audio button */}
                   {item.audioData && (
                     <div onClick={(e) => { e.stopPropagation(); toggleAudio(item.audioData!, `audio-${item.id}`); }} style={iconBtnStyle}>
@@ -1132,8 +1134,8 @@ export default function TraktBriefing({
                 </div>
                 {/* Inline audio player */}
                 {isAudioOpen && item.audioData && (
-                  <div style={{ padding: '4px 16px 8px 56px' }}>
-                    <audio controls autoPlay src={item.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                  <div style={{ marginTop: '10px', paddingLeft: '64px' }}>
+                    <audio controls autoPlay src={item.audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
                   </div>
                 )}
               </div>
