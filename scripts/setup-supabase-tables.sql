@@ -69,3 +69,23 @@ ALTER TABLE objekt ADD COLUMN IF NOT EXISTS driving_mode BOOLEAN DEFAULT false;
 ALTER TABLE objekt ADD COLUMN IF NOT EXISTS stickvag_settings JSONB;
 ALTER TABLE objekt ADD COLUMN IF NOT EXISTS checklist_items JSONB;
 ALTER TABLE objekt ADD COLUMN IF NOT EXISTS generellt_tillstand JSONB;
+
+-- 7. FEEDBACK / FÖRBÄTTRINGSFÖRSLAG
+CREATE TABLE IF NOT EXISTS feedback (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  text TEXT,
+  audio_url TEXT,
+  sida TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- RLS: Tillåt alla att läsa och skriva feedback (anon key)
+ALTER TABLE feedback ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public insert feedback"
+  ON feedback FOR INSERT
+  WITH CHECK (true);
+
+CREATE POLICY "Allow public select feedback"
+  ON feedback FOR SELECT
+  USING (true);
