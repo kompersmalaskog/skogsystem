@@ -7,12 +7,11 @@ const nextConfig = {
     ignoreDuringBuilds: true,
   },
   outputFileTracingExcludes: {
-    '*': [
-      './data/**',
-      './data/slu-skogskarta/**',
-      './data/terrain-tmp/**',
-      './public/terrain-tiles/**',
-    ],
+    '*': ['./data/**', './public/terrain-tiles/**'],
+    '/planering': ['./node_modules/@maplibre/**', './node_modules/maplibre-gl/**'],
+  },
+  experimental: {
+    outputFileTracingIgnores: ['./data/**', './public/terrain-tiles/**'],
   },
 }
 

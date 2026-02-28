@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "vercel-build": "NODE_OPTIONS='--stack-size=2048' next build",
     "start": "next start"
   },
   "dependencies": {
