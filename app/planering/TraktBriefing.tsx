@@ -423,23 +423,35 @@ export default function TraktBriefing({
       try { if (map.getLayer(redLineLayer)) map.removeLayer(redLineLayer); } catch {}
       try { if (map.getSource(redLineSrc)) map.removeSource(redLineSrc); } catch {}
 
-      // Query vector tile source for nearby fastighetsgräns features
+      // DEBUG: check VT source state
+      const hasVtSource = !!map.getSource('vt-fastighet');
+      const hasVtLayer = !!map.getLayer('vt-fastighet-line');
+      const hasWmsLayer = !!map.getLayer('wms-layer-fastighetsgranser');
+      console.log('[Briefing] === FASTIGHETSGRÄNS DEBUG ===');
+      console.log('[Briefing] VT source exists:', hasVtSource);
+      console.log('[Briefing] VT layer exists:', hasVtLayer);
+      console.log('[Briefing] WMS layer exists:', hasWmsLayer);
+      console.log('[Briefing] boundaryCoordinates:', boundaryCoordinates ? boundaryCoordinates.length + ' pts' : 'none');
+
+      // Query vector tile source for fastighetsgräns features near the tract
       let nearbyFeatures: any[] = [];
-      if (boundaryCoordinates && boundaryCoordinates.length > 1) {
+      if (hasVtSource && boundaryCoordinates && boundaryCoordinates.length > 1) {
         try {
           const vtFeats = map.querySourceFeatures('vt-fastighet', { sourceLayer: 'fastighetsindelning' });
-          console.log('[Briefing] VT fastighetsgräns features loaded:', vtFeats.length);
+          console.log('[Briefing] querySourceFeatures returned:', vtFeats.length, 'features');
+          if (vtFeats.length > 0) {
+            console.log('[Briefing] First VT feature:', vtFeats[0].geometry?.type, 'props:', JSON.stringify(vtFeats[0].properties).slice(0, 200));
+          }
 
           if (vtFeats.length > 0) {
-            // Filter: keep features within ~50m of tract boundary
-            const THRESHOLD_DEG = 50 / 111320; // ~50m in degrees
+            // Keep fastighetsgräns features within ~50m of the tract boundary
+            const THRESHOLD_DEG = 50 / 111320;
             const isNear = (coord: [number, number]) => {
               for (const bc of boundaryCoordinates!) {
                 const dLon = coord[0] - bc[0];
                 const dLat = coord[1] - bc[1];
                 if (Math.abs(dLon) < THRESHOLD_DEG * 3 && Math.abs(dLat) < THRESHOLD_DEG * 3) {
-                  const dist = Math.sqrt(dLon * dLon + dLat * dLat);
-                  if (dist < THRESHOLD_DEG) return true;
+                  if (Math.sqrt(dLon * dLon + dLat * dLat) < THRESHOLD_DEG) return true;
                 }
               }
               return false;
@@ -457,22 +469,12 @@ export default function TraktBriefing({
                 nearbyFeatures.push({ type: 'Feature', properties: {}, geometry: geom });
               }
             }
-            console.log('[Briefing] Nearby fastighetsgräns features:', nearbyFeatures.length);
+            console.log('[Briefing] Nearby fastighetsgräns features (within 50m):', nearbyFeatures.length);
           }
         } catch (e) { console.warn('[Briefing] VT query failed:', e); }
-
-        // Fallback: use tract boundary itself if no VT features found
-        if (nearbyFeatures.length === 0) {
-          console.log('[Briefing] No VT features, using tract boundary as red line');
-          nearbyFeatures = [{
-            type: 'Feature',
-            properties: {},
-            geometry: { type: 'LineString', coordinates: boundaryCoordinates },
-          }];
-        }
       }
 
-      // Create red pulsing line
+      // Only create red line if we actually found fastighetsgräns features from vector tiles
       if (nearbyFeatures.length > 0) {
         try {
           map.addSource(redLineSrc, {
@@ -486,11 +488,13 @@ export default function TraktBriefing({
             paint: { 'line-color': '#ef4444', 'line-width': 10, 'line-opacity': 1 },
             layout: { 'line-cap': 'round', 'line-join': 'round' },
           });
-          console.log('[Briefing] Red pulse layer created with', nearbyFeatures.length, 'features');
+          console.log('[Briefing] Red pulse: created with', nearbyFeatures.length, 'fastighetsgräns features');
         } catch (e) { console.error('[Briefing] Red line layer failed:', e); }
+      } else {
+        console.log('[Briefing] No nearby fastighetsgräns features found — no red line shown');
       }
 
-      // Pulse opacity
+      // Pulse opacity (only runs if layer exists)
       let pulseOn = true;
       wmsPulseRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
