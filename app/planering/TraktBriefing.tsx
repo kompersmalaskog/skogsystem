@@ -416,132 +416,82 @@ export default function TraktBriefing({
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
 
-      // === FULL DEBUG DUMP ===
-      console.log('[Briefing] ======= PROPERTY STEP DEBUG =======');
-      try {
-        const style = map.getStyle();
-        console.log('[Briefing] ALL SOURCES:', Object.keys(style.sources));
-        console.log('[Briefing] ALL LAYERS:', style.layers.map((l: any) => l.id));
-      } catch (e) { console.error('[Briefing] getStyle failed:', e); }
-
-      // Check lines-source data
-      const src = map.getSource('lines-source') as any;
-      console.log('[Briefing] lines-source exists:', !!src);
-      if (src) {
-        // Try multiple ways to access the data
-        const data = src._data || src._options?.data;
-        if (data) {
-          const feats = data.features || [];
-          console.log('[Briefing] lines-source features:', feats.length);
-          feats.forEach((f: any, i: number) => console.log(`[Briefing]   feature[${i}] lineType=${f.properties?.lineType} coords=${f.geometry?.coordinates?.length}`));
-        } else {
-          console.log('[Briefing] lines-source: could not access _data');
-        }
-      }
-
-      // Check what boundary markers we have
-      const boundaryMarkers = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1);
-      console.log('[Briefing] boundary markers from props:', boundaryMarkers.length);
-      if (boundaryMarkers.length > 0) {
-        const bm0 = boundaryMarkers[0];
-        console.log('[Briefing]   first boundary: id=', bm0.id, 'pathLen=', bm0.path!.length);
-        const firstPt = bm0.path![0];
-        const lastPt = bm0.path![bm0.path!.length - 1];
-        const firstLL = svgToLatLon(firstPt.x, firstPt.y);
-        const lastLL = svgToLatLon(lastPt.x, lastPt.y);
-        console.log('[Briefing]   first SVG pt:', firstPt, '→ LatLon:', firstLL);
-        console.log('[Briefing]   last SVG pt:', lastPt, '→ LatLon:', lastLL);
-      }
-
-      // Also try queryRenderedFeatures to see what's actually on screen
-      try {
-        const rendered = map.queryRenderedFeatures(undefined, { layers: ['line-boundary-base'] });
-        console.log('[Briefing] queryRenderedFeatures line-boundary-base:', rendered.length, 'features');
-        if (rendered.length > 0) {
-          console.log('[Briefing]   first rendered feature geometry type:', rendered[0].geometry.type);
-          const coords = rendered[0].geometry.type === 'LineString' ? rendered[0].geometry.coordinates : rendered[0].geometry.type === 'MultiLineString' ? rendered[0].geometry.coordinates[0] : [];
-          console.log('[Briefing]   first rendered coords (first 3):', coords.slice(0, 3));
-        }
-      } catch (e) { console.log('[Briefing] queryRenderedFeatures failed:', e); }
-
-      // Build GeoJSON from markers
-      const pulseFeatures: any[] = [];
-      for (const bm of boundaryMarkers) {
-        const coords = bm.path!.map(p => {
-          const ll = svgToLatLon(p.x, p.y);
-          return [ll.lon, ll.lat];
-        });
-        pulseFeatures.push({
-          type: 'Feature',
-          properties: {},
-          geometry: { type: 'LineString', coordinates: coords },
-        });
-      }
-      console.log('[Briefing] Built pulseFeatures:', pulseFeatures.length, 'features');
-      if (pulseFeatures.length > 0) {
-        console.log('[Briefing]   first feature coords (first 3):', pulseFeatures[0].geometry.coordinates.slice(0, 3));
-        console.log('[Briefing]   first feature coords (last 3):', pulseFeatures[0].geometry.coordinates.slice(-3));
-      }
-
-      // Create dedicated source + layer for the red pulse
-      const pulseSrcId = 'briefing-pulse-src';
+      // Red pulsing traktgräns: copy geometry from existing lines-source
       const pulseLayerId = 'briefing-boundary-pulse';
+      const pulseSrcId = 'briefing-pulse-src';
       try { if (map.getLayer(pulseLayerId)) map.removeLayer(pulseLayerId); } catch {}
       try { if (map.getSource(pulseSrcId)) map.removeSource(pulseSrcId); } catch {}
 
-      const geojsonData = { type: 'FeatureCollection' as const, features: pulseFeatures };
-      console.log('[Briefing] Creating source with data:', JSON.stringify(geojsonData).slice(0, 300));
-
+      // Get boundary features from lines-source via querySourceFeatures
+      let pulseFeatures: any[] = [];
       try {
-        map.addSource(pulseSrcId, { type: 'geojson', data: geojsonData });
-        console.log('[Briefing] Source created OK:', !!map.getSource(pulseSrcId));
-      } catch (e) {
-        console.error('[Briefing] FAILED addSource:', e);
-      }
-
-      try {
-        map.addLayer({
-          id: pulseLayerId,
-          type: 'line',
-          source: pulseSrcId,
-          paint: { 'line-color': '#ef4444', 'line-width': 8, 'line-opacity': 1.0 },
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
+        const srcFeats = map.querySourceFeatures('lines-source', {
+          filter: ['==', ['get', 'lineType'], 'boundary'],
         });
-        console.log('[Briefing] Layer created OK:', !!map.getLayer(pulseLayerId));
+        // Deduplicate (querySourceFeatures can return tiles duplicates)
+        const seen = new Set<string>();
+        for (const f of srcFeats) {
+          const fid = f.properties?.id || JSON.stringify(f.geometry.coordinates.slice(0, 3));
+          if (seen.has(fid)) continue;
+          seen.add(fid);
+          pulseFeatures.push({
+            type: 'Feature',
+            properties: {},
+            geometry: f.geometry,
+          });
+        }
+      } catch {}
+      console.log('[Briefing] querySourceFeatures boundary:', pulseFeatures.length);
 
-        // Verify layer is in style
-        const afterLayers = map.getStyle().layers.map((l: any) => l.id);
-        const pulseIdx = afterLayers.indexOf(pulseLayerId);
-        console.log('[Briefing] Pulse layer index in stack:', pulseIdx, 'of', afterLayers.length, '(last = top)');
-        console.log('[Briefing] Top 5 layers:', afterLayers.slice(-5));
-      } catch (e) {
-        console.error('[Briefing] FAILED addLayer:', e);
+      // Fallback: read _data directly from the source object
+      if (pulseFeatures.length === 0) {
+        try {
+          const srcObj = map.getSource('lines-source') as any;
+          const data = srcObj?._data || srcObj?._options?.data;
+          if (data?.features) {
+            pulseFeatures = data.features
+              .filter((f: any) => f.properties?.lineType === 'boundary')
+              .map((f: any) => ({ type: 'Feature', properties: {}, geometry: f.geometry }));
+          }
+        } catch {}
+        console.log('[Briefing] _data fallback boundary:', pulseFeatures.length);
       }
 
-      // Verify: query the pulse layer after a short delay
-      setTimeout(() => {
-        if (!mapInstanceRef.current) return;
-        const m = mapInstanceRef.current;
-        console.log('[Briefing] === DELAYED VERIFY (500ms) ===');
-        console.log('[Briefing] Pulse layer still exists:', !!m.getLayer(pulseLayerId));
-        console.log('[Briefing] Pulse source still exists:', !!m.getSource(pulseSrcId));
-        try {
-          const pulsePaint = m.getPaintProperty(pulseLayerId, 'line-opacity');
-          const pulseVis = m.getLayoutProperty(pulseLayerId, 'visibility');
-          console.log('[Briefing] Pulse line-opacity:', pulsePaint, 'visibility:', pulseVis);
-        } catch (e) { console.log('[Briefing] getPaintProperty failed:', e); }
-        try {
-          const feat = m.queryRenderedFeatures(undefined, { layers: [pulseLayerId] });
-          console.log('[Briefing] queryRenderedFeatures on pulse layer:', feat.length, 'features');
-        } catch (e) { console.log('[Briefing] queryRenderedFeatures pulse failed:', e); }
-      }, 500);
+      // Fallback 2: build from markers prop
+      if (pulseFeatures.length === 0) {
+        const bndMarkers = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1);
+        for (const bm of bndMarkers) {
+          const coords = bm.path!.map(p => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat]; });
+          pulseFeatures.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
+        }
+        console.log('[Briefing] markers fallback boundary:', pulseFeatures.length);
+      }
 
-      // Pulse opacity
+      if (pulseFeatures.length > 0) {
+        try {
+          map.addSource(pulseSrcId, {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: pulseFeatures },
+          });
+          map.addLayer({
+            id: pulseLayerId,
+            type: 'line',
+            source: pulseSrcId,
+            paint: { 'line-color': '#ef4444', 'line-width': 8, 'line-opacity': 1.0 },
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+          });
+          console.log('[Briefing] Pulse layer OK, features:', pulseFeatures.length);
+        } catch (e) { console.error('[Briefing] Pulse layer failed:', e); }
+      } else {
+        console.warn('[Briefing] No boundary geometry found — cannot create pulse layer');
+      }
+
+      // Pulse opacity between 1.0 and 0.15
       let pulseT = 0;
       wmsPulseRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
         pulseT += 0.07;
-        const op = 0.6 + 0.4 * Math.sin(pulseT);
+        const op = 0.575 + 0.425 * Math.sin(pulseT);
         try {
           if (mapInstanceRef.current.getLayer(pulseLayerId)) {
             mapInstanceRef.current.setPaintProperty(pulseLayerId, 'line-opacity', op);
