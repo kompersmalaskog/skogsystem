@@ -376,9 +376,14 @@ export default function TraktBriefing({
       if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
       const map = mapInstanceRef.current;
       if (map) {
-        // Remove red pulse layer if still present
-        try { if (map.getLayer('briefing-boundary-pulse')) map.removeLayer('briefing-boundary-pulse'); } catch {}
-        try { if (map.getSource('briefing-pulse-src')) map.removeSource('briefing-pulse-src'); } catch {}
+        // Restore glow layer if modified
+        if (map.getLayer('line-boundary-glow')) {
+          try {
+            map.setPaintProperty('line-boundary-glow', 'line-color', '#fbbf24');
+            map.setPaintProperty('line-boundary-glow', 'line-opacity', 0.3);
+            map.setPaintProperty('line-boundary-glow', 'line-blur', 4);
+          } catch {}
+        }
         if (map.getLayer('wms-layer-fastighetsgranser')) {
           try {
             map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
@@ -416,85 +421,21 @@ export default function TraktBriefing({
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
 
-      // Red pulsing traktgräns: copy geometry from existing lines-source
-      const pulseLayerId = 'briefing-boundary-pulse';
-      const pulseSrcId = 'briefing-pulse-src';
-      try { if (map.getLayer(pulseLayerId)) map.removeLayer(pulseLayerId); } catch {}
-      try { if (map.getSource(pulseSrcId)) map.removeSource(pulseSrcId); } catch {}
-
-      // Get boundary features from lines-source via querySourceFeatures
-      let pulseFeatures: any[] = [];
-      try {
-        const srcFeats = map.querySourceFeatures('lines-source', {
-          filter: ['==', ['get', 'lineType'], 'boundary'],
-        });
-        // Deduplicate (querySourceFeatures can return tiles duplicates)
-        const seen = new Set<string>();
-        for (const f of srcFeats) {
-          const fid = f.properties?.id || JSON.stringify(f.geometry.coordinates.slice(0, 3));
-          if (seen.has(fid)) continue;
-          seen.add(fid);
-          pulseFeatures.push({
-            type: 'Feature',
-            properties: {},
-            geometry: f.geometry,
-          });
-        }
-      } catch {}
-      console.log('[Briefing] querySourceFeatures boundary:', pulseFeatures.length);
-
-      // Fallback: read _data directly from the source object
-      if (pulseFeatures.length === 0) {
-        try {
-          const srcObj = map.getSource('lines-source') as any;
-          const data = srcObj?._data || srcObj?._options?.data;
-          if (data?.features) {
-            pulseFeatures = data.features
-              .filter((f: any) => f.properties?.lineType === 'boundary')
-              .map((f: any) => ({ type: 'Feature', properties: {}, geometry: f.geometry }));
-          }
-        } catch {}
-        console.log('[Briefing] _data fallback boundary:', pulseFeatures.length);
+      // Red pulsing traktgräns: reuse existing line-boundary-glow layer
+      if (map.getLayer('line-boundary-glow')) {
+        map.setPaintProperty('line-boundary-glow', 'line-color', '#ef4444');
+        map.setPaintProperty('line-boundary-glow', 'line-width', 12);
+        map.setPaintProperty('line-boundary-glow', 'line-opacity', 1.0);
+        map.setPaintProperty('line-boundary-glow', 'line-blur', 0);
       }
-
-      // Fallback 2: build from markers prop
-      if (pulseFeatures.length === 0) {
-        const bndMarkers = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1);
-        for (const bm of bndMarkers) {
-          const coords = bm.path!.map(p => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat]; });
-          pulseFeatures.push({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
-        }
-        console.log('[Briefing] markers fallback boundary:', pulseFeatures.length);
-      }
-
-      if (pulseFeatures.length > 0) {
-        try {
-          map.addSource(pulseSrcId, {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: pulseFeatures },
-          });
-          map.addLayer({
-            id: pulseLayerId,
-            type: 'line',
-            source: pulseSrcId,
-            paint: { 'line-color': '#ef4444', 'line-width': 8, 'line-opacity': 1.0 },
-            layout: { 'line-cap': 'round', 'line-join': 'round' },
-          });
-          console.log('[Briefing] Pulse layer OK, features:', pulseFeatures.length);
-        } catch (e) { console.error('[Briefing] Pulse layer failed:', e); }
-      } else {
-        console.warn('[Briefing] No boundary geometry found — cannot create pulse layer');
-      }
-
-      // Pulse opacity between 1.0 and 0.15
       let pulseT = 0;
       wmsPulseRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
         pulseT += 0.07;
-        const op = 0.575 + 0.425 * Math.sin(pulseT);
+        const op = 0.6 + 0.4 * Math.sin(pulseT);
         try {
-          if (mapInstanceRef.current.getLayer(pulseLayerId)) {
-            mapInstanceRef.current.setPaintProperty(pulseLayerId, 'line-opacity', op);
+          if (mapInstanceRef.current.getLayer('line-boundary-glow')) {
+            mapInstanceRef.current.setPaintProperty('line-boundary-glow', 'line-opacity', op);
           }
         } catch {}
       }, 50);
@@ -507,9 +448,16 @@ export default function TraktBriefing({
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
       }
-      // Remove red pulse layer
-      try { if (map.getLayer('briefing-boundary-pulse')) map.removeLayer('briefing-boundary-pulse'); } catch {}
-        try { if (map.getSource('briefing-pulse-src')) map.removeSource('briefing-pulse-src'); } catch {}
+      // Restore glow layer to normal
+      if (map.getLayer('line-boundary-glow')) {
+        try {
+          map.setPaintProperty('line-boundary-glow', 'line-color', '#fbbf24');
+          map.setPaintProperty('line-boundary-glow', 'line-opacity', 0.3);
+          map.setPaintProperty('line-boundary-glow', 'line-blur', 4);
+          const glowWidth = ['interpolate', ['linear'], ['zoom'], 5, 10, 8, 14, 11, 18, 13, 22, 15, 28, 17, 32] as any;
+          map.setPaintProperty('line-boundary-glow', 'line-width', glowWidth);
+        } catch {}
+      }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
       prevOverlaysRef.current = null;
     }
@@ -607,7 +555,7 @@ export default function TraktBriefing({
 
     setFadeIn(false);
     requestAnimationFrame(() => { requestAnimationFrame(() => setFadeIn(true)); });
-  }, [steps, mapInstanceRef, overlays, setOverlays, onActiveMarkerChange, markers, svgToLatLon]);
+  }, [steps, mapInstanceRef, overlays, setOverlays, onActiveMarkerChange]);
 
   const goToStep = useCallback((idx: number) => {
     if (overviewBusyRef.current && idx !== 0) return;
@@ -621,9 +569,14 @@ export default function TraktBriefing({
     if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
     const map = mapInstanceRef.current;
     if (map) {
-      // Remove red pulse layer
-      try { if (map.getLayer('briefing-boundary-pulse')) map.removeLayer('briefing-boundary-pulse'); } catch {}
-        try { if (map.getSource('briefing-pulse-src')) map.removeSource('briefing-pulse-src'); } catch {}
+      // Restore glow layer if modified
+      if (map.getLayer('line-boundary-glow')) {
+        try {
+          map.setPaintProperty('line-boundary-glow', 'line-color', '#fbbf24');
+          map.setPaintProperty('line-boundary-glow', 'line-opacity', 0.3);
+          map.setPaintProperty('line-boundary-glow', 'line-blur', 4);
+        } catch {}
+      }
       if (prevOverlaysRef.current) {
         if (map.getLayer('wms-layer-fastighetsgranser')) {
           try {
