@@ -704,6 +704,29 @@ export default function PlannerPage() {
       } catch (e) { console.error(`[MapLibre] WMS ${def.id} error:`, e); }
     });
 
+    // Vector tiles: Fastighetsgränser (Lantmäteriet)
+    try {
+      map.addSource('vt-fastighet', {
+        type: 'vector',
+        tiles: [window.location.origin + '/api/vt-proxy?z={z}&x={x}&y={y}'],
+        minzoom: 4,
+        maxzoom: 14,
+      });
+      map.addLayer({
+        id: 'vt-fastighet-line',
+        type: 'line',
+        source: 'vt-fastighet',
+        'source-layer': 'fastighetsindelning',
+        paint: {
+          'line-color': '#f59e0b',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.5, 13, 1.5, 15, 2, 17, 3],
+          'line-opacity': 0.8,
+        },
+        layout: { visibility: 'none', 'line-cap': 'round', 'line-join': 'round' },
+      }, 'zone-fill');
+      console.log('[MapLibre] Vector tile fastighetsgränser added');
+    } catch (e) { console.error('[MapLibre] VT fastighet error:', e); }
+
     // Körbarhetstiles
     try {
       map.addSource('wms-korbarhet', { type: 'raster', tiles: ['/api/korbarhet-tiles?bbox={bbox-epsg-3857}&width=256&height=256'], tileSize: 256 });
@@ -1320,8 +1343,10 @@ export default function PlannerPage() {
       const layerId = `wms-layer-${id}`;
       if (map.getLayer(layerId)) {
         map.setLayoutProperty(layerId, 'visibility', overlays[id] ? 'visible' : 'none');
-      } else {
-        console.warn(`[MapLibre] WMS toggle: layer ${layerId} does not exist`);
+      }
+      // Also toggle vector tile layer for fastighetsgränser
+      if (id === 'fastighetsgranser' && map.getLayer('vt-fastighet-line')) {
+        map.setLayoutProperty('vt-fastighet-line', 'visibility', overlays[id] ? 'visible' : 'none');
       }
     });
   }, [overlays, mapLibreReady]);

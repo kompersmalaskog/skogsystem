@@ -404,61 +404,116 @@ export default function TraktBriefing({
     if (overviewBusyRef.current) { overviewBusyRef.current = false; setOverviewBusy(false); }
     setOverviewPhase('orbit');
 
-    // Property step: activate WMS + red pulsing traktgräns
+    // Property step: show fastighetsgränser + red pulsing nearby boundaries
+    const redLineLayer = 'briefing-red-line-layer';
+    const redLineSrc = 'briefing-red-line';
     if (step.type === 'property') {
       prevOverlaysRef.current = { ...overlays };
-      // Activate WMS fastighetsgräns at full opacity
+      // Show fastighetsgränser (vector tile layer + WMS fallback)
+      if (map.getLayer('vt-fastighet-line')) {
+        map.setLayoutProperty('vt-fastighet-line', 'visibility', 'visible');
+      }
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', 'visible');
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1.0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0.3);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1.2);
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
 
-      // Red pulsing traktgräns from boundaryCoordinates prop
-      try { if (map.getLayer('briefing-red-line-layer')) map.removeLayer('briefing-red-line-layer'); } catch {}
-      try { if (map.getSource('briefing-red-line')) map.removeSource('briefing-red-line'); } catch {}
+      // Find fastighetsgräns lines near the tract boundary from vector tiles
+      try { if (map.getLayer(redLineLayer)) map.removeLayer(redLineLayer); } catch {}
+      try { if (map.getSource(redLineSrc)) map.removeSource(redLineSrc); } catch {}
+
+      // Query vector tile source for nearby fastighetsgräns features
+      let nearbyFeatures: any[] = [];
       if (boundaryCoordinates && boundaryCoordinates.length > 1) {
-        console.log('[Briefing] Red line coords:', boundaryCoordinates.length, 'first:', boundaryCoordinates[0]);
-        map.addSource('briefing-red-line', {
-          type: 'geojson',
-          data: {
+        try {
+          const vtFeats = map.querySourceFeatures('vt-fastighet', { sourceLayer: 'fastighetsindelning' });
+          console.log('[Briefing] VT fastighetsgräns features loaded:', vtFeats.length);
+
+          if (vtFeats.length > 0) {
+            // Filter: keep features within ~50m of tract boundary
+            const THRESHOLD_DEG = 50 / 111320; // ~50m in degrees
+            const isNear = (coord: [number, number]) => {
+              for (const bc of boundaryCoordinates!) {
+                const dLon = coord[0] - bc[0];
+                const dLat = coord[1] - bc[1];
+                if (Math.abs(dLon) < THRESHOLD_DEG * 3 && Math.abs(dLat) < THRESHOLD_DEG * 3) {
+                  const dist = Math.sqrt(dLon * dLon + dLat * dLat);
+                  if (dist < THRESHOLD_DEG) return true;
+                }
+              }
+              return false;
+            };
+
+            for (const f of vtFeats) {
+              const geom = f.geometry;
+              if (!geom) continue;
+              let coords: [number, number][] = [];
+              if (geom.type === 'LineString') coords = geom.coordinates as [number, number][];
+              else if (geom.type === 'MultiLineString') coords = (geom.coordinates as [number, number][][]).flat();
+              else if (geom.type === 'Polygon') coords = (geom.coordinates as [number, number][][])[0];
+              else continue;
+              if (coords.some(c => isNear(c))) {
+                nearbyFeatures.push({ type: 'Feature', properties: {}, geometry: geom });
+              }
+            }
+            console.log('[Briefing] Nearby fastighetsgräns features:', nearbyFeatures.length);
+          }
+        } catch (e) { console.warn('[Briefing] VT query failed:', e); }
+
+        // Fallback: use tract boundary itself if no VT features found
+        if (nearbyFeatures.length === 0) {
+          console.log('[Briefing] No VT features, using tract boundary as red line');
+          nearbyFeatures = [{
             type: 'Feature',
             properties: {},
             geometry: { type: 'LineString', coordinates: boundaryCoordinates },
-          },
-        });
-        map.addLayer({
-          id: 'briefing-red-line-layer',
-          type: 'line',
-          source: 'briefing-red-line',
-          paint: { 'line-color': '#ef4444', 'line-width': 10, 'line-opacity': 1 },
-          layout: { 'line-cap': 'round', 'line-join': 'round' },
-        });
+          }];
+        }
       }
+
+      // Create red pulsing line
+      if (nearbyFeatures.length > 0) {
+        try {
+          map.addSource(redLineSrc, {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: nearbyFeatures },
+          });
+          map.addLayer({
+            id: redLineLayer,
+            type: 'line',
+            source: redLineSrc,
+            paint: { 'line-color': '#ef4444', 'line-width': 10, 'line-opacity': 1 },
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+          });
+          console.log('[Briefing] Red pulse layer created with', nearbyFeatures.length, 'features');
+        } catch (e) { console.error('[Briefing] Red line layer failed:', e); }
+      }
+
+      // Pulse opacity
       let pulseOn = true;
       wmsPulseRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
         pulseOn = !pulseOn;
         try {
-          if (mapInstanceRef.current.getLayer('briefing-red-line-layer')) {
-            mapInstanceRef.current.setPaintProperty('briefing-red-line-layer', 'line-opacity', pulseOn ? 1.0 : 0.2);
+          if (mapInstanceRef.current.getLayer(redLineLayer)) {
+            mapInstanceRef.current.setPaintProperty(redLineLayer, 'line-opacity', pulseOn ? 1.0 : 0.2);
           }
         } catch {}
       }, 1000);
     } else if (prevOverlaysRef.current) {
-      // Restore WMS
+      // Restore fastighetsgränser visibility
       const wasOn = prevOverlaysRef.current.fastighetsgranser;
+      if (map.getLayer('vt-fastighet-line')) {
+        map.setLayoutProperty('vt-fastighet-line', 'visibility', wasOn ? 'visible' : 'none');
+      }
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
       }
       // Remove red line
-      try { if (map.getLayer('briefing-red-line-layer')) map.removeLayer('briefing-red-line-layer'); } catch {}
-      try { if (map.getSource('briefing-red-line')) map.removeSource('briefing-red-line'); } catch {}
+      try { if (map.getLayer(redLineLayer)) map.removeLayer(redLineLayer); } catch {}
+      try { if (map.getSource(redLineSrc)) map.removeSource(redLineSrc); } catch {}
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
       prevOverlaysRef.current = null;
     }
