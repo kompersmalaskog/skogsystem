@@ -899,6 +899,110 @@ export default function PlannerPage() {
   const checklistPulseRef = useRef<any>(null);
   const checklistPrevOverlaysRef = useRef<Record<string, boolean> | null>(null);
 
+  // === KVITTERINGS-STATUS: Ladda från Supabase ===
+  const kvitteringLoadedRef = useRef(false);
+  useEffect(() => {
+    kvitteringLoadedRef.current = false;
+    if (!valtObjekt?.id) return;
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('kvittering_status')
+        .select('checked_ids')
+        .eq('objekt_id', valtObjekt.id)
+        .maybeSingle();
+      if (error) {
+        console.error('[Kvittering] Ladda fel:', error);
+      } else if (data?.checked_ids) {
+        setBriefingCheckedIds(data.checked_ids);
+      }
+      kvitteringLoadedRef.current = true;
+    };
+    load();
+  }, [valtObjekt?.id]);
+
+  // === KVITTERINGS-STATUS: Spara till Supabase (debounced) ===
+  const kvitteringSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!valtObjekt?.id || !kvitteringLoadedRef.current) return;
+    if (kvitteringSaveTimeoutRef.current) clearTimeout(kvitteringSaveTimeoutRef.current);
+    kvitteringSaveTimeoutRef.current = setTimeout(async () => {
+      const { error } = await supabase
+        .from('kvittering_status')
+        .upsert({
+          objekt_id: valtObjekt.id,
+          checked_ids: briefingCheckedIds,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'objekt_id' });
+      if (error) console.error('[Kvittering] Spara fel:', error);
+    }, 1500);
+    return () => { if (kvitteringSaveTimeoutRef.current) clearTimeout(kvitteringSaveTimeoutRef.current); };
+  }, [briefingCheckedIds, valtObjekt?.id]);
+
+  // === BRIEFING-STATUS: Ladda från Supabase ===
+  const briefingLoadedRef = useRef(false);
+  useEffect(() => {
+    briefingLoadedRef.current = false;
+    if (!valtObjekt?.id) return;
+    const load = async () => {
+      const { data, error } = await supabase
+        .from('briefing_status')
+        .select('completed, step_total')
+        .eq('objekt_id', valtObjekt.id)
+        .maybeSingle();
+      if (error) {
+        console.error('[Briefing] Ladda fel:', error);
+      } else if (data) {
+        setBriefingCompleted(data.completed || false);
+        setBriefingStepTotal(data.step_total || 0);
+      }
+      briefingLoadedRef.current = true;
+    };
+    load();
+  }, [valtObjekt?.id]);
+
+  // === BRIEFING-STATUS: Spara till Supabase (debounced) ===
+  const briefingSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!valtObjekt?.id || !briefingLoadedRef.current) return;
+    if (briefingSaveTimeoutRef.current) clearTimeout(briefingSaveTimeoutRef.current);
+    briefingSaveTimeoutRef.current = setTimeout(async () => {
+      const { error } = await supabase
+        .from('briefing_status')
+        .upsert({
+          objekt_id: valtObjekt.id,
+          completed: briefingCompleted,
+          step_total: briefingStepTotal,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'objekt_id' });
+      if (error) console.error('[Briefing] Spara fel:', error);
+    }, 1500);
+    return () => { if (briefingSaveTimeoutRef.current) clearTimeout(briefingSaveTimeoutRef.current); };
+  }, [briefingCompleted, briefingStepTotal, valtObjekt?.id]);
+
+  // === LJUD: Supabase Storage helpers ===
+  const uploadAudioToStorage = useCallback(async (blob: Blob, markerId: string, noteId?: string): Promise<string | null> => {
+    if (!valtObjekt?.id) return null;
+    const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
+    const path = noteId
+      ? `${valtObjekt.id}/${markerId}/note-${noteId}-${Date.now()}.${ext}`
+      : `${valtObjekt.id}/${markerId}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from('audio').upload(path, blob, { contentType: blob.type, upsert: false });
+    if (error) { console.error('[Audio] Upload fel:', error); return null; }
+    const { data: urlData } = supabase.storage.from('audio').getPublicUrl(path);
+    return urlData.publicUrl;
+  }, [valtObjekt?.id]);
+
+  const deleteAudioFromStorage = useCallback(async (audioUrl: string) => {
+    if (!audioUrl || audioUrl.startsWith('data:')) return; // skip base64 (legacy)
+    try {
+      const match = audioUrl.match(/\/audio\/(.+)$/);
+      if (!match) return;
+      const path = decodeURIComponent(match[1]);
+      const { error } = await supabase.storage.from('audio').remove([path]);
+      if (error) console.error('[Audio] Delete fel:', error);
+    } catch (err) { console.error('[Audio] Delete fel:', err); }
+  }, []);
+
   // === LJUD-INSPELNING (generell) ===
   const stopAnyRecording = useCallback(() => {
     if (audioTimeoutRef.current) { clearTimeout(audioTimeoutRef.current); audioTimeoutRef.current = null; }
@@ -922,16 +1026,22 @@ export default function PlannerPage() {
       const recorder = new MediaRecorder(stream, { mimeType });
       audioChunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         if (audioChunksRef.current.length === 0) return;
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64 = reader.result as string;
-          setMarkers(prev => prev.map(m => m.id === markerId ? { ...m, notes: (m.notes || []).map(n => n.id === noteId ? { ...n, audioData: base64 } : n) } : m));
-        };
-        reader.readAsDataURL(blob);
+        const url = await uploadAudioToStorage(blob, markerId, noteId);
+        if (url) {
+          setMarkers(prev => prev.map(m => m.id === markerId ? { ...m, notes: (m.notes || []).map(n => n.id === noteId ? { ...n, audioData: url } : n) } : m));
+        } else {
+          // Fallback till base64 om upload misslyckas
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64 = reader.result as string;
+            setMarkers(prev => prev.map(m => m.id === markerId ? { ...m, notes: (m.notes || []).map(n => n.id === noteId ? { ...n, audioData: base64 } : n) } : m));
+          };
+          reader.readAsDataURL(blob);
+        }
       };
       recorder.start();
       mediaRecorderRef.current = recorder;
@@ -944,7 +1054,7 @@ export default function PlannerPage() {
     } catch (err) {
       console.error('Kunde inte starta ljudinspelning:', err);
     }
-  }, [isRecordingAudio, stopAnyRecording]);
+  }, [isRecordingAudio, stopAnyRecording, uploadAudioToStorage]);
 
   // Spela in ljud direkt på en marker (audioData fältet)
   const toggleMarkerAudioRecording = useCallback(async (markerId: string) => {
@@ -955,18 +1065,24 @@ export default function PlannerPage() {
       const recorder = new MediaRecorder(stream, { mimeType });
       audioChunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      recorder.onstop = () => {
+      recorder.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         if (audioChunksRef.current.length === 0) return;
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64 = reader.result as string;
-          setMarkers(prev => prev.map(m => m.id === markerId ? { ...m, audioData: base64 } : m));
-          // Also update editingMarker if open
-          setEditingMarker(prev => prev && prev.id === markerId ? { ...prev, audioData: base64 } : prev);
-        };
-        reader.readAsDataURL(blob);
+        const url = await uploadAudioToStorage(blob, markerId);
+        if (url) {
+          setMarkers(prev => prev.map(m => m.id === markerId ? { ...m, audioData: url } : m));
+          setEditingMarker(prev => prev && prev.id === markerId ? { ...prev, audioData: url } : prev);
+        } else {
+          // Fallback till base64 om upload misslyckas
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64 = reader.result as string;
+            setMarkers(prev => prev.map(m => m.id === markerId ? { ...m, audioData: base64 } : m));
+            setEditingMarker(prev => prev && prev.id === markerId ? { ...prev, audioData: base64 } : prev);
+          };
+          reader.readAsDataURL(blob);
+        }
       };
       recorder.start();
       mediaRecorderRef.current = recorder;
@@ -979,7 +1095,7 @@ export default function PlannerPage() {
     } catch (err) {
       console.error('Kunde inte starta ljudinspelning:', err);
     }
-  }, [isRecordingAudio, stopAnyRecording]);
+  }, [isRecordingAudio, stopAnyRecording, uploadAudioToStorage]);
 
   // Legacy aliases
   const startNoteAudioRecording = toggleNoteAudioRecording;
@@ -1092,7 +1208,7 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar')
+        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, driving_mode, stickvag_settings')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
@@ -1113,6 +1229,20 @@ export default function PlannerPage() {
         setInfoMarkagareVed(data.markagare_ska_ha_ved || false);
         setInfoMarkagareVedText(data.markagare_ved_text || '');
         setInfoAnteckningar(data.info_anteckningar || '');
+        // Prognos, traktdata, körläge, stickväg
+        if (data.prognos_settings) setPrognosSettings(data.prognos_settings);
+        if (data.manuell_prognos) setManuellPrognos(data.manuell_prognos);
+        if (data.trakt_data) setTraktData(data.trakt_data);
+        if (data.driving_mode) setDrivingMode(data.driving_mode);
+        if (data.stickvag_settings) setStickvagSettings(data.stickvag_settings);
+      }
+      // Ladda kvitterade varningar från Supabase
+      const { data: ackData } = await supabase
+        .from('warning_acknowledgments')
+        .select('marker_id')
+        .eq('objekt_id', valtObjekt.id);
+      if (ackData && ackData.length > 0) {
+        setAcknowledgedWarnings(ackData.map(r => r.marker_id));
       }
       setInfoLoaded(true);
     };
@@ -1142,10 +1272,15 @@ export default function PlannerPage() {
         markagare_ska_ha_ved: infoMarkagareVed,
         markagare_ved_text: infoMarkagareVedText || null,
         info_anteckningar: infoAnteckningar || null,
+        prognos_settings: prognosSettings,
+        manuell_prognos: manuellPrognos,
+        trakt_data: traktData,
+        driving_mode: drivingMode,
+        stickvag_settings: stickvagSettings,
       })
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
-  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar]);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, prognosSettings, manuellPrognos, traktData, drivingMode, stickvagSettings]);
 
   useEffect(() => {
     if (!infoLoaded) return;
@@ -1254,6 +1389,30 @@ export default function PlannerPage() {
   const gpsPathRef = useRef<Point[]>([]);
   const gpsHistoryRef = useRef<Point[]>([]); // Senaste 20 positioner för medelvärde
   const lastConfirmedPosRef = useRef<Point>({ x: 200, y: 300 }); // Sista bekräftade position (efter minDistance-filter)
+
+  // GPS-spår persistens (Supabase)
+  const activeGpsTrackIdRef = useRef<string | null>(null);
+  const gpsTrackSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const trackingPathRef = useRef<{lat: number, lon: number, ts: number}[]>([]);
+  const lastGpsTrackSaveCountRef = useRef(0);
+
+  // Periodisk GPS-spår-sparning (var 10:e sekund)
+  useEffect(() => {
+    if (!isTracking || !gpsLineType) return;
+    const interval = setInterval(() => {
+      const trackId = activeGpsTrackIdRef.current;
+      const points = trackingPathRef.current;
+      if (!trackId || points.length === lastGpsTrackSaveCountRef.current) return;
+      lastGpsTrackSaveCountRef.current = points.length;
+      supabase.from('gps_tracks').update({
+        points: points,
+        updated_at: new Date().toISOString(),
+      }).eq('track_id', trackId).then(({ error }) => {
+        if (error) console.error('[GPS] Spara spår fel:', error);
+      });
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isTracking, gpsLineType]);
 
   // Simulerad position (för testning vid dator)
   const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
@@ -2301,6 +2460,12 @@ export default function PlannerPage() {
           namn: bvData.namn || '', starttid: bvData.starttid || '', sluttid: bvData.sluttid || '', noteringar: bvData.noteringar || '',
         });
       }
+      // Ladda utrustning + larm-checklista från brand_samrad
+      if (samData) {
+        if (Array.isArray(samData.utrustning)) setBrandUtrustning(samData.utrustning);
+        if (Array.isArray(samData.larm_checklista)) setBrandLarmChecklista(samData.larm_checklista);
+        if (samData.larm_tillfart) setBrandLarmTillfart(samData.larm_tillfart);
+      }
       brandLoadedRef.current = true;
       console.log('[Brand] Laddade data från Supabase');
     };
@@ -2324,6 +2489,9 @@ export default function PlannerPage() {
         kortider: brandSamrad.kortider || null,
         datum: brandSamrad.datum,
         kvitterad: brandSamrad.kvitterad,
+        utrustning: brandUtrustning,
+        larm_checklista: brandLarmChecklista,
+        larm_tillfart: brandLarmTillfart || null,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'objekt_id' });
       await supabase.from('brand_kontakter').upsert({
@@ -2345,7 +2513,7 @@ export default function PlannerPage() {
       console.log('[Brand] Sparade till Supabase');
     }, 2000);
     return () => { if (brandSaveTimeoutRef.current) clearTimeout(brandSaveTimeoutRef.current); };
-  }, [brandSamrad, brandKontakter, brandEfterkontroll, valtObjekt?.id, brandTestMode]);
+  }, [brandSamrad, brandKontakter, brandEfterkontroll, brandUtrustning, brandLarmChecklista, brandLarmTillfart, valtObjekt?.id, brandTestMode]);
 
   // === TMA: Ladda sparad data från Supabase ===
   const tmaLoadedRef = useRef(false);
@@ -4254,6 +4422,21 @@ export default function PlannerPage() {
     gpsPausedRef.current = false; // Viktigt! Nollställ paus
     setMenuOpen(false);
     setMenuHeight(0);
+
+    // Skapa GPS-spår i Supabase
+    trackingPathRef.current = [];
+    if (valtObjekt?.id) {
+      const trackId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      activeGpsTrackIdRef.current = trackId;
+      supabase.from('gps_tracks').insert({
+        track_id: trackId,
+        objekt_id: valtObjekt.id,
+        line_type: lineType,
+        points: [],
+        status: 'recording',
+        started_at: new Date().toISOString(),
+      }).then(({ error }) => { if (error) console.error('[GPS] Skapa spår fel:', error); });
+    }
     
     // Kolla om det är en stickväg och om det finns tidigare stickvägar
     const isStickväg = ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(lineType);
@@ -4314,6 +4497,10 @@ export default function PlannerPage() {
 
         if (isAccurate) {
           setTrackingPath(prev => [...prev, newPos]);
+          // Spara med timestamp till ref för Supabase-persistens
+          if (gpsLineTypeRef.current && !gpsPausedRef.current) {
+            trackingPathRef.current = [...trackingPathRef.current, { lat: newPos.lat, lon: newPos.lon, ts: Date.now() }];
+          }
         }
 
         // Första punkten - sätt startposition (acceptera upp till 30m)
@@ -4416,7 +4603,30 @@ export default function PlannerPage() {
       };
       setMarkers(prev => [...prev, newLine]);
     }
-    
+
+    // Uppdatera GPS-spår i Supabase
+    const trackId = activeGpsTrackIdRef.current;
+    if (trackId) {
+      if (save && trackingPathRef.current.length > 0) {
+        supabase.from('gps_tracks').update({
+          points: trackingPathRef.current,
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).eq('track_id', trackId).then(({ error }) => {
+          if (error) console.error('[GPS] Slutför spår fel:', error);
+        });
+      } else {
+        // Ingen data sparad — ta bort spåret
+        supabase.from('gps_tracks').delete().eq('track_id', trackId).then(({ error }) => {
+          if (error) console.error('[GPS] Ta bort spår fel:', error);
+        });
+      }
+      activeGpsTrackIdRef.current = null;
+    }
+    trackingPathRef.current = [];
+    lastGpsTrackSaveCountRef.current = 0;
+
     // Nollställ linjespårning men BEHÅLL GPS-visning
     setGpsLineType(null);
     gpsLineTypeRef.current = null;
@@ -4425,19 +4635,19 @@ export default function PlannerPage() {
     setGpsStartPos(null);
     setGpsPaused(false);
     gpsPausedRef.current = false;
-    
+
     // Stäng av stickvägsmode och översikt
     setStickvagMode(false);
     setStickvagOversikt(false);
     previousStickvagRef.current = null;
-    
+
     // OBS: Vi stänger INTE av isTracking eller watchIdRef - GPS fortsätter visa position
   };
   
   // Spara väg och visa popup för att välja nästa färg
   const saveAndShowPopup = () => {
     const currentLineType = gpsLineType || gpsLineTypeRef.current;
-    
+
     if (gpsPathRef.current.length > 1 && currentLineType) {
       saveToHistory([...markers]);
       const newLine = {
@@ -4450,11 +4660,29 @@ export default function PlannerPage() {
       setMarkers(prev => [...prev, newLine]);
       const lineType = lineTypes.find(t => t.id === currentLineType);
       setSavedVagColor(lineType?.color || '#fff');
-      
+
       // Sätt den sparade linjen som referens för nästa spårning
       previousStickvagRef.current = newLine;
     }
-    
+
+    // Slutför GPS-spår i Supabase och förbered för nästa
+    const trackId = activeGpsTrackIdRef.current;
+    if (trackId && trackingPathRef.current.length > 0) {
+      supabase.from('gps_tracks').update({
+        points: trackingPathRef.current,
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq('track_id', trackId).then(({ error }) => {
+        if (error) console.error('[GPS] Slutför segment fel:', error);
+      });
+    } else if (trackId) {
+      supabase.from('gps_tracks').delete().eq('track_id', trackId);
+    }
+    activeGpsTrackIdRef.current = null;
+    trackingPathRef.current = [];
+    lastGpsTrackSaveCountRef.current = 0;
+
     // Nollställ spårning MEN BEHÅLL GPS-position
     setGpsLineType(null);
     gpsLineTypeRef.current = null;
@@ -4463,7 +4691,7 @@ export default function PlannerPage() {
     // VIKTIGT: Behåll gpsStartPos och gpsMapPosition så positionen inte hoppar
     setGpsPaused(false);
     gpsPausedRef.current = false;
-    
+
     // Visa popup - håll stickvagMode aktiv
     setStickvagMode(true);
     setShowSavedPopup(true);
@@ -7627,7 +7855,7 @@ export default function PlannerPage() {
               {marker.audioData && !isRecordingAudio && (
                 <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <audio controls src={marker.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
-                  <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, audioData: undefined } : m))} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                  <button onClick={() => { if (marker.audioData) deleteAudioFromStorage(marker.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, audioData: undefined } : m)); }} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                 </div>
               )}
 
@@ -7681,7 +7909,7 @@ export default function PlannerPage() {
                                 {note.audioData && !isRecThis && (
                                   <>
                                     <audio controls src={note.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
-                                    <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, audioData: undefined } : n) } : m))} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                                    <button onClick={() => { if (note.audioData) deleteAudioFromStorage(note.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                                   </>
                                 )}
                                 {!note.audioData && !isRecThis && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>Tryck för att spela in</div>}
@@ -7725,7 +7953,7 @@ export default function PlannerPage() {
                             {pendingAudio && !isRecNew && (
                               <>
                                 <audio controls src={pendingAudio} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
-                                <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === newId ? { ...n, audioData: undefined } : n) } : m))} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                                <button onClick={() => { if (pendingAudio) deleteAudioFromStorage(pendingAudio); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === newId ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                               </>
                             )}
                             {!pendingAudio && !isRecNew && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>Tryck för att spela in</div>}
@@ -11536,7 +11764,7 @@ export default function PlannerPage() {
                     </button>
                     {hasAudio && !isRecThis && (
                       <button
-                        onClick={() => { setEditingMarker(prev => prev ? { ...prev, audioData: undefined } : null); setMarkers(prev => prev.map(m => m.id === editingMarker.id ? { ...m, audioData: undefined } : m)); }}
+                        onClick={() => { if (editingMarker.audioData) deleteAudioFromStorage(editingMarker.audioData); setEditingMarker(prev => prev ? { ...prev, audioData: undefined } : null); setMarkers(prev => prev.map(m => m.id === editingMarker.id ? { ...m, audioData: undefined } : m)); }}
                         style={{ width: '32px', height: '32px', borderRadius: '16px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       >🗑</button>
                     )}
