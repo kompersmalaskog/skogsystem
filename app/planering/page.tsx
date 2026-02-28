@@ -136,9 +136,9 @@ interface ManuellPrognos {
   skotare: string;
 }
 
-// Linjetyper som ritas som stängda polygoner — inga! Alla linjer är LineString.
+// Linjetyper som ritas som stängda polygoner.
 // Zoner (isZoneMode) hanteras separat och är alltid polygoner.
-const POLYGON_LINE_TYPES = new Set<string>();
+const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
 
 export default function PlannerPage() {
   // === OBJEKTVAL ===
@@ -1457,11 +1457,11 @@ export default function PlannerPage() {
       if (!freehandActiveRef.current && startDx < 5 && startDy < 5) return;
       freehandActiveRef.current = true;
 
-      // Sampla var ~3px skärmavstånd (tätare = mjukare kurvor)
+      // Sampla var ~2px skärmavstånd
       const dx = clientX - lastScreenX;
       const dy = clientY - lastScreenY;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 3) return;
+      if (dist < 2) return;
 
       lastScreenX = clientX;
       lastScreenY = clientY;
@@ -1503,8 +1503,22 @@ export default function PlannerPage() {
 
       if (wasFreehand && coords.length >= 2) {
         // Freehand: ackumulera punkter i currentDrawCoords (pausa, inte avsluta)
-        // Användaren trycker ✓ för att spara, precis som i v17
         const simplified = simplifyCoords(coords, 0.00002);
+
+        // Snap-to-start: auto-close om freehand slutar nära startpunkten
+        const shouldClose = isZoneMode || (isDrawMode && POLYGON_LINE_TYPES.has(drawType || ''));
+        if (shouldClose && simplified.length >= 3) {
+          const firstScreen = map.project(simplified[0] as any);
+          const lastScreen = map.project(simplified[simplified.length - 1] as any);
+          const snapDist = Math.sqrt((firstScreen.x - lastScreen.x) ** 2 + (firstScreen.y - lastScreen.y) ** 2);
+          if (snapDist < 15) {
+            const closed = [...simplified.slice(0, -1), simplified[0]];
+            if (isDrawMode) finishLineFromCoords(drawType === 'boundary' ? closed : smoothCoords(closed, 2, true));
+            if (isZoneMode) finishZoneFromCoords(smoothCoords(closed, 2, true));
+            return;
+          }
+        }
+
         setCurrentDrawCoords(simplified);
         setDrawPaused(true);
       } else if (!wasFreehand && coords.length > 0) {
@@ -1520,11 +1534,10 @@ export default function PlannerPage() {
           const ddx = firstScreen.x - clickScreen.x;
           const ddy = firstScreen.y - clickScreen.y;
           const closeDist = Math.sqrt(ddx * ddx + ddy * ddy);
-          if (closeDist < 20) {
+          if (closeDist < 15) {
             const closed = [...currentDrawCoords, currentDrawCoords[0]];
-            const smoothed = smoothCoords(closed, 2, true);
-            if (isDrawMode) finishLineFromCoords(smoothed);
-            if (isZoneMode) finishZoneFromCoords(smoothed);
+            if (isDrawMode) finishLineFromCoords(drawType === 'boundary' ? closed : smoothCoords(closed, 2, true));
+            if (isZoneMode) finishZoneFromCoords(smoothCoords(closed, 2, true));
             return;
           }
         }
@@ -1532,7 +1545,7 @@ export default function PlannerPage() {
       }
     };
 
-    // Dubbelklick → avsluta ritning (stäng polygon-typer, smootha alla)
+    // Dubbelklick → avsluta ritning (stäng polygon-typer)
     const onDblClick = (e: any) => {
       if (!isDrawingMode) return;
       e.preventDefault();
@@ -1541,11 +1554,11 @@ export default function PlannerPage() {
         let finalCoords: [number, number][];
         if (shouldClose) {
           const closed = [...currentDrawCoords, currentDrawCoords[0]];
-          finalCoords = smoothCoords(closed, 2, true);
-          console.log('Polygon stängd (dblclick), punkter:', closed.length, 'första:', closed[0], 'sista:', closed[closed.length-1], 'efter smooth:', finalCoords.length);
+          // Boundary: skarpa hörn (ingen smoothing). Zoner: mjuka kurvor.
+          finalCoords = (isDrawMode && drawType === 'boundary') ? closed : smoothCoords(closed, 2, true);
         } else {
-          finalCoords = currentDrawCoords.length >= 3 ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
-          console.log('Linje avslutad (dblclick), punkter:', currentDrawCoords.length, 'efter smooth:', finalCoords.length);
+          // Öppna linjer: smootha om inte boundary
+          finalCoords = (drawType !== 'boundary' && currentDrawCoords.length >= 3) ? smoothCoords([...currentDrawCoords], 2, false) : [...currentDrawCoords];
         }
         if (isDrawMode) finishLineFromCoords(finalCoords);
         if (isZoneMode) finishZoneFromCoords(finalCoords);
@@ -4858,11 +4871,12 @@ export default function PlannerPage() {
       let finalCoords = [...currentDrawCoords];
       if (shouldClose && finalCoords.length >= 3) {
         finalCoords.push(finalCoords[0]);
-        finalCoords = smoothCoords(finalCoords, 2, true);
-        console.log('Polygon stängd (knapp), antal punkter:', currentDrawCoords.length, 'första:', finalCoords[0], 'sista:', finalCoords[finalCoords.length-1], 'efter smooth:', finalCoords.length);
-      } else if (finalCoords.length >= 3) {
+        // Boundary: skarpa hörn (ingen smoothing)
+        if (drawType !== 'boundary') {
+          finalCoords = smoothCoords(finalCoords, 2, true);
+        }
+      } else if (drawType !== 'boundary' && finalCoords.length >= 3) {
         finalCoords = smoothCoords(finalCoords, 2, false);
-        console.log('Linje avslutad (knapp), punkter:', currentDrawCoords.length, 'efter smooth:', finalCoords.length);
       }
       finishLineFromCoords(finalCoords);
       return;
