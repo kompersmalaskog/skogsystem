@@ -35,7 +35,6 @@ interface BriefingStep {
   marker?: Marker;
   path?: { lat: number; lon: number }[];
   arcCDF?: number[];
-  boundaryCoords?: [number, number][];
   // Kept for checklist compatibility
   tag?: 'danger' | 'caution' | 'info';
   tagText?: string;
@@ -314,11 +313,10 @@ export default function TraktBriefing({
         const pt = pi / 20;
         propPath.push({ lat: propStart.lat + (propEnd.lat - propStart.lat) * pt, lon: propStart.lon + (propEnd.lon - propStart.lon) * pt });
       }
-      const bndCoords = allPoints.map(p => [p.lon, p.lat] as [number, number]);
       built.push({
         id: 'property', type: 'property', title: 'Fastighetsgräns', icon: '📐',
         center: { lat: centerLat, lon: centerLon }, zoom: 16.5, pitch: 63,
-        bearing: getBearing(propStart, propEnd), path: propPath, boundaryCoords: bndCoords,
+        bearing: getBearing(propStart, propEnd), path: propPath,
         tag: 'caution', tagText: 'FASTIGHETSGRÄNS', categoryColor: A,
       });
     }
@@ -387,8 +385,11 @@ export default function TraktBriefing({
             map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
           } catch {}
         }
-        try { if (map.getLayer('briefing-prop-line')) map.removeLayer('briefing-prop-line'); } catch {}
-        try { if (map.getSource('briefing-prop-src')) map.removeSource('briefing-prop-src'); } catch {}
+        // Restore traktgräns colors (in case unmount during property step)
+        try {
+          if (map.getLayer('line-boundary-stripe')) map.setPaintProperty('line-boundary-stripe', 'line-color', '#ffdd00');
+          if (map.getLayer('line-boundary-glow')) map.setPaintProperty('line-boundary-glow', 'line-color', '#fbbf24');
+        } catch {}
       }
       if (prevOverlaysRef.current) setOverlays(() => prevOverlaysRef.current!);
     };
@@ -408,45 +409,37 @@ export default function TraktBriefing({
     if (overviewBusyRef.current) { overviewBusyRef.current = false; setOverviewBusy(false); }
     setOverviewPhase('orbit');
 
-    // Clean up property red warning line
-    try { if (map.getLayer('briefing-prop-line')) map.removeLayer('briefing-prop-line'); } catch {}
-    try { if (map.getSource('briefing-prop-src')) map.removeSource('briefing-prop-src'); } catch {}
-
-    // Property step: WMS + red pulsing line + hide boundary
+    // Property step: activate WMS + red pulsing traktgräns
     const boundaryLayerIds = ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing', 'line-boundary-glow'];
     if (step.type === 'property') {
       prevOverlaysRef.current = { ...overlays };
+      // Activate WMS fastighetsgräns at full opacity
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', 'visible');
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1.0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0.4);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1.3);
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0.3);
+        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1.2);
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
-      boundaryLayerIds.forEach(id => { if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 0); });
-      // Add red pulsing warning line along boundary
-      if (step.boundaryCoords && step.boundaryCoords.length > 1) {
+      // Turn traktgräns RED and pulse it so driver sees tract boundary vs property boundary
+      boundaryLayerIds.forEach(id => {
+        if (!map.getLayer(id)) return;
         try {
-          map.addSource('briefing-prop-src', {
-            type: 'geojson',
-            data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: step.boundaryCoords } },
-          });
-          map.addLayer({
-            id: 'briefing-prop-line', type: 'line', source: 'briefing-prop-src',
-            paint: { 'line-color': '#ef4444', 'line-width': 5, 'line-opacity': 1 },
-            layout: { 'line-cap': 'round', 'line-join': 'round' },
-          });
+          if (id === 'line-boundary-stripe') map.setPaintProperty(id, 'line-color', '#ef4444');
+          if (id === 'line-boundary-glow') map.setPaintProperty(id, 'line-color', '#ef4444');
         } catch {}
-      }
-      // Pulse the red line (1.0 → 0.15)
+      });
       let pulseT = 0;
       wmsPulseRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
         pulseT += 0.06;
         const op = 0.575 + 0.425 * Math.sin(pulseT);
-        try { if (mapInstanceRef.current.getLayer('briefing-prop-line')) mapInstanceRef.current.setPaintProperty('briefing-prop-line', 'line-opacity', op); } catch {}
+        boundaryLayerIds.forEach(id => {
+          try { if (mapInstanceRef.current.getLayer(id)) mapInstanceRef.current.setPaintProperty(id, 'line-opacity', op); } catch {}
+        });
       }, 50);
     } else if (prevOverlaysRef.current) {
+      // Restore WMS
       const wasOn = prevOverlaysRef.current.fastighetsgranser;
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
@@ -454,7 +447,15 @@ export default function TraktBriefing({
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
       }
-      boundaryLayerIds.forEach(id => { if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1); });
+      // Restore traktgräns: normal colors + full opacity
+      boundaryLayerIds.forEach(id => {
+        if (!map.getLayer(id)) return;
+        try { map.setPaintProperty(id, 'line-opacity', 1); } catch {}
+      });
+      try {
+        if (map.getLayer('line-boundary-stripe')) map.setPaintProperty('line-boundary-stripe', 'line-color', '#ffdd00');
+        if (map.getLayer('line-boundary-glow')) map.setPaintProperty('line-boundary-glow', 'line-color', '#fbbf24');
+      } catch {}
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
       prevOverlaysRef.current = null;
     }
@@ -566,15 +567,19 @@ export default function TraktBriefing({
     if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
     const map = mapInstanceRef.current;
     if (map) {
-      try { if (map.getLayer('briefing-prop-line')) map.removeLayer('briefing-prop-line'); } catch {}
-      try { if (map.getSource('briefing-prop-src')) map.removeSource('briefing-prop-src'); } catch {}
       if (prevOverlaysRef.current) {
         ['line-boundary-base', 'line-boundary-stripe', 'line-boundary-casing', 'line-boundary-glow'].forEach(id => {
-          if (map.getLayer(id)) map.setPaintProperty(id, 'line-opacity', 1);
+          if (map.getLayer(id)) try { map.setPaintProperty(id, 'line-opacity', 1); } catch {}
         });
+        try {
+          if (map.getLayer('line-boundary-stripe')) map.setPaintProperty('line-boundary-stripe', 'line-color', '#ffdd00');
+          if (map.getLayer('line-boundary-glow')) map.setPaintProperty('line-boundary-glow', 'line-color', '#fbbf24');
+        } catch {}
         if (map.getLayer('wms-layer-fastighetsgranser')) {
-          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
-          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
+          try {
+            map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
+            map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
+          } catch {}
         }
       }
     }
