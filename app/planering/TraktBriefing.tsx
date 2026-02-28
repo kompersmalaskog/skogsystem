@@ -416,26 +416,55 @@ export default function TraktBriefing({
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
 
-      // DEBUG: Check source and existing boundary layers
+      // === FULL DEBUG DUMP ===
+      console.log('[Briefing] ======= PROPERTY STEP DEBUG =======');
+      try {
+        const style = map.getStyle();
+        console.log('[Briefing] ALL SOURCES:', Object.keys(style.sources));
+        console.log('[Briefing] ALL LAYERS:', style.layers.map((l: any) => l.id));
+      } catch (e) { console.error('[Briefing] getStyle failed:', e); }
+
+      // Check lines-source data
       const src = map.getSource('lines-source') as any;
       console.log('[Briefing] lines-source exists:', !!src);
-      if (src && src._data) {
-        const feats = src._data.features || [];
-        const boundaryFeats = feats.filter((f: any) => f.properties?.lineType === 'boundary');
-        console.log('[Briefing] lines-source total features:', feats.length, 'boundary features:', boundaryFeats.length);
-        if (boundaryFeats.length > 0) {
-          console.log('[Briefing] First boundary coords count:', boundaryFeats[0].geometry?.coordinates?.length);
+      if (src) {
+        // Try multiple ways to access the data
+        const data = src._data || src._options?.data;
+        if (data) {
+          const feats = data.features || [];
+          console.log('[Briefing] lines-source features:', feats.length);
+          feats.forEach((f: any, i: number) => console.log(`[Briefing]   feature[${i}] lineType=${f.properties?.lineType} coords=${f.geometry?.coordinates?.length}`));
+        } else {
+          console.log('[Briefing] lines-source: could not access _data');
         }
       }
-      console.log('[Briefing] Existing boundary layers:', {
-        base: !!map.getLayer('line-boundary-base'),
-        stripe: !!map.getLayer('line-boundary-stripe'),
-        casing: !!map.getLayer('line-boundary-casing'),
-        glow: !!map.getLayer('line-boundary-glow'),
-      });
 
-      // Build GeoJSON from markers directly (fallback if source filter fails)
+      // Check what boundary markers we have
       const boundaryMarkers = markers.filter(m => m.isLine && m.lineType === 'boundary' && m.path && m.path.length > 1);
+      console.log('[Briefing] boundary markers from props:', boundaryMarkers.length);
+      if (boundaryMarkers.length > 0) {
+        const bm0 = boundaryMarkers[0];
+        console.log('[Briefing]   first boundary: id=', bm0.id, 'pathLen=', bm0.path!.length);
+        const firstPt = bm0.path![0];
+        const lastPt = bm0.path![bm0.path!.length - 1];
+        const firstLL = svgToLatLon(firstPt.x, firstPt.y);
+        const lastLL = svgToLatLon(lastPt.x, lastPt.y);
+        console.log('[Briefing]   first SVG pt:', firstPt, '→ LatLon:', firstLL);
+        console.log('[Briefing]   last SVG pt:', lastPt, '→ LatLon:', lastLL);
+      }
+
+      // Also try queryRenderedFeatures to see what's actually on screen
+      try {
+        const rendered = map.queryRenderedFeatures(undefined, { layers: ['line-boundary-base'] });
+        console.log('[Briefing] queryRenderedFeatures line-boundary-base:', rendered.length, 'features');
+        if (rendered.length > 0) {
+          console.log('[Briefing]   first rendered feature geometry type:', rendered[0].geometry.type);
+          const coords = rendered[0].geometry.type === 'LineString' ? rendered[0].geometry.coordinates : rendered[0].geometry.type === 'MultiLineString' ? rendered[0].geometry.coordinates[0] : [];
+          console.log('[Briefing]   first rendered coords (first 3):', coords.slice(0, 3));
+        }
+      } catch (e) { console.log('[Briefing] queryRenderedFeatures failed:', e); }
+
+      // Build GeoJSON from markers
       const pulseFeatures: any[] = [];
       for (const bm of boundaryMarkers) {
         const coords = bm.path!.map(p => {
@@ -448,7 +477,11 @@ export default function TraktBriefing({
           geometry: { type: 'LineString', coordinates: coords },
         });
       }
-      console.log('[Briefing] Built', pulseFeatures.length, 'boundary features from markers');
+      console.log('[Briefing] Built pulseFeatures:', pulseFeatures.length, 'features');
+      if (pulseFeatures.length > 0) {
+        console.log('[Briefing]   first feature coords (first 3):', pulseFeatures[0].geometry.coordinates.slice(0, 3));
+        console.log('[Briefing]   first feature coords (last 3):', pulseFeatures[0].geometry.coordinates.slice(-3));
+      }
 
       // Create dedicated source + layer for the red pulse
       const pulseSrcId = 'briefing-pulse-src';
@@ -456,29 +489,54 @@ export default function TraktBriefing({
       try { if (map.getLayer(pulseLayerId)) map.removeLayer(pulseLayerId); } catch {}
       try { if (map.getSource(pulseSrcId)) map.removeSource(pulseSrcId); } catch {}
 
+      const geojsonData = { type: 'FeatureCollection' as const, features: pulseFeatures };
+      console.log('[Briefing] Creating source with data:', JSON.stringify(geojsonData).slice(0, 300));
+
       try {
-        map.addSource(pulseSrcId, {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: pulseFeatures },
-        });
+        map.addSource(pulseSrcId, { type: 'geojson', data: geojsonData });
+        console.log('[Briefing] Source created OK:', !!map.getSource(pulseSrcId));
+      } catch (e) {
+        console.error('[Briefing] FAILED addSource:', e);
+      }
+
+      try {
         map.addLayer({
           id: pulseLayerId,
           type: 'line',
           source: pulseSrcId,
-          paint: {
-            'line-color': '#ef4444',
-            'line-width': 8,
-            'line-opacity': 1.0,
-          },
+          paint: { 'line-color': '#ef4444', 'line-width': 8, 'line-opacity': 1.0 },
           layout: { 'line-cap': 'round', 'line-join': 'round' },
         });
-        console.log('[Briefing] Pulse layer added:', !!map.getLayer(pulseLayerId));
-        console.log('[Briefing] Pulse source added:', !!map.getSource(pulseSrcId));
+        console.log('[Briefing] Layer created OK:', !!map.getLayer(pulseLayerId));
+
+        // Verify layer is in style
+        const afterLayers = map.getStyle().layers.map((l: any) => l.id);
+        const pulseIdx = afterLayers.indexOf(pulseLayerId);
+        console.log('[Briefing] Pulse layer index in stack:', pulseIdx, 'of', afterLayers.length, '(last = top)');
+        console.log('[Briefing] Top 5 layers:', afterLayers.slice(-5));
       } catch (e) {
-        console.error('[Briefing] FAILED to add pulse layer/source:', e);
+        console.error('[Briefing] FAILED addLayer:', e);
       }
 
-      // Pulse opacity between 1.0 and 0.2
+      // Verify: query the pulse layer after a short delay
+      setTimeout(() => {
+        if (!mapInstanceRef.current) return;
+        const m = mapInstanceRef.current;
+        console.log('[Briefing] === DELAYED VERIFY (500ms) ===');
+        console.log('[Briefing] Pulse layer still exists:', !!m.getLayer(pulseLayerId));
+        console.log('[Briefing] Pulse source still exists:', !!m.getSource(pulseSrcId));
+        try {
+          const pulsePaint = m.getPaintProperty(pulseLayerId, 'line-opacity');
+          const pulseVis = m.getLayoutProperty(pulseLayerId, 'visibility');
+          console.log('[Briefing] Pulse line-opacity:', pulsePaint, 'visibility:', pulseVis);
+        } catch (e) { console.log('[Briefing] getPaintProperty failed:', e); }
+        try {
+          const feat = m.queryRenderedFeatures(undefined, { layers: [pulseLayerId] });
+          console.log('[Briefing] queryRenderedFeatures on pulse layer:', feat.length, 'features');
+        } catch (e) { console.log('[Briefing] queryRenderedFeatures pulse failed:', e); }
+      }, 500);
+
+      // Pulse opacity
       let pulseT = 0;
       wmsPulseRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
