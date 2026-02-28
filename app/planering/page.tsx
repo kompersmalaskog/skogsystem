@@ -7427,10 +7427,50 @@ export default function PlannerPage() {
                   <circle cx="12" cy="13" r="4" />
                 </svg>
               </button>
-              
+
+              {/* Spela in ljud */}
+              {(() => {
+                const isRecThis = isRecordingAudio && recordingMarkerId === marker.id;
+                return (
+                  <button
+                    onClick={() => toggleMarkerAudioRecording(marker.id)}
+                    style={{
+                      height: '48px',
+                      borderRadius: '24px',
+                      border: 'none',
+                      padding: isRecThis ? '0 14px' : '0',
+                      width: isRecThis ? 'auto' : '48px',
+                      minWidth: '48px',
+                      background: isRecThis ? 'rgba(239,68,68,0.3)' : (marker.audioData ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)'),
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '6px',
+                      animation: isRecThis ? 'pulse 1s infinite' : 'none',
+                    }}
+                  >
+                    {isRecThis ? (
+                      <>
+                        <span style={{ fontSize: '18px' }}>⏹</span>
+                        <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>
+                      </>
+                    ) : (
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={marker.audioData ? '#22c55e' : 'rgba(255,255,255,0.5)'} strokeWidth="2">
+                        <rect x="9" y="2" width="6" height="11" rx="3" />
+                        <path d="M5 10a7 7 0 0014 0" />
+                        <line x1="12" y1="17" x2="12" y2="21" />
+                        <line x1="8" y1="21" x2="16" y2="21" />
+                      </svg>
+                    )}
+                  </button>
+                );
+              })()}
+
               {/* Redigera kommentar */}
               <button
                 onClick={() => {
+                  stopAnyRecording();
                   setEditingMarker({ ...marker });
                   setMarkerMenuOpen(null);
                 }}
@@ -7450,7 +7490,7 @@ export default function PlannerPage() {
                   <path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
                 </svg>
               </button>
-              
+
               {/* Beräkna volym (bara för traktgränser) */}
               {marker.isLine && marker.lineType === 'boundary' && marker.path && marker.path.length >= 3 && (
                 <button
@@ -7582,6 +7622,14 @@ export default function PlannerPage() {
                 </svg>
               </button>
             </div>
+
+              {/* Inspelat ljud (visas under knapparna) */}
+              {marker.audioData && !isRecordingAudio && (
+                <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <audio controls src={marker.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                  <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, audioData: undefined } : m))} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                </div>
+              )}
 
               {/* === OM TRAKTEN — anteckningslista, bara för boundary === */}
               {marker.isLine && marker.lineType === 'boundary' && (() => {
