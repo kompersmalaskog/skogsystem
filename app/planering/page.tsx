@@ -159,9 +159,12 @@ export default function PlannerPage() {
   const [pendingNewNoteId, setPendingNewNoteId] = useState<string | null>(null);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingNoteId, setRecordingNoteId] = useState<string | null>(null);
+  const [recordingMarkerId, setRecordingMarkerId] = useState<string | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioTimeoutRef = useRef<any>(null);
+  const recordingTimerRef = useRef<any>(null);
 
   // === SUPABASE SYNC ===
   const getMarkerTyp = (m: Marker): string => {
@@ -896,8 +899,23 @@ export default function PlannerPage() {
   const checklistPulseRef = useRef<any>(null);
   const checklistPrevOverlaysRef = useRef<Record<string, boolean> | null>(null);
 
-  // === LJUD-INSPELNING (per anteckning) ===
-  const startNoteAudioRecording = useCallback(async (markerId: string, noteId: string) => {
+  // === LJUD-INSPELNING (generell) ===
+  const stopAnyRecording = useCallback(() => {
+    if (audioTimeoutRef.current) { clearTimeout(audioTimeoutRef.current); audioTimeoutRef.current = null; }
+    if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    setIsRecordingAudio(false);
+    setRecordingNoteId(null);
+    setRecordingMarkerId(null);
+    setRecordingSeconds(0);
+    mediaRecorderRef.current = null;
+  }, []);
+
+  // Spela in ljud för en anteckning (note) på en boundary
+  const toggleNoteAudioRecording = useCallback(async (markerId: string, noteId: string) => {
+    if (isRecordingAudio) { stopAnyRecording(); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
@@ -905,6 +923,8 @@ export default function PlannerPage() {
       audioChunksRef.current = [];
       recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (audioChunksRef.current.length === 0) return;
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -912,34 +932,58 @@ export default function PlannerPage() {
           setMarkers(prev => prev.map(m => m.id === markerId ? { ...m, notes: (m.notes || []).map(n => n.id === noteId ? { ...n, audioData: base64 } : n) } : m));
         };
         reader.readAsDataURL(blob);
-        stream.getTracks().forEach(t => t.stop());
       };
       recorder.start();
       mediaRecorderRef.current = recorder;
       setIsRecordingAudio(true);
       setRecordingNoteId(noteId);
-      audioTimeoutRef.current = setTimeout(() => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-          mediaRecorderRef.current.stop();
-          setIsRecordingAudio(false);
-          setRecordingNoteId(null);
-          mediaRecorderRef.current = null;
-        }
-      }, 60000);
+      setRecordingMarkerId(null);
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => setRecordingSeconds(s => s + 1), 1000);
+      audioTimeoutRef.current = setTimeout(() => stopAnyRecording(), 60000);
     } catch (err) {
       console.error('Kunde inte starta ljudinspelning:', err);
     }
-  }, []);
+  }, [isRecordingAudio, stopAnyRecording]);
 
-  const stopNoteAudioRecording = useCallback(() => {
-    if (audioTimeoutRef.current) { clearTimeout(audioTimeoutRef.current); audioTimeoutRef.current = null; }
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
-      setIsRecordingAudio(false);
+  // Spela in ljud direkt på en marker (audioData fältet)
+  const toggleMarkerAudioRecording = useCallback(async (markerId: string) => {
+    if (isRecordingAudio) { stopAnyRecording(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        if (audioChunksRef.current.length === 0) return;
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64 = reader.result as string;
+          setMarkers(prev => prev.map(m => m.id === markerId ? { ...m, audioData: base64 } : m));
+          // Also update editingMarker if open
+          setEditingMarker(prev => prev && prev.id === markerId ? { ...prev, audioData: base64 } : prev);
+        };
+        reader.readAsDataURL(blob);
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecordingAudio(true);
+      setRecordingMarkerId(markerId);
       setRecordingNoteId(null);
-      mediaRecorderRef.current = null;
+      setRecordingSeconds(0);
+      recordingTimerRef.current = setInterval(() => setRecordingSeconds(s => s + 1), 1000);
+      audioTimeoutRef.current = setTimeout(() => stopAnyRecording(), 60000);
+    } catch (err) {
+      console.error('Kunde inte starta ljudinspelning:', err);
     }
-  }, []);
+  }, [isRecordingAudio, stopAnyRecording]);
+
+  // Legacy aliases
+  const startNoteAudioRecording = toggleNoteAudioRecording;
+  const stopNoteAudioRecording = stopAnyRecording;
 
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
@@ -7583,19 +7627,16 @@ export default function PlannerPage() {
                               {/* Ljud för denna anteckning */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                                 <button
-                                  onPointerDown={(e) => { e.preventDefault(); startNoteAudioRecording(marker.id, note.id); }}
-                                  onPointerUp={() => stopNoteAudioRecording()}
-                                  onPointerLeave={() => { if (isRecThis) stopNoteAudioRecording(); }}
-                                  style={{ width: '36px', height: '36px', borderRadius: '18px', border: 'none', background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', animation: isRecThis ? 'pulse 1s infinite' : 'none' }}
-                                >🎤</button>
+                                  onClick={() => toggleNoteAudioRecording(marker.id, note.id)}
+                                  style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecThis ? '0 14px 0 10px' : '0', width: isRecThis ? 'auto' : '36px', background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '16px', animation: isRecThis ? 'pulse 1s infinite' : 'none' }}
+                                >{isRecThis ? '⏹' : '🎤'}{isRecThis && <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                                 {note.audioData && !isRecThis && (
                                   <>
                                     <audio controls src={note.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                                     <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, audioData: undefined } : n) } : m))} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                                   </>
                                 )}
-                                {isRecThis && <div style={{ fontSize: '12px', color: '#ef4444' }}>Spelar in...</div>}
-                                {!note.audioData && !isRecThis && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>Håll inne</div>}
+                                {!note.audioData && !isRecThis && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>Tryck för att spela in</div>}
                               </div>
                               <div style={{ display: 'flex', gap: '6px' }}>
                                 <button onClick={() => { setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, text: newNoteText } : n) } : m)); setEditingNoteId(null); setNewNoteText(''); }} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: '#8ab460', color: '#0a0f08', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Spara</button>
@@ -7630,19 +7671,16 @@ export default function PlannerPage() {
                           />
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                             <button
-                              onPointerDown={(e) => { e.preventDefault(); startNoteAudioRecording(marker.id, newId); }}
-                              onPointerUp={() => stopNoteAudioRecording()}
-                              onPointerLeave={() => { if (isRecNew) stopNoteAudioRecording(); }}
-                              style={{ width: '36px', height: '36px', borderRadius: '18px', border: 'none', background: isRecNew ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', animation: isRecNew ? 'pulse 1s infinite' : 'none' }}
-                            >🎤</button>
+                              onClick={() => toggleNoteAudioRecording(marker.id, newId)}
+                              style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecNew ? '0 14px 0 10px' : '0', width: isRecNew ? 'auto' : '36px', background: isRecNew ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '16px', animation: isRecNew ? 'pulse 1s infinite' : 'none' }}
+                            >{isRecNew ? '⏹' : '🎤'}{isRecNew && <span style={{ fontSize: '12px', color: '#ef4444', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                             {pendingAudio && !isRecNew && (
                               <>
                                 <audio controls src={pendingAudio} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
                                 <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === newId ? { ...n, audioData: undefined } : n) } : m))} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                               </>
                             )}
-                            {isRecNew && <div style={{ fontSize: '12px', color: '#ef4444' }}>Spelar in...</div>}
-                            {!pendingAudio && !isRecNew && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>Håll inne för röstmeddelande</div>}
+                            {!pendingAudio && !isRecNew && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>Tryck för att spela in</div>}
                           </div>
                           <div style={{ display: 'flex', gap: '6px' }}>
                             <button onClick={() => {
@@ -11424,18 +11462,57 @@ export default function PlannerPage() {
                 outline: 'none',
               }}
             />
-            
+
+            {/* Röstinspelning */}
+            {(() => {
+              const isRecThis = isRecordingAudio && recordingMarkerId === editingMarker.id;
+              const hasAudio = !!editingMarker.audioData;
+              return (
+                <div style={{ marginTop: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <button
+                      onClick={() => toggleMarkerAudioRecording(editingMarker.id)}
+                      style={{
+                        height: '40px', borderRadius: '20px', border: 'none',
+                        padding: isRecThis ? '0 16px 0 12px' : '0 16px',
+                        background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        gap: '8px', fontSize: '15px', animation: isRecThis ? 'pulse 1s infinite' : 'none',
+                        color: isRecThis ? '#ef4444' : '#8ab460',
+                      }}
+                    >
+                      {isRecThis ? '⏹' : '🎤'}
+                      <span style={{ fontSize: '13px', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>
+                        {isRecThis ? `${recordingSeconds}s` : (hasAudio ? 'Spela in ny' : 'Spela in')}
+                      </span>
+                    </button>
+                    {hasAudio && !isRecThis && (
+                      <button
+                        onClick={() => { setEditingMarker(prev => prev ? { ...prev, audioData: undefined } : null); setMarkers(prev => prev.map(m => m.id === editingMarker.id ? { ...m, audioData: undefined } : m)); }}
+                        style={{ width: '32px', height: '32px', borderRadius: '16px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >🗑</button>
+                    )}
+                  </div>
+                  {hasAudio && !isRecThis && (
+                    <div style={{ marginTop: '8px' }}>
+                      <audio controls src={editingMarker.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* Knappar */}
-            <div style={{ 
-              display: 'flex', 
+            <div style={{
+              display: 'flex',
               justifyContent: 'center',
-              gap: '16px', 
+              gap: '16px',
               marginTop: '24px',
               paddingTop: '20px',
               borderTop: '1px solid rgba(255,255,255,0.08)',
             }}>
               <button
-                onClick={() => setEditingMarker(null)}
+                onClick={() => { stopAnyRecording(); setEditingMarker(null); }}
                 style={{
                   width: '48px',
                   height: '48px',
@@ -11454,8 +11531,9 @@ export default function PlannerPage() {
               </button>
               <button
                 onClick={() => {
+                  stopAnyRecording();
                   saveToHistory([...markers]);
-                  setMarkers(prev => prev.map(m => 
+                  setMarkers(prev => prev.map(m =>
                     m.id === editingMarker.id ? { ...editingMarker } : m
                   ));
                   // Öppna symbol-menyn igen
