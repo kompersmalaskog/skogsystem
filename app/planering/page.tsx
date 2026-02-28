@@ -1199,6 +1199,7 @@ export default function PlannerPage() {
   const [infoMarkagareVed, setInfoMarkagareVed] = useState(false);
   const [infoMarkagareVedText, setInfoMarkagareVedText] = useState('');
   const [infoAnteckningar, setInfoAnteckningar] = useState('');
+  const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
   const [infoLoaded, setInfoLoaded] = useState(false);
   const infoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -1208,7 +1209,7 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, driving_mode, stickvag_settings')
+        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, driving_mode, stickvag_settings, checklist_items, generellt_tillstand')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
@@ -1235,6 +1236,8 @@ export default function PlannerPage() {
         if (data.trakt_data) setTraktData(data.trakt_data);
         if (data.driving_mode) setDrivingMode(data.driving_mode);
         if (data.stickvag_settings) setStickvagSettings(data.stickvag_settings);
+        if (data.checklist_items) setChecklistItems(data.checklist_items);
+        if (data.generellt_tillstand) setGenerelltTillstand(data.generellt_tillstand);
       }
       // Ladda kvitterade varningar från Supabase
       const { data: ackData } = await supabase
@@ -1277,10 +1280,12 @@ export default function PlannerPage() {
         trakt_data: traktData,
         driving_mode: drivingMode,
         stickvag_settings: stickvagSettings,
+        checklist_items: checklistItems,
+        generellt_tillstand: generelltTillstand,
       })
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
-  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, prognosSettings, manuellPrognos, traktData, drivingMode, stickvagSettings]);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, prognosSettings, manuellPrognos, traktData, drivingMode, stickvagSettings, checklistItems, generelltTillstand]);
 
   useEffect(() => {
     if (!infoLoaded) return;
@@ -2224,9 +2229,6 @@ export default function PlannerPage() {
   // Körbarhetsanalys
   const [korbarhetsResultat, setKorbarhetsResultat] = useState<KorbarhetsResultat | null>(null);
   const [korbarhetsLoading, setKorbarhetsLoading] = useState(false);
-
-  // Generellt tillstånd för avlägg
-  const [generelltTillstand, setGenerelltTillstand] = useState<{ lan: string; giltigtTom: string } | null>(null);
 
   // TMA-varning (traktgräns nära väg) – per boundary
   const [tmaResults, setTmaResults] = useState<Record<string, TmaCheckResult>>({});
