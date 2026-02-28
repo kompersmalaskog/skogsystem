@@ -6,13 +6,7 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  outputFileTracingExcludes: {
-    '*': ['./data/**', './public/terrain-tiles/**'],
-    '/planering': ['./node_modules/@maplibre/**', './node_modules/maplibre-gl/**'],
-  },
-  experimental: {
-    outputFileTracingIgnores: ['./data/**', './public/terrain-tiles/**'],
-  },
+  outputFileTracing: false,
 }
 
 module.exports = nextConfig
