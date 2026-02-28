@@ -13824,6 +13824,11 @@ export default function PlannerPage() {
           traktName={valtObjekt?.namn || valtObjekt?.beteckning || 'Trakt'}
           onClose={() => { setBriefingMode(false); setBriefingChecklistMode(false); setBriefingHighlightId(null); }}
           onActiveMarkerChange={setBriefingHighlightId}
+          boundaryCoordinates={(() => {
+            const bnd = markers.find(m => m.isLine && (m as any).lineType === 'boundary' && m.path && m.path.length > 1);
+            if (!bnd || !bnd.path) return undefined;
+            return bnd.path.map((p: any) => { const ll = svgToLatLon(p.x, p.y); return [ll.lon, ll.lat] as [number, number]; });
+          })()}
           mode={briefingChecklistMode ? 'checklist' : 'briefing'}
           checkedStepIds={briefingCheckedIds}
           onChecklistChange={setBriefingCheckedIds}

@@ -61,6 +61,7 @@ interface Props {
   onClose: () => void;
   onActiveMarkerChange?: (markerId: string | null) => void;
   onStartDriving?: () => void;
+  boundaryCoordinates?: [number, number][];
   mode?: 'briefing' | 'checklist';
   checkedStepIds?: string[];
   onChecklistChange?: (checkedIds: string[]) => void;
@@ -155,7 +156,7 @@ function getBearing(from: {lat:number;lon:number}, to: {lat:number;lon:number}) 
 export default function TraktBriefing({
   markers, mapInstanceRef, svgToLatLon, symbolCategories,
   lineTypes, zoneTypes, overlays, setOverlays, traktName, onClose, onActiveMarkerChange,
-  onStartDriving,
+  onStartDriving, boundaryCoordinates,
   mode = 'briefing', checkedStepIds, onChecklistChange, onBriefingComplete,
 }: Props) {
   const [currentStep, setCurrentStep] = useState(-1);
@@ -376,14 +377,8 @@ export default function TraktBriefing({
       if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
       const map = mapInstanceRef.current;
       if (map) {
-        // Restore glow layer if modified
-        if (map.getLayer('line-boundary-glow')) {
-          try {
-            map.setPaintProperty('line-boundary-glow', 'line-color', '#fbbf24');
-            map.setPaintProperty('line-boundary-glow', 'line-opacity', 0.3);
-            map.setPaintProperty('line-boundary-glow', 'line-blur', 4);
-          } catch {}
-        }
+        try { if (map.getLayer('briefing-red-line-layer')) map.removeLayer('briefing-red-line-layer'); } catch {}
+        try { if (map.getSource('briefing-red-line')) map.removeSource('briefing-red-line'); } catch {}
         if (map.getLayer('wms-layer-fastighetsgranser')) {
           try {
             map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
@@ -421,24 +416,37 @@ export default function TraktBriefing({
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
 
-      // Red pulsing traktgräns: reuse existing line-boundary-glow layer
-      if (map.getLayer('line-boundary-glow')) {
-        map.setPaintProperty('line-boundary-glow', 'line-color', '#ef4444');
-        map.setPaintProperty('line-boundary-glow', 'line-width', 12);
-        map.setPaintProperty('line-boundary-glow', 'line-opacity', 1.0);
-        map.setPaintProperty('line-boundary-glow', 'line-blur', 0);
+      // Red pulsing traktgräns from boundaryCoordinates prop
+      try { if (map.getLayer('briefing-red-line-layer')) map.removeLayer('briefing-red-line-layer'); } catch {}
+      try { if (map.getSource('briefing-red-line')) map.removeSource('briefing-red-line'); } catch {}
+      if (boundaryCoordinates && boundaryCoordinates.length > 1) {
+        console.log('[Briefing] Red line coords:', boundaryCoordinates.length, 'first:', boundaryCoordinates[0]);
+        map.addSource('briefing-red-line', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'LineString', coordinates: boundaryCoordinates },
+          },
+        });
+        map.addLayer({
+          id: 'briefing-red-line-layer',
+          type: 'line',
+          source: 'briefing-red-line',
+          paint: { 'line-color': '#ef4444', 'line-width': 10, 'line-opacity': 1 },
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+        });
       }
-      let pulseT = 0;
+      let pulseOn = true;
       wmsPulseRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
-        pulseT += 0.07;
-        const op = 0.6 + 0.4 * Math.sin(pulseT);
+        pulseOn = !pulseOn;
         try {
-          if (mapInstanceRef.current.getLayer('line-boundary-glow')) {
-            mapInstanceRef.current.setPaintProperty('line-boundary-glow', 'line-opacity', op);
+          if (mapInstanceRef.current.getLayer('briefing-red-line-layer')) {
+            mapInstanceRef.current.setPaintProperty('briefing-red-line-layer', 'line-opacity', pulseOn ? 1.0 : 0.2);
           }
         } catch {}
-      }, 50);
+      }, 1000);
     } else if (prevOverlaysRef.current) {
       // Restore WMS
       const wasOn = prevOverlaysRef.current.fastighetsgranser;
@@ -448,16 +456,9 @@ export default function TraktBriefing({
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
       }
-      // Restore glow layer to normal
-      if (map.getLayer('line-boundary-glow')) {
-        try {
-          map.setPaintProperty('line-boundary-glow', 'line-color', '#fbbf24');
-          map.setPaintProperty('line-boundary-glow', 'line-opacity', 0.3);
-          map.setPaintProperty('line-boundary-glow', 'line-blur', 4);
-          const glowWidth = ['interpolate', ['linear'], ['zoom'], 5, 10, 8, 14, 11, 18, 13, 22, 15, 28, 17, 32] as any;
-          map.setPaintProperty('line-boundary-glow', 'line-width', glowWidth);
-        } catch {}
-      }
+      // Remove red line
+      try { if (map.getLayer('briefing-red-line-layer')) map.removeLayer('briefing-red-line-layer'); } catch {}
+      try { if (map.getSource('briefing-red-line')) map.removeSource('briefing-red-line'); } catch {}
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
       prevOverlaysRef.current = null;
     }
@@ -569,14 +570,8 @@ export default function TraktBriefing({
     if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
     const map = mapInstanceRef.current;
     if (map) {
-      // Restore glow layer if modified
-      if (map.getLayer('line-boundary-glow')) {
-        try {
-          map.setPaintProperty('line-boundary-glow', 'line-color', '#fbbf24');
-          map.setPaintProperty('line-boundary-glow', 'line-opacity', 0.3);
-          map.setPaintProperty('line-boundary-glow', 'line-blur', 4);
-        } catch {}
-      }
+      try { if (map.getLayer('briefing-red-line-layer')) map.removeLayer('briefing-red-line-layer'); } catch {}
+      try { if (map.getSource('briefing-red-line')) map.removeSource('briefing-red-line'); } catch {}
       if (prevOverlaysRef.current) {
         if (map.getLayer('wms-layer-fastighetsgranser')) {
           try {
