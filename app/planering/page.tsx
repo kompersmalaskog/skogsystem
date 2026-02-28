@@ -3414,7 +3414,9 @@ export default function PlannerPage() {
 
     if (tmaOpen) return; // Göm ikoner när TMA-panel är öppen
 
-    console.log('[TMA ⚠] useEffect triggered, tmaWithRoads:', tmaWithRoads.length);
+    if (tmaWithRoads.length > 0) {
+      console.log('[TMA ⚠] useEffect triggered, tmaWithRoads:', tmaWithRoads.length);
+    }
 
     let cancelled = false; // Skydda mot race condition med async import
 
@@ -3443,7 +3445,6 @@ export default function PlannerPage() {
         });
 
         if (roadPoints.length === 0) {
-          console.log('[TMA ⚠] Inga roadPoints för boundary:', bmId);
           return;
         }
 

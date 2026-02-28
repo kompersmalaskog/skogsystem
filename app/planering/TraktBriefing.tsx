@@ -287,10 +287,13 @@ export default function TraktBriefing({
       });
     }
 
-    // 5. PROPERTY BOUNDARY
+    // 5. PROPERTY BOUNDARY — show if WMS or VT fastighetsgräns layer exists, or always include
     const mapInst = mapInstanceRef.current;
-    const hasPropertyWMS = mapInst && mapInst.getLayer && mapInst.getLayer('wms-layer-fastighetsgranser');
-    if (hasPropertyWMS) {
+    const hasPropertyLayer = mapInst && mapInst.getLayer && (
+      mapInst.getLayer('wms-layer-fastighetsgranser') || mapInst.getLayer('vt-fastighet-line')
+    );
+    // Always include property step if we have a boundary (map layers may load after steps are built)
+    if (hasPropertyLayer || boundaries.length > 0) {
       let maxAxisDist = 0;
       let flyA = allPoints[0] || { lat: centerLat, lon: centerLon };
       let flyB = allPoints.length > 1 ? allPoints[allPoints.length - 1] : flyA;
@@ -360,6 +363,7 @@ export default function TraktBriefing({
       center: { lat: centerLat, lon: centerLon }, zoom: overviewZoom - 1.5, pitch: 0, bearing: 0,
     });
 
+    console.log('Briefing steps:', built.map(s => s.id));
     setSteps(built);
   }, [markers, svgToLatLon, symbolCategories, zoneTypes, currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
