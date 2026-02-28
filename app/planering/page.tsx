@@ -55,6 +55,8 @@ interface Marker {
   path?: Point[];
   comment?: string;
   photoData?: string;
+  audioData?: string;  // base64-kodat ljud (audio/webm eller audio/mp4)
+  notes?: { id: string; date: string; text?: string; audioData?: string }[];
   roadCheck?: RoadCheckResult;
 }
 
@@ -150,6 +152,16 @@ export default function PlannerPage() {
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [markerMenuOpen, setMarkerMenuOpen] = useState<string | null>(null);
+
+  // === OM TRAKTEN: anteckningslista + ljud ===
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [newNoteText, setNewNoteText] = useState('');
+  const [pendingNewNoteId, setPendingNewNoteId] = useState<string | null>(null);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [recordingNoteId, setRecordingNoteId] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioTimeoutRef = useRef<any>(null);
 
   // === SUPABASE SYNC ===
   const getMarkerTyp = (m: Marker): string => {
@@ -880,6 +892,51 @@ export default function PlannerPage() {
   const [briefingCheckedIds, setBriefingCheckedIds] = useState<string[]>([]);
   const [briefingChecklistMode, setBriefingChecklistMode] = useState(false);
   const [briefingStepTotal, setBriefingStepTotal] = useState(0);
+
+  // === LJUD-INSPELNING (per anteckning) ===
+  const startNoteAudioRecording = useCallback(async (markerId: string, noteId: string) => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/mp4';
+      const recorder = new MediaRecorder(stream, { mimeType });
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: mimeType });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64 = reader.result as string;
+          setMarkers(prev => prev.map(m => m.id === markerId ? { ...m, notes: (m.notes || []).map(n => n.id === noteId ? { ...n, audioData: base64 } : n) } : m));
+        };
+        reader.readAsDataURL(blob);
+        stream.getTracks().forEach(t => t.stop());
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecordingAudio(true);
+      setRecordingNoteId(noteId);
+      audioTimeoutRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          mediaRecorderRef.current.stop();
+          setIsRecordingAudio(false);
+          setRecordingNoteId(null);
+          mediaRecorderRef.current = null;
+        }
+      }, 60000);
+    } catch (err) {
+      console.error('Kunde inte starta ljudinspelning:', err);
+    }
+  }, []);
+
+  const stopNoteAudioRecording = useCallback(() => {
+    if (audioTimeoutRef.current) { clearTimeout(audioTimeoutRef.current); audioTimeoutRef.current = null; }
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+      setIsRecordingAudio(false);
+      setRecordingNoteId(null);
+      mediaRecorderRef.current = null;
+    }
+  }, []);
 
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
@@ -6658,44 +6715,83 @@ export default function PlannerPage() {
       </button>}
 
       {/* === BRIEFING CHECKLISTA-KNAPP (persistent efter briefing) === */}
-      {briefingCompleted && !briefingMode && !briefingChecklistMode && (
-        <button
-          onClick={() => { setBriefingChecklistMode(true); }}
-          style={{
-            position: 'absolute',
-            bottom: menuOpen ? menuHeight + 170 : 160,
-            right: '15px',
-            width: '48px',
-            height: '48px',
-            borderRadius: '12px',
-            border: '1px solid rgba(138,180,96,0.3)',
-            background: 'rgba(138,180,96,0.15)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 150,
-            transition: 'all 0.3s ease',
-            cursor: 'pointer',
-          }}
-        >
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8ab460" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 3 L19 12 L5 21 Z" />
-          </svg>
-          {/* Badge with unchecked count */}
-          {briefingStepTotal - briefingCheckedIds.length > 0 && (
-            <div style={{
-              position: 'absolute', top: '-4px', right: '-4px',
-              minWidth: '20px', height: '20px', borderRadius: '10px',
-              background: '#ef4444', color: '#fff',
-              fontSize: '11px', fontWeight: '700',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: '0 4px',
-            }}>
-              {briefingStepTotal - briefingCheckedIds.length}
-            </div>
-          )}
-        </button>
-      )}
+      {briefingCompleted && !briefingMode && !briefingChecklistMode && (() => {
+        const boundary = markers.find(m => m.isLine && m.lineType === 'boundary');
+        const noteIds = (boundary?.notes || []).map(n => `about-note-${n.id}`);
+        const newNotes = noteIds.filter(id => !briefingCheckedIds.includes(id));
+        const uncheckedSymbols = briefingStepTotal - briefingCheckedIds.filter(id => !id.startsWith('about-note-')).length;
+        const totalUnchecked = Math.max(0, uncheckedSymbols) + newNotes.length;
+        return (
+          <>
+            <button
+              onClick={() => { setBriefingChecklistMode(true); }}
+              style={{
+                position: 'absolute',
+                bottom: menuOpen ? menuHeight + 170 : 160,
+                right: '15px',
+                width: '48px',
+                height: '48px',
+                borderRadius: '12px',
+                border: '1px solid rgba(138,180,96,0.3)',
+                background: 'rgba(138,180,96,0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 150,
+                transition: 'all 0.3s ease',
+                cursor: 'pointer',
+              }}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8ab460" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" /><path d="M9 14l2 2 4-4" />
+              </svg>
+              {/* Badge */}
+              {totalUnchecked > 0 && (
+                <div style={{
+                  position: 'absolute', top: '-4px', right: '-4px',
+                  minWidth: '20px', height: '20px', borderRadius: '10px',
+                  background: '#ef4444', color: '#fff',
+                  fontSize: '11px', fontWeight: '700',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 4px',
+                }}>
+                  {totalUnchecked}
+                </div>
+              )}
+              {/* Red dot for new notes */}
+              {newNotes.length > 0 && totalUnchecked === 0 && (
+                <div style={{ position: 'absolute', top: '-2px', right: '-2px', width: '10px', height: '10px', borderRadius: '5px', background: '#ef4444' }} />
+              )}
+            </button>
+            {/* Notification toast for new notes */}
+            {newNotes.length > 0 && !drivingMode && (
+              <button
+                onClick={() => { setBriefingChecklistMode(true); }}
+                style={{
+                  position: 'absolute',
+                  top: '70px',
+                  left: '50%',
+                  transform: 'translateX(-50%)',
+                  padding: '10px 20px',
+                  borderRadius: '14px',
+                  background: 'rgba(10,15,8,0.95)',
+                  backdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(138,180,96,0.25)',
+                  color: '#e8f0e0',
+                  fontSize: '13px',
+                  fontWeight: '600',
+                  zIndex: 150,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  animation: 'fadeIn 0.4s ease',
+                }}
+              >
+                📝 {newNotes.length} ny{newNotes.length > 1 ? 'a' : ''} anteckning{newNotes.length > 1 ? 'ar' : ''}
+              </button>
+            )}
+          </>
+        );
+      })()}
 
       {/* === ÅNGRA-KNAPP === */}
       {showUndo && history.length > 0 && !briefingMode && (
@@ -7395,6 +7491,144 @@ export default function PlannerPage() {
                 </svg>
               </button>
             </div>
+
+              {/* === OM TRAKTEN — anteckningslista, bara för boundary === */}
+              {marker.isLine && marker.lineType === 'boundary' && (() => {
+                const notes = marker.notes || [];
+                const fmtDate = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()]}`; };
+                return (
+                  <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '20px' }}>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#e8f0e0', marginBottom: '12px' }}>📝 Om trakten</div>
+
+                    {/* Befintliga anteckningar */}
+                    {notes.map((note, idx) => {
+                      const isEditing = editingNoteId === note.id;
+                      const isRecThis = isRecordingAudio && recordingNoteId === note.id;
+                      return (
+                        <div key={note.id} style={{ marginBottom: '10px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                          {/* Rad: nummer + datum + förhandsvisning */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: isEditing ? '8px' : 0 }}>
+                            <div style={{ width: '22px', height: '22px', borderRadius: '11px', background: 'rgba(138,180,96,0.15)', color: '#8ab460', fontSize: '11px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</div>
+                            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>{fmtDate(note.date)}</div>
+                            {!isEditing && (
+                              <div style={{ flex: 1, fontSize: '13px', color: 'rgba(232,240,224,0.6)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {note.audioData && !note.text ? '🎤 Röstmeddelande' : (note.text || '')}
+                                {note.audioData && note.text ? ' 🎤' : ''}
+                              </div>
+                            )}
+                            {!isEditing && (
+                              <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                                <button onClick={() => { setEditingNoteId(note.id); setNewNoteText(note.text || ''); }} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', fontSize: '12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✎</button>
+                                <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).filter(n => n.id !== note.id) } : m))} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '11px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                              </div>
+                            )}
+                          </div>
+                          {/* Redigeringsläge */}
+                          {isEditing && (
+                            <div>
+                              <textarea
+                                value={newNoteText}
+                                onChange={(e) => setNewNoteText(e.target.value)}
+                                autoFocus
+                                rows={2}
+                                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(138,180,96,0.2)', background: 'rgba(255,255,255,0.03)', color: '#e8f0e0', fontSize: '13px', lineHeight: '1.4', resize: 'none', outline: 'none', fontFamily: 'inherit', marginBottom: '8px' }}
+                              />
+                              {/* Ljud för denna anteckning */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                <button
+                                  onPointerDown={(e) => { e.preventDefault(); startNoteAudioRecording(marker.id, note.id); }}
+                                  onPointerUp={() => stopNoteAudioRecording()}
+                                  onPointerLeave={() => { if (isRecThis) stopNoteAudioRecording(); }}
+                                  style={{ width: '36px', height: '36px', borderRadius: '18px', border: 'none', background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', animation: isRecThis ? 'pulse 1s infinite' : 'none' }}
+                                >🎤</button>
+                                {note.audioData && !isRecThis && (
+                                  <>
+                                    <audio controls src={note.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                                    <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, audioData: undefined } : n) } : m))} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                                  </>
+                                )}
+                                {isRecThis && <div style={{ fontSize: '12px', color: '#ef4444' }}>Spelar in...</div>}
+                                {!note.audioData && !isRecThis && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>Håll inne</div>}
+                              </div>
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                <button onClick={() => { setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, text: newNoteText } : n) } : m)); setEditingNoteId(null); setNewNoteText(''); }} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: '#8ab460', color: '#0a0f08', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Spara</button>
+                                <button onClick={() => { setEditingNoteId(null); setNewNoteText(''); }} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: '13px', cursor: 'pointer' }}>Avbryt</button>
+                              </div>
+                            </div>
+                          )}
+                          {/* Visa ljud (ej redigering) */}
+                          {!isEditing && note.audioData && (
+                            <div style={{ marginTop: '6px' }}>
+                              <audio controls src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+
+                    {/* Ny anteckning */}
+                    {editingNoteId === 'new' && pendingNewNoteId ? (() => {
+                      const newId = pendingNewNoteId;
+                      const isRecNew = isRecordingAudio && recordingNoteId === newId;
+                      const pendingAudio = markers.find(m => m.id === marker.id)?.notes?.find(n => n.id === newId)?.audioData;
+                      return (
+                        <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(138,180,96,0.06)', border: '1px solid rgba(138,180,96,0.15)' }}>
+                          <textarea
+                            value={newNoteText}
+                            onChange={(e) => setNewNoteText(e.target.value)}
+                            autoFocus
+                            placeholder="Skriv anteckning..."
+                            rows={2}
+                            style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(138,180,96,0.2)', background: 'rgba(255,255,255,0.03)', color: '#e8f0e0', fontSize: '13px', lineHeight: '1.4', resize: 'none', outline: 'none', fontFamily: 'inherit', marginBottom: '8px' }}
+                          />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                            <button
+                              onPointerDown={(e) => { e.preventDefault(); startNoteAudioRecording(marker.id, newId); }}
+                              onPointerUp={() => stopNoteAudioRecording()}
+                              onPointerLeave={() => { if (isRecNew) stopNoteAudioRecording(); }}
+                              style={{ width: '36px', height: '36px', borderRadius: '18px', border: 'none', background: isRecNew ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', animation: isRecNew ? 'pulse 1s infinite' : 'none' }}
+                            >🎤</button>
+                            {pendingAudio && !isRecNew && (
+                              <>
+                                <audio controls src={pendingAudio} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
+                                <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === newId ? { ...n, audioData: undefined } : n) } : m))} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '10px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                              </>
+                            )}
+                            {isRecNew && <div style={{ fontSize: '12px', color: '#ef4444' }}>Spelar in...</div>}
+                            {!pendingAudio && !isRecNew && <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)' }}>Håll inne för röstmeddelande</div>}
+                          </div>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button onClick={() => {
+                              const audio = markers.find(m => m.id === marker.id)?.notes?.find(n => n.id === newId)?.audioData;
+                              if (newNoteText.trim() || audio) {
+                                setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: [...(m.notes || []).filter(n => n.id !== newId), { id: newId, date: new Date().toISOString(), text: newNoteText.trim() || undefined, audioData: audio }] } : m));
+                              } else {
+                                // Inget innehåll — ta bort placeholder
+                                setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).filter(n => n.id !== newId) } : m));
+                              }
+                              setEditingNoteId(null); setNewNoteText(''); setPendingNewNoteId(null);
+                            }} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: '#8ab460', color: '#0a0f08', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Spara</button>
+                            <button onClick={() => {
+                              setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).filter(n => n.id !== newId) } : m));
+                              setEditingNoteId(null); setNewNoteText(''); setPendingNewNoteId(null);
+                            }} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: '13px', cursor: 'pointer' }}>Avbryt</button>
+                          </div>
+                        </div>
+                      );
+                    })() : (
+                      <button
+                        onClick={() => { const id = `note-${Date.now()}`; setPendingNewNoteId(id); setEditingNoteId('new'); setNewNoteText(''); }}
+                        style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px dashed rgba(138,180,96,0.25)', background: 'transparent', color: '#8ab460', fontSize: '13px', fontWeight: '600', cursor: 'pointer', marginTop: notes.length > 0 ? '4px' : 0 }}
+                      >+ Ny anteckning</button>
+                    )}
+
+                    {notes.length === 0 && editingNoteId !== 'new' && (
+                      <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.2)', marginTop: '6px', textAlign: 'center' }}>Inga anteckningar ännu</div>
+                    )}
+                  </div>
+                );
+              })()}
+
           </div>
         </div>
         );

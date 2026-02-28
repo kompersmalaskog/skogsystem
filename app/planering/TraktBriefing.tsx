@@ -20,6 +20,8 @@ interface Marker {
   path?: Point[];
   comment?: string;
   photoData?: string;
+  audioData?: string;
+  notes?: { id: string; date: string; text?: string; audioData?: string }[];
 }
 
 interface BriefingStep {
@@ -41,6 +43,8 @@ interface BriefingStep {
   tagText?: string;
   categoryColor?: string;
   photoData?: string;
+  audioData?: string;
+  notes?: { id: string; date: string; text?: string; audioData?: string }[];
 }
 
 interface SymbolCategory {
@@ -175,6 +179,12 @@ export default function TraktBriefing({
   const [panelHeight, setPanelHeight] = useState(50);
   const dragStartRef = useRef<{ y: number; h: number } | null>(null);
 
+  // Mandatory checklist state (pre-driving)
+  const [mandatoryChecklistOpen, setMandatoryChecklistOpen] = useState(false);
+  const [mandatoryChecked, setMandatoryChecked] = useState<Set<string>>(new Set());
+  const [mandatoryExpanded, setMandatoryExpanded] = useState<string | null>(null);
+  const [mapViewItem, setMapViewItem] = useState<string | null>(null);
+
   // === BUILD STEPS ===
   useEffect(() => {
     if (currentStep >= 0) return;
@@ -254,15 +264,8 @@ export default function TraktBriefing({
       path: arcPoints, arcCDF,
     });
 
-    // 2. OM TRAKTEN — if boundary marker has a comment
-    const traktComment = boundaries.length > 0 ? boundaries[0].comment : undefined;
-    if (traktComment) {
-      built.push({
-        id: 'about', type: 'about', title: 'Om trakten', icon: '📝',
-        comment: traktComment,
-        center: { lat: centerLat, lon: centerLon }, zoom: overviewZoom - 0.5, pitch: 0,
-      });
-    }
+    // 2. OM TRAKTEN — data hämtas direkt från boundary markers i checklistorna,
+    //    ingår INTE som briefing-steg
 
     // 3. LANDINGS
     for (const m of landings) {
@@ -271,7 +274,7 @@ export default function TraktBriefing({
         id: `landing-${m.id}`, type: 'landing', title: 'Avlägg', icon: '📦',
         comment: m.comment || undefined,
         center: ll, zoom: 18, pitch: 62, marker: m,
-        tag: 'info', tagText: 'AVLÄGG', categoryColor: A, photoData: m.photoData || undefined,
+        tag: 'info', tagText: 'AVLÄGG', categoryColor: A, photoData: m.photoData || undefined, audioData: m.audioData || undefined,
       });
     }
 
@@ -356,7 +359,7 @@ export default function TraktBriefing({
         comment: m.comment || undefined,
         center: ll, zoom: stepZoom, pitch: 62, marker: m,
         tag: t.tag, tagText: t.text, categoryColor: A,
-        photoData: m.photoData || undefined,
+        photoData: m.photoData || undefined, audioData: m.audioData || undefined,
       });
     }
 
@@ -644,7 +647,7 @@ export default function TraktBriefing({
   // ============================================================
   // === START SCREEN — just map + button ===
   // ============================================================
-  if (currentStep === -1 && !checklistOpen) {
+  if (currentStep === -1 && !checklistOpen && !mandatoryChecklistOpen) {
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', pointerEvents: 'none' }}>
         <button onClick={() => goToStep(0)} style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}>
@@ -655,17 +658,289 @@ export default function TraktBriefing({
   }
 
   // ============================================================
+  // === MAP VIEW ITEM — floating back button ===
+  // ============================================================
+  if (mapViewItem && !mandatoryChecklistOpen && !checklistOpen) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', pointerEvents: 'none' }}>
+        <div style={{ display: 'flex', gap: '10px', marginBottom: 'max(44px, env(safe-area-inset-bottom))', pointerEvents: 'auto' }}>
+          <button
+            onClick={() => {
+              const src = mapViewItem.startsWith('mandatory-') ? 'mandatory' : 'checklist';
+              if (src === 'mandatory') setMandatoryChecklistOpen(true);
+              else setChecklistOpen(true);
+              setMapViewItem(null);
+              onActiveMarkerChange?.(null);
+            }}
+            style={{ ...glassBtnStyle, background: 'rgba(255,255,255,0.06)', color: '#e8f0e0', border: '1px solid rgba(255,255,255,0.1)' }}
+          >← Tillbaka</button>
+          <button
+            onClick={() => {
+              const itemId = mapViewItem.replace('mandatory-', '');
+              setMandatoryChecked(prev => { const n = new Set(prev); n.add(itemId); return n; });
+              const src = mapViewItem.startsWith('mandatory-') ? 'mandatory' : 'checklist';
+              if (src === 'mandatory') setMandatoryChecklistOpen(true);
+              else {
+                setCheckedItems(prev => { const n = new Set(prev); n.add(itemId); onChecklistChange?.(Array.from(n)); return n; });
+                setChecklistOpen(true);
+              }
+              setMapViewItem(null);
+              onActiveMarkerChange?.(null);
+            }}
+            style={{ ...glassBtnStyle }}
+          >✓ Klar</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
+  // === MANDATORY CHECKLIST (pre-driving) ===
+  // ============================================================
+  if (mandatoryChecklistOpen) {
+    const boundary = markers.find(m => m.isLine && m.lineType === 'boundary');
+    const aboutNotes = boundary?.notes || [];
+    const aboutComment = boundary?.comment;
+    const aboutAudio = boundary?.audioData;
+    const hasLegacyAbout = !!(aboutComment || aboutAudio) && aboutNotes.length === 0;
+    const mandatorySteps = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about');
+    const groups = [
+      { tag: 'danger' as const, title: 'KÖR INTE HÄR', color: '#ef4444', items: mandatorySteps.filter(s => s.tag === 'danger') },
+      { tag: 'caution' as const, title: 'VAR FÖRSIKTIG', color: '#f59e0b', items: mandatorySteps.filter(s => s.tag === 'caution') },
+      { tag: 'info' as const, title: 'INFO', color: A, items: mandatorySteps.filter(s => s.tag === 'info') },
+    ].filter(g => g.items.length > 0);
+    const aboutCheckCount = aboutNotes.length > 0 ? aboutNotes.length : (hasLegacyAbout ? 1 : 0);
+    const totalMandatory = mandatorySteps.length + aboutCheckCount;
+    const checkedMandatoryCount = mandatoryChecked.size;
+    const allChecked = checkedMandatoryCount >= totalMandatory;
+    const progressPct = totalMandatory > 0 ? Math.round((checkedMandatoryCount / totalMandatory) * 100) : 0;
+    const fmtDate = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()]}`; };
+
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 700, background: 'rgba(10,15,8,0.98)', display: 'flex', flexDirection: 'column' }}>
+        {/* Header */}
+        <div style={{ padding: '20px 20px 0', flexShrink: 0 }}>
+          <div style={{ paddingTop: 'env(safe-area-inset-top)' }} />
+          <div style={{ fontSize: '18px', fontWeight: '700', color: '#e8f0e0', marginBottom: '4px' }}>Gå igenom innan du kör</div>
+          <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.4)', marginBottom: '12px' }}>{checkedMandatoryCount} av {totalMandatory} avklarade</div>
+          {/* Progress bar */}
+          <div style={{ height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)' }}>
+            <div style={{ height: '100%', borderRadius: '2px', background: A, width: `${progressPct}%`, transition: 'width 0.3s ease' }} />
+          </div>
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', WebkitOverflowScrolling: 'touch' }}>
+          {/* Om trakten — anteckningar (direkt från boundary marker) */}
+          {aboutNotes.length > 0 && (
+            <div>
+              <div style={{ padding: '14px 20px 6px', fontSize: '11px', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(138,180,96,0.5)' }}>
+                OM TRAKTEN · {aboutNotes.length} anteckningar
+              </div>
+              {aboutNotes.map((note, idx) => {
+                const noteKey = `about-note-${note.id}`;
+                const isNoteChecked = mandatoryChecked.has(noteKey);
+                const isNoteExpanded = mandatoryExpanded === noteKey;
+                const isNew = checkedStepIds && !checkedStepIds.includes(noteKey);
+                return (
+                  <div key={note.id}>
+                    <div
+                      onClick={() => setMandatoryExpanded(prev => prev === noteKey ? null : noteKey)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 20px', opacity: isNoteChecked ? 0.35 : 1, background: isNoteExpanded ? 'rgba(138,180,96,0.06)' : 'transparent', cursor: 'pointer', transition: 'opacity 0.3s, background 0.2s' }}
+                    >
+                      <div
+                        onClick={(e) => { e.stopPropagation(); setMandatoryChecked(prev => { const n = new Set(prev); if (n.has(noteKey)) n.delete(noteKey); else n.add(noteKey); return n; }); }}
+                        style={{ width: '22px', height: '22px', borderRadius: '6px', border: isNoteChecked ? 'none' : '2px solid rgba(255,255,255,0.15)', background: isNoteChecked ? A : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
+                      >
+                        {isNoteChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
+                      </div>
+                      <div style={{ width: '22px', height: '22px', borderRadius: '11px', background: 'rgba(138,180,96,0.15)', color: '#8ab460', fontSize: '11px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</div>
+                      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>{fmtDate(note.date)}</div>
+                      <div style={{ flex: 1, fontSize: '13px', fontWeight: '500', color: isNoteChecked ? 'rgba(255,255,255,0.25)' : 'rgba(232,240,224,0.7)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {note.audioData && !note.text ? '🎤 Röstmeddelande' : (note.text || '')}
+                        {note.audioData && note.text ? ' 🎤' : ''}
+                      </div>
+                      {isNew && !isNoteChecked && (
+                        <div style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(138,180,96,0.2)', color: '#8ab460', fontSize: '10px', fontWeight: '700', flexShrink: 0 }}>NY</div>
+                      )}
+                    </div>
+                    {isNoteExpanded && (
+                      <div style={{ padding: '4px 20px 12px 74px' }}>
+                        {note.audioData && (
+                          <div style={{ marginBottom: '8px' }}>
+                            <audio controls src={note.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
+                          </div>
+                        )}
+                        {note.text && (
+                          <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                            <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.6)', lineHeight: '1.5' }}>{note.text}</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {/* Legacy fallback: comment/audio without notes */}
+          {hasLegacyAbout && (() => {
+            const isChecked = mandatoryChecked.has('about');
+            const isExpanded = mandatoryExpanded === 'about';
+            return (
+              <div>
+                <div
+                  onClick={() => setMandatoryExpanded(prev => prev === 'about' ? null : 'about')}
+                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 20px', opacity: isChecked ? 0.35 : 1, background: isExpanded ? 'rgba(138,180,96,0.06)' : 'transparent', cursor: 'pointer', transition: 'opacity 0.3s, background 0.2s' }}
+                >
+                  <div
+                    onClick={(e) => { e.stopPropagation(); setMandatoryChecked(prev => { const n = new Set(prev); if (n.has('about')) n.delete('about'); else n.add('about'); return n; }); }}
+                    style={{ width: '22px', height: '22px', borderRadius: '6px', border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.15)', background: isChecked ? A : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
+                  >
+                    {isChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
+                  </div>
+                  <div style={{ fontSize: '18px', flexShrink: 0 }}>📝</div>
+                  <div style={{ flex: 1, fontSize: '14px', fontWeight: '600', color: isChecked ? 'rgba(255,255,255,0.25)' : '#e8f0e0' }}>Om trakten</div>
+                </div>
+                {isExpanded && (
+                  <div style={{ padding: '4px 20px 12px 72px' }}>
+                    {aboutAudio && (
+                      <div style={{ marginBottom: '8px' }}>
+                        <audio controls src={aboutAudio} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
+                      </div>
+                    )}
+                    {aboutComment && (
+                      <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                        <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.6)', lineHeight: '1.5' }}>{aboutComment}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Groups */}
+          {groups.map(group => (
+            <div key={group.tag}>
+              <div style={{ padding: '14px 20px 6px', fontSize: '11px', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase', color: group.color, opacity: 0.6 }}>{group.title}</div>
+              {group.items.map(item => {
+                const isChecked = mandatoryChecked.has(item.id);
+                const isExpanded = mandatoryExpanded === item.id;
+                return (
+                  <div key={item.id}>
+                    <div
+                      onClick={() => {
+                        if (isExpanded) { setMandatoryExpanded(null); onActiveMarkerChange?.(null); }
+                        else {
+                          setMandatoryExpanded(item.id);
+                          onActiveMarkerChange?.(item.marker?.id || null);
+                        }
+                      }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 20px', opacity: isChecked ? 0.35 : 1, background: isExpanded ? 'rgba(138,180,96,0.06)' : 'transparent', cursor: 'pointer', transition: 'opacity 0.3s, background 0.2s' }}
+                    >
+                      <div
+                        onClick={(e) => { e.stopPropagation(); setMandatoryChecked(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); return n; }); }}
+                        style={{ width: '22px', height: '22px', borderRadius: '6px', border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.15)', background: isChecked ? A : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
+                      >
+                        {isChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
+                      </div>
+                      <div style={{ fontSize: '18px', flexShrink: 0 }}>{item.icon}</div>
+                      <div style={{ flex: 1, fontSize: '14px', fontWeight: '600', color: isChecked ? 'rgba(255,255,255,0.25)' : '#e8f0e0' }}>{item.title}</div>
+                    </div>
+                    {isExpanded && (
+                      <div style={{ padding: '4px 20px 12px 72px' }}>
+                        {item.audioData && (
+                          <div style={{ marginBottom: '8px' }}>
+                            <audio controls src={item.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
+                          </div>
+                        )}
+                        {item.comment && (
+                          <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)', marginBottom: '8px' }}>
+                            <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.6)', lineHeight: '1.5' }}>{item.comment}</div>
+                          </div>
+                        )}
+                        {item.photoData && (
+                          <div style={{ marginBottom: '8px' }}>
+                            <img src={item.photoData} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }} />
+                          </div>
+                        )}
+                        {item.center && (
+                          <button
+                            onClick={() => {
+                              setMandatoryChecklistOpen(false);
+                              setMapViewItem(`mandatory-${item.id}`);
+                              onActiveMarkerChange?.(item.marker?.id || null);
+                              const m = mapInstanceRef.current;
+                              if (m && item.center) m.flyTo({ center: [item.center.lon, item.center.lat], zoom: 17, pitch: 55, duration: 1500, essential: true });
+                            }}
+                            style={{ padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(138,180,96,0.2)', background: 'rgba(138,180,96,0.08)', color: A, fontSize: '13px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                          >📍 Visa på kartan</button>
+                        )}
+                        {!item.audioData && !item.comment && !item.photoData && (
+                          <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>Ingen extra information</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '16px 20px', paddingBottom: 'max(20px, env(safe-area-inset-bottom))', borderTop: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
+          <button
+            onClick={() => {
+              onStartDriving?.();
+              handleClose();
+            }}
+            disabled={!allChecked}
+            style={{
+              width: '100%', padding: '16px',
+              background: allChecked ? A : 'rgba(138,180,96,0.1)',
+              color: allChecked ? '#0a0f08' : 'rgba(138,180,96,0.3)',
+              border: 'none', borderRadius: '14px',
+              fontSize: '16px', fontWeight: '700',
+              cursor: allChecked ? 'pointer' : 'default',
+              transition: 'all 0.3s ease',
+            }}
+          >
+            Jag har tagit del av allt – börja köra
+          </button>
+          {!allChecked && (
+            <div style={{ textAlign: 'center', fontSize: '12px', color: 'rgba(255,255,255,0.2)', marginTop: '8px' }}>
+              Bocka av alla punkter ovan för att fortsätta
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ============================================================
   // === CHECKLIST MODE (toolbar compat) ===
   // ============================================================
   if (checklistOpen) {
+    const checklistBoundary = markers.find(m => m.isLine && m.lineType === 'boundary');
+    const checklistNotes = checklistBoundary?.notes || [];
+    const checklistLegacyComment = checklistBoundary?.comment;
+    const checklistLegacyAudio = checklistBoundary?.audioData;
+    const hasChecklistLegacy = !!(checklistLegacyComment || checklistLegacyAudio) && checklistNotes.length === 0;
     const checklistSteps = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about');
     const groups = [
       { tag: 'danger' as const, title: 'KÖR INTE HÄR', color: '#ef4444', items: checklistSteps.filter(s => s.tag === 'danger') },
       { tag: 'caution' as const, title: 'VAR FÖRSIKTIG', color: '#f59e0b', items: checklistSteps.filter(s => s.tag === 'caution') },
       { tag: 'info' as const, title: 'INFO', color: '#8ab460', items: checklistSteps.filter(s => s.tag === 'info') },
     ].filter(g => g.items.length > 0);
-    const totalItems = checklistSteps.length;
-    const checkedCount = checklistSteps.filter(s => checkedItems.has(s.id)).length;
+    const noteCheckCount = checklistNotes.length > 0 ? checklistNotes.length : (hasChecklistLegacy ? 1 : 0);
+    const totalItems = checklistSteps.length + noteCheckCount;
+    const noteCheckedCount = checklistNotes.length > 0
+      ? checklistNotes.filter(n => checkedItems.has(`about-note-${n.id}`)).length
+      : (hasChecklistLegacy && checkedItems.has('about') ? 1 : 0);
+    const checkedCount = checklistSteps.filter(s => checkedItems.has(s.id)).length + noteCheckedCount;
+    const fmtDateCL = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()]}`; };
 
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', pointerEvents: 'none' }}>
@@ -684,11 +959,94 @@ export default function TraktBriefing({
             <div style={{ width: '40px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.15)', margin: '0 auto' }} />
           </div>
           <div style={{ padding: '0 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
-            <div style={{ fontSize: '14px', fontWeight: '600', color: 'rgba(232,240,224,0.6)' }}>
+            <div style={{ fontSize: '14px', fontWeight: '600', color: 'rgba(232,240,224,0.6)', marginBottom: '8px' }}>
               {checkedCount} av {totalItems} kvitterade
+            </div>
+            {/* Progress bar */}
+            <div style={{ height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)' }}>
+              <div style={{ height: '100%', borderRadius: '2px', background: A, width: `${totalItems > 0 ? Math.round((checkedCount / totalItems) * 100) : 0}%`, transition: 'width 0.3s ease' }} />
             </div>
           </div>
           <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0', WebkitOverflowScrolling: 'touch' }}>
+            {/* Om trakten — anteckningar överst */}
+            {checklistNotes.length > 0 && (
+              <div>
+                <div style={{ padding: '14px 20px 6px', fontSize: '11px', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase', color: 'rgba(138,180,96,0.5)' }}>
+                  OM TRAKTEN · {checklistNotes.length} anteckningar
+                </div>
+                {checklistNotes.map((note, idx) => {
+                  const noteKey = `about-note-${note.id}`;
+                  const isNChecked = checkedItems.has(noteKey);
+                  const isNExpanded = expandedItem === noteKey;
+                  const isNew = checkedStepIds && !checkedStepIds.includes(noteKey);
+                  return (
+                    <div key={note.id}>
+                      <div
+                        onClick={() => { if (isNExpanded) { setExpandedItem(null); } else { setExpandedItem(noteKey); } }}
+                        style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 20px', opacity: isNChecked ? 0.35 : 1, background: isNExpanded ? 'rgba(138,180,96,0.06)' : 'transparent', cursor: 'pointer', transition: 'opacity 0.3s, background 0.2s' }}
+                      >
+                        <div
+                          onClick={(e) => { e.stopPropagation(); setCheckedItems(prev => { const next = new Set(prev); if (next.has(noteKey)) next.delete(noteKey); else next.add(noteKey); onChecklistChange?.(Array.from(next)); return next; }); }}
+                          style={{ width: '22px', height: '22px', borderRadius: '6px', border: isNChecked ? 'none' : '2px solid rgba(255,255,255,0.15)', background: isNChecked ? A : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
+                        >
+                          {isNChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
+                        </div>
+                        <div style={{ width: '22px', height: '22px', borderRadius: '11px', background: 'rgba(138,180,96,0.15)', color: '#8ab460', fontSize: '11px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</div>
+                        <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>{fmtDateCL(note.date)}</div>
+                        <div style={{ flex: 1, fontSize: '13px', fontWeight: '500', color: isNChecked ? 'rgba(255,255,255,0.25)' : 'rgba(232,240,224,0.7)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {note.audioData && !note.text ? '🎤 Röstmeddelande' : (note.text || '')}
+                          {note.audioData && note.text ? ' 🎤' : ''}
+                        </div>
+                        {isNew && !isNChecked && (
+                          <div style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(138,180,96,0.2)', color: '#8ab460', fontSize: '10px', fontWeight: '700', flexShrink: 0 }}>NY</div>
+                        )}
+                      </div>
+                      {isNExpanded && (
+                        <div style={{ padding: '4px 20px 12px 74px' }}>
+                          {note.audioData && (
+                            <div style={{ marginBottom: '8px' }}>
+                              <audio controls src={note.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
+                            </div>
+                          )}
+                          {note.text && (
+                            <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)' }}>
+                              <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.6)', lineHeight: '1.5' }}>{note.text}</div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {hasChecklistLegacy && (() => {
+              const isLChecked = checkedItems.has('about');
+              const isLExpanded = expandedItem === 'about';
+              return (
+                <div>
+                  <div
+                    onClick={() => { if (isLExpanded) setExpandedItem(null); else setExpandedItem('about'); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 20px', opacity: isLChecked ? 0.35 : 1, background: isLExpanded ? 'rgba(138,180,96,0.06)' : 'transparent', cursor: 'pointer', transition: 'opacity 0.3s, background 0.2s' }}
+                  >
+                    <div
+                      onClick={(e) => { e.stopPropagation(); setCheckedItems(prev => { const next = new Set(prev); if (next.has('about')) next.delete('about'); else next.add('about'); onChecklistChange?.(Array.from(next)); return next; }); }}
+                      style={{ width: '22px', height: '22px', borderRadius: '6px', border: isLChecked ? 'none' : '2px solid rgba(255,255,255,0.15)', background: isLChecked ? A : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
+                    >
+                      {isLChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
+                    </div>
+                    <div style={{ fontSize: '18px', flexShrink: 0 }}>📝</div>
+                    <div style={{ flex: 1, fontSize: '14px', fontWeight: '600', color: isLChecked ? 'rgba(255,255,255,0.25)' : '#e8f0e0' }}>Om trakten</div>
+                  </div>
+                  {isLExpanded && (
+                    <div style={{ padding: '4px 20px 12px 72px' }}>
+                      {checklistLegacyAudio && <div style={{ marginBottom: '8px' }}><audio controls src={checklistLegacyAudio} style={{ width: '100%', height: '36px', borderRadius: '8px' }} /></div>}
+                      {checklistLegacyComment && <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)' }}><div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.6)', lineHeight: '1.5' }}>{checklistLegacyComment}</div></div>}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             {groups.map(group => (
               <div key={group.tag}>
                 <div style={{ padding: '14px 20px 6px', fontSize: '11px', fontWeight: '800', letterSpacing: '1px', textTransform: 'uppercase', color: group.color, opacity: 0.6 }}>{group.title}</div>
@@ -720,12 +1078,34 @@ export default function TraktBriefing({
                       </div>
                       {isExpanded && (
                         <div style={{ padding: '4px 20px 12px 72px' }}>
+                          {item.audioData && (
+                            <div style={{ marginBottom: '8px' }}>
+                              <audio controls src={item.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
+                            </div>
+                          )}
                           {item.comment && (
                             <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)', marginBottom: '8px' }}>
                               <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.6)', lineHeight: '1.5' }}>{item.comment}</div>
                             </div>
                           )}
-                          {!item.comment && <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>Ingen extra information</div>}
+                          {item.photoData && (
+                            <div style={{ marginBottom: '8px' }}>
+                              <img src={item.photoData} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }} />
+                            </div>
+                          )}
+                          {item.center && (
+                            <button
+                              onClick={() => {
+                                setChecklistOpen(false);
+                                setMapViewItem(item.id);
+                                onActiveMarkerChange?.(item.marker?.id || null);
+                                const m = mapInstanceRef.current;
+                                if (m && item.center) m.flyTo({ center: [item.center.lon, item.center.lat], zoom: 17, pitch: 55, duration: 1500, essential: true });
+                              }}
+                              style={{ padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(138,180,96,0.2)', background: 'rgba(138,180,96,0.08)', color: A, fontSize: '13px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                            >📍 Visa på kartan</button>
+                          )}
+                          {!item.audioData && !item.comment && !item.photoData && <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>Ingen extra information</div>}
                         </div>
                       )}
                     </div>
@@ -752,8 +1132,7 @@ export default function TraktBriefing({
           onClick={() => {
             const total = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about').length;
             onBriefingComplete?.(total);
-            onStartDriving?.();
-            handleClose();
+            setMandatoryChecklistOpen(true);
           }}
           style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}
         >
