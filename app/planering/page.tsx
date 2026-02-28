@@ -892,6 +892,9 @@ export default function PlannerPage() {
   const [briefingCheckedIds, setBriefingCheckedIds] = useState<string[]>([]);
   const [briefingChecklistMode, setBriefingChecklistMode] = useState(false);
   const [briefingStepTotal, setBriefingStepTotal] = useState(0);
+  const [checklistMapView, setChecklistMapView] = useState<{ itemId: string; center: { lat: number; lon: number }; markerId?: string; source: 'checklist' | 'mandatory'; bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; title?: string; icon?: string } | null>(null);
+  const checklistPulseRef = useRef<any>(null);
+  const checklistPrevOverlaysRef = useRef<Record<string, boolean> | null>(null);
 
   // === LJUD-INSPELNING (per anteckning) ===
   const startNoteAudioRecording = useCallback(async (markerId: string, noteId: string) => {
@@ -2809,6 +2812,13 @@ export default function PlannerPage() {
           <path d="M5 3 L19 12 L5 21 Z" />
         </svg>
       ),
+      'menu-briefing-checklist': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" />
+          <rect x="9" y="3" width="6" height="4" rx="1" />
+          <path d="M9 14l2 2 4-4" />
+        </svg>
+      ),
     };
     return icons[iconId] || (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5">
@@ -2966,6 +2976,7 @@ export default function PlannerPage() {
     { id: 'brandrisk', name: 'Brandrisk', desc: 'FWI, samråd, utrustning', icon: 'menu-brandrisk' },
     { id: 'emergency', name: 'Nödläge', desc: 'SOS, position, sjukvård', icon: 'menu-emergency' },
     { id: 'briefing', name: 'Briefing', desc: 'Guidad traktgenomgång', icon: 'menu-briefing' },
+    { id: 'briefing-checklist', name: 'Kvittering', desc: 'Kvittera markeringar', icon: 'menu-briefing-checklist' },
   ];
 
   // === GPS ===
@@ -3110,6 +3121,10 @@ export default function PlannerPage() {
         if (briefingMode && briefingHighlightId) {
           opacity = m.id === briefingHighlightId ? 1 : 0.2;
         }
+        // Checklist map view: active marker full, others dimmed
+        if (checklistMapView && briefingHighlightId) {
+          opacity = m.id === briefingHighlightId ? 1 : 0.3;
+        }
         if (opacity < minOp) minOp = opacity;
         if (opacity > maxOp) maxOp = opacity;
         features.push({
@@ -3128,7 +3143,7 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId, checklistMapView]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2c) Visa/dölj markers-layer beroende på visibleLayers.symbols
   useEffect(() => {
@@ -3187,6 +3202,38 @@ export default function PlannerPage() {
           map.setPaintProperty('markers-layer', 'icon-opacity', ['number', ['get', 'opacity'], 1]);
         }
       } catch (e) { /* */ }
+
+      // Checklist map view: dim others + pulse active marker
+      if (checklistMapView && briefingHighlightId) {
+        try {
+          // Dim all markers except the active one
+          if (map.getLayer('markers-layer')) {
+            map.setPaintProperty('markers-layer', 'icon-opacity',
+              ['case', ['==', ['get', 'id'], briefingHighlightId], 1, 0.3]);
+          }
+          // Dim zones
+          ['zone-fill', 'zone-outline-casing', 'zone-outline', 'zone-outline-dash'].forEach(id => {
+            if (!map.getLayer(id)) return;
+            if (id === 'zone-fill') map.setPaintProperty(id, 'fill-opacity', 0.05);
+            else map.setPaintProperty(id, 'line-opacity', 0.15);
+          });
+        } catch (e) { /* */ }
+
+        // Pulse: opacity 1.0 → 0.4, 1.5s cycle
+        let t = 0;
+        const step = (2 * Math.PI) / 30; // 30 ticks × 50ms = 1500ms per cycle
+        briefingPulseRef.current = setInterval(() => {
+          t += step;
+          const op = 0.7 + 0.3 * Math.sin(t); // oscillates 0.4 – 1.0
+          try {
+            if (map.getLayer('markers-layer')) {
+              map.setPaintProperty('markers-layer', 'icon-opacity',
+                ['case', ['==', ['get', 'id'], briefingHighlightId], op, 0.3]);
+            }
+          } catch (e) { /* */ }
+        }, 50);
+      }
+
       return;
     }
 
@@ -3317,7 +3364,7 @@ export default function PlannerPage() {
         briefingPulseRef.current = null;
       }
     };
-  }, [briefingMode, briefingHighlightId, mapLibreReady, markers]);
+  }, [briefingMode, briefingHighlightId, mapLibreReady, markers, checklistMapView]);
 
   // 3) Synka TMA-vägar → MapLibre tma-roads-source + tma-warning-source
   useEffect(() => {
@@ -9113,6 +9160,10 @@ export default function PlannerPage() {
                         setMenuHeight(0);
                         setLayerMenuOpen(false);
                         setActiveCategory(null);
+                      } else if (cat.id === 'briefing-checklist') {
+                        setBriefingChecklistMode(true);
+                        setMenuOpen(false);
+                        setMenuHeight(0);
                       } else {
                         setActiveCategory(cat.id);
                       }
@@ -9128,13 +9179,32 @@ export default function PlannerPage() {
                       cursor: 'pointer',
                     }}
                   >
-                    <div style={{ opacity: 0.7 }}>
-                      {renderIcon(cat.icon, 28, '#fff')}
+                    <div style={{ opacity: 0.7, position: 'relative' }}>
+                      {renderIcon(cat.icon, 28, cat.id === 'briefing-checklist' ? '#8ab460' : '#fff')}
+                      {cat.id === 'briefing-checklist' && (() => {
+                        const boundary = markers.find(m => m.isLine && m.lineType === 'boundary');
+                        const noteIds = (boundary?.notes || []).map(n => `about-note-${n.id}`);
+                        const newNotes = noteIds.filter(id => !briefingCheckedIds.includes(id));
+                        const uncheckedSymbols = briefingStepTotal - briefingCheckedIds.filter(id => !id.startsWith('about-note-')).length;
+                        const totalUnchecked = Math.max(0, uncheckedSymbols) + newNotes.length;
+                        return totalUnchecked > 0 ? (
+                          <div style={{
+                            position: 'absolute', top: '-6px', right: '-10px',
+                            minWidth: '18px', height: '18px', borderRadius: '9px',
+                            background: '#ef4444', color: '#fff',
+                            fontSize: '10px', fontWeight: '700',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            padding: '0 4px',
+                          }}>
+                            {totalUnchecked}
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
                     <span style={{
                       fontSize: '11px',
                       fontWeight: '500',
-                      color: '#fff',
+                      color: cat.id === 'briefing-checklist' ? '#8ab460' : '#fff',
                       textAlign: 'center',
                     }}>
                       {cat.name}
@@ -14076,8 +14146,149 @@ export default function PlannerPage() {
           onChecklistChange={setBriefingCheckedIds}
           onBriefingComplete={(total: number) => { setBriefingCompleted(true); setBriefingStepTotal(total); }}
           onStartDriving={() => setDrivingMode(true)}
+          onShowOnMap={(itemId, center, markerId, source, extra) => {
+            setBriefingChecklistMode(false);
+            setBriefingHighlightId(markerId || null);
+            setChecklistMapView({ itemId, center, markerId, source: source || 'checklist', bbox: extra?.bbox, zoom: extra?.zoom, type: extra?.type, comment: extra?.comment, audioData: extra?.audioData, photoData: extra?.photoData, title: extra?.title, icon: extra?.icon });
+            const m = mapInstanceRef.current;
+            if (m) {
+              m.flyTo({ center: [center.lon, center.lat], zoom: extra?.zoom || 17, pitch: 55, duration: 1500, essential: true });
+              // Property step: activate fastighetsgränser WMS + pulsing overlay
+              if (extra?.type === 'property') {
+                checklistPrevOverlaysRef.current = { ...overlays };
+                if (m.getLayer('wms-layer-fastighetsgranser')) {
+                  m.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', 'visible');
+                  m.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1.0);
+                }
+                setOverlays(prev => ({ ...prev, fastighetsgranser: true }));
+                const pulseSrc = 'checklist-fastighet-pulse';
+                const pulseLayer = 'checklist-fastighet-pulse-layer';
+                try { if (m.getLayer(pulseLayer)) m.removeLayer(pulseLayer); } catch {}
+                try { if (m.getSource(pulseSrc)) m.removeSource(pulseSrc); } catch {}
+                if (extra.bbox) {
+                  const wmsUrl = 'https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3'
+                    + '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=granser&STYLES=morkbakgrund'
+                    + '&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
+                  m.addSource(pulseSrc, { type: 'raster', tiles: [wmsUrl], tileSize: 256, bounds: extra.bbox });
+                  m.addLayer({ id: pulseLayer, type: 'raster', source: pulseSrc, paint: { 'raster-opacity': 1.0, 'raster-saturation': 1, 'raster-contrast': 0.8 } });
+                }
+                let pulseOn = true;
+                checklistPulseRef.current = setInterval(() => {
+                  if (!mapInstanceRef.current) return;
+                  pulseOn = !pulseOn;
+                  try { if (mapInstanceRef.current.getLayer(pulseLayer)) mapInstanceRef.current.setPaintProperty(pulseLayer, 'raster-opacity', pulseOn ? 1.0 : 0.0); } catch {}
+                }, 1000);
+              }
+            }
+          }}
         />
       )}
+
+      {/* === CHECKLISTA "VISA PÅ KARTAN" — info-kort (utanför briefing) === */}
+      {checklistMapView && !briefingMode && !briefingChecklistMode && (() => {
+        const cleanupPropertyPulse = () => {
+          if (checklistPulseRef.current) { clearInterval(checklistPulseRef.current); checklistPulseRef.current = null; }
+          const m = mapInstanceRef.current;
+          if (m) {
+            try { if (m.getLayer('checklist-fastighet-pulse-layer')) m.removeLayer('checklist-fastighet-pulse-layer'); } catch {}
+            try { if (m.getSource('checklist-fastighet-pulse')) m.removeSource('checklist-fastighet-pulse'); } catch {}
+            if (checklistPrevOverlaysRef.current) {
+              const wasOn = checklistPrevOverlaysRef.current.fastighetsgranser;
+              if (m.getLayer('wms-layer-fastighetsgranser')) {
+                m.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
+                m.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
+              }
+              setOverlays(prev => ({ ...prev, fastighetsgranser: checklistPrevOverlaysRef.current?.fastighetsgranser ?? false }));
+              checklistPrevOverlaysRef.current = null;
+            }
+          }
+        };
+        const cv = checklistMapView;
+        const hasContent = !!(cv.comment || cv.audioData || cv.photoData);
+        return (
+        <div style={{
+          position: 'absolute',
+          bottom: 0, left: 0, right: 0,
+          pointerEvents: 'none',
+          zIndex: 300,
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+        }}>
+          <div style={{
+            pointerEvents: 'auto',
+            width: '100%', maxWidth: '420px',
+            margin: '0 12px',
+            marginBottom: 'max(20px, env(safe-area-inset-bottom))',
+            background: 'rgba(10,15,8,0.92)',
+            backdropFilter: 'blur(30px)', WebkitBackdropFilter: 'blur(30px)',
+            borderRadius: '16px',
+            border: '1px solid rgba(138,180,96,0.1)',
+            overflow: 'hidden',
+          }}>
+            {/* Photo */}
+            {cv.photoData && (
+              <img src={cv.photoData} alt="" style={{ width: '100%', height: '140px', objectFit: 'cover' }} />
+            )}
+            {/* Content */}
+            <div style={{ padding: '14px 16px' }}>
+              {/* Title */}
+              {cv.title && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: hasContent ? '8px' : '12px' }}>
+                  {cv.icon && <span style={{ fontSize: '18px' }}>{cv.icon}</span>}
+                  <span style={{ fontSize: '15px', fontWeight: '600', color: '#e8f0e0' }}>{cv.title}</span>
+                </div>
+              )}
+              {/* Comment */}
+              {cv.comment && (
+                <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.55)', lineHeight: '1.5', marginBottom: '10px' }}>
+                  {cv.comment}
+                </div>
+              )}
+              {/* Audio */}
+              {cv.audioData && (
+                <div style={{ marginBottom: '10px' }}>
+                  <audio controls src={cv.audioData} style={{ width: '100%', height: '32px', borderRadius: '6px' }} />
+                </div>
+              )}
+              {/* Buttons */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => {
+                    cleanupPropertyPulse();
+                    setBriefingHighlightId(null);
+                    setBriefingChecklistMode(true);
+                    setChecklistMapView(null);
+                  }}
+                  style={{
+                    flex: 1, padding: '12px',
+                    borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)',
+                    background: 'rgba(255,255,255,0.04)',
+                    color: 'rgba(232,240,224,0.7)', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+                  }}
+                >← Tillbaka</button>
+                <button
+                  onClick={() => {
+                    cleanupPropertyPulse();
+                    const id = cv.itemId;
+                    if (cv.source !== 'mandatory') {
+                      setBriefingCheckedIds(prev => prev.includes(id) ? prev : [...prev, id]);
+                    }
+                    setBriefingHighlightId(null);
+                    setBriefingChecklistMode(true);
+                    setChecklistMapView(null);
+                  }}
+                  style={{
+                    flex: 1, padding: '12px',
+                    borderRadius: '10px', border: '1px solid rgba(138,180,96,0.2)',
+                    background: 'rgba(138,180,96,0.12)',
+                    color: '#8ab460', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+                  }}
+                >✓ Klar – tillbaka</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        );
+      })()}
     </div>
   );
 }
