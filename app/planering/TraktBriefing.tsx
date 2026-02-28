@@ -1122,7 +1122,6 @@ export default function TraktBriefing({
                             bbox: item.bbox, zoom: item.zoom, type: item.type,
                             comment: item.comment, audioData: item.audioData, photoData: item.photoData, title: item.title, icon: item.icon,
                           });
-                          handleClose();
                         }
                       }}
                       style={iconBtnStyle}
