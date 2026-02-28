@@ -623,7 +623,7 @@ export default function TraktBriefing({
       }
     };
     map.on('click', handleMapClick);
-    return () => { map.off('click', handleMapClick); onActiveMarkerChange?.(null); };
+    return () => { map.off('click', handleMapClick); };
   }, [checklistOpen, steps, mapInstanceRef, onActiveMarkerChange]);
 
   const tagBg: Record<string, string> = { danger: 'rgba(239,68,68,0.25)', caution: 'rgba(245,158,11,0.25)', info: 'rgba(138,180,96,0.2)' };
