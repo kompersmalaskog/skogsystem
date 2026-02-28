@@ -35,6 +35,7 @@ interface BriefingStep {
   marker?: Marker;
   path?: { lat: number; lon: number }[];
   arcCDF?: number[];
+  bbox?: [number, number, number, number]; // [minLng, minLat, maxLng, maxLat]
   // Kept for checklist compatibility
   tag?: 'danger' | 'caution' | 'info';
   tagText?: string;
@@ -311,10 +312,18 @@ export default function TraktBriefing({
         const pt = pi / 20;
         propPath.push({ lat: propStart.lat + (propEnd.lat - propStart.lat) * pt, lon: propStart.lon + (propEnd.lon - propStart.lon) * pt });
       }
+      // Bounding box with ~100m margin for pulse overlay
+      const marginLat = 100 / 111320;
+      const marginLon = 100 / (111320 * Math.cos(centerLat * Math.PI / 180));
+      const propBbox: [number, number, number, number] = [
+        minLon - marginLon, minLat - marginLat,
+        maxLon + marginLon, maxLat + marginLat,
+      ];
       built.push({
         id: 'property', type: 'property', title: 'Fastighetsgräns', icon: '📐',
         center: { lat: centerLat, lon: centerLon }, zoom: 16.5, pitch: 63,
         bearing: getBearing(propStart, propEnd), path: propPath,
+        bbox: propBbox,
         tag: 'caution', tagText: 'FASTIGHETSGRÄNS', categoryColor: A,
       });
     }
@@ -373,14 +382,12 @@ export default function TraktBriefing({
       if (rotationRef.current) { clearInterval(rotationRef.current); cancelAnimationFrame(rotationRef.current as any); }
       if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
       const map = mapInstanceRef.current;
-      if (map && map.getLayer('wms-layer-fastighetsgranser')) {
-        try {
-          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-hue-rotate', 0);
-          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-saturation', 0);
-          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
-          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
-          map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
-        } catch {}
+      if (map) {
+        try { if (map.getLayer('briefing-fastighet-pulse-layer')) map.removeLayer('briefing-fastighet-pulse-layer'); } catch {}
+        try { if (map.getSource('briefing-fastighet-pulse')) map.removeSource('briefing-fastighet-pulse'); } catch {}
+        if (map.getLayer('wms-layer-fastighetsgranser')) {
+          try { map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7); } catch {}
+        }
       }
       if (prevOverlaysRef.current) setOverlays(() => prevOverlaysRef.current!);
     };
@@ -400,40 +407,58 @@ export default function TraktBriefing({
     if (overviewBusyRef.current) { overviewBusyRef.current = false; setOverviewBusy(false); }
     setOverviewPhase('orbit');
 
-    // Property step: show WMS fastighetsgränser with red tint + pulse
+    // Property step: show fastighetsgränser + pulsing overlay near tract
+    const pulseSrc = 'briefing-fastighet-pulse';
+    const pulseLayer = 'briefing-fastighet-pulse-layer';
+    // Clean up previous pulse overlay
+    try { if (map.getLayer(pulseLayer)) map.removeLayer(pulseLayer); } catch {}
+    try { if (map.getSource(pulseSrc)) map.removeSource(pulseSrc); } catch {}
+
     if (step.type === 'property') {
       prevOverlaysRef.current = { ...overlays };
+      // Show existing fastighetsgränser layer
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', 'visible');
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 1.0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-hue-rotate', 0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-saturation', 1);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0.5);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: true }));
 
-      // Pulse raster-opacity between 1.0 and 0.3
+      // Create pulsing overlay — same WMS source bounded to tract area
+      if (step.bbox) {
+        const wmsUrl = 'https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3'
+          + '?SERVICE=WMS&VERSION=1.1.1&REQUEST=GetMap&LAYERS=granser&STYLES=morkbakgrund'
+          + '&FORMAT=image/png&TRANSPARENT=true&SRS=EPSG:3857&BBOX={bbox-epsg-3857}&WIDTH=256&HEIGHT=256';
+        map.addSource(pulseSrc, {
+          type: 'raster',
+          tiles: [wmsUrl],
+          tileSize: 256,
+          bounds: step.bbox,
+        });
+        map.addLayer({
+          id: pulseLayer,
+          type: 'raster',
+          source: pulseSrc,
+          paint: { 'raster-opacity': 1.0, 'raster-saturation': 1, 'raster-contrast': 0.8 },
+        });
+      }
+
+      // Pulse overlay opacity between 1.0 and 0.0
       let pulseOn = true;
       wmsPulseRef.current = setInterval(() => {
         if (!mapInstanceRef.current) return;
         pulseOn = !pulseOn;
         try {
-          if (mapInstanceRef.current.getLayer('wms-layer-fastighetsgranser')) {
-            mapInstanceRef.current.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', pulseOn ? 1.0 : 0.3);
+          if (mapInstanceRef.current.getLayer(pulseLayer)) {
+            mapInstanceRef.current.setPaintProperty(pulseLayer, 'raster-opacity', pulseOn ? 1.0 : 0.0);
           }
         } catch {}
-      }, 2000);
+      }, 1000);
     } else if (prevOverlaysRef.current) {
-      // Restore WMS fastighetsgränser to normal
+      // Restore fastighetsgränser to previous state
       if (map.getLayer('wms-layer-fastighetsgranser')) {
         const wasOn = prevOverlaysRef.current.fastighetsgranser;
         map.setLayoutProperty('wms-layer-fastighetsgranser', 'visibility', wasOn ? 'visible' : 'none');
         map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-hue-rotate', 0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-saturation', 0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
       }
       setOverlays((prev: any) => ({ ...prev, fastighetsgranser: prevOverlaysRef.current?.fastighetsgranser ?? false }));
       prevOverlaysRef.current = null;
@@ -545,14 +570,12 @@ export default function TraktBriefing({
     if (rotationRef.current) { clearInterval(rotationRef.current); cancelAnimationFrame(rotationRef.current as any); rotationRef.current = null; }
     if (wmsPulseRef.current) { clearInterval(wmsPulseRef.current); wmsPulseRef.current = null; }
     const map = mapInstanceRef.current;
-    if (map && map.getLayer('wms-layer-fastighetsgranser')) {
-      try {
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-hue-rotate', 0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-saturation', 0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-contrast', 0);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-brightness-max', 1);
-        map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7);
-      } catch {}
+    if (map) {
+      try { if (map.getLayer('briefing-fastighet-pulse-layer')) map.removeLayer('briefing-fastighet-pulse-layer'); } catch {}
+      try { if (map.getSource('briefing-fastighet-pulse')) map.removeSource('briefing-fastighet-pulse'); } catch {}
+      if (map.getLayer('wms-layer-fastighetsgranser')) {
+        try { map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7); } catch {}
+      }
     }
     onChecklistChange?.(Array.from(checkedItems));
     onActiveMarkerChange?.(null);
