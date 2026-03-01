@@ -133,7 +133,10 @@ function buildMarkerElement(
   const wrapper = document.createElement('div');
   wrapper.className = 'ovk-marker';
   wrapper.dataset.objektId = obj.id;
-  wrapper.style.cssText = `width:${hitSize}px;height:${hitSize}px;position:relative;cursor:pointer;opacity:${isKlar ? '0.25' : '1'}`;
+  // NO position property — MapLibre's .maplibregl-marker class sets position:absolute
+  // which is required for transform-based geo-positioning. Overriding with position:relative
+  // puts the element in normal flow and breaks zoom/pan tracking.
+  wrapper.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isKlar ? '0.25' : '1'}`;
 
   // Pulse ring (active objects)
   if (isActive) {
@@ -309,24 +312,23 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
 
-    // Rebuild all visible markers' elements to reflect selected state
-    // This is cheaper than it sounds — DOM element swap, no Marker destroy/create
     markersMapRef.current.forEach((marker, id) => {
       const obj = objekt.find(o => o.id === id);
-      if (!obj || !obj.lat || !obj.lng) return;
+      if (!obj) return;
 
-      const el = buildMarkerElement(obj, maskinKo, maskiner, selectedId === id, () => handleMarkerClick(id));
-      const oldEl = marker.getElement();
-      // Replace element content in-place
-      oldEl.innerHTML = '';
-      // Copy children from new element
-      while (el.firstChild) {
-        oldEl.appendChild(el.firstChild);
-      }
-      // Copy attributes
-      oldEl.style.cssText = el.style.cssText;
-      oldEl.className = el.className;
-      if (el.dataset.objektId) oldEl.dataset.objektId = el.dataset.objektId;
+      const newEl = buildMarkerElement(obj, maskinKo, maskiner, selectedId === id, () => handleMarkerClick(id));
+      const markerEl = marker.getElement();
+
+      // Only replace children — do NOT touch markerEl.style.cssText because
+      // MapLibre manages transform/position on this element for geo-positioning.
+      // Overwriting cssText would destroy the transform: translate(...) that
+      // MapLibre uses to place the marker at the correct pixel coordinates.
+      while (markerEl.lastChild) markerEl.removeChild(markerEl.lastChild);
+      while (newEl.firstChild) markerEl.appendChild(newEl.firstChild);
+
+      // Update visual-only styles individually (preserves MapLibre's transform)
+      const isKlar = obj.status === 'klar';
+      markerEl.style.opacity = isKlar ? '0.25' : '1';
     });
   }, [selectedId, objekt, maskinKo, maskiner, mapReady, handleMarkerClick]);
 
