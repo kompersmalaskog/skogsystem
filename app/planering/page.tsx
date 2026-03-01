@@ -1384,6 +1384,7 @@ export default function PlannerPage() {
   const [currentPosition, setCurrentPosition] = useState<GeolocationPosition | null>(null);
   const [gpsMapPosition, setGpsMapPosition] = useState<Point>({ x: 200, y: 300 }); // Var på kartan GPS-punkten är
   const [gpsPosition, setGpsPosition] = useState<{lat: number, lng: number} | null>(null); // GPS lat/lng
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null); // GPS accuracy i meter
   const [trackingPath, setTrackingPath] = useState<Point[]>([]);
   const [gpsLineType, setGpsLineType] = useState<string | null>(null); // Vilken linjetyp som spåras
   const gpsLineTypeRef = useRef<string | null>(null); // Ref för callback
@@ -4493,6 +4494,7 @@ export default function PlannerPage() {
         // Även osäkra positioner (20-50m) är bra nog för varningar
         setCurrentPosition(newPos);
         setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
+        setGpsAccuracy(accuracy);
 
         // Ignorera osäkra positioner för linjespårning (kräver precision)
         const isAccurate = accuracy <= 15;
@@ -4761,6 +4763,7 @@ export default function PlannerPage() {
             // ALLTID uppdatera gpsPosition (för proximity/varningssystemet)
             setCurrentPosition(newPos);
             setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
+        setGpsAccuracy(accuracy);
 
             const isAccurate = accuracy <= 15;
             if (!isAccurate) return;
@@ -6081,13 +6084,13 @@ export default function PlannerPage() {
             {valtObjekt?.areal ? `${valtObjekt.areal} ha` : ''}
           </span>
           
-          {/* GPS-indikator - bara en färgad prick */}
-          <span style={{ 
+          {/* GPS-indikator - färg baserat på accuracy */}
+          <span style={{
             width: '10px',
             height: '10px',
             borderRadius: '50%',
-            background: isTracking ? colors.green : colors.red,
-            boxShadow: isTracking ? '0 0 8px rgba(52, 199, 89, 0.6)' : 'none',
+            background: !isTracking ? colors.red : gpsAccuracy != null ? (gpsAccuracy < 5 ? '#22c55e' : gpsAccuracy <= 10 ? '#f59e0b' : '#ef4444') : colors.green,
+            boxShadow: isTracking ? `0 0 8px ${gpsAccuracy != null ? (gpsAccuracy < 5 ? 'rgba(34,197,94,0.6)' : gpsAccuracy <= 10 ? 'rgba(245,158,11,0.6)' : 'rgba(239,68,68,0.6)') : 'rgba(34,197,94,0.6)'}` : 'none',
             animation: isTracking ? 'pulse 1.5s infinite' : 'none',
           }} />
           
@@ -6591,10 +6594,10 @@ export default function PlannerPage() {
                   />
                 );
               })()}
-              {/* GPS-prick */}
+              {/* GPS-prick - färg baserat på accuracy */}
               <circle
                 cx={gpx} cy={gpy} r={getConstrainedSize(12)}
-                fill={colors.blue}
+                fill={gpsAccuracy != null ? (gpsAccuracy < 5 ? '#22c55e' : gpsAccuracy <= 10 ? '#f59e0b' : '#ef4444') : colors.blue}
                 stroke="#fff"
                 strokeWidth={getConstrainedSize(3)}
                 style={{ animation: 'pulse 1.5s infinite' }}
@@ -6983,6 +6986,27 @@ export default function PlannerPage() {
             color: '#ef4444',
             fontWeight: '700',
           }}>N</span>
+        </div>
+      )}
+
+      {/* === GPS ACCURACY TEXT (vänster nere) === */}
+      {isTracking && gpsAccuracy != null && (
+        <div style={{
+          position: 'absolute',
+          bottom: menuOpen ? menuHeight + 110 : 100,
+          left: '15px',
+          padding: '4px 10px',
+          borderRadius: '8px',
+          background: 'rgba(0,0,0,0.6)',
+          backdropFilter: 'blur(8px)',
+          color: gpsAccuracy < 5 ? '#22c55e' : gpsAccuracy <= 10 ? '#f59e0b' : '#ef4444',
+          fontSize: '12px',
+          fontWeight: '600',
+          fontVariantNumeric: 'tabular-nums',
+          zIndex: 150,
+          transition: 'all 0.3s ease',
+        }}>
+          GPS: {Math.round(gpsAccuracy)}m
         </div>
       )}
 
@@ -10192,6 +10216,7 @@ export default function PlannerPage() {
                             // ALLTID uppdatera gpsPosition (för proximity/varningssystemet)
                             setCurrentPosition(newPos);
                             setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
+        setGpsAccuracy(accuracy);
 
                             // Ignorera osäkra positioner
                             if (accuracy > 15) return;
