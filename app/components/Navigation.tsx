@@ -8,6 +8,7 @@ const navItems = [
   { href: '/redigering', label: 'Redigering', icon: 'edit' },
   { href: '/objekt', label: 'Objekt', icon: 'forest' },
   { href: '/planering', label: 'Planering', icon: 'calendar' },
+  { href: '/oversikt', label: 'Översikt', icon: 'overview' },
   { href: '/forbattringsforslag', label: 'Förslag', icon: 'lightbulb' },
 ]
 
@@ -44,6 +45,15 @@ function NavIcon({ icon, active }: { icon: string; active: boolean }) {
           <line x1="16" y1="2" x2="16" y2="6" />
           <line x1="8" y1="2" x2="8" y2="6" />
           <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+      )
+    case 'overview':
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2">
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="7" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+          <rect x="14" y="14" width="7" height="7" rx="1" />
         </svg>
       )
     case 'lightbulb':
@@ -90,8 +100,8 @@ export default function Navigation() {
               gap: '4px',
               textDecoration: 'none',
               color: isActive ? '#fff' : '#666',
-              fontSize: '12px',
-              padding: '8px 16px',
+              fontSize: '10px',
+              padding: '8px 8px',
               transition: 'color 0.2s',
             }}
           >

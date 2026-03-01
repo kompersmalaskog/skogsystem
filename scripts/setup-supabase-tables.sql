@@ -89,3 +89,36 @@ CREATE POLICY "Allow public insert feedback"
 CREATE POLICY "Allow public select feedback"
   ON feedback FOR SELECT
   USING (true);
+
+-- 8. MASKINREGISTER
+CREATE TABLE IF NOT EXISTS maskiner (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  namn TEXT NOT NULL,
+  typ TEXT NOT NULL CHECK (typ IN ('skördare', 'skotare')),
+  modell TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE maskiner ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all maskiner" ON maskiner FOR ALL USING (true) WITH CHECK (true);
+
+-- 9. MASKINKÖ (vilka objekt en maskin ska köra, i ordning)
+CREATE TABLE IF NOT EXISTS maskin_ko (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  maskin_id UUID REFERENCES maskiner(id) ON DELETE CASCADE,
+  objekt_id UUID REFERENCES objekt(id) ON DELETE CASCADE,
+  ordning INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(maskin_id, objekt_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_maskin_ko_maskin ON maskin_ko(maskin_id);
+CREATE INDEX IF NOT EXISTS idx_maskin_ko_objekt ON maskin_ko(objekt_id);
+
+ALTER TABLE maskin_ko ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all maskin_ko" ON maskin_ko FOR ALL USING (true) WITH CHECK (true);
+
+-- 10. GROT-kolumner på objekt
+ALTER TABLE objekt ADD COLUMN IF NOT EXISTS grot_status TEXT DEFAULT 'ej_aktuellt';
+ALTER TABLE objekt ADD COLUMN IF NOT EXISTS grot_volym NUMERIC;
+ALTER TABLE objekt ADD COLUMN IF NOT EXISTS grot_anteckning TEXT;
