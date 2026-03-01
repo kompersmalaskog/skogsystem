@@ -619,7 +619,12 @@ export default function ArbetsrapportPage() {
       
       navigator.geolocation.getCurrentPosition(
         (position) => {
-          // Lyckades!
+          // Lyckades! Kolla precision
+          if (position.coords.accuracy > 15) {
+            setSökerPosition(false);
+            alert('GPS-positionen är för osäker (' + Math.round(position.coords.accuracy) + 'm). Försök igen utomhus.');
+            return;
+          }
           setAnvändare(prev => ({
             ...prev,
             hemLat: position.coords.latitude,

@@ -10192,7 +10192,10 @@ export default function PlannerPage() {
                             // ALLTID uppdatera gpsPosition (för proximity/varningssystemet)
                             setCurrentPosition(newPos);
                             setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
-                            
+
+                            // Ignorera osäkra positioner
+                            if (accuracy > 15) return;
+
                             setGpsStartPos(prev => {
                               if (!prev) {
                                 // Beräkna SVG-koordinater från lat/lon
