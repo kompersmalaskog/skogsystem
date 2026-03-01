@@ -267,7 +267,7 @@ export async function beraknaVolym(
     // SLU: lokala GeoTIFF-filer via /api/slu-geotiff — trädslagsfördelning
     const [sgdData, sluSpecies, gallringsData] = await Promise.all([
       fetchStats(SGD_SERVICE, geometry, proxyUrl),
-      fetchSluLocal(ring),
+      fetchSluLocal(ring).catch((e) => { console.warn('[skoglig] SLU GeoTIFF ej tillgänglig, visar utan trädslagsfördelning:', e?.message); return []; }),
       fetchStats(SGD_SERVICE, geometry, proxyUrl, gallringsRule).catch(() => null),
     ]);
     const sgdStats = sgdData.statistics || [];
