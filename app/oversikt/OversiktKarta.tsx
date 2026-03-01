@@ -15,6 +15,16 @@ interface Props {
   maskinKo: MaskinKoItem[];
 }
 
+/* ── Haversine distance in km (with decimals) ── */
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const r = (x: number) => x * Math.PI / 180;
+  const dLat = r(lat2 - lat1);
+  const dLng = r(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 /* ── Small reusable components ── */
 function Tag({ children, w }: { children: React.ReactNode; w?: boolean }) {
   return (
@@ -119,9 +129,10 @@ const RC = ['#3b82f6', '#f97316', '#22c55e', '#a855f7', '#ec4899', '#06b6d4'];
 /* ── Marker info passed to builder ── */
 interface MInfo {
   obj: OversiktObjekt;
-  queueNum: number | null;   // null = no number (active pulses, klar has check, unqueued has dot)
+  queueNum: number | null;
   isHistoryKlar: boolean;
-  showChips: boolean;         // show machine chip labels
+  showChips: boolean;
+  maskinName: string | null;
 }
 
 /* ── Build a MapLibre marker DOM element ── */
@@ -132,7 +143,7 @@ function buildMarkerEl(
   isSelected: boolean,
   onClick: () => void,
 ): HTMLDivElement {
-  const { obj, queueNum, isHistoryKlar, showChips } = info;
+  const { obj, queueNum, isHistoryKlar, showChips, maskinName } = info;
   const isActive = obj.status === 'pagaende' || obj.status === 'skordning' || obj.status === 'skotning';
   const tf = isHistoryKlar ? '#52525b' : (TF[obj.typ] || C.yellow);
   const st = ST[obj.status] || ST.planerad;
@@ -145,10 +156,10 @@ function buildMarkerEl(
   w.dataset.objektId = obj.id;
   w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isHistoryKlar ? '0.3' : '1'}`;
 
-  // Pulse ring on active objects
+  // Pulse ring on active objects (ring that expands and fades out)
   if (isActive && !isHistoryKlar) {
     const p = document.createElement('div');
-    p.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;background:${tf};animation:pulseMarker 2.5s infinite;pointer-events:none`;
+    p.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;border:3px solid ${tf};animation:pulseMarker 2.5s infinite;pointer-events:none`;
     w.appendChild(p);
   }
 
@@ -172,21 +183,25 @@ function buildMarkerEl(
   }
   w.appendChild(dot);
 
-  // Name label below
+  // Name label below — dark background for readability
   const lbl = document.createElement('div');
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
-  const fz = isSelected ? 13 : 12;
-  const fw = isSelected ? 700 : 500;
-  const clr = isHistoryKlar ? '#52525b' : isSelected ? C.t1 : C.t3;
-  let html = `<div style="font-size:${fz}px;font-weight:${fw};color:${clr};text-shadow:0 1px 8px rgba(0,0,0,.95);font-family:${ff}">${obj.namn}</div>`;
+  const clr = isHistoryKlar ? '#71717a' : '#fff';
+  let html = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${obj.namn}</div>`;
   if (isHistoryKlar) {
-    html += `<div style="font-size:9px;color:#71717a;font-family:${ff};margin-top:1px">Klar</div>`;
+    html += `<div style="font-size:9px;color:#71717a;font-family:${ff};margin-top:2px;background:rgba(0,0,0,0.6);padding:1px 6px;border-radius:4px;display:inline-block">Klar</div>`;
   }
   lbl.innerHTML = html;
   w.appendChild(lbl);
 
-  // Machine chips above (only for active objects)
-  if (showChips) {
+  // Machine name above active prick (when maskinFilter is active)
+  if (maskinName) {
+    const md = document.createElement('div');
+    md.style.cssText = `position:absolute;bottom:${hitSize / 2 + dotSize / 2 + 6}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
+    md.innerHTML = `<div style="background:rgba(0,0,0,0.85);padding:3px 8px;border-radius:6px;font-size:10px;font-weight:600;color:#fff;font-family:${ff}">${maskinName}</div>`;
+    w.appendChild(md);
+  } else if (showChips) {
+    // Machine chips for active objects (no maskinFilter)
     const koForObj = maskinKo.filter(k => k.objekt_id === obj.id);
     if (koForObj.length > 0) {
       const md = document.createElement('div');
@@ -195,8 +210,8 @@ function buildMarkerEl(
         const m = maskiner.find(mm => mm.maskin_id === k.maskin_id);
         if (m) {
           const ch = document.createElement('div');
-          ch.style.cssText = `background:rgba(0,0,0,.85);backdrop-filter:blur(12px);padding:3px 8px;border-radius:6px;border:1px solid ${C.border}`;
-          ch.innerHTML = `<span style="font-size:9px;font-weight:600;color:${C.t2};font-family:${ff}">${getMaskinDisplayName(m)}</span>`;
+          ch.style.cssText = `background:rgba(0,0,0,.85);padding:3px 8px;border-radius:6px`;
+          ch.innerHTML = `<span style="font-size:10px;font-weight:600;color:#fff;font-family:${ff}">${getMaskinDisplayName(m)}</span>`;
           md.appendChild(ch);
         }
       });
@@ -213,6 +228,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markersMapRef = useRef<Map<string, any>>(new Map());
+  const distMarkersRef = useRef<any[]>([]);
   const [mapReady, setMapReady] = useState(false);
   const [mapStyleLoaded, setMapStyleLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -225,7 +241,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     setSelectedId(prev => prev === id ? null : id);
   }, []);
 
-  /* ── Machines that have at least one queued object ── */
+  /* ── Machines that have at least one queued object (for route computation) ── */
   const queuedMaskiner = useMemo(() => {
     const ids = new Set(maskinKo.map(k => k.maskin_id));
     return maskiner.filter(m => ids.has(m.maskin_id));
@@ -259,13 +275,26 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     return [{ maskinId: m.maskin_id, color, numbered, lineCoords }];
   }, [queuedMaskiner, maskinKo, objekt, maskinFilter]);
 
-  /* ── Merged queue‐number lookup: objId → number ── */
+  /* ── Merged queue-number lookup: objId → number ── */
   const queueNums = useMemo(() => {
     const nums: Record<string, number> = {};
     routeData.forEach(rd => {
       Object.entries(rd.numbered).forEach(([id, n]) => { if (!(id in nums)) nums[id] = n; });
     });
     return nums;
+  }, [routeData]);
+
+  /* ── Total route distance ── */
+  const totalDistance = useMemo(() => {
+    let total = 0;
+    routeData.forEach(rd => {
+      for (let i = 0; i < rd.lineCoords.length - 1; i++) {
+        const [lng1, lat1] = rd.lineCoords[i];
+        const [lng2, lat2] = rd.lineCoords[i + 1];
+        total += haversineKm(lat1, lng1, lat2, lng2);
+      }
+    });
+    return total;
   }, [routeData]);
 
   /* ── Visible object IDs ── */
@@ -284,14 +313,22 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
   const mkInfo = useCallback((obj: OversiktObjekt): MInfo => {
     const isK = obj.status === 'klar';
     const isA = obj.status === 'pagaende' || obj.status === 'skordning' || obj.status === 'skotning';
+
+    let maskinName: string | null = null;
+    if (maskinFilter && isA) {
+      const m = maskiner.find(x => x.maskin_id === maskinFilter);
+      if (m) maskinName = getMaskinDisplayName(m);
+    }
+
     return {
       obj,
       // Numbers only when a specific machine is filtered
       queueNum: (maskinFilter && !isK) ? (queueNums[obj.id] ?? null) : null,
       isHistoryKlar: isK,
       showChips: isA,
+      maskinName,
     };
-  }, [queueNums, maskinFilter]);
+  }, [queueNums, maskinFilter, maskiner]);
 
   /* ── Load MapLibre CDN ── */
   useEffect(() => {
@@ -351,6 +388,8 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     });
 
     return () => {
+      distMarkersRef.current.forEach(m => m.remove());
+      distMarkersRef.current = [];
       markersMapRef.current.forEach(m => m.remove());
       markersMapRef.current.clear();
       mapRef.current?.remove();
@@ -373,6 +412,34 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         geometry: { type: 'LineString' as const, coordinates: rd.lineCoords },
       }));
     src.setData({ type: 'FeatureCollection', features });
+  }, [routeData, mapStyleLoaded]);
+
+  /* ── Distance labels on route segments ── */
+  useEffect(() => {
+    distMarkersRef.current.forEach(m => m.remove());
+    distMarkersRef.current = [];
+
+    if (!mapRef.current || !mapStyleLoaded) return;
+
+    routeData.forEach(rd => {
+      for (let i = 0; i < rd.lineCoords.length - 1; i++) {
+        const [lng1, lat1] = rd.lineCoords[i];
+        const [lng2, lat2] = rd.lineCoords[i + 1];
+        const midLng = (lng1 + lng2) / 2;
+        const midLat = (lat1 + lat2) / 2;
+        const dist = haversineKm(lat1, lng1, lat2, lng2);
+        const label = dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`;
+
+        const el = document.createElement('div');
+        el.style.cssText = `background:rgba(0,0,0,0.8);color:#fff;font-size:10px;font-weight:500;font-family:${ff};padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap`;
+        el.textContent = label;
+
+        const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([midLng, midLat])
+          .addTo(mapRef.current);
+        distMarkersRef.current.push(marker);
+      }
+    });
   }, [routeData, mapStyleLoaded]);
 
   /* ── Sync markers: add new, remove stale ── */
@@ -414,7 +481,10 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
 
   return (
     <div style={{ position: 'absolute', inset: 0 }} onClick={() => setSelectedId(null)}>
-      <style>{`@keyframes pulseMarker{0%{transform:scale(1);opacity:.4}70%{transform:scale(2.5);opacity:0}100%{transform:scale(2.5);opacity:0}}`}</style>
+      <style>{`
+        @keyframes pulseMarker{0%{transform:scale(1);opacity:.6}70%{transform:scale(2.5);opacity:0}100%{transform:scale(2.5);opacity:0}}
+        @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+      `}</style>
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
       {!mapReady && (
@@ -452,8 +522,8 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
           }}>Historik</button>
         </div>
 
-        {/* Machine filter */}
-        {queuedMaskiner.length > 0 && (
+        {/* Machine filter — ALL machines */}
+        {maskiner.length > 0 && (
           <div style={{
             display: 'flex', gap: 3, background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(16px)',
             padding: 3, borderRadius: 10, border: `1px solid ${C.border}`,
@@ -464,8 +534,9 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
               color: !maskinFilter ? C.t1 : C.t3, border: 'none', borderRadius: 7, fontSize: 10,
               fontWeight: 500, cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',
             }}>Alla maskiner</button>
-            {queuedMaskiner.map((m, i) => {
+            {maskiner.map((m, i) => {
               const on = maskinFilter === m.maskin_id;
+              const typLabel = getMaskinTyp(m.typ);
               return (
                 <button key={m.maskin_id} onClick={() => { setMaskinFilter(on ? null : m.maskin_id); setSelectedId(null); }}
                   style={{
@@ -475,7 +546,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
                     display: 'flex', alignItems: 'center', gap: 5,
                   }}>
                   <span style={{ width: 6, height: 6, borderRadius: '50%', background: RC[i % RC.length], flexShrink: 0 }} />
-                  {getMaskinDisplayName(m)}
+                  {getMaskinDisplayName(m)} ({typLabel})
                 </button>
               );
             })}
@@ -483,12 +554,13 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         )}
       </div>
 
-      {/* Legend */}
+      {/* Legend + total distance */}
       <div style={{
         position: 'absolute',
-        ...(selectedObj ? { top: queuedMaskiner.length > 0 ? 120 : 70 } : { bottom: 16 }),
+        ...(selectedObj ? { top: maskiner.length > 0 ? 120 : 70 } : { bottom: 16 }),
         left: 16, display: 'flex', gap: 10, background: 'rgba(0,0,0,.65)',
         backdropFilter: 'blur(12px)', padding: '6px 12px', borderRadius: 8, zIndex: 10,
+        alignItems: 'center',
       }}>
         {Object.entries(ST).filter(([k]) => ['planerad', 'pagaende', 'klar'].includes(k)).map(([k, v]) => (
           <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -496,6 +568,14 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
             <span style={{ fontSize: 9, color: C.t3 }}>{v.l}</span>
           </div>
         ))}
+        {totalDistance > 0 && (
+          <>
+            <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.1)' }} />
+            <span style={{ fontSize: 9, color: C.t2, fontWeight: 600, fontFamily: ff }}>
+              Total rutt: {totalDistance < 1 ? `${Math.round(totalDistance * 1000)} m` : `${totalDistance.toFixed(1)} km`}
+            </span>
+          </>
+        )}
       </div>
 
       {selectedObj && <ObjCard obj={selectedObj} />}
