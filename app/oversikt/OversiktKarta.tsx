@@ -123,6 +123,77 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
   );
 }
 
+/* ── GROT popup card ── */
+function GrotCard({ obj }: { obj: OversiktObjekt }) {
+  const lass = obj.grot_volym ? Math.ceil(obj.grot_volym / 20) : 0;
+  const brattom = (() => {
+    if (!obj.grot_anteckning) return false;
+    const t = obj.grot_anteckning.toLowerCase();
+    return t.includes('bråttom') || t.includes('plantering') || t.includes('markbered');
+  })();
+  const sl: Record<string, string> = { ej_aktuellt: 'Ej aktuellt', skotad: 'Skotad', hoglagd: 'Höglagd', flisad: 'Flisad', bortkord: 'Borttransporterad' };
+
+  return (
+    <div onClick={(e) => e.stopPropagation()} style={{
+      position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
+      width: 300, maxWidth: 'calc(100% - 24px)',
+      background: 'rgba(13,13,15,.97)', backdropFilter: 'blur(24px)',
+      borderRadius: 14, overflow: 'hidden', border: `1px solid ${C.border}`, zIndex: 20,
+      animation: 'fadeUp .2s ease-out',
+    }}>
+      <div style={{ height: 2, background: `linear-gradient(90deg,${C.blue},transparent)` }} />
+      <div style={{ padding: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+          <div style={{ width: 10, height: 10, background: C.blue, transform: 'rotate(45deg)', borderRadius: 2, flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>{obj.namn}</div>
+            <div style={{ fontSize: 10, color: C.t3 }}>{sl[obj.grot_status] || obj.grot_status}</div>
+          </div>
+          {brattom && (
+            <span style={{ fontSize: 9, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 5 }}>Bråttom</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 2, borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
+          <div style={{ flex: 1, background: C.bd, padding: '8px 4px', textAlign: 'center' }}>
+            <div style={{ fontSize: 8, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Volym</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.blue }}>{obj.grot_volym ? formatVolym(obj.grot_volym) : '–'} <span style={{ fontSize: 9, fontWeight: 400, color: C.t4 }}>m³</span></div>
+          </div>
+          <div style={{ flex: 1, background: C.bd, padding: '8px 4px', textAlign: 'center' }}>
+            <div style={{ fontSize: 8, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Lass</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.blue }}>{lass || '–'} <span style={{ fontSize: 9, fontWeight: 400, color: C.t4 }}>st</span></div>
+          </div>
+        </div>
+        {obj.grot_anteckning && (
+          <div style={{ fontSize: 11, color: C.t3, padding: '8px 10px', background: C.bd, borderRadius: 8 }}>
+            {obj.grot_anteckning}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Build GROT diamond marker ── */
+function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
+  const sz = isSelected ? 16 : 12;
+  const hitSize = 24;
+  const w = document.createElement('div');
+  w.className = 'ovk-grot-marker';
+  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isSelected ? '1' : '0.7'}`;
+
+  const diamond = document.createElement('div');
+  diamond.style.cssText = `position:absolute;left:50%;top:50%;width:${sz}px;height:${sz}px;transform:translate(-50%,-50%) rotate(45deg);background:${C.blue};border-radius:2px;box-shadow:${isSelected ? `0 0 12px ${C.blue}60` : '0 1px 4px rgba(0,0,0,.4)'}`;
+  w.appendChild(diamond);
+
+  const lbl = document.createElement('div');
+  lbl.style.cssText = `position:absolute;top:${hitSize / 2 + sz / 2 + 4}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
+  lbl.innerHTML = `<div style="font-size:10px;font-weight:600;color:${C.blue};font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
+  w.appendChild(lbl);
+
+  w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
+  return w;
+}
+
 /* ── Route colors per machine ── */
 const RC = ['#3b82f6', '#f97316', '#22c55e', '#a855f7', '#ec4899', '#06b6d4'];
 
@@ -229,11 +300,14 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
   const mapRef = useRef<any>(null);
   const markersMapRef = useRef<Map<string, any>>(new Map());
   const distMarkersRef = useRef<any[]>([]);
+  const grotMarkersRef = useRef<Map<string, any>>(new Map());
   const [mapReady, setMapReady] = useState(false);
   const [mapStyleLoaded, setMapStyleLoaded] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedGrotId, setSelectedGrotId] = useState<string | null>(null);
   const [filt, setFilt] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
   const [showHist, setShowHist] = useState(false);
+  const [showGrot, setShowGrot] = useState(false);
   const [maskinFilter, setMaskinFilter] = useState<string | null>(null);
   const [showMaskinDrop, setShowMaskinDrop] = useState(false);
 
@@ -309,6 +383,14 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     if (!showHist) list = list.filter(o => o.status !== 'klar');
     return list.map(o => o.id);
   }, [objekt, filt, maskinFilter, maskinKo, showHist]);
+
+  /* ── GROT objects (with coordinates and grot_volym > 0) ── */
+  const grotObjekt = useMemo(() => {
+    if (!showGrot) return [];
+    return objekt.filter(o => o.lat && o.lng && o.grot_volym && o.grot_volym > 0);
+  }, [objekt, showGrot]);
+
+  const selectedGrotObj = selectedGrotId ? objekt.find(o => o.id === selectedGrotId) : null;
 
   /* ── Helper: build marker info ── */
   const mkInfo = useCallback((obj: OversiktObjekt): MInfo => {
@@ -391,6 +473,8 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     return () => {
       distMarkersRef.current.forEach(m => m.remove());
       distMarkersRef.current = [];
+      grotMarkersRef.current.forEach(m => m.remove());
+      grotMarkersRef.current.clear();
       markersMapRef.current.forEach(m => m.remove());
       markersMapRef.current.clear();
       mapRef.current?.remove();
@@ -489,8 +573,41 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     });
   }, [selectedId, queueNums, showHist, maskinFilter, objekt, maskinKo, maskiner, mapReady, handleMarkerClick, mkInfo]);
 
+  /* ── GROT markers: sync ── */
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    const want = new Set(grotObjekt.map(o => o.id));
+    const have = new Set(grotMarkersRef.current.keys());
+
+    have.forEach(id => {
+      if (!want.has(id)) { grotMarkersRef.current.get(id)?.remove(); grotMarkersRef.current.delete(id); }
+    });
+    grotObjekt.forEach(o => {
+      if (!have.has(o.id)) {
+        const el = buildGrotMarkerEl(o, false, () => { setSelectedGrotId(prev => prev === o.id ? null : o.id); setSelectedId(null); });
+        const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([o.lng!, o.lat!]).addTo(mapRef.current);
+        grotMarkersRef.current.set(o.id, marker);
+      }
+    });
+  }, [grotObjekt, mapReady, objekt]);
+
+  /* ── GROT markers: update selection ── */
+  useEffect(() => {
+    if (!mapRef.current || !mapReady) return;
+    grotMarkersRef.current.forEach((marker, id) => {
+      const o = objekt.find(x => x.id === id);
+      if (!o) return;
+      const newEl = buildGrotMarkerEl(o, selectedGrotId === id, () => { setSelectedGrotId(prev => prev === o.id ? null : o.id); setSelectedId(null); });
+      const el = marker.getElement();
+      while (el.lastChild) el.removeChild(el.lastChild);
+      while (newEl.firstChild) el.appendChild(newEl.firstChild);
+      el.style.opacity = selectedGrotId === id ? '1' : '0.7';
+    });
+  }, [selectedGrotId, objekt, mapReady]);
+
   return (
-    <div style={{ position: 'absolute', inset: 0 }} onClick={() => { setSelectedId(null); setShowMaskinDrop(false); }}>
+    <div style={{ position: 'absolute', inset: 0 }} onClick={() => { setSelectedId(null); setSelectedGrotId(null); setShowMaskinDrop(false); }}>
       <style>{`
         @keyframes pulseMarker{0%{transform:scale(1);opacity:.6}70%{transform:scale(2.5);opacity:0}100%{transform:scale(2.5);opacity:0}}
         @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
@@ -528,6 +645,11 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
           color: showHist ? C.t1 : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
           fontWeight: 500, cursor: 'pointer', fontFamily: ff,
         }}>Historik</button>
+        <button onClick={() => { setShowGrot(g => !g); if (showGrot) setSelectedGrotId(null); }} style={{
+          padding: '6px 12px', background: showGrot ? C.bd : 'transparent',
+          color: showGrot ? C.blue : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
+          fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+        }}>GROT</button>
 
         {/* Machine dropdown */}
         {maskiner.length > 0 && (<>
@@ -604,7 +726,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
       {/* Legend + total distance */}
       <div style={{
         position: 'absolute',
-        ...(selectedObj ? { top: 70 } : { bottom: 16 }),
+        ...((selectedObj || selectedGrotObj) ? { top: 70 } : { bottom: 16 }),
         left: 16, display: 'flex', gap: 10, background: 'rgba(0,0,0,.65)',
         backdropFilter: 'blur(12px)', padding: '6px 12px', borderRadius: 8, zIndex: 10,
         alignItems: 'center',
@@ -615,6 +737,12 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
             <span style={{ fontSize: 9, color: C.t3 }}>{v.l}</span>
           </div>
         ))}
+        {showGrot && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ width: 6, height: 6, background: C.blue, transform: 'rotate(45deg)', borderRadius: 1 }} />
+            <span style={{ fontSize: 9, color: C.t3 }}>GROT</span>
+          </div>
+        )}
         {totalDistance > 0 && (
           <>
             <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.1)' }} />
@@ -626,6 +754,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
       </div>
 
       {selectedObj && <ObjCard obj={selectedObj} />}
+      {selectedGrotObj && <GrotCard obj={selectedGrotObj} />}
     </div>
   );
 }
