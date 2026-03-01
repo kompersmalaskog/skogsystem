@@ -430,11 +430,15 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         const dist = haversineKm(lat1, lng1, lat2, lng2);
         const label = dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`;
 
+        // Offset: always shift up; shift sideways on short segments to avoid overlapping dots
+        const offsetX = dist < 2 ? 20 : 0;
+        const offsetY = -10;
+
         const el = document.createElement('div');
-        el.style.cssText = `background:rgba(0,0,0,0.8);color:#fff;font-size:10px;font-weight:500;font-family:${ff};padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap`;
+        el.style.cssText = `background:rgba(0,0,0,0.7);color:#fff;font-size:9px;font-weight:500;font-family:${ff};padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap`;
         el.textContent = label;
 
-        const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
+        const marker = new window.maplibregl.Marker({ element: el, anchor: 'center', offset: [offsetX, offsetY] })
           .setLngLat([midLng, midLat])
           .addTo(mapRef.current);
         distMarkersRef.current.push(marker);
