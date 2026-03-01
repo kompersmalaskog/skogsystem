@@ -431,12 +431,20 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         const dist = haversineKm(lat1, lng1, lat2, lng2);
         const label = dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`;
 
+        // Perpendicular pixel offset: push label to the right of the line direction
+        // so it doesn't overlap object names near the dots
+        const angle = Math.atan2(lat2 - lat1, lng2 - lng1); // line direction
+        const perpX = -Math.sin(angle); // perpendicular (rotated 90° clockwise)
+        const perpY = Math.cos(angle);
+        const push = dist < 5 ? 50 : dist < 15 ? 30 : 0;
+        const ox = Math.round(perpX * push);
+        const oy = Math.round(-perpY * push); // negate Y because screen Y is inverted
+
         const el = document.createElement('div');
         el.style.cssText = `background:rgba(0,0,0,0.7);color:#fff;font-size:9px;font-weight:500;font-family:${ff};padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap`;
         el.textContent = label;
 
-        // Place at exact geographic midpoint of the line — no pixel offset
-        const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
+        const marker = new window.maplibregl.Marker({ element: el, anchor: 'center', offset: [ox, oy] })
           .setLngLat([midLng, midLat])
           .addTo(mapRef.current);
         distMarkersRef.current.push(marker);
