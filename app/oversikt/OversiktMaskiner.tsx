@@ -52,21 +52,30 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
     }).filter(Boolean) as { objekt_id: string; start: number; end: number; days: number }[];
   };
 
+  const [koError, setKoError] = useState<string | null>(null);
+
   const handleAddToKo = async (maskinId: string, objektId: string) => {
+    setKoError(null);
     const existing = getKoItems(maskinId);
     const maxOrdning = existing.length > 0 ? Math.max(...existing.map(k => k.ordning)) : -1;
-    await supabase.from('maskin_ko').insert({
-      maskin_id: maskinId,
-      objekt_id: objektId,
-      ordning: maxOrdning + 1,
-    });
+    const payload = { maskin_id: maskinId, objekt_id: objektId, ordning: maxOrdning + 1 };
+    console.log('[maskin_ko INSERT] payload:', payload);
+    const { data, error } = await supabase.from('maskin_ko').insert(payload).select();
+    console.log('[maskin_ko INSERT] result:', { data, error });
+    if (error) {
+      console.error('[maskin_ko INSERT] error:', error);
+      setKoError(`Kunde inte spara: ${error.message}`);
+      return; // keep modal open so user sees the error
+    }
     setAddingToMaskin(null);
     setSearchText('');
     await onRefresh();
   };
 
   const handleRemoveFromKo = async (koId: string) => {
-    await supabase.from('maskin_ko').delete().eq('id', koId);
+    console.log('[maskin_ko DELETE] id:', koId);
+    const { error } = await supabase.from('maskin_ko').delete().eq('id', koId);
+    if (error) console.error('[maskin_ko DELETE] error:', error);
     await onRefresh();
   };
 
@@ -352,11 +361,16 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
       {/* Modal: Add object to queue */}
       {addingToMaskin && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 100 }}
-          onClick={() => { setAddingToMaskin(null); setSearchText(''); }}>
+          onClick={() => { setAddingToMaskin(null); setSearchText(''); setKoError(null); }}>
           <div style={{ background: C.card, borderRadius: '16px 16px 0 0', padding: 24, width: '100%', maxWidth: 500, border: `1px solid ${C.border}` }}
             onClick={(e) => e.stopPropagation()}>
             <div style={{ width: 40, height: 4, background: 'rgba(255,255,255,0.15)', borderRadius: 2, margin: '0 auto 20px' }} />
             <h2 style={{ margin: '0 0 16px', fontSize: 18, fontWeight: 600 }}>Lägg till objekt</h2>
+            {koError && (
+              <div style={{ padding: '10px 14px', marginBottom: 12, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, color: '#f87171', fontSize: 12 }}>
+                {koError}
+              </div>
+            )}
             <input value={searchText} onChange={(e) => setSearchText(e.target.value)}
               placeholder="Sök objekt..." autoFocus
               style={{ width: '100%', padding: '10px 14px', borderRadius: 10, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', marginBottom: 12, fontFamily: ff }} />
@@ -374,7 +388,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
                   </div>
                 ))}
             </div>
-            <button onClick={() => { setAddingToMaskin(null); setSearchText(''); }}
+            <button onClick={() => { setAddingToMaskin(null); setSearchText(''); setKoError(null); }}
               style={{ width: '100%', marginTop: 12, padding: '10px 0', background: 'rgba(255,255,255,0.04)', border: `1px solid ${C.border}`, borderRadius: 10, color: C.t3, fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: ff }}>
               Stäng
             </button>
