@@ -1,222 +1,188 @@
 'use client';
 
 import React, { useState } from 'react';
-import { OversiktObjekt } from './oversikt-types';
-import { inputStyle, footerStyle } from './oversikt-styles';
-import { getStatusColor, getStatusLabel, formatVolym, getMonadNamn } from './oversikt-utils';
+import { OversiktObjekt, C, ST, TF } from './oversikt-types';
+import { ff } from './oversikt-styles';
+import { formatVolym, pc } from './oversikt-utils';
 
 interface Props {
   objekt: OversiktObjekt[];
 }
 
-type SortKey = 'namn' | 'volym' | 'status';
+function Ring({ v, color, sz = 30 }: { v: number; color: string; sz?: number }) {
+  const r = (sz - 4) / 2;
+  const ci = 2 * Math.PI * r;
+  const o = ci - (v / 100) * ci;
+  return (
+    <div style={{ position: 'relative', width: sz, height: sz }}>
+      <svg width={sz} height={sz} style={{ transform: 'rotate(-90deg)', position: 'absolute' }}>
+        <circle cx={sz / 2} cy={sz / 2} r={r} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth={2.5} />
+        <circle cx={sz / 2} cy={sz / 2} r={r} fill="none" stroke={color} strokeWidth={2.5}
+          strokeDasharray={ci} strokeDashoffset={o} strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 0.5s ease' }} />
+      </svg>
+      <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, fontWeight: 600, color: v ? C.t2 : C.t4 }}>
+        {v || '–'}
+      </span>
+    </div>
+  );
+}
+
+type SortKey = 'namn' | 'vol' | 'status';
 
 export default function OversiktObjektLista({ objekt }: Props) {
-  const [typFilter, setTypFilter] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
-  const [statusFilter, setStatusFilter] = useState<string>('alla');
-  const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<SortKey>('namn');
+  const [sel, setSel] = useState<string | null>(null);
+  const [lf, setLf] = useState<{ b: string; s: string }>({ b: 'alla', s: 'alla' });
+  const [ls, setLs] = useState<SortKey>('namn');
+  const [showHist, setShowHist] = useState(false);
 
-  let lista = [...objekt];
+  const bolag = [...new Set(objekt.map(o => o.bolag).filter(Boolean))] as string[];
 
-  // Typ-filter
-  if (typFilter !== 'alla') {
-    lista = lista.filter(o => o.typ === typFilter);
+  let li = objekt
+    .filter(o => showHist || o.status !== 'klar')
+    .filter(o => lf.b === 'alla' || o.bolag === lf.b)
+    .filter(o => lf.s === 'alla' || o.status === lf.s);
+
+  if (ls === 'vol') li = [...li].sort((a, b) => (b.volym || 0) - (a.volym || 0));
+  else if (ls === 'status') {
+    const order: Record<string, number> = { pagaende: 0, skordning: 0, skotning: 1, planerad: 2, importerad: 3, klar: 4 };
+    li = [...li].sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9));
+  } else {
+    li = [...li].sort((a, b) => (a.namn || '').localeCompare(b.namn || '', 'sv'));
   }
-
-  // Status-filter
-  if (statusFilter !== 'alla') {
-    lista = lista.filter(o => o.status === statusFilter);
-  }
-
-  // Sök
-  if (search.trim()) {
-    const s = search.toLowerCase();
-    lista = lista.filter(o => o.namn?.toLowerCase().includes(s) || o.bolag?.toLowerCase().includes(s) || o.markagare?.toLowerCase().includes(s));
-  }
-
-  // Sortering
-  lista.sort((a, b) => {
-    if (sortBy === 'volym') return (b.volym || 0) - (a.volym || 0);
-    if (sortBy === 'status') {
-      const order = ['pagaende', 'planerad', 'importerad', 'klar'];
-      return order.indexOf(a.status || '') - order.indexOf(b.status || '');
-    }
-    return (a.namn || '').localeCompare(b.namn || '', 'sv');
-  });
-
-  const totalVolym = lista.reduce((sum, o) => sum + (o.volym || 0), 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Sök */}
-      <div style={{ padding: '12px 20px 0' }}>
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Sök objekt, bolag, markägare..."
-          style={inputStyle}
-        />
+    <div style={{ height: '100%', overflowY: 'auto', padding: '0 16px 80px', fontFamily: ff }}>
+      {/* Sticky filters */}
+      <div style={{ position: 'sticky', top: 0, zIndex: 10, background: C.bg, padding: '14px 0 10px' }}>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 8 }}>
+          {/* Bolag filter */}
+          <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 3 }}>
+            {['alla', ...bolag].map(b => (
+              <button key={b} onClick={() => setLf(f => ({ ...f, b }))} style={{
+                padding: '4px 10px', background: lf.b === b ? 'rgba(255,255,255,0.1)' : 'transparent',
+                color: lf.b === b ? C.t1 : C.t3, border: 'none', borderRadius: 6, fontSize: 10,
+                fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+              }}>{b === 'alla' ? 'Alla bolag' : b}</button>
+            ))}
+          </div>
+          {/* Status filter */}
+          <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 3 }}>
+            {[
+              { k: 'alla', l: 'Alla' },
+              { k: 'planerad', l: 'Planerad' },
+              { k: 'pagaende', l: 'Pågå.' },
+              { k: 'klar', l: 'Klar' },
+            ].map(s => (
+              <button key={s.k} onClick={() => setLf(f => ({ ...f, s: s.k }))} style={{
+                padding: '4px 10px', background: lf.s === s.k ? 'rgba(255,255,255,0.1)' : 'transparent',
+                color: lf.s === s.k ? C.t1 : C.t3, border: 'none', borderRadius: 6, fontSize: 10,
+                fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+              }}>{s.l}</button>
+            ))}
+          </div>
+          {/* Sort */}
+          <div style={{ display: 'flex', gap: 2, marginLeft: 'auto', background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 3 }}>
+            {([
+              { k: 'namn' as const, l: 'A–Ö' },
+              { k: 'vol' as const, l: 'm³' },
+              { k: 'status' as const, l: 'Status' },
+            ]).map(s => (
+              <button key={s.k} onClick={() => setLs(s.k)} style={{
+                padding: '4px 8px', background: ls === s.k ? 'rgba(255,255,255,0.1)' : 'transparent',
+                color: ls === s.k ? C.t1 : C.t3, border: 'none', borderRadius: 6, fontSize: 10,
+                fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+              }}>{s.l}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ fontSize: 10, color: C.t4 }}>
+          {li.length} objekt · {li.reduce((s, o) => s + (o.volym || 0), 0).toLocaleString('sv-SE')} m³
+        </div>
       </div>
 
-      {/* Filterknappar */}
-      <div style={{ display: 'flex', gap: '6px', padding: '12px 20px', overflowX: 'auto' }}>
-        {[
-          { key: 'alla', label: 'Alla' },
-          { key: 'slutavverkning', label: 'Slutavv.' },
-          { key: 'gallring', label: 'Gallring' },
-        ].map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setTypFilter(f.key as any)}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '16px',
-              border: typFilter === f.key ? '1px solid #fff' : '1px solid #333',
-              background: typFilter === f.key ? '#fff' : 'transparent',
-              color: typFilter === f.key ? '#000' : '#fff',
-              fontSize: '12px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {f.label}
-          </button>
-        ))}
-        <div style={{ width: '1px', background: '#333', margin: '0 4px' }} />
-        {[
-          { key: 'alla', label: 'Alla' },
-          { key: 'importerad', label: 'Import.' },
-          { key: 'planerad', label: 'Planad' },
-          { key: 'pagaende', label: 'Pågå.' },
-          { key: 'klar', label: 'Klar' },
-        ].map((f) => (
-          <button
-            key={'s' + f.key}
-            onClick={() => setStatusFilter(f.key)}
-            style={{
-              padding: '6px 14px',
-              borderRadius: '16px',
-              border: statusFilter === f.key ? '1px solid #3b82f6' : '1px solid #333',
-              background: statusFilter === f.key ? '#3b82f6' : 'transparent',
-              color: '#fff',
-              fontSize: '12px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              whiteSpace: 'nowrap',
-            }}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
+      {/* List */}
+      {li.map(o => {
+        const st = ST[o.status] || ST.planerad;
+        const tf = TF[o.typ] || C.yellow;
+        const s = sel === o.id;
+        const skP = 0; // Production not tracked yet
+        const stP = 0;
 
-      {/* Sortering */}
-      <div style={{ display: 'flex', gap: '8px', padding: '0 20px 8px', alignItems: 'center' }}>
-        <span style={{ fontSize: '12px', color: '#666' }}>Sortera:</span>
-        {[
-          { key: 'namn', label: 'Namn' },
-          { key: 'volym', label: 'Volym' },
-          { key: 'status', label: 'Status' },
-        ].map((s) => (
-          <button
-            key={s.key}
-            onClick={() => setSortBy(s.key as SortKey)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: sortBy === s.key ? '#fff' : '#666',
-              fontSize: '12px',
-              cursor: 'pointer',
-              padding: '4px 8px',
-              textDecoration: sortBy === s.key ? 'underline' : 'none',
-            }}
-          >
-            {s.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Lista */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
-        {lista.map((obj) => (
-          <div
-            key={obj.id}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              padding: '16px 20px',
-              borderBottom: '1px solid #1a1a1a',
-            }}
-          >
-            {/* Status-prick */}
-            <div style={{
-              width: '10px',
-              height: '10px',
-              borderRadius: '50%',
-              backgroundColor: getStatusColor(obj.status),
-              marginRight: '14px',
-              flexShrink: 0,
-            }} />
-
-            {/* Info */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '15px', fontWeight: '500', marginBottom: '3px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                {obj.namn}
+        return (
+          <div key={o.id} onClick={() => setSel(s ? null : o.id)} style={{
+            background: s ? C.card : 'transparent', borderRadius: 14,
+            padding: s ? 16 : 14, margin: s ? '6px 0' : 0,
+            borderBottom: s ? 'none' : `1px solid ${C.border}`,
+            cursor: 'pointer', transition: 'background 0.15s',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {/* Left color bar */}
+              <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: tf, opacity: s ? 0.6 : 0.2 }} />
+              {/* Info */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600 }}>
+                  {o.namn}{' '}
+                  <span style={{ fontSize: 11, fontWeight: 400, color: C.t4 }}>{o.vo_nummer || ''}</span>
+                </div>
+                <div style={{ fontSize: 11, color: C.t3, marginTop: 2 }}>
+                  {o.bolag || '–'} · {o.atgard || (o.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring')} · {o.areal || '–'} ha
+                </div>
               </div>
-              <div style={{ fontSize: '12px', color: '#666' }}>
-                {obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}
-                {obj.bolag && ` · ${obj.bolag}`}
+              {/* Volume + status */}
+              <div style={{ textAlign: 'right', marginRight: 8 }}>
+                <div style={{ fontSize: 18, fontWeight: 700 }}>
+                  {formatVolym(o.volym || 0)}
+                  <span style={{ fontSize: 10, fontWeight: 400, color: C.t4 }}> m³</span>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 500, color: st.c, padding: '2px 8px', background: st.bg, borderRadius: 5 }}>
+                  {st.l}
+                </span>
               </div>
-              <div style={{ fontSize: '12px', color: '#555', marginTop: '2px' }}>
-                {getStatusLabel(obj.status)}
-                {obj.ar && obj.manad && ` · ${getMonadNamn(obj.manad)} ${obj.ar}`}
+              {/* Mini rings */}
+              <div style={{ display: 'flex', gap: 4 }}>
+                <Ring v={skP} color={tf} />
+                <Ring v={stP} color={tf} />
               </div>
             </div>
 
-            {/* Volym */}
-            <div style={{ textAlign: 'right', marginLeft: '12px', flexShrink: 0 }}>
-              <div style={{ fontSize: '15px', fontWeight: '500' }}>{obj.volym || 0}</div>
-              <div style={{ fontSize: '11px', color: '#666' }}>m³</div>
-            </div>
+            {/* Expanded detail */}
+            {s && (
+              <div style={{ marginTop: 14, animation: 'fadeIn .15s' }}>
+                {[
+                  { l: 'Skördare', v: 0, p: skP, pr: 0 },
+                  { l: 'Skotare', v: 0, p: stP, pr: 0 },
+                ].map((r, i) => (
+                  <div key={i} style={{ background: 'rgba(255,255,255,0.02)', borderRadius: 10, padding: '10px 12px', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: C.t3 }}>{r.l}</span>
+                      {r.v ? (
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>
+                          {r.v} m³ <span style={{ fontWeight: 400, color: C.t3 }}>{r.pr} m³/G15h</span>
+                        </span>
+                      ) : (
+                        <span style={{ color: C.t4 }}>Ej påbörjad</span>
+                      )}
+                    </div>
+                    <div style={{ height: 3, background: 'rgba(255,255,255,0.03)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div style={{ width: `${r.p}%`, height: '100%', background: tf, opacity: 0.5, borderRadius: 2, transition: 'width 0.5s' }} />
+                    </div>
+                  </div>
+                ))}
 
-            {/* Planering-länk */}
-            <button
-              onClick={() => window.location.href = `/planering?objekt=${obj.id}`}
-              style={{
-                marginLeft: '12px',
-                background: 'none',
-                border: '1px solid #333',
-                color: '#fff',
-                fontSize: '12px',
-                padding: '6px 10px',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                flexShrink: 0,
-              }}
-            >
-              →
-            </button>
+                {/* Action */}
+                <button onClick={(e) => { e.stopPropagation(); window.location.href = `/planering?objekt=${o.id}`; }} style={{
+                  width: '100%', marginTop: 6, padding: '8px 0', background: 'rgba(255,255,255,0.04)',
+                  border: `1px solid ${C.border}`, borderRadius: 8, color: C.t2, fontSize: 11, fontWeight: 600,
+                  cursor: 'pointer', fontFamily: ff,
+                }}>
+                  Visa avverkning →
+                </button>
+              </div>
+            )}
           </div>
-        ))}
-
-        {lista.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#666' }}>
-            Inga objekt matchar filtret
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div style={footerStyle}>
-        <span style={{ color: '#666', fontSize: '13px' }}>
-          {lista.length} objekt · Total:{' '}
-        </span>
-        <span style={{ fontSize: '15px', fontWeight: '600' }}>
-          {formatVolym(totalVolym)}
-        </span>
-      </div>
+        );
+      })}
     </div>
   );
 }
