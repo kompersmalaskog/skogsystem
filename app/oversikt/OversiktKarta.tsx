@@ -235,6 +235,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
   const [filt, setFilt] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
   const [showHist, setShowHist] = useState(false);
   const [maskinFilter, setMaskinFilter] = useState<string | null>(null);
+  const [showMaskinDrop, setShowMaskinDrop] = useState(false);
 
   const selectedObj = selectedId ? objekt.find(o => o.id === selectedId) : null;
   const handleMarkerClick = useCallback((id: string) => {
@@ -484,7 +485,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
   }, [selectedId, queueNums, showHist, maskinFilter, objekt, maskinKo, maskiner, mapReady, handleMarkerClick, mkInfo]);
 
   return (
-    <div style={{ position: 'absolute', inset: 0 }} onClick={() => setSelectedId(null)}>
+    <div style={{ position: 'absolute', inset: 0 }} onClick={() => { setSelectedId(null); setShowMaskinDrop(false); }}>
       <style>{`
         @keyframes pulseMarker{0%{transform:scale(1);opacity:.6}70%{transform:scale(2.5);opacity:0}100%{transform:scale(2.5);opacity:0}}
         @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
@@ -497,71 +498,108 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         </div>
       )}
 
-      {/* ── Filter bar ── */}
+      {/* ── Filter bar (single compact row) ── */}
       <div style={{
         position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
-        display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'center', zIndex: 15,
+        display: 'flex', gap: 4, alignItems: 'center', zIndex: 15,
+        background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(16px)',
+        padding: 4, borderRadius: 12, border: `1px solid ${C.border}`,
       }} onClick={e => e.stopPropagation()}>
-        {/* Type filter + history toggle */}
-        <div style={{
-          display: 'flex', gap: 4, background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(16px)',
-          padding: 4, borderRadius: 12, border: `1px solid ${C.border}`,
-        }}>
-          {([
-            { k: 'alla' as const, l: 'Alla' },
-            { k: 'slutavverkning' as const, l: 'Slutavverkning' },
-            { k: 'gallring' as const, l: 'Gallring' },
-          ]).map(f => (
-            <button key={f.k} onClick={() => { setFilt(f.k); setSelectedId(null); }} style={{
-              padding: '6px 14px', background: filt === f.k ? 'rgba(255,255,255,0.1)' : 'transparent',
-              color: filt === f.k ? C.t1 : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
-              fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s', fontFamily: ff,
-            }}>{f.l}</button>
-          ))}
-          <div style={{ width: 1, background: C.border, margin: '4px 2px' }} />
-          <button onClick={() => setShowHist(h => !h)} style={{
-            padding: '6px 12px', background: showHist ? 'rgba(255,255,255,0.08)' : 'transparent',
-            color: showHist ? C.t1 : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
-            fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-          }}>Historik</button>
-        </div>
+        {/* Type filter */}
+        {([
+          { k: 'alla' as const, l: 'Alla' },
+          { k: 'slutavverkning' as const, l: 'Slutavverkning' },
+          { k: 'gallring' as const, l: 'Gallring' },
+        ]).map(f => (
+          <button key={f.k} onClick={() => { setFilt(f.k); setSelectedId(null); }} style={{
+            padding: '6px 14px', background: filt === f.k ? 'rgba(255,255,255,0.1)' : 'transparent',
+            color: filt === f.k ? C.t1 : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
+            fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s', fontFamily: ff,
+          }}>{f.l}</button>
+        ))}
+        <div style={{ width: 1, background: C.border, margin: '4px 2px' }} />
+        <button onClick={() => setShowHist(h => !h)} style={{
+          padding: '6px 12px', background: showHist ? 'rgba(255,255,255,0.08)' : 'transparent',
+          color: showHist ? C.t1 : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
+          fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+        }}>Historik</button>
 
-        {/* Machine filter — ALL machines */}
-        {maskiner.length > 0 && (
-          <div style={{
-            display: 'flex', gap: 3, background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(16px)',
-            padding: 3, borderRadius: 10, border: `1px solid ${C.border}`,
-            maxWidth: 'calc(100vw - 32px)', overflowX: 'auto',
-          }}>
-            <button onClick={() => { setMaskinFilter(null); setSelectedId(null); }} style={{
-              padding: '5px 10px', background: !maskinFilter ? 'rgba(255,255,255,0.1)' : 'transparent',
-              color: !maskinFilter ? C.t1 : C.t3, border: 'none', borderRadius: 7, fontSize: 10,
+        {/* Machine dropdown */}
+        {maskiner.length > 0 && (<>
+          <div style={{ width: 1, background: C.border, margin: '4px 2px' }} />
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setShowMaskinDrop(v => !v)} style={{
+              padding: '6px 12px', background: maskinFilter ? 'rgba(255,255,255,0.1)' : 'transparent',
+              color: maskinFilter ? C.t1 : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
               fontWeight: 500, cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',
-            }}>Alla maskiner</button>
-            {maskiner.map((m, i) => {
-              const on = maskinFilter === m.maskin_id;
-              const typLabel = getMaskinTyp(m.typ);
-              return (
-                <button key={m.maskin_id} onClick={() => { setMaskinFilter(on ? null : m.maskin_id); setSelectedId(null); }}
-                  style={{
-                    padding: '5px 10px', background: on ? 'rgba(255,255,255,0.1)' : 'transparent',
-                    color: on ? C.t1 : C.t3, border: 'none', borderRadius: 7, fontSize: 10,
-                    fontWeight: 500, cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',
-                    display: 'flex', alignItems: 'center', gap: 5,
-                  }}>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: RC[i % RC.length], flexShrink: 0 }} />
-                  {getMaskinDisplayName(m)} ({typLabel})
-                </button>
-              );
-            })}
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              {maskinFilter ? (() => {
+                const m = maskiner.find(x => x.maskin_id === maskinFilter);
+                if (!m) return 'Alla maskiner';
+                const tc = getMaskinTyp(m.typ) === 'skördare' ? C.yellow : C.green;
+                return (<>
+                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: tc, flexShrink: 0 }} />
+                  {getMaskinDisplayName(m)}
+                </>);
+              })() : 'Alla maskiner'}
+              <span style={{ fontSize: 8, marginLeft: 2 }}>{showMaskinDrop ? '▲' : '▼'}</span>
+            </button>
+
+            {showMaskinDrop && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 220,
+                background: 'rgba(13,13,15,.97)', backdropFilter: 'blur(24px)',
+                borderRadius: 12, border: `1px solid ${C.border}`, overflow: 'hidden',
+                boxShadow: '0 8px 32px rgba(0,0,0,.6)',
+              }}>
+                {/* Alla maskiner */}
+                <button onClick={() => { setMaskinFilter(null); setSelectedId(null); setShowMaskinDrop(false); }} style={{
+                  width: '100%', padding: '10px 14px', background: !maskinFilter ? 'rgba(255,255,255,0.06)' : 'transparent',
+                  color: !maskinFilter ? C.t1 : C.t2, border: 'none', borderBottom: `1px solid ${C.border}`,
+                  fontSize: 11, fontWeight: !maskinFilter ? 600 : 400, cursor: 'pointer', fontFamily: ff,
+                  textAlign: 'left',
+                }}>Alla maskiner</button>
+
+                {/* Grouped by typ */}
+                {(['skördare', 'skotare'] as const).map(typ => {
+                  const group = maskiner.filter(m => getMaskinTyp(m.typ) === typ);
+                  if (!group.length) return null;
+                  const tc = typ === 'skördare' ? C.yellow : C.green;
+                  return (
+                    <div key={typ}>
+                      <div style={{
+                        padding: '8px 14px 4px', fontSize: 9, fontWeight: 600, color: C.t4,
+                        textTransform: 'uppercase', letterSpacing: '0.06em',
+                      }}>{typ}</div>
+                      {group.map(m => {
+                        const on = maskinFilter === m.maskin_id;
+                        return (
+                          <button key={m.maskin_id} onClick={() => { setMaskinFilter(m.maskin_id); setSelectedId(null); setShowMaskinDrop(false); }}
+                            style={{
+                              width: '100%', padding: '8px 14px', background: on ? 'rgba(255,255,255,0.06)' : 'transparent',
+                              color: on ? C.t1 : C.t2, border: 'none', fontSize: 11, fontWeight: on ? 600 : 400,
+                              cursor: 'pointer', fontFamily: ff, textAlign: 'left',
+                              display: 'flex', alignItems: 'center', gap: 8,
+                            }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: tc, flexShrink: 0 }} />
+                            {getMaskinDisplayName(m)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
-        )}
+        </>)}
       </div>
 
       {/* Legend + total distance */}
       <div style={{
         position: 'absolute',
-        ...(selectedObj ? { top: maskiner.length > 0 ? 120 : 70 } : { bottom: 16 }),
+        ...(selectedObj ? { top: 70 } : { bottom: 16 }),
         left: 16, display: 'flex', gap: 10, background: 'rgba(0,0,0,.65)',
         backdropFilter: 'blur(12px)', padding: '6px 12px', borderRadius: 8, zIndex: 10,
         alignItems: 'center',
