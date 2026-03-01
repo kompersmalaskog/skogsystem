@@ -125,25 +125,26 @@ function buildMarkerElement(
   const st = ST[obj.status] || ST.planerad;
   const isActive = obj.status === 'pagaende' || obj.status === 'skordning' || obj.status === 'skotning';
   const isKlar = obj.status === 'klar';
-  const dotSize = isSelected ? 22 : isActive ? 16 : 12;
-  const innerSize = isSelected ? 8 : isActive ? 6 : 4;
+  const dotSize = isSelected ? 26 : isActive ? 22 : 16;
+  const innerSize = isSelected ? 10 : isActive ? 8 : 6;
+  const hitSize = Math.max(dotSize, 30);
 
   // Wrapper — explicit size matches dot; children use absolute overflow
   const wrapper = document.createElement('div');
   wrapper.className = 'ovk-marker';
   wrapper.dataset.objektId = obj.id;
-  wrapper.style.cssText = `width:${dotSize}px;height:${dotSize}px;position:relative;cursor:pointer;opacity:${isKlar ? '0.25' : '1'}`;
+  wrapper.style.cssText = `width:${hitSize}px;height:${hitSize}px;position:relative;cursor:pointer;opacity:${isKlar ? '0.25' : '1'}`;
 
   // Pulse ring (active objects)
   if (isActive) {
     const pulse = document.createElement('div');
-    pulse.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 14}px;height:${dotSize + 14}px;margin-left:-${(dotSize + 14) / 2}px;margin-top:-${(dotSize + 14) / 2}px;border-radius:50%;background:${tf};animation:pulse 2.5s infinite;pointer-events:none`;
+    pulse.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;background:${tf};animation:pulseMarker 2.5s infinite;pointer-events:none`;
     wrapper.appendChild(pulse);
   }
 
   // Dot circle
   const dot = document.createElement('div');
-  dot.style.cssText = `width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${C.bg};border:2px solid ${tf};display:flex;align-items:center;justify-content:center;box-shadow:${isSelected ? `0 0 20px ${tf}25` : 'none'};transition:width .15s,height .15s,box-shadow .15s`;
+  dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${C.bg};border:2px solid ${tf};display:flex;align-items:center;justify-content:center;box-shadow:${isSelected ? `0 0 20px ${tf}25` : 'none'};transition:all .15s`;
   const inner = document.createElement('div');
   inner.style.cssText = `width:${innerSize}px;height:${innerSize}px;border-radius:50%;background:${st.c};transition:width .15s,height .15s`;
   dot.appendChild(inner);
@@ -151,9 +152,9 @@ function buildMarkerElement(
 
   // Text label below
   const label = document.createElement('div');
-  label.style.cssText = `position:absolute;top:${dotSize + 6}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
-  const fontSize = isSelected ? 12 : 10;
-  const fontWeight = isSelected ? 600 : 500;
+  label.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
+  const fontSize = isSelected ? 13 : 12;
+  const fontWeight = isSelected ? 700 : 500;
   const color = isKlar ? C.t4 : isSelected ? C.t1 : C.t3;
   label.innerHTML = `<div style="font-size:${fontSize}px;font-weight:${fontWeight};color:${color};text-shadow:0 1px 8px rgba(0,0,0,.95);font-family:${ff}">${obj.namn}</div>`;
   wrapper.appendChild(label);
@@ -162,7 +163,7 @@ function buildMarkerElement(
   const koForObj = maskinKo.filter(k => k.objekt_id === obj.id);
   if (koForObj.length > 0) {
     const mlDiv = document.createElement('div');
-    mlDiv.style.cssText = `position:absolute;bottom:${dotSize + 8}px;left:50%;transform:translateX(-50%);display:flex;gap:3px;pointer-events:none;white-space:nowrap`;
+    mlDiv.style.cssText = `position:absolute;bottom:${hitSize / 2 + dotSize / 2 + 6}px;left:50%;transform:translateX(-50%);display:flex;gap:3px;pointer-events:none;white-space:nowrap`;
     koForObj.forEach(k => {
       const m = maskiner.find(mm => mm.maskin_id === k.maskin_id);
       if (m) {
@@ -331,6 +332,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
 
   return (
     <div style={{ position: 'absolute', inset: 0 }} onClick={() => setSelectedId(null)}>
+      <style>{`@keyframes pulseMarker{0%{transform:scale(1);opacity:.4}70%{transform:scale(2.5);opacity:0}100%{transform:scale(2.5);opacity:0}}`}</style>
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
       {!mapReady && (
