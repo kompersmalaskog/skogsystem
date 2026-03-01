@@ -4590,7 +4590,7 @@ export default function PlannerPage() {
         });
       },
       (err) => console.log('GPS error:', err),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
     );
   };
 
@@ -4839,7 +4839,7 @@ export default function PlannerPage() {
             });
           },
           (err) => console.log('GPS error:', err),
-          { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
         );
       }
     }
@@ -10242,7 +10242,7 @@ export default function PlannerPage() {
                             });
                           },
                           (err) => console.log('GPS error:', err),
-                          { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+                          { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
                         );
                       }
                     }}

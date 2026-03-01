@@ -45,7 +45,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
       navigator.geolocation.getCurrentPosition(
         (pos) => setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
         () => setUserPos({ lat: 56.40, lng: 14.70 }),
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
       );
     } else {
       setUserPos({ lat: 56.40, lng: 14.70 });
