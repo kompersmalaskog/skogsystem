@@ -4495,7 +4495,7 @@ export default function PlannerPage() {
         setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
 
         // Ignorera osäkra positioner för linjespårning (kräver precision)
-        const isAccurate = accuracy <= 30;
+        const isAccurate = accuracy <= 15;
 
         if (isAccurate) {
           setTrackingPath(prev => [...prev, newPos]);
@@ -4505,7 +4505,7 @@ export default function PlannerPage() {
           }
         }
 
-        // Första punkten - sätt startposition (acceptera upp till 30m)
+        // Första punkten - sätt startposition
         setGpsStartPos(prev => {
           if (!prev && isAccurate) {
             // Beräkna SVG-koordinater från lat/lon
@@ -4588,10 +4588,10 @@ export default function PlannerPage() {
         });
       },
       (err) => console.log('GPS error:', err),
-      { enableHighAccuracy: true, maximumAge: 500, timeout: 10000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
     );
   };
-  
+
   const stopGpsTracking = (save = true) => {
     // Spara linjen om vi har tillräckligt med punkter
     if (save && gpsPathRef.current.length > 1 && gpsLineType) {
@@ -4762,11 +4762,11 @@ export default function PlannerPage() {
             setCurrentPosition(newPos);
             setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
 
-            const isAccurate = accuracy <= 30;
+            const isAccurate = accuracy <= 15;
             if (!isAccurate) return;
 
             setTrackingPath(prev => [...prev, newPos]);
-            
+
             // Uppdatera kartposition
             setGpsStartPos(prev => {
               if (!prev) {
@@ -4836,7 +4836,7 @@ export default function PlannerPage() {
             });
           },
           (err) => console.log('GPS error:', err),
-          { enableHighAccuracy: true, maximumAge: 500, timeout: 10000 }
+          { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
         );
       }
     }
@@ -10214,7 +10214,7 @@ export default function PlannerPage() {
                             });
                           },
                           (err) => console.log('GPS error:', err),
-                          { enableHighAccuracy: true, maximumAge: 500, timeout: 10000 }
+                          { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
                         );
                       }
                     }}
