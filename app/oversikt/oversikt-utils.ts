@@ -60,3 +60,42 @@ export function getMonadNamn(manad: number | null): string {
   const namn = ['Jan', 'Feb', 'Mar', 'Apr', 'Maj', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
   return namn[manad - 1] || '';
 }
+
+/** Bygg displaynamn från dim_maskin-data */
+export function getMaskinDisplayName(m: { tillverkare?: string; modell?: string; maskin_id: string }): string {
+  const { tillverkare, modell } = m;
+  if (!tillverkare && !modell) return m.maskin_id;
+  if (!tillverkare) return modell!;
+  if (!modell) return tillverkare;
+
+  // Om modell redan börjar med tillverkare (t.ex. "PONSSE Scorpion Giant 8W")
+  if (modell.toLowerCase().startsWith(tillverkare.toLowerCase())) {
+    return modell;
+  }
+
+  // Om tillverkare är kort kod och modell är varumärke (t.ex. tillverkare="H8E", modell="Rottne")
+  if (tillverkare.length <= 5 && !tillverkare.includes(' ') && modell.length > tillverkare.length) {
+    return `${modell} ${tillverkare}`;
+  }
+
+  // Default: "PONSSE Wisent 2015", "John Deere 810E"
+  return `${tillverkare} ${modell}`;
+}
+
+/** Avgör skördare/skotare från dim_maskin.typ */
+export function getMaskinTyp(typ?: string | null): 'skördare' | 'skotare' {
+  if (!typ) return 'skördare';
+  const t = typ.toLowerCase();
+  if (t === 'forwarder' || t === 'skotare') return 'skotare';
+  return 'skördare'; // harvester, skördare, eller okänt
+}
+
+/** Bygg aggregat-sträng för skördare */
+export function getMaskinAggregatStr(m: { aggregat_tillverkare?: string; aggregat?: string }): string {
+  const { aggregat_tillverkare, aggregat } = m;
+  if (!aggregat_tillverkare && !aggregat) return '';
+  if (!aggregat_tillverkare) return aggregat!;
+  if (!aggregat) return aggregat_tillverkare;
+  if (aggregat.toLowerCase().startsWith(aggregat_tillverkare.toLowerCase())) return aggregat;
+  return `${aggregat_tillverkare} ${aggregat}`;
+}

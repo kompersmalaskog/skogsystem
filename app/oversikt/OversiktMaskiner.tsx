@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { Maskin, MaskinKoItem, OversiktObjekt } from './oversikt-types';
 import { cardStyle, pillButton, inputStyle, modalOverlay, modalContent } from './oversikt-styles';
-import { formatVolym } from './oversikt-utils';
+import { formatVolym, getMaskinDisplayName, getMaskinTyp, getMaskinAggregatStr } from './oversikt-utils';
 
 interface Props {
   maskiner: Maskin[];
@@ -15,31 +15,36 @@ interface Props {
 
 export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase, onRefresh }: Props) {
   const [showAddMaskin, setShowAddMaskin] = useState(false);
-  const [newNamn, setNewNamn] = useState('');
-  const [newTyp, setNewTyp] = useState<'skördare' | 'skotare'>('skördare');
+  const [newMaskinId, setNewMaskinId] = useState('');
+  const [newTillverkare, setNewTillverkare] = useState('');
   const [newModell, setNewModell] = useState('');
+  const [newTyp, setNewTyp] = useState<'skördare' | 'skotare'>('skördare');
   const [addingToMaskin, setAddingToMaskin] = useState<string | null>(null);
   const [searchText, setSearchText] = useState('');
   const [saving, setSaving] = useState(false);
 
   const handleAddMaskin = async () => {
-    if (!newNamn.trim()) return;
+    if (!newMaskinId.trim() || !newModell.trim()) return;
     setSaving(true);
-    await supabase.from('maskiner').insert({
-      namn: newNamn.trim(),
+    await supabase.from('dim_maskin').insert({
+      maskin_id: newMaskinId.trim(),
+      tillverkare: newTillverkare.trim() || null,
+      modell: newModell.trim(),
       typ: newTyp,
-      modell: newModell.trim() || null,
+      marke: newTillverkare.trim() || null,
+      aktiv: true,
     });
-    setNewNamn('');
+    setNewMaskinId('');
+    setNewTillverkare('');
     setNewModell('');
     setShowAddMaskin(false);
     setSaving(false);
     await onRefresh();
   };
 
-  const handleDeleteMaskin = async (id: string) => {
+  const handleDeleteMaskin = async (maskinId: string) => {
     if (!confirm('Ta bort maskinen och hela dess kö?')) return;
-    await supabase.from('maskiner').delete().eq('id', id);
+    await supabase.from('dim_maskin').delete().eq('maskin_id', maskinId);
     await onRefresh();
   };
 
@@ -89,12 +94,15 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
     await onRefresh();
   };
 
+  // Filtrera bort inaktiva maskiner
+  const aktivaMaskiner = maskiner.filter(m => m.aktiv !== false);
+
   return (
     <div style={{ padding: '16px 20px' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <div style={{ fontSize: '14px', color: '#666' }}>
-          {maskiner.length} {maskiner.length === 1 ? 'maskin' : 'maskiner'}
+          {aktivaMaskiner.length} {aktivaMaskiner.length === 1 ? 'maskin' : 'maskiner'}
         </div>
         <button onClick={() => setShowAddMaskin(true)} style={pillButton('primary')}>
           + Lägg till maskin
@@ -102,9 +110,12 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
       </div>
 
       {/* Maskinkort */}
-      {maskiner.map((maskin) => {
+      {aktivaMaskiner.map((maskin) => {
+        const displayName = getMaskinDisplayName(maskin);
+        const maskinTyp = getMaskinTyp(maskin.typ);
+        const aggregatStr = getMaskinAggregatStr(maskin);
         const koItems = maskinKo
-          .filter(k => k.maskin_id === maskin.id)
+          .filter(k => k.maskin_id === maskin.maskin_id)
           .sort((a, b) => a.ordning - b.ordning);
         const totalVolym = koItems.reduce((sum, k) => {
           const obj = objekt.find(o => o.id === k.objekt_id);
@@ -112,20 +123,20 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
         }, 0);
 
         return (
-          <div key={maskin.id} style={cardStyle}>
+          <div key={maskin.maskin_id} style={cardStyle}>
             {/* Maskin-header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
               <div>
                 <div style={{ fontSize: '18px', fontWeight: '600', marginBottom: '2px' }}>
-                  {maskin.typ === 'skördare' ? '🪚' : '🚜'} {maskin.namn}
+                  {maskinTyp === 'skördare' ? '🪚' : '🚜'} {displayName}
                 </div>
                 <div style={{ fontSize: '13px', color: '#666' }}>
-                  {maskin.typ === 'skördare' ? 'Skördare' : 'Skotare'}
-                  {maskin.modell && ` · ${maskin.modell}`}
+                  {maskinTyp === 'skördare' ? 'Skördare' : 'Skotare'}
+                  {maskinTyp === 'skördare' && aggregatStr && ` · ${aggregatStr}`}
                 </div>
               </div>
               <button
-                onClick={() => handleDeleteMaskin(maskin.id)}
+                onClick={() => handleDeleteMaskin(maskin.maskin_id)}
                 style={{ background: 'none', border: 'none', color: '#666', fontSize: '18px', cursor: 'pointer', padding: '4px' }}
               >
                 ✕
@@ -165,7 +176,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
                       {/* Pilar */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginLeft: '8px' }}>
                         <button
-                          onClick={() => handleMoveUp(maskin.id, ki)}
+                          onClick={() => handleMoveUp(maskin.maskin_id, ki)}
                           disabled={idx === 0}
                           style={{
                             background: 'none', border: 'none', color: idx === 0 ? '#333' : '#888',
@@ -173,7 +184,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
                           }}
                         >▲</button>
                         <button
-                          onClick={() => handleMoveDown(maskin.id, ki)}
+                          onClick={() => handleMoveDown(maskin.maskin_id, ki)}
                           disabled={idx === koItems.length - 1}
                           style={{
                             background: 'none', border: 'none', color: idx === koItems.length - 1 ? '#333' : '#888',
@@ -200,7 +211,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
                 Total: <span style={{ color: '#fff', fontWeight: '600' }}>{formatVolym(totalVolym)}</span>
               </div>
               <button
-                onClick={() => setAddingToMaskin(maskin.id)}
+                onClick={() => setAddingToMaskin(maskin.maskin_id)}
                 style={{ background: 'none', border: '1px solid #333', color: '#fff', fontSize: '13px', padding: '6px 14px', borderRadius: '10px', cursor: 'pointer' }}
               >
                 + Lägg till objekt
@@ -211,7 +222,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
       })}
 
       {/* Tom state */}
-      {maskiner.length === 0 && (
+      {aktivaMaskiner.length === 0 && (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#666' }}>
           <div style={{ fontSize: '40px', marginBottom: '12px' }}>🪚</div>
           <div style={{ fontSize: '16px', marginBottom: '8px' }}>Inga maskiner ännu</div>
@@ -227,16 +238,36 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
             <h2 style={{ margin: '0 0 20px', fontSize: '20px', fontWeight: '600' }}>Lägg till maskin</h2>
 
             <div style={{ marginBottom: '14px' }}>
-              <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '6px' }}>Namn *</label>
+              <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '6px' }}>Maskin-ID *</label>
               <input
-                value={newNamn}
-                onChange={(e) => setNewNamn(e.target.value)}
-                placeholder="T.ex. Ponsse Scorpion"
+                value={newMaskinId}
+                onChange={(e) => setNewMaskinId(e.target.value)}
+                placeholder="T.ex. JD810E"
                 style={inputStyle}
               />
             </div>
 
             <div style={{ marginBottom: '14px' }}>
+              <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '6px' }}>Tillverkare</label>
+              <input
+                value={newTillverkare}
+                onChange={(e) => setNewTillverkare(e.target.value)}
+                placeholder="T.ex. John Deere"
+                style={inputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: '14px' }}>
+              <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '6px' }}>Modell *</label>
+              <input
+                value={newModell}
+                onChange={(e) => setNewModell(e.target.value)}
+                placeholder="T.ex. 810E"
+                style={inputStyle}
+              />
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
               <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '6px' }}>Typ</label>
               <div style={{ display: 'flex', gap: '8px' }}>
                 {(['skördare', 'skotare'] as const).map((t) => (
@@ -260,21 +291,15 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
               </div>
             </div>
 
-            <div style={{ marginBottom: '20px' }}>
-              <label style={{ fontSize: '13px', color: '#666', display: 'block', marginBottom: '6px' }}>Modell (valfritt)</label>
-              <input
-                value={newModell}
-                onChange={(e) => setNewModell(e.target.value)}
-                placeholder="T.ex. Giant 8W"
-                style={inputStyle}
-              />
-            </div>
-
             <div style={{ display: 'flex', gap: '12px' }}>
               <button onClick={() => setShowAddMaskin(false)} style={{ ...pillButton('secondary'), flex: 1 }}>
                 Avbryt
               </button>
-              <button onClick={handleAddMaskin} disabled={saving || !newNamn.trim()} style={{ ...pillButton('primary'), flex: 1, opacity: !newNamn.trim() ? 0.5 : 1 }}>
+              <button
+                onClick={handleAddMaskin}
+                disabled={saving || !newMaskinId.trim() || !newModell.trim()}
+                style={{ ...pillButton('primary'), flex: 1, opacity: (!newMaskinId.trim() || !newModell.trim()) ? 0.5 : 1 }}
+              >
                 {saving ? 'Sparar...' : 'Lägg till'}
               </button>
             </div>

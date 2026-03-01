@@ -32,7 +32,7 @@ export default function OversiktPage() {
   const fetchAll = async () => {
     const [objektRes, maskinerRes, koRes] = await Promise.all([
       supabase.from('objekt').select('id, namn, typ, status, volym, areal, lat, lng, ar, manad, bolag, markagare, grot_status, grot_volym, grot_anteckning').order('namn'),
-      supabase.from('maskiner').select('*').order('namn'),
+      supabase.from('dim_maskin').select('*').order('modell'),
       supabase.from('maskin_ko').select('*').order('ordning'),
     ]);
 
@@ -48,7 +48,7 @@ export default function OversiktPage() {
 
   const refreshMaskiner = async () => {
     const [maskinerRes, koRes] = await Promise.all([
-      supabase.from('maskiner').select('*').order('namn'),
+      supabase.from('dim_maskin').select('*').order('modell'),
       supabase.from('maskin_ko').select('*').order('ordning'),
     ]);
     if (maskinerRes.data) setMaskiner(maskinerRes.data);

@@ -1,9 +1,15 @@
 export interface Maskin {
-  id: string;
-  namn: string;
-  typ: 'skördare' | 'skotare';
-  modell?: string;
-  created_at?: string;
+  maskin_id: string;
+  tillverkare: string;
+  modell: string;
+  modell_ar?: string;
+  aggregat_tillverkare?: string;
+  aggregat?: string;
+  aggregat_ar?: string;
+  namn?: string;
+  typ?: string;
+  marke?: string;
+  aktiv?: boolean;
 }
 
 export interface MaskinKoItem {
