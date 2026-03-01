@@ -136,8 +136,8 @@ function buildMarkerEl(
   const isActive = obj.status === 'pagaende' || obj.status === 'skordning' || obj.status === 'skotning';
   const tf = isHistoryKlar ? '#52525b' : (TF[obj.typ] || C.yellow);
   const st = ST[obj.status] || ST.planerad;
-  const dotSize = isSelected ? 26 : isActive ? 22 : isHistoryKlar ? 14 : 16;
-  const hitSize = Math.max(dotSize, 30);
+  const dotSize = isSelected ? 34 : isActive ? 30 : isHistoryKlar ? 16 : 24;
+  const hitSize = 34; // constant so MapLibre anchor never shifts
 
   // Wrapper — no position property, MapLibre's .maplibregl-marker class handles it
   const w = document.createElement('div');
@@ -159,9 +159,9 @@ function buildMarkerEl(
     dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${C.bg};border:1.5px solid #52525b;display:flex;align-items:center;justify-content:center`;
     dot.innerHTML = `<span style="font-size:${Math.round(dotSize * 0.55)}px;color:#71717a;line-height:1">✓</span>`;
   } else if (queueNum !== null) {
-    // Queued planned object: show number inside dot
-    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${C.bg};border:2px solid ${tf};display:flex;align-items:center;justify-content:center;box-shadow:${isSelected ? `0 0 20px ${tf}25` : 'none'}`;
-    dot.innerHTML = `<span style="font-size:${dotSize > 20 ? 11 : 9}px;font-weight:700;color:${tf};font-family:${ff}">${queueNum}</span>`;
+    // Queued planned object: filled type-color circle with WHITE number
+    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${tf};display:flex;align-items:center;justify-content:center;box-shadow:${isSelected ? `0 0 20px ${tf}40` : '0 2px 8px rgba(0,0,0,.5)'}`;
+    dot.innerHTML = `<span style="font-size:${dotSize >= 24 ? 13 : 10}px;font-weight:700;color:#fff;font-family:${ff};text-shadow:0 1px 2px rgba(0,0,0,.3)">${queueNum}</span>`;
   } else {
     // Active (pulsing) or unqueued: status inner dot
     const innerSize = isSelected ? 10 : isActive ? 8 : 6;
@@ -231,44 +231,32 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     return maskiner.filter(m => ids.has(m.maskin_id));
   }, [maskiner, maskinKo]);
 
-  /* ── Route data per machine: queue numbers + line coordinates ── */
+  /* ── Route data: ONLY when a specific machine is filtered ── */
   const routeData = useMemo(() => {
-    const result: {
-      maskinId: string;
-      color: string;
-      numbered: Record<string, number>;
-      lineCoords: [number, number][];
-    }[] = [];
+    // "Alla maskiner" = no numbering, no route lines
+    if (!maskinFilter) return [];
+    const m = queuedMaskiner.find(x => x.maskin_id === maskinFilter);
+    if (!m) return [];
 
-    const relevant = maskinFilter
-      ? queuedMaskiner.filter(m => m.maskin_id === maskinFilter)
-      : queuedMaskiner;
+    const koItems = maskinKo
+      .filter(k => k.maskin_id === maskinFilter)
+      .sort((a, b) => a.ordning - b.ordning);
+    if (!koItems.length) return [];
 
-    relevant.forEach((m, idx) => {
-      const koItems = maskinKo
-        .filter(k => k.maskin_id === m.maskin_id)
-        .sort((a, b) => a.ordning - b.ordning);
-      if (!koItems.length) return;
+    const numbered: Record<string, number> = {};
+    const lineCoords: [number, number][] = [];
+    let num = 1;
 
-      const numbered: Record<string, number> = {};
-      const lineCoords: [number, number][] = [];
-      let num = 1;
-
-      koItems.forEach(k => {
-        const o = objekt.find(x => x.id === k.objekt_id);
-        if (!o || !o.lat || !o.lng || o.status === 'klar') return;
-        const isAct = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning';
-        lineCoords.push([o.lng, o.lat]);
-        if (!isAct) { numbered[o.id] = num; num++; }
-        // Active objects pulse — no number
-      });
-
-      const color = maskinFilter
-        ? (getMaskinTyp(m.typ) === 'skördare' ? C.yellow : C.orange)
-        : RC[idx % RC.length];
-      result.push({ maskinId: m.maskin_id, color, numbered, lineCoords });
+    koItems.forEach(k => {
+      const o = objekt.find(x => x.id === k.objekt_id);
+      if (!o || !o.lat || !o.lng || o.status === 'klar') return;
+      const isAct = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning';
+      lineCoords.push([o.lng, o.lat]);
+      if (!isAct) { numbered[o.id] = num; num++; }
     });
-    return result;
+
+    const color = getMaskinTyp(m.typ) === 'skördare' ? C.yellow : C.orange;
+    return [{ maskinId: m.maskin_id, color, numbered, lineCoords }];
   }, [queuedMaskiner, maskinKo, objekt, maskinFilter]);
 
   /* ── Merged queue‐number lookup: objId → number ── */
@@ -298,11 +286,12 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     const isA = obj.status === 'pagaende' || obj.status === 'skordning' || obj.status === 'skotning';
     return {
       obj,
-      queueNum: isK ? null : (queueNums[obj.id] ?? null),
+      // Numbers only when a specific machine is filtered
+      queueNum: (maskinFilter && !isK) ? (queueNums[obj.id] ?? null) : null,
       isHistoryKlar: isK,
       showChips: isA,
     };
-  }, [queueNums]);
+  }, [queueNums, maskinFilter]);
 
   /* ── Load MapLibre CDN ── */
   useEffect(() => {
@@ -350,7 +339,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
       map.addLayer({
         id: 'routes', type: 'line', source: 'routes',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': 2, 'line-dasharray': [6, 4], 'line-opacity': 0.5 },
+        paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-dasharray': [6, 4], 'line-opacity': 0.6 },
       });
 
       if (wc.length > 1) {
