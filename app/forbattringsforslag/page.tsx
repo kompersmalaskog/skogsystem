@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@supabase/supabase-js'
-import Navigation from '@/app/components/Navigation'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -456,7 +455,6 @@ export default function ForbattringsforslagPage() {
           <div className="fb-empty">Inga förslag skickade ännu</div>
         )}
 
-        <Navigation />
       </div>
     </>
   )

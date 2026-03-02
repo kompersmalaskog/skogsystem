@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
+import BottomNav from '../components/BottomNav'
 
 export const metadata: Metadata = {
   title: 'Kompersmåla Skog',
@@ -37,7 +38,10 @@ export default function RootLayout({
         <link rel="manifest" href="/manifest.json" />
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
-      <body style={{ margin: 0, padding: 0, overflow: 'hidden' }}>{children}</body>
+      <body style={{ margin: 0, padding: 0, overflow: 'hidden' }}>
+        {children}
+        <BottomNav />
+      </body>
     </html>
   )
 }

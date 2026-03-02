@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import Navigation from '../components/Navigation';
 import OversiktMaskiner from './OversiktMaskiner';
 import OversiktObjektLista from './OversiktObjektLista';
 import OversiktKarta from './OversiktKarta';
@@ -64,7 +63,7 @@ export default function OversiktPage() {
   };
 
   return (
-    <div style={{ height: '100vh', width: '100vw', fontFamily: ff, background: C.bg, color: C.t1, overflow: 'hidden', display: 'flex', flexDirection: 'column', WebkitFontSmoothing: 'antialiased' }}>
+    <div style={{ height: 'calc(100vh - 64px)', width: '100vw', fontFamily: ff, background: C.bg, color: C.t1, overflow: 'hidden', display: 'flex', flexDirection: 'column', WebkitFontSmoothing: 'antialiased' }}>
       <style>{globalCss}</style>
 
       {loading ? (
