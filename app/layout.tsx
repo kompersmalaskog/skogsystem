@@ -30,10 +30,12 @@ export default function RootLayout({
   return (
     <html lang="sv">
       <head>
+        <meta name="theme-color" content="#09090b" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body style={{ margin: 0, padding: 0, overflow: 'hidden' }}>{children}</body>
     </html>
