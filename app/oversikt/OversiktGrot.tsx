@@ -29,9 +29,15 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
   const [grotVol, setGrotVol] = useState<Record<string, string>>({});
   const [deadlines, setDeadlines] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  // vo_nummer → skordning_avslutad from dim_objekt
   const [skordDates, setSkordDates] = useState<Record<string, string>>({});
-  const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Dirty tracking per object
+  const [dirty, setDirty] = useState<Record<string, boolean>>({});
+  // "Sparat!" feedback per object
+  const [savedMsg, setSavedMsg] = useState<Record<string, boolean>>({});
+  // Auto-save timer refs (10 second timer per object)
+  const autoSaveRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // "Sparat!" message timer refs
+  const savedMsgRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Fetch skordning_avslutad from dim_objekt
   useEffect(() => {
@@ -50,6 +56,14 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     })();
   }, [supabase]);
 
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(autoSaveRef.current).forEach(clearTimeout);
+      Object.values(savedMsgRef.current).forEach(clearTimeout);
+    };
+  }, []);
+
   const isSkotat = (o: OversiktObjekt) => o.grot_status === 'skotat' || o.grot_status === 'hoglagd' || o.grot_status === 'flisad' || o.grot_status === 'borttransporterad' || o.grot_status === 'bortkord';
 
   const grotObjekt = useMemo(() => {
@@ -65,34 +79,72 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     });
   }, [objekt]);
 
-  const saveNote = useCallback((id: string, val: string) => {
-    if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
-    debounceRef.current[id] = setTimeout(async () => {
-      await supabase.from('objekt').update({ grot_anteckning: val || null }).eq('id', id);
-    }, 500);
-  }, [supabase]);
+  /** Unified save: writes grot_volym, grot_anteckning, grot_deadline for one object */
+  const saveAll = useCallback(async (id: string, showMsg: boolean) => {
+    const obj = objekt.find(o => o.id === id);
+    if (!obj) return;
 
-  useEffect(() => {
-    return () => { Object.values(debounceRef.current).forEach(clearTimeout); };
-  }, []);
+    // Clear auto-save timer
+    if (autoSaveRef.current[id]) {
+      clearTimeout(autoSaveRef.current[id]);
+      delete autoSaveRef.current[id];
+    }
+
+    const volStr = grotVol[id];
+    const note = notes[id];
+    const dl = deadlines[id];
+
+    const update: Record<string, any> = {};
+    if (volStr !== undefined) update.grot_volym = volStr ? parseFloat(volStr) : null;
+    if (note !== undefined) update.grot_anteckning = note || null;
+    if (dl !== undefined) update.grot_deadline = dl || null;
+
+    if (Object.keys(update).length === 0) {
+      setDirty(prev => ({ ...prev, [id]: false }));
+      return;
+    }
+
+    await supabase.from('objekt').update(update).eq('id', id);
+    setDirty(prev => ({ ...prev, [id]: false }));
+
+    if (showMsg) {
+      setSavedMsg(prev => ({ ...prev, [id]: true }));
+      if (savedMsgRef.current[id]) clearTimeout(savedMsgRef.current[id]);
+      savedMsgRef.current[id] = setTimeout(() => {
+        setSavedMsg(prev => ({ ...prev, [id]: false }));
+      }, 2000);
+    }
+
+    await onRefresh();
+  }, [objekt, grotVol, notes, deadlines, supabase, onRefresh]);
+
+  /** Start/restart 10-second auto-save timer */
+  const startAutoSave = useCallback((id: string) => {
+    if (autoSaveRef.current[id]) clearTimeout(autoSaveRef.current[id]);
+    autoSaveRef.current[id] = setTimeout(() => {
+      saveAll(id, false);
+    }, 10000);
+  }, [saveAll]);
+
+  /** Mark dirty + start auto-save timer */
+  const markDirty = useCallback((id: string) => {
+    setDirty(prev => ({ ...prev, [id]: true }));
+    startAutoSave(id);
+  }, [startAutoSave]);
 
   const handleNoteChange = (id: string, val: string) => {
     setNotes(prev => ({ ...prev, [id]: val }));
-    saveNote(id, val);
+    markDirty(id);
   };
-
-  const saveGrotVol = useCallback((id: string, val: string) => {
-    const key = `vol_${id}`;
-    if (debounceRef.current[key]) clearTimeout(debounceRef.current[key]);
-    debounceRef.current[key] = setTimeout(async () => {
-      await supabase.from('objekt').update({ grot_volym: val ? parseFloat(val) : null }).eq('id', id);
-      await onRefresh();
-    }, 500);
-  }, [supabase, onRefresh]);
 
   const handleGrotVolChange = (id: string, val: string) => {
     setGrotVol(prev => ({ ...prev, [id]: val }));
-    saveGrotVol(id, val);
+    markDirty(id);
+  };
+
+  const handleDeadlineChange = (id: string, val: string) => {
+    setDeadlines(prev => ({ ...prev, [id]: val }));
+    markDirty(id);
   };
 
   const handleToggleSkotat = async (id: string, e: React.MouseEvent) => {
@@ -106,20 +158,22 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     await onRefresh();
   };
 
-  const handleDeadlineSave = async (id: string, val: string) => {
-    setDeadlines(prev => ({ ...prev, [id]: val }));
-    await supabase.from('objekt').update({ grot_deadline: val || null }).eq('id', id);
-    await onRefresh();
+  const handleExpand = (id: string) => {
+    // If collapsing and dirty → auto-save (no message)
+    if (selG === id && dirty[id]) {
+      saveAll(id, false);
+    }
+    setSelG(prev => prev === id ? null : id);
   };
 
-  const handleExpand = (id: string) => {
-    setSelG(prev => prev === id ? null : id);
+  const handleSave = async (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await saveAll(id, true);
   };
 
   const formatDeadline = (d: string) =>
     new Date(d + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' });
 
-  /** Get skördning avslutad date via vo_nummer → dim_objekt lookup */
   const getAvverkat = (obj: OversiktObjekt): string | null => {
     if (obj.vo_nummer && skordDates[obj.vo_nummer]) return skordDates[obj.vo_nummer];
     return null;
@@ -130,7 +184,7 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
       {grotObjekt.map(obj => {
         const expanded = selG === obj.id;
         const skotat = isSkotat(obj);
-        const dl = obj.grot_deadline;
+        const dl = deadlines[obj.id] !== undefined ? deadlines[obj.id] : obj.grot_deadline;
         const deadlineDays = grotDeadlineDays(dl);
         const isOverdue = !skotat && deadlineDays !== null && deadlineDays < 0;
         const isUrgent = !skotat && deadlineDays !== null && deadlineDays >= 0 && deadlineDays <= 14;
@@ -234,14 +288,36 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                 />
 
                 {/* Deadline */}
-                <div style={{ marginBottom: 10 }}>
+                <div style={{ marginBottom: 14 }}>
                   <label style={{ fontSize: 10, color: C.t4, display: 'block', marginBottom: 4 }}>Ska vara borta senast</label>
                   <input
                     type="date"
                     value={deadlines[obj.id] ?? obj.grot_deadline ?? ''}
-                    onChange={e => handleDeadlineSave(obj.id, e.target.value)}
+                    onChange={e => handleDeadlineChange(obj.id, e.target.value)}
                     style={{ width: 170, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, colorScheme: 'dark' }}
                   />
+                </div>
+
+                {/* Save button */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <button
+                    onClick={(e) => handleSave(obj.id, e)}
+                    style={{
+                      padding: '8px 24px', borderRadius: 8,
+                      border: 'none',
+                      background: dirty[obj.id] ? C.green : 'rgba(255,255,255,0.08)',
+                      color: dirty[obj.id] ? '#fff' : C.t3,
+                      fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: ff,
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    Spara
+                  </button>
+                  {savedMsg[obj.id] && (
+                    <span style={{ fontSize: 12, color: C.green, fontWeight: 600, transition: 'opacity 0.3s' }}>
+                      Sparat!
+                    </span>
+                  )}
                 </div>
               </div>
             )}
