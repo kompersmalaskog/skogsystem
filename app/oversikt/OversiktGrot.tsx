@@ -14,6 +14,7 @@ interface Props {
 export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
   const [selG, setSelG] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, { grot_volym: string; grot_deadline: string }>>({});
+  const [notes, setNotes] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
 
   const isSkotat = (o: OversiktObjekt) => o.grot_status === 'skotat' || o.grot_status === 'hoglagd' || o.grot_status === 'flisad' || o.grot_status === 'borttransporterad' || o.grot_status === 'bortkord';
@@ -69,6 +70,12 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     await supabase.from('objekt').update({ grot_status: newStatus }).eq('id', id);
     setSaving(false);
     await onRefresh();
+  };
+
+  const handleNoteSave = async (id: string) => {
+    const val = notes[id];
+    if (val === undefined) return;
+    await supabase.from('objekt').update({ grot_anteckning: val || null }).eq('id', id);
   };
 
   const formatDeadline = (d: string) =>
@@ -146,6 +153,18 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
               >
                 {skotat ? 'Skotat' : 'Ej skotat'}
               </button>
+            </div>
+
+            {/* Notering */}
+            <div style={{ marginTop: 8, marginLeft: 15 }} onClick={e => e.stopPropagation()}>
+              <textarea
+                value={notes[obj.id] ?? obj.grot_anteckning ?? ''}
+                onChange={e => setNotes(prev => ({ ...prev, [obj.id]: e.target.value }))}
+                onBlur={() => handleNoteSave(obj.id)}
+                placeholder="Skriv notering..."
+                rows={1}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 12, outline: 'none', resize: 'none', fontFamily: ff, boxSizing: 'border-box' }}
+              />
             </div>
 
             {/* Expanded edit panel */}
