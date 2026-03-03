@@ -102,8 +102,8 @@ export default function OversiktPage() {
         {tabs.map((v) => (
           <button key={v.id} onClick={() => setActiveTab(v.id)}
             style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '3px 0', fontFamily: ff }}>
-            <span style={{ fontSize: 18, color: activeTab === v.id ? (v.id === 'grot' ? C.blue : C.t1) : C.t4, transition: 'color 0.15s' }}>{v.icon}</span>
-            <span style={{ fontSize: 9, fontWeight: 600, color: activeTab === v.id ? (v.id === 'grot' ? C.blue : C.t1) : C.t4, letterSpacing: '0.02em' }}>{v.label}</span>
+            <span style={{ fontSize: 18, color: activeTab === v.id ? C.t1 : C.t4, transition: 'color 0.15s' }}>{v.icon}</span>
+            <span style={{ fontSize: 9, fontWeight: 600, color: activeTab === v.id ? C.t1 : C.t4, letterSpacing: '0.02em' }}>{v.label}</span>
           </button>
         ))}
       </div>

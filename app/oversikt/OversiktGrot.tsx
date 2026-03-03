@@ -13,20 +13,17 @@ interface Props {
 
 export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
   const [selG, setSelG] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<Record<string, { grot_volym: string; grot_anteckning: string; grot_deadline: string }>>({});
+  const [editValues, setEditValues] = useState<Record<string, { grot_volym: string; grot_deadline: string }>>({});
   const [saving, setSaving] = useState(false);
 
   const isSkotat = (o: OversiktObjekt) => o.grot_status === 'skotat' || o.grot_status === 'hoglagd' || o.grot_status === 'flisad' || o.grot_status === 'borttransporterad' || o.grot_status === 'bortkord';
 
-  // Slutavverkning objects, sorted by deadline urgency
   const grotObjekt = useMemo(() => {
     const list = objekt.filter(o => o.typ === 'slutavverkning');
     return list.sort((a, b) => {
       const sa = isSkotat(a);
       const sb = isSkotat(b);
-      // Skotat at the bottom
       if (sa !== sb) return sa ? 1 : -1;
-      // Both have deadline: earliest first
       if (a.grot_deadline && b.grot_deadline) return a.grot_deadline.localeCompare(b.grot_deadline);
       if (a.grot_deadline && !b.grot_deadline) return -1;
       if (!a.grot_deadline && b.grot_deadline) return 1;
@@ -43,7 +40,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
         ...prev,
         [id]: {
           grot_volym: obj.grot_volym?.toString() || '',
-          grot_anteckning: obj.grot_anteckning || '',
           grot_deadline: obj.grot_deadline || '',
         },
       }));
@@ -56,7 +52,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     setSaving(true);
     await supabase.from('objekt').update({
       grot_volym: vals.grot_volym ? parseFloat(vals.grot_volym) : null,
-      grot_anteckning: vals.grot_anteckning || null,
       grot_deadline: vals.grot_deadline || null,
     }).eq('id', id);
     setSaving(false);
@@ -76,8 +71,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     await onRefresh();
   };
 
-  const getLass = (vol: number | null) => vol ? Math.ceil(vol / 20) : 0;
-
   const formatDeadline = (d: string) =>
     new Date(d + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' });
 
@@ -86,7 +79,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
       {grotObjekt.map(obj => {
         const s = selG === obj.id;
         const skotat = isSkotat(obj);
-        const lass = getLass(obj.grot_volym);
         const deadlineDays = grotDeadlineDays(obj.grot_deadline);
         const isOverdue = !skotat && deadlineDays !== null && deadlineDays < 0;
         const isUrgent = !skotat && deadlineDays !== null && deadlineDays >= 0 && deadlineDays <= 14;
@@ -94,7 +86,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
 
         const vals = editValues[obj.id] || {
           grot_volym: obj.grot_volym?.toString() || '',
-          grot_anteckning: obj.grot_anteckning || '',
           grot_deadline: obj.grot_deadline || '',
         };
 
@@ -138,7 +129,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                   {obj.grot_volym ? formatVolym(obj.grot_volym) : '–'}
                   <span style={{ fontSize: 10, fontWeight: 400, color: C.t4 }}> m³</span>
                 </div>
-                {lass > 0 && <div style={{ fontSize: 10, color: C.t3 }}>{lass} lass</div>}
               </div>
 
               {/* Toggle: Skotat */}
@@ -170,20 +160,11 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                 </div>
 
                 {/* Deadline */}
-                <div style={{ marginBottom: 8 }}>
+                <div style={{ marginBottom: 10 }}>
                   <label style={{ fontSize: 10, color: C.t4, display: 'block', marginBottom: 4 }}>Ska vara borta senast</label>
                   <input type="date" value={vals.grot_deadline}
                     onChange={(e) => setEditValues(prev => ({ ...prev, [obj.id]: { ...vals, grot_deadline: e.target.value } }))}
                     style={{ width: 170, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, colorScheme: 'dark' }} />
-                </div>
-
-                {/* Note */}
-                <div style={{ marginBottom: 10 }}>
-                  <label style={{ fontSize: 10, color: C.t4, display: 'block', marginBottom: 4 }}>Notering</label>
-                  <textarea value={vals.grot_anteckning}
-                    onChange={(e) => setEditValues(prev => ({ ...prev, [obj.id]: { ...vals, grot_anteckning: e.target.value } }))}
-                    rows={2} placeholder="T.ex. Plantering v.14"
-                    style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: ff, boxSizing: 'border-box' }} />
                 </div>
 
                 <button onClick={() => handleSave(obj.id)} disabled={saving}
