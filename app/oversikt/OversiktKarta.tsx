@@ -186,6 +186,7 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
   w.appendChild(diamond);
 
   const lbl = document.createElement('div');
+  lbl.className = 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + sz / 2 + 4}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
   lbl.innerHTML = `<div style="font-size:10px;font-weight:600;color:${C.blue};font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
   w.appendChild(lbl);
@@ -255,7 +256,9 @@ function buildMarkerEl(
   w.appendChild(dot);
 
   // Name label below — dark background for readability
+  // CSS class controls visibility based on zoom level
   const lbl = document.createElement('div');
+  lbl.className = isActive ? 'ovk-lbl ovk-lbl-active' : 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
   const clr = isHistoryKlar ? '#71717a' : '#fff';
   let html = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${obj.namn}</div>`;
@@ -310,6 +313,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
   const [showGrot, setShowGrot] = useState(false);
   const [maskinFilter, setMaskinFilter] = useState<string | null>(null);
   const [showMaskinDrop, setShowMaskinDrop] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(10);
 
   const selectedObj = selectedId ? objekt.find(o => o.id === selectedId) : null;
   const handleMarkerClick = useCallback((id: string) => {
@@ -452,6 +456,8 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
       center, zoom: 10,
     });
     mapRef.current = map;
+
+    map.on('zoom', () => setZoomLevel(map.getZoom()));
 
     map.on('load', () => {
       // Route line layer (GeoJSON — follows map natively)
@@ -606,11 +612,28 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     });
   }, [selectedGrotId, objekt, mapReady]);
 
+  /* ── Toggle distance marker visibility based on zoom ── */
+  useEffect(() => {
+    const show = zoomLevel < 11;
+    distMarkersRef.current.forEach(m => {
+      const el = m.getElement();
+      if (el) el.style.display = show ? '' : 'none';
+    });
+  }, [zoomLevel]);
+
+  // Zoom-based label visibility CSS
+  const labelCss = zoomLevel < 10
+    ? '.ovk-lbl{display:none!important}'
+    : zoomLevel <= 12
+      ? '.ovk-lbl{display:none!important}.ovk-lbl-active{display:block!important}'
+      : '';
+
   return (
     <div style={{ position: 'absolute', inset: 0 }} onClick={() => { setSelectedId(null); setSelectedGrotId(null); setShowMaskinDrop(false); }}>
       <style>{`
         @keyframes pulseMarker{0%{transform:scale(1);opacity:.6}70%{transform:scale(2.5);opacity:0}100%{transform:scale(2.5);opacity:0}}
         @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+        ${labelCss}
       `}</style>
       <div ref={mapContainerRef} style={{ width: '100%', height: '100%' }} />
 
