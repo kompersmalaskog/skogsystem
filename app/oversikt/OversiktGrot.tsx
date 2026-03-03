@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { OversiktObjekt, C } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, grotDeadlineDays } from './oversikt-utils';
@@ -13,9 +13,10 @@ interface Props {
 
 export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
   const [selG, setSelG] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<Record<string, { grot_volym: string; grot_deadline: string }>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [deadlines, setDeadlines] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   const isSkotat = (o: OversiktObjekt) => o.grot_status === 'skotat' || o.grot_status === 'hoglagd' || o.grot_status === 'flisad' || o.grot_status === 'borttransporterad' || o.grot_status === 'bortkord';
 
@@ -32,50 +33,43 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     });
   }, [objekt]);
 
-  const handleExpand = (id: string) => {
-    if (selG === id) { setSelG(null); return; }
-    setSelG(id);
-    const obj = objekt.find(o => o.id === id);
-    if (obj && !editValues[id]) {
-      setEditValues(prev => ({
-        ...prev,
-        [id]: {
-          grot_volym: obj.grot_volym?.toString() || '',
-          grot_deadline: obj.grot_deadline || '',
-        },
-      }));
-    }
-  };
+  // Debounced save for notes
+  const saveNote = useCallback((id: string, val: string) => {
+    if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
+    debounceRef.current[id] = setTimeout(async () => {
+      await supabase.from('objekt').update({ grot_anteckning: val || null }).eq('id', id);
+    }, 500);
+  }, [supabase]);
 
-  const handleSave = async (id: string) => {
-    const vals = editValues[id];
-    if (!vals) return;
-    setSaving(true);
-    await supabase.from('objekt').update({
-      grot_volym: vals.grot_volym ? parseFloat(vals.grot_volym) : null,
-      grot_deadline: vals.grot_deadline || null,
-    }).eq('id', id);
-    setSaving(false);
-    setSelG(null);
-    await onRefresh();
+  // Cleanup timers
+  useEffect(() => {
+    return () => { Object.values(debounceRef.current).forEach(clearTimeout); };
+  }, []);
+
+  const handleNoteChange = (id: string, val: string) => {
+    setNotes(prev => ({ ...prev, [id]: val }));
+    saveNote(id, val);
   };
 
   const handleToggleSkotat = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const obj = objekt.find(o => o.id === id);
     if (!obj || saving) return;
-    const currently = isSkotat(obj);
-    const newStatus = currently ? 'ej_aktuellt' : 'skotat';
+    const newStatus = isSkotat(obj) ? 'ej_aktuellt' : 'skotat';
     setSaving(true);
     await supabase.from('objekt').update({ grot_status: newStatus }).eq('id', id);
     setSaving(false);
     await onRefresh();
   };
 
-  const handleNoteSave = async (id: string) => {
-    const val = notes[id];
-    if (val === undefined) return;
-    await supabase.from('objekt').update({ grot_anteckning: val || null }).eq('id', id);
+  const handleDeadlineSave = async (id: string, val: string) => {
+    setDeadlines(prev => ({ ...prev, [id]: val }));
+    await supabase.from('objekt').update({ grot_deadline: val || null }).eq('id', id);
+    await onRefresh();
+  };
+
+  const handleExpand = (id: string) => {
+    setSelG(prev => prev === id ? null : id);
   };
 
   const formatDeadline = (d: string) =>
@@ -84,30 +78,25 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
   return (
     <div style={{ height: '100%', overflowY: 'auto', padding: '14px 16px 80px', fontFamily: ff }}>
       {grotObjekt.map(obj => {
-        const s = selG === obj.id;
+        const expanded = selG === obj.id;
         const skotat = isSkotat(obj);
-        const deadlineDays = grotDeadlineDays(obj.grot_deadline);
+        const dl = obj.grot_deadline;
+        const deadlineDays = grotDeadlineDays(dl);
         const isOverdue = !skotat && deadlineDays !== null && deadlineDays < 0;
         const isUrgent = !skotat && deadlineDays !== null && deadlineDays >= 0 && deadlineDays <= 14;
         const leftClr = isOverdue ? C.red : isUrgent ? C.yellow : skotat ? C.green : C.t4;
 
-        const vals = editValues[obj.id] || {
-          grot_volym: obj.grot_volym?.toString() || '',
-          grot_deadline: obj.grot_deadline || '',
-        };
-
         return (
           <div key={obj.id} onClick={() => handleExpand(obj.id)} style={{
-            background: s ? C.card : 'transparent', borderRadius: 14,
-            padding: s ? 16 : 14, margin: s ? '6px 0' : 0,
-            borderBottom: s ? 'none' : `1px solid ${C.border}`,
-            cursor: 'pointer', opacity: skotat ? 0.4 : 1, transition: 'all 0.15s',
+            background: expanded ? C.card : 'transparent', borderRadius: 14,
+            padding: expanded ? 16 : 14, margin: expanded ? '6px 0' : 0,
+            borderBottom: expanded ? 'none' : `1px solid ${C.border}`,
+            cursor: 'pointer', opacity: skotat && !expanded ? 0.4 : 1, transition: 'all 0.15s',
           }}>
+            {/* Collapsed row — always visible */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {/* Left bar */}
-              <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: leftClr, opacity: s ? 0.7 : 0.35 }} />
+              <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: leftClr, opacity: expanded ? 0.7 : 0.35 }} />
 
-              {/* Info */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 15, fontWeight: 600 }}>{obj.namn}</span>
@@ -120,17 +109,16 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                     </span>
                   )}
                 </div>
-                {obj.grot_deadline && !skotat && (
+                {dl && !skotat && (
                   <div style={{ fontSize: 10, color: isOverdue ? C.red : isUrgent ? C.yellow : C.t3, marginTop: 2 }}>
-                    Senast: {formatDeadline(obj.grot_deadline)}
+                    Senast: {formatDeadline(dl)}
                   </div>
                 )}
-                {!obj.grot_deadline && obj.vo_nummer && (
+                {!dl && obj.vo_nummer && (
                   <div style={{ fontSize: 11, color: C.t3, marginTop: 2 }}>{obj.vo_nummer}</div>
                 )}
               </div>
 
-              {/* Volume */}
               <div style={{ textAlign: 'right', flexShrink: 0, marginRight: 8 }}>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>
                   {obj.grot_volym ? formatVolym(obj.grot_volym) : '–'}
@@ -138,7 +126,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                 </div>
               </div>
 
-              {/* Toggle: Skotat */}
               <button
                 onClick={(e) => handleToggleSkotat(obj.id, e)}
                 disabled={saving}
@@ -155,41 +142,28 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
               </button>
             </div>
 
-            {/* Notering */}
-            <div style={{ marginTop: 8, marginLeft: 15 }} onClick={e => e.stopPropagation()}>
-              <textarea
-                value={notes[obj.id] ?? obj.grot_anteckning ?? ''}
-                onChange={e => setNotes(prev => ({ ...prev, [obj.id]: e.target.value }))}
-                onBlur={() => handleNoteSave(obj.id)}
-                placeholder="Skriv notering..."
-                rows={1}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 12, outline: 'none', resize: 'none', fontFamily: ff, boxSizing: 'border-box' }}
-              />
-            </div>
-
-            {/* Expanded edit panel */}
-            {s && (
-              <div style={{ marginTop: 12, animation: 'fadeIn .15s' }} onClick={(e) => e.stopPropagation()}>
-                {/* Volume */}
-                <div style={{ marginBottom: 8 }}>
-                  <label style={{ fontSize: 10, color: C.t4, display: 'block', marginBottom: 4 }}>GROT-volym (m³)</label>
-                  <input type="number" value={vals.grot_volym}
-                    onChange={(e) => setEditValues(prev => ({ ...prev, [obj.id]: { ...vals, grot_volym: e.target.value } }))}
-                    style={{ width: 120, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff }} />
-                </div>
+            {/* Expanded panel */}
+            {expanded && (
+              <div style={{ marginTop: 12, marginLeft: 15 }} onClick={e => e.stopPropagation()}>
+                {/* Notering */}
+                <textarea
+                  value={notes[obj.id] ?? obj.grot_anteckning ?? ''}
+                  onChange={e => handleNoteChange(obj.id, e.target.value)}
+                  placeholder="Skriv notering..."
+                  rows={2}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: ff, boxSizing: 'border-box', marginBottom: 10 }}
+                />
 
                 {/* Deadline */}
                 <div style={{ marginBottom: 10 }}>
                   <label style={{ fontSize: 10, color: C.t4, display: 'block', marginBottom: 4 }}>Ska vara borta senast</label>
-                  <input type="date" value={vals.grot_deadline}
-                    onChange={(e) => setEditValues(prev => ({ ...prev, [obj.id]: { ...vals, grot_deadline: e.target.value } }))}
-                    style={{ width: 170, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, colorScheme: 'dark' }} />
+                  <input
+                    type="date"
+                    value={deadlines[obj.id] ?? obj.grot_deadline ?? ''}
+                    onChange={e => handleDeadlineSave(obj.id, e.target.value)}
+                    style={{ width: 170, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, colorScheme: 'dark' }}
+                  />
                 </div>
-
-                <button onClick={() => handleSave(obj.id)} disabled={saving}
-                  style={{ padding: '8px 20px', borderRadius: 8, border: 'none', background: C.green, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.5 : 1, fontFamily: ff }}>
-                  {saving ? 'Sparar...' : 'Spara'}
-                </button>
               </div>
             )}
           </div>
