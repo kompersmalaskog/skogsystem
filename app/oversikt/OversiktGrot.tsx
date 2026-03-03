@@ -11,10 +11,23 @@ interface Props {
   onRefresh: () => Promise<void>;
 }
 
+function daysSince(dateStr: string): number {
+  const d = new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00'));
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return Math.floor((now.getTime() - d.getTime()) / 864e5);
+}
+
+function fmtDate(d: string): string {
+  return new Date(d + (d.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit' });
+}
+
 export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
   const [selG, setSelG] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [deadlines, setDeadlines] = useState<Record<string, string>>({});
+  const [avverkatDates, setAvverkatDates] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
@@ -33,7 +46,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     });
   }, [objekt]);
 
-  // Debounced save for notes
   const saveNote = useCallback((id: string, val: string) => {
     if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
     debounceRef.current[id] = setTimeout(async () => {
@@ -41,7 +53,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     }, 500);
   }, [supabase]);
 
-  // Cleanup timers
   useEffect(() => {
     return () => { Object.values(debounceRef.current).forEach(clearTimeout); };
   }, []);
@@ -68,12 +79,24 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     await onRefresh();
   };
 
+  const handleAvverkatSave = async (id: string, val: string) => {
+    setAvverkatDates(prev => ({ ...prev, [id]: val }));
+    await supabase.from('objekt').update({ faktisk_slut: val || null }).eq('id', id);
+    await onRefresh();
+  };
+
   const handleExpand = (id: string) => {
     setSelG(prev => prev === id ? null : id);
   };
 
   const formatDeadline = (d: string) =>
     new Date(d + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' });
+
+  /** Get the avverkat date for an object (local override or DB value) */
+  const getAvverkat = (obj: OversiktObjekt): string | null => {
+    if (avverkatDates[obj.id] !== undefined) return avverkatDates[obj.id] || null;
+    return obj.faktisk_slut || null;
+  };
 
   return (
     <div style={{ height: '100%', overflowY: 'auto', padding: '14px 16px 80px', fontFamily: ff }}>
@@ -85,6 +108,8 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
         const isOverdue = !skotat && deadlineDays !== null && deadlineDays < 0;
         const isUrgent = !skotat && deadlineDays !== null && deadlineDays >= 0 && deadlineDays <= 14;
         const leftClr = isOverdue ? C.red : isUrgent ? C.yellow : skotat ? C.green : C.t4;
+        const avverkat = getAvverkat(obj);
+        const dagar = avverkat ? daysSince(avverkat) : null;
 
         return (
           <div key={obj.id} onClick={() => handleExpand(obj.id)} style={{
@@ -93,7 +118,7 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
             borderBottom: expanded ? 'none' : `1px solid ${C.border}`,
             cursor: 'pointer', opacity: skotat && !expanded ? 0.4 : 1, transition: 'all 0.15s',
           }}>
-            {/* Collapsed row — always visible */}
+            {/* Collapsed row */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: leftClr, opacity: expanded ? 0.7 : 0.35 }} />
 
@@ -119,11 +144,15 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                 )}
               </div>
 
+              {/* Volume + days since */}
               <div style={{ textAlign: 'right', flexShrink: 0, marginRight: 8 }}>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>
                   {obj.grot_volym ? formatVolym(obj.grot_volym) : '–'}
                   <span style={{ fontSize: 10, fontWeight: 400, color: C.t4 }}> m³</span>
                 </div>
+                {dagar !== null && dagar >= 0 && (
+                  <div style={{ fontSize: 10, color: C.t3 }}>{dagar}d</div>
+                )}
               </div>
 
               <button
@@ -145,6 +174,26 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
             {/* Expanded panel */}
             {expanded && (
               <div style={{ marginTop: 12, marginLeft: 15 }} onClick={e => e.stopPropagation()}>
+                {/* Avverkat datum */}
+                {avverkat ? (
+                  <div style={{ fontSize: 12, color: C.t2, marginBottom: 10 }}>
+                    Avverkat: {fmtDate(avverkat)}
+                    {dagar !== null && dagar >= 0 && (
+                      <span style={{ color: C.t3 }}> · {dagar} dagar sedan</span>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={{ fontSize: 10, color: C.t4, display: 'block', marginBottom: 4 }}>Avverkat datum</label>
+                    <input
+                      type="date"
+                      value={avverkatDates[obj.id] ?? ''}
+                      onChange={e => handleAvverkatSave(obj.id, e.target.value)}
+                      style={{ width: 170, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, colorScheme: 'dark' }}
+                    />
+                  </div>
+                )}
+
                 {/* Notering */}
                 <textarea
                   value={notes[obj.id] ?? obj.grot_anteckning ?? ''}

@@ -52,6 +52,8 @@ export interface OversiktObjekt {
   markagare_ska_ha_ved?: boolean;
   markagare_ved_text?: string;
   info_anteckningar?: string;
+  // Dates
+  faktisk_slut: string | null;
   // GROT
   grot_status: string;
   grot_volym: number | null;
