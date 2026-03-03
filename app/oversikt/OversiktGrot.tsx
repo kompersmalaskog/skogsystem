@@ -27,9 +27,27 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
   const [selG, setSelG] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [deadlines, setDeadlines] = useState<Record<string, string>>({});
-  const [avverkatDates, setAvverkatDates] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  // vo_nummer → skordning_avslutad from dim_objekt
+  const [skordDates, setSkordDates] = useState<Record<string, string>>({});
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Fetch skordning_avslutad from dim_objekt
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('dim_objekt')
+        .select('vo_nummer, skordning_avslutad')
+        .not('skordning_avslutad', 'is', null);
+      if (data) {
+        const map: Record<string, string> = {};
+        data.forEach((r: { vo_nummer: string; skordning_avslutad: string }) => {
+          if (r.vo_nummer && r.skordning_avslutad) map[r.vo_nummer] = r.skordning_avslutad;
+        });
+        setSkordDates(map);
+      }
+    })();
+  }, [supabase]);
 
   const isSkotat = (o: OversiktObjekt) => o.grot_status === 'skotat' || o.grot_status === 'hoglagd' || o.grot_status === 'flisad' || o.grot_status === 'borttransporterad' || o.grot_status === 'bortkord';
 
@@ -79,12 +97,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     await onRefresh();
   };
 
-  const handleAvverkatSave = async (id: string, val: string) => {
-    setAvverkatDates(prev => ({ ...prev, [id]: val }));
-    await supabase.from('objekt').update({ faktisk_slut: val || null }).eq('id', id);
-    await onRefresh();
-  };
-
   const handleExpand = (id: string) => {
     setSelG(prev => prev === id ? null : id);
   };
@@ -92,10 +104,10 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
   const formatDeadline = (d: string) =>
     new Date(d + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' });
 
-  /** Get the avverkat date for an object (local override or DB value) */
+  /** Get skördning avslutad date via vo_nummer → dim_objekt lookup */
   const getAvverkat = (obj: OversiktObjekt): string | null => {
-    if (avverkatDates[obj.id] !== undefined) return avverkatDates[obj.id] || null;
-    return obj.faktisk_slut || null;
+    if (obj.vo_nummer && skordDates[obj.vo_nummer]) return skordDates[obj.vo_nummer];
+    return null;
   };
 
   return (
@@ -110,6 +122,7 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
         const leftClr = isOverdue ? C.red : isUrgent ? C.yellow : skotat ? C.green : C.t4;
         const avverkat = getAvverkat(obj);
         const dagar = avverkat ? daysSince(avverkat) : null;
+        const vol = obj.grot_volym || obj.volym || 0;
 
         return (
           <div key={obj.id} onClick={() => handleExpand(obj.id)} style={{
@@ -147,7 +160,7 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
               {/* Volume + days since */}
               <div style={{ textAlign: 'right', flexShrink: 0, marginRight: 8 }}>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>
-                  {obj.grot_volym ? formatVolym(obj.grot_volym) : '–'}
+                  {vol ? formatVolym(vol) : '–'}
                   <span style={{ fontSize: 10, fontWeight: 400, color: C.t4 }}> m³</span>
                 </div>
                 {dagar !== null && dagar >= 0 && (
@@ -174,23 +187,13 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
             {/* Expanded panel */}
             {expanded && (
               <div style={{ marginTop: 12, marginLeft: 15 }} onClick={e => e.stopPropagation()}>
-                {/* Avverkat datum */}
-                {avverkat ? (
+                {/* Avverkat datum from dim_objekt */}
+                {avverkat && (
                   <div style={{ fontSize: 12, color: C.t2, marginBottom: 10 }}>
                     Avverkat: {fmtDate(avverkat)}
                     {dagar !== null && dagar >= 0 && (
                       <span style={{ color: C.t3 }}> · {dagar} dagar sedan</span>
                     )}
-                  </div>
-                ) : (
-                  <div style={{ marginBottom: 10 }}>
-                    <label style={{ fontSize: 10, color: C.t4, display: 'block', marginBottom: 4 }}>Avverkat datum</label>
-                    <input
-                      type="date"
-                      value={avverkatDates[obj.id] ?? ''}
-                      onChange={e => handleAvverkatSave(obj.id, e.target.value)}
-                      style={{ width: 170, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, colorScheme: 'dark' }}
-                    />
                   </div>
                 )}
 
