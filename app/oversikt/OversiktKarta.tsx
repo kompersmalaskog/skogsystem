@@ -25,6 +25,12 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+/* ── Segment distance (OSRM or fallback) ── */
+interface SegmentDist { km: number; approx: boolean; }
+function segKey(lng1: number, lat1: number, lng2: number, lat2: number): string {
+  return `${lng1},${lat1};${lng2},${lat2}`;
+}
+
 /* ── Small reusable components ── */
 function Tag({ children, w }: { children: React.ReactNode; w?: boolean }) {
   return (
@@ -314,6 +320,8 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
   const [maskinFilter, setMaskinFilter] = useState<string | null>(null);
   const [showMaskinDrop, setShowMaskinDrop] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(10);
+  const [osrmDist, setOsrmDist] = useState<Record<string, SegmentDist>>({});
+  const osrmCacheRef = useRef<Record<string, SegmentDist>>({});
 
   const selectedObj = selectedId ? objekt.find(o => o.id === selectedId) : null;
   const handleMarkerClick = useCallback((id: string) => {
@@ -363,18 +371,27 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     return nums;
   }, [routeData]);
 
-  /* ── Total route distance ── */
+  /* ── Total route distance (from OSRM or fallback) ── */
   const totalDistance = useMemo(() => {
     let total = 0;
+    let anyApprox = false;
     routeData.forEach(rd => {
       for (let i = 0; i < rd.lineCoords.length - 1; i++) {
         const [lng1, lat1] = rd.lineCoords[i];
         const [lng2, lat2] = rd.lineCoords[i + 1];
-        total += haversineKm(lat1, lng1, lat2, lng2);
+        const key = segKey(lng1, lat1, lng2, lat2);
+        const seg = osrmDist[key];
+        if (seg) {
+          total += seg.km;
+          if (seg.approx) anyApprox = true;
+        } else {
+          total += haversineKm(lat1, lng1, lat2, lng2) * 1.4;
+          anyApprox = true;
+        }
       }
     });
-    return total;
-  }, [routeData]);
+    return { total, anyApprox };
+  }, [routeData, osrmDist]);
 
   /* ── Visible object IDs ── */
   const visIds = useMemo(() => {
@@ -505,7 +522,78 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     src.setData({ type: 'FeatureCollection', features });
   }, [routeData, mapStyleLoaded]);
 
-  /* ── Distance labels on route segments ── */
+  /* ── Fetch OSRM road distances for route segments ── */
+  useEffect(() => {
+    if (routeData.length === 0) { setOsrmDist({}); return; }
+
+    let cancelled = false;
+    const toFetch: { key: string; lng1: number; lat1: number; lng2: number; lat2: number }[] = [];
+
+    routeData.forEach(rd => {
+      for (let i = 0; i < rd.lineCoords.length - 1; i++) {
+        const [lng1, lat1] = rd.lineCoords[i];
+        const [lng2, lat2] = rd.lineCoords[i + 1];
+        const key = segKey(lng1, lat1, lng2, lat2);
+        if (!osrmCacheRef.current[key]) toFetch.push({ key, lng1, lat1, lng2, lat2 });
+      }
+    });
+
+    // If all cached, set immediately
+    if (toFetch.length === 0) {
+      const all: Record<string, SegmentDist> = {};
+      routeData.forEach(rd => {
+        for (let i = 0; i < rd.lineCoords.length - 1; i++) {
+          const [lng1, lat1] = rd.lineCoords[i];
+          const [lng2, lat2] = rd.lineCoords[i + 1];
+          const key = segKey(lng1, lat1, lng2, lat2);
+          all[key] = osrmCacheRef.current[key];
+        }
+      });
+      setOsrmDist(all);
+      return;
+    }
+
+    const run = async () => {
+      const results: Record<string, SegmentDist> = {};
+
+      await Promise.all(toFetch.map(async ({ key, lng1, lat1, lng2, lat2 }) => {
+        try {
+          const url = `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=false`;
+          const res = await fetch(url);
+          const data = await res.json();
+          if (data.routes?.[0]?.distance != null) {
+            results[key] = { km: data.routes[0].distance / 1000, approx: false };
+          } else {
+            throw new Error('No route');
+          }
+        } catch {
+          results[key] = { km: haversineKm(lat1, lng1, lat2, lng2) * 1.4, approx: true };
+        }
+      }));
+
+      if (cancelled) return;
+
+      // Merge into cache
+      Object.assign(osrmCacheRef.current, results);
+
+      // Build full map for current route
+      const all: Record<string, SegmentDist> = {};
+      routeData.forEach(rd => {
+        for (let i = 0; i < rd.lineCoords.length - 1; i++) {
+          const [lng1, lat1] = rd.lineCoords[i];
+          const [lng2, lat2] = rd.lineCoords[i + 1];
+          const key = segKey(lng1, lat1, lng2, lat2);
+          all[key] = osrmCacheRef.current[key];
+        }
+      });
+      setOsrmDist(all);
+    };
+
+    run();
+    return () => { cancelled = true; };
+  }, [routeData]);
+
+  /* ── Distance labels on route segments (OSRM-aware) ── */
   useEffect(() => {
     distMarkersRef.current.forEach(m => m.remove());
     distMarkersRef.current = [];
@@ -518,17 +606,20 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         const [lng2, lat2] = rd.lineCoords[i + 1];
         const midLng = (lng1 + lng2) / 2;
         const midLat = (lat1 + lat2) / 2;
-        const dist = haversineKm(lat1, lng1, lat2, lng2);
-        const label = dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`;
+
+        const key = segKey(lng1, lat1, lng2, lat2);
+        const seg = osrmDist[key];
+        const dist = seg ? seg.km : haversineKm(lat1, lng1, lat2, lng2) * 1.4;
+        const prefix = (!seg || seg.approx) ? '~' : '';
+        const label = dist < 1 ? `${prefix}${Math.round(dist * 1000)} m` : `${prefix}${dist.toFixed(1)} km`;
 
         // Perpendicular pixel offset: push label to the right of the line direction
-        // so it doesn't overlap object names near the dots
-        const angle = Math.atan2(lat2 - lat1, lng2 - lng1); // line direction
-        const perpX = -Math.sin(angle); // perpendicular (rotated 90° clockwise)
+        const angle = Math.atan2(lat2 - lat1, lng2 - lng1);
+        const perpX = -Math.sin(angle);
         const perpY = Math.cos(angle);
         const push = dist < 5 ? 50 : dist < 15 ? 30 : 0;
         const ox = Math.round(perpX * push);
-        const oy = Math.round(-perpY * push); // negate Y because screen Y is inverted
+        const oy = Math.round(-perpY * push);
 
         const el = document.createElement('div');
         el.style.cssText = `background:rgba(0,0,0,0.7);color:#fff;font-size:9px;font-weight:500;font-family:${ff};padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap`;
@@ -540,7 +631,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         distMarkersRef.current.push(marker);
       }
     });
-  }, [routeData, mapStyleLoaded]);
+  }, [routeData, mapStyleLoaded, osrmDist]);
 
   /* ── Sync markers: add new, remove stale ── */
   useEffect(() => {
@@ -766,11 +857,11 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
             <span style={{ fontSize: 9, color: C.t3 }}>GROT</span>
           </div>
         )}
-        {totalDistance > 0 && (
+        {totalDistance.total > 0 && (
           <>
             <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.1)' }} />
             <span style={{ fontSize: 9, color: C.t2, fontWeight: 600, fontFamily: ff }}>
-              Total rutt: {totalDistance < 1 ? `${Math.round(totalDistance * 1000)} m` : `${totalDistance.toFixed(1)} km`}
+              Total rutt: {totalDistance.anyApprox ? '~' : ''}{totalDistance.total < 1 ? `${Math.round(totalDistance.total * 1000)} m` : `${totalDistance.total.toFixed(1)} km`}
             </span>
           </>
         )}
