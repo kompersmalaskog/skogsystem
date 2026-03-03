@@ -56,6 +56,7 @@ export interface OversiktObjekt {
   grot_status: string;
   grot_volym: number | null;
   grot_anteckning: string | null;
+  grot_deadline: string | null;
 }
 
 export type TabId = 'karta' | 'objekt' | 'maskiner' | 'grot';
@@ -73,9 +74,12 @@ export const C = {
   green: '#22c55e',
   orange: '#f97316',
   blue: '#3b82f6',
+  red: '#ef4444',
   yd: 'rgba(234,179,8,0.1)',
   gd: 'rgba(34,197,94,0.1)',
   bd: 'rgba(59,130,246,0.1)',
+  od: 'rgba(249,115,22,0.1)',
+  rd: 'rgba(239,68,68,0.1)',
 };
 
 export const ST: Record<string, { l: string; c: string; bg: string }> = {

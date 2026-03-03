@@ -47,3 +47,50 @@ export function getWeekNumber(daysFromNow: number): string {
   const j = new Date(t.getFullYear(), 0, 1);
   return 'v.' + Math.ceil(((t.getTime() - j.getTime()) / 864e5 + j.getDay() + 1) / 7);
 }
+
+/* ── GROT helpers ── */
+
+/** Step index: 0=not started, 1=höglagd, 2=flisad, 3=borttransporterad */
+export function grotStepIndex(status: string): number {
+  switch (status) {
+    case 'hoglagd': return 1;
+    case 'flisad': return 2;
+    case 'borttransporterad': case 'bortkord': return 3;
+    default: return 0;
+  }
+}
+
+/** GROT status color (without deadline consideration) */
+export function grotColor(status: string): string {
+  switch (status) {
+    case 'hoglagd': return '#eab308';
+    case 'flisad': return '#f97316';
+    case 'borttransporterad': case 'bortkord': return '#22c55e';
+    default: return '#71717a';
+  }
+}
+
+/** Days until deadline. Negative = overdue. null = no deadline. */
+export function grotDeadlineDays(deadline: string | null): number | null {
+  if (!deadline) return null;
+  const d = new Date(deadline + 'T00:00:00');
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  return Math.ceil((d.getTime() - now.getTime()) / 864e5);
+}
+
+/** Effective color considering deadline. Red if overdue and not done. */
+export function grotEffectiveColor(status: string, deadline: string | null): string {
+  const done = status === 'borttransporterad' || status === 'bortkord';
+  if (!done && deadline) {
+    const days = grotDeadlineDays(deadline);
+    if (days !== null && days < 0) return '#ef4444';
+  }
+  return grotColor(status);
+}
+
+export const GROT_STEPS = [
+  { key: 'hoglagd', label: 'Höglagd', color: '#eab308' },
+  { key: 'flisad', label: 'Flisad', color: '#f97316' },
+  { key: 'borttransporterad', label: 'Borttransp.', color: '#22c55e' },
+] as const;

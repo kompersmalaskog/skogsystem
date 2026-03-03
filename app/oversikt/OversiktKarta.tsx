@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF } from './oversikt-types';
 import { ff } from './oversikt-styles';
-import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp } from './oversikt-utils';
+import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
 
 declare global {
   interface Window { maplibregl: any; }
@@ -132,12 +132,14 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
 /* ── GROT popup card ── */
 function GrotCard({ obj }: { obj: OversiktObjekt }) {
   const lass = obj.grot_volym ? Math.ceil(obj.grot_volym / 20) : 0;
-  const brattom = (() => {
-    if (!obj.grot_anteckning) return false;
-    const t = obj.grot_anteckning.toLowerCase();
-    return t.includes('bråttom') || t.includes('plantering') || t.includes('markbered');
-  })();
-  const sl: Record<string, string> = { ej_aktuellt: 'Ej aktuellt', skotad: 'Skotad', hoglagd: 'Höglagd', flisad: 'Flisad', bortkord: 'Borttransporterad' };
+  const clr = grotEffectiveColor(obj.grot_status, obj.grot_deadline);
+  const bgTint = `${clr}15`;
+  const deadlineDays = grotDeadlineDays(obj.grot_deadline);
+  const isDone = grotStepIndex(obj.grot_status) >= 3;
+  const isOverdue = !isDone && deadlineDays !== null && deadlineDays < 0;
+  const isUrgent = !isDone && deadlineDays !== null && deadlineDays >= 0 && deadlineDays <= 14;
+  const stepIdx = grotStepIndex(obj.grot_status);
+  const sl: Record<string, string> = { ej_aktuellt: 'Ej aktuellt', hoglagd: 'Höglagd', flisad: 'Flisad', borttransporterad: 'Klar', bortkord: 'Klar' };
 
   return (
     <div onClick={(e) => e.stopPropagation()} style={{
@@ -147,30 +149,57 @@ function GrotCard({ obj }: { obj: OversiktObjekt }) {
       borderRadius: 14, overflow: 'hidden', border: `1px solid ${C.border}`, zIndex: 20,
       animation: 'fadeUp .2s ease-out',
     }}>
-      <div style={{ height: 2, background: `linear-gradient(90deg,${C.blue},transparent)` }} />
+      <div style={{ height: 2, background: `linear-gradient(90deg,${clr},transparent)` }} />
       <div style={{ padding: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <div style={{ width: 10, height: 10, background: C.blue, transform: 'rotate(45deg)', borderRadius: 2, flexShrink: 0 }} />
+          <div style={{ width: 10, height: 10, background: clr, transform: 'rotate(45deg)', borderRadius: 2, flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 16, fontWeight: 700 }}>{obj.namn}</div>
             <div style={{ fontSize: 10, color: C.t3 }}>{sl[obj.grot_status] || obj.grot_status}</div>
           </div>
-          {brattom && (
-            <span style={{ fontSize: 9, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 5 }}>Bråttom</span>
+          {isOverdue && (
+            <span style={{ fontSize: 9, fontWeight: 600, color: C.red, padding: '2px 8px', background: C.rd, borderRadius: 5 }}>Försenad</span>
+          )}
+          {isUrgent && (
+            <span style={{ fontSize: 9, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 5 }}>
+              {deadlineDays === 0 ? 'Idag' : `${deadlineDays}d kvar`}
+            </span>
           )}
         </div>
+
+        {/* Step indicator */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 10 }}>
+          {GROT_STEPS.map((step, i) => {
+            const filled = stepIdx >= i + 1;
+            return (
+              <React.Fragment key={step.key}>
+                {i > 0 && <div style={{ width: 16, height: 2, background: filled ? step.color : 'rgba(255,255,255,0.06)' }} />}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: filled ? step.color : 'rgba(255,255,255,0.08)' }} />
+                  <span style={{ fontSize: 9, color: filled ? step.color : C.t4, fontWeight: filled ? 600 : 400 }}>{step.label}</span>
+                </div>
+              </React.Fragment>
+            );
+          })}
+        </div>
+
         <div style={{ display: 'flex', gap: 2, borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
-          <div style={{ flex: 1, background: C.bd, padding: '8px 4px', textAlign: 'center' }}>
+          <div style={{ flex: 1, background: bgTint, padding: '8px 4px', textAlign: 'center' }}>
             <div style={{ fontSize: 8, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Volym</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.blue }}>{obj.grot_volym ? formatVolym(obj.grot_volym) : '–'} <span style={{ fontSize: 9, fontWeight: 400, color: C.t4 }}>m³</span></div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{obj.grot_volym ? formatVolym(obj.grot_volym) : '–'} <span style={{ fontSize: 9, fontWeight: 400, color: C.t4 }}>m³</span></div>
           </div>
-          <div style={{ flex: 1, background: C.bd, padding: '8px 4px', textAlign: 'center' }}>
+          <div style={{ flex: 1, background: bgTint, padding: '8px 4px', textAlign: 'center' }}>
             <div style={{ fontSize: 8, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Lass</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: C.blue }}>{lass || '–'} <span style={{ fontSize: 9, fontWeight: 400, color: C.t4 }}>st</span></div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{lass || '–'} <span style={{ fontSize: 9, fontWeight: 400, color: C.t4 }}>st</span></div>
           </div>
         </div>
+        {obj.grot_deadline && (
+          <div style={{ fontSize: 10, color: isOverdue ? C.red : isUrgent ? C.yellow : C.t3, marginBottom: 6 }}>
+            Senast: {new Date(obj.grot_deadline + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </div>
+        )}
         {obj.grot_anteckning && (
-          <div style={{ fontSize: 11, color: C.t3, padding: '8px 10px', background: C.bd, borderRadius: 8 }}>
+          <div style={{ fontSize: 11, color: C.t3, padding: '8px 10px', background: bgTint, borderRadius: 8 }}>
             {obj.grot_anteckning}
           </div>
         )}
@@ -181,6 +210,7 @@ function GrotCard({ obj }: { obj: OversiktObjekt }) {
 
 /* ── Build GROT diamond marker ── */
 function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
+  const clr = grotEffectiveColor(obj.grot_status, obj.grot_deadline);
   const sz = isSelected ? 16 : 12;
   const hitSize = 24;
   const w = document.createElement('div');
@@ -188,13 +218,13 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
   w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isSelected ? '1' : '0.7'}`;
 
   const diamond = document.createElement('div');
-  diamond.style.cssText = `position:absolute;left:50%;top:50%;width:${sz}px;height:${sz}px;transform:translate(-50%,-50%) rotate(45deg);background:${C.blue};border-radius:2px;box-shadow:${isSelected ? `0 0 12px ${C.blue}60` : '0 1px 4px rgba(0,0,0,.4)'}`;
+  diamond.style.cssText = `position:absolute;left:50%;top:50%;width:${sz}px;height:${sz}px;transform:translate(-50%,-50%) rotate(45deg);background:${clr};border-radius:2px;box-shadow:${isSelected ? `0 0 12px ${clr}60` : '0 1px 4px rgba(0,0,0,.4)'}`;
   w.appendChild(diamond);
 
   const lbl = document.createElement('div');
   lbl.className = 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + sz / 2 + 4}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
-  lbl.innerHTML = `<div style="font-size:10px;font-weight:600;color:${C.blue};font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
+  lbl.innerHTML = `<div style="font-size:10px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
   w.appendChild(lbl);
 
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
@@ -760,8 +790,8 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
           fontWeight: 500, cursor: 'pointer', fontFamily: ff,
         }}>Historik</button>
         <button onClick={() => { setShowGrot(g => !g); if (showGrot) setSelectedGrotId(null); }} style={{
-          padding: '6px 12px', background: showGrot ? C.bd : 'transparent',
-          color: showGrot ? C.blue : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
+          padding: '6px 12px', background: showGrot ? C.yd : 'transparent',
+          color: showGrot ? C.yellow : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
           fontWeight: 500, cursor: 'pointer', fontFamily: ff,
         }}>GROT</button>
 
@@ -853,7 +883,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         ))}
         {showGrot && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <div style={{ width: 6, height: 6, background: C.blue, transform: 'rotate(45deg)', borderRadius: 1 }} />
+            <div style={{ width: 6, height: 6, background: C.yellow, transform: 'rotate(45deg)', borderRadius: 1 }} />
             <span style={{ fontSize: 9, color: C.t3 }}>GROT</span>
           </div>
         )}
