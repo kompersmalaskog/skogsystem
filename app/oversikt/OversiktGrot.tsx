@@ -26,6 +26,7 @@ function fmtDate(d: string): string {
 export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
   const [selG, setSelG] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [grotVol, setGrotVol] = useState<Record<string, string>>({});
   const [deadlines, setDeadlines] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   // vo_nummer → skordning_avslutad from dim_objekt
@@ -80,6 +81,20 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     saveNote(id, val);
   };
 
+  const saveGrotVol = useCallback((id: string, val: string) => {
+    const key = `vol_${id}`;
+    if (debounceRef.current[key]) clearTimeout(debounceRef.current[key]);
+    debounceRef.current[key] = setTimeout(async () => {
+      await supabase.from('objekt').update({ grot_volym: val ? parseFloat(val) : null }).eq('id', id);
+      await onRefresh();
+    }, 500);
+  }, [supabase, onRefresh]);
+
+  const handleGrotVolChange = (id: string, val: string) => {
+    setGrotVol(prev => ({ ...prev, [id]: val }));
+    saveGrotVol(id, val);
+  };
+
   const handleToggleSkotat = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const obj = objekt.find(o => o.id === id);
@@ -122,7 +137,7 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
         const leftClr = isOverdue ? C.red : isUrgent ? C.yellow : skotat ? C.green : C.t4;
         const avverkat = getAvverkat(obj);
         const dagar = avverkat ? daysSince(avverkat) : null;
-        const vol = obj.grot_volym || obj.volym || 0;
+        const gv = grotVol[obj.id] !== undefined ? (grotVol[obj.id] ? parseFloat(grotVol[obj.id]) : null) : obj.grot_volym;
 
         return (
           <div key={obj.id} onClick={() => handleExpand(obj.id)} style={{
@@ -157,10 +172,10 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                 )}
               </div>
 
-              {/* Volume + days since */}
+              {/* GROT volume + days since */}
               <div style={{ textAlign: 'right', flexShrink: 0, marginRight: 8 }}>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>
-                  {vol ? formatVolym(vol) : '–'}
+                  {gv ? formatVolym(gv) : '–'}
                   <span style={{ fontSize: 10, fontWeight: 400, color: C.t4 }}> m³</span>
                 </div>
                 {dagar !== null && dagar >= 0 && (
@@ -196,6 +211,18 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                     )}
                   </div>
                 )}
+
+                {/* GROT-volym */}
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 10, color: C.t4, display: 'block', marginBottom: 4 }}>GROT-volym (m³)</label>
+                  <input
+                    type="number"
+                    value={grotVol[obj.id] ?? (obj.grot_volym != null ? String(obj.grot_volym) : '')}
+                    onChange={e => handleGrotVolChange(obj.id, e.target.value)}
+                    placeholder="GROT m³"
+                    style={{ width: 120, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff }}
+                  />
+                </div>
 
                 {/* Notering */}
                 <textarea
