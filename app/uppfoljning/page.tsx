@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -40,46 +40,6 @@ interface UppfoljningObjekt {
   status: 'pagaende' | 'avslutat';
 }
 
-interface TidData {
-  arbetstid: number; // hours
-  g15: number;
-  g0: number;
-  kortaStopp: number; // minutes
-  avbrott: number;
-  rast: number;
-  tomgang: number;
-  dieselTot: number; // liters
-}
-
-interface SortimentRow {
-  namn: string;
-  vol: number;
-  st: number;
-}
-
-interface AvbrottRow {
-  typ: string;
-  tid: number; // minutes
-}
-
-interface DetailData {
-  medelstam: number;
-  skordare: {
-    tid: TidData;
-    stammar: number;
-    flertradPct: number;
-    sortiment: SortimentRow[];
-    avbrott: AvbrottRow[];
-  };
-  skotare: {
-    tid: TidData;
-    antalLass: number;
-    snittLass: number;
-    skotningsAvstand: number;
-    avbrott: AvbrottRow[];
-  };
-}
-
 /* ── Helpers ── */
 function daysSince(dateStr: string): number {
   const d = new Date(dateStr);
@@ -102,10 +62,6 @@ function fmtMin(m: number): string {
   const min = Math.round(m % 60);
   return `${h}:${min.toString().padStart(2, '0')}`;
 }
-function fmtHours(h: number): string {
-  return h.toFixed(1);
-}
-
 /* ── Bar ── */
 function Bar({ pct, color, height = 8 }: { pct: number; color: string; height?: number }) {
   return (
@@ -211,37 +167,10 @@ function ObjektKort({ obj, onClick }: { obj: UppfoljningObjekt; onClick: () => v
   );
 }
 
-/* ── Compute TidData from fakt_tid rows ── */
-function computeTid(rows: any[]): TidData {
-  let processing = 0, terrain = 0, otherWork = 0, maintenance = 0, disturbance = 0, rast = 0, kortStopp = 0, diesel = 0;
-  rows.forEach(r => {
-    processing += r.processing_sek || 0;
-    terrain += r.terrain_sek || 0;
-    otherWork += r.other_work_sek || 0;
-    maintenance += r.maintenance_sek || 0;
-    disturbance += r.disturbance_sek || 0;
-    rast += r.rast_sek || 0;
-    kortStopp += r.kort_stopp_sek || 0;
-    diesel += r.bransle_liter || 0;
-  });
-  const g0 = (processing + terrain + otherWork) / 3600;
-  const g15 = (processing + terrain + otherWork + kortStopp) / 3600;
-  const arbetstid = (processing + terrain + otherWork + kortStopp + maintenance + disturbance + rast) / 3600;
-  return {
-    arbetstid,
-    g15,
-    g0,
-    kortaStopp: kortStopp / 60,
-    avbrott: (maintenance + disturbance) / 60,
-    rast: rast / 60,
-    tomgang: 0, // not tracked in fakt_tid
-    dieselTot: diesel,
-  };
-}
-
-/* ── ObjektDetalj — full detail view with real Supabase data ── */
+/* ── ObjektDetalj — PIXEL-PERFECT copy of uppfoljning-v2.tsx ObjektDetalj ── */
+/* Only difference: testdata replaced with real Supabase queries */
 function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => void }) {
-  const [detalj, setDetalj] = useState<DetailData | null>(null);
+  const [d, setD] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -250,9 +179,22 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const skId = obj.skordareObjektId;
       const stId = obj.skotareObjektId;
       const ids = [skId, stId].filter(Boolean) as string[];
-      if (ids.length === 0) { setLoading(false); return; }
 
-      // Fetch all detail data in parallel
+      if (ids.length === 0) {
+        // No data — build empty d
+        setD({
+          medelstam: 0,
+          skordare: { arbetstid:0, g15:0, g0:0, kortaStopp:0, avbrott:0, rast:0, tomgang:0,
+            stamPerG15:0, m3PerG15:0, flertrad:0, antalStammar:0,
+            diesel:{tot:0,perM3:0,perTim:0}, sortiment:[], avbrott_lista:[] },
+          skotare: { arbetstid:0, g15:0, g0:0, kortaStopp:0, avbrott:0, rast:0, tomgang:0,
+            lass:0, snittLass:0, lassPerG15:0, m3PerG15:0, avstand:0, lastrede:'–',
+            diesel:{tot:0,perM3:0,perG15:0}, avbrott_lista:[] },
+        });
+        setLoading(false);
+        return;
+      }
+
       const [tidRes, prodRes, sortRes, dimSortRes, avbrottRes, lassRes] = await Promise.all([
         supabase.from('fakt_tid').select('objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, rast_sek, kort_stopp_sek, bransle_liter').in('objekt_id', ids),
         supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar, processtyp').in('objekt_id', ids),
@@ -269,462 +211,421 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const avbrottRows = avbrottRes.data || [];
       const lassRows = (lassRes.data || []) as any[];
 
-      // Sortiment lookup
       const sortMap = new Map<string, string>();
       dimSort.forEach((s: any) => sortMap.set(s.sortiment_id, s.namn));
 
-      // Split tid by machine
-      const skTidRows = skId ? tidRows.filter((r: any) => r.objekt_id === skId) : [];
-      const stTidRows = stId ? tidRows.filter((r: any) => r.objekt_id === stId) : [];
-      const skTid = computeTid(skTidRows);
-      const stTid = computeTid(stTidRows);
-
-      // Skördare produktion
-      const skProd = skId ? prodRows.filter((r: any) => r.objekt_id === skId) : [];
-      let totalStammar = 0, mthStammar = 0, totalVol = 0;
-      skProd.forEach((p: any) => {
-        totalStammar += p.stammar || 0;
-        totalVol += p.volym_m3sub || 0;
-        if (p.processtyp === 'MTH') mthStammar += p.stammar || 0;
-      });
-      const flertradPct = totalStammar > 0 ? Math.round((mthStammar / totalStammar) * 100) : 0;
-      const medelstam = totalStammar > 0 ? totalVol / totalStammar : 0;
-
-      // Sortiment for skördare
-      const skSort = skId ? sortRows.filter((r: any) => r.objekt_id === skId) : [];
-      const sortAgg = new Map<string, { vol: number; st: number }>();
-      skSort.forEach((r: any) => {
-        const namn = sortMap.get(r.sortiment_id) || r.sortiment_id || 'Övrigt';
-        const prev = sortAgg.get(namn) || { vol: 0, st: 0 };
-        prev.vol += r.volym_m3sub || 0;
-        prev.st += r.antal || 0;
-        sortAgg.set(namn, prev);
-      });
-      const sortiment: SortimentRow[] = Array.from(sortAgg.entries())
-        .map(([namn, d]) => ({ namn, vol: Math.round(d.vol), st: Math.round(d.st) }))
-        .sort((a, b) => b.vol - a.vol);
-
-      // Avbrott per machine
-      const skAvbrott = skId ? avbrottRows.filter((r: any) => r.objekt_id === skId) : [];
-      const stAvbrott = stId ? avbrottRows.filter((r: any) => r.objekt_id === stId) : [];
-      const aggAvbrott = (rows: any[]): AvbrottRow[] => {
-        const m = new Map<string, number>();
-        rows.forEach(r => { m.set(r.typ || 'Övrigt', (m.get(r.typ || 'Övrigt') || 0) + (r.tid_sek || 0)); });
-        return Array.from(m.entries()).map(([typ, sek]) => ({ typ, tid: Math.round(sek / 60) })).sort((a, b) => b.tid - a.tid);
+      // Compute tid per machine — returns exact same shape as testAnalys
+      const buildTid = (rows: any[]) => {
+        let processing=0, terrain=0, otherWork=0, maintenance=0, disturbance=0, rast=0, kortStopp=0, diesel=0;
+        rows.forEach(r => {
+          processing += r.processing_sek||0; terrain += r.terrain_sek||0; otherWork += r.other_work_sek||0;
+          maintenance += r.maintenance_sek||0; disturbance += r.disturbance_sek||0; rast += r.rast_sek||0;
+          kortStopp += r.kort_stopp_sek||0; diesel += r.bransle_liter||0;
+        });
+        const g0h = (processing+terrain+otherWork)/3600;
+        const g15h = (processing+terrain+otherWork+kortStopp)/3600;
+        const arbh = (processing+terrain+otherWork+kortStopp+maintenance+disturbance+rast)/3600;
+        return { arbetstid: Math.round(arbh*10)/10, g15: Math.round(g15h*10)/10, g0: Math.round(g0h*10)/10,
+          kortaStopp: Math.round(kortStopp/60), avbrott: Math.round((maintenance+disturbance)/60),
+          rast: Math.round(rast/60), tomgang: 0, dieselTot: diesel };
       };
 
-      // Skotare lass data
-      let totalLassVol = 0, totalKorstracka = 0;
-      lassRows.forEach((l: any) => {
-        totalLassVol += l.volym_m3sob || 0;
-        totalKorstracka += l.korstracka_m || 0;
-      });
-      const antalLass = lassRows.length;
-      const snittLass = antalLass > 0 ? totalLassVol / antalLass : 0;
-      const skotningsAvstand = antalLass > 0 ? totalKorstracka / antalLass : 0;
+      const skTidRows = skId ? tidRows.filter((r:any) => r.objekt_id===skId) : [];
+      const stTidRows = stId ? tidRows.filter((r:any) => r.objekt_id===stId) : [];
+      const skTid = buildTid(skTidRows);
+      const stTid = buildTid(stTidRows);
 
-      setDetalj({
+      // Skördare produktion
+      const skProd = skId ? prodRows.filter((r:any) => r.objekt_id===skId) : [];
+      let totalStammar=0, mthStammar=0, totalVol=0;
+      skProd.forEach((p:any) => { totalStammar += p.stammar||0; totalVol += p.volym_m3sub||0; if(p.processtyp==='MTH') mthStammar += p.stammar||0; });
+      const flertrad = totalStammar>0 ? Math.round((mthStammar/totalStammar)*100) : 0;
+      const medelstam = totalStammar>0 ? Math.round((totalVol/totalStammar)*100)/100 : 0;
+      const stamPerG15 = skTid.g15>0 ? Math.round((totalStammar/skTid.g15)*10)/10 : 0;
+      const m3PerG15Sk = skTid.g15>0 ? Math.round((obj.volymSkordare/skTid.g15)*10)/10 : 0;
+
+      // Sortiment
+      const skSort = skId ? sortRows.filter((r:any) => r.objekt_id===skId) : [];
+      const sortAgg = new Map<string, {vol:number;st:number}>();
+      skSort.forEach((r:any) => {
+        const namn = sortMap.get(r.sortiment_id) || r.sortiment_id || 'Övrigt';
+        const prev = sortAgg.get(namn) || {vol:0,st:0};
+        prev.vol += r.volym_m3sub||0; prev.st += r.antal||0;
+        sortAgg.set(namn, prev);
+      });
+      const sortiment = Array.from(sortAgg.entries())
+        .map(([namn, v]) => ({namn, vol:Math.round(v.vol), st:Math.round(v.st)}))
+        .sort((a,b)=>b.vol-a.vol);
+
+      // Avbrott — exact same shape as testAnalys.avbrott_lista
+      const buildAvbrott = (rows: any[]) => {
+        const m = new Map<string,number>();
+        rows.forEach(r => { m.set(r.typ||'Övrigt', (m.get(r.typ||'Övrigt')||0) + (r.tid_sek||0)); });
+        return Array.from(m.entries()).map(([typ,sek]) => ({typ, tid:Math.round(sek/60)})).sort((a,b)=>b.tid-a.tid);
+      };
+      const skAvbrott = skId ? avbrottRows.filter((r:any) => r.objekt_id===skId) : [];
+      const stAvbrott = stId ? avbrottRows.filter((r:any) => r.objekt_id===stId) : [];
+
+      // Skotare lass
+      let totalLassVol=0, totalKor=0;
+      lassRows.forEach((l:any) => { totalLassVol += l.volym_m3sob||0; totalKor += l.korstracka_m||0; });
+      const antalLass = lassRows.length;
+      const snittLass = antalLass>0 ? Math.round((totalLassVol/antalLass)*10)/10 : 0;
+      const lassPerG15 = stTid.g15>0 ? Math.round((antalLass/stTid.g15)*100)/100 : 0;
+      const m3PerG15St = stTid.g15>0 ? Math.round((obj.volymSkotare/stTid.g15)*10)/10 : 0;
+      const avstand = antalLass>0 ? Math.round(totalKor/antalLass) : 0;
+
+      // Diesel — exact same shape as testAnalys
+      const dieselPerM3Sk = obj.volymSkordare>0 ? Math.round((skTid.dieselTot/obj.volymSkordare)*100)/100 : 0;
+      const dieselPerTimSk = skTid.g15>0 ? Math.round((skTid.dieselTot/skTid.g15)*100)/100 : 0;
+      const dieselPerM3St = obj.volymSkotare>0 ? Math.round((stTid.dieselTot/obj.volymSkotare)*100)/100 : 0;
+      const dieselPerG15St = stTid.g15>0 ? Math.round((stTid.dieselTot/stTid.g15)*100)/100 : 0;
+
+      // Build d with EXACT same shape as testAnalys
+      setD({
         medelstam,
         skordare: {
-          tid: skTid,
-          stammar: totalStammar,
-          flertradPct,
+          arbetstid: skTid.arbetstid, g15: skTid.g15, g0: skTid.g0,
+          kortaStopp: skTid.kortaStopp, avbrott: skTid.avbrott, rast: skTid.rast, tomgang: skTid.tomgang,
+          stamPerG15, m3PerG15: m3PerG15Sk, flertrad, antalStammar: totalStammar,
+          diesel: { tot: Math.round(skTid.dieselTot), perM3: dieselPerM3Sk, perTim: dieselPerTimSk },
           sortiment,
-          avbrott: aggAvbrott(skAvbrott),
+          avbrott_lista: buildAvbrott(skAvbrott),
         },
         skotare: {
-          tid: stTid,
-          antalLass,
-          snittLass,
-          skotningsAvstand,
-          avbrott: aggAvbrott(stAvbrott),
+          arbetstid: stTid.arbetstid, g15: stTid.g15, g0: stTid.g0,
+          kortaStopp: stTid.kortaStopp, avbrott: stTid.avbrott, rast: stTid.rast, tomgang: stTid.tomgang,
+          lass: antalLass, snittLass, lassPerG15, m3PerG15: m3PerG15St, avstand, lastrede: '–',
+          diesel: { tot: Math.round(stTid.dieselTot), perM3: dieselPerM3St, perG15: dieselPerG15St },
+          avbrott_lista: buildAvbrott(stAvbrott),
         },
       });
       setLoading(false);
     })();
   }, [obj.skordareObjektId, obj.skotareObjektId]);
 
-  const tf = obj.typ === 'slutavverkning' ? C.yellow : C.green;
-  const framkort = obj.volymSkordare > 0 ? Math.round((obj.volymSkotare / obj.volymSkordare) * 100) : 0;
-  const kvar = Math.max(0, 100 - framkort);
-  const skDagar = daysBetweenNull(obj.skordareStart, obj.skordareSlut);
-  const stDagar = daysBetweenNull(obj.skotareStart, obj.skotareSlut);
-  const glapp = daysBetweenNull(obj.skordareSlut, obj.skotareStart);
-
-  if (loading) {
+  if (loading || !d) {
     return (
-      <div style={{ minHeight: '100vh', background: C.bg, color: C.t1, fontFamily: ff, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: C.t3, fontSize: 15 }}>Laddar detaljer...</div>
+      <div style={{minHeight:'100vh',background:C.bg,color:C.t1,fontFamily:ff,display:'flex',alignItems:'center',justifyContent:'center'}}>
+        <div style={{color:C.t3,fontSize:15}}>Laddar detaljer...</div>
       </div>
     );
   }
 
-  const d = detalj;
-  const skG15 = d?.skordare.tid.g15 || 0;
-  const stG15 = d?.skotare.tid.g15 || 0;
-  const skArbetstid = d?.skordare.tid.arbetstid || 0;
-  const stArbetstid = d?.skotare.tid.arbetstid || 0;
-  const produktivSk = skArbetstid > 0 ? Math.round((skG15 / skArbetstid) * 100) : 0;
-  const produktivSt = stArbetstid > 0 ? Math.round((stG15 / stArbetstid) * 100) : 0;
-  const dieselPerM3Sk = obj.volymSkordare > 0 && d ? (d.skordare.tid.dieselTot / obj.volymSkordare) : 0;
-  const dieselPerM3St = obj.volymSkotare > 0 && d ? (d.skotare.tid.dieselTot / obj.volymSkotare) : 0;
-  const dieselPerTimSk = skG15 > 0 && d ? (d.skordare.tid.dieselTot / skG15) : 0;
-  const dieselPerG15St = stG15 > 0 && d ? (d.skotare.tid.dieselTot / stG15) : 0;
-  const stamPerG15 = skG15 > 0 && d ? (d.skordare.stammar / skG15) : 0;
-  const m3PerG15Sk = skG15 > 0 ? (obj.volymSkordare / skG15) : 0;
-  const m3PerG15St = stG15 > 0 ? (obj.volymSkotare / stG15) : 0;
-  const lassPerG15 = stG15 > 0 && d ? (d.skotare.antalLass / stG15) : 0;
-  const sortTotVol = d?.skordare.sortiment.reduce((a, s) => a + s.vol, 0) || 0;
-  const sagbart = sortTotVol > 0 && d ? Math.round((d.skordare.sortiment.filter(s => s.namn.toLowerCase().includes('timmer')).reduce((a, s) => a + s.vol, 0) / sortTotVol) * 100) : 0;
+  // ── Aliases to match reference field names exactly ──
+  const volSk = Math.round(obj.volymSkordare);
+  const volSt = Math.round(obj.volymSkotare);
+  const maskin = obj.skordareModell || '–';
+  const skotare = obj.skotareModell || null;
+  const vo = obj.vo_nummer || null;
+  const uid = obj.skordareObjektId || obj.skotareObjektId || '–';
+  const stammar = obj.stammar;
 
+  // ── Exact same computed values as reference lines 145-156 ──
+  const framkort = volSk>0?Math.round((volSt/volSk)*100):0;
+  const kvar = 100-framkort;
+  const tf = obj.typ==='slutavverkning'?C.yellow:C.green;
+  const sagbart = d.skordare.sortiment.length>0 ? Math.round((d.skordare.sortiment.filter((s:any)=>s.namn.toLowerCase().includes('timmer')).reduce((a:number,s:any)=>a+s.vol,0)/d.skordare.sortiment.reduce((a:number,s:any)=>a+s.vol,0))*100) : 0;
+  const produktiv = d.skordare.arbetstid>0 ? Math.round((d.skordare.g15/d.skordare.arbetstid)*100) : 0;
+  const produktivSt = d.skotare.arbetstid>0 ? Math.round((d.skotare.g15/d.skotare.arbetstid)*100) : 0;
+
+  const skDagar = daysBetweenNull(obj.skordareStart, obj.skordareSlut);
+  const stDagar = daysBetweenNull(obj.skotareStart, obj.skotareSlut);
+  const glapp = daysBetweenNull(obj.skordareSlut, obj.skotareStart);
+
+  // ══════════════════════════════════════════════════════════════
+  // JSX below is COPIED from uppfoljning-v2.tsx lines 158-450
+  // ONLY data references changed: obj.volSk→volSk, obj.maskin→maskin, etc.
+  // ALL styles, padding, fontSize, borderRadius etc are IDENTICAL
+  // ══════════════════════════════════════════════════════════════
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased' }}>
+    <div style={{minHeight:'100vh',background:C.bg,color:C.t1,fontFamily:ff,WebkitFontSmoothing:'antialiased'}}>
       {/* Header */}
-      <div style={{ padding: '14px 20px 20px', background: C.card }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 15, cursor: 'pointer', padding: 0, marginBottom: 16, fontFamily: ff, fontWeight: 500 }}>‹ Tillbaka</button>
+      <div style={{padding:'14px 20px 20px',background:C.card}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:C.blue,fontSize:15,cursor:'pointer',padding:0,marginBottom:16,fontFamily:ff,fontWeight:500}}>‹ Tillbaka</button>
 
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 6 }}>{obj.namn}</div>
-          <div style={{ fontSize: 14, color: C.t2 }}>
-            {obj.agare}{obj.areal > 0 ? ` · ${obj.areal} ha` : ''}
-            <span style={{ marginLeft: 10, padding: '3px 12px', borderRadius: 12, fontSize: 12, fontWeight: 500, background: tf + '15', color: tf }}>
-              {obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:28,fontWeight:700,letterSpacing:'-0.5px',marginBottom:6}}>{obj.namn}</div>
+          <div style={{fontSize:14,color:C.t2}}>
+            {obj.agare} · {obj.areal} ha
+            <span style={{marginLeft:10,padding:'3px 12px',borderRadius:12,fontSize:12,fontWeight:500,background:tf+'15',color:tf}}>
+              {obj.typ==='slutavverkning'?'Slutavverkning':'Gallring'}
             </span>
           </div>
-          {obj.vo_nummer && (
-            <div style={{ fontSize: 11, color: C.t3, marginTop: 8 }}>
-              VO {obj.vo_nummer}
-            </div>
-          )}
+          <div style={{fontSize:11,color:C.t3,marginTop:8}}>
+            {vo && <span>VO {vo} · </span>}ID {uid}
+          </div>
         </div>
 
         {/* Maskiner med datum */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ padding: '12px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.blue }} />
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          <div style={{padding:'12px 14px',background:'rgba(255,255,255,0.03)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <div style={{width:8,height:8,borderRadius:'50%',background:C.blue}}/>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: C.t1 }}>{obj.skordareModell || 'Ej tilldelad'}</div>
-                <div style={{ fontSize: 10, color: C.t3, marginTop: 2 }}>Skördare</div>
+                <div style={{fontSize:12,fontWeight:600,color:C.t1}}>{maskin}</div>
+                <div style={{fontSize:10,color:C.t3,marginTop:2}}>Skördare</div>
               </div>
             </div>
-            <div style={{ textAlign: 'right' }}>
-              {obj.skordareStart ? (
-                <>
-                  <div style={{ fontSize: 12, color: C.t2 }}>{fmtDate(obj.skordareStart)} → {obj.skordareSlut ? fmtDate(obj.skordareSlut) : 'pågår'}</div>
-                  {skDagar !== null && <div style={{ fontSize: 10, color: C.t3, marginTop: 2 }}>{skDagar} dagar</div>}
-                </>
-              ) : (
-                <div style={{ fontSize: 12, color: C.t4 }}>Ej startad</div>
-              )}
+            <div style={{textAlign:'right'}}>
+              <div style={{fontSize:12,color:C.t2}}>{fmtDate(obj.skordareStart)} → {obj.skordareSlut?fmtDate(obj.skordareSlut):'pågår'}</div>
+              {skDagar !== null && skDagar > 0 && <div style={{fontSize:10,color:C.t3,marginTop:2}}>{skDagar} dagar</div>}
             </div>
           </div>
 
           {/* Glapp-indikator */}
           {glapp !== null && glapp > 0 && (
-            <div style={{ textAlign: 'center', padding: '4px 0' }}>
-              <span style={{ fontSize: 10, color: glapp > 7 ? C.orange : C.t3 }}>{glapp} dagar mellanrum</span>
+            <div style={{textAlign:'center',padding:'4px 0'}}>
+              <span style={{fontSize:10,color:glapp>7?C.orange:C.t3}}>{glapp} dagar mellanrum</span>
             </div>
           )}
           {obj.skotareStart && glapp !== null && glapp <= 0 && (
-            <div style={{ textAlign: 'center', padding: '4px 0' }}>
-              <span style={{ fontSize: 10, color: C.green }}>Parallellkörning</span>
+            <div style={{textAlign:'center',padding:'4px 0'}}>
+              <span style={{fontSize:10,color:C.green}}>Parallellkörning</span>
             </div>
           )}
 
-          <div style={{ padding: '12px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.green }} />
+          <div style={{padding:'12px 14px',background:'rgba(255,255,255,0.03)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <div style={{width:8,height:8,borderRadius:'50%',background:C.green}}/>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: C.t1 }}>{obj.skotareModell || 'Ej tilldelad'}</div>
-                <div style={{ fontSize: 10, color: C.t3, marginTop: 2 }}>Skotare</div>
+                <div style={{fontSize:12,fontWeight:600,color:C.t1}}>{skotare||'Ej tilldelad'}</div>
+                <div style={{fontSize:10,color:C.t3,marginTop:2}}>Skotare</div>
               </div>
             </div>
-            <div style={{ textAlign: 'right' }}>
+            <div style={{textAlign:'right'}}>
               {obj.skotareStart ? (
                 <>
-                  <div style={{ fontSize: 12, color: C.t2 }}>{fmtDate(obj.skotareStart)} → {obj.skotareSlut ? fmtDate(obj.skotareSlut) : 'pågår'}</div>
-                  {stDagar !== null && <div style={{ fontSize: 10, color: C.t3, marginTop: 2 }}>{stDagar} dagar</div>}
+                  <div style={{fontSize:12,color:C.t2}}>{fmtDate(obj.skotareStart)} → {obj.skotareSlut?fmtDate(obj.skotareSlut):'pågår'}</div>
+                  {stDagar !== null && stDagar > 0 && <div style={{fontSize:10,color:C.t3,marginTop:2}}>{stDagar} dagar</div>}
                 </>
               ) : (
-                <div style={{ fontSize: 12, color: C.t4 }}>Väntar</div>
+                <div style={{fontSize:12,color:C.t4}}>Väntar</div>
               )}
             </div>
           </div>
         </div>
       </div>
 
-      <div style={{ padding: '16px 16px 120px' }}>
+      <div style={{padding:'16px 16px 80px'}}>
+
+        {/* Visa avverkning */}
+        <button onClick={()=>{}} style={{width:'100%',padding:'16px',background:C.card,border:'1px solid '+C.border,borderRadius:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:16}}>
+          <span style={{fontSize:15,fontWeight:600,color:C.t1,fontFamily:ff}}>Visa avverkning på karta</span>
+          <span style={{fontSize:14,color:C.t4}}>›</span>
+        </button>
 
         {/* Stora nyckeltal */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-          <div style={{ flex: 1, background: C.card, borderRadius: 16, padding: '24px 16px', textAlign: 'center', border: '1px solid ' + C.border }}>
-            <div style={{ fontSize: 10, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Skördat</div>
-            <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{Math.round(obj.volymSkordare)}</div>
-            <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>m³</div>
+        <div style={{display:'flex',gap:10,marginBottom:12}}>
+          <div style={{flex:1,background:C.card,borderRadius:16,padding:'24px 16px',textAlign:'center',border:'1px solid '+C.border}}>
+            <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Skördat</div>
+            <div style={{fontSize:42,fontWeight:700,letterSpacing:'-1px',lineHeight:1}}>{volSk}</div>
+            <div style={{fontSize:13,color:C.t3,marginTop:4}}>m³</div>
           </div>
-          <div style={{ flex: 1, background: C.card, borderRadius: 16, padding: '24px 16px', textAlign: 'center', border: '1px solid ' + C.border }}>
-            <div style={{ fontSize: 10, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Skotat</div>
-            <div style={{ fontSize: 42, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{Math.round(obj.volymSkotare)}</div>
-            <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>m³</div>
+          <div style={{flex:1,background:C.card,borderRadius:16,padding:'24px 16px',textAlign:'center',border:'1px solid '+C.border}}>
+            <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Skotat</div>
+            <div style={{fontSize:42,fontWeight:700,letterSpacing:'-1px',lineHeight:1}}>{volSt}</div>
+            <div style={{fontSize:13,color:C.t3,marginTop:4}}>m³</div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-          <div style={{ flex: 1, background: C.card, borderRadius: 16, padding: '18px 16px', textAlign: 'center', border: '1px solid ' + C.border }}>
-            <div style={{ fontSize: 10, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Medelstam</div>
-            <div style={{ fontSize: 24, fontWeight: 700 }}>{d ? d.medelstam.toFixed(2) : '–'}<span style={{ fontSize: 12, fontWeight: 400, color: C.t3 }}> m³fub</span></div>
+        <div style={{display:'flex',gap:10,marginBottom:16}}>
+          <div style={{flex:1,background:C.card,borderRadius:16,padding:'18px 16px',textAlign:'center',border:'1px solid '+C.border}}>
+            <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6}}>Medelstam</div>
+            <div style={{fontSize:24,fontWeight:700}}>{d.medelstam||'–'}<span style={{fontSize:12,fontWeight:400,color:C.t3}}> m³fub</span></div>
           </div>
-          <div style={{ flex: 1, background: C.card, borderRadius: 16, padding: '18px 16px', textAlign: 'center', border: '1px solid ' + C.border }}>
-            <div style={{ fontSize: 10, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Volym/ha</div>
-            <div style={{ fontSize: 24, fontWeight: 700 }}>{obj.areal > 0 ? (obj.volymSkordare / obj.areal).toFixed(0) : '–'}<span style={{ fontSize: 12, fontWeight: 400, color: C.t3 }}> m³</span></div>
+          <div style={{flex:1,background:C.card,borderRadius:16,padding:'18px 16px',textAlign:'center',border:'1px solid '+C.border}}>
+            <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6}}>Volym/ha</div>
+            <div style={{fontSize:24,fontWeight:700}}>{obj.areal>0?(volSk/obj.areal).toFixed(0):'–'}<span style={{fontSize:12,fontWeight:400,color:C.t3}}> m³</span></div>
           </div>
         </div>
 
         {/* Kvar i skogen */}
-        <div style={{ background: C.card, borderRadius: 16, padding: '20px 20px', marginBottom: 16, border: '1px solid ' + C.border }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-            <span style={{ fontSize: 14, fontWeight: 500, color: C.t2 }}>Kvar i skogen</span>
-            <div style={{ textAlign: 'right' }}>
-              <span style={{ fontSize: 28, fontWeight: 700, color: kvar > 30 ? C.orange : C.green }}>{kvar}%</span>
+        <div style={{background:C.card,borderRadius:16,padding:'20px 20px',marginBottom:16,border:'1px solid '+C.border}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',marginBottom:12}}>
+            <span style={{fontSize:14,fontWeight:500,color:C.t2}}>Kvar i skogen</span>
+            <div style={{textAlign:'right'}}>
+              <span style={{fontSize:28,fontWeight:700,color:kvar>30?C.orange:C.green}}>{kvar}%</span>
             </div>
           </div>
-          <Bar pct={kvar} color={kvar > 30 ? C.orange : C.green} height={10} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: C.t3, marginTop: 8 }}>
-            <span>Skotat {Math.round(obj.volymSkotare)} m³</span>
-            <span>Kvar ~{Math.round(Math.max(0, obj.volymSkordare - obj.volymSkotare))} m³</span>
+          <Bar pct={kvar} color={kvar>30?C.orange:C.green} height={10}/>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:C.t3,marginTop:8}}>
+            <span>Skotat {volSt} m³</span>
+            <span>Kvar ~{volSk-volSt} m³</span>
           </div>
         </div>
 
         {/* Diesel fritt bilväg */}
-        {d && (d.skordare.tid.dieselTot > 0 || d.skotare.tid.dieselTot > 0) && (
-          <div style={{ background: C.card, borderRadius: 16, padding: '24px 20px', marginBottom: 16, border: '1px solid ' + C.border, textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Diesel fritt bilväg</div>
-            <div style={{ fontSize: 36, fontWeight: 700, letterSpacing: '-1px' }}>
-              {(dieselPerM3Sk + dieselPerM3St).toFixed(2)}
-              <span style={{ fontSize: 14, fontWeight: 400, color: C.t3 }}> L/m³fub</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 24, marginTop: 12, fontSize: 12, color: C.t3 }}>
-              <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: C.blue, marginRight: 6 }} />Skördare {dieselPerM3Sk.toFixed(2)} L</span>
-              <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: C.green, marginRight: 6 }} />Skotare {dieselPerM3St.toFixed(2)} L</span>
-            </div>
+        <div style={{background:C.card,borderRadius:16,padding:'24px 20px',marginBottom:16,border:'1px solid '+C.border,textAlign:'center'}}>
+          <div style={{fontSize:10,color:C.t3,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Diesel fritt bilväg</div>
+          <div style={{fontSize:36,fontWeight:700,letterSpacing:'-1px'}}>{(d.skordare.diesel.perM3+d.skotare.diesel.perM3).toFixed(2)}<span style={{fontSize:14,fontWeight:400,color:C.t3}}> L/m³fub</span></div>
+          <div style={{display:'flex',justifyContent:'center',gap:24,marginTop:12,fontSize:12,color:C.t3}}>
+            <span><span style={{display:'inline-block',width:7,height:7,borderRadius:'50%',background:C.blue,marginRight:6}}/>Skördare {d.skordare.diesel.perM3} L</span>
+            <span><span style={{display:'inline-block',width:7,height:7,borderRadius:'50%',background:C.green,marginRight:6}}/>Skotare {d.skotare.diesel.perM3} L</span>
           </div>
-        )}
+        </div>
 
         {/* Tidsbalans */}
-        {d && (skG15 > 0 || stG15 > 0) && (
-          <Section title="Tidsbalans" defaultOpen={true}>
-            <div style={{ marginTop: 8 }} />
-            <div style={{ display: 'flex', height: 36, borderRadius: 10, overflow: 'hidden', marginBottom: 12 }}>
-              {skG15 > 0 && (
-                <div style={{ background: C.blue, width: `${(skG15 / (skG15 + stG15)) * 100}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 600 }}>{fmtHours(skG15)}h</div>
-              )}
-              {stG15 > 0 && (
-                <div style={{ background: C.green, width: `${(stG15 / (skG15 + stG15)) * 100}%`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 600 }}>{fmtHours(stG15)}h</div>
-              )}
+        <Section title="Tidsbalans" defaultOpen={true}>
+          <div style={{marginTop:8}}/>
+          <div style={{display:'flex',height:36,borderRadius:10,overflow:'hidden',marginBottom:12}}>
+            {d.skordare.g15>0 && <div style={{background:C.blue,width:`${(d.skordare.g15/(d.skordare.g15+d.skotare.g15))*100}%`,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:13,fontWeight:600}}>{d.skordare.g15}h</div>}
+            {d.skotare.g15>0 && <div style={{background:C.green,width:`${(d.skotare.g15/(d.skordare.g15+d.skotare.g15))*100}%`,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontSize:13,fontWeight:600}}>{d.skotare.g15}h</div>}
+          </div>
+          <div style={{display:'flex',justifyContent:'center',gap:24,fontSize:11,color:C.t3,marginBottom:10}}>
+            <span><span style={{display:'inline-block',width:7,height:7,borderRadius:'50%',background:C.blue,marginRight:5}}/>Skördare · {maskin}</span>
+            <span><span style={{display:'inline-block',width:7,height:7,borderRadius:'50%',background:C.green,marginRight:5}}/>Skotare · {skotare||'Ej tilldelad'}</span>
+          </div>
+          {d.skordare.g15>0 && d.skotare.g15>0 && (
+            <div style={{textAlign:'center',fontSize:13,color:d.skotare.g15<d.skordare.g15?C.green:C.orange,fontWeight:500}}>
+              Skotare {Math.round(Math.abs(1-(d.skotare.g15/d.skordare.g15))*100)}% {d.skotare.g15<d.skordare.g15?'snabbare':'långsammare'}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 24, fontSize: 11, color: C.t3, marginBottom: 10 }}>
-              <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: C.blue, marginRight: 5 }} />Skördare · {obj.skordareModell ? obj.skordareModell.split(' ').slice(-2).join(' ') : '–'}</span>
-              <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: C.green, marginRight: 5 }} />Skotare · {obj.skotareModell ? obj.skotareModell.split(' ').slice(-2).join(' ') : '–'}</span>
+          )}
+        </Section>
+
+        {/* ── SKÖRDARE ── */}
+        <div style={{display:'flex',alignItems:'center',gap:10,margin:'24px 0 12px',paddingLeft:4}}>
+          <div style={{width:10,height:10,borderRadius:'50%',background:C.blue}}/>
+          <span style={{fontSize:18,fontWeight:700,letterSpacing:'-0.3px'}}>Skördare</span>
+          <span style={{fontSize:12,color:C.t3}}>{maskin}</span>
+        </div>
+
+        <Section title="Tid" sub={`${produktiv}% produktiv`}>
+          <div style={{display:'flex',justifyContent:'space-around',marginTop:8,marginBottom:20}}>
+            {[{l:'Arbetstid',v:d.skordare.arbetstid},{l:'G15',v:d.skordare.g15},{l:'G0',v:d.skordare.g0}].map((t:any,i:number) => (
+              <div key={i} style={{textAlign:'center'}}>
+                <div style={{fontSize:28,fontWeight:700,letterSpacing:'-0.5px'}}>{t.v}</div>
+                <div style={{fontSize:12,color:C.t3,marginTop:4}}>{t.l}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{height:1,background:C.border,margin:'0 0 16px'}}/>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}}>
+            {[{l:'Korta stopp',v:fmtMin(d.skordare.kortaStopp)},{l:'Avbrott',v:fmtMin(d.skordare.avbrott)},{l:'Rast',v:fmtMin(d.skordare.rast)},{l:'Tomgång',v:fmtMin(d.skordare.tomgang)}].map((t:any,i:number) => (
+              <div key={i} style={{textAlign:'center'}}>
+                <div style={{fontSize:10,color:C.t3,marginBottom:4}}>{t.l}</div>
+                <div style={{fontSize:14,fontWeight:600}}>{t.v}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Produktion" sub={`${d.skordare.flertrad}% flerträd`}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16,marginTop:8}}>
+            {[{l:'Stammar/G15',v:d.skordare.stamPerG15},{l:'m³/G15',v:d.skordare.m3PerG15},{l:'Stammar',v:d.skordare.antalStammar||stammar}].map((p:any,i:number) => (
+              <div key={i}>
+                <div style={{fontSize:11,color:C.t3,marginBottom:6}}>{p.l}</div>
+                <div style={{fontSize:20,fontWeight:700}}>{p.v}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        {d.skordare.sortiment.length > 0 && (
+          <Section title="Sortiment" sub={`${sagbart}% sågbart`}>
+            <div style={{marginTop:4}}>
+            {d.skordare.sortiment.map((s:any,i:number) => {
+              const totVol = d.skordare.sortiment.reduce((a:number,x:any)=>a+x.vol,0);
+              const pct = Math.round((s.vol/totVol)*100);
+              return (
+                <div key={i} style={{display:'flex',alignItems:'center',padding:'12px 0',borderBottom:i<d.skordare.sortiment.length-1?'1px solid '+C.border:'none'}}>
+                  <span style={{fontSize:14,fontWeight:500,color:C.t2,flex:1}}>{s.namn}</span>
+                  <span style={{fontSize:12,color:C.t3,minWidth:35,textAlign:'right',marginRight:12}}>{pct}%</span>
+                  <span style={{fontSize:14,fontWeight:600,minWidth:60,textAlign:'right'}}>{s.vol} m³</span>
+                  <span style={{fontSize:12,color:C.t3,minWidth:45,textAlign:'right',marginLeft:8}}>{s.st} st</span>
+                </div>
+              );
+            })}
             </div>
-            {skG15 > 0 && stG15 > 0 && stG15 < skG15 && (
-              <div style={{ textAlign: 'center', fontSize: 13, color: C.green, fontWeight: 500 }}>
-                Skotare {Math.round((1 - (stG15 / skG15)) * 100)}% snabbare
-              </div>
-            )}
-            {skG15 > 0 && stG15 > 0 && stG15 >= skG15 && (
-              <div style={{ textAlign: 'center', fontSize: 13, color: C.orange, fontWeight: 500 }}>
-                Skotare {Math.round(((stG15 / skG15) - 1) * 100)}% långsammare
-              </div>
-            )}
           </Section>
         )}
 
-        {/* ── SKÖRDARE ── */}
-        {d && skG15 > 0 && (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '24px 0 12px', paddingLeft: 4 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.blue }} />
-              <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.3px' }}>Skördare</span>
-              <span style={{ fontSize: 12, color: C.t3 }}>{obj.skordareModell ? obj.skordareModell.split(' ').slice(-2).join(' ') : ''}</span>
+        <Section title="Diesel" sub={`${d.skordare.diesel.perM3} L/m³`}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16,marginTop:8}}>
+            {[{l:'Totalt',v:d.skordare.diesel.tot,s:'L'},{l:'Per m³fub',v:d.skordare.diesel.perM3,s:'L'},{l:'Per timme',v:d.skordare.diesel.perTim,s:'L'}].map((x:any,i:number) => (
+              <div key={i}>
+                <div style={{fontSize:11,color:C.t3,marginBottom:6}}>{x.l}</div>
+                <div style={{fontSize:20,fontWeight:700}}>{x.v} <span style={{fontSize:12,color:C.t3,fontWeight:400}}>{x.s}</span></div>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        {d.skordare.avbrott_lista.length > 0 && (
+          <Section title="Avbrott & stillestånd">
+            <div style={{marginTop:4}}>
+            {d.skordare.avbrott_lista.map((a:any,i:number) => (
+              <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'12px 0',borderBottom:i<d.skordare.avbrott_lista.length-1?'1px solid '+C.border:'none'}}>
+                <span style={{fontSize:14,color:C.t2}}>{a.typ}</span>
+                <span style={{fontSize:14,fontWeight:600,color:C.orange}}>{fmtMin(a.tid)}</span>
+              </div>
+            ))}
             </div>
-
-            <Section title="Tid" sub={`${produktivSk}% produktiv`}>
-              <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: 8, marginBottom: 20 }}>
-                {[{ l: 'Arbetstid', v: fmtHours(skArbetstid) }, { l: 'G15', v: fmtHours(skG15) }, { l: 'G0', v: fmtHours(d.skordare.tid.g0) }].map((t, i) => (
-                  <div key={i} style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px' }}>{t.v}</div>
-                    <div style={{ fontSize: 12, color: C.t3, marginTop: 4 }}>{t.l}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ height: 1, background: C.border, margin: '0 0 16px' }} />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
-                {[
-                  { l: 'Korta stopp', v: fmtMin(d.skordare.tid.kortaStopp) },
-                  { l: 'Avbrott', v: fmtMin(d.skordare.tid.avbrott) },
-                  { l: 'Rast', v: fmtMin(d.skordare.tid.rast) },
-                  { l: 'Tomgång', v: fmtMin(d.skordare.tid.tomgang) },
-                ].map((t, i) => (
-                  <div key={i} style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 10, color: C.t3, marginBottom: 4 }}>{t.l}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{t.v}</div>
-                  </div>
-                ))}
-              </div>
-            </Section>
-
-            <Section title="Produktion" sub={`${d.skordare.flertradPct}% flerträd`}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginTop: 8 }}>
-                {[
-                  { l: 'Stammar/G15', v: stamPerG15.toFixed(1) },
-                  { l: 'm³/G15', v: m3PerG15Sk.toFixed(1) },
-                  { l: 'Stammar', v: d.skordare.stammar },
-                ].map((p, i) => (
-                  <div key={i}>
-                    <div style={{ fontSize: 11, color: C.t3, marginBottom: 6 }}>{p.l}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700 }}>{p.v}</div>
-                  </div>
-                ))}
-              </div>
-            </Section>
-
-            {d.skordare.sortiment.length > 0 && (
-              <Section title="Sortiment" sub={`${sagbart}% sågbart`}>
-                <div style={{ marginTop: 4 }}>
-                  {d.skordare.sortiment.map((s, i) => {
-                    const pct = sortTotVol > 0 ? Math.round((s.vol / sortTotVol) * 100) : 0;
-                    return (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', padding: '12px 0', borderBottom: i < d.skordare.sortiment.length - 1 ? '1px solid ' + C.border : 'none' }}>
-                        <span style={{ fontSize: 14, fontWeight: 500, color: C.t2, flex: 1 }}>{s.namn}</span>
-                        <span style={{ fontSize: 12, color: C.t3, minWidth: 35, textAlign: 'right', marginRight: 12 }}>{pct}%</span>
-                        <span style={{ fontSize: 14, fontWeight: 600, minWidth: 60, textAlign: 'right' }}>{s.vol} m³</span>
-                        <span style={{ fontSize: 12, color: C.t3, minWidth: 45, textAlign: 'right', marginLeft: 8 }}>{s.st} st</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </Section>
-            )}
-
-            <Section title="Diesel" sub={`${dieselPerM3Sk.toFixed(2)} L/m³`}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginTop: 8 }}>
-                {[
-                  { l: 'Totalt', v: Math.round(d.skordare.tid.dieselTot), s: 'L' },
-                  { l: 'Per m³fub', v: dieselPerM3Sk.toFixed(2), s: 'L' },
-                  { l: 'Per timme', v: dieselPerTimSk.toFixed(2), s: 'L' },
-                ].map((x, i) => (
-                  <div key={i}>
-                    <div style={{ fontSize: 11, color: C.t3, marginBottom: 6 }}>{x.l}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700 }}>{x.v} <span style={{ fontSize: 12, color: C.t3, fontWeight: 400 }}>{x.s}</span></div>
-                  </div>
-                ))}
-              </div>
-            </Section>
-
-            {d.skordare.avbrott.length > 0 && (
-              <Section title="Avbrott & stillestånd">
-                <div style={{ marginTop: 4 }}>
-                  {d.skordare.avbrott.map((a, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: i < d.skordare.avbrott.length - 1 ? '1px solid ' + C.border : 'none' }}>
-                      <span style={{ fontSize: 14, color: C.t2 }}>{a.typ}</span>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: C.orange }}>{fmtMin(a.tid)}</span>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-          </>
+          </Section>
         )}
 
         {/* ── SKOTARE ── */}
-        {d && stG15 > 0 && (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '24px 0 12px', paddingLeft: 4 }}>
-              <div style={{ width: 10, height: 10, borderRadius: '50%', background: C.green }} />
-              <span style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.3px' }}>Skotare</span>
-              <span style={{ fontSize: 12, color: C.t3 }}>{obj.skotareModell ? obj.skotareModell.split(' ').slice(-2).join(' ') : ''}</span>
-            </div>
+        <div style={{display:'flex',alignItems:'center',gap:10,margin:'24px 0 12px',paddingLeft:4}}>
+          <div style={{width:10,height:10,borderRadius:'50%',background:C.green}}/>
+          <span style={{fontSize:18,fontWeight:700,letterSpacing:'-0.3px'}}>Skotare</span>
+          <span style={{fontSize:12,color:C.t3}}>{skotare}</span>
+        </div>
 
-            <Section title="Tid" sub={`${produktivSt}% produktiv`}>
-              <div style={{ display: 'flex', justifyContent: 'space-around', marginTop: 8, marginBottom: 20 }}>
-                {[{ l: 'Arbetstid', v: fmtHours(stArbetstid) }, { l: 'G15', v: fmtHours(stG15) }, { l: 'G0', v: fmtHours(d.skotare.tid.g0) }].map((t, i) => (
-                  <div key={i} style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px' }}>{t.v}</div>
-                    <div style={{ fontSize: 12, color: C.t3, marginTop: 4 }}>{t.l}</div>
-                  </div>
-                ))}
+        <Section title="Tid" sub={`${produktivSt}% produktiv`}>
+          <div style={{display:'flex',justifyContent:'space-around',marginTop:8,marginBottom:20}}>
+            {[{l:'Arbetstid',v:d.skotare.arbetstid},{l:'G15',v:d.skotare.g15},{l:'G0',v:d.skotare.g0}].map((t:any,i:number) => (
+              <div key={i} style={{textAlign:'center'}}>
+                <div style={{fontSize:28,fontWeight:700,letterSpacing:'-0.5px'}}>{t.v}</div>
+                <div style={{fontSize:12,color:C.t3,marginTop:4}}>{t.l}</div>
               </div>
-              <div style={{ height: 1, background: C.border, margin: '0 0 16px' }} />
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
-                {[
-                  { l: 'Korta stopp', v: fmtMin(d.skotare.tid.kortaStopp) },
-                  { l: 'Avbrott', v: fmtMin(d.skotare.tid.avbrott) },
-                  { l: 'Rast', v: fmtMin(d.skotare.tid.rast) },
-                  { l: 'Tomgång', v: fmtMin(d.skotare.tid.tomgang) },
-                ].map((t, i) => (
-                  <div key={i} style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 10, color: C.t3, marginBottom: 4 }}>{t.l}</div>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{t.v}</div>
-                  </div>
-                ))}
-              </div>
-            </Section>
-
-            <Section title="Produktion">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '20px 16px', marginTop: 8 }}>
-                {[
-                  { l: 'Antal lass', v: d.skotare.antalLass, s: '' },
-                  { l: 'Snitt lass', v: d.skotare.snittLass.toFixed(1), s: 'm³' },
-                  { l: 'Lass/G15', v: lassPerG15.toFixed(2), s: '' },
-                  { l: 'm³/G15', v: m3PerG15St.toFixed(1), s: '' },
-                  { l: 'Skotningsavst.', v: Math.round(d.skotare.skotningsAvstand), s: 'm' },
-                ].map((p, i) => (
-                  <div key={i}>
-                    <div style={{ fontSize: 11, color: C.t3, marginBottom: 6 }}>{p.l}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700 }}>{p.v} <span style={{ fontSize: 12, color: C.t3, fontWeight: 400 }}>{p.s}</span></div>
-                  </div>
-                ))}
-              </div>
-            </Section>
-
-            <Section title="Diesel" sub={`${dieselPerM3St.toFixed(2)} L/m³`}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16, marginTop: 8 }}>
-                {[
-                  { l: 'Totalt', v: Math.round(d.skotare.tid.dieselTot), s: 'L' },
-                  { l: 'Per m³fub', v: dieselPerM3St.toFixed(2), s: 'L' },
-                  { l: 'Per G15', v: dieselPerG15St.toFixed(2), s: 'L' },
-                ].map((x, i) => (
-                  <div key={i}>
-                    <div style={{ fontSize: 11, color: C.t3, marginBottom: 6 }}>{x.l}</div>
-                    <div style={{ fontSize: 20, fontWeight: 700 }}>{x.v} <span style={{ fontSize: 12, color: C.t3, fontWeight: 400 }}>{x.s}</span></div>
-                  </div>
-                ))}
-              </div>
-            </Section>
-
-            {d.skotare.avbrott.length > 0 && (
-              <Section title="Avbrott & stillestånd">
-                <div style={{ marginTop: 4 }}>
-                  {d.skotare.avbrott.map((a, i) => (
-                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: i < d.skotare.avbrott.length - 1 ? '1px solid ' + C.border : 'none' }}>
-                      <span style={{ fontSize: 14, color: C.t2 }}>{a.typ}</span>
-                      <span style={{ fontSize: 14, fontWeight: 600, color: C.orange }}>{fmtMin(a.tid)}</span>
-                    </div>
-                  ))}
-                </div>
-              </Section>
-            )}
-          </>
-        )}
-
-        {/* No data fallback */}
-        {(!d || (skG15 === 0 && stG15 === 0)) && (
-          <div style={{ textAlign: 'center', padding: '40px 20px', color: C.t3 }}>
-            <div style={{ fontSize: 15, marginBottom: 8 }}>Ingen detaljerad tiddata tillgänglig</div>
-            <div style={{ fontSize: 12 }}>Produktionsdata visas när tidsrapporter finns i systemet</div>
+            ))}
           </div>
+          <div style={{height:1,background:C.border,margin:'0 0 16px'}}/>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}}>
+            {[{l:'Korta stopp',v:fmtMin(d.skotare.kortaStopp)},{l:'Avbrott',v:fmtMin(d.skotare.avbrott)},{l:'Rast',v:fmtMin(d.skotare.rast)},{l:'Tomgång',v:fmtMin(d.skotare.tomgang)}].map((t:any,i:number) => (
+              <div key={i} style={{textAlign:'center'}}>
+                <div style={{fontSize:10,color:C.t3,marginBottom:4}}>{t.l}</div>
+                <div style={{fontSize:14,fontWeight:600}}>{t.v}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Produktion" sub={`${d.skotare.lastrede} lastrede`}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'20px 16px',marginTop:8}}>
+            {[{l:'Antal lass',v:d.skotare.lass,s:''},{l:'Snitt lass',v:d.skotare.snittLass,s:'m³'},{l:'Lass/G15',v:d.skotare.lassPerG15,s:''},{l:'m³/G15',v:d.skotare.m3PerG15,s:''},{l:'Skotningsavst.',v:d.skotare.avstand,s:'m'}].map((p:any,i:number) => (
+              <div key={i}>
+                <div style={{fontSize:11,color:C.t3,marginBottom:6}}>{p.l}</div>
+                <div style={{fontSize:20,fontWeight:700}}>{p.v} <span style={{fontSize:12,color:C.t3,fontWeight:400}}>{p.s}</span></div>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section title="Diesel" sub={`${d.skotare.diesel.perM3} L/m³`}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:16,marginTop:8}}>
+            {[{l:'Totalt',v:d.skotare.diesel.tot,s:'L'},{l:'Per m³fub',v:d.skotare.diesel.perM3,s:'L'},{l:'Per G15',v:d.skotare.diesel.perG15,s:'L'}].map((x:any,i:number) => (
+              <div key={i}>
+                <div style={{fontSize:11,color:C.t3,marginBottom:6}}>{x.l}</div>
+                <div style={{fontSize:20,fontWeight:700}}>{x.v} <span style={{fontSize:12,color:C.t3,fontWeight:400}}>{x.s}</span></div>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        {d.skotare.avbrott_lista.length > 0 && (
+          <Section title="Avbrott & stillestånd">
+            <div style={{marginTop:4}}>
+            {d.skotare.avbrott_lista.map((a:any,i:number) => (
+              <div key={i} style={{display:'flex',justifyContent:'space-between',padding:'12px 0',borderBottom:i<d.skotare.avbrott_lista.length-1?'1px solid '+C.border:'none'}}>
+                <span style={{fontSize:14,color:C.t2}}>{a.typ}</span>
+                <span style={{fontSize:14,fontWeight:600,color:C.orange}}>{fmtMin(a.tid)}</span>
+              </div>
+            ))}
+            </div>
+          </Section>
         )}
+
       </div>
     </div>
   );
