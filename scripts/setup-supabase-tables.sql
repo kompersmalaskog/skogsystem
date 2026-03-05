@@ -120,3 +120,11 @@ ALTER TABLE objekt ADD COLUMN IF NOT EXISTS grot_status TEXT DEFAULT 'ej_aktuell
 ALTER TABLE objekt ADD COLUMN IF NOT EXISTS grot_volym NUMERIC;
 ALTER TABLE objekt ADD COLUMN IF NOT EXISTS grot_anteckning TEXT;
 ALTER TABLE objekt ADD COLUMN IF NOT EXISTS grot_deadline DATE;
+
+-- 11. PRIVAT VO-NUMMER SEKVENS + FUNKTION
+CREATE SEQUENCE IF NOT EXISTS privat_vo_seq START 1000;
+
+CREATE OR REPLACE FUNCTION next_privat_vo()
+RETURNS text AS $$
+  SELECT 'P-' || nextval('privat_vo_seq')::text;
+$$ LANGUAGE sql;

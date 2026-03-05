@@ -10,6 +10,7 @@ const navItems = [
   { href: '/planering', label: 'Planering', icon: 'calendar' },
   { href: '/oversikt', label: 'Översikt', icon: 'overview' },
   { href: '/uppfoljning', label: 'Uppföljning', icon: 'chart' },
+  { href: '/starta-jobb', label: 'Starta jobb', icon: 'play' },
   { href: '/forbattringsforslag', label: 'Förslag', icon: 'lightbulb' },
 ]
 
@@ -64,6 +65,12 @@ function NavIcon({ icon, active }: { icon: string; active: boolean }) {
           <path d="M18 20V10" />
           <path d="M12 20V4" />
           <path d="M6 20v-6" />
+        </svg>
+      )
+    case 'play':
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="5 3 19 12 5 21 5 3" />
         </svg>
       )
     case 'lightbulb':
