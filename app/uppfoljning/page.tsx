@@ -734,72 +734,55 @@ export default function UppfoljningPage() {
 
       // Group dim_objekt by vo_nummer (or objekt_id if no vo_nummer)
       const voGroups = new Map<string, any[]>();
+      const excludedVos = new Set<string>();
       dimObjekt.forEach(d => {
-        if (d.exkludera) return; // skip excluded objects
         const key = d.vo_nummer || d.objekt_id;
         if (!key) return;
+        if (d.exkludera) {
+          excludedVos.add(key);
+          return;
+        }
         const arr = voGroups.get(key) || [];
         arr.push(d);
         voGroups.set(key, arr);
       });
+      // If a vo has both excluded and non-excluded entries, keep the non-excluded
+      voGroups.forEach((_, key) => excludedVos.delete(key));
 
-      // Build UppfoljningObjekt for each VO group
+      // Build UppfoljningObjekt — objekt table as base + dim_objekt groups
       const result: UppfoljningObjekt[] = [];
+      const processedVos = new Set<string>();
 
-      voGroups.forEach((entries, key) => {
+      const buildObjekt = (entries: any[], vo: string, namn: string, agare: string, areal: number, typ: 'slutavverkning' | 'gallring') => {
         let skordareEntry: any = null;
         let skotareEntry: any = null;
 
-        // Determine skördare/skotare per entry via maskin_id → dim_maskin
         for (const e of entries) {
           const maskin = maskinMap.get(e.maskin_id);
           const mType = getMachineType(maskin);
           if (mType === 'skordare' && !skordareEntry) skordareEntry = e;
           else if (mType === 'skotare' && !skotareEntry) skotareEntry = e;
         }
-
-        // Fallback: if machine type unknown, use production data to infer
         if (!skordareEntry && !skotareEntry) {
           for (const e of entries) {
             if (!skordareEntry && prodAgg.has(e.objekt_id)) { skordareEntry = e; continue; }
             if (!skotareEntry && lassAgg.has(e.objekt_id)) { skotareEntry = e; continue; }
           }
         }
-        // If still nothing assigned, put first as skördare
         if (!skordareEntry && !skotareEntry && entries.length > 0) {
           skordareEntry = entries[0];
           if (entries.length > 1) skotareEntry = entries[1];
         }
 
-        // Name & metadata
-        const firstEntry = entries[0];
-        const vo = firstEntry.vo_nummer || '';
-        const namn = firstEntry.object_name || firstEntry.objektnamn || vo || key;
-        const info = objektInfo.get(vo);
-
-        // Owner: try dim_objekt.skogsagare/bolag, then objekt table
-        const agare = firstEntry.skogsagare || firstEntry.bolag || info?.agare || '';
-        const areal = info?.areal || 0;
-        const typ = inferType(firstEntry.huvudtyp || info?.typ);
-
-        // Volumes
         const skProd = skordareEntry ? prodAgg.get(skordareEntry.objekt_id) : null;
         const stLass = skotareEntry ? lassAgg.get(skotareEntry.objekt_id) : null;
-
-        // Diesel
         const skDiesel = skordareEntry ? (tidAgg.get(skordareEntry.objekt_id) || 0) : 0;
         const stDiesel = skotareEntry ? (tidAgg.get(skotareEntry.objekt_id) || 0) : 0;
-
-        // Dates
         const skStart = skordareEntry?.start_date || null;
         const skSlut = skordareEntry?.end_date || skordareEntry?.skordning_avslutad || null;
         const stStart = skotareEntry?.start_date || null;
         const stSlut = skotareEntry?.end_date || skotareEntry?.skotning_avslutad || null;
-
-        // Status: avslutat if ALL entries have an end date
-        const allDone = entries.every((e: any) => e.end_date || e.skordning_avslutad || e.skotning_avslutad);
-
-        // Days: from earliest start to now (pågående) or to latest end (avslutad)
+        const allDone = entries.length > 0 && entries.every((e: any) => e.end_date || e.skordning_avslutad || e.skotning_avslutad);
         const earliestStart = [skStart, stStart].filter(Boolean).sort()[0] || null;
         const latestEnd = [skSlut, stSlut].filter(Boolean).sort().reverse()[0] || null;
         let dagar: number | null = null;
@@ -830,6 +813,40 @@ export default function UppfoljningPage() {
           status: allDone ? 'avslutat' : 'pagaende',
           egenSkotning: entries.some((e: any) => e.egen_skotning === true),
         });
+      };
+
+      // 1. Process all objekt table rows as base
+      objektTbl.forEach(objRow => {
+        const vo = objRow.vo_nummer;
+        if (!vo) return;
+        if (excludedVos.has(vo)) return;
+        if (processedVos.has(vo)) return;
+        processedVos.add(vo);
+
+        const entries = voGroups.get(vo) || [];
+        const firstEntry = entries[0];
+        const namn = firstEntry?.object_name || firstEntry?.objektnamn || vo;
+        const agare = firstEntry?.skogsagare || firstEntry?.bolag || objRow.markagare || '';
+        const areal = objRow.areal || 0;
+        const typ = inferType(firstEntry?.huvudtyp || objRow.typ);
+
+        buildObjekt(entries, vo, namn, agare, areal, typ);
+      });
+
+      // 2. Also process dim_objekt groups without a matching objekt table row
+      voGroups.forEach((entries, key) => {
+        if (processedVos.has(key)) return;
+        processedVos.add(key);
+
+        const firstEntry = entries[0];
+        const vo = firstEntry.vo_nummer || '';
+        const namn = firstEntry.object_name || firstEntry.objektnamn || vo || key;
+        const info = objektInfo.get(vo);
+        const agare = firstEntry.skogsagare || firstEntry.bolag || info?.agare || '';
+        const areal = info?.areal || 0;
+        const typ = inferType(firstEntry.huvudtyp || info?.typ);
+
+        buildObjekt(entries, vo, namn, agare, areal, typ);
       });
 
       result.sort((a, b) => a.namn.localeCompare(b.namn, 'sv'));
