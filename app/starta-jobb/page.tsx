@@ -50,7 +50,7 @@ export default function StartaJobbPage() {
         const { data, error: dbErr } = await supabase
           .from('dim_objekt')
           .select('objekt_id, object_name, vo_nummer, skogsagare, bolag')
-          .is('vo_nummer', null)
+          .or('vo_nummer.is.null,vo_nummer.eq.')
           .order('object_name');
         if (dbErr) {
           console.error('Supabase error:', dbErr);
