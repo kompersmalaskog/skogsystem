@@ -18,6 +18,7 @@ const morItems = [
   { href: '/forbattringsforslag', label: 'Förslag', icon: '💡' },
   { href: '/uppfoljning', label: 'Uppföljning', icon: '📊' },
   { href: '/karta', label: 'Karta', icon: '🗺️' },
+  { href: '/starta-jobb', label: 'Starta jobb', icon: '▶' },
 ];
 
 export default function BottomNav() {
