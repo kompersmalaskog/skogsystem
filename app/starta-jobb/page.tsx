@@ -50,12 +50,12 @@ export default function StartaJobbPage() {
         const { data, error: dbErr } = await supabase
           .from('dim_objekt')
           .select('objekt_id, object_name, vo_nummer, skogsagare, bolag')
-          .or('vo_nummer.is.null,vo_nummer.eq.');
+          .order('object_name');
         if (dbErr) {
           console.error('Supabase error:', dbErr);
           setError(`Databasfel: ${dbErr.message}`);
         } else {
-          console.log(`Hämtade ${data?.length ?? 0} objekt utan VO-nummer`);
+          console.log(`Hämtade ${data?.length ?? 0} objekt (debug: alla)`);
           if (data) setObjekt(data);
         }
       } catch (err: any) {
@@ -146,7 +146,7 @@ export default function StartaJobbPage() {
         </div>
 
         <div style={{ fontSize: 12, color: C.t3, marginBottom: 16 }}>
-          {lista.length} objekt utan VO-nummer
+          {lista.length} objekt totalt (debug)
         </div>
       </div>
 
@@ -184,6 +184,9 @@ export default function StartaJobbPage() {
               </div>
               <div style={{ fontSize: 12, color: C.t3 }}>
                 {[obj.skogsagare, obj.bolag].filter(Boolean).join(' · ') || 'Okänd ägare'}
+              </div>
+              <div style={{ fontSize: 11, color: obj.vo_nummer ? C.green : C.t4, marginTop: 4, fontFamily: 'monospace' }}>
+                vo_nummer: {obj.vo_nummer || 'null'}
               </div>
             </div>
           ))
