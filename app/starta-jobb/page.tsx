@@ -34,17 +34,39 @@ export default function StartaJobbPage() {
   const [sok, setSok] = useState('');
   const [tilldelat, setTilldelat] = useState<Tilldelat | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (loading) {
+        setError('Timeout: inget svar från databasen efter 10 sekunder');
+        setLoading(false);
+      }
+    }, 10000);
+
     (async () => {
-      const { data } = await supabase
-        .from('dim_objekt')
-        .select('objekt_id, object_name, vo_nummer, skogsagare, bolag')
-        .or('vo_nummer.is.null,vo_nummer.eq.');
-      if (data) setObjekt(data);
+      try {
+        const { data, error: dbErr } = await supabase
+          .from('dim_objekt')
+          .select('objekt_id, object_name, vo_nummer, skogsagare, bolag')
+          .or('vo_nummer.is.null,vo_nummer.eq.');
+        if (dbErr) {
+          console.error('Supabase error:', dbErr);
+          setError(`Databasfel: ${dbErr.message}`);
+        } else {
+          console.log(`Hämtade ${data?.length ?? 0} objekt utan VO-nummer`);
+          if (data) setObjekt(data);
+        }
+      } catch (err: any) {
+        console.error('Fetch error:', err);
+        setError(`Nätverksfel: ${err.message}`);
+      }
       setLoading(false);
+      clearTimeout(timeout);
     })();
+
+    return () => clearTimeout(timeout);
   }, []);
 
   const lista = useMemo(() => {
@@ -130,7 +152,13 @@ export default function StartaJobbPage() {
 
       {/* Lista */}
       <div style={{ padding: '0 16px 120px', maxWidth: 700, margin: '0 auto' }}>
-        {loading ? (
+        {error ? (
+          <div style={{ textAlign: 'center', padding: 60 }}>
+            <div style={{ fontSize: 40, marginBottom: 12, opacity: .3 }}>⚠</div>
+            <div style={{ fontSize: 15, color: '#ef4444', marginBottom: 16 }}>{error}</div>
+            <button onClick={() => window.location.reload()} style={{ padding: '12px 24px', borderRadius: 12, border: 'none', background: C.green, color: '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: ff }}>Försök igen</button>
+          </div>
+        ) : loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: C.t3 }}>
             <div style={{ fontSize: 15 }}>Laddar...</div>
           </div>
