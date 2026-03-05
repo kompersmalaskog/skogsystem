@@ -335,7 +335,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
   // ALL styles, padding, fontSize, borderRadius etc are IDENTICAL
   // ══════════════════════════════════════════════════════════════
   return (
-    <div style={{minHeight:'100vh',background:C.bg,color:C.t1,fontFamily:ff,WebkitFontSmoothing:'antialiased',maxWidth:600,margin:'0 auto'}}>
+    <div style={{minHeight:'100vh',background:C.bg,color:C.t1,fontFamily:ff,WebkitFontSmoothing:'antialiased'}}>
       {/* Header */}
       <div style={{padding:'14px 20px 20px',background:C.card}}>
         <button onClick={onBack} style={{background:'none',border:'none',color:C.blue,fontSize:15,cursor:'pointer',padding:0,marginBottom:16,fontFamily:ff,fontWeight:500}}>‹ Tillbaka</button>
@@ -413,7 +413,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         </div>
       </div>
 
-      <div style={{padding:'16px 16px 80px'}}>
+      <div style={{padding:'16px 16px 80px',maxWidth:700,margin:'0 auto'}}>
 
         {/* Visa avverkning */}
         <button onClick={()=>{}} style={{width:'100%',padding:'16px',background:C.card,border:'1px solid '+C.border,borderRadius:14,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:10,marginBottom:16}}>
@@ -845,7 +845,7 @@ export default function UppfoljningPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', maxWidth: 600, margin: '0 auto' }}>
+    <div style={{ minHeight: '100vh', background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased' }}>
       <div style={{ padding: '24px 20px 0' }}>
         <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 20 }}>Uppföljning</div>
 
@@ -889,7 +889,7 @@ export default function UppfoljningPage() {
       </div>
 
       {/* Lista */}
-      <div style={{ padding: '0 16px 120px' }}>
+      <div style={{ padding: '0 16px 120px', maxWidth: 700, margin: '0 auto' }}>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: C.t3 }}>
             <div style={{ fontSize: 15 }}>Laddar...</div>
