@@ -38,6 +38,7 @@ interface UppfoljningObjekt {
   dieselTotal: number;
   dagar: number | null;
   status: 'pagaende' | 'avslutat';
+  egenSkotning: boolean;
 }
 
 /* ── Helpers ── */
@@ -136,27 +137,35 @@ function ObjektKort({ obj, onClick }: { obj: UppfoljningObjekt; onClick: () => v
                 {obj.skordareSlut ? 'Klar' : 'Pågår'}
               </span>
             </div>
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
-              <span style={{ fontSize: 10, color: C.t3 }}>Skotare</span>
-              <span style={{ fontSize: 10, color: C.t2, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                {obj.skotareModell ? obj.skotareModell.split(' ').slice(-2).join(' ') : '—'}
-              </span>
-              <span style={{ fontSize: 9, fontWeight: 600, color: obj.volymSkotare > 0 && !obj.skotareSlut ? C.green : obj.skotareSlut ? C.t3 : obj.skotareModell ? C.orange : C.t4, whiteSpace: 'nowrap' }}>
-                {obj.skotareSlut ? 'Klar' : obj.volymSkotare > 0 ? 'Pågår' : obj.skotareModell ? 'Väntar' : '—'}
-              </span>
-            </div>
+            {obj.egenSkotning ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '6px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: C.t3 }}>Egen skotning</span>
+              </div>
+            ) : (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 5, padding: '6px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 8 }}>
+                <span style={{ fontSize: 10, color: C.t3 }}>Skotare</span>
+                <span style={{ fontSize: 10, color: C.t2, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
+                  {obj.skotareModell ? obj.skotareModell.split(' ').slice(-2).join(' ') : '—'}
+                </span>
+                <span style={{ fontSize: 9, fontWeight: 600, color: obj.volymSkotare > 0 && !obj.skotareSlut ? C.green : obj.skotareSlut ? C.t3 : obj.skotareModell ? C.orange : C.t4, whiteSpace: 'nowrap' }}>
+                  {obj.skotareSlut ? 'Klar' : obj.volymSkotare > 0 ? 'Pågår' : obj.skotareModell ? 'Väntar' : '—'}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Progress */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                <span style={{ fontSize: 11, color: C.t3 }}>{obj.areal} ha</span>
-                <span style={{ fontSize: 11, color: kvar > 30 ? C.orange : C.green, fontWeight: 600 }}>{kvar}% kvar i skogen</span>
+          {!obj.egenSkotning && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={{ fontSize: 11, color: C.t3 }}>{obj.areal} ha</span>
+                  <span style={{ fontSize: 11, color: kvar > 30 ? C.orange : C.green, fontWeight: 600 }}>{kvar}% kvar i skogen</span>
+                </div>
+                <Bar pct={100 - kvar} color={kvar > 30 ? C.orange : C.green} />
               </div>
-              <Bar pct={100 - kvar} color={kvar > 30 ? C.orange : C.green} />
             </div>
-          </div>
+          )}
         </div>
       )}
     </div>
@@ -819,6 +828,7 @@ export default function UppfoljningPage() {
           dieselTotal: skDiesel + stDiesel,
           dagar,
           status: allDone ? 'avslutat' : 'pagaende',
+          egenSkotning: entries.some((e: any) => e.egen_skotning === true),
         });
       });
 
