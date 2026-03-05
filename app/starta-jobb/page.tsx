@@ -27,6 +27,8 @@ interface Tilldelat {
   objekt_id: string;
   object_name: string;
   vo_nummer: string;
+  skogsagare: string | null;
+  bolag: string | null;
 }
 
 export default function StartaJobbPage() {
@@ -36,6 +38,9 @@ export default function StartaJobbPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [flik, setFlik] = useState<'ny' | 'tilldelade'>('ny');
+  const [tilldelade, setTilldelade] = useState<DimObjekt[]>([]);
+  const [visaVo, setVisaVo] = useState<{ object_name: string; vo_nummer: string } | null>(null);
 
   useEffect(() => {
     const timeout = setTimeout(() => {
@@ -47,18 +52,23 @@ export default function StartaJobbPage() {
 
     (async () => {
       try {
-        const { data, error: dbErr } = await supabase
-          .from('dim_objekt')
-          .select('objekt_id, object_name, vo_nummer, skogsagare, bolag')
-          .or('vo_nummer.is.null,vo_nummer.eq.')
-          .order('object_name');
-        if (dbErr) {
-          console.error('Supabase error:', dbErr);
-          setError(`Databasfel: ${dbErr.message}`);
+        const [res1, res2] = await Promise.all([
+          supabase.from('dim_objekt')
+            .select('objekt_id, object_name, vo_nummer, skogsagare, bolag')
+            .or('vo_nummer.is.null,vo_nummer.eq.')
+            .order('object_name'),
+          supabase.from('dim_objekt')
+            .select('objekt_id, object_name, vo_nummer, skogsagare, bolag')
+            .like('vo_nummer', 'P-%')
+            .order('object_name'),
+        ]);
+        if (res1.error) {
+          console.error('Supabase error:', res1.error);
+          setError(`Databasfel: ${res1.error.message}`);
         } else {
-          console.log(`Hämtade ${data?.length ?? 0} objekt (debug: alla)`);
-          if (data) setObjekt(data);
+          if (res1.data) setObjekt(res1.data);
         }
+        if (res2.data) setTilldelade(res2.data);
       } catch (err: any) {
         console.error('Fetch error:', err);
         setError(`Nätverksfel: ${err.message}`);
@@ -80,6 +90,17 @@ export default function StartaJobbPage() {
     );
   }, [objekt, sok]);
 
+  const tilldeladeLista = useMemo(() => {
+    if (!sok.trim()) return tilldelade;
+    const t = sok.toLowerCase();
+    return tilldelade.filter(o =>
+      (o.object_name || '').toLowerCase().includes(t) ||
+      (o.skogsagare || '').toLowerCase().includes(t) ||
+      (o.bolag || '').toLowerCase().includes(t) ||
+      (o.vo_nummer || '').toLowerCase().includes(t)
+    );
+  }, [tilldelade, sok]);
+
   const handleTilldela = async (obj: DimObjekt) => {
     if (saving) return;
     setSaving(true);
@@ -97,6 +118,8 @@ export default function StartaJobbPage() {
       objekt_id: obj.objekt_id,
       object_name: obj.object_name || obj.objekt_id,
       vo_nummer: vo,
+      skogsagare: obj.skogsagare,
+      bolag: obj.bolag,
     });
     setSaving(false);
   };
@@ -105,6 +128,40 @@ export default function StartaJobbPage() {
     setTilldelat(null);
   };
 
+  const handleVisaSenare = () => {
+    if (!tilldelat) return;
+    setTilldelade(prev => [{
+      objekt_id: tilldelat.objekt_id,
+      object_name: tilldelat.object_name,
+      vo_nummer: tilldelat.vo_nummer,
+      skogsagare: tilldelat.skogsagare,
+      bolag: tilldelat.bolag,
+    }, ...prev]);
+    setTilldelat(null);
+    setFlik('tilldelade');
+  };
+
+  // Visa VO-nummer för tilldelat objekt
+  if (visaVo) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+        <div style={{ fontSize: 14, color: C.t3, marginBottom: 8 }}>{visaVo.object_name}</div>
+        <div style={{ fontSize: 15, color: C.t2, marginBottom: 24 }}>VO-nummer:</div>
+        <div style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-1px', marginBottom: 40, color: C.green }}>{visaVo.vo_nummer}</div>
+        <button
+          onClick={() => setVisaVo(null)}
+          style={{
+            padding: '16px 48px', borderRadius: 14, border: 'none',
+            background: C.green, color: '#000', fontSize: 17, fontWeight: 600,
+            cursor: 'pointer', fontFamily: ff,
+          }}
+        >
+          Tillbaka
+        </button>
+      </div>
+    );
+  }
+
   // Resultatvy efter tilldelning
   if (tilldelat) {
     return (
@@ -112,16 +169,29 @@ export default function StartaJobbPage() {
         <div style={{ fontSize: 14, color: C.t3, marginBottom: 8 }}>{tilldelat.object_name}</div>
         <div style={{ fontSize: 15, color: C.t2, marginBottom: 24 }}>Mata in detta nummer i terminalen:</div>
         <div style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-1px', marginBottom: 40, color: C.green }}>{tilldelat.vo_nummer}</div>
-        <button
-          onClick={handleKlar}
-          style={{
-            padding: '16px 48px', borderRadius: 14, border: 'none',
-            background: C.green, color: '#000', fontSize: 17, fontWeight: 600,
-            cursor: 'pointer', fontFamily: ff,
-          }}
-        >
-          Klar
-        </button>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            onClick={handleVisaSenare}
+            style={{
+              padding: '16px 32px', borderRadius: 14,
+              border: '1px solid ' + C.border, background: C.card,
+              color: C.t2, fontSize: 17, fontWeight: 600,
+              cursor: 'pointer', fontFamily: ff,
+            }}
+          >
+            Visa senare
+          </button>
+          <button
+            onClick={handleKlar}
+            style={{
+              padding: '16px 32px', borderRadius: 14, border: 'none',
+              background: C.green, color: '#000', fontSize: 17, fontWeight: 600,
+              cursor: 'pointer', fontFamily: ff,
+            }}
+          >
+            Klar
+          </button>
+        </div>
       </div>
     );
   }
@@ -146,8 +216,23 @@ export default function StartaJobbPage() {
           )}
         </div>
 
-        <div style={{ fontSize: 12, color: C.t3, marginBottom: 16 }}>
-          {lista.length} objekt utan VO-nummer
+        {/* Flikar */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          {(['ny', 'tilldelade'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFlik(f)}
+              style={{
+                padding: '8px 16px', borderRadius: 10, border: 'none',
+                background: flik === f ? 'rgba(255,255,255,0.1)' : 'transparent',
+                color: flik === f ? C.t1 : C.t3,
+                fontSize: 14, fontWeight: flik === f ? 600 : 400,
+                cursor: 'pointer', fontFamily: ff,
+              }}
+            >
+              {f === 'ny' ? `Nya (${objekt.length})` : `Tilldelade (${tilldelade.length})`}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -163,31 +248,61 @@ export default function StartaJobbPage() {
           <div style={{ textAlign: 'center', padding: 60, color: C.t3 }}>
             <div style={{ fontSize: 15 }}>Laddar...</div>
           </div>
-        ) : lista.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 60, color: C.t3 }}>
-            <div style={{ fontSize: 40, marginBottom: 12, opacity: .3 }}>✓</div>
-            <div style={{ fontSize: 15 }}>Alla objekt har VO-nummer</div>
-          </div>
-        ) : (
-          lista.map(obj => (
-            <div
-              key={obj.objekt_id}
-              onClick={() => handleTilldela(obj)}
-              style={{
-                background: C.card, borderRadius: 16, padding: '18px 18px',
-                cursor: saving ? 'wait' : 'pointer', marginBottom: 10,
-                border: '1px solid ' + C.border, transition: 'transform 0.1s',
-                opacity: saving ? 0.5 : 1,
-              }}
-            >
-              <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.3px', marginBottom: 4 }}>
-                {obj.object_name || obj.objekt_id}
-              </div>
-              <div style={{ fontSize: 12, color: C.t3 }}>
-                {[obj.skogsagare, obj.bolag].filter(Boolean).join(' · ') || 'Okänd ägare'}
-              </div>
+        ) : flik === 'ny' ? (
+          lista.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 60, color: C.t3 }}>
+              <div style={{ fontSize: 40, marginBottom: 12, opacity: .3 }}>✓</div>
+              <div style={{ fontSize: 15 }}>Alla objekt har VO-nummer</div>
             </div>
-          ))
+          ) : (
+            lista.map(obj => (
+              <div
+                key={obj.objekt_id}
+                onClick={() => handleTilldela(obj)}
+                style={{
+                  background: C.card, borderRadius: 16, padding: '18px 18px',
+                  cursor: saving ? 'wait' : 'pointer', marginBottom: 10,
+                  border: '1px solid ' + C.border, transition: 'transform 0.1s',
+                  opacity: saving ? 0.5 : 1,
+                }}
+              >
+                <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.3px', marginBottom: 4 }}>
+                  {obj.object_name || obj.objekt_id}
+                </div>
+                <div style={{ fontSize: 12, color: C.t3 }}>
+                  {[obj.skogsagare, obj.bolag].filter(Boolean).join(' · ') || 'Okänd ägare'}
+                </div>
+              </div>
+            ))
+          )
+        ) : (
+          tilldeladeLista.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: 60, color: C.t3 }}>
+              <div style={{ fontSize: 15 }}>Inga tilldelade objekt ännu</div>
+            </div>
+          ) : (
+            tilldeladeLista.map(obj => (
+              <div
+                key={obj.objekt_id}
+                onClick={() => setVisaVo({ object_name: obj.object_name || obj.objekt_id, vo_nummer: obj.vo_nummer || '' })}
+                style={{
+                  background: C.card, borderRadius: 16, padding: '18px 18px',
+                  cursor: 'pointer', marginBottom: 10,
+                  border: '1px solid ' + C.border,
+                }}
+              >
+                <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.3px', marginBottom: 2 }}>
+                  {obj.object_name || obj.objekt_id}
+                </div>
+                <div style={{ fontSize: 12, color: C.t3, marginBottom: 8 }}>
+                  {[obj.skogsagare, obj.bolag].filter(Boolean).join(' · ') || 'Okänd ägare'}
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: C.green }}>
+                  {obj.vo_nummer}
+                </div>
+              </div>
+            ))
+          )
         )}
       </div>
     </div>
