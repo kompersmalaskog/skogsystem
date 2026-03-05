@@ -151,11 +151,7 @@ function ObjektKort({ obj, onClick }: { obj: UppfoljningObjekt; onClick: () => v
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                <span style={{ fontSize: 11, color: C.t3 }}>
-                  {obj.areal > 0 ? `${obj.areal} ha` : ''}
-                  {obj.areal > 0 && obj.dagar !== null ? ' · ' : ''}
-                  {obj.dagar !== null ? `${obj.dagar} dagar` : ''}
-                </span>
+                <span style={{ fontSize: 11, color: C.t3 }}>{obj.areal} ha</span>
                 <span style={{ fontSize: 11, color: kvar > 30 ? C.orange : C.green, fontWeight: 600 }}>{kvar}% kvar i skogen</span>
               </div>
               <Bar pct={100 - kvar} color={kvar > 30 ? C.orange : C.green} />
@@ -339,7 +335,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
   // ALL styles, padding, fontSize, borderRadius etc are IDENTICAL
   // ══════════════════════════════════════════════════════════════
   return (
-    <div style={{minHeight:'100vh',background:C.bg,color:C.t1,fontFamily:ff,WebkitFontSmoothing:'antialiased'}}>
+    <div style={{minHeight:'100vh',background:C.bg,color:C.t1,fontFamily:ff,WebkitFontSmoothing:'antialiased',maxWidth:600,margin:'0 auto'}}>
       {/* Header */}
       <div style={{padding:'14px 20px 20px',background:C.card}}>
         <button onClick={onBack} style={{background:'none',border:'none',color:C.blue,fontSize:15,cursor:'pointer',padding:0,marginBottom:16,fontFamily:ff,fontWeight:500}}>‹ Tillbaka</button>
@@ -849,7 +845,7 @@ export default function UppfoljningPage() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased' }}>
+    <div style={{ minHeight: '100vh', background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', maxWidth: 600, margin: '0 auto' }}>
       <div style={{ padding: '24px 20px 0' }}>
         <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 20 }}>Uppföljning</div>
 
