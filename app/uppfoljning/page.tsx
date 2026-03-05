@@ -357,6 +357,16 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           </div>
         </div>
 
+        {/* Terräng */}
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:16}}>
+          {[{l:'Bärighet',v:'–'},{l:'Terräng',v:'–'},{l:'Lutning',v:'–'},{l:'Underväxt',v:'–'}].map((t,i) => (
+            <div key={i} style={{padding:'5px 12px',background:'rgba(255,255,255,0.04)',borderRadius:8}}>
+              <span style={{fontSize:10,color:C.t3,marginRight:6}}>{t.l}</span>
+              <span style={{fontSize:11,fontWeight:500,color:t.v==='Dålig'||t.v==='Brant'||t.v==='Mycket'?C.orange:C.t2}}>{t.v}</span>
+            </div>
+          ))}
+        </div>
+
         {/* Maskiner med datum */}
         <div style={{display:'flex',flexDirection:'column',gap:8}}>
           <div style={{padding:'12px 14px',background:'rgba(255,255,255,0.03)',borderRadius:10,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -369,7 +379,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
             </div>
             <div style={{textAlign:'right'}}>
               <div style={{fontSize:12,color:C.t2}}>{fmtDate(obj.skordareStart)} → {obj.skordareSlut?fmtDate(obj.skordareSlut):'pågår'}</div>
-              {skDagar !== null && skDagar > 0 && <div style={{fontSize:10,color:C.t3,marginTop:2}}>{skDagar} dagar</div>}
+              {skDagar && <div style={{fontSize:10,color:C.t3,marginTop:2}}>{skDagar} dagar</div>}
             </div>
           </div>
 
@@ -397,7 +407,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
               {obj.skotareStart ? (
                 <>
                   <div style={{fontSize:12,color:C.t2}}>{fmtDate(obj.skotareStart)} → {obj.skotareSlut?fmtDate(obj.skotareSlut):'pågår'}</div>
-                  {stDagar !== null && stDagar > 0 && <div style={{fontSize:10,color:C.t3,marginTop:2}}>{stDagar} dagar</div>}
+                  {stDagar && <div style={{fontSize:10,color:C.t3,marginTop:2}}>{stDagar} dagar</div>}
                 </>
               ) : (
                 <div style={{fontSize:12,color:C.t4}}>Väntar</div>
@@ -476,11 +486,9 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
             <span><span style={{display:'inline-block',width:7,height:7,borderRadius:'50%',background:C.blue,marginRight:5}}/>Skördare · {maskin}</span>
             <span><span style={{display:'inline-block',width:7,height:7,borderRadius:'50%',background:C.green,marginRight:5}}/>Skotare · {skotare||'Ej tilldelad'}</span>
           </div>
-          {d.skordare.g15>0 && d.skotare.g15>0 && (
-            <div style={{textAlign:'center',fontSize:13,color:d.skotare.g15<d.skordare.g15?C.green:C.orange,fontWeight:500}}>
-              Skotare {Math.round(Math.abs(1-(d.skotare.g15/d.skordare.g15))*100)}% {d.skotare.g15<d.skordare.g15?'snabbare':'långsammare'}
-            </div>
-          )}
+          <div style={{textAlign:'center',fontSize:13,color:C.green,fontWeight:500}}>
+            Skotare {Math.round((1-(d.skotare.g15/d.skordare.g15))*100)}% snabbare
+          </div>
         </Section>
 
         {/* ── SKÖRDARE ── */}
