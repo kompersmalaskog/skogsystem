@@ -110,84 +110,42 @@ function Section({ title, sub, children, defaultOpen = false }: { title: string;
   );
 }
 
-/* ── ObjektKort — maskinvy card style ── */
+/* ── ObjektKort — simplified card ── */
 function ObjektKort({ obj, onClick }: { obj: UppfoljningObjekt; onClick: () => void }) {
-  const kvar = obj.volymSkordare > 0 ? Math.max(0, 100 - Math.round((obj.volymSkotare / obj.volymSkordare) * 100)) : 0;
-  const ej = obj.volymSkordare === 0;
-  const tf = obj.typ === 'slutavverkning' ? C.warn : C.accent;
+  const done = obj.status === 'avslutat';
 
   return (
     <div onClick={onClick} style={{
-      background: C.surface, borderRadius: 16, padding: '20px 22px', cursor: 'pointer',
-      marginBottom: 8, border: `1px solid ${C.border}`, transition: 'border-color 0.2s, transform 0.2s',
+      background: C.surface, borderRadius: 16, padding: '18px 22px', cursor: 'pointer',
+      marginBottom: 8, border: `1px solid ${C.border}`, transition: 'border-color 0.2s',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: ej ? 0 : 14 }}>
+      {/* Namn + ägare */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 3, height: 22, borderRadius: 2, background: tf, opacity: .6 }} />
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.3px', color: C.text }}>{obj.namn}</div>
-              <div style={{ fontSize: 11, color: C.muted, marginTop: 3 }}>
-                {obj.agare}
-                {obj.vo_nummer && <span style={{ marginLeft: 8, padding: '2px 8px', background: 'rgba(255,255,255,0.05)', borderRadius: 20, fontSize: 10, fontWeight: 600, letterSpacing: '0.3px' }}>VO {obj.vo_nummer}</span>}
-              </div>
-            </div>
-          </div>
+          <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.3px', color: C.text }}>{obj.namn}</div>
+          <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{obj.agare}</div>
         </div>
-        <div style={{ textAlign: 'right' }}>
-          {!ej && <div style={{ fontFamily: ffNum, fontSize: 28, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1, color: C.text }}>{Math.round(obj.volymSkordare)}<span style={{ fontSize: 11, fontWeight: 400, color: C.muted, fontFamily: ff }}> m³</span></div>}
+        {done && (
           <span style={{
-            fontSize: 10, fontWeight: 600, color: tf, padding: '2px 8px', letterSpacing: '0.3px',
-            background: obj.typ === 'slutavverkning' ? 'rgba(255,179,64,0.1)' : 'rgba(90,255,140,0.1)',
-            borderRadius: 20, display: 'inline-block', marginTop: ej ? 0 : 4,
-          }}>
-            {obj.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring'}
-          </span>
-        </div>
+            fontSize: 11, fontWeight: 600, color: C.accent, padding: '4px 12px',
+            background: 'rgba(90,255,140,0.1)', borderRadius: 20, flexShrink: 0, marginLeft: 12,
+          }}>Klar</span>
+        )}
       </div>
 
-      {ej ? (
-        <div style={{ marginTop: 10, fontSize: 11, color: C.muted }}>Ej startad{obj.areal > 0 ? ` · ${obj.areal} ha` : ''}</div>
-      ) : (
-        <div>
-          {/* Maskin-rader */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px', background: C.surface2, borderRadius: 8 }}>
-              <span style={{ fontSize: 10, color: C.muted }}>Skördare</span>
-              <span style={{ fontSize: 10, color: C.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                {obj.skordareModell ? obj.skordareModell.split(' ').slice(-2).join(' ') : '—'}
-              </span>
-              <span style={{ fontSize: 9, fontWeight: 600, color: obj.skordareSlut ? C.muted : C.accent, whiteSpace: 'nowrap' }}>
-                {obj.skordareSlut ? 'Klar' : 'Pågår'}
-              </span>
+      {/* Maskiner — bara om pågående */}
+      {!done && (obj.skordareModell || obj.skotareModell) && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
+          {obj.skordareModell && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: C.surface2, borderRadius: 8 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.blue, flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: C.text }}>{obj.skordareModell}</span>
             </div>
-            {obj.egenSkotning ? (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '7px 10px', background: C.surface2, borderRadius: 8 }}>
-                <span style={{ fontSize: 10, fontWeight: 600, color: C.muted }}>Egen skotning</span>
-              </div>
-            ) : (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 5, padding: '7px 10px', background: C.surface2, borderRadius: 8 }}>
-                <span style={{ fontSize: 10, color: C.muted }}>Skotare</span>
-                <span style={{ fontSize: 10, color: C.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'right' }}>
-                  {obj.skotareModell ? obj.skotareModell.split(' ').slice(-2).join(' ') : '—'}
-                </span>
-                <span style={{ fontSize: 9, fontWeight: 600, color: obj.volymSkotare > 0 && !obj.skotareSlut ? C.accent : obj.skotareSlut ? C.muted : obj.skotareModell ? C.warn : C.dim, whiteSpace: 'nowrap' }}>
-                  {obj.skotareSlut ? 'Klar' : obj.volymSkotare > 0 ? 'Pågår' : obj.skotareModell ? 'Väntar' : '—'}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Progress */}
-          {!obj.egenSkotning && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                  <span style={{ fontSize: 11, color: C.muted }}>{obj.areal} ha</span>
-                  <span style={{ fontSize: 11, color: kvar > 30 ? C.warn : C.accent, fontWeight: 600 }}>{kvar}% kvar i skogen</span>
-                </div>
-                <Bar pct={100 - kvar} color={kvar > 30 ? C.warn : C.accent} />
-              </div>
+          )}
+          {obj.skotareModell && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: C.surface2, borderRadius: 8 }}>
+              <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.accent, flexShrink: 0 }} />
+              <span style={{ fontSize: 11, color: C.text }}>{obj.skotareModell}</span>
             </div>
           )}
         </div>
@@ -697,9 +655,9 @@ export default function UppfoljningPage() {
       const [dimObjektRes, dimMaskinRes, produktionRes, lassRes, tidRes, objektTblRes] = await Promise.all([
         supabase.from('dim_objekt').select('*'),
         supabase.from('dim_maskin').select('*'),
-        supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar').limit(50000),
+        supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar').limit(50000),
         supabase.from('fakt_lass').select('objekt_id, volym_m3sob').limit(50000),
-        supabase.from('fakt_tid').select('objekt_id, bransle_liter').limit(50000),
+        supabase.from('fakt_tid').select('objekt_id, maskin_id, bransle_liter').limit(50000),
         supabase.from('objekt').select('vo_nummer, markagare, areal, typ'),
       ]);
 
@@ -727,6 +685,22 @@ export default function UppfoljningPage() {
         prev.vol += (p.volym_m3sub || 0);
         prev.stammar += (p.stammar || 0);
         prodAgg.set(key, prev);
+      });
+
+      // Collect maskin_id per objekt_id from fakt_produktion (skördare)
+      const prodMaskinMap = new Map<string, string>();
+      produktion.forEach(p => {
+        if (p.maskin_id && p.objekt_id && !prodMaskinMap.has(p.objekt_id)) {
+          prodMaskinMap.set(p.objekt_id, p.maskin_id);
+        }
+      });
+
+      // Collect maskin_id per objekt_id from fakt_tid (skotare — entries not in produktion)
+      const tidMaskinMap = new Map<string, string>();
+      tid.forEach(t => {
+        if (t.maskin_id && t.objekt_id && !tidMaskinMap.has(t.objekt_id)) {
+          tidMaskinMap.set(t.objekt_id, t.maskin_id);
+        }
       });
 
       const lassAgg = new Map<string, { vol: number; count: number }>();
@@ -812,13 +786,17 @@ export default function UppfoljningPage() {
           typ,
           agare,
           areal,
-          skordareModell: skordareEntry ? getMachineLabel(maskinMap.get(skordareEntry.maskin_id)) : null,
+          skordareModell: skordareEntry
+            ? getMachineLabel(maskinMap.get(prodMaskinMap.get(skordareEntry.objekt_id) || skordareEntry.maskin_id))
+            : null,
           skordareStart: skStart,
           skordareSlut: skSlut,
           skordareObjektId: skordareEntry?.objekt_id || null,
           volymSkordare: skProd?.vol || 0,
           stammar: skProd?.stammar || 0,
-          skotareModell: skotareEntry ? getMachineLabel(maskinMap.get(skotareEntry.maskin_id)) : null,
+          skotareModell: skotareEntry
+            ? getMachineLabel(maskinMap.get(tidMaskinMap.get(skotareEntry.objekt_id) || skotareEntry.maskin_id))
+            : null,
           skotareStart: stStart,
           skotareSlut: stSlut,
           skotareObjektId: skotareEntry?.objekt_id || null,
