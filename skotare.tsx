@@ -42,6 +42,7 @@ const s_dailyLass = [0,0,18,22,0,0,24,26,20,0,0,16,0,23,25,0,0,21,19,24,0,0,22,2
 const s_dailyVol = [0,0,135,165,0,0,180,195,150,0,0,120,0,173,188,0,0,158,143,180,0,0,165,150,135,0,0,113];
 const s_days = Array.from({length:28},(_,i)=>\`\${i+1}/2\`);
 
+try{
 new Chart(document.getElementById('s_dailyChart'),{
   type:'bar',
   data:{labels:s_days,datasets:[
@@ -129,6 +130,7 @@ new Chart(document.getElementById('s_dieselChart'),{
   ]},
   options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{label:c=>c.datasetIndex===0?\` \${c.parsed.y} l/m³\`:\` \${c.parsed.y} lass/G15h\`}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'liter / m³',color:'#7a7a72',font:{size:10}},suggestedMin:0.5,suggestedMax:4},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5b8fff'},title:{display:true,text:'Lass/G15h',color:'#5b8fff',font:{size:10}}}}}
 });
+}catch(e){console.error('Skotare chart init error:',e);}
 
 // Tabs
 document.querySelectorAll('.s-tab').forEach(t=>t.addEventListener('click',()=>{
@@ -153,9 +155,11 @@ document.addEventListener('click',e=>{
 function s_openOverlay()  { document.getElementById('s_forarOverlay').classList.add('open'); }
 function s_closeOverlay() { document.getElementById('s_forarOverlay').classList.remove('open'); }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('s_forarOverlay').addEventListener('click', () => { s_closeAllPanels(); });
-});
+// Attach overlay click directly (DOMContentLoaded may have already fired)
+(function(){
+  const ov = document.getElementById('s_forarOverlay');
+  if(ov) ov.addEventListener('click', () => { s_closeAllPanels(); });
+})();
 
 function s_closeAllPanels() {
   s_closeOverlay();
