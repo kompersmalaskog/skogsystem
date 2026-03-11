@@ -1,6 +1,12 @@
 'use client';
 
 import { useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 const SKOTARE_SCRIPT = `
 Chart.defaults.font.family = 'Geist';
@@ -130,6 +136,24 @@ new Chart(document.getElementById('s_dieselChart'),{
   ]},
   options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...s_tooltip,callbacks:{label:c=>c.datasetIndex===0?\` \${c.parsed.y} l/m³\`:\` \${c.parsed.y} lass/G15h\`}}},scales:{x:{s_grid,s_ticks},y:{s_grid,s_ticks,title:{display:true,text:'liter / m³',color:'#7a7a72',font:{size:10}},suggestedMin:0.5,suggestedMax:4},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...s_ticks,color:'#5b8fff'},title:{display:true,text:'Lass/G15h',color:'#5b8fff',font:{size:10}}}}}
 });
+// m³fub/G15h per medelköravstånd (from Supabase)
+const s_m3fubData = window.__s_m3fubData;
+if (s_m3fubData && document.getElementById('s_m3fubG15hChart')) {
+  new Chart(document.getElementById('s_m3fubG15hChart'),{
+    type:'bar',
+    data:{labels:s_m3fubData.labels,datasets:[
+      {label:'m³fub/G15h',data:s_m3fubData.values,backgroundColor:'rgba(90,255,140,0.5)',borderRadius:4}
+    ]},
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{...s_tooltip,callbacks:{label:c=>\` \${c.parsed.y.toFixed(1)} m³fub/G15h\`}}},scales:{x:{s_grid,s_ticks},y:{s_grid,s_ticks,title:{display:true,text:'m³fub/G15h',color:'#7a7a72',font:{size:10}},beginAtZero:true}}}
+  });
+  // Update the value labels below the chart
+  s_m3fubData.values.forEach((v,i) => {
+    const el = document.getElementById('s_m3fub_v'+i);
+    if(el) el.textContent = v.toFixed(1);
+  });
+  const totalEl = document.getElementById('s_m3fub_total');
+  if(totalEl && s_m3fubData.total !== undefined) totalEl.textContent = s_m3fubData.total.toFixed(1);
+}
 }catch(e){console.error('[SKOTARE] Chart init error:',e);}
 // Tabs
 document.querySelectorAll('.s-tab').forEach(t=>t.addEventListener('click',()=>{
@@ -507,24 +531,92 @@ function s_openObjJmf() {
 function s_closeObjJmf() { s_closeAllPanels(); }
 `;
 
+async function fetchM3fubG15h() {
+  const classEdges = [0, 100, 200, 300, 400, Infinity];
+  const classLabels = ['0–100', '100–200', '200–300', '300–400', '400+'];
+
+  const [tidRes, prodRes] = await Promise.all([
+    supabase.from('fakt_tid').select('objekt_id, terrain_korstracka_m, processing_sek, terrain_sek, other_work_sek'),
+    supabase.from('fakt_produktion').select('objekt_id, volym_m3sub'),
+  ]);
+
+  if (!tidRes.data || !prodRes.data) return null;
+
+  // Aggregate fakt_tid per objekt_id: avg terrain distance, total G15
+  const tidByObj: Record<string, { distSum: number; distCount: number; g15Sek: number }> = {};
+  for (const r of tidRes.data) {
+    if (!r.objekt_id || r.terrain_korstracka_m == null) continue;
+    if (!tidByObj[r.objekt_id]) tidByObj[r.objekt_id] = { distSum: 0, distCount: 0, g15Sek: 0 };
+    tidByObj[r.objekt_id].distSum += r.terrain_korstracka_m;
+    tidByObj[r.objekt_id].distCount += 1;
+    tidByObj[r.objekt_id].g15Sek += (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0);
+  }
+
+  // Aggregate fakt_produktion per objekt_id: total volym_m3sub
+  const prodByObj: Record<string, number> = {};
+  for (const r of prodRes.data) {
+    if (!r.objekt_id) continue;
+    prodByObj[r.objekt_id] = (prodByObj[r.objekt_id] || 0) + (r.volym_m3sub || 0);
+  }
+
+  // Group into distance classes
+  const classVolym = new Array(5).fill(0);
+  const classG15h = new Array(5).fill(0);
+
+  for (const [objId, tid] of Object.entries(tidByObj)) {
+    const vol = prodByObj[objId];
+    if (!vol || tid.distCount === 0 || tid.g15Sek === 0) continue;
+    const avgDist = tid.distSum / tid.distCount;
+    let ci = classEdges.length - 2;
+    for (let i = 0; i < classEdges.length - 1; i++) {
+      if (avgDist < classEdges[i + 1]) { ci = i; break; }
+    }
+    classVolym[ci] += vol;
+    classG15h[ci] += tid.g15Sek / 3600;
+  }
+
+  const values = classVolym.map((v, i) => classG15h[i] > 0 ? v / classG15h[i] : 0);
+  const totalVol = classVolym.reduce((a, b) => a + b, 0);
+  const totalG15 = classG15h.reduce((a, b) => a + b, 0);
+  const total = totalG15 > 0 ? totalVol / totalG15 : 0;
+
+  return { labels: classLabels, values, total };
+}
+
 export default function SkotareVy() {
   useEffect(() => {
     let scriptEl: HTMLScriptElement | null = null;
-    function initCharts() {
-      scriptEl = document.createElement('script');
-      scriptEl.textContent = SKOTARE_SCRIPT;
-      document.body.appendChild(scriptEl);
+    let cancelled = false;
+
+    async function init() {
+      // Fetch real data before injecting script
+      const m3fubData = await fetchM3fubG15h();
+      if (cancelled) return;
+      if (m3fubData) {
+        (window as any).__s_m3fubData = m3fubData;
+      }
+
+      function initCharts() {
+        scriptEl = document.createElement('script');
+        scriptEl.textContent = SKOTARE_SCRIPT;
+        document.body.appendChild(scriptEl);
+      }
+      // @ts-ignore
+      if (typeof window !== 'undefined' && !(window as any).Chart) {
+        const chartJs = document.createElement('script');
+        chartJs.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+        chartJs.onload = initCharts;
+        document.head.appendChild(chartJs);
+      } else {
+        initCharts();
+      }
     }
-    // @ts-ignore
-    if (typeof window !== 'undefined' && !(window as any).Chart) {
-      const chartJs = document.createElement('script');
-      chartJs.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
-      chartJs.onload = initCharts;
-      document.head.appendChild(chartJs);
-    } else {
-      initCharts();
-    }
+
+    init();
+
     return () => {
+      cancelled = true;
+      delete (window as any).__s_m3fubData;
       if (scriptEl) scriptEl.remove();
       // @ts-ignore
       if (typeof window !== 'undefined' && (window as any).Chart) {
@@ -1042,6 +1134,26 @@ body{background:var(--bg);color:var(--text);font-family:'Geist',system-ui,sans-s
     </div>
   </div>
 
+</div>
+
+<!-- M³FUB/G15H PER MEDELKÖRAVSTÅND -->
+<div style="margin-top:8px;">
+  <div class="card anim" style="animation-delay:0.85s">
+    <div class="card-h"><div class="card-t">m³fub / G15h per medelköravstånd</div></div>
+    <div class="card-b">
+      <canvas id="s_m3fubG15hChart" style="max-height:200px;margin-bottom:16px;"></canvas>
+      <div class="sc-grid">
+        <div class="sc"><div class="sc-k">0–100</div><div class="sc-p" id="s_m3fub_v0" style="color:var(--text)">–</div><div class="sc-u">m³fub/G15h</div></div>
+        <div class="sc"><div class="sc-k">100–200</div><div class="sc-p" id="s_m3fub_v1" style="color:var(--text)">–</div><div class="sc-u">m³fub/G15h</div></div>
+        <div class="sc"><div class="sc-k">200–300</div><div class="sc-p" id="s_m3fub_v2" style="color:var(--text)">–</div><div class="sc-u">m³fub/G15h</div></div>
+        <div class="sc"><div class="sc-k">300–400</div><div class="sc-p" id="s_m3fub_v3" style="color:var(--text)">–</div><div class="sc-u">m³fub/G15h</div></div>
+        <div class="sc"><div class="sc-k">400+</div><div class="sc-p" id="s_m3fub_v4" style="color:var(--text)">–</div><div class="sc-u">m³fub/G15h</div></div>
+      </div>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:20px;">
+        <div class="snum"><div class="snum-v" id="s_m3fub_total">–</div><div class="snum-l">Snitt m³fub/G15h</div></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- BOLAG PANEL -->
