@@ -1194,6 +1194,7 @@ export default function PlannerPage() {
   const [infoSkotareBandPar, setInfoSkotareBandPar] = useState('1');
   const [infoSkotareLastreder, setInfoSkotareLastreder] = useState(false);
   const [infoSkotareRisDirekt, setInfoSkotareRisDirekt] = useState(false);
+  const [infoSkotareKonfig, setInfoSkotareKonfig] = useState('bred');
   const [infoTrailerIn, setInfoTrailerIn] = useState(true);
   const [infoTransportKommentar, setInfoTransportKommentar] = useState('');
   const [infoMarkagareVed, setInfoMarkagareVed] = useState(false);
@@ -1209,7 +1210,7 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, driving_mode, stickvag_settings, checklist_items, generellt_tillstand')
+        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, driving_mode, stickvag_settings, checklist_items, generellt_tillstand')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
@@ -1225,6 +1226,7 @@ export default function PlannerPage() {
         setInfoSkotareBandPar(data.skotare_band_par || '1');
         setInfoSkotareLastreder(data.skotare_lastreder_breddat || false);
         setInfoSkotareRisDirekt(data.skotare_ris_direkt || false);
+        setInfoSkotareKonfig(data.skotare_konfiguration || 'bred');
         setInfoTrailerIn(data.transport_trailer_in !== false);
         setInfoTransportKommentar(data.transport_kommentar || '');
         setInfoMarkagareVed(data.markagare_ska_ha_ved || false);
@@ -1270,6 +1272,7 @@ export default function PlannerPage() {
         skotare_band_par: infoSkotareBandPar,
         skotare_lastreder_breddat: infoSkotareLastreder,
         skotare_ris_direkt: infoSkotareRisDirekt,
+        skotare_konfiguration: infoSkotareKonfig,
         transport_trailer_in: infoTrailerIn,
         transport_kommentar: infoTransportKommentar || null,
         markagare_ska_ha_ved: infoMarkagareVed,
@@ -1285,7 +1288,7 @@ export default function PlannerPage() {
       })
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
-  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, prognosSettings, manuellPrognos, traktData, drivingMode, stickvagSettings, checklistItems, generelltTillstand]);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, prognosSettings, manuellPrognos, traktData, drivingMode, stickvagSettings, checklistItems, generelltTillstand]);
 
   useEffect(() => {
     if (!infoLoaded) return;
@@ -11001,6 +11004,25 @@ export default function PlannerPage() {
                       {maskinLista.map(m => <option key={m} value={m} style={{ background: '#111' }}>{m}</option>)}
                     </select>
                   </div>
+
+                  {/* Konfiguration – bara Elephant King */}
+                  {infoSkotareMaskin === 'Elephant King AF' && (
+                    <div style={{ marginBottom: '16px' }}>
+                      <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Konfiguration</div>
+                      <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
+                        {[{ id: 'bred', label: 'Bred' }, { id: 'smal', label: 'Smal' }].map(opt => (
+                          <div key={opt.id} onClick={() => setInfoSkotareKonfig(opt.id)}
+                            style={{
+                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '14px', cursor: 'pointer',
+                              background: infoSkotareKonfig === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
+                              color: infoSkotareKonfig === opt.id ? '#fff' : 'rgba(255,255,255,0.4)',
+                              fontWeight: infoSkotareKonfig === opt.id ? '600' : '400',
+                              transition: 'all 0.2s ease',
+                            }}>{opt.label}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Band toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkotareBand ? '12px' : '16px' }}>
