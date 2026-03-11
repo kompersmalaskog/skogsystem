@@ -422,6 +422,12 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const stamPerG15 = skTid.g15 > 0 ? Math.round((totalStammar / skTid.g15) * 10) / 10 : 0;
       const m3PerG15Sk = skTid.g15 > 0 ? Math.round((obj.volymSkordare / skTid.g15) * 10) / 10 : 0;
 
+      // Skotare production from fakt_produktion (for produktionstakt)
+      const stProd = stId ? prodRows.filter((r: any) => r.objekt_id === stId) : [];
+      let stProdVol = 0;
+      stProd.forEach((p: any) => { stProdVol += p.volym_m3sub || 0; });
+      const m3PerG15StProd = stTid.g15 > 0 && stProdVol > 0 ? Math.round((stProdVol / stTid.g15) * 10) / 10 : 0;
+
       // Per trädslag production
       const tradslagAgg = new Map<string, { vol: number; st: number }>();
       skProd.forEach((r: any) => {
@@ -507,7 +513,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         skotare: {
           arbetstid: stTid.arbetstid, g15: stTid.g15, g0: stTid.g0,
           kortaStopp: stTid.kortaStopp, avbrott: stTid.avbrott, rast: stTid.rast, tomgang: stTid.tomgang,
-          lass: antalLass, snittLass, lassPerG15, m3PerG15: m3PerG15St, avstand, lastrede: '–',
+          lass: antalLass, snittLass, lassPerG15, m3PerG15: m3PerG15St, m3PerG15Prod: m3PerG15StProd, avstand, lastrede: '–',
           diesel: { tot: Math.round(stTid.dieselTot), perM3: dieselPerM3St, perG15: dieselPerG15St },
           avbrott_lista: buildAvbrott(stAvbrott),
           tidPerDag: stTid.tidPerDag,
@@ -863,6 +869,35 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
                 <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: 2, background: C.accent, display: 'inline-block' }} />Skotare</span>
               </div>
               <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 500, color: diffColor }}>{diffText}</div>
+            </div>
+          );
+        })()}
+
+        {/* ── PRODUKTIONSTAKT ── */}
+        {d.skordare.m3PerG15 > 0 && d.skotare.m3PerG15Prod > 0 && (() => {
+          const skTakt = d.skordare.m3PerG15;
+          const stTakt = d.skotare.m3PerG15Prod;
+          const diff = skTakt - stTakt;
+          const pctDiff = skTakt > 0 ? Math.round((diff / skTakt) * 100) : 0;
+          const diffText = diff > 0
+            ? `Skotaren ${Math.abs(pctDiff)}% långsammare`
+            : diff < 0
+              ? `Skotaren ${Math.abs(pctDiff)}% snabbare`
+              : 'Samma takt';
+          return (
+            <div style={{ background: C.surface, borderRadius: 16, padding: '20px 22px', marginBottom: 8, border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 14 }}>Produktionstakt</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+                <div style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: ffNum, fontSize: 28, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{skTakt}</div>
+                  <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginTop: 6 }}>Skördare m³/G15h</div>
+                </div>
+                <div style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: ffNum, fontSize: 28, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{stTakt}</div>
+                  <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginTop: 6 }}>Skotare m³/G15h</div>
+                </div>
+              </div>
+              <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 500, color: C.text }}>{diffText}</div>
             </div>
           );
         })()}
