@@ -12,6 +12,7 @@ const navItems = [
   { href: '/uppfoljning', label: 'Uppföljning', icon: 'chart' },
   { href: '/starta-jobb', label: 'Starta jobb', icon: 'play' },
   { href: '/forbattringsforslag', label: 'Förslag', icon: 'lightbulb' },
+  { href: '/maskinvy', label: 'Maskinvy', icon: 'machine' },
 ]
 
 function NavIcon({ icon, active }: { icon: string; active: boolean }) {
@@ -79,6 +80,17 @@ function NavIcon({ icon, active }: { icon: string; active: boolean }) {
           <path d="M9 18h6" />
           <path d="M10 22h4" />
           <path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z" />
+        </svg>
+      )
+    case 'machine':
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="6" width="20" height="12" rx="2" />
+          <circle cx="6" cy="14" r="2" />
+          <circle cx="18" cy="14" r="2" />
+          <path d="M6 6V4" />
+          <path d="M18 6V4" />
+          <path d="M10 12h4" />
         </svg>
       )
     default:
