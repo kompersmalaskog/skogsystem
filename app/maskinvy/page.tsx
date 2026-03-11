@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Maskinvy from '../../maskinvy'
 import SkotareVy from '../../skotare'
+import MaskinLogg from './MaskinLogg'
 
 export default function MaskinvyPage() {
   const [mode, setMode] = useState<'skordare' | 'skotare'>('skordare')
@@ -78,6 +79,8 @@ export default function MaskinvyPage() {
       <div className="mv-wrapper">
         {mode === 'skordare' ? <Maskinvy /> : <SkotareVy />}
       </div>
+
+      <MaskinLogg mode={mode} />
     </>
   )
 }
