@@ -846,8 +846,8 @@ body{background:var(--bg);color:var(--text);font-family:'Geist',system-ui,sans-s
     </div>
   </div>
 
-  <!-- ROW 1: Operatörer | Tidsfördelning | Vågkalibrering -->
-  <div class="g3">
+  <!-- ROW 1: Operatörer | Tidsfördelning -->
+  <div class="g2">
     <div class="card anim" style="animation-delay:0.3s">
       <div class="card-h"><div class="card-t">Operatörer</div><span class="badge bg">3 aktiva</span></div>
       <div class="card-b">
@@ -901,16 +901,6 @@ body{background:var(--bg);color:var(--text);font-family:'Geist',system-ui,sans-s
       </div>
     </div>
 
-    <div class="card anim" style="animation-delay:0.4s;cursor:pointer;" title="Vågkalibrering">
-      <div class="card-h"><div class="card-t">Vågkalibrering</div><span class="badge bg">OK</span></div>
-      <div class="card-b">
-        <div class="kal"><div class="kal-d">2026-02-28</div><div class="kal-v">Vikt +0.8%</div><span class="badge bg">OK</span></div>
-        <div class="kal"><div class="kal-d">2026-02-14</div><div class="kal-v">Vikt −0.5%</div><span class="badge bg">OK</span></div>
-        <div class="kal"><div class="kal-d">2026-01-31</div><div class="kal-v" style="color:var(--warn)">Vikt +3.8%</div><span class="badge bw">VARNING</span></div>
-        <div class="kal"><div class="kal-d">2026-01-17</div><div class="kal-v">Vikt −1.2%</div><span class="badge bg">OK</span></div>
-        <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center;letter-spacing:0.3px;">Tryck för fullständig kalibreringshistorik →</div>
-      </div>
-    </div>
   </div>
 
   <!-- ROW 2: Avståndsklass | Volym per bolag | Objekt -->
