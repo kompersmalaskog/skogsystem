@@ -887,16 +887,18 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         })()}
 
         {/* ── PRODUKTIONSTAKT ── */}
-        {d.skordare.m3PerG15 > 0 && d.skotare.m3PerG15Prod > 0 && (() => {
+        {(d.skordare.m3PerG15 > 0 || d.skotare.m3PerG15Prod > 0) && (() => {
           const skTakt = d.skordare.m3PerG15;
           const stTakt = d.skotare.m3PerG15Prod;
           const diff = skTakt - stTakt;
           const pctDiff = skTakt > 0 ? Math.round((diff / skTakt) * 100) : 0;
-          const diffText = diff > 0
-            ? `Skotaren ${Math.abs(pctDiff)}% långsammare`
-            : diff < 0
-              ? `Skotaren ${Math.abs(pctDiff)}% snabbare`
-              : 'Samma takt';
+          const diffText = skTakt > 0 && stTakt > 0
+            ? (diff > 0
+              ? `Skotaren ${Math.abs(pctDiff)}% långsammare`
+              : diff < 0
+                ? `Skotaren ${Math.abs(pctDiff)}% snabbare`
+                : 'Samma takt')
+            : stTakt === 0 ? 'Skotardata saknas' : 'Skördardata saknas';
           return (
             <div style={{ background: C.surface, borderRadius: 16, padding: '20px 22px', marginBottom: 8, border: `1px solid ${C.border}` }}>
               <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 14 }}>Produktionstakt</div>
