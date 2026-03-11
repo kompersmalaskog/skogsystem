@@ -1064,6 +1064,41 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           </ClickCard>
         )}
 
+        {/* ── SKÖRDARE VS SKOTARE ── */}
+        {(d.skordare.g15 > 0 || d.skotare.g15 > 0) && (() => {
+          const skG15 = d.skordare.g15;
+          const stG15 = d.skotare.g15;
+          const skTakt = d.skordare.m3PerG15;
+          const stTakt = d.skotare.m3PerG15Prod;
+          const diffH = skG15 - stG15;
+          const pctDiff = skG15 > 0 ? Math.round((diffH / skG15) * 100) : 0;
+          const diffText = skG15 > 0 && stG15 > 0
+            ? (diffH > 0
+              ? `Skotaren ${Math.abs(diffH).toFixed(1)}h mindre (${Math.abs(pctDiff)}%)`
+              : diffH < 0
+                ? `Skotaren ${Math.abs(diffH).toFixed(1)}h mer (${Math.abs(pctDiff)}%)`
+                : 'Lika mycket tid')
+            : '';
+          return (
+            <div style={{ background: C.surface, borderRadius: 16, padding: '20px 22px', marginBottom: 8, border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 14 }}>Skördare vs Skotare</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+                <div style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px' }}>
+                  <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginBottom: 8 }}>Skördare</div>
+                  <div style={{ fontFamily: ffNum, fontSize: 24, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{fmtH(skG15)}</div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{skTakt} m³/G15h</div>
+                </div>
+                <div style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px' }}>
+                  <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginBottom: 8 }}>Skotare</div>
+                  <div style={{ fontFamily: ffNum, fontSize: 24, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{fmtH(stG15)}</div>
+                  <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{stTakt} m³/G15h</div>
+                </div>
+              </div>
+              {diffText && <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 500, color: C.text }}>{diffText}</div>}
+            </div>
+          );
+        })()}
+
         {/* ── SKOTARE AVBROTT ── */}
         {d.skotare.avbrott_lista.length > 0 && (
           <ClickCard title="Avbrott" badge={fmtHM(d.skotare.avbrott)} onClick={() => setPanel('avbrott')}>
