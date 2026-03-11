@@ -327,7 +327,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar, processtyp, tradslag').in('objekt_id', ids),
         supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
-        supabase.from('fakt_avbrott').select('objekt_id, typ, tid_sek').in('objekt_id', ids),
+        supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek').in('objekt_id', ids),
         stId ? supabase.from('fakt_lass').select('objekt_id, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
       ]);
 
@@ -447,11 +447,20 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         .map(([namn, v]) => ({ namn, vol: Math.round(v.vol), st: Math.round(v.st) }))
         .sort((a, b) => b.vol - a.vol);
 
-      // Avbrott
+      // Avbrott — group by orsak (kategori_kod + typ) with count
       const buildAvbrott = (rows: any[]) => {
-        const m = new Map<string, number>();
-        rows.forEach(r => { m.set(r.typ || 'Övrigt', (m.get(r.typ || 'Övrigt') || 0) + (r.tid_sek || 0)); });
-        return Array.from(m.entries()).map(([typ, sek]) => ({ typ, tid: Math.round(sek / 60) })).sort((a, b) => b.tid - a.tid);
+        const m = new Map<string, { tid: number; antal: number; typ: string }>();
+        rows.forEach(r => {
+          const orsak = r.kategori_kod || r.typ || 'Övrigt';
+          const typ = r.typ || 'Övrigt';
+          const prev = m.get(orsak) || { tid: 0, antal: 0, typ };
+          prev.tid += (r.langd_sek || 0);
+          prev.antal += 1;
+          m.set(orsak, prev);
+        });
+        return Array.from(m.entries())
+          .map(([orsak, v]) => ({ orsak, typ: v.typ, tid: Math.round(v.tid / 60), antal: v.antal }))
+          .sort((a, b) => b.tid - a.tid);
       };
       const skAvbrott = skId ? avbrottRows.filter((r: any) => r.objekt_id === skId) : [];
       const stAvbrott = stId ? avbrottRows.filter((r: any) => r.objekt_id === stId) : [];
@@ -924,7 +933,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           <ClickCard title="Avbrott & stillestånd" badge={fmtHM(d.skordare.avbrott + d.skotare.avbrott)} onClick={() => setPanel('avbrott')}>
             {d.skordare.avbrott_lista.slice(0, 4).map((a: any, i: number) => (
               <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: i < 3 ? `1px solid ${C.border}` : 'none', fontSize: 12 }}>
-                <span style={{ color: C.muted }}>{a.typ}</span>
+                <span style={{ color: C.muted }}>{a.orsak} <span style={{ fontSize: 10 }}>({a.antal}x)</span></span>
                 <span style={{ fontWeight: 600, color: C.warn, fontVariantNumeric: 'tabular-nums' }}>{fmtHM(a.tid)}</span>
               </div>
             ))}
@@ -1085,7 +1094,19 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
             <SectionLabel text={`Skördare · ${maskin}`} />
             <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
               {d.skordare.avbrott_lista.map((a: any, i: number) => (
-                <DataRow key={i} label={a.typ} value={fmtHM(a.tid)} last={i === d.skordare.avbrott_lista.length - 1} warn />
+                <div key={i} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '9px 0', borderBottom: i < d.skordare.avbrott_lista.length - 1 ? `1px solid ${C.border}` : 'none', fontSize: 12,
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 500 }}>{a.orsak}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{a.typ}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.warn }}>{fmtHM(a.tid)}</div>
+                    <div style={{ fontSize: 10, color: C.muted }}>{a.antal} {a.antal === 1 ? 'gång' : 'gånger'}</div>
+                  </div>
+                </div>
               ))}
             </div>
           </>
@@ -1096,7 +1117,19 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
             <SectionLabel text={`Skotare · ${skotare || '–'}`} />
             <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
               {d.skotare.avbrott_lista.map((a: any, i: number) => (
-                <DataRow key={i} label={a.typ} value={fmtHM(a.tid)} last={i === d.skotare.avbrott_lista.length - 1} warn />
+                <div key={i} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '9px 0', borderBottom: i < d.skotare.avbrott_lista.length - 1 ? `1px solid ${C.border}` : 'none', fontSize: 12,
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 500 }}>{a.orsak}</div>
+                    <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{a.typ}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.warn }}>{fmtHM(a.tid)}</div>
+                    <div style={{ fontSize: 10, color: C.muted }}>{a.antal} {a.antal === 1 ? 'gång' : 'gånger'}</div>
+                  </div>
+                </div>
               ))}
             </div>
           </>
@@ -1176,7 +1209,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
             <SectionLabel text="Avbrott" />
             <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px' }}>
               {d.skotare.avbrott_lista.map((a: any, i: number) => (
-                <DataRow key={i} label={a.typ} value={fmtHM(a.tid)} last={i === d.skotare.avbrott_lista.length - 1} warn />
+                <DataRow key={i} label={`${a.orsak} (${a.antal}x)`} value={fmtHM(a.tid)} last={i === d.skotare.avbrott_lista.length - 1} warn />
               ))}
             </div>
           </>
