@@ -829,6 +829,35 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           </div>
         </div>
 
+        {/* ── TIDSBALANS ── */}
+        {d.skordare.g15 > 0 && d.skotare.g15 > 0 && (() => {
+          const diff = d.skordare.g15 - d.skotare.g15;
+          const pctDiff = d.skordare.g15 > 0 ? Math.round((diff / d.skordare.g15) * 100) : 0;
+          const skotareBakom = diff > 0;
+          const diffColor = skotareBakom ? C.danger : C.accent;
+          const diffText = skotareBakom
+            ? `Skotaren låg ${Math.abs(diff).toFixed(1)}h efter skördaren (${Math.abs(pctDiff)}% långsammare)`
+            : diff < 0
+              ? `Skotaren låg ${Math.abs(diff).toFixed(1)}h före skördaren (${Math.abs(pctDiff)}% snabbare)`
+              : 'Skördare och skotare i balans';
+          const skPct = Math.round((d.skordare.g15 / (d.skordare.g15 + d.skotare.g15)) * 100);
+          const stPct = 100 - skPct;
+          return (
+            <div style={{ background: C.surface, borderRadius: 16, padding: '20px 22px', marginBottom: 8, border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 14 }}>Tidsbalans</div>
+              <div style={{ display: 'flex', height: 18, borderRadius: 5, overflow: 'hidden', gap: 2, marginBottom: 12 }}>
+                <div style={{ flex: skPct, background: 'rgba(91,143,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 9, fontWeight: 600 }}>{fmtH(d.skordare.g15)}</div>
+                <div style={{ flex: stPct, background: 'rgba(90,255,140,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 9, fontWeight: 600 }}>{fmtH(d.skotare.g15)}</div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: 20, fontSize: 11, color: C.muted, marginBottom: 14 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: 2, background: C.blue, display: 'inline-block' }} />Skördare</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: 2, background: C.accent, display: 'inline-block' }} />Skotare</span>
+              </div>
+              <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 500, color: diffColor }}>{diffText}</div>
+            </div>
+          );
+        })()}
+
         {/* ── TID — clickable card ── */}
         <ClickCard title="Tid" badge={`${produktiv}% produktiv`} onClick={() => setPanel('tid')}>
           <div style={{ display: 'flex', height: 18, borderRadius: 5, overflow: 'hidden', gap: 2, marginBottom: 14 }}>
@@ -932,9 +961,9 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           <div style={{ marginTop: 12, fontSize: 10, color: C.muted, textAlign: 'center', letterSpacing: '0.3px' }}>Tryck för diesel per dag →</div>
         </ClickCard>
 
-        {/* ── Skotare produktion ── */}
+        {/* ── Skotare produktion — clickable card ── */}
         {d.skotare.lass > 0 && (
-          <ClickCard title="Skotarproduktion" badge={`${d.skotare.lass} lass`}>
+          <ClickCard title="Skotarproduktion" badge={`${d.skotare.lass} lass`} onClick={() => setPanel('skotarproduktion')}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
               {[
                 { l: 'Antal lass', v: d.skotare.lass },
@@ -949,6 +978,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
                 </div>
               ))}
             </div>
+            <div style={{ marginTop: 12, fontSize: 10, color: C.muted, textAlign: 'center', letterSpacing: '0.3px' }}>Tryck för skotardetaljer →</div>
           </ClickCard>
         )}
       </div>
@@ -1103,6 +1133,52 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
               <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: C.muted }}><div style={{ width: 7, height: 7, borderRadius: '50%', background: C.blue }} />G15h</div>
             </div>
             <canvas ref={dieselChartRef} style={{ maxHeight: 220, marginBottom: 16 }} />
+          </>
+        )}
+      </DrillPanel>
+
+      {/* ── SKOTARPRODUKTION Panel ── */}
+      <DrillPanel open={panel === 'skotarproduktion'} onClose={closePanel} icon="🚜" title="Skotarproduktion" subtitle={`${obj.namn} · ${skotare || '–'}`}>
+        <KpiGrid items={[
+          { v: d.skotare.lass, l: 'Antal lass' },
+          { v: `${d.skotare.snittLass} m³`, l: 'Snitt per lass' },
+          { v: fmtH(d.skotare.g15), l: 'G15-timmar' },
+        ]} />
+
+        <SectionLabel text="Produktivitet" />
+        <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
+          <DataRow label="m³/G15h" value={d.skotare.m3PerG15} />
+          <DataRow label="Lass/G15h" value={d.skotare.lassPerG15} />
+          <DataRow label="Snitt lassvolym" value={`${d.skotare.snittLass} m³`} />
+          <DataRow label="Skotningsavstånd" value={`${d.skotare.avstand} m`} last />
+        </div>
+
+        <SectionLabel text="Tid" />
+        <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
+          <DataRow label="Arbetstid" value={fmtH(d.skotare.arbetstid)} />
+          <DataRow label="G15" value={fmtH(d.skotare.g15)} />
+          <DataRow label="G0" value={fmtH(d.skotare.g0)} />
+          <DataRow label="Korta stopp" value={fmtHM(d.skotare.kortaStopp)} />
+          <DataRow label="Avbrott" value={fmtHM(d.skotare.avbrott)} />
+          <DataRow label="Rast" value={fmtHM(d.skotare.rast)} />
+          <DataRow label="Tomgång" value={fmtHM(d.skotare.tomgang)} last />
+        </div>
+
+        <SectionLabel text="Diesel" />
+        <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
+          <DataRow label="Totalt" value={`${d.skotare.diesel.tot} L`} />
+          <DataRow label="Per m³fub" value={`${d.skotare.diesel.perM3} L`} />
+          <DataRow label="Per G15h" value={`${d.skotare.diesel.perG15} L`} last />
+        </div>
+
+        {d.skotare.avbrott_lista.length > 0 && (
+          <>
+            <SectionLabel text="Avbrott" />
+            <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px' }}>
+              {d.skotare.avbrott_lista.map((a: any, i: number) => (
+                <DataRow key={i} label={a.typ} value={fmtHM(a.tid)} last={i === d.skotare.avbrott_lista.length - 1} warn />
+              ))}
+            </div>
           </>
         )}
       </DrillPanel>
