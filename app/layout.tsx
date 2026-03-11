@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
-import HomeButton from '../components/HomeButton'
+import TopBar from '../components/TopBar'
 
 export const metadata: Metadata = {
   title: 'Kompersmåla Skog',
@@ -39,8 +39,10 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body style={{ margin: 0, padding: 0, overflow: 'hidden' }}>
-        <HomeButton />
-        {children}
+        <TopBar />
+        <div style={{ paddingTop: 56 }}>
+          {children}
+        </div>
       </body>
     </html>
   )

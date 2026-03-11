@@ -29,7 +29,7 @@ function getDatum() {
 export default function Home() {
   return (
     <div style={{
-      position: 'fixed', inset: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch',
+      position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch',
       background: '#000',
       fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif",
       paddingBottom: 20,

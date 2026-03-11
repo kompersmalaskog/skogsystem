@@ -144,7 +144,7 @@ export default function StartaJobbPage() {
   // Visa VO-nummer för tilldelat objekt
   if (visaVo) {
     return (
-      <div style={{ position: 'fixed', inset: 0, background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
         <div style={{ fontSize: 14, color: C.t3, marginBottom: 8 }}>{visaVo.object_name}</div>
         <div style={{ fontSize: 15, color: C.t2, marginBottom: 24 }}>VO-nummer:</div>
         <div style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-1px', marginBottom: 40, color: C.green }}>{visaVo.vo_nummer}</div>
@@ -165,7 +165,7 @@ export default function StartaJobbPage() {
   // Resultatvy efter tilldelning
   if (tilldelat) {
     return (
-      <div style={{ position: 'fixed', inset: 0, background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+      <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
         <div style={{ fontSize: 14, color: C.t3, marginBottom: 8 }}>{tilldelat.object_name}</div>
         <div style={{ fontSize: 15, color: C.t2, marginBottom: 24 }}>Mata in detta nummer i terminalen:</div>
         <div style={{ fontSize: 56, fontWeight: 700, letterSpacing: '-1px', marginBottom: 40, color: C.green }}>{tilldelat.vo_nummer}</div>
@@ -197,7 +197,7 @@ export default function StartaJobbPage() {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
       <div style={{ padding: '24px 20px 0' }}>
         <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 20 }}>Starta jobb</div>
 

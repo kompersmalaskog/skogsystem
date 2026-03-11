@@ -63,7 +63,7 @@ export default function OversiktPage() {
   };
 
   return (
-    <div style={{ height: 'calc(100vh - 64px)', width: '100vw', fontFamily: ff, background: C.bg, color: C.t1, overflow: 'hidden', display: 'flex', flexDirection: 'column', WebkitFontSmoothing: 'antialiased' }}>
+    <div style={{ height: 'calc(100vh - 56px)', width: '100vw', fontFamily: ff, background: C.bg, color: C.t1, overflow: 'hidden', display: 'flex', flexDirection: 'column', WebkitFontSmoothing: 'antialiased' }}>
       <style>{globalCss}</style>
 
       {loading ? (

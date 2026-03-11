@@ -344,7 +344,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
   // ALL styles, padding, fontSize, borderRadius etc are IDENTICAL
   // ══════════════════════════════════════════════════════════════
   return (
-    <div style={{position:'fixed',inset:0,background:C.bg,color:C.t1,fontFamily:ff,WebkitFontSmoothing:'antialiased',overflowY:'auto'}}>
+    <div style={{position:'fixed',top:56,left:0,right:0,bottom:0,background:C.bg,color:C.t1,fontFamily:ff,WebkitFontSmoothing:'antialiased',overflowY:'auto'}}>
       {/* Header */}
       <div style={{padding:'14px 20px 20px',background:C.card}}>
         <button onClick={onBack} style={{background:'none',border:'none',color:C.blue,fontSize:15,cursor:'pointer',padding:0,marginBottom:16,fontFamily:ff,fontWeight:500}}>‹ Tillbaka</button>
@@ -854,7 +854,7 @@ export default function UppfoljningPage() {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
+    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: C.bg, color: C.t1, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
       <div style={{ padding: '24px 20px 0' }}>
         <div style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 20 }}>Uppföljning</div>
 

@@ -628,7 +628,7 @@ export default function Maskinvy() {
   }, []);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch', zIndex: 1, paddingBottom: 0 }}>
+    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch', zIndex: 1 }}>
       <style dangerouslySetInnerHTML={{ __html: `:root {
   --bg:       #111110;
   --surface:  #1a1a18;
