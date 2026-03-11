@@ -13,9 +13,9 @@ const s_volym = [420, 580, 520, 380, 240, 130, 70];
 const s_lass = [51, 74, 69, 53, 35, 20, 12];
 const s_dieselPerM3 = [1.2, 1.4, 1.6, 1.9, 2.2, 2.6, 3.1];
 
-const grid = {color:'rgba(255,255,255,0.05)'};
-const ticks = {color:'#7a7a72',font:{size:11}};
-const tooltip = {backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10};
+const s_grid = {color:'rgba(255,255,255,0.05)'};
+const s_ticks = {color:'#7a7a72',font:{size:11}};
+const s_tooltip = {backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10};
 
 function s_countUp(el, target, dec=0, duration=1200){
   const start = performance.now();
@@ -52,8 +52,8 @@ new Chart(document.getElementById('s_dailyChart'),{
   options:{
     responsive:true,
     interaction:{mode:'index',intersect:false},
-    plugins:{legend:{display:false},tooltip},
-    scales:{x:{grid,ticks:{...ticks,font:{size:10}}},y:{grid,ticks,title:{display:true,text:'Lass',color:'#7a7a72',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5aff8c'},title:{display:true,text:'m³',color:'#5aff8c',font:{size:10}}}},
+    plugins:{legend:{display:false},s_tooltip},
+    scales:{x:{s_grid,s_ticks:{...s_ticks,font:{size:10}}},y:{s_grid,s_ticks,title:{display:true,text:'Lass',color:'#7a7a72',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...s_ticks,color:'#5aff8c'},title:{display:true,text:'m³',color:'#5aff8c',font:{size:10}}}},
     onClick:(e,els)=>{
       if(!els.length) return;
       const dag = els[0].index + 1;
@@ -88,7 +88,7 @@ new Chart(document.getElementById('s_sortChart'),{
     {label:'Massaved', data:[252,194,72],backgroundColor:'rgba(255,179,64,0.4)',borderRadius:3,stack:'s'},
     {label:'Energived',data:[22,57,19], backgroundColor:'rgba(255,255,255,0.1)',borderRadius:3,stack:'s'}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top',labels:{font:{family:'Geist',size:11},boxWidth:8,borderRadius:2,padding:12,color:'#7a7a72'}},tooltip},scales:{x:{stacked:true,grid,ticks},y:{stacked:true,grid,ticks}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top',labels:{font:{family:'Geist',size:11},boxWidth:8,borderRadius:2,padding:12,color:'#7a7a72'}},s_tooltip},scales:{x:{stacked:true,grid:s_grid,ticks:s_ticks},y:{stacked:true,grid:s_grid,ticks:s_ticks}}}
 });
 
 // Medellast per avståndsklass
@@ -98,7 +98,7 @@ new Chart(document.getElementById('s_medellastChart'),{
     {label:'Medellast m³',data:s_medellast,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
     {label:'Lass/G15h',data:s_lassG15h,type:'line',borderColor:'rgba(90,255,140,0.7)',backgroundColor:'rgba(90,255,140,0.04)',pointBackgroundColor:'#5aff8c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m³/lass',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5aff8c'},title:{display:true,text:'Lass/G15h',color:'#5aff8c',font:{size:10}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},s_tooltip},scales:{x:{s_grid,s_ticks},y:{s_grid,s_ticks,title:{display:true,text:'m³/lass',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...s_ticks,color:'#5aff8c'},title:{display:true,text:'Lass/G15h',color:'#5aff8c',font:{size:10}}}}}
 });
 
 // Produktion per avståndsklass
@@ -108,7 +108,7 @@ new Chart(document.getElementById('s_totalChart'),{
     {label:'Volym m³',data:s_volym,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
     {label:'Lass',data:s_lass,type:'line',borderColor:'rgba(90,255,140,0.7)',backgroundColor:'rgba(90,255,140,0.04)',pointBackgroundColor:'#5aff8c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m³',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5aff8c'},title:{display:true,text:'Lass',color:'#5aff8c',font:{size:10}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},s_tooltip},scales:{x:{s_grid,s_ticks},y:{s_grid,s_ticks,title:{display:true,text:'m³',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...s_ticks,color:'#5aff8c'},title:{display:true,text:'Lass',color:'#5aff8c',font:{size:10}}}}}
 });
 
 // Produktivitet per avståndsklass
@@ -118,7 +118,7 @@ new Chart(document.getElementById('s_prodChart'),{
     {label:'Lass/G15h',data:s_lassG15h,backgroundColor:'rgba(90,255,140,0.5)',borderRadius:4,yAxisID:'y',order:1},
     {label:'Medellast',data:s_medellast,type:'line',borderColor:'rgba(91,143,255,0.6)',backgroundColor:'rgba(91,143,255,0.04)',pointBackgroundColor:'#5b8fff',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{label:c=>c.datasetIndex===0?\` \${c.parsed.y} lass/G15h\`:\` \${c.parsed.y} m³/lass\`}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'Lass/G15h',color:'#7a7a72',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5b8fff'},title:{display:true,text:'m³/lass',color:'#5b8fff',font:{size:10}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...s_tooltip,callbacks:{label:c=>c.datasetIndex===0?\` \${c.parsed.y} lass/G15h\`:\` \${c.parsed.y} m³/lass\`}}},scales:{x:{s_grid,s_ticks},y:{s_grid,s_ticks,title:{display:true,text:'Lass/G15h',color:'#7a7a72',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...s_ticks,color:'#5b8fff'},title:{display:true,text:'m³/lass',color:'#5b8fff',font:{size:10}}}}}
 });
 
 // Diesel per avståndsklass
@@ -128,10 +128,9 @@ new Chart(document.getElementById('s_dieselChart'),{
     {label:'l/m³',data:s_dieselPerM3,backgroundColor:'rgba(90,255,140,0.5)',borderRadius:4,yAxisID:'y',order:1},
     {label:'Lass/G15h',data:s_lassG15h,type:'line',borderColor:'rgba(91,143,255,0.6)',backgroundColor:'rgba(91,143,255,0.04)',pointBackgroundColor:'#5b8fff',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{label:c=>c.datasetIndex===0?\` \${c.parsed.y} l/m³\`:\` \${c.parsed.y} lass/G15h\`}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'liter / m³',color:'#7a7a72',font:{size:10}},suggestedMin:0.5,suggestedMax:4},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5b8fff'},title:{display:true,text:'Lass/G15h',color:'#5b8fff',font:{size:10}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...s_tooltip,callbacks:{label:c=>c.datasetIndex===0?\` \${c.parsed.y} l/m³\`:\` \${c.parsed.y} lass/G15h\`}}},scales:{x:{s_grid,s_ticks},y:{s_grid,s_ticks,title:{display:true,text:'liter / m³',color:'#7a7a72',font:{size:10}},suggestedMin:0.5,suggestedMax:4},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...s_ticks,color:'#5b8fff'},title:{display:true,text:'Lass/G15h',color:'#5b8fff',font:{size:10}}}}}
 });
-}catch(e){console.error('Skotare chart init error:',e);}
-
+}catch(e){console.error('[SKOTARE] Chart init error:',e);}
 // Tabs
 document.querySelectorAll('.s-tab').forEach(t=>t.addEventListener('click',()=>{
   document.querySelectorAll('.s-tab').forEach(x=>x.classList.remove('on'));
@@ -220,7 +219,7 @@ function s_openForare(id) {
         {label:'Lass/G15h',data:f.klasser.map(k=>k.lass),backgroundColor:'rgba(90,255,140,0.5)',borderRadius:3,yAxisID:'y',order:1},
         {label:'Medellast',data:f.klasser.map(k=>k.last),type:'line',borderColor:'rgba(91,143,255,0.6)',pointBackgroundColor:'#5b8fff',pointRadius:3,tension:0.3,yAxisID:'y2',order:0}
       ]},
-      options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks:{...ticks,font:{size:10}}},y:{grid,ticks,title:{display:true,text:'Lass/G15h',color:'#7a7a72',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5b8fff'},title:{display:true,text:'m³/lass',color:'#5b8fff',font:{size:10}}}}}
+      options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},s_tooltip},scales:{x:{s_grid,s_ticks:{...s_ticks,font:{size:10}}},y:{s_grid,s_ticks,title:{display:true,text:'Lass/G15h',color:'#7a7a72',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...s_ticks,color:'#5b8fff'},title:{display:true,text:'m³/lass',color:'#5b8fff',font:{size:10}}}}}
     });
   }, 50);
   s_openOverlay();
