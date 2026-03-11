@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
-import BottomNav from '../components/BottomNav'
+import HomeButton from '../components/HomeButton'
 
 export const metadata: Metadata = {
   title: 'Kompersmåla Skog',
@@ -39,8 +39,8 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body style={{ margin: 0, padding: 0, overflow: 'hidden' }}>
+        <HomeButton />
         {children}
-        <BottomNav />
       </body>
     </html>
   )

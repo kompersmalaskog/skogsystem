@@ -32,7 +32,7 @@ export default function Home() {
       position: 'fixed', inset: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch',
       background: '#000',
       fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif",
-      paddingBottom: 80,
+      paddingBottom: 20,
     }}>
       {/* Blurry background */}
       <div style={{
