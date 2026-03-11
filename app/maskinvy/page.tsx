@@ -4,9 +4,12 @@ import { useState } from 'react'
 import Maskinvy from '../../maskinvy'
 import SkotareVy from '../../skotare'
 import MaskinLogg from './MaskinLogg'
+import Jamforelse from './Jamforelse'
+
+type Mode = 'skordare' | 'skotare' | 'jamforelse'
 
 export default function MaskinvyPage() {
-  const [mode, setMode] = useState<'skordare' | 'skotare'>('skordare')
+  const [mode, setMode] = useState<Mode>('skordare')
 
   return (
     <>
@@ -73,14 +76,25 @@ export default function MaskinvyPage() {
           >
             Skotare
           </button>
+          <button
+            className={`mv-toggle-btn${mode === 'jamforelse' ? ' active' : ''}`}
+            onClick={() => setMode('jamforelse')}
+          >
+            Jämförelse
+          </button>
         </div>
       </div>
 
-      <div className="mv-wrapper">
-        {mode === 'skordare' ? <Maskinvy /> : <SkotareVy />}
-      </div>
-
-      <MaskinLogg mode={mode} />
+      {mode === 'jamforelse' ? (
+        <Jamforelse />
+      ) : (
+        <>
+          <div className="mv-wrapper">
+            {mode === 'skordare' ? <Maskinvy /> : <SkotareVy />}
+          </div>
+          <MaskinLogg mode={mode} />
+        </>
+      )}
     </>
   )
 }
