@@ -628,7 +628,7 @@ export default function Maskinvy() {
   }, []);
 
   return (
-    <>
+    <div style={{ position: 'fixed', inset: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch', zIndex: 1, paddingBottom: 64 }}>
       <style dangerouslySetInnerHTML={{ __html: `:root {
   --bg:       #111110;
   --surface:  #1a1a18;
@@ -1693,6 +1693,6 @@ body {
   </div>
   <div class="forar-body" id="fpBody"></div>
 </div>` }} />
-    </>
+    </div>
   );
 }
