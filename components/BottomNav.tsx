@@ -20,6 +20,7 @@ const morItems = [
   { href: '/karta', label: 'Karta', icon: '🗺️' },
   { href: '/starta-jobb', label: 'Starta jobb', icon: '▶' },
   { href: '/arbetsrapport', label: 'Rapport', icon: '📝' },
+  { href: '/maskinvy', label: 'Maskinvy', icon: '🔧' },
 ];
 
 export default function BottomNav() {
