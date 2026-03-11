@@ -669,7 +669,7 @@ function inferType(huvudtyp: string | undefined): 'slutavverkning' | 'gallring' 
 export default function UppfoljningPage() {
   const [loading, setLoading] = useState(true);
   const [objekt, setObjekt] = useState<UppfoljningObjekt[]>([]);
-  const [flik, setFlik] = useState<'pagaende' | 'avslutat'>('pagaende');
+  const [flik, setFlik] = useState<'alla' | 'pagaende' | 'avslutat'>('alla');
   const [filter, setFilter] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
   const [sok, setSok] = useState('');
   const [valt, setValt] = useState<UppfoljningObjekt | null>(null);
@@ -732,11 +732,10 @@ export default function UppfoljningPage() {
         tidAgg.set(key, (tidAgg.get(key) || 0) + (t.bransle_liter || 0));
       });
 
-      // Group dim_objekt by vo_nummer (or objekt_id if no vo_nummer)
+      // Each dim_objekt row becomes its own uppföljningsobjekt (keyed by objekt_id)
       const voGroups = new Map<string, any[]>();
       dimObjekt.forEach(d => {
-        if (d.exkludera) return; // skip excluded objects
-        const key = d.vo_nummer || d.objekt_id;
+        const key = d.objekt_id;
         if (!key) return;
         const arr = voGroups.get(key) || [];
         arr.push(d);
@@ -840,7 +839,7 @@ export default function UppfoljningPage() {
 
   const lista = useMemo(() => {
     return objekt
-      .filter(o => o.status === flik)
+      .filter(o => flik === 'alla' || o.status === flik)
       .filter(o => filter === 'alla' || o.typ === filter)
       .filter(o => {
         if (!sok.trim()) return true;
@@ -874,14 +873,14 @@ export default function UppfoljningPage() {
 
         {/* Flikar */}
         <div style={{ display: 'flex', gap: 28, borderBottom: '1px solid ' + C.border, marginBottom: 14 }}>
-          {(['pagaende', 'avslutat'] as const).map(f => (
+          {(['alla', 'pagaende', 'avslutat'] as const).map(f => (
             <button key={f} onClick={() => setFlik(f)} style={{
               padding: '12px 0', border: 'none', background: 'none', fontSize: 15, fontWeight: 500,
               color: flik === f ? C.t1 : C.t3, cursor: 'pointer',
               borderBottom: flik === f ? '2px solid ' + C.t1 : '2px solid transparent',
               marginBottom: -1, fontFamily: ff,
             }}>
-              {f === 'pagaende' ? 'Pågående' : 'Avslutade'}
+              {f === 'alla' ? 'Alla' : f === 'pagaende' ? 'Pågående' : 'Avslutade'}
             </button>
           ))}
         </div>
@@ -911,7 +910,7 @@ export default function UppfoljningPage() {
           </div>
         ) : (
           lista.map(o => (
-            <ObjektKort key={o.vo_nummer} obj={o} onClick={() => setValt(o)} />
+            <ObjektKort key={o.skordareObjektId || o.skotareObjektId || o.vo_nummer} obj={o} onClick={() => setValt(o)} />
           ))
         )}
       </div>
