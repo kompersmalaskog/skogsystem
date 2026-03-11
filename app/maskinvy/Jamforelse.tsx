@@ -32,7 +32,7 @@ const C = {
 
 // Colors per series
 const EK_BRED = 'rgba(30,80,180,0.7)';    // dark blue
-const EK_SMAL = 'rgba(100,160,255,0.6)';  // light blue
+const EK_SMAL = 'rgba(255,160,50,0.7)';   // orange
 const WI_COLOR = 'rgba(90,255,140,0.5)';   // green
 
 interface ClassData {
