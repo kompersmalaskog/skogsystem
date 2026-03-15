@@ -163,21 +163,17 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           </div>
         </div>
 
-        {/* 3. Körbarhet + Trailer */}
+        {/* 3. Körbarhet + Trailer as separate badges */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
           <span style={{
             fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', padding: '5px 12px', borderRadius: 6,
             color: korb.color, background: korb.color === '#22c55e' ? 'rgba(34,197,94,0.12)' : korb.color === '#eab308' ? 'rgba(234,179,8,0.12)' : korb.color === '#ef4444' ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)',
           }}>{korb.text}</span>
-          {trailerLabel && (
-            <span style={{
-              fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', padding: '5px 12px', borderRadius: 6,
-              color: trailerColor, background: trailerColor === '#f97316' ? 'rgba(249,115,22,0.12)' : 'rgba(113,113,122,0.1)',
-            }}>{trailerLabel}</span>
-          )}
-          {!trailerLabel && (
-            <span style={{ fontSize: 11, fontWeight: 500, padding: '5px 12px', borderRadius: 6, color: S.muted, background: 'rgba(255,255,255,0.03)' }}>–</span>
-          )}
+          <span style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', padding: '5px 12px', borderRadius: 6,
+            color: trailerLabel ? trailerColor : S.muted,
+            background: trailerLabel === 'TRAILER' ? 'rgba(249,115,22,0.12)' : trailerLabel === 'HJULAR' ? 'rgba(113,113,122,0.1)' : 'rgba(255,255,255,0.03)',
+          }}>{trailerLabel || '–'}</span>
         </div>
 
         {/* 4. Kontakt */}
