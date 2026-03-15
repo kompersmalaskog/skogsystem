@@ -349,6 +349,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
   const [showGrot, setShowGrot] = useState(false);
   const [maskinFilter, setMaskinFilter] = useState<string | null>(null);
   const [showMaskinDrop, setShowMaskinDrop] = useState(false);
+  const [showFilterPanel, setShowFilterPanel] = useState(false);
   const [zoomLevel, setZoomLevel] = useState(10);
   const [osrmDist, setOsrmDist] = useState<Record<string, SegmentDist>>({});
   const osrmCacheRef = useRef<Record<string, SegmentDist>>({});
@@ -764,105 +765,105 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         </div>
       )}
 
-      {/* ── Filter bar (single compact row) ── */}
-      <div style={{
-        position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
-        display: 'flex', gap: 4, alignItems: 'center', zIndex: 15,
-        background: 'rgba(0,0,0,.75)', backdropFilter: 'blur(16px)',
-        padding: 4, borderRadius: 12, border: `1px solid ${C.border}`,
-      }} onClick={e => e.stopPropagation()}>
-        {/* Type filter */}
-        {([
-          { k: 'alla' as const, l: 'Alla' },
-          { k: 'slutavverkning' as const, l: 'Slutavverkning' },
-          { k: 'gallring' as const, l: 'Gallring' },
-        ]).map(f => (
-          <button key={f.k} onClick={() => { setFilt(f.k); setSelectedId(null); }} style={{
-            padding: '6px 14px', background: filt === f.k ? 'rgba(255,255,255,0.1)' : 'transparent',
-            color: filt === f.k ? C.t1 : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
-            fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s', fontFamily: ff,
-          }}>{f.l}</button>
-        ))}
-        <div style={{ width: 1, background: C.border, margin: '4px 2px' }} />
-        <button onClick={() => setShowHist(h => !h)} style={{
-          padding: '6px 12px', background: showHist ? 'rgba(255,255,255,0.08)' : 'transparent',
-          color: showHist ? C.t1 : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
-          fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-        }}>Historik</button>
-        <button onClick={() => { setShowGrot(g => !g); if (showGrot) setSelectedGrotId(null); }} style={{
-          padding: '6px 12px', background: showGrot ? C.yd : 'transparent',
-          color: showGrot ? C.yellow : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
-          fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-        }}>GROT</button>
+      {/* ── Filter button (top right) ── */}
+      <button onClick={e => { e.stopPropagation(); setShowFilterPanel(p => !p); }} style={{
+        position: 'absolute', top: 16, right: 16, zIndex: 15,
+        width: 40, height: 40, borderRadius: 10,
+        background: showFilterPanel ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,.75)',
+        backdropFilter: 'blur(16px)', border: `1px solid ${C.border}`,
+        color: (filt !== 'alla' || showHist || showGrot || maskinFilter) ? C.yellow : C.t1,
+        fontSize: 18, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
+      </button>
 
-        {/* Machine dropdown */}
+      {/* ── Filter panel (slides in from right) ── */}
+      <div onClick={e => e.stopPropagation()} style={{
+        position: 'absolute', top: 0, right: 0, bottom: 0, width: 280, zIndex: 14,
+        background: 'rgba(9,9,11,0.95)', backdropFilter: 'blur(24px)',
+        borderLeft: `1px solid ${C.border}`,
+        transform: showFilterPanel ? 'translateX(0)' : 'translateX(100%)',
+        transition: 'transform 0.25s cubic-bezier(.4,0,.2,1)',
+        overflow: 'auto', padding: '16px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: C.t1, fontFamily: ff }}>Filter</span>
+          <button onClick={() => setShowFilterPanel(false)} style={{
+            background: 'none', border: 'none', color: C.t3, fontSize: 18, cursor: 'pointer',
+          }}>✕</button>
+        </div>
+
+        {/* Typ */}
+        <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Typ</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
+          {([
+            { k: 'alla' as const, l: 'Alla' },
+            { k: 'slutavverkning' as const, l: 'Slutavverkning' },
+            { k: 'gallring' as const, l: 'Gallring' },
+          ]).map(f => (
+            <button key={f.k} onClick={() => { setFilt(f.k); setSelectedId(null); }} style={{
+              padding: '10px 14px', background: filt === f.k ? 'rgba(255,255,255,0.08)' : 'transparent',
+              color: filt === f.k ? C.t1 : C.t2, border: 'none', borderRadius: 8, fontSize: 12,
+              fontWeight: filt === f.k ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
+            }}>{f.l}</button>
+          ))}
+        </div>
+
+        {/* Visa */}
+        <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Visa</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
+          <button onClick={() => setShowHist(h => !h)} style={{
+            padding: '10px 14px', background: showHist ? 'rgba(255,255,255,0.08)' : 'transparent',
+            color: showHist ? C.t1 : C.t2, border: 'none', borderRadius: 8, fontSize: 12,
+            fontWeight: showHist ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>Historik <span style={{ fontSize: 10, color: showHist ? C.green : C.t4 }}>{showHist ? 'PÅ' : 'AV'}</span></button>
+          <button onClick={() => { setShowGrot(g => !g); if (showGrot) setSelectedGrotId(null); }} style={{
+            padding: '10px 14px', background: showGrot ? C.yd : 'transparent',
+            color: showGrot ? C.yellow : C.t2, border: 'none', borderRadius: 8, fontSize: 12,
+            fontWeight: showGrot ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>GROT <span style={{ fontSize: 10, color: showGrot ? C.yellow : C.t4 }}>{showGrot ? 'PÅ' : 'AV'}</span></button>
+        </div>
+
+        {/* Maskin */}
         {maskiner.length > 0 && (<>
-          <div style={{ width: 1, background: C.border, margin: '4px 2px' }} />
-          <div style={{ position: 'relative' }}>
-            <button onClick={() => setShowMaskinDrop(v => !v)} style={{
-              padding: '6px 12px', background: maskinFilter ? 'rgba(255,255,255,0.1)' : 'transparent',
-              color: maskinFilter ? C.t1 : C.t3, border: 'none', borderRadius: 8, fontSize: 11,
-              fontWeight: 500, cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              {maskinFilter ? (() => {
-                const m = maskiner.find(x => x.maskin_id === maskinFilter);
-                if (!m) return 'Alla maskiner';
-                const tc = getMaskinTyp(m.typ) === 'skördare' ? C.yellow : C.green;
-                return (<>
-                  <span style={{ width: 6, height: 6, borderRadius: '50%', background: tc, flexShrink: 0 }} />
-                  {getMaskinDisplayName(m)}
-                </>);
-              })() : 'Alla maskiner'}
-              <span style={{ fontSize: 8, marginLeft: 2 }}>{showMaskinDrop ? '▲' : '▼'}</span>
-            </button>
-
-            {showMaskinDrop && (
-              <div style={{
-                position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 220,
-                background: 'rgba(13,13,15,.97)', backdropFilter: 'blur(24px)',
-                borderRadius: 12, border: `1px solid ${C.border}`, overflow: 'hidden',
-                boxShadow: '0 8px 32px rgba(0,0,0,.6)',
-              }}>
-                {/* Alla maskiner */}
-                <button onClick={() => { setMaskinFilter(null); setSelectedId(null); setShowMaskinDrop(false); }} style={{
-                  width: '100%', padding: '10px 14px', background: !maskinFilter ? 'rgba(255,255,255,0.06)' : 'transparent',
-                  color: !maskinFilter ? C.t1 : C.t2, border: 'none', borderBottom: `1px solid ${C.border}`,
-                  fontSize: 11, fontWeight: !maskinFilter ? 600 : 400, cursor: 'pointer', fontFamily: ff,
-                  textAlign: 'left',
-                }}>Alla maskiner</button>
-
-                {/* Grouped by typ */}
-                {(['skördare', 'skotare'] as const).map(typ => {
-                  const group = maskiner.filter(m => getMaskinTyp(m.typ) === typ);
-                  if (!group.length) return null;
-                  const tc = typ === 'skördare' ? C.yellow : C.green;
-                  return (
-                    <div key={typ}>
-                      <div style={{
-                        padding: '8px 14px 4px', fontSize: 9, fontWeight: 600, color: C.t4,
-                        textTransform: 'uppercase', letterSpacing: '0.06em',
-                      }}>{typ}</div>
-                      {group.map(m => {
-                        const on = maskinFilter === m.maskin_id;
-                        return (
-                          <button key={m.maskin_id} onClick={() => { setMaskinFilter(m.maskin_id); setSelectedId(null); setShowMaskinDrop(false); }}
-                            style={{
-                              width: '100%', padding: '8px 14px', background: on ? 'rgba(255,255,255,0.06)' : 'transparent',
-                              color: on ? C.t1 : C.t2, border: 'none', fontSize: 11, fontWeight: on ? 600 : 400,
-                              cursor: 'pointer', fontFamily: ff, textAlign: 'left',
-                              display: 'flex', alignItems: 'center', gap: 8,
-                            }}>
-                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: tc, flexShrink: 0 }} />
-                            {getMaskinDisplayName(m)}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Maskin</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <button onClick={() => { setMaskinFilter(null); setSelectedId(null); }} style={{
+              padding: '10px 14px', background: !maskinFilter ? 'rgba(255,255,255,0.08)' : 'transparent',
+              color: !maskinFilter ? C.t1 : C.t2, border: 'none', borderRadius: 8, fontSize: 12,
+              fontWeight: !maskinFilter ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
+            }}>Alla maskiner</button>
+            {(['skördare', 'skotare'] as const).map(typ => {
+              const group = maskiner.filter(m => getMaskinTyp(m.typ) === typ);
+              if (!group.length) return null;
+              const tc = typ === 'skördare' ? C.yellow : C.green;
+              return (
+                <div key={typ}>
+                  <div style={{
+                    padding: '8px 14px 4px', fontSize: 9, fontWeight: 600, color: C.t4,
+                    textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: ff,
+                  }}>{typ}</div>
+                  {group.map(m => {
+                    const on = maskinFilter === m.maskin_id;
+                    return (
+                      <button key={m.maskin_id} onClick={() => { setMaskinFilter(m.maskin_id); setSelectedId(null); }}
+                        style={{
+                          width: '100%', padding: '8px 14px', background: on ? 'rgba(255,255,255,0.08)' : 'transparent',
+                          color: on ? C.t1 : C.t2, border: 'none', fontSize: 12, fontWeight: on ? 600 : 400,
+                          cursor: 'pointer', fontFamily: ff, textAlign: 'left',
+                          display: 'flex', alignItems: 'center', gap: 8, borderRadius: 8,
+                        }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: tc, flexShrink: 0 }} />
+                        {getMaskinDisplayName(m)}
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         </>)}
       </div>

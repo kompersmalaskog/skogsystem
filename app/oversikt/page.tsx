@@ -97,15 +97,34 @@ export default function OversiktPage() {
         </div>
       )}
 
-      {/* Nav */}
-      <div style={{ flexShrink: 0, background: '#0c0c0e', borderTop: `1px solid ${C.border}`, display: 'flex', padding: '8px 0 14px', zIndex: 30 }}>
-        {tabs.map((v) => (
-          <button key={v.id} onClick={() => setActiveTab(v.id)}
-            style={{ flex: 1, background: 'none', border: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, padding: '3px 0', fontFamily: ff }}>
-            <span style={{ fontSize: 18, color: activeTab === v.id ? C.t1 : C.t4, transition: 'color 0.15s' }}>{v.icon}</span>
-            <span style={{ fontSize: 9, fontWeight: 600, color: activeTab === v.id ? C.t1 : C.t4, letterSpacing: '0.02em' }}>{v.label}</span>
-          </button>
-        ))}
+      {/* Bottom nav */}
+      <div style={{
+        flexShrink: 0, background: 'rgba(17,17,16,0.95)', backdropFilter: 'blur(20px)',
+        borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex',
+        padding: '8px 0 max(14px, env(safe-area-inset-bottom))', zIndex: 30,
+      }}>
+        {tabs.map((v) => {
+          const active = activeTab === v.id;
+          return (
+            <button key={v.id} onClick={() => setActiveTab(v.id)}
+              style={{
+                flex: 1, background: 'none', border: 'none', cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                padding: '6px 0', fontFamily: ff, transition: 'all 0.15s',
+              }}>
+              <span style={{
+                fontSize: 20, lineHeight: 1,
+                color: active ? '#e8e8e4' : '#3a3a36',
+                transition: 'color 0.15s',
+              }}>{v.icon}</span>
+              <span style={{
+                fontSize: 10, fontWeight: 600, letterSpacing: '-0.2px',
+                color: active ? '#e8e8e4' : '#3a3a36',
+                transition: 'color 0.15s',
+              }}>{v.label}</span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
