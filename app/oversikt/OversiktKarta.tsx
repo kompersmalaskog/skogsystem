@@ -82,11 +82,27 @@ function korbarhetsLabel(barighet?: string): { text: string; color: string } {
 function ObjCard({ obj }: { obj: OversiktObjekt }) {
   const o = obj;
   const tf = TF[o.typ] || C.yellow;
-  const skP = pc(0, o.volym);
-  const stP = pc(0, o.volym);
-  const wb = (v?: string) => v === 'Dålig' || v === 'Brant' || v === 'Nej';
 
-  // Skogliga grunddata (medeldiameter, medelhöjd, trädslag)
+  // Status dot
+  const statusColor = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning'
+    ? '#22c55e' : o.status === 'klar' ? '#fafafa' : '#71717a';
+  const atgardLabel = o.atgard || (o.typ === 'slutavverkning' ? 'AU' : 'Gallring');
+
+  // Volym
+  const volPerHa = o.volym && o.areal ? (o.volym / o.areal).toFixed(0) : '–';
+
+  // Körbarhet
+  const korb = korbarhetsLabel(o.barighet);
+
+  // Trailer
+  const trailerLabel = o.trailer_behovs === true ? 'TRAILER' : o.trailer_behovs === false ? 'HJULAR' : (o.transport_trailer_in === true ? 'TRAILER' : o.transport_trailer_in === false ? 'HJULAR' : null);
+  const trailerColor = trailerLabel === 'TRAILER' ? '#f97316' : '#71717a';
+
+  // Kontakt
+  const kontaktNamn = o.kontakt_namn || o.markagare || null;
+  const kontaktTel = o.kontakt_telefon || null;
+
+  // Skogliga grunddata
   const [skogData, setSkogData] = useState<VolymResultat | null>(null);
   const [skogLoading, setSkogLoading] = useState(false);
   const cacheRef = useRef<Record<string, VolymResultat>>({});
@@ -104,99 +120,135 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
     }).catch(() => setSkogData(null)).finally(() => setSkogLoading(false));
   }, [o.id, o.lat, o.lng, o.areal]);
 
-  const korb = korbarhetsLabel(o.barighet);
-  const volPerHa = o.volym && o.areal ? (o.volym / o.areal).toFixed(0) : '–';
+  const S = {
+    surface: '#1a1a18',
+    surface2: '#222220',
+    border: 'rgba(255,255,255,0.07)',
+    text: '#e8e8e4',
+    muted: '#7a7a72',
+    accent: '#5aff8c',
+  };
 
   return (
     <div onClick={(e) => e.stopPropagation()} style={{
       position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
-      width: 370, maxWidth: 'calc(100% - 24px)',
-      background: 'rgba(13,13,15,.97)', backdropFilter: 'blur(24px)',
-      borderRadius: 16, overflow: 'hidden', border: `1px solid ${C.border}`, zIndex: 20,
+      width: 380, maxWidth: 'calc(100% - 24px)',
+      background: 'rgba(17,17,16,.97)', backdropFilter: 'blur(24px)',
+      borderRadius: 18, overflow: 'hidden', border: `1px solid ${S.border}`, zIndex: 20,
       animation: 'fadeUp .2s ease-out',
     }}>
       <div style={{ height: 2, background: `linear-gradient(90deg,${tf},transparent)` }} />
-      <div style={{ padding: 16, maxHeight: '60vh', overflowY: 'auto' }}>
-        {/* Header */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>{o.namn}</div>
-            <div style={{ fontSize: 11, color: C.t3, marginTop: 2 }}>
-              {o.bolag || '–'} · {o.atgard || (o.typ === 'slutavverkning' ? 'Slutavv.' : 'Gallring')} · {o.areal || '–'} ha
-            </div>
+      <div style={{ padding: '20px 20px 16px', maxHeight: '65vh', overflowY: 'auto' }}>
+
+        {/* 1. Header */}
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.03em', color: S.text, lineHeight: 1.2 }}>{o.namn}</div>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em' }}>{formatVolym(o.volym || 0)}</div>
-            <div style={{ fontSize: 10, color: C.t4 }}>m³sk</div>
+          <div style={{ fontSize: 11, color: S.muted, letterSpacing: '0.01em' }}>
+            {o.areal || '–'} ha · {atgardLabel}
           </div>
         </div>
 
-        {/* Volym/ha + Körbarhet row */}
-        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-          <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '6px 10px' }}>
-            <div style={{ fontSize: 10, color: C.t3 }}>Volym/ha</div>
-            <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '-0.02em' }}>{volPerHa} <span style={{ fontSize: 10, fontWeight: 400, color: C.t3 }}>m³sk</span></div>
+        {/* 2. Volym */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+          <div style={{ background: S.surface2, borderRadius: 12, padding: '14px 14px', textAlign: 'center' }}>
+            <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1, color: S.text }}>{formatVolym(o.volym || 0)}</div>
+            <div style={{ fontSize: 10, color: S.muted, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total m³sk</div>
           </div>
-          <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '6px 10px' }}>
-            <div style={{ fontSize: 10, color: C.t3 }}>Körbarhet</div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: korb.color }}>{korb.text}</div>
+          <div style={{ background: S.surface2, borderRadius: 12, padding: '14px 14px', textAlign: 'center' }}>
+            <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1, color: S.text }}>{volPerHa}</div>
+            <div style={{ fontSize: 10, color: S.muted, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>m³sk/ha</div>
           </div>
         </div>
 
-        {/* Trädslag + Diameter/Höjd */}
-        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '6px 10px', marginBottom: 10 }}>
-          {skogLoading ? (
-            <div style={{ fontSize: 10, color: C.t3, padding: '2px 0' }}>Hämtar skogliga data...</div>
-          ) : skogData && skogData.status === 'done' ? (<>
-            {/* Trädslag row */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <span style={{ fontSize: 10, color: C.t3, flexShrink: 0 }}>Trädslag</span>
-              <div style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
-                {(skogData.tradslag.length > 0 ? skogData.tradslag : []).slice(0, 4).map((ts, i) => (
-                  <span key={i} style={{ fontSize: 11, fontWeight: 500, color: C.t1 }}>
-                    {ts.namn} <span style={{ color: C.t3 }}>{Math.round(ts.andel * 100)}%</span>
-                  </span>
-                ))}
-                {skogData.tradslag.length === 0 && <span style={{ fontSize: 11, color: C.t4 }}>–</span>}
-              </div>
-            </div>
-            {/* Diameter + Höjd */}
-            <div style={{ display: 'flex', gap: 12, fontSize: 11 }}>
-              <span style={{ color: C.t3 }}>Medeldiameter <span style={{ fontWeight: 600, color: C.t1 }}>{skogData.medeldiameter > 0 ? `${skogData.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
-              <span style={{ color: C.t3 }}>Medelhöjd <span style={{ fontWeight: 600, color: C.t1 }}>{skogData.medelhojd > 0 ? `${skogData.medelhojd.toFixed(0)} m` : '–'}</span></span>
-            </div>
-          </>) : (
-            <div style={{ fontSize: 10, color: C.t4, padding: '2px 0' }}>Skogliga data ej tillgänglig</div>
+        {/* 3. Körbarhet + Trailer */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+          <span style={{
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', padding: '5px 12px', borderRadius: 6,
+            color: korb.color, background: korb.color === '#22c55e' ? 'rgba(34,197,94,0.12)' : korb.color === '#eab308' ? 'rgba(234,179,8,0.12)' : korb.color === '#ef4444' ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)',
+          }}>{korb.text}</span>
+          {trailerLabel && (
+            <span style={{
+              fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', padding: '5px 12px', borderRadius: 6,
+              color: trailerColor, background: trailerColor === '#f97316' ? 'rgba(249,115,22,0.12)' : 'rgba(113,113,122,0.1)',
+            }}>{trailerLabel}</span>
+          )}
+          {!trailerLabel && (
+            <span style={{ fontSize: 11, fontWeight: 500, padding: '5px 12px', borderRadius: 6, color: S.muted, background: 'rgba(255,255,255,0.03)' }}>–</span>
           )}
         </div>
 
-        {/* Machine tags */}
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
-          {o.skordare_maskin && <Tag>{o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}</Tag>}
-          {o.skotare_maskin && <Tag>{o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}</Tag>}
-          {o.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
-          {o.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
-          {o.skordare_manuell_fallning && <Tag w>Manuell fällning</Tag>}
-          {o.markagare_ska_ha_ved && <Tag>Ved</Tag>}
-        </div>
-
-        {(o.barighet || o.terrang || o.transport_trailer_in !== undefined) && (
-          <div style={{ display: 'flex', gap: 2, borderRadius: 10, overflow: 'hidden', marginBottom: 8 }}>
-            <InfoRow label="Bärighet" val={o.barighet || '–'} warn={wb(o.barighet)} />
-            <InfoRow label="Terräng" val={o.terrang || '–'} warn={wb(o.terrang)} />
-            <InfoRow label="Trailer in" val={o.transport_trailer_in === true ? 'Ja' : o.transport_trailer_in === false ? 'Nej' : '–'} warn={o.transport_trailer_in === false} />
+        {/* 4. Kontakt */}
+        {(kontaktNamn || kontaktTel) && (
+          <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Kontakt</div>
+            <div style={{ fontSize: 13, fontWeight: 500, color: S.text }}>{kontaktNamn || '–'}</div>
+            {kontaktTel ? (
+              <a href={`tel:${kontaktTel}`} style={{ fontSize: 12, color: '#5b8fff', textDecoration: 'none', marginTop: 2, display: 'inline-block' }}>{kontaktTel}</a>
+            ) : (
+              <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>–</div>
+            )}
           </div>
         )}
 
-        {o.transport_kommentar && <div style={{ fontSize: 10, color: C.t3, marginBottom: 4 }}>🚚 {o.transport_kommentar}</div>}
-        {o.skordare_manuell_fallning && o.skordare_manuell_fallning_text && <div style={{ fontSize: 10, color: C.t3, marginBottom: 4 }}>✋ {o.skordare_manuell_fallning_text}</div>}
-        {o.markagare_ska_ha_ved && o.markagare_ved_text && <div style={{ fontSize: 10, color: C.t3, marginBottom: 4 }}>🪵 {o.markagare_ved_text}</div>}
-        {o.info_anteckningar && <div style={{ fontSize: 10, color: C.t3, padding: '8px 0 0', borderTop: `1px solid ${C.border}` }}>📝 {o.info_anteckningar}</div>}
+        {/* 5. Instruktioner */}
+        {o.ovrigt_info && (
+          <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Instruktioner</div>
+            <div style={{ fontSize: 12, color: S.text, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{o.ovrigt_info}</div>
+          </div>
+        )}
 
+        {/* Trädslag + Diameter/Höjd */}
+        {(skogLoading || (skogData && skogData.status === 'done')) && (
+          <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+            {skogLoading ? (
+              <div style={{ fontSize: 10, color: S.muted }}>Hämtar skogliga data...</div>
+            ) : skogData && skogData.status === 'done' ? (<>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Trädslag</span>
+                <div style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
+                  {skogData.tradslag.slice(0, 4).map((ts, i) => (
+                    <span key={i} style={{ fontSize: 11, fontWeight: 500, color: S.text }}>
+                      {ts.namn} <span style={{ color: S.muted }}>{Math.round(ts.andel * 100)}%</span>
+                    </span>
+                  ))}
+                  {skogData.tradslag.length === 0 && <span style={{ fontSize: 11, color: S.muted }}>–</span>}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 16, fontSize: 11 }}>
+                <span style={{ color: S.muted }}>Diameter <span style={{ fontWeight: 600, color: S.text }}>{skogData.medeldiameter > 0 ? `${skogData.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
+                <span style={{ color: S.muted }}>Höjd <span style={{ fontWeight: 600, color: S.text }}>{skogData.medelhojd > 0 ? `${skogData.medelhojd.toFixed(0)} m` : '–'}</span></span>
+              </div>
+            </>) : null}
+          </div>
+        )}
+
+        {/* 6. Maskiner */}
+        {(o.skordare_maskin || o.skotare_maskin) && (
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+            {o.skordare_maskin && <Tag>{o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}</Tag>}
+            {o.skotare_maskin && <Tag>{o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}</Tag>}
+            {o.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
+            {o.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
+            {o.skordare_manuell_fallning && <Tag w>Manuell fällning</Tag>}
+            {o.markagare_ska_ha_ved && <Tag>Ved</Tag>}
+          </div>
+        )}
+
+        {/* Extra info rows */}
+        {o.transport_kommentar && <div style={{ fontSize: 10, color: S.muted, marginBottom: 4 }}>🚚 {o.transport_kommentar}</div>}
+        {o.skordare_manuell_fallning && o.skordare_manuell_fallning_text && <div style={{ fontSize: 10, color: S.muted, marginBottom: 4 }}>✋ {o.skordare_manuell_fallning_text}</div>}
+        {o.markagare_ska_ha_ved && o.markagare_ved_text && <div style={{ fontSize: 10, color: S.muted, marginBottom: 4 }}>🪵 {o.markagare_ved_text}</div>}
+        {o.info_anteckningar && <div style={{ fontSize: 10, color: S.muted, padding: '8px 0 0', borderTop: `1px solid ${S.border}`, marginBottom: 4 }}>{o.info_anteckningar}</div>}
+
+        {/* 7. Footer */}
         <button onClick={() => window.location.href = `/planering?objekt=${o.id}`} style={{
-          width: '100%', marginTop: 12, padding: '10px 0', background: 'rgba(255,255,255,0.06)',
-          border: `1px solid ${C.border}`, borderRadius: 10, color: C.t2, fontSize: 12, fontWeight: 600,
-          cursor: 'pointer', fontFamily: ff, transition: 'background 0.15s',
+          width: '100%', marginTop: 8, padding: '12px 0', background: 'rgba(255,255,255,0.06)',
+          border: `1px solid ${S.border}`, borderRadius: 12, color: S.text, fontSize: 13, fontWeight: 600,
+          cursor: 'pointer', fontFamily: ff, transition: 'background 0.15s', letterSpacing: '-0.01em',
         }}>
           Visa avverkning →
         </button>

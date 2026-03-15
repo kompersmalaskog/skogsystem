@@ -52,6 +52,10 @@ export interface OversiktObjekt {
   markagare_ska_ha_ved?: boolean;
   markagare_ved_text?: string;
   info_anteckningar?: string;
+  kontakt_namn?: string;
+  kontakt_telefon?: string;
+  trailer_behovs?: boolean;
+  ovrigt_info?: string;
   // Dates
   faktisk_slut: string | null;
   // GROT
