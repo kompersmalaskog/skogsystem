@@ -512,11 +512,13 @@ function toggleForareAvbrott(el, forareNamn) {
   document.querySelectorAll('.forare-avbrott-detail').forEach(function(e) { e.remove(); });
   var data = getForareAvbrott(forareNamn);
   if (data.length === 0) return;
+  var totMin = data.reduce(function(s, item) { return s + item[1].tid; }, 0);
   var rows = data.map(function(item, i) {
     var orsak = item[0]; var v = item[1];
+    var pct = totMin > 0 ? Math.round((v.tid / totMin) * 100) : 0;
     var bb = i < data.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none';
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:' + bb + ';font-size:11px;">' +
-      '<span style="color:var(--muted);">' + orsak + ' <span style="font-size:9px;">(' + v.antal + 'x)</span></span>' +
+      '<span style="color:var(--muted);">' + orsak + ' <span style="font-size:9px;">(' + v.antal + 'x · ' + pct + '%)</span></span>' +
       '<span style="font-weight:600;font-variant-numeric:tabular-nums;color:var(--warn);">' + fmtAvbrottTid(v.tid) + '</span></div>';
   }).join('');
   var div = document.createElement('div');
