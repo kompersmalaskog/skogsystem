@@ -1,9 +1,16 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
+import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 declare global {
   interface Window { maplibregl: any; }
@@ -49,6 +56,28 @@ function InfoRow({ label, val, warn }: { label: string; val: string; warn?: bool
   );
 }
 
+/* ── Helper: build square polygon from lat/lng + areal ── */
+function arealToPolygon(lat: number, lng: number, arealHa: number): { lat: number; lon: number }[] {
+  const sideM = Math.sqrt(arealHa * 10000) / 2;
+  const dLat = sideM / 111320;
+  const dLon = sideM / (111320 * Math.cos(lat * Math.PI / 180));
+  return [
+    { lat: lat - dLat, lon: lng - dLon },
+    { lat: lat - dLat, lon: lng + dLon },
+    { lat: lat + dLat, lon: lng + dLon },
+    { lat: lat + dLat, lon: lng - dLon },
+  ];
+}
+
+/* ── Körbarhet mapping ── */
+function korbarhetsLabel(barighet?: string): { text: string; color: string } {
+  if (!barighet) return { text: '–', color: C.t4 };
+  const b = barighet.toLowerCase();
+  if (b === 'bra' || b === 'god') return { text: 'KÖR', color: '#22c55e' };
+  if (b === 'medel' || b === 'normal') return { text: 'BEGRÄNSAD', color: '#eab308' };
+  return { text: 'EJ KÖRBART', color: '#ef4444' };
+}
+
 /* ── ObjCard popup (positioned fixed at screen bottom) ── */
 function ObjCard({ obj }: { obj: OversiktObjekt }) {
   const o = obj;
@@ -56,6 +85,27 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
   const skP = pc(0, o.volym);
   const stP = pc(0, o.volym);
   const wb = (v?: string) => v === 'Dålig' || v === 'Brant' || v === 'Nej';
+
+  // Skogliga grunddata (medeldiameter, medelhöjd, trädslag)
+  const [skogData, setSkogData] = useState<VolymResultat | null>(null);
+  const [skogLoading, setSkogLoading] = useState(false);
+  const cacheRef = useRef<Record<string, VolymResultat>>({});
+
+  useEffect(() => {
+    if (!o.lat || !o.lng) return;
+    const key = o.id;
+    if (cacheRef.current[key]) { setSkogData(cacheRef.current[key]); return; }
+    setSkogLoading(true);
+    const areal = o.areal || 2;
+    const polygon = arealToPolygon(o.lat, o.lng, areal);
+    beraknaVolym(polygon, '/api/wms-proxy').then(res => {
+      cacheRef.current[key] = res;
+      setSkogData(res);
+    }).catch(() => setSkogData(null)).finally(() => setSkogLoading(false));
+  }, [o.id, o.lat, o.lng, o.areal]);
+
+  const korb = korbarhetsLabel(o.barighet);
+  const volPerHa = o.volym && o.areal ? (o.volym / o.areal).toFixed(0) : '–';
 
   return (
     <div onClick={(e) => e.stopPropagation()} style={{
@@ -67,7 +117,8 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
     }}>
       <div style={{ height: 2, background: `linear-gradient(90deg,${tf},transparent)` }} />
       <div style={{ padding: 16, maxHeight: '60vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>{o.namn}</div>
             <div style={{ fontSize: 11, color: C.t3, marginTop: 2 }}>
@@ -76,26 +127,51 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em' }}>{formatVolym(o.volym || 0)}</div>
-            <div style={{ fontSize: 10, color: C.t4 }}>m³</div>
+            <div style={{ fontSize: 10, color: C.t4 }}>m³sk</div>
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-          {[{ l: 'Skördare', v: 0, p: skP }, { l: 'Skotare', v: 0, p: stP }].map((r, i) => (
-            <div key={i}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span style={{ fontSize: 10, color: C.t3 }}>{r.l}</span>
-                <span style={{ fontSize: 11, fontWeight: 600 }}>{r.v ? `${r.v} m³` : '–'}</span>
-              </div>
-              <div style={{ height: 4, background: 'rgba(255,255,255,0.04)', borderRadius: 2, overflow: 'hidden' }}>
-                <div style={{ width: `${r.p}%`, height: '100%', background: tf, borderRadius: 2, opacity: 0.65, transition: 'width 0.5s ease' }} />
-              </div>
-              {r.v > 0 && <div style={{ fontSize: 9, color: C.t4, textAlign: 'right', marginTop: 2 }}>{r.p}%</div>}
-            </div>
-          ))}
+        {/* Volym/ha + Körbarhet row */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+          <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '6px 10px' }}>
+            <div style={{ fontSize: 10, color: C.t3 }}>Volym/ha</div>
+            <div style={{ fontSize: 14, fontWeight: 700, letterSpacing: '-0.02em' }}>{volPerHa} <span style={{ fontSize: 10, fontWeight: 400, color: C.t3 }}>m³sk</span></div>
+          </div>
+          <div style={{ flex: 1, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '6px 10px' }}>
+            <div style={{ fontSize: 10, color: C.t3 }}>Körbarhet</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: korb.color }}>{korb.text}</div>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
+        {/* Trädslag + Diameter/Höjd */}
+        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '6px 10px', marginBottom: 10 }}>
+          {skogLoading ? (
+            <div style={{ fontSize: 10, color: C.t3, padding: '2px 0' }}>Hämtar skogliga data...</div>
+          ) : skogData && skogData.status === 'done' ? (<>
+            {/* Trädslag row */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <span style={{ fontSize: 10, color: C.t3, flexShrink: 0 }}>Trädslag</span>
+              <div style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
+                {(skogData.tradslag.length > 0 ? skogData.tradslag : []).slice(0, 4).map((ts, i) => (
+                  <span key={i} style={{ fontSize: 11, fontWeight: 500, color: C.t1 }}>
+                    {ts.namn} <span style={{ color: C.t3 }}>{Math.round(ts.andel * 100)}%</span>
+                  </span>
+                ))}
+                {skogData.tradslag.length === 0 && <span style={{ fontSize: 11, color: C.t4 }}>–</span>}
+              </div>
+            </div>
+            {/* Diameter + Höjd */}
+            <div style={{ display: 'flex', gap: 12, fontSize: 11 }}>
+              <span style={{ color: C.t3 }}>Medeldiameter <span style={{ fontWeight: 600, color: C.t1 }}>{skogData.medeldiameter > 0 ? `${skogData.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
+              <span style={{ color: C.t3 }}>Medelhöjd <span style={{ fontWeight: 600, color: C.t1 }}>{skogData.medelhojd > 0 ? `${skogData.medelhojd.toFixed(0)} m` : '–'}</span></span>
+            </div>
+          </>) : (
+            <div style={{ fontSize: 10, color: C.t4, padding: '2px 0' }}>Skogliga data ej tillgänglig</div>
+          )}
+        </div>
+
+        {/* Machine tags */}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
           {o.skordare_maskin && <Tag>{o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}</Tag>}
           {o.skotare_maskin && <Tag>{o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}</Tag>}
           {o.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
