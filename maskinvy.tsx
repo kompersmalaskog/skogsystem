@@ -1188,14 +1188,16 @@ body {
       <div class="card-h"><div class="card-t">Tidsfördelning</div></div>
       <div class="card-b">
         <div class="tbar">
-          <div class="tseg" style="flex:68;background:rgba(90,255,140,0.25)"></div>
+          <div class="tseg" style="flex:66;background:rgba(90,255,140,0.25)"></div>
           <div class="tseg" style="flex:14;background:rgba(91,143,255,0.2)"></div>
+          <div class="tseg" style="flex:2;background:rgba(91,143,255,0.35)"></div>
           <div class="tseg" style="flex:11;background:rgba(255,179,64,0.2)"></div>
           <div class="tseg" style="flex:7;background:rgba(255,255,255,0.04)"></div>
         </div>
         <div class="tleg">
-          <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.3)"></div>Processar 68%</div>
+          <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.3)"></div>Processar 66%</div>
           <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.2)"></div>Kör 14%</div>
+          <div class="tli"><div class="tld" style="background:rgba(91,143,255,0.35)"></div>Korta stopp 2%</div>
           <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.1)"></div>Avbrott 11%</div>
           <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.1)"></div>Rast 7%</div>
         </div>
@@ -1490,8 +1492,9 @@ body {
     <!-- Tidsfördelning stapel -->
     <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Fördelning</div>
     <div style="background:var(--surface2);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
-      <div class="frow"><span class="frow-l">Processar</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:68%;background:rgba(90,255,140,0.4)"></div></div></div><span class="frow-v">111h · 68%</span></div>
+      <div class="frow"><span class="frow-l">Processar</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:66%;background:rgba(90,255,140,0.4)"></div></div></div><span class="frow-v">111h · 66%</span></div>
       <div class="frow"><span class="frow-l">Kör</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:14%;background:rgba(255,255,255,0.2)"></div></div></div><span class="frow-v">23h · 14%</span></div>
+      <div class="frow"><span class="frow-l">Korta stopp</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:2%;background:rgba(91,143,255,0.3)"></div></div></div><span class="frow-v">4h · 2%</span></div>
       <div class="frow"><span class="frow-l">Avbrott</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:11%;background:rgba(255,179,64,0.4)"></div></div></div><span class="frow-v">18h · 11%</span></div>
       <div class="frow" style="border-bottom:none"><span class="frow-l">Rast</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:7%;background:rgba(255,255,255,0.08)"></div></div></div><span class="frow-v">11h · 7%</span></div>
     </div>
