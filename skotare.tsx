@@ -448,6 +448,51 @@ function s_openDag(dag) {
 }
 function s_closeDag() { s_closeAllPanels(); }
 
+// ── AVBROTT PER FÖRARE EXPAND ──
+function s_parseAvbrottMinuter(tid) {
+  var min = 0;
+  var hm = tid.match(/(\\d+)\\s*h/);
+  var mm = tid.match(/(\\d+)\\s*min/);
+  if (hm) min += parseInt(hm[1]) * 60;
+  if (mm) min += parseInt(mm[1]);
+  return min;
+}
+function s_fmtAvbrottTid(min) {
+  if (min >= 60) return Math.floor(min/60) + 'h ' + (min%60 > 0 ? (min%60) + 'min' : '');
+  return min + ' min';
+}
+function s_getForareAvbrott(forareNamn) {
+  var orsaker = {};
+  Object.values(s_dagData).forEach(function(d) {
+    if (d.forare !== forareNamn || !d.avbrott) return;
+    d.avbrott.forEach(function(a) {
+      if (!orsaker[a.orsak]) orsaker[a.orsak] = { tid: 0, antal: 0 };
+      orsaker[a.orsak].tid += s_parseAvbrottMinuter(a.tid);
+      orsaker[a.orsak].antal += 1;
+    });
+  });
+  return Object.entries(orsaker).sort(function(a,b) { return b[1].tid - a[1].tid; });
+}
+function s_toggleForareAvbrott(el, forareNamn) {
+  var existing = el.parentElement.querySelector('.forare-avbrott-detail');
+  if (existing) { existing.remove(); return; }
+  document.querySelectorAll('.forare-avbrott-detail').forEach(function(e) { e.remove(); });
+  var data = s_getForareAvbrott(forareNamn);
+  if (data.length === 0) return;
+  var rows = data.map(function(item, i) {
+    var orsak = item[0]; var v = item[1];
+    var bb = i < data.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:' + bb + ';font-size:11px;">' +
+      '<span style="color:var(--muted);">' + orsak + ' <span style="font-size:9px;">(' + v.antal + 'x)</span></span>' +
+      '<span style="font-weight:600;font-variant-numeric:tabular-nums;color:var(--warn);">' + s_fmtAvbrottTid(v.tid) + '</span></div>';
+  }).join('');
+  var div = document.createElement('div');
+  div.className = 'forare-avbrott-detail';
+  div.style.cssText = 'background:rgba(255,255,255,0.03);border-radius:8px;padding:4px 14px;margin:4px 0 8px;';
+  div.innerHTML = rows;
+  el.after(div);
+}
+
 // ObjTyp
 const s_objTypData = {
   rp: { label:'RP', title:'Röjningsprioriterat', volym:1080, lass:144, g15:71, lassG15h:2.0, medelavst:280, medellast:7.5,
@@ -1187,9 +1232,9 @@ body{background:var(--bg);color:var(--text);font-family:'Geist',system-ui,sans-s
     </div>
     <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Avbrott per förare</div>
     <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">
-      <div class="frow"><div style="display:flex;align-items:center;gap:8px;flex:1;"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">SK</div><span class="frow-l">Stefan Karlsson</span></div><span class="frow-v">5h 50min</span></div>
-      <div class="frow"><div style="display:flex;align-items:center;gap:8px;flex:1;"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">MN</div><span class="frow-l">Marcus Nilsson</span></div><span class="frow-v">5h 05min</span></div>
-      <div class="frow" style="border-bottom:none;"><div style="display:flex;align-items:center;gap:8px;flex:1;"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">PL</div><span class="frow-l">Pär Lindgren</span></div><span class="frow-v">4h 05min</span></div>
+      <div class="frow" style="cursor:pointer;" onclick="s_toggleForareAvbrott(this,'Stefan Karlsson')"><div style="display:flex;align-items:center;gap:8px;flex:1;"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">SK</div><span class="frow-l">Stefan Karlsson</span></div><span class="frow-v">5h 50min <span style="font-size:10px;color:var(--muted);margin-left:4px;">›</span></span></div>
+      <div class="frow" style="cursor:pointer;" onclick="s_toggleForareAvbrott(this,'Marcus Nilsson')"><div style="display:flex;align-items:center;gap:8px;flex:1;"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">MN</div><span class="frow-l">Marcus Nilsson</span></div><span class="frow-v">5h 05min <span style="font-size:10px;color:var(--muted);margin-left:4px;">›</span></span></div>
+      <div class="frow" style="border-bottom:none;cursor:pointer;" onclick="s_toggleForareAvbrott(this,'Pär Lindgren')"><div style="display:flex;align-items:center;gap:8px;flex:1;"><div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">PL</div><span class="frow-l">Pär Lindgren</span></div><span class="frow-v">4h 05min <span style="font-size:10px;color:var(--muted);margin-left:4px;">›</span></span></div>
     </div>
   </div>
 </div>
