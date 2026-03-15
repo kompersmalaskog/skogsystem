@@ -6,6 +6,7 @@ import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF } from './oversikt-type
 import { ff } from './oversikt-styles';
 import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning';
+import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -107,17 +108,34 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
   const [skogLoading, setSkogLoading] = useState(false);
   const cacheRef = useRef<Record<string, VolymResultat>>({});
 
+  // Körbarhetsdata (jordart + lutning)
+  const [korbData, setKorbData] = useState<KorbarhetsResultat | null>(null);
+  const korbCacheRef = useRef<Record<string, KorbarhetsResultat>>({});
+
   useEffect(() => {
     if (!o.lat || !o.lng) return;
     const key = o.id;
-    if (cacheRef.current[key]) { setSkogData(cacheRef.current[key]); return; }
-    setSkogLoading(true);
     const areal = o.areal || 2;
     const polygon = arealToPolygon(o.lat, o.lng, areal);
-    beraknaVolym(polygon, '/api/wms-proxy').then(res => {
-      cacheRef.current[key] = res;
-      setSkogData(res);
-    }).catch(() => setSkogData(null)).finally(() => setSkogLoading(false));
+
+    // Volym
+    if (cacheRef.current[key]) { setSkogData(cacheRef.current[key]); }
+    else {
+      setSkogLoading(true);
+      beraknaVolym(polygon, '/api/wms-proxy').then(res => {
+        cacheRef.current[key] = res;
+        setSkogData(res);
+      }).catch(() => setSkogData(null)).finally(() => setSkogLoading(false));
+    }
+
+    // Körbarhet (jordart + lutning)
+    if (korbCacheRef.current[key]) { setKorbData(korbCacheRef.current[key]); }
+    else {
+      beraknaKorbarhet(polygon, '/api/wms-proxy', '/api/wms-proxy').then(res => {
+        korbCacheRef.current[key] = res;
+        setKorbData(res);
+      }).catch(() => setKorbData(null));
+    }
   }, [o.id, o.lat, o.lng, o.areal]);
 
   const S = {
@@ -163,12 +181,15 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           </div>
         </div>
 
-        {/* 3. Körbarhet + Trailer as separate badges */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {/* 3. Körbarhet badge */}
+        <div style={{ marginBottom: 8 }}>
           <span style={{
             fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', padding: '5px 12px', borderRadius: 6,
             color: korb.color, background: korb.color === '#22c55e' ? 'rgba(34,197,94,0.12)' : korb.color === '#eab308' ? 'rgba(234,179,8,0.12)' : korb.color === '#ef4444' ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)',
           }}>{korb.text}</span>
+        </div>
+        {/* Trailer badge */}
+        <div style={{ marginBottom: 14 }}>
           <span style={{
             fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', padding: '5px 12px', borderRadius: 6,
             color: trailerLabel ? trailerColor : S.muted,
@@ -197,30 +218,40 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           </div>
         )}
 
-        {/* Trädslag + Diameter/Höjd */}
-        {(skogLoading || (skogData && skogData.status === 'done')) && (
-          <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-            {skogLoading ? (
-              <div style={{ fontSize: 10, color: S.muted }}>Hämtar skogliga data...</div>
-            ) : skogData && skogData.status === 'done' ? (<>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Trädslag</span>
-                <div style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
-                  {skogData.tradslag.slice(0, 4).map((ts, i) => (
-                    <span key={i} style={{ fontSize: 11, fontWeight: 500, color: S.text }}>
-                      {ts.namn} <span style={{ color: S.muted }}>{Math.round(ts.andel * 100)}%</span>
-                    </span>
-                  ))}
-                  {skogData.tradslag.length === 0 && <span style={{ fontSize: 11, color: S.muted }}>–</span>}
+        {/* Trädslag + Diameter/Höjd OR Jordart + Lutning */}
+        {(skogLoading || (skogData && skogData.status === 'done') || (korbData && korbData.status === 'done')) && (() => {
+          const hasRealTradslag = skogData && skogData.status === 'done' && skogData.tradslag.length > 0 &&
+            !skogData.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt'));
+          return (
+            <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+              {skogLoading ? (
+                <div style={{ fontSize: 10, color: S.muted }}>Hämtar skogliga data...</div>
+              ) : hasRealTradslag && skogData ? (<>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Trädslag</span>
+                  <div style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
+                    {skogData.tradslag.slice(0, 4).map((ts, i) => (
+                      <span key={i} style={{ fontSize: 11, fontWeight: 500, color: S.text }}>
+                        {ts.namn} <span style={{ color: S.muted }}>{Math.round(ts.andel * 100)}%</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div style={{ display: 'flex', gap: 16, fontSize: 11 }}>
-                <span style={{ color: S.muted }}>Diameter <span style={{ fontWeight: 600, color: S.text }}>{skogData.medeldiameter > 0 ? `${skogData.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
-                <span style={{ color: S.muted }}>Höjd <span style={{ fontWeight: 600, color: S.text }}>{skogData.medelhojd > 0 ? `${skogData.medelhojd.toFixed(0)} m` : '–'}</span></span>
-              </div>
-            </>) : null}
-          </div>
-        )}
+                <div style={{ display: 'flex', gap: 16, fontSize: 11 }}>
+                  <span style={{ color: S.muted }}>Diameter <span style={{ fontWeight: 600, color: S.text }}>{skogData.medeldiameter > 0 ? `${skogData.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
+                  <span style={{ color: S.muted }}>Höjd <span style={{ fontWeight: 600, color: S.text }}>{skogData.medelhojd > 0 ? `${skogData.medelhojd.toFixed(0)} m` : '–'}</span></span>
+                </div>
+              </>) : korbData && korbData.status === 'done' && korbData.dominantJordart ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Mark</span>
+                  <div style={{ flex: 1, textAlign: 'right', fontSize: 11, fontWeight: 500, color: S.text }}>
+                    {korbData.dominantJordart} · {korbData.medelLutning.toFixed(1)}° lutning
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          );
+        })()}
 
         {/* 6. Maskiner */}
         {(o.skordare_maskin || o.skotare_maskin) && (
