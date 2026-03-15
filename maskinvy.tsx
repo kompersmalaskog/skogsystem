@@ -1506,7 +1506,7 @@ body {
         </div>
         <div style="text-align:right;">
           <div style="font-weight:600;font-variant-numeric:tabular-nums;">6h 20min</div>
-          <div style="font-size:10px;color:var(--muted);">4 tillfällen · 34%</div>
+          <div style="font-size:10px;color:var(--muted);">4 tillfällen · 30%</div>
         </div>
       </div>
       <div class="frow">
@@ -1516,7 +1516,7 @@ body {
         </div>
         <div style="text-align:right;">
           <div style="font-weight:600;font-variant-numeric:tabular-nums;">4h 45min</div>
-          <div style="font-size:10px;color:var(--muted);">2 tillfällen · 25%</div>
+          <div style="font-size:10px;color:var(--muted);">2 tillfällen · 22%</div>
         </div>
       </div>
       <div class="frow">
@@ -1526,7 +1526,17 @@ body {
         </div>
         <div style="text-align:right;">
           <div style="font-weight:600;font-variant-numeric:tabular-nums;color:var(--warn);">3h 10min</div>
-          <div style="font-size:10px;color:var(--muted);">3 tillfällen · 17%</div>
+          <div style="font-size:10px;color:var(--muted);">3 tillfällen · 15%</div>
+        </div>
+      </div>
+      <div class="frow">
+        <div style="flex:1;">
+          <div style="font-size:12px;font-weight:500;">Korta stopp</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;">Stopp ≤ 15 min (kort_stopp_sek)</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-weight:600;font-variant-numeric:tabular-nums;">2h 30min</div>
+          <div style="font-size:10px;color:var(--muted);">48 tillfällen · 12%</div>
         </div>
       </div>
       <div class="frow">
@@ -1536,7 +1546,7 @@ body {
         </div>
         <div style="text-align:right;">
           <div style="font-weight:600;font-variant-numeric:tabular-nums;">2h 05min</div>
-          <div style="font-size:10px;color:var(--muted);">8 tillfällen · 11%</div>
+          <div style="font-size:10px;color:var(--muted);">8 tillfällen · 10%</div>
         </div>
       </div>
       <div class="frow">
@@ -1546,7 +1556,7 @@ body {
         </div>
         <div style="text-align:right;">
           <div style="font-weight:600;font-variant-numeric:tabular-nums;">1h 40min</div>
-          <div style="font-size:10px;color:var(--muted);">5 tillfällen · 9%</div>
+          <div style="font-size:10px;color:var(--muted);">5 tillfällen · 8%</div>
         </div>
       </div>
       <div class="frow" style="border-bottom:none;">
@@ -1556,7 +1566,7 @@ body {
         </div>
         <div style="text-align:right;">
           <div style="font-weight:600;font-variant-numeric:tabular-nums;">0h 40min</div>
-          <div style="font-size:10px;color:var(--muted);">2 tillfällen · 4%</div>
+          <div style="font-size:10px;color:var(--muted);">2 tillfällen · 3%</div>
         </div>
       </div>
     </div>
