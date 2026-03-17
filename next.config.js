@@ -6,6 +6,11 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  experimental: {
+    outputFileTracingExcludes: {
+      '*': ['./app/ForestBackground.tsx'],
+    },
+  },
 }
 
 module.exports = nextConfig
