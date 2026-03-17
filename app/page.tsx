@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useMemo } from 'react'
 
 const apps = [
   { href: '/uppfoljning', label: 'Uppföljning', icon: '📊', color: '#007AFF' },
@@ -26,6 +27,131 @@ function getDatum() {
   return `${dag} ${now.getDate()} ${manad}`
 }
 
+/* Seeded pseudo-random for deterministic tree placement */
+function seeded(seed: number) {
+  let s = seed;
+  return () => { s = (s * 16807 + 0) % 2147483647; return s / 2147483647; };
+}
+
+/* Generate tree SVG path — a spruce/pine silhouette */
+function treePath(h: number, w: number): string {
+  // Trunk
+  const tw = w * 0.12;
+  const th = h * 0.18;
+  // Crown: 3 overlapping triangles getting smaller toward top
+  const layers = 3;
+  const crownH = h - th;
+  let d = '';
+  for (let i = 0; i < layers; i++) {
+    const layerY = th + crownH * (i / layers) * 0.7;
+    const layerTop = th + crownH * ((i + 0.3) / layers);
+    const layerW = w * (1 - i * 0.2) * 0.5;
+    d += `M${w / 2},${h - layerTop} L${w / 2 - layerW},${h - layerY} L${w / 2 + layerW},${h - layerY} Z `;
+  }
+  // Trunk rectangle
+  d += `M${w / 2 - tw},${h} L${w / 2 - tw},${h - th} L${w / 2 + tw},${h - th} L${w / 2 + tw},${h} Z`;
+  return d;
+}
+
+interface TreeLayer {
+  trees: { x: number; h: number; w: number; delay: number }[];
+  color: string;
+  bottom: number;
+  zIndex: number;
+  swayAmount: number;
+  opacity: number;
+}
+
+function ForestBackground() {
+  const layers = useMemo<TreeLayer[]>(() => {
+    const rng = seeded(42);
+    return [
+      // Far background — small, dark, many trees
+      {
+        color: '#060d06',
+        bottom: 0,
+        zIndex: 0,
+        swayAmount: 0.3,
+        opacity: 0.5,
+        trees: Array.from({ length: 28 }, () => {
+          const h = 50 + rng() * 40;
+          return { x: rng() * 110 - 5, h, w: h * (0.25 + rng() * 0.1), delay: rng() * 8 };
+        }),
+      },
+      // Mid background
+      {
+        color: '#0a1a0a',
+        bottom: 0,
+        zIndex: 1,
+        swayAmount: 0.6,
+        opacity: 0.6,
+        trees: Array.from({ length: 20 }, () => {
+          const h = 70 + rng() * 60;
+          return { x: rng() * 110 - 5, h, w: h * (0.22 + rng() * 0.1), delay: rng() * 8 };
+        }),
+      },
+      // Mid foreground
+      {
+        color: '#0d200d',
+        bottom: 0,
+        zIndex: 2,
+        swayAmount: 1.0,
+        opacity: 0.45,
+        trees: Array.from({ length: 14 }, () => {
+          const h = 100 + rng() * 80;
+          return { x: rng() * 110 - 5, h, w: h * (0.2 + rng() * 0.1), delay: rng() * 8 };
+        }),
+      },
+      // Foreground — large silhouettes, most sway
+      {
+        color: '#0f2a0f',
+        bottom: 0,
+        zIndex: 3,
+        swayAmount: 1.5,
+        opacity: 0.3,
+        trees: Array.from({ length: 8 }, () => {
+          const h = 160 + rng() * 100;
+          return { x: rng() * 110 - 5, h, w: h * (0.18 + rng() * 0.08), delay: rng() * 8 };
+        }),
+      },
+    ];
+  }, []);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
+      {layers.map((layer, li) => (
+        <div key={li} style={{
+          position: 'absolute', left: 0, right: 0, bottom: layer.bottom, height: '100%',
+          zIndex: layer.zIndex, opacity: layer.opacity,
+        }}>
+          {layer.trees.map((tree, ti) => (
+            <svg
+              key={ti}
+              viewBox={`0 0 ${tree.w} ${tree.h}`}
+              width={tree.w}
+              height={tree.h}
+              style={{
+                position: 'absolute',
+                left: `${tree.x}%`,
+                bottom: 0,
+                transformOrigin: 'bottom center',
+                animation: `treeSway${li} ${6 + li * 2}s ease-in-out ${tree.delay}s infinite`,
+              }}
+            >
+              <path d={treePath(tree.h, tree.w)} fill={layer.color} />
+            </svg>
+          ))}
+        </div>
+      ))}
+      {/* Ground fog gradient */}
+      <div style={{
+        position: 'absolute', left: 0, right: 0, bottom: 0, height: 120, zIndex: 4,
+        background: 'linear-gradient(to top, #0a0f0a 0%, #0a0f0a80 40%, transparent 100%)',
+      }} />
+    </div>
+  );
+}
+
 export default function Home() {
   return (
     <div style={{
@@ -39,6 +165,26 @@ export default function Home() {
           0%   { background-position: 0% 50%; }
           50%  { background-position: 100% 50%; }
           100% { background-position: 0% 50%; }
+        }
+        @keyframes treeSway0 {
+          0%, 100% { transform: rotate(0deg); }
+          50%      { transform: rotate(0.3deg); }
+        }
+        @keyframes treeSway1 {
+          0%, 100% { transform: rotate(0deg); }
+          35%      { transform: rotate(0.6deg); }
+          65%      { transform: rotate(-0.2deg); }
+        }
+        @keyframes treeSway2 {
+          0%, 100% { transform: rotate(0deg); }
+          40%      { transform: rotate(-1deg); }
+          70%      { transform: rotate(0.4deg); }
+        }
+        @keyframes treeSway3 {
+          0%, 100% { transform: rotate(0deg); }
+          30%      { transform: rotate(1.5deg); }
+          60%      { transform: rotate(-0.5deg); }
+          85%      { transform: rotate(0.3deg); }
         }
         @keyframes glowDrift1 {
           0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.35; }
@@ -71,30 +217,33 @@ export default function Home() {
         animation: 'bgShift 15s ease-in-out infinite',
       }} />
 
+      {/* Forest silhouette layers */}
+      <ForestBackground />
+
       {/* Floating glow points */}
       <div style={{
         position: 'fixed', top: '15%', left: '10%', width: 200, height: 200,
-        borderRadius: '50%', pointerEvents: 'none', zIndex: 0,
+        borderRadius: '50%', pointerEvents: 'none', zIndex: 1,
         background: 'radial-gradient(circle, rgba(52,199,89,0.2) 0%, transparent 70%)',
         filter: 'blur(40px)',
         animation: 'glowDrift1 12s ease-in-out infinite',
       }} />
       <div style={{
         position: 'fixed', top: '55%', right: '5%', width: 180, height: 180,
-        borderRadius: '50%', pointerEvents: 'none', zIndex: 0,
+        borderRadius: '50%', pointerEvents: 'none', zIndex: 1,
         background: 'radial-gradient(circle, rgba(88,86,214,0.2) 0%, transparent 70%)',
         filter: 'blur(40px)',
         animation: 'glowDrift2 14s ease-in-out infinite',
       }} />
       <div style={{
         position: 'fixed', bottom: '10%', left: '40%', width: 160, height: 160,
-        borderRadius: '50%', pointerEvents: 'none', zIndex: 0,
+        borderRadius: '50%', pointerEvents: 'none', zIndex: 1,
         background: 'radial-gradient(circle, rgba(0,122,255,0.15) 0%, transparent 70%)',
         filter: 'blur(50px)',
         animation: 'glowDrift1 16s ease-in-out infinite reverse',
       }} />
 
-      <div style={{ position: 'relative', zIndex: 1, padding: '60px 20px 20px', maxWidth: 500, margin: '0 auto' }}>
+      <div style={{ position: 'relative', zIndex: 5, padding: '60px 20px 20px', maxWidth: 500, margin: '0 auto' }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
           <div style={{
