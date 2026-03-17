@@ -324,7 +324,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
       const [tidRes, prodRes, sortRes, dimSortRes, avbrottRes, lassRes] = await Promise.all([
         supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
-        supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar, processtyp, tradslag').in('objekt_id', ids),
+        supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar, processtyp, tradslag_id').in('objekt_id', ids),
         supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
         supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek').in('objekt_id', ids),
@@ -435,7 +435,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       // Per trädslag production
       const tradslagAgg = new Map<string, { vol: number; st: number }>();
       skProd.forEach((r: any) => {
-        const ts = r.tradslag || 'Övrigt';
+        const ts = r.tradslag_id || 'Övrigt';
         const prev = tradslagAgg.get(ts) || { vol: 0, st: 0 };
         prev.vol += r.volym_m3sub || 0; prev.st += r.stammar || 0;
         tradslagAgg.set(ts, prev);
