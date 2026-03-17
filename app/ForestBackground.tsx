@@ -13,6 +13,38 @@ function getTimePhase(): TimePhase {
   return 'night'
 }
 
+/* Weather condition derived from SMHI data */
+type WeatherCondition = 'snow' | 'rain' | 'summer' | 'normal'
+
+interface WeatherData {
+  temp: number
+  symbol: number // Wsymb2 1-27
+  condition: WeatherCondition
+}
+
+/* SMHI Wsymb2 codes:
+   8-10: rain showers, 12-14: sleet showers, 15-17: snow showers,
+   18-20: rain, 22-24: sleet, 25-27: snowfall */
+function deriveCondition(temp: number, symbol: number): WeatherCondition {
+  const isSnow = [15, 16, 17, 25, 26, 27].includes(symbol)
+  const isSleet = [12, 13, 14, 22, 23, 24].includes(symbol)
+  const isRain = [8, 9, 10, 11, 18, 19, 20, 21].includes(symbol)
+  const isClear = [1, 2].includes(symbol)
+
+  if ((isSnow || isSleet) || (temp < 0 && (isRain || isSleet))) return 'snow'
+  if (isRain) return 'rain'
+  if (temp > 15 && isClear) return 'summer'
+  return 'normal'
+}
+
+function getCalendarSeason(): 'winter' | 'spring' | 'summer' | 'autumn' {
+  const m = new Date().getMonth()
+  if (m >= 2 && m <= 4) return 'spring'
+  if (m >= 5 && m <= 7) return 'summer'
+  if (m >= 8 && m <= 10) return 'autumn'
+  return 'winter'
+}
+
 interface PhaseTheme {
   sky: string
   groundFog: string
@@ -45,6 +77,64 @@ const THEMES: Record<TimePhase, PhaseTheme> = {
     treeLayers: ['#060810', '#080c18', '#0a1020', '#0c1428'],
     treeOpacities: [0.35, 0.4, 0.4, 0.45],
   },
+}
+
+/* Snow-adjusted themes: whiter/colder tones */
+const SNOW_THEMES: Record<TimePhase, PhaseTheme> = {
+  dawn: {
+    sky: 'linear-gradient(180deg, #1a1a2a 0%, #3a3050 20%, #8a6070 45%, #c09080 65%, #d0b8a0 80%, #b0a090 100%)',
+    groundFog: 'linear-gradient(to top, #e0e0f0cc 0%, #c0c0d040 30%, transparent 100%)',
+    treeLayers: ['#1a1520', '#2a2028', '#3a2830', '#4a3038'],
+    treeOpacities: [0.5, 0.55, 0.5, 0.55],
+  },
+  day: {
+    sky: 'linear-gradient(180deg, #708898 0%, #8aa0b0 25%, #a0b8c8 50%, #c0d0d8 70%, #d8e0e8 85%, #e8f0f0 100%)',
+    groundFog: 'linear-gradient(to top, #e0e8f0cc 0%, #c0d0e020 40%, transparent 100%)',
+    treeLayers: ['#142018', '#1c2a20', '#243828', '#2c4830'],
+    treeOpacities: [0.45, 0.5, 0.5, 0.55],
+  },
+  dusk: {
+    sky: 'linear-gradient(180deg, #181828 0%, #2a2040 20%, #604050 40%, #906060 55%, #a08070 70%, #808080 100%)',
+    groundFog: 'linear-gradient(to top, #d0d0e0cc 0%, #a0a0b030 35%, transparent 100%)',
+    treeLayers: ['#10101a', '#1a1820', '#241828', '#2e2030'],
+    treeOpacities: [0.5, 0.55, 0.5, 0.55],
+  },
+  night: {
+    sky: 'linear-gradient(180deg, #0a0a18 0%, #101020 25%, #161830 50%, #1c2038 70%, #182030 85%, #101828 100%)',
+    groundFog: 'linear-gradient(to top, #c0c8e0aa 0%, #606880 40%, transparent 100%)',
+    treeLayers: ['#080a14', '#0c1020', '#101428', '#141830'],
+    treeOpacities: [0.35, 0.4, 0.4, 0.45],
+  },
+}
+
+/* Rain-adjusted themes: darker/greyer */
+const RAIN_THEMES: Record<TimePhase, PhaseTheme> = {
+  dawn: {
+    ...THEMES.dawn,
+    sky: 'linear-gradient(180deg, #1a1520 0%, #302838 20%, #604848 45%, #807060 65%, #908068 80%, #706050 100%)',
+  },
+  day: {
+    ...THEMES.day,
+    sky: 'linear-gradient(180deg, #506068 0%, #607078 25%, #708088 50%, #909898 70%, #a8b0b0 85%, #8a9890 100%)',
+  },
+  dusk: {
+    ...THEMES.dusk,
+    sky: 'linear-gradient(180deg, #141020 0%, #281840 20%, #503040 40%, #704040 55%, #806048 70%, #504838 100%)',
+  },
+  night: THEMES.night,
+}
+
+/* Summer-adjusted day theme: warmer/brighter */
+const SUMMER_THEMES: Record<TimePhase, PhaseTheme> = {
+  dawn: THEMES.dawn,
+  day: {
+    sky: 'linear-gradient(180deg, #2878c0 0%, #50a0e0 25%, #70c0f0 50%, #a0d8f8 70%, #d0e8f0 85%, #b0d8b0 100%)',
+    groundFog: 'linear-gradient(to top, #1a3a1a88 0%, #88c4f010 40%, transparent 100%)',
+    treeLayers: ['#0a2a0a', '#143214', '#1c441c', '#246024'],
+    treeOpacities: [0.5, 0.55, 0.55, 0.6],
+  },
+  dusk: THEMES.dusk,
+  night: THEMES.night,
 }
 
 /* Seeded pseudo-random for deterministic tree placement */
@@ -209,15 +299,168 @@ function Fog() {
   );
 }
 
+/* Snowfall effect */
+function Snowfall({ intensity }: { intensity: 'light' | 'moderate' | 'heavy' }) {
+  const count = intensity === 'heavy' ? 120 : intensity === 'moderate' ? 70 : 40;
+  const flakes = useMemo(() => {
+    const rng = seeded(777);
+    return Array.from({ length: count }, () => ({
+      x: rng() * 100,
+      size: 2 + rng() * 4,
+      opacity: 0.3 + rng() * 0.5,
+      dur: 6 + rng() * 10,
+      delay: rng() * 10,
+      drift: -15 + rng() * 30,
+    }));
+  }, [count]);
+
+  return (
+    <>
+      {flakes.map((f, i) => (
+        <div key={i} style={{
+          position: 'absolute', left: `${f.x}%`, top: -10,
+          width: f.size, height: f.size, borderRadius: '50%',
+          background: '#fff', opacity: f.opacity,
+          animation: `snowfall ${f.dur}s linear ${f.delay}s infinite`,
+          ['--drift' as string]: `${f.drift}px`,
+          zIndex: 7,
+        }} />
+      ))}
+    </>
+  );
+}
+
+/* Rainfall effect */
+function Rainfall({ intensity }: { intensity: 'light' | 'moderate' | 'heavy' }) {
+  const count = intensity === 'heavy' ? 150 : intensity === 'moderate' ? 80 : 40;
+  const drops = useMemo(() => {
+    const rng = seeded(555);
+    return Array.from({ length: count }, () => ({
+      x: rng() * 100,
+      len: 10 + rng() * 20,
+      opacity: 0.1 + rng() * 0.25,
+      dur: 0.4 + rng() * 0.6,
+      delay: rng() * 2,
+    }));
+  }, [count]);
+
+  return (
+    <>
+      {drops.map((d, i) => (
+        <div key={i} style={{
+          position: 'absolute', left: `${d.x}%`, top: -30,
+          width: 1.5, height: d.len,
+          background: `linear-gradient(to bottom, transparent, rgba(180,200,230,${d.opacity}))`,
+          animation: `rainfall ${d.dur}s linear ${d.delay}s infinite`,
+          zIndex: 7,
+        }} />
+      ))}
+    </>
+  );
+}
+
+/* Snow ground cover */
+function SnowGround() {
+  return (
+    <div style={{
+      position: 'absolute', left: 0, right: 0, bottom: 0, height: 80, zIndex: 6,
+      background: 'linear-gradient(to top, rgba(220,225,240,0.25) 0%, rgba(220,225,240,0.1) 50%, transparent 100%)',
+    }} />
+  );
+}
+
+/* SMHI weather fetcher */
+async function fetchSMHI(lat: number, lon: number): Promise<WeatherData | null> {
+  try {
+    const url = `https://opendata-download-metfcst.smhi.se/api/category/pmp3g/version/2/geotype/point/lon/${lon.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) })
+    if (!res.ok) return null
+    const data = await res.json()
+
+    // Find the closest timeSeries entry to now
+    const now = Date.now()
+    let closest = data.timeSeries?.[0]
+    let minDiff = Infinity
+    for (const ts of data.timeSeries || []) {
+      const diff = Math.abs(new Date(ts.validTime).getTime() - now)
+      if (diff < minDiff) { minDiff = diff; closest = ts }
+    }
+    if (!closest) return null
+
+    let temp = 0
+    let symbol = 1
+    for (const p of closest.parameters || []) {
+      if (p.name === 't') temp = p.values[0]
+      if (p.name === 'Wsymb2') symbol = p.values[0]
+    }
+
+    return { temp, symbol, condition: deriveCondition(temp, symbol) }
+  } catch {
+    return null
+  }
+}
+
+function getWeatherIntensity(symbol: number): 'light' | 'moderate' | 'heavy' {
+  if ([10, 14, 17, 20, 24, 27].includes(symbol)) return 'heavy'
+  if ([9, 13, 16, 19, 23, 26].includes(symbol)) return 'moderate'
+  return 'light'
+}
+
 export default function ForestBackground() {
   const [phase, setPhase] = useState<TimePhase>('night');
+  const [weather, setWeather] = useState<WeatherData | null>(null);
   const [mouseX, setMouseX] = useState(0);
   const [mouseY, setMouseY] = useState(0);
 
+  // Time phase
   useEffect(() => {
     setPhase(getTimePhase());
     const interval = setInterval(() => setPhase(getTimePhase()), 60000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Weather fetching
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchWeather = (lat: number, lon: number) => {
+      fetchSMHI(lat, lon).then(data => {
+        if (!cancelled && data) setWeather(data);
+      });
+    };
+
+    const startFetching = (lat: number, lon: number) => {
+      fetchWeather(lat, lon);
+      const interval = setInterval(() => fetchWeather(lat, lon), 30 * 60 * 1000);
+      return interval;
+    };
+
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!cancelled) {
+            intervalId = startFetching(pos.coords.latitude, pos.coords.longitude);
+          }
+        },
+        () => {
+          // GPS denied — fallback: use Kompersmåla coordinates
+          if (!cancelled) {
+            intervalId = startFetching(56.65, 15.68);
+          }
+        },
+        { timeout: 8000 }
+      );
+    } else {
+      // No geolocation — fallback
+      intervalId = startFetching(56.65, 15.68);
+    }
+
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
   }, []);
 
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -232,7 +475,15 @@ export default function ForestBackground() {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [handleMouseMove]);
 
-  const theme = THEMES[phase];
+  // Select theme based on weather condition
+  const condition = weather?.condition || 'normal';
+  const themeSet = condition === 'snow' ? SNOW_THEMES
+    : condition === 'rain' ? RAIN_THEMES
+    : condition === 'summer' ? SUMMER_THEMES
+    : THEMES;
+  const theme = themeSet[phase];
+
+  const intensity = weather ? getWeatherIntensity(weather.symbol) : 'light';
 
   const layers = useMemo<TreeLayer[]>(() => {
     const rng = seeded(42);
@@ -275,6 +526,7 @@ export default function ForestBackground() {
 
   const isNight = phase === 'night';
   const showSun = phase === 'dawn' || phase === 'day' || phase === 'dusk';
+  const showSunDisk = showSun && condition !== 'rain';
 
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
@@ -301,6 +553,17 @@ export default function ForestBackground() {
           0%, 100% { transform: translateX(0); }
           50% { transform: translateX(-4%); }
         }
+        @keyframes snowfall {
+          0% { transform: translateY(-10px) translateX(0); opacity: 0; }
+          10% { opacity: 1; }
+          90% { opacity: 1; }
+          100% { transform: translateY(100vh) translateX(var(--drift, 0px)); opacity: 0; }
+        }
+        @keyframes rainfall {
+          0% { transform: translateY(-30px); opacity: 0; }
+          10% { opacity: 1; }
+          100% { transform: translateY(100vh); opacity: 0.1; }
+        }
       `}</style>
 
       {/* Sky gradient */}
@@ -310,15 +573,20 @@ export default function ForestBackground() {
         transition: 'background 2s ease',
       }} />
 
-      {/* Stars (night only) */}
-      {isNight && <Stars count={80} />}
+      {/* Stars (night only, not when snowing/raining) */}
+      {isNight && condition !== 'snow' && condition !== 'rain' && <Stars count={80} />}
 
-      {/* Shooting stars (night only) */}
-      {isNight && <ShootingStars />}
+      {/* Shooting stars (clear night only) */}
+      {isNight && condition === 'normal' && <ShootingStars />}
+      {isNight && condition === 'summer' && <ShootingStars />}
 
       {/* Moon (night) or Sun (dawn/day/dusk) */}
-      {isNight && <Moon />}
-      {showSun && <Sun phase={phase} />}
+      {isNight && condition !== 'snow' && condition !== 'rain' && <Moon />}
+      {showSunDisk && <Sun phase={phase} />}
+
+      {/* Weather effects */}
+      {condition === 'snow' && <Snowfall intensity={intensity} />}
+      {condition === 'rain' && <Rainfall intensity={intensity} />}
 
       {/* Tree layers with parallax */}
       {layers.map((layer, li) => {
@@ -354,6 +622,9 @@ export default function ForestBackground() {
         );
       })}
 
+      {/* Snow ground cover */}
+      {condition === 'snow' && <SnowGround />}
+
       {/* Fog */}
       <Fog />
 
@@ -363,6 +634,18 @@ export default function ForestBackground() {
         background: theme.groundFog,
         transition: 'background 2s ease',
       }} />
+
+      {/* Temperature display */}
+      {weather && (
+        <div style={{
+          position: 'absolute', top: 12, right: 16, zIndex: 10,
+          fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.4)',
+          fontFamily: "-apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+          textShadow: '0 1px 3px rgba(0,0,0,0.5)',
+        }}>
+          {Math.round(weather.temp)}°
+        </div>
+      )}
     </div>
   );
 }
