@@ -155,7 +155,7 @@ async function fetchSluSpecies(
     throw new Error(data.error);
   }
   const values = data.values || [];
-  console.log(`[skoglig] SLU trädslag: ${values.map((v: { key: string; meanRaw: number }) => `${v.key}=${v.meanRaw.toFixed(1)}`).join(', ')} (${data.insideCount} pixlar)`);
+  console.log(`[skoglig] SLU trädslag (${data.source || 'okänd'}): ${values.map((v: { key: string; meanRaw: number }) => `${v.key}=${v.meanRaw.toFixed(1)}`).join(', ')} (${data.insideCount} pixlar)`);
   return values;
 }
 
