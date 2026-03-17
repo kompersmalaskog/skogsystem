@@ -31,10 +31,10 @@ function getDatum() {
 type TimePhase = 'dawn' | 'day' | 'dusk' | 'night'
 
 function getTimePhase(): TimePhase {
-  const h = new Date().getHours()
+  const h = parseInt(new Date().toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', hour12: false }))
   if (h >= 5 && h < 8) return 'dawn'
   if (h >= 8 && h < 18) return 'day'
-  if (h >= 18 && h < 21) return 'dusk'
+  if (h >= 18 && h < 20) return 'dusk'
   return 'night'
 }
 
