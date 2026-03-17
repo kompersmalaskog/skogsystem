@@ -53,8 +53,10 @@ function treePath(h: number, w: number): string {
   return d;
 }
 
+interface TreeData { x: number; h: number; w: number; delay: number; dur: number; amp: number; ampNeg: number; mid: number }
+
 interface TreeLayer {
-  trees: { x: number; h: number; w: number; delay: number }[];
+  trees: TreeData[];
   color: string;
   bottom: number;
   zIndex: number;
@@ -65,60 +67,47 @@ interface TreeLayer {
 function ForestBackground() {
   const layers = useMemo<TreeLayer[]>(() => {
     const rng = seeded(42);
+    const mkTrees = (n: number, minH: number, maxH: number, wFactor: number, wVar: number, baseAmp: number, ampVar: number): TreeData[] =>
+      Array.from({ length: n }, () => {
+        const h = minH + rng() * (maxH - minH);
+        const amp = baseAmp + rng() * ampVar;
+        const ampNeg = -(amp * (0.3 + rng() * 0.4)); // asymmetric: less swing back
+        const mid = amp * (0.1 + rng() * 0.3);       // slight rest offset
+        return {
+          x: rng() * 110 - 5,
+          h, w: h * (wFactor + rng() * wVar),
+          delay: rng() * 6,
+          dur: 4 + rng() * 6,     // 4–10s per tree
+          amp, ampNeg, mid,
+        };
+      });
     return [
-      // Far background — small, dark, many trees
-      {
-        color: '#060d06',
-        bottom: 0,
-        zIndex: 0,
-        swayAmount: 0.3,
-        opacity: 0.5,
-        trees: Array.from({ length: 28 }, () => {
-          const h = 50 + rng() * 40;
-          return { x: rng() * 110 - 5, h, w: h * (0.25 + rng() * 0.1), delay: rng() * 8 };
-        }),
-      },
-      // Mid background
-      {
-        color: '#0a1a0a',
-        bottom: 0,
-        zIndex: 1,
-        swayAmount: 0.6,
-        opacity: 0.6,
-        trees: Array.from({ length: 20 }, () => {
-          const h = 70 + rng() * 60;
-          return { x: rng() * 110 - 5, h, w: h * (0.22 + rng() * 0.1), delay: rng() * 8 };
-        }),
-      },
-      // Mid foreground
-      {
-        color: '#0d200d',
-        bottom: 0,
-        zIndex: 2,
-        swayAmount: 1.0,
-        opacity: 0.45,
-        trees: Array.from({ length: 14 }, () => {
-          const h = 100 + rng() * 80;
-          return { x: rng() * 110 - 5, h, w: h * (0.2 + rng() * 0.1), delay: rng() * 8 };
-        }),
-      },
-      // Foreground — large silhouettes, most sway
-      {
-        color: '#0f2a0f',
-        bottom: 0,
-        zIndex: 3,
-        swayAmount: 1.5,
-        opacity: 0.3,
-        trees: Array.from({ length: 8 }, () => {
-          const h = 160 + rng() * 100;
-          return { x: rng() * 110 - 5, h, w: h * (0.18 + rng() * 0.08), delay: rng() * 8 };
-        }),
-      },
+      { color: '#060d06', bottom: 0, zIndex: 0, swayAmount: 0.3, opacity: 0.5,
+        trees: mkTrees(28, 50, 90, 0.25, 0.1, 1.5, 1.0) },
+      { color: '#0a1a0a', bottom: 0, zIndex: 1, swayAmount: 0.6, opacity: 0.6,
+        trees: mkTrees(20, 70, 130, 0.22, 0.1, 2.0, 1.5) },
+      { color: '#0d200d', bottom: 0, zIndex: 2, swayAmount: 1.0, opacity: 0.45,
+        trees: mkTrees(14, 100, 180, 0.2, 0.1, 2.5, 2.0) },
+      { color: '#0f2a0f', bottom: 0, zIndex: 3, swayAmount: 1.5, opacity: 0.3,
+        trees: mkTrees(8, 160, 260, 0.18, 0.08, 3.0, 2.0) },
     ];
   }, []);
 
+  // Generate unique per-tree keyframes CSS
+  const keyframesCss = useMemo(() => {
+    let css = '';
+    layers.forEach((layer, li) => {
+      layer.trees.forEach((t, ti) => {
+        const name = `sw${li}_${ti}`;
+        css += `@keyframes ${name}{0%,100%{transform:rotate(${t.mid.toFixed(1)}deg)}35%{transform:rotate(${t.amp.toFixed(1)}deg)}70%{transform:rotate(${t.ampNeg.toFixed(1)}deg)}}\n`;
+      });
+    });
+    return css;
+  }, [layers]);
+
   return (
     <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 0 }}>
+      <style>{keyframesCss}</style>
       {layers.map((layer, li) => (
         <div key={li} style={{
           position: 'absolute', left: 0, right: 0, bottom: layer.bottom, height: '100%',
@@ -135,7 +124,8 @@ function ForestBackground() {
                 left: `${tree.x}%`,
                 bottom: 0,
                 transformOrigin: 'bottom center',
-                animation: `treeSway${li} ${6 + li * 2}s ease-in-out ${tree.delay}s infinite`,
+                animation: `sw${li}_${ti} ${tree.dur.toFixed(1)}s ease-in-out ${tree.delay.toFixed(1)}s infinite`,
+                willChange: 'transform',
               }}
             >
               <path d={treePath(tree.h, tree.w)} fill={layer.color} />
@@ -165,26 +155,6 @@ export default function Home() {
           0%   { background-position: 0% 50%; }
           50%  { background-position: 100% 50%; }
           100% { background-position: 0% 50%; }
-        }
-        @keyframes treeSway0 {
-          0%, 100% { transform: rotate(0deg); }
-          50%      { transform: rotate(0.3deg); }
-        }
-        @keyframes treeSway1 {
-          0%, 100% { transform: rotate(0deg); }
-          35%      { transform: rotate(0.6deg); }
-          65%      { transform: rotate(-0.2deg); }
-        }
-        @keyframes treeSway2 {
-          0%, 100% { transform: rotate(0deg); }
-          40%      { transform: rotate(-1deg); }
-          70%      { transform: rotate(0.4deg); }
-        }
-        @keyframes treeSway3 {
-          0%, 100% { transform: rotate(0deg); }
-          30%      { transform: rotate(1.5deg); }
-          60%      { transform: rotate(-0.5deg); }
-          85%      { transform: rotate(0.3deg); }
         }
         @keyframes glowDrift1 {
           0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.35; }
