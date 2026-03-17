@@ -20,9 +20,8 @@ const C = {
 const ff = "'Geist', system-ui, sans-serif";
 const ffNum = "'Fraunces', Georgia, serif";
 
-const globalCss = `
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Geist:wght@400;500;600;700&display=swap');
-`;
+const FONT_URL = 'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Geist:wght@400;500;600;700&display=swap';
+const globalCss = ``;
 
 /* ── Types ── */
 interface UppfoljningObjekt {
@@ -1400,6 +1399,16 @@ export default function UppfoljningPage() {
   const [filter, setFilter] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
   const [sok, setSok] = useState('');
   const [valt, setValt] = useState<UppfoljningObjekt | null>(null);
+
+  // Load Google Fonts via <link> to avoid hydration mismatch from @import in <style>
+  useEffect(() => {
+    if (!document.querySelector(`link[href="${FONT_URL}"]`)) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = FONT_URL;
+      document.head.appendChild(link);
+    }
+  }, []);
 
   useEffect(() => {
     (async () => {
