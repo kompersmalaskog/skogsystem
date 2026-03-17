@@ -109,8 +109,18 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
     accent: '#5aff8c',
   };
 
-  // Divider helper
-  const Div = () => <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '0 -24px', padding: 0 }} />;
+  // Gradient divider
+  const Div = () => <div style={{ height: 1, margin: '0 -24px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)' }} />;
+
+  // Gradient text style for large numbers
+  const numStyle: React.CSSProperties = {
+    fontSize: 36, fontWeight: 800, letterSpacing: '-2px', lineHeight: 1,
+    background: 'linear-gradient(180deg, #ffffff 0%, #a0a0a0 100%)',
+    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+    backgroundClip: 'text',
+    textShadow: '0 2px 4px rgba(0,0,0,0.3)',
+    filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
+  };
 
   // Collect noteringar
   const noteringar: string[] = [];
@@ -122,20 +132,21 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
     <div onClick={(e) => e.stopPropagation()} style={{
       position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
       width: 380, maxWidth: 'calc(100% - 24px)',
-      background: 'rgba(20,20,18,0.88)', backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)',
-      borderRadius: 20, overflow: 'hidden',
-      border: '1px solid rgba(255,255,255,0.1)',
-      boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 2px 12px rgba(0,0,0,0.3)',
+      background: 'rgba(15,15,20,0.85)',
+      backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+      borderRadius: 24, overflow: 'hidden',
+      border: '1px solid rgba(255,255,255,0.12)',
+      boxShadow: '0 32px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.1)',
       zIndex: 20, animation: 'fadeUp .2s ease-out',
     }}>
       <div style={{ height: 2, background: `linear-gradient(90deg,${tf},transparent)` }} />
-      <div style={{ padding: '22px 24px 20px', maxHeight: '65vh', overflowY: 'auto' }}>
+      <div style={{ padding: '24px 24px 22px', maxHeight: '65vh', overflowY: 'auto' }}>
 
         {/* 1. Header */}
-        <div style={{ marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: '-0.03em', color: S.text, lineHeight: 1.2 }}>{o.namn}</div>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0, boxShadow: `0 0 6px ${statusColor}80` }} />
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', color: '#f0f0ec', lineHeight: 1.2 }}>{o.namn}</div>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0, boxShadow: `0 0 8px ${statusColor}90` }} />
           </div>
           <div style={{ fontSize: 12, color: S.muted, letterSpacing: '0.01em' }}>
             {o.areal || '–'} ha · {atgardLabel}
@@ -143,14 +154,14 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
         </div>
 
         {/* 2. Volym */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: '16px 14px', textAlign: 'center' }}>
-            <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-1.5px', lineHeight: 1, color: S.text }}>{formatVolym(o.volym || 0)}</div>
-            <div style={{ fontSize: 9, color: S.muted, marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 500 }}>Total m³sk</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '18px 14px', textAlign: 'center' }}>
+            <div style={numStyle}>{formatVolym(o.volym || 0)}</div>
+            <div style={{ fontSize: 9, color: S.muted, marginTop: 10, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 500 }}>Total m³sk</div>
           </div>
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: '16px 14px', textAlign: 'center' }}>
-            <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-1.5px', lineHeight: 1, color: S.text }}>{volPerHa}</div>
-            <div style={{ fontSize: 9, color: S.muted, marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 500 }}>m³sk/ha</div>
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '18px 14px', textAlign: 'center' }}>
+            <div style={numStyle}>{volPerHa}</div>
+            <div style={{ fontSize: 9, color: S.muted, marginTop: 10, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 500 }}>m³sk/ha</div>
           </div>
         </div>
 
@@ -163,11 +174,11 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
 
         <Div />
 
-        {/* 4. Kontakt — inline with icon */}
+        {/* 4. Kontakt */}
         {(kontaktNamn || kontaktTel) && (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 0' }}>
-              <div style={{ width: 32, height: 32, borderRadius: 16, background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <div style={{ width: 32, height: 32, borderRadius: 16, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               </div>
               <div style={{ flex: 1 }}>
@@ -218,27 +229,28 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
                 const total = slag.reduce((s, ts) => s + ts.andel, 0)
                 return (
                   <>
-                    {/* Stacked bar */}
-                    <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', height: 16, borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
                       {slag.map((ts, i) => (
-                        <div key={i} style={{ width: `${(ts.andel / total) * 100}%`, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, minWidth: 3 }} />
+                        <div key={i} style={{
+                          width: `${(ts.andel / total) * 100}%`, minWidth: 3,
+                          background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG,
+                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.2)',
+                        }} />
                       ))}
                     </div>
-                    {/* 2x grid legend */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
                       {slag.map((ts, i) => (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 4, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, flexShrink: 0 }} />
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 4, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, flexShrink: 0, boxShadow: `0 0 4px ${(TRADSLAG_FARG[ts.namn] || DEFAULT_FARG)}40` }} />
                           <span style={{ fontSize: 11, color: S.text, fontWeight: 500 }}>{ts.namn}</span>
-                          <span style={{ fontSize: 11, color: S.muted, marginLeft: 'auto' }}>{Math.round(ts.andel * 100)}%</span>
+                          <span style={{ fontSize: 11, color: S.muted, marginLeft: 'auto', fontWeight: 600 }}>{Math.round(ts.andel * 100)}%</span>
                         </div>
                       ))}
                     </div>
                   </>
                 )
               })()}
-              {/* Diameter + Höjd below */}
-              <div style={{ display: 'flex', gap: 20, marginTop: 12 }}>
+              <div style={{ display: 'flex', gap: 20, marginTop: 14 }}>
                 <span style={{ fontSize: 11, color: S.muted }}>Diameter <span style={{ fontWeight: 700, color: S.text }}>{ber.medeldiameter ? `${ber.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
                 <span style={{ fontSize: 11, color: S.muted }}>Höjd <span style={{ fontWeight: 700, color: S.text }}>{ber.medelhojd ? `${ber.medelhojd.toFixed(0)} m` : '–'}</span></span>
               </div>
@@ -264,7 +276,7 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
         {ber?.restriktioner && ber.restriktioner.length > 0 && (
           <>
             <div style={{ padding: '14px 0' }}>
-              <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.12)', borderRadius: 12, padding: '12px 14px' }}>
+              <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.1)', borderRadius: 14, padding: '14px 16px' }}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#ef4444', marginBottom: 6 }}>
                   Restriktioner ({ber.restriktioner.length})
                 </div>
@@ -289,22 +301,23 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: (o.skotare_lastreder_breddat || o.skotare_ris_direkt || o.skordare_manuell_fallning || o.markagare_ska_ha_ved) ? 10 : 0 }}>
               {o.skordare_maskin && (
                 <span style={{
-                  fontSize: 12, fontWeight: 600, color: S.text, padding: '8px 14px', borderRadius: 12,
-                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                  fontSize: 12, fontWeight: 600, color: S.text, padding: '9px 16px', borderRadius: 12,
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                  transition: 'background 0.2s ease',
                 }}>
                   {o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}
                 </span>
               )}
               {o.skotare_maskin && (
                 <span style={{
-                  fontSize: 12, fontWeight: 600, color: S.text, padding: '8px 14px', borderRadius: 12,
-                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                  fontSize: 12, fontWeight: 600, color: S.text, padding: '9px 16px', borderRadius: 12,
+                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                  transition: 'background 0.2s ease',
                 }}>
                   {o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}
                 </span>
               )}
             </div>
-            {/* Extra tags */}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {o.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
               {o.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
@@ -316,9 +329,10 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
 
         {/* 10. Footer */}
         <button onClick={() => window.location.href = `/planering?objekt=${o.id}`} style={{
-          width: '100%', marginTop: 8, padding: '13px 0', background: 'rgba(255,255,255,0.06)',
-          border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, color: S.text, fontSize: 13, fontWeight: 600,
-          cursor: 'pointer', fontFamily: ff, transition: 'all 0.15s', letterSpacing: '-0.01em',
+          width: '100%', marginTop: 10, padding: '14px 0',
+          background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+          borderRadius: 14, color: S.text, fontSize: 13, fontWeight: 600,
+          cursor: 'pointer', fontFamily: ff, transition: 'all 0.2s ease', letterSpacing: '-0.01em',
         }}>
           Visa avverkning →
         </button>
