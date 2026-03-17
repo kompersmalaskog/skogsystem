@@ -952,10 +952,11 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
         {/* ── SKÖRDARE PRODUKTION ── */}
         <ClickCard title="Produktion" badge={`${d.skordare.flertrad}% flerträd`} onClick={() => setPanel('produktion')}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 14 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 14 }}>
             {[
-              { l: 'Stammar/G15', v: d.skordare.stamPerG15 },
-              { l: 'm³/G15', v: d.skordare.m3PerG15 },
+              { l: 'Stammar/G15h', v: d.skordare.stamPerG15 },
+              { l: 'm³fub/G15h', v: d.skordare.m3PerG15 },
+              { l: 'Medelstam', v: d.medelstam ? `${d.medelstam} m³` : '–' },
               { l: 'Stammar', v: d.skordare.antalStammar || stammar },
             ].map((p, i) => (
               <div key={i} style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px', textAlign: 'center' }}>
