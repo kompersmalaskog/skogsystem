@@ -6,7 +6,6 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
-  outputFileTracing: false,
 }
 
 module.exports = nextConfig
