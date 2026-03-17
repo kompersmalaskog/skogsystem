@@ -113,10 +113,10 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
   const Div = () => <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '0 -24px', padding: 0 }} />;
 
   // Collect noteringar
-  const noteringar: { icon: string; text: string }[] = [];
-  if (o.transport_kommentar) noteringar.push({ icon: '🚚', text: o.transport_kommentar });
-  if (o.skordare_manuell_fallning && o.skordare_manuell_fallning_text) noteringar.push({ icon: '✋', text: o.skordare_manuell_fallning_text });
-  if (o.markagare_ska_ha_ved && o.markagare_ved_text) noteringar.push({ icon: '🪵', text: o.markagare_ved_text });
+  const noteringar: string[] = [];
+  if (o.transport_kommentar) noteringar.push(o.transport_kommentar);
+  if (o.skordare_manuell_fallning && o.skordare_manuell_fallning_text) noteringar.push(o.skordare_manuell_fallning_text);
+  if (o.markagare_ska_ha_ved && o.markagare_ved_text) noteringar.push(o.markagare_ved_text);
 
   return (
     <div onClick={(e) => e.stopPropagation()} style={{
@@ -154,25 +154,12 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           </div>
         </div>
 
-        {/* 3. Taggar — körbarhet + trailer pills */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
-          <span style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', padding: '5px 14px', borderRadius: 100,
-            color: korb.color,
-            background: korb.color === '#22c55e' ? 'rgba(34,197,94,0.1)' : korb.color === '#eab308' ? 'rgba(234,179,8,0.1)' : korb.color === '#ef4444' ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${korb.color}25`,
-            backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-          }}>{korb.text}</span>
-          {trailerLabel && (
-            <span style={{
-              fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', padding: '5px 14px', borderRadius: 100,
-              color: trailerColor,
-              background: trailerLabel === 'TRAILER' ? 'rgba(249,115,22,0.1)' : 'rgba(113,113,122,0.08)',
-              border: `1px solid ${trailerColor}25`,
-              backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
-            }}>{trailerLabel}</span>
-          )}
-        </div>
+        {/* 3. Trailer label */}
+        {trailerLabel && (
+          <div style={{ marginBottom: 20 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', color: '#e8e8e4' }}>{trailerLabel}</span>
+          </div>
+        )}
 
         <Div />
 
@@ -180,7 +167,9 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
         {(kontaktNamn || kontaktTel) && (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 0' }}>
-              <div style={{ width: 32, height: 32, borderRadius: 16, background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>👤</div>
+              <div style={{ width: 32, height: 32, borderRadius: 16, background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: S.text }}>{kontaktNamn || '–'}</div>
               </div>
@@ -205,10 +194,7 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
               <div>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Noteringar</div>
                 {noteringar.map((n, i) => (
-                  <div key={i} style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginBottom: 4, display: 'flex', gap: 6 }}>
-                    <span style={{ flexShrink: 0 }}>{n.icon}</span>
-                    <span>{n.text}</span>
-                  </div>
+                  <div key={i} style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginBottom: 4 }}>{n}</div>
                 ))}
                 {o.info_anteckningar && (
                   <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: noteringar.length > 0 ? 4 : 0 }}>{o.info_anteckningar}</div>
@@ -305,18 +291,16 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
                 <span style={{
                   fontSize: 12, fontWeight: 600, color: S.text, padding: '8px 14px', borderRadius: 12,
                   background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-                  display: 'flex', alignItems: 'center', gap: 6,
                 }}>
-                  <span>🌲</span> {o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}
+                  {o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}
                 </span>
               )}
               {o.skotare_maskin && (
                 <span style={{
                   fontSize: 12, fontWeight: 600, color: S.text, padding: '8px 14px', borderRadius: 12,
                   background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-                  display: 'flex', alignItems: 'center', gap: 6,
                 }}>
-                  <span>🚛</span> {o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}
+                  {o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}
                 </span>
               )}
             </div>
