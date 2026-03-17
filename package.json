@@ -9,7 +9,6 @@
     "start": "next start"
   },
   "dependencies": {
-    "@splinetool/react-spline": "^4.1.0",
     "@supabase/supabase-js": "^2.39.0",
     "@turf/boolean-intersects": "^7.3.4",
     "@turf/boolean-point-in-polygon": "^7.3.4",
