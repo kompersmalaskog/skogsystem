@@ -323,7 +323,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       setSmalBred(skotareKonf as any);
 
       const [tidRes, prodRes, sortRes, dimSortRes, avbrottRes, lassRes] = await Promise.all([
-        supabase.from('fakt_tid').select('datum, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
+        supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
         supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar, processtyp, tradslag').in('objekt_id', ids),
         supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
@@ -404,8 +404,12 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         };
       };
 
-      const skTidRows = skId ? tidRows.filter((r: any) => r.objekt_id === skId) : [];
-      const stTidRows = stId ? tidRows.filter((r: any) => r.objekt_id === stId) : [];
+      // When skördare and skotare share the same objekt_id, filter by maskin_id too
+      const shared = skId && stId && skId === stId;
+      const skMid = obj.skordareModellMaskinId;
+      const stMid = obj.skotareModellMaskinId;
+      const skTidRows = skId ? tidRows.filter((r: any) => r.objekt_id === skId && (!shared || !skMid || r.maskin_id === skMid)) : [];
+      const stTidRows = stId ? tidRows.filter((r: any) => r.objekt_id === stId && (!shared || !stMid || r.maskin_id === stMid)) : [];
       const skTid = buildTid(skTidRows);
       const stTid = buildTid(stTidRows);
 
@@ -468,8 +472,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           .map(([orsak, v]) => ({ orsak, typ: v.typ, tid: Math.round(v.tid / 60), antal: v.antal }))
           .sort((a, b) => b.tid - a.tid);
       };
-      const skAvbrott = skId ? avbrottRows.filter((r: any) => r.objekt_id === skId) : [];
-      const stAvbrott = stId ? avbrottRows.filter((r: any) => r.objekt_id === stId) : [];
+      const skAvbrott = skId ? avbrottRows.filter((r: any) => r.objekt_id === skId && (!shared || !skMid || r.maskin_id === skMid)) : [];
+      const stAvbrott = stId ? avbrottRows.filter((r: any) => r.objekt_id === stId && (!shared || !stMid || r.maskin_id === stMid)) : [];
 
       // Lass
       let totalLassVol = 0, totalKor = 0;
