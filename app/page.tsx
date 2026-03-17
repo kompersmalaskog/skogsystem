@@ -82,13 +82,13 @@ function ForestBackground() {
         };
       });
     return [
-      { color: '#060d06', bottom: 0, zIndex: 0, swayAmount: 0.3, opacity: 0.5,
+      { color: '#0c1f0c', bottom: 0, zIndex: 0, swayAmount: 0.3, opacity: 0.4,
         trees: mkTrees(28, 50, 90, 0.25, 0.1, 1.5, 1.0) },
-      { color: '#0a1a0a', bottom: 0, zIndex: 1, swayAmount: 0.6, opacity: 0.6,
+      { color: '#122a12', bottom: 0, zIndex: 1, swayAmount: 0.6, opacity: 0.45,
         trees: mkTrees(20, 70, 130, 0.22, 0.1, 2.0, 1.5) },
-      { color: '#0d200d', bottom: 0, zIndex: 2, swayAmount: 1.0, opacity: 0.45,
+      { color: '#1a3a1a', bottom: 0, zIndex: 2, swayAmount: 1.0, opacity: 0.45,
         trees: mkTrees(14, 100, 180, 0.2, 0.1, 2.5, 2.0) },
-      { color: '#0f2a0f', bottom: 0, zIndex: 3, swayAmount: 1.5, opacity: 0.3,
+      { color: '#1f4a1f', bottom: 0, zIndex: 3, swayAmount: 1.5, opacity: 0.5,
         trees: mkTrees(8, 160, 260, 0.18, 0.08, 3.0, 2.0) },
     ];
   }, []);
