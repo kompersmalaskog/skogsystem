@@ -840,7 +840,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
           <div style={{ background: C.surface, borderRadius: 16, padding: '18px 16px', textAlign: 'center', border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 8 }}>Medelstam</div>
-            <div style={{ fontFamily: ffNum, fontSize: 28, fontWeight: 700, letterSpacing: '-1px', color: C.text }}>{d.medelstam || '–'}<span style={{ fontSize: 11, fontWeight: 400, color: C.muted, fontFamily: ff }}> m³fub</span></div>
+            <div style={{ fontFamily: ffNum, fontSize: 28, fontWeight: 700, letterSpacing: '-1px', color: C.text }}>{d.medelstam > 0 ? d.medelstam : '–'}<span style={{ fontSize: 11, fontWeight: 400, color: C.muted, fontFamily: ff }}> m³fub</span></div>
           </div>
           <div style={{ background: C.surface, borderRadius: 16, padding: '18px 16px', textAlign: 'center', border: `1px solid ${C.border}` }}>
             <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 8 }}>Volym/ha</div>
@@ -891,9 +891,9 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         })()}
 
         {/* ── PRODUKTIONSTAKT ── */}
-        {(d.skordare.m3PerG15 > 0 || d.skotare.m3PerG15Prod > 0) && (() => {
+        {(d.skordare.m3PerG15 > 0 || d.skotare.m3PerG15 > 0) && (() => {
           const skTakt = d.skordare.m3PerG15;
-          const stTakt = d.skotare.m3PerG15Prod;
+          const stTakt = d.skotare.m3PerG15;
           const diff = skTakt - stTakt;
           const pctDiff = skTakt > 0 ? Math.round((diff / skTakt) * 100) : 0;
           const diffText = skTakt > 0 && stTakt > 0
@@ -1074,7 +1074,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           const skG15 = d.skordare.g15;
           const stG15 = d.skotare.g15;
           const skTakt = d.skordare.m3PerG15;
-          const stTakt = d.skotare.m3PerG15Prod;
+          const stTakt = d.skotare.m3PerG15;
           const diffH = skG15 - stG15;
           const pctDiff = skG15 > 0 ? Math.round((diffH / skG15) * 100) : 0;
           const diffText = skG15 > 0 && stG15 > 0
