@@ -322,11 +322,12 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       }
       setSmalBred(skotareKonf as any);
 
-      const [tidRes, prodRes, sortRes, dimSortRes, avbrottRes, lassRes] = await Promise.all([
+      const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes] = await Promise.all([
         supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
         supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar, processtyp, tradslag_id').in('objekt_id', ids),
         supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
+        supabase.from('dim_tradslag').select('tradslag_id, namn'),
         supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek').in('objekt_id', ids),
         stId ? supabase.from('fakt_lass').select('objekt_id, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
       ]);
@@ -335,11 +336,15 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const prodRows = prodRes.data || [];
       const sortRows = sortRes.data || [];
       const dimSort = dimSortRes.data || [];
+      const dimTradslag = dimTradslagRes.data || [];
       const avbrottRows = avbrottRes.data || [];
       const lassRows = (lassRes.data || []) as any[];
 
       const sortMap = new Map<string, string>();
-      dimSort.forEach((s: any) => sortMap.set(s.sortiment_id, s.namn));
+      dimSort.forEach((s: any) => { if (s.namn) sortMap.set(s.sortiment_id, s.namn); });
+
+      const tradslagMap = new Map<string, string>();
+      dimTradslag.forEach((t: any) => { if (t.namn) tradslagMap.set(t.tradslag_id, t.namn); });
 
       // Build time data with per-day breakdown
       const buildTid = (rows: any[]) => {
@@ -435,7 +440,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       // Per trädslag production
       const tradslagAgg = new Map<string, { vol: number; st: number }>();
       skProd.forEach((r: any) => {
-        const ts = r.tradslag_id || 'Övrigt';
+        const ts = (r.tradslag_id && tradslagMap.get(r.tradslag_id)) || r.tradslag_id || 'Övrigt';
         const prev = tradslagAgg.get(ts) || { vol: 0, st: 0 };
         prev.vol += r.volym_m3sub || 0; prev.st += r.stammar || 0;
         tradslagAgg.set(ts, prev);
