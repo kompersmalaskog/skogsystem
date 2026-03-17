@@ -40,7 +40,14 @@ function segKey(lng1: number, lat1: number, lng2: number, lat2: number): string 
 /* ── Small reusable components ── */
 function Tag({ children, w }: { children: React.ReactNode; w?: boolean }) {
   return (
-    <span style={{ fontSize: 10, fontWeight: 500, color: w ? C.yellow : C.t2, padding: '3px 8px', background: w ? C.yd : 'rgba(255,255,255,0.04)', borderRadius: 6, whiteSpace: 'nowrap' }}>
+    <span style={{
+      fontSize: 10, fontWeight: 600, color: w ? C.yellow : 'rgba(255,255,255,0.7)',
+      padding: '4px 10px', borderRadius: 100,
+      background: w ? 'rgba(234,179,8,0.1)' : 'rgba(255,255,255,0.04)',
+      border: w ? '1px solid rgba(234,179,8,0.2)' : '1px solid rgba(255,255,255,0.08)',
+      backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+      whiteSpace: 'nowrap',
+    }}>
       {children}
     </span>
   );
@@ -102,161 +109,232 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
     accent: '#5aff8c',
   };
 
+  // Divider helper
+  const Div = () => <div style={{ height: 1, background: 'rgba(255,255,255,0.06)', margin: '0 -24px', padding: 0 }} />;
+
+  // Collect noteringar
+  const noteringar: { icon: string; text: string }[] = [];
+  if (o.transport_kommentar) noteringar.push({ icon: '🚚', text: o.transport_kommentar });
+  if (o.skordare_manuell_fallning && o.skordare_manuell_fallning_text) noteringar.push({ icon: '✋', text: o.skordare_manuell_fallning_text });
+  if (o.markagare_ska_ha_ved && o.markagare_ved_text) noteringar.push({ icon: '🪵', text: o.markagare_ved_text });
+
   return (
     <div onClick={(e) => e.stopPropagation()} style={{
       position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
       width: 380, maxWidth: 'calc(100% - 24px)',
-      background: 'rgba(17,17,16,.97)', backdropFilter: 'blur(24px)',
-      borderRadius: 18, overflow: 'hidden', border: `1px solid ${S.border}`, zIndex: 20,
-      animation: 'fadeUp .2s ease-out',
+      background: 'rgba(20,20,18,0.88)', backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)',
+      borderRadius: 20, overflow: 'hidden',
+      border: '1px solid rgba(255,255,255,0.1)',
+      boxShadow: '0 8px 40px rgba(0,0,0,0.5), 0 2px 12px rgba(0,0,0,0.3)',
+      zIndex: 20, animation: 'fadeUp .2s ease-out',
     }}>
       <div style={{ height: 2, background: `linear-gradient(90deg,${tf},transparent)` }} />
-      <div style={{ padding: '20px 20px 16px', maxHeight: '65vh', overflowY: 'auto' }}>
+      <div style={{ padding: '22px 24px 20px', maxHeight: '65vh', overflowY: 'auto' }}>
 
         {/* 1. Header */}
-        <div style={{ marginBottom: 18 }}>
+        <div style={{ marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.03em', color: S.text, lineHeight: 1.2 }}>{o.namn}</div>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+            <div style={{ fontSize: 21, fontWeight: 700, letterSpacing: '-0.03em', color: S.text, lineHeight: 1.2 }}>{o.namn}</div>
+            <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0, boxShadow: `0 0 6px ${statusColor}80` }} />
           </div>
-          <div style={{ fontSize: 11, color: S.muted, letterSpacing: '0.01em' }}>
+          <div style={{ fontSize: 12, color: S.muted, letterSpacing: '0.01em' }}>
             {o.areal || '–'} ha · {atgardLabel}
           </div>
         </div>
 
         {/* 2. Volym */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-          <div style={{ background: S.surface2, borderRadius: 12, padding: '14px 14px', textAlign: 'center' }}>
-            <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1, color: S.text }}>{formatVolym(o.volym || 0)}</div>
-            <div style={{ fontSize: 10, color: S.muted, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Total m³sk</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: '16px 14px', textAlign: 'center' }}>
+            <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-1.5px', lineHeight: 1, color: S.text }}>{formatVolym(o.volym || 0)}</div>
+            <div style={{ fontSize: 9, color: S.muted, marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 500 }}>Total m³sk</div>
           </div>
-          <div style={{ background: S.surface2, borderRadius: 12, padding: '14px 14px', textAlign: 'center' }}>
-            <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1, color: S.text }}>{volPerHa}</div>
-            <div style={{ fontSize: 10, color: S.muted, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>m³sk/ha</div>
+          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: '16px 14px', textAlign: 'center' }}>
+            <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-1.5px', lineHeight: 1, color: S.text }}>{volPerHa}</div>
+            <div style={{ fontSize: 9, color: S.muted, marginTop: 8, textTransform: 'uppercase', letterSpacing: '0.8px', fontWeight: 500 }}>m³sk/ha</div>
           </div>
         </div>
 
-        {/* 3. Körbarhet badge */}
-        <div style={{ marginBottom: 8 }}>
+        {/* 3. Taggar — körbarhet + trailer pills */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
           <span style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', padding: '5px 12px', borderRadius: 6,
-            color: korb.color, background: korb.color === '#22c55e' ? 'rgba(34,197,94,0.12)' : korb.color === '#eab308' ? 'rgba(234,179,8,0.12)' : korb.color === '#ef4444' ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.04)',
+            fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', padding: '5px 14px', borderRadius: 100,
+            color: korb.color,
+            background: korb.color === '#22c55e' ? 'rgba(34,197,94,0.1)' : korb.color === '#eab308' ? 'rgba(234,179,8,0.1)' : korb.color === '#ef4444' ? 'rgba(239,68,68,0.1)' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${korb.color}25`,
+            backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
           }}>{korb.text}</span>
-        </div>
-        {/* Trailer badge */}
-        <div style={{ marginBottom: 14 }}>
-          <span style={{
-            fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', padding: '5px 12px', borderRadius: 6,
-            color: trailerLabel ? trailerColor : S.muted,
-            background: trailerLabel === 'TRAILER' ? 'rgba(249,115,22,0.12)' : trailerLabel === 'HJULAR' ? 'rgba(113,113,122,0.1)' : 'rgba(255,255,255,0.03)',
-          }}>{trailerLabel || '–'}</span>
+          {trailerLabel && (
+            <span style={{
+              fontSize: 11, fontWeight: 700, letterSpacing: '0.04em', padding: '5px 14px', borderRadius: 100,
+              color: trailerColor,
+              background: trailerLabel === 'TRAILER' ? 'rgba(249,115,22,0.1)' : 'rgba(113,113,122,0.08)',
+              border: `1px solid ${trailerColor}25`,
+              backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+            }}>{trailerLabel}</span>
+          )}
         </div>
 
-        {/* 4. Kontakt */}
+        <Div />
+
+        {/* 4. Kontakt — inline with icon */}
         {(kontaktNamn || kontaktTel) && (
-          <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Kontakt</div>
-            <div style={{ fontSize: 13, fontWeight: 500, color: S.text }}>{kontaktNamn || '–'}</div>
-            {kontaktTel ? (
-              <a href={`tel:${kontaktTel}`} style={{ fontSize: 12, color: '#5b8fff', textDecoration: 'none', marginTop: 2, display: 'inline-block' }}>{kontaktTel}</a>
-            ) : (
-              <div style={{ fontSize: 12, color: S.muted, marginTop: 2 }}>–</div>
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 0' }}>
+              <div style={{ width: 32, height: 32, borderRadius: 16, background: 'rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0 }}>👤</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: S.text }}>{kontaktNamn || '–'}</div>
+              </div>
+              {kontaktTel && (
+                <a href={`tel:${kontaktTel}`} style={{ fontSize: 12, color: '#5b8fff', textDecoration: 'none', fontWeight: 500 }}>{kontaktTel}</a>
+              )}
+            </div>
+            <Div />
+          </>
+        )}
+
+        {/* 5. Tillträde / Noteringar */}
+        {(o.ovrigt_info || noteringar.length > 0 || o.info_anteckningar) && (
+          <div style={{ padding: '16px 0' }}>
+            {o.ovrigt_info && (
+              <div style={{ marginBottom: (noteringar.length > 0 || o.info_anteckningar) ? 14 : 0 }}>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Tillträde</div>
+                <div style={{ fontSize: 12, color: S.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{o.ovrigt_info}</div>
+              </div>
+            )}
+            {(noteringar.length > 0 || o.info_anteckningar) && (
+              <div>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Noteringar</div>
+                {noteringar.map((n, i) => (
+                  <div key={i} style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginBottom: 4, display: 'flex', gap: 6 }}>
+                    <span style={{ flexShrink: 0 }}>{n.icon}</span>
+                    <span>{n.text}</span>
+                  </div>
+                ))}
+                {o.info_anteckningar && (
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: noteringar.length > 0 ? 4 : 0 }}>{o.info_anteckningar}</div>
+                )}
+              </div>
             )}
           </div>
         )}
 
-        {/* 5. Instruktioner */}
-        {o.ovrigt_info && (
-          <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Instruktioner</div>
-            <div style={{ fontSize: 12, color: S.text, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{o.ovrigt_info}</div>
-          </div>
-        )}
+        {(o.ovrigt_info || noteringar.length > 0 || o.info_anteckningar) && <Div />}
 
-        {/* Trädslag från beräknad data */}
+        {/* 6. Trädslag */}
         {ber?.tradslag && ber.tradslag.length > 0 && !ber.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt')) && (
-          <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Trädslag</div>
-            {(() => {
-              const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#4CAF50', 'Tall': '#FF9800', 'Björk': '#FFEB3B', 'Ek': '#8D6E63', 'Bok': '#A1887F', 'Contorta': '#FF7043' }
-              const DEFAULT_FARG = '#9E9E9E'
-              const slag = ber.tradslag.filter(ts => !ts.namn.toLowerCase().includes('okänt') && ts.andel > 0).slice(0, 5)
-              const maxAndel = Math.max(...slag.map(ts => ts.andel))
-              return (
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 52, marginBottom: 4 }}>
-                  {slag.map((ts, i) => {
-                    const pct = Math.round(ts.andel * 100)
-                    const barH = maxAndel > 0 ? Math.max(4, (ts.andel / maxAndel) * 32) : 4
-                    return (
-                      <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: 2 }}>
-                        <div style={{ width: '100%', maxWidth: 28, height: barH, borderRadius: 3, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG }} />
-                        <span style={{ fontSize: 9, fontWeight: 600, color: S.text }}>{pct}%</span>
-                        <span style={{ fontSize: 8, color: S.muted, whiteSpace: 'nowrap' }}>{ts.namn}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )
-            })()}
-            <div style={{ display: 'flex', gap: 16, fontSize: 11 }}>
-              <span style={{ color: S.muted }}>Diameter <span style={{ fontWeight: 600, color: S.text }}>{ber.medeldiameter ? `${ber.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
-              <span style={{ color: S.muted }}>Höjd <span style={{ fontWeight: 600, color: S.text }}>{ber.medelhojd ? `${ber.medelhojd.toFixed(0)} m` : '–'}</span></span>
+          <>
+            <div style={{ padding: '16px 0' }}>
+              <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 10 }}>Trädslag</div>
+              {(() => {
+                const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': '#FFA726', 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' }
+                const DEFAULT_FARG = '#9E9E9E'
+                const slag = ber.tradslag.filter(ts => !ts.namn.toLowerCase().includes('okänt') && ts.andel > 0).slice(0, 6)
+                const total = slag.reduce((s, ts) => s + ts.andel, 0)
+                return (
+                  <>
+                    {/* Stacked bar */}
+                    <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', marginBottom: 10 }}>
+                      {slag.map((ts, i) => (
+                        <div key={i} style={{ width: `${(ts.andel / total) * 100}%`, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, minWidth: 3 }} />
+                      ))}
+                    </div>
+                    {/* 2x grid legend */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
+                      {slag.map((ts, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 4, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, flexShrink: 0 }} />
+                          <span style={{ fontSize: 11, color: S.text, fontWeight: 500 }}>{ts.namn}</span>
+                          <span style={{ fontSize: 11, color: S.muted, marginLeft: 'auto' }}>{Math.round(ts.andel * 100)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )
+              })()}
+              {/* Diameter + Höjd below */}
+              <div style={{ display: 'flex', gap: 20, marginTop: 12 }}>
+                <span style={{ fontSize: 11, color: S.muted }}>Diameter <span style={{ fontWeight: 700, color: S.text }}>{ber.medeldiameter ? `${ber.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
+                <span style={{ fontSize: 11, color: S.muted }}>Höjd <span style={{ fontWeight: 700, color: S.text }}>{ber.medelhojd ? `${ber.medelhojd.toFixed(0)} m` : '–'}</span></span>
+              </div>
             </div>
-          </div>
+            <Div />
+          </>
         )}
 
-        {/* Jordart + Lutning */}
+        {/* 7. Jordart + Lutning */}
         {ber?.jordart && (
-          <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '14px 0' }}>
               <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Mark</span>
-              <div style={{ flex: 1, textAlign: 'right', fontSize: 11, fontWeight: 500, color: S.text }}>
+              <div style={{ flex: 1, textAlign: 'right', fontSize: 12, fontWeight: 500, color: S.text }}>
                 {ber.jordart}{ber.medelLutning != null ? ` · ${ber.medelLutning.toFixed(1)}° lutning` : ''}
               </div>
             </div>
-          </div>
+            <Div />
+          </>
         )}
 
-        {/* Restriktioner */}
+        {/* 8. Restriktioner */}
         {ber?.restriktioner && ber.restriktioner.length > 0 && (
-          <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#ef4444', marginBottom: 6 }}>
-              Restriktioner ({ber.restriktioner.length})
-            </div>
-            {ber.restriktioner.slice(0, 5).map((r, i) => (
-              <div key={i} style={{ fontSize: 11, color: S.text, marginBottom: i < Math.min(ber.restriktioner!.length, 5) - 1 ? 4 : 0 }}>
-                {r.name}{r.warning ? <span style={{ color: '#ef4444', fontSize: 10 }}> — {r.warning}</span> : ''}
+          <>
+            <div style={{ padding: '14px 0' }}>
+              <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.12)', borderRadius: 12, padding: '12px 14px' }}>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#ef4444', marginBottom: 6 }}>
+                  Restriktioner ({ber.restriktioner.length})
+                </div>
+                {ber.restriktioner.slice(0, 5).map((r, i) => (
+                  <div key={i} style={{ fontSize: 11, color: S.text, marginBottom: i < Math.min(ber.restriktioner!.length, 5) - 1 ? 4 : 0 }}>
+                    {r.name}{r.warning ? <span style={{ color: '#ef4444', fontSize: 10 }}> — {r.warning}</span> : ''}
+                  </div>
+                ))}
+                {ber.restriktioner.length > 5 && (
+                  <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>+{ber.restriktioner.length - 5} till</div>
+                )}
               </div>
-            ))}
-            {ber.restriktioner.length > 5 && (
-              <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>+{ber.restriktioner.length - 5} till</div>
-            )}
-          </div>
+            </div>
+            <Div />
+          </>
         )}
 
-        {/* 6. Maskiner */}
+        {/* 9. Maskiner */}
         {(o.skordare_maskin || o.skotare_maskin) && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
-            {o.skordare_maskin && <Tag>{o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}</Tag>}
-            {o.skotare_maskin && <Tag>{o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}</Tag>}
-            {o.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
-            {o.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
-            {o.skordare_manuell_fallning && <Tag w>Manuell fällning</Tag>}
-            {o.markagare_ska_ha_ved && <Tag>Ved</Tag>}
+          <div style={{ padding: '16px 0' }}>
+            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 10 }}>Maskiner</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: (o.skotare_lastreder_breddat || o.skotare_ris_direkt || o.skordare_manuell_fallning || o.markagare_ska_ha_ved) ? 10 : 0 }}>
+              {o.skordare_maskin && (
+                <span style={{
+                  fontSize: 12, fontWeight: 600, color: S.text, padding: '8px 14px', borderRadius: 12,
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span>🌲</span> {o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}
+                </span>
+              )}
+              {o.skotare_maskin && (
+                <span style={{
+                  fontSize: 12, fontWeight: 600, color: S.text, padding: '8px 14px', borderRadius: 12,
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}>
+                  <span>🚛</span> {o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}
+                </span>
+              )}
+            </div>
+            {/* Extra tags */}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {o.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
+              {o.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
+              {o.skordare_manuell_fallning && <Tag w>Manuell fällning</Tag>}
+              {o.markagare_ska_ha_ved && <Tag>Ved</Tag>}
+            </div>
           </div>
         )}
 
-        {/* Extra info rows */}
-        {o.transport_kommentar && <div style={{ fontSize: 10, color: S.muted, marginBottom: 4 }}>🚚 {o.transport_kommentar}</div>}
-        {o.skordare_manuell_fallning && o.skordare_manuell_fallning_text && <div style={{ fontSize: 10, color: S.muted, marginBottom: 4 }}>✋ {o.skordare_manuell_fallning_text}</div>}
-        {o.markagare_ska_ha_ved && o.markagare_ved_text && <div style={{ fontSize: 10, color: S.muted, marginBottom: 4 }}>🪵 {o.markagare_ved_text}</div>}
-        {o.info_anteckningar && <div style={{ fontSize: 10, color: S.muted, padding: '8px 0 0', borderTop: `1px solid ${S.border}`, marginBottom: 4 }}>{o.info_anteckningar}</div>}
-
-        {/* 7. Footer */}
+        {/* 10. Footer */}
         <button onClick={() => window.location.href = `/planering?objekt=${o.id}`} style={{
-          width: '100%', marginTop: 8, padding: '12px 0', background: 'rgba(255,255,255,0.06)',
-          border: `1px solid ${S.border}`, borderRadius: 12, color: S.text, fontSize: 13, fontWeight: 600,
-          cursor: 'pointer', fontFamily: ff, transition: 'background 0.15s', letterSpacing: '-0.01em',
+          width: '100%', marginTop: 8, padding: '13px 0', background: 'rgba(255,255,255,0.06)',
+          border: '1px solid rgba(255,255,255,0.1)', borderRadius: 14, color: S.text, fontSize: 13, fontWeight: 600,
+          cursor: 'pointer', fontFamily: ff, transition: 'all 0.15s', letterSpacing: '-0.01em',
         }}>
           Visa avverkning →
         </button>
