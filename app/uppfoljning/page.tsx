@@ -1397,21 +1397,47 @@ export default function UppfoljningPage() {
 
   useEffect(() => {
     (async () => {
-      const [dimObjektRes, dimMaskinRes, produktionRes, lassRes, tidRes, objektTblRes] = await Promise.all([
+      // Step 1: Fetch dimension tables and objekt info
+      const [dimObjektRes, dimMaskinRes, objektTblRes] = await Promise.all([
         supabase.from('dim_objekt').select('*'),
         supabase.from('dim_maskin').select('*'),
-        supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar').limit(50000),
-        supabase.from('fakt_lass').select('objekt_id, volym_m3sob').limit(50000),
-        supabase.from('fakt_tid').select('objekt_id, maskin_id, bransle_liter').limit(50000),
         supabase.from('objekt').select('vo_nummer, markagare, areal, typ'),
       ]);
 
       const dimObjekt: any[] = dimObjektRes.data || [];
       const dimMaskin: any[] = dimMaskinRes.data || [];
-      const produktion: any[] = produktionRes.data || [];
-      const lass: any[] = lassRes.data || [];
-      const tid: any[] = tidRes.data || [];
       const objektTbl: any[] = objektTblRes.data || [];
+
+      // Collect all objekt_ids to query fact tables with server-side filter
+      const allObjektIds = [...new Set(dimObjekt.map(d => d.objekt_id).filter(Boolean))];
+
+      // Paginated fetch helper (Supabase caps at 1000 rows per request)
+      async function fetchPaginated<T>(query: () => any): Promise<T[]> {
+        let all: T[] = [];
+        let from = 0;
+        const pageSize = 1000;
+        while (true) {
+          const { data } = await query().range(from, from + pageSize - 1);
+          if (!data || data.length === 0) break;
+          all = all.concat(data);
+          if (data.length < pageSize) break;
+          from += pageSize;
+        }
+        return all;
+      }
+
+      // Step 2: Fetch fact tables with pagination (fakt_produktion can exceed 1000 rows)
+      const [produktion, lass, tid] = await Promise.all([
+        allObjektIds.length > 0
+          ? fetchPaginated<any>(() => supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar').in('objekt_id', allObjektIds))
+          : Promise.resolve([] as any[]),
+        allObjektIds.length > 0
+          ? fetchPaginated<any>(() => supabase.from('fakt_lass').select('objekt_id, volym_m3sob').in('objekt_id', allObjektIds))
+          : Promise.resolve([] as any[]),
+        allObjektIds.length > 0
+          ? fetchPaginated<any>(() => supabase.from('fakt_tid').select('objekt_id, maskin_id, bransle_liter').in('objekt_id', allObjektIds))
+          : Promise.resolve([] as any[]),
+      ]);
 
       const maskinMap = new Map<string, any>();
       dimMaskin.forEach(m => maskinMap.set(m.maskin_id, m));
