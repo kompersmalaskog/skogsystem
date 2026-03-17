@@ -10,6 +10,14 @@
 //   Läses via /api/slu-geotiff med pixelsampling inom polygon
 
 const SGD_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SkogligaGrunddata_3_1/ImageServer';
+// SLU Skogskarta per trädslag — separata ImageServer-tjänster
+const SLU_SPECIES_SERVICES = [
+  { key: 'tall', namn: 'Tall', service: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUSkogskarta_volTall_2_0/ImageServer' },
+  { key: 'gran', namn: 'Gran', service: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUSkogskarta_volGran_2_0/ImageServer' },
+  { key: 'bjork', namn: 'Björk', service: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUSkogskarta_volBjork_2_0/ImageServer' },
+  { key: 'contorta', namn: 'Contorta', service: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUSkogskarta_volContorta_2_0/ImageServer' },
+  { key: 'lov', namn: 'Övrigt löv', service: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUSkogskarta_volOvrigtLov_2_0/ImageServer' },
+];
 
 export interface Tradslag {
   namn: string;
@@ -155,6 +163,30 @@ async function fetchSluLocal(
   return data.values || [];
 }
 
+// SLU Skogskarta: Remote fallback via Skogsstyrelsens separata ImageServer per trädslag
+async function fetchSluRemote(
+  geometry: string,
+  proxyUrl: string,
+): Promise<{ key: string; namn: string; meanRaw: number }[]> {
+  const promises = SLU_SPECIES_SERVICES.map(async (sp) => {
+    try {
+      const data = await fetchStats(sp.service, geometry, proxyUrl);
+      const stats = data.statistics || [];
+      if (stats.length > 0 && stats[0].count > 0) {
+        const mean = stats[0].mean || 0;
+        if (mean > 0) return { key: sp.key, namn: sp.namn, meanRaw: mean };
+      }
+    } catch (e) {
+      console.warn(`[skoglig] SLU remote ${sp.key} misslyckades:`, e instanceof Error ? e.message : e);
+    }
+    return null;
+  });
+  const results = await Promise.all(promises);
+  const filtered = results.filter((r): r is NonNullable<typeof r> => r !== null);
+  console.log(`[skoglig] SLU remote: ${filtered.map(r => `${r.key}=${r.meanRaw.toFixed(1)}`).join(', ')}`);
+  return filtered;
+}
+
 // Gallringsmall: mål-grundyta efter gallring baserat på medelhöjd och ståndortsindex
 // Förenklad tabell efter Skogforsk/Skogsstyrelsen gallringsmallar
 function gallringsMalGrundyta(medelhojdM: number, sis: string): number | undefined {
@@ -264,12 +296,21 @@ export async function beraknaVolym(
       rasterFunctionArguments: { sis: 'g16-g22' },
     });
     // SGD: computeStatisticsHistograms (POST) — laserdata
-    // SLU: lokala GeoTIFF-filer via /api/slu-geotiff — trädslagsfördelning
-    const [sgdData, sluSpecies, gallringsData] = await Promise.all([
+    // SLU: lokala GeoTIFF → remote ImageServer fallback — trädslagsfördelning
+    const [sgdData, sluLocalSpecies, gallringsData] = await Promise.all([
       fetchStats(SGD_SERVICE, geometry, proxyUrl),
-      fetchSluLocal(ring).catch((e) => { console.warn('[skoglig] SLU GeoTIFF ej tillgänglig, visar utan trädslagsfördelning:', e?.message); return []; }),
+      fetchSluLocal(ring).catch((e) => { console.warn('[skoglig] SLU GeoTIFF ej tillgänglig:', e?.message); return []; }),
       fetchStats(SGD_SERVICE, geometry, proxyUrl, gallringsRule).catch(() => null),
     ]);
+    // Om lokala GeoTIFF-filer inte gav data, prova remote ImageServer
+    let sluSpecies = sluLocalSpecies;
+    if (sluSpecies.length === 0) {
+      console.log('[skoglig] Försöker SLU remote fallback...');
+      sluSpecies = await fetchSluRemote(geometry, proxyUrl).catch((e) => {
+        console.warn('[skoglig] SLU remote fallback misslyckades:', e?.message);
+        return [];
+      });
+    }
     const sgdStats = sgdData.statistics || [];
 
     // --- SkogligaGrunddata (laserdata) ---
