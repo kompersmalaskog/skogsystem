@@ -1459,8 +1459,9 @@ export default function UppfoljningPage() {
 
       const voGroups = new Map<string, any[]>();
       dimObjekt.forEach(d => {
-        const key = d.objekt_id;
-        if (!key) return;
+        if (!d.objekt_id) return;
+        if (d.exkludera === true) return;
+        const key = d.vo_nummer || d.objekt_id;
         const arr = voGroups.get(key) || [];
         arr.push(d);
         voGroups.set(key, arr);
