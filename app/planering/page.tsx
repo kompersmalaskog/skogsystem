@@ -126,6 +126,26 @@ interface TraktAnalysisResult {
 interface TraktData {
   volym: number;
   areal: number;
+  // Beräknade data (auto-sparas vid volymberäkning)
+  beraknad?: {
+    volymHa?: number;
+    totalVolym?: number;
+    areal?: number;
+    medeldiameter?: number;
+    medelhojd?: number;
+    grundyta?: number;
+    tradslag?: { namn: string; volymHa: number; totalVolym: number; andel: number }[];
+    skanningsAr?: number;
+    sluAr?: number;
+    // Körbarhet
+    jordart?: string;
+    jordartFordelning?: { namn: string; andel: number }[];
+    medelLutning?: number;
+    // Traktanalys
+    restriktioner?: { type: string; name: string; details?: string; warning?: string }[];
+    // Tidsstämpel
+    beraknadAt?: number;
+  };
 }
 
 interface PrognosSettings {
@@ -2234,6 +2254,41 @@ export default function PlannerPage() {
   const [korbarhetsResultat, setKorbarhetsResultat] = useState<KorbarhetsResultat | null>(null);
   const [korbarhetsLoading, setKorbarhetsLoading] = useState(false);
 
+  // Auto-spara beräknad data till trakt_data.beraknad
+  useEffect(() => {
+    if (!volymResultat || volymResultat.status !== 'done') return;
+    setTraktData(prev => ({
+      ...prev,
+      beraknad: {
+        ...prev.beraknad,
+        volymHa: volymResultat.totalVolymHa,
+        totalVolym: volymResultat.totalVolym,
+        areal: volymResultat.areal,
+        medeldiameter: volymResultat.medeldiameter,
+        medelhojd: volymResultat.medelhojd,
+        grundyta: volymResultat.grundyta,
+        tradslag: volymResultat.tradslag.map(t => ({ namn: t.namn, volymHa: t.volymHa, totalVolym: t.totalVolym, andel: t.andel })),
+        skanningsAr: volymResultat.skanningsAr,
+        sluAr: volymResultat.sluAr,
+        beraknadAt: Date.now(),
+      },
+    }));
+  }, [volymResultat]);
+
+  useEffect(() => {
+    if (!korbarhetsResultat || korbarhetsResultat.status !== 'done') return;
+    setTraktData(prev => ({
+      ...prev,
+      beraknad: {
+        ...prev.beraknad,
+        jordart: korbarhetsResultat.dominantJordart,
+        jordartFordelning: korbarhetsResultat.jordartFordelning,
+        medelLutning: korbarhetsResultat.medelLutning,
+        beraknadAt: Date.now(),
+      },
+    }));
+  }, [korbarhetsResultat]);
+
   // TMA-varning (traktgräns nära väg) – per boundary
   const [tmaResults, setTmaResults] = useState<Record<string, TmaCheckResult>>({});
   const tmaCheckedRef = useRef<Record<string, string>>({}); // markerId → hash, undviker dubbelkoll
@@ -2408,6 +2463,25 @@ export default function PlannerPage() {
       runTractAnalysis(bmId, bm.path!);
     }
   }, [markers]);
+
+  // Auto-spara traktanalys-restriktioner till trakt_data.beraknad
+  useEffect(() => {
+    const allHits: TraktAnalysisHit[] = [];
+    for (const a of Object.values(tractAnalysis)) {
+      if (a.status === 'done' && a.hits.length > 0) {
+        allHits.push(...a.hits);
+      }
+    }
+    if (allHits.length === 0) return;
+    setTraktData(prev => ({
+      ...prev,
+      beraknad: {
+        ...prev.beraknad,
+        restriktioner: allHits.map(h => ({ type: h.type, name: h.name, details: h.details, warning: h.warning })),
+        beraknadAt: Date.now(),
+      },
+    }));
+  }, [tractAnalysis]);
 
   // === BRANDRISK: Hämta nearby vatten/brandstation när panelen öppnas ===
   useEffect(() => {
