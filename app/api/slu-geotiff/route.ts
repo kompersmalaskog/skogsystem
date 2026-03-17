@@ -71,11 +71,17 @@ async function getCogImage(cogFile: string): Promise<GeoTIFFImage> {
   let img = cogImageCache.get(cogFile);
   if (img) return img;
   const url = `${COG_BASE_URL}/${cogFile}`;
-  const tiff = await fromUrl(url);
-  cogTiffCache.set(cogFile, tiff);
-  img = await tiff.getImage();
-  cogImageCache.set(cogFile, img);
-  return img;
+  console.log(`[slu-geotiff] Opening COG: ${url}`);
+  try {
+    const tiff = await fromUrl(url);
+    cogTiffCache.set(cogFile, tiff);
+    img = await tiff.getImage();
+    cogImageCache.set(cogFile, img);
+    return img;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Kunde inte öppna COG ${url}: ${msg}`);
+  }
 }
 
 // Ray-casting point-in-polygon
@@ -155,26 +161,21 @@ async function computeSpecies(
   const window = [x0, y0, x1, y1] as [number, number, number, number];
   const results = await Promise.all(
     SPECIES.map(async (sp) => {
-      try {
-        const img = source === 'local'
-          ? await getLocalImage(sp.file)
-          : await getCogImage(sp.cog);
-        const rasters = await img.readRasters({ window });
-        const data = rasters[0] as Int16Array | Uint16Array | Float32Array;
+      const img = source === 'local'
+        ? await getLocalImage(sp.file)
+        : await getCogImage(sp.cog);
+      const rasters = await img.readRasters({ window });
+      const data = rasters[0] as Int16Array | Uint16Array | Float32Array;
 
-        let sum = 0, validCount = 0;
-        for (let i = 0; i < insideMask.length; i++) {
-          if (!insideMask[i]) continue;
-          const val = data[i];
-          if (val === nodata || val < 0) continue;
-          sum += val;
-          validCount++;
-        }
-        return { key: sp.key, namn: sp.namn, meanRaw: validCount > 0 ? sum / validCount : 0, pixelCount: validCount };
-      } catch (e) {
-        console.error(`[slu-geotiff] Error reading ${source === 'local' ? sp.file : sp.cog}: ${e}`);
-        return { key: sp.key, namn: sp.namn, meanRaw: 0, pixelCount: 0 };
+      let sum = 0, validCount = 0;
+      for (let i = 0; i < insideMask.length; i++) {
+        if (!insideMask[i]) continue;
+        const val = data[i];
+        if (val === nodata || val < 0) continue;
+        sum += val;
+        validCount++;
       }
+      return { key: sp.key, namn: sp.namn, meanRaw: validCount > 0 ? sum / validCount : 0, pixelCount: validCount };
     }),
   );
 
@@ -231,4 +232,54 @@ export async function POST(req: NextRequest) {
     console.error(`[slu-geotiff] ERROR: ${msg}`);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+// =====================================================================
+// GET /api/slu-geotiff — Diagnostic endpoint
+// Returns status of data sources and tests R2 connectivity
+// =====================================================================
+export async function GET() {
+  const results: Record<string, unknown> = {
+    source: detectSource(),
+    COG_BASE_URL: COG_BASE_URL || '(ej satt)',
+    DATA_DIR,
+  };
+
+  // Check local files
+  const localFiles: Record<string, boolean> = {};
+  for (const sp of SPECIES) {
+    const filePath = path.join(DATA_DIR, sp.file);
+    localFiles[sp.file] = fs.existsSync(filePath);
+  }
+  results.localFiles = localFiles;
+
+  // Check COG/R2 accessibility
+  if (COG_BASE_URL) {
+    const cogStatus: Record<string, string> = {};
+    for (const sp of SPECIES) {
+      const url = `${COG_BASE_URL}/${sp.cog}`;
+      try {
+        const resp = await fetch(url, { method: 'HEAD' });
+        cogStatus[sp.cog] = `${resp.status} ${resp.statusText}`;
+      } catch (e) {
+        cogStatus[sp.cog] = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+    results.cogFiles = cogStatus;
+
+    // Also try original filenames in case they were uploaded without renaming
+    const originalStatus: Record<string, string> = {};
+    for (const sp of SPECIES) {
+      const url = `${COG_BASE_URL}/${sp.file}`;
+      try {
+        const resp = await fetch(url, { method: 'HEAD' });
+        originalStatus[sp.file] = `${resp.status} ${resp.statusText}`;
+      } catch (e) {
+        originalStatus[sp.file] = `ERROR: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    }
+    results.originalNameFiles = originalStatus;
+  }
+
+  return NextResponse.json(results, { status: 200 });
 }
