@@ -10,13 +10,17 @@
 //   Läses via /api/slu-geotiff med pixelsampling inom polygon
 
 const SGD_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SkogligaGrunddata_3_1/ImageServer';
-// SLU Skogskarta per trädslag — separata ImageServer-tjänster
-const SLU_SPECIES_SERVICES = [
-  { key: 'tall', namn: 'Tall', service: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUSkogskarta_volTall_2_0/ImageServer' },
-  { key: 'gran', namn: 'Gran', service: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUSkogskarta_volGran_2_0/ImageServer' },
-  { key: 'bjork', namn: 'Björk', service: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUSkogskarta_volBjork_2_0/ImageServer' },
-  { key: 'contorta', namn: 'Contorta', service: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUSkogskarta_volContorta_2_0/ImageServer' },
-  { key: 'lov', namn: 'Övrigt löv', service: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUSkogskarta_volOvrigtLov_2_0/ImageServer' },
+// SLU Skogskarta: multiband ImageServer (12 band, EPSG:3006)
+// Band 5-11: TallVolym, GranVolym, BjörkVolym, ContortaVolym, BokVolym, EkVolym, ÖvrigtVolym
+const SLU_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUskogskarta_1_0/ImageServer';
+const SLU_SPECIES_BANDS = [
+  { band: 5, key: 'tall', namn: 'Tall' },
+  { band: 6, key: 'gran', namn: 'Gran' },
+  { band: 7, key: 'bjork', namn: 'Björk' },
+  { band: 8, key: 'contorta', namn: 'Contorta' },
+  { band: 9, key: 'bok', namn: 'Bok' },
+  { band: 10, key: 'ek', namn: 'Ek' },
+  { band: 11, key: 'ovrigt', namn: 'Övrigt löv' },
 ];
 
 export interface Tradslag {
@@ -163,28 +167,25 @@ async function fetchSluLocal(
   return data.values || [];
 }
 
-// SLU Skogskarta: Remote fallback via Skogsstyrelsens separata ImageServer per trädslag
+// SLU Skogskarta: Remote fallback via Skogsstyrelsens ImageServer (multiband)
 async function fetchSluRemote(
   geometry: string,
   proxyUrl: string,
 ): Promise<{ key: string; namn: string; meanRaw: number }[]> {
-  const promises = SLU_SPECIES_SERVICES.map(async (sp) => {
-    try {
-      const data = await fetchStats(sp.service, geometry, proxyUrl);
-      const stats = data.statistics || [];
-      if (stats.length > 0 && stats[0].count > 0) {
-        const mean = stats[0].mean || 0;
-        if (mean > 0) return { key: sp.key, namn: sp.namn, meanRaw: mean };
+  const data = await fetchStats(SLU_SERVICE, geometry, proxyUrl);
+  const stats = data.statistics || [];
+  console.log(`[skoglig] SLU remote: ${stats.length} band-statistik`);
+  const results: { key: string; namn: string; meanRaw: number }[] = [];
+  for (const sp of SLU_SPECIES_BANDS) {
+    if (sp.band < stats.length && stats[sp.band].count > 0) {
+      const mean = stats[sp.band].mean || 0;
+      if (mean > 0) {
+        results.push({ key: sp.key, namn: sp.namn, meanRaw: mean });
       }
-    } catch (e) {
-      console.warn(`[skoglig] SLU remote ${sp.key} misslyckades:`, e instanceof Error ? e.message : e);
     }
-    return null;
-  });
-  const results = await Promise.all(promises);
-  const filtered = results.filter((r): r is NonNullable<typeof r> => r !== null);
-  console.log(`[skoglig] SLU remote: ${filtered.map(r => `${r.key}=${r.meanRaw.toFixed(1)}`).join(', ')}`);
-  return filtered;
+  }
+  console.log(`[skoglig] SLU remote trädslag: ${results.map(r => `${r.key}=${r.meanRaw.toFixed(1)}`).join(', ')}`);
+  return results;
 }
 
 // Gallringsmall: mål-grundyta efter gallring baserat på medelhöjd och ståndortsindex
