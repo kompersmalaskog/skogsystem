@@ -176,16 +176,30 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
         {/* Trädslag från beräknad data */}
         {ber?.tradslag && ber.tradslag.length > 0 && !ber.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt')) && (
           <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Trädslag</span>
-              <div style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
-                {ber.tradslag.slice(0, 4).map((ts, i) => (
-                  <span key={i} style={{ fontSize: 11, fontWeight: 500, color: S.text }}>
-                    {ts.namn} <span style={{ color: S.muted }}>{Math.round(ts.andel * 100)}%</span>
-                  </span>
-                ))}
-              </div>
-            </div>
+            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Trädslag</div>
+            {(() => {
+              const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#4CAF50', 'Tall': '#FF9800', 'Björk': '#FFEB3B', 'Ek': '#8D6E63', 'Bok': '#A1887F', 'Contorta': '#FF7043' }
+              const DEFAULT_FARG = '#9E9E9E'
+              const slag = ber.tradslag.filter(ts => !ts.namn.toLowerCase().includes('okänt') && ts.andel > 0)
+              const total = slag.reduce((s, ts) => s + ts.andel, 0)
+              return (
+                <>
+                  <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 6 }}>
+                    {slag.map((ts, i) => (
+                      <div key={i} style={{ width: `${(ts.andel / total) * 100}%`, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, minWidth: 2 }} />
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {slag.slice(0, 5).map((ts, i) => (
+                      <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: S.muted }}>
+                        <span style={{ width: 6, height: 6, borderRadius: 3, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, flexShrink: 0 }} />
+                        {ts.namn} {Math.round(ts.andel * 100)}%
+                      </span>
+                    ))}
+                  </div>
+                </>
+              )
+            })()}
             <div style={{ display: 'flex', gap: 16, fontSize: 11 }}>
               <span style={{ color: S.muted }}>Diameter <span style={{ fontWeight: 600, color: S.text }}>{ber.medeldiameter ? `${ber.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
               <span style={{ color: S.muted }}>Höjd <span style={{ fontWeight: 600, color: S.text }}>{ber.medelhojd ? `${ber.medelhojd.toFixed(0)} m` : '–'}</span></span>
