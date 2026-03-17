@@ -167,24 +167,124 @@ async function fetchSluLocal(
   return data.values || [];
 }
 
-// SLU Skogskarta: Remote fallback via Skogsstyrelsens ImageServer (multiband)
+// SLU Skogskarta: Remote fallback via identify endpoint (per-pixel)
+// computeStatisticsHistograms returnerar tile-aggregat (~50-100km) — alla polygoner
+// i samma tile får identiska värden. identify returnerar pixelvärden vid specifik punkt.
+// Vi samplar flera punkter inom polygonen och beräknar medelvärde.
+async function fetchSluIdentify(
+  point: { x: number; y: number },
+  proxyUrl: string,
+): Promise<number[]> {
+  const formParams = new URLSearchParams({
+    geometry: JSON.stringify({ x: point.x, y: point.y }),
+    geometryType: 'esriGeometryPoint',
+    sr: '3006',
+    returnGeometry: 'false',
+    returnCatalogItems: 'false',
+    f: 'json',
+  });
+
+  const targetUrl = `${SLU_SERVICE}/identify`;
+  const formBody = formParams.toString();
+
+  const resp = await fetch(proxyUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetUrl, body: formBody }),
+  });
+
+  if (!resp.ok) throw new Error(`SLU identify ${resp.status}`);
+  const data = await resp.json();
+
+  // identify returns { value: "v0 v1 v2 ... v11" } with space-separated band values
+  if (data.value && typeof data.value === 'string') {
+    return data.value.split(/[\s,]+/).map(Number);
+  }
+  // Some servers return { properties: { Values: [v0, v1, ...] } }
+  if (data.properties?.Values) {
+    return data.properties.Values.map(Number);
+  }
+  return [];
+}
+
+// Generera samplingspunkter inom polygon (centroid + rutnätspunkter)
+function samplePointsInPolygon(ring: number[][]): { x: number; y: number }[] {
+  // Beräkna bounding box
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  let cx = 0, cy = 0;
+  const n = ring.length;
+  for (const [x, y] of ring) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+    cx += x; cy += y;
+  }
+  cx /= n; cy /= n;
+  const points: { x: number; y: number }[] = [{ x: cx, y: cy }];
+
+  // Lägg till 4 kvartspunkter (halvvägs mellan centroid och bbox-kant)
+  const offsets = [
+    { x: (cx + minX) / 2, y: cy },
+    { x: (cx + maxX) / 2, y: cy },
+    { x: cx, y: (cy + minY) / 2 },
+    { x: cx, y: (cy + maxY) / 2 },
+  ];
+
+  // Enkel punkt-i-polygon-test (ray casting)
+  for (const p of offsets) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const xi = ring[i][0], yi = ring[i][1];
+      const xj = ring[j][0], yj = ring[j][1];
+      if ((yi > p.y) !== (yj > p.y) && p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi) {
+        inside = !inside;
+      }
+    }
+    if (inside) points.push(p);
+  }
+
+  return points;
+}
+
 async function fetchSluRemote(
   geometry: string,
   proxyUrl: string,
 ): Promise<{ key: string; namn: string; meanRaw: number }[]> {
-  const data = await fetchStats(SLU_SERVICE, geometry, proxyUrl);
-  const stats = data.statistics || [];
-  console.log(`[skoglig] SLU remote: ${stats.length} band-statistik`);
+  const geom = JSON.parse(geometry);
+  const ring: number[][] = geom.rings[0];
+  const samplePoints = samplePointsInPolygon(ring);
+
+  console.log(`[skoglig] SLU identify: samplar ${samplePoints.length} punkter`);
+
+  // Sampla alla punkter parallellt
+  const allValues = await Promise.all(
+    samplePoints.map(p => fetchSluIdentify(p, proxyUrl).catch(() => [] as number[]))
+  );
+
+  // Filtrera bort tomma/felaktiga svar och beräkna medelvärde per band
+  const validSamples = allValues.filter(v => v.length >= 12);
+  if (validSamples.length === 0) {
+    console.warn('[skoglig] SLU identify: inga giltiga svar');
+    return [];
+  }
+
+  console.log(`[skoglig] SLU identify: ${validSamples.length}/${samplePoints.length} giltiga svar`);
+
   const results: { key: string; namn: string; meanRaw: number }[] = [];
   for (const sp of SLU_SPECIES_BANDS) {
-    if (sp.band < stats.length && stats[sp.band].count > 0) {
-      const mean = stats[sp.band].mean || 0;
-      if (mean > 0) {
-        results.push({ key: sp.key, namn: sp.namn, meanRaw: mean });
-      }
+    let sum = 0, count = 0;
+    for (const vals of validSamples) {
+      const v = vals[sp.band];
+      if (!isNaN(v) && v >= 0) { sum += v; count++; }
+    }
+    const mean = count > 0 ? sum / count : 0;
+    if (mean > 0) {
+      results.push({ key: sp.key, namn: sp.namn, meanRaw: mean });
     }
   }
-  console.log(`[skoglig] SLU remote trädslag: ${results.map(r => `${r.key}=${r.meanRaw.toFixed(1)}`).join(', ')}`);
+
+  console.log(`[skoglig] SLU identify trädslag: ${results.map(r => `${r.key}=${r.meanRaw.toFixed(1)}`).join(', ')}`);
   return results;
 }
 
