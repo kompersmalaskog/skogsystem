@@ -77,88 +77,11 @@ function pointInPolygon(px: number, py: number, polygon: number[][]): boolean {
 }
 
 // =====================================================================
-// Strategy 1: computeStatisticsHistograms with pixelSize
+// Remote: exportImage → GeoTIFF → per-pixel statistics
 // =====================================================================
-// The default computeStatisticsHistograms on mosaic datasets returns
-// tile-level statistics (~50-100km). Adding pixelSize forces the server
-// to compute statistics at native pixel resolution within the polygon.
-async function computeRemoteStats(
-  ring: number[][],
-  minX: number, minY: number, maxX: number, maxY: number,
-): Promise<ComputeResult> {
-  const geometry = JSON.stringify({ rings: [ring] });
-  const formParams = new URLSearchParams({
-    geometry,
-    geometryType: 'esriGeometryPolygon',
-    geometrySR: '3006',
-    pixelSize: JSON.stringify({ x: SLU_PIXEL_SIZE, y: SLU_PIXEL_SIZE }),
-    f: 'json',
-  });
-
-  const url = `${SLU_SERVICE}/computeStatisticsHistograms`;
-  console.log(`[slu-geotiff] Strategy 1: computeStatisticsHistograms med pixelSize=${SLU_PIXEL_SIZE}`);
-
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      ...sksAuthHeaders(),
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: formParams.toString(),
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '');
-    throw new Error(`computeStats ${resp.status}: ${text.slice(0, 200)}`);
-  }
-
-  const contentType = resp.headers.get('content-type') || '';
-  if (contentType.includes('html')) {
-    throw new Error('computeStats returned HTML instead of JSON');
-  }
-
-  const data = await resp.json();
-  if (data.error) {
-    throw new Error(`computeStats error: ${JSON.stringify(data.error).slice(0, 200)}`);
-  }
-
-  const stats = data.statistics || [];
-  if (stats.length === 0) {
-    throw new Error('computeStats returned 0 bands');
-  }
-
-  // Validate: check if pixel count is reasonable for per-pixel statistics
-  // For a polygon of area A at 12.5m resolution, expected pixels ≈ A / (12.5²)
-  const bboxArea = (maxX - minX) * (maxY - minY);
-  const expectedPixels = Math.max(1, bboxArea / (SLU_PIXEL_SIZE * SLU_PIXEL_SIZE));
-  const actualCount = stats[0]?.count || 0;
-
-  console.log(`[slu-geotiff] Strategy 1 result: ${stats.length} bands, count=${actualCount}, expected≈${Math.round(expectedPixels)}`);
-
-  // If pixel count is < 10% of expected, it's tile-level data, not per-pixel
-  if (actualCount < expectedPixels * 0.1 && actualCount <= 20) {
-    throw new Error(`Tile-level data detected: count=${actualCount}, expected≈${Math.round(expectedPixels)}`);
-  }
-
-  const results: SpeciesResult[] = SPECIES.map(sp => {
-    if (sp.band >= stats.length) return { key: sp.key, namn: sp.namn, meanRaw: 0, pixelCount: 0 };
-    const s = stats[sp.band];
-    return {
-      key: sp.key,
-      namn: sp.namn,
-      meanRaw: s.count > 0 ? (s.mean || 0) : 0,
-      pixelCount: s.count || 0,
-    };
-  });
-
-  return { values: results, insideCount: actualCount, source: 'computeStats+pixelSize' };
-}
-
-// =====================================================================
-// Strategy 2: exportImage → GeoTIFF → per-pixel statistics
-// =====================================================================
-// Downloads actual pixel data as GeoTIFF and computes statistics locally.
-// Guaranteed per-pixel accuracy since we read the actual raster values.
+// computeStatisticsHistograms returnerar ALLTID tile-aggregat för
+// SLUskogskarta_1_0 (count=16, identiska medelvärden oavsett polygon).
+// Enda pålitliga metoden: ladda ner pixeldata via exportImage.
 async function computeRemoteExport(
   ring: number[][],
   minX: number, minY: number, maxX: number, maxY: number,
@@ -183,7 +106,7 @@ async function computeRemoteExport(
   });
 
   const url = `${SLU_SERVICE}/exportImage?${params.toString()}`;
-  console.log(`[slu-geotiff] Strategy 2: exportImage ${width}x${height}px, bands=${bandIds}`);
+  console.log(`[slu-geotiff] exportImage: exportImage ${width}x${height}px, bands=${bandIds}`);
 
   const resp = await fetch(url, { headers: sksAuthHeaders() });
   if (!resp.ok) {
@@ -198,7 +121,7 @@ async function computeRemoteExport(
   }
 
   const tiffBuf = await resp.arrayBuffer();
-  console.log(`[slu-geotiff] Strategy 2: ${tiffBuf.byteLength} bytes TIFF`);
+  console.log(`[slu-geotiff] exportImage: ${tiffBuf.byteLength} bytes TIFF`);
 
   if (tiffBuf.byteLength < 100) {
     throw new Error(`exportImage returned only ${tiffBuf.byteLength} bytes`);
@@ -212,7 +135,7 @@ async function computeRemoteExport(
   const imgHeight = image.getHeight();
   const bandCount = image.getSamplesPerPixel();
 
-  console.log(`[slu-geotiff] Strategy 2 image: ${imgWidth}x${imgHeight}px, ${bandCount} bands, res=(${resX.toFixed(1)},${resY.toFixed(1)})`);
+  console.log(`[slu-geotiff] exportImage image: ${imgWidth}x${imgHeight}px, ${bandCount} bands, res=(${resX.toFixed(1)},${resY.toFixed(1)})`);
 
   if (imgWidth <= 0 || imgHeight <= 0 || bandCount === 0) {
     return { values: [], insideCount: 0, source: 'exportImage' };
@@ -231,7 +154,7 @@ async function computeRemoteExport(
     }
   }
 
-  console.log(`[slu-geotiff] Strategy 2: ${insideCount} of ${imgWidth * imgHeight} pixels inside polygon`);
+  console.log(`[slu-geotiff] exportImage: ${insideCount} of ${imgWidth * imgHeight} pixels inside polygon`);
 
   if (insideCount === 0) {
     return { values: [], insideCount: 0, source: 'exportImage' };
@@ -370,22 +293,11 @@ export async function POST(req: NextRequest) {
       console.log('[slu-geotiff] Använder lokala GeoTIFF-filer');
       result = await computeLocal(ring, minX, minY, maxX, maxY);
     } else {
-      // Remote: try computeStatisticsHistograms + pixelSize first,
-      // fall back to exportImage if tile-level data is detected
-      console.log('[slu-geotiff] Lokala filer saknas — försöker remote');
-      try {
-        result = await computeRemoteStats(ring, minX, minY, maxX, maxY);
-      } catch (e1) {
-        const msg1 = e1 instanceof Error ? e1.message : String(e1);
-        console.warn(`[slu-geotiff] Strategy 1 (computeStats+pixelSize) misslyckades: ${msg1}`);
-        try {
-          result = await computeRemoteExport(ring, minX, minY, maxX, maxY);
-        } catch (e2) {
-          const msg2 = e2 instanceof Error ? e2.message : String(e2);
-          console.error(`[slu-geotiff] Strategy 2 (exportImage) misslyckades: ${msg2}`);
-          return NextResponse.json({ error: `Alla strategier misslyckades. 1: ${msg1}. 2: ${msg2}` }, { status: 500 });
-        }
-      }
+      // Remote: exportImage → GeoTIFF → per-pixel statistik
+      // computeStatisticsHistograms returnerar ALLTID tile-aggregat
+      // för SLU-tjänsten (identiska värden oavsett polygon).
+      console.log('[slu-geotiff] Lokala filer saknas — hämtar via exportImage');
+      result = await computeRemoteExport(ring, minX, minY, maxX, maxY);
     }
 
     console.log(
