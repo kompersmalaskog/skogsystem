@@ -1364,7 +1364,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 /* ── Data-processing helpers ── */
 function getMachineType(maskin: any): 'skordare' | 'skotare' | 'unknown' {
   if (!maskin) return 'unknown';
-  const cat = (maskin.machineCategory || maskin.typ || '').toLowerCase();
+  const cat = (maskin.maskin_typ || maskin.machineCategory || '').toLowerCase();
   if (cat.includes('skördare') || cat.includes('skordare') || cat.includes('harvester')) return 'skordare';
   if (cat.includes('skotare') || cat.includes('forwarder')) return 'skotare';
   return 'unknown';
@@ -1470,26 +1470,33 @@ export default function UppfoljningPage() {
       const result: UppfoljningObjekt[] = [];
 
       voGroups.forEach((entries, key) => {
-        let skordareEntry: any = null;
-        let skotareEntry: any = null;
+        // Classify entries by machine type
+        const skordareEntries: any[] = [];
+        const skotareEntries: any[] = [];
+        const unknownEntries: any[] = [];
 
         for (const e of entries) {
           const maskin = maskinMap.get(e.maskin_id);
           const mType = getMachineType(maskin);
-          if (mType === 'skordare' && !skordareEntry) skordareEntry = e;
-          else if (mType === 'skotare' && !skotareEntry) skotareEntry = e;
+          if (mType === 'skordare') skordareEntries.push(e);
+          else if (mType === 'skotare') skotareEntries.push(e);
+          else unknownEntries.push(e);
         }
 
-        if (!skordareEntry && !skotareEntry) {
-          for (const e of entries) {
-            if (!skordareEntry && prodAgg.has(e.objekt_id)) { skordareEntry = e; continue; }
-            if (!skotareEntry && lassAgg.has(e.objekt_id)) { skotareEntry = e; continue; }
+        // Fallback: classify unknowns by checking which fact tables have data
+        if (skordareEntries.length === 0 && skotareEntries.length === 0) {
+          for (const e of unknownEntries) {
+            if (prodAgg.has(e.objekt_id)) { skordareEntries.push(e); continue; }
+            if (lassAgg.has(e.objekt_id)) { skotareEntries.push(e); continue; }
           }
         }
-        if (!skordareEntry && !skotareEntry && entries.length > 0) {
-          skordareEntry = entries[0];
-          if (entries.length > 1) skotareEntry = entries[1];
+        if (skordareEntries.length === 0 && skotareEntries.length === 0 && entries.length > 0) {
+          skordareEntries.push(entries[0]);
+          if (entries.length > 1) skotareEntries.push(entries[1]);
         }
+
+        const skordareEntry = skordareEntries[0] || null;
+        const skotareEntry = skotareEntries[0] || null;
 
         const firstEntry = entries[0];
         const vo = firstEntry.vo_nummer || '';
@@ -1500,11 +1507,24 @@ export default function UppfoljningPage() {
         const areal = info?.areal || 0;
         const typ = inferType(firstEntry.huvudtyp || info?.typ);
 
-        const skProd = skordareEntry ? prodAgg.get(skordareEntry.objekt_id) : null;
-        const stLass = skotareEntry ? lassAgg.get(skotareEntry.objekt_id) : null;
+        // Aggregate production across all skördare objekt_ids
+        let skVol = 0, skStammar = 0;
+        for (const e of skordareEntries) {
+          const p = prodAgg.get(e.objekt_id);
+          if (p) { skVol += p.vol; skStammar += p.stammar; }
+        }
 
-        const skDiesel = skordareEntry ? (tidAgg.get(skordareEntry.objekt_id) || 0) : 0;
-        const stDiesel = skotareEntry ? (tidAgg.get(skotareEntry.objekt_id) || 0) : 0;
+        // Aggregate lass across all skotare objekt_ids
+        let stVol = 0, stCount = 0;
+        for (const e of skotareEntries) {
+          const l = lassAgg.get(e.objekt_id);
+          if (l) { stVol += l.vol; stCount += l.count; }
+        }
+
+        // Aggregate diesel across all objekt_ids per machine type
+        let skDiesel = 0, stDiesel = 0;
+        for (const e of skordareEntries) skDiesel += tidAgg.get(e.objekt_id) || 0;
+        for (const e of skotareEntries) stDiesel += tidAgg.get(e.objekt_id) || 0;
 
         const skStart = skordareEntry?.start_date || null;
         const skSlut = skordareEntry?.end_date || skordareEntry?.skordning_avslutad || null;
@@ -1534,15 +1554,15 @@ export default function UppfoljningPage() {
           skordareSlut: skSlut,
           skordareObjektId: skordareEntry?.objekt_id || null,
           skordareModellMaskinId: skMaskinId || null,
-          volymSkordare: skProd?.vol || 0,
-          stammar: skProd?.stammar || 0,
+          volymSkordare: skVol,
+          stammar: skStammar,
           skotareModell: skotareEntry ? getMachineLabel(maskinMap.get(stMaskinId)) : null,
           skotareStart: stStart,
           skotareSlut: stSlut,
           skotareObjektId: skotareEntry?.objekt_id || null,
           skotareModellMaskinId: stMaskinId || null,
-          volymSkotare: stLass?.vol || 0,
-          antalLass: stLass?.count || 0,
+          volymSkotare: stVol,
+          antalLass: stCount,
           dieselTotal: skDiesel + stDiesel,
           dagar,
           status: allDone ? 'avslutat' : 'pagaende',
