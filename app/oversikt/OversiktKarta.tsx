@@ -180,24 +180,22 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
             {(() => {
               const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#4CAF50', 'Tall': '#FF9800', 'Björk': '#FFEB3B', 'Ek': '#8D6E63', 'Bok': '#A1887F', 'Contorta': '#FF7043' }
               const DEFAULT_FARG = '#9E9E9E'
-              const slag = ber.tradslag.filter(ts => !ts.namn.toLowerCase().includes('okänt') && ts.andel > 0)
-              const total = slag.reduce((s, ts) => s + ts.andel, 0)
+              const slag = ber.tradslag.filter(ts => !ts.namn.toLowerCase().includes('okänt') && ts.andel > 0).slice(0, 5)
+              const maxAndel = Math.max(...slag.map(ts => ts.andel))
               return (
-                <>
-                  <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', marginBottom: 6 }}>
-                    {slag.map((ts, i) => (
-                      <div key={i} style={{ width: `${(ts.andel / total) * 100}%`, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, minWidth: 2 }} />
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {slag.slice(0, 5).map((ts, i) => (
-                      <span key={i} style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: S.muted }}>
-                        <span style={{ width: 6, height: 6, borderRadius: 3, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, flexShrink: 0 }} />
-                        {ts.namn} {Math.round(ts.andel * 100)}%
-                      </span>
-                    ))}
-                  </div>
-                </>
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 52, marginBottom: 4 }}>
+                  {slag.map((ts, i) => {
+                    const pct = Math.round(ts.andel * 100)
+                    const barH = maxAndel > 0 ? Math.max(4, (ts.andel / maxAndel) * 32) : 4
+                    return (
+                      <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1, gap: 2 }}>
+                        <div style={{ width: '100%', maxWidth: 28, height: barH, borderRadius: 3, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG }} />
+                        <span style={{ fontSize: 9, fontWeight: 600, color: S.text }}>{pct}%</span>
+                        <span style={{ fontSize: 8, color: S.muted, whiteSpace: 'nowrap' }}>{ts.namn}</span>
+                      </div>
+                    )
+                  })}
+                </div>
               )
             })()}
             <div style={{ display: 'flex', gap: 16, fontSize: 11 }}>
