@@ -1,23 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { fromFile, GeoTIFF, GeoTIFFImage } from 'geotiff';
+import { fromFile, fromArrayBuffer, GeoTIFF, GeoTIFFImage } from 'geotiff';
 import path from 'path';
+import fs from 'fs';
 
-// --- Species definitions: FTP filename → species ---
+// --- Species definitions ---
+// Local files: one GeoTIFF per species (EPSG:3006, 12.5m pixel)
+// Remote bands: SLUskogskarta_1_0 ImageServer multiband (band 5-11)
 const SPECIES = [
-  { key: 'tall', namn: 'Tall', file: 'SLUskogskarta_volTall.tif' },
-  { key: 'gran', namn: 'Gran', file: 'SLUskogskarta_volGran.tif' },
-  { key: 'bjork', namn: 'Björk', file: 'SLUskogskarta_volBjork.tif' },
-  { key: 'contorta', namn: 'Contorta', file: 'SLUskogskarta_volContorta.tif' },
-  { key: 'bok', namn: 'Bok', file: 'SLUskogskarta_volBok.tif' },
-  { key: 'ek', namn: 'Ek', file: 'SLUskogskarta_volEk.tif' },
-  { key: 'ovrigt', namn: 'Övrigt löv', file: 'SLUskogskarta_volOvrigtLov.tif' },
+  { key: 'tall', namn: 'Tall', file: 'SLUskogskarta_volTall.tif', band: 5 },
+  { key: 'gran', namn: 'Gran', file: 'SLUskogskarta_volGran.tif', band: 6 },
+  { key: 'bjork', namn: 'Björk', file: 'SLUskogskarta_volBjork.tif', band: 7 },
+  { key: 'contorta', namn: 'Contorta', file: 'SLUskogskarta_volContorta.tif', band: 8 },
+  { key: 'bok', namn: 'Bok', file: 'SLUskogskarta_volBok.tif', band: 9 },
+  { key: 'ek', namn: 'Ek', file: 'SLUskogskarta_volEk.tif', band: 10 },
+  { key: 'ovrigt', namn: 'Övrigt löv', file: 'SLUskogskarta_volOvrigtLov.tif', band: 11 },
 ];
 
-// Module-level cache for open GeoTIFF handles (file seeking, not loaded into memory)
+const SLU_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUskogskarta_1_0/ImageServer';
+const SLU_PIXEL_SIZE = 12.5; // meters
+
+// Module-level cache for open GeoTIFF handles
 const tiffCache = new Map<string, GeoTIFF>();
 const imageCache = new Map<string, GeoTIFFImage>();
 
 const DATA_DIR = path.join(process.cwd(), 'data', 'slu-skogskarta');
+
+// Check if local GeoTIFF files exist
+let localFilesAvailable: boolean | null = null;
+function hasLocalFiles(): boolean {
+  if (localFilesAvailable !== null) return localFilesAvailable;
+  try {
+    const firstFile = path.join(DATA_DIR, SPECIES[0].file);
+    localFilesAvailable = fs.existsSync(firstFile);
+    console.log(`[slu-geotiff] Lokala filer ${localFilesAvailable ? 'tillgängliga' : 'saknas'}: ${DATA_DIR}`);
+  } catch {
+    localFilesAvailable = false;
+  }
+  return localFilesAvailable;
+}
 
 async function getImage(filename: string): Promise<GeoTIFFImage> {
   let img = imageCache.get(filename);
@@ -29,6 +49,15 @@ async function getImage(filename: string): Promise<GeoTIFFImage> {
   img = await tiff.getImage();
   imageCache.set(filename, img);
   return img;
+}
+
+function sksAuthHeaders(): Record<string, string> {
+  const user = process.env.SKS_WMS_USER;
+  const pass = process.env.SKS_WMS_PASS;
+  if (!user || !pass) throw new Error('SKS credentials not configured');
+  return {
+    Authorization: 'Basic ' + Buffer.from(`${user}:${pass}`).toString('base64'),
+  };
 }
 
 // Ray-casting point-in-polygon
@@ -48,10 +77,200 @@ function pointInPolygon(
   return inside;
 }
 
+// --- Remote: fetch GeoTIFF via exportImage from SLU ImageServer ---
+async function fetchRemoteTiff(
+  minX: number, minY: number, maxX: number, maxY: number,
+  bandIds: string,
+): Promise<ArrayBuffer> {
+  const width = Math.max(1, Math.ceil((maxX - minX) / SLU_PIXEL_SIZE));
+  const height = Math.max(1, Math.ceil((maxY - minY) / SLU_PIXEL_SIZE));
+
+  const params = new URLSearchParams({
+    bbox: `${minX},${minY},${maxX},${maxY}`,
+    bboxSR: '3006',
+    imageSR: '3006',
+    size: `${width},${height}`,
+    format: 'tiff',
+    pixelType: 'F32',
+    bandIds,
+    interpolation: 'RSP_NearestNeighbor',
+    f: 'image',
+  });
+
+  const url = `${SLU_SERVICE}/exportImage?${params.toString()}`;
+  console.log(`[slu-geotiff] Remote exportImage: ${width}x${height}px, bands=${bandIds}`);
+
+  const resp = await fetch(url, { headers: sksAuthHeaders() });
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`exportImage ${resp.status}: ${text.slice(0, 200)}`);
+  }
+
+  const contentType = resp.headers.get('content-type') || '';
+  if (contentType.includes('json') || contentType.includes('html')) {
+    const text = await resp.text();
+    throw new Error(`exportImage returned ${contentType}: ${text.slice(0, 200)}`);
+  }
+
+  return await resp.arrayBuffer();
+}
+
+// --- Local path: read per-species GeoTIFF files ---
+async function computeLocal(
+  ring: number[][],
+  minX: number, minY: number, maxX: number, maxY: number,
+) {
+  const refImage = await getImage(SPECIES[0].file);
+  const [originX, originY] = refImage.getOrigin();
+  const [resX, resY] = refImage.getResolution();
+  const imgWidth = refImage.getWidth();
+  const imgHeight = refImage.getHeight();
+  const nodata = refImage.getGDALNoData();
+
+  const col0 = Math.floor((minX - originX) / resX);
+  const col1 = Math.ceil((maxX - originX) / resX);
+  const row0 = Math.floor((maxY - originY) / resY);
+  const row1 = Math.ceil((minY - originY) / resY);
+
+  const x0 = Math.max(0, Math.min(col0, imgWidth - 1));
+  const x1 = Math.max(0, Math.min(col1, imgWidth));
+  const y0 = Math.max(0, Math.min(row0, imgHeight - 1));
+  const y1 = Math.max(0, Math.min(row1, imgHeight));
+
+  const windowWidth = x1 - x0;
+  const windowHeight = y1 - y0;
+
+  if (windowWidth <= 0 || windowHeight <= 0) {
+    return { values: [], insideCount: 0 };
+  }
+
+  // Build polygon mask
+  const insideMask: boolean[] = new Array(windowWidth * windowHeight);
+  let insideCount = 0;
+  for (let row = 0; row < windowHeight; row++) {
+    for (let col = 0; col < windowWidth; col++) {
+      const px = originX + (x0 + col + 0.5) * resX;
+      const py = originY + (y0 + row + 0.5) * resY;
+      const inside = pointInPolygon(px, py, ring);
+      insideMask[row * windowWidth + col] = inside;
+      if (inside) insideCount++;
+    }
+  }
+
+  if (insideCount === 0) {
+    return { values: [], insideCount: 0 };
+  }
+
+  const window = [x0, y0, x1, y1] as [number, number, number, number];
+  const results = await Promise.all(
+    SPECIES.map(async (sp) => {
+      try {
+        const img = await getImage(sp.file);
+        const rasters = await img.readRasters({ window });
+        const data = rasters[0] as Int16Array | Uint16Array | Float32Array;
+        let sum = 0, validCount = 0;
+        for (let i = 0; i < insideMask.length; i++) {
+          if (!insideMask[i]) continue;
+          const val = data[i];
+          if (nodata !== null && val === nodata) continue;
+          if (val < 0) continue;
+          sum += val;
+          validCount++;
+        }
+        return { key: sp.key, namn: sp.namn, meanRaw: validCount > 0 ? sum / validCount : 0, pixelCount: validCount };
+      } catch (e) {
+        console.error(`[slu-geotiff] Error reading ${sp.file}: ${e}`);
+        return { key: sp.key, namn: sp.namn, meanRaw: 0, pixelCount: 0 };
+      }
+    }),
+  );
+
+  return { values: results, insideCount };
+}
+
+// --- Remote path: exportImage → GeoTIFF → per-pixel statistics ---
+async function computeRemote(
+  ring: number[][],
+  minX: number, minY: number, maxX: number, maxY: number,
+) {
+  // Request all species bands in one GeoTIFF
+  const bandIds = SPECIES.map(s => s.band).join(',');
+
+  // Add small buffer to bbox (half pixel) to ensure edge pixels are included
+  const buf = SLU_PIXEL_SIZE / 2;
+  const tiffBuf = await fetchRemoteTiff(
+    minX - buf, minY - buf, maxX + buf, maxY + buf,
+    bandIds,
+  );
+
+  console.log(`[slu-geotiff] Remote TIFF: ${tiffBuf.byteLength} bytes`);
+
+  const tiff = await fromArrayBuffer(tiffBuf);
+  const image = await tiff.getImage();
+  const [originX, originY] = image.getOrigin();
+  const [resX, resY] = image.getResolution();
+  const imgWidth = image.getWidth();
+  const imgHeight = image.getHeight();
+  const bandCount = image.getSamplesPerPixel();
+
+  console.log(`[slu-geotiff] Remote image: ${imgWidth}x${imgHeight}px, ${bandCount} bands, res=(${resX.toFixed(1)},${resY.toFixed(1)})`);
+
+  if (imgWidth <= 0 || imgHeight <= 0 || bandCount === 0) {
+    return { values: [], insideCount: 0 };
+  }
+
+  // Build polygon mask over the returned image pixels
+  const insideMask: boolean[] = new Array(imgWidth * imgHeight);
+  let insideCount = 0;
+  for (let row = 0; row < imgHeight; row++) {
+    for (let col = 0; col < imgWidth; col++) {
+      const px = originX + (col + 0.5) * resX;
+      const py = originY + (row + 0.5) * resY;
+      const inside = pointInPolygon(px, py, ring);
+      insideMask[row * imgWidth + col] = inside;
+      if (inside) insideCount++;
+    }
+  }
+
+  console.log(`[slu-geotiff] Remote insideCount=${insideCount} of ${imgWidth * imgHeight} pixels`);
+
+  if (insideCount === 0) {
+    return { values: [], insideCount: 0 };
+  }
+
+  // Read all rasters at once
+  const rasters = await image.readRasters();
+
+  const results = SPECIES.map((sp, bandIdx) => {
+    if (bandIdx >= bandCount) {
+      return { key: sp.key, namn: sp.namn, meanRaw: 0, pixelCount: 0 };
+    }
+    const data = rasters[bandIdx] as Int16Array | Uint16Array | Float32Array;
+
+    let sum = 0, validCount = 0;
+    for (let i = 0; i < insideMask.length; i++) {
+      if (!insideMask[i]) continue;
+      const val = data[i];
+      if (val < 0 || val > 100000) continue; // nodata filter
+      sum += val;
+      validCount++;
+    }
+
+    return {
+      key: sp.key,
+      namn: sp.namn,
+      meanRaw: validCount > 0 ? sum / validCount : 0,
+      pixelCount: validCount,
+    };
+  });
+
+  return { values: results, insideCount };
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const ring: number[][] = body.ring; // [[x, y], ...] in SWEREF99TM (EPSG:3006)
+    const ring: number[][] = body.ring;
 
     if (!ring || ring.length < 3) {
       return NextResponse.json(
@@ -70,97 +289,21 @@ export async function POST(req: NextRequest) {
       if (y > maxY) maxY = y;
     }
 
-    // Get reference image metadata (all files share the same grid)
-    const refImage = await getImage(SPECIES[0].file);
-    const [originX, originY] = refImage.getOrigin();
-    const [resX, resY] = refImage.getResolution(); // resY is negative (north-up)
-    const imgWidth = refImage.getWidth();
-    const imgHeight = refImage.getHeight();
-    const nodata = refImage.getGDALNoData();
+    let result: { values: { key: string; namn: string; meanRaw: number; pixelCount: number }[]; insideCount: number };
 
-    console.log(`[slu-geotiff] origin=(${originX}, ${originY}) res=(${resX}, ${resY}) size=${imgWidth}x${imgHeight} nodata=${nodata}`);
-
-    // Convert bbox from SWEREF99TM to pixel coordinates
-    // col = (easting - originX) / resX
-    // row = (northing - originY) / resY  (resY is negative, so row increases downward)
-    const col0 = Math.floor((minX - originX) / resX);
-    const col1 = Math.ceil((maxX - originX) / resX);
-    const row0 = Math.floor((maxY - originY) / resY); // maxY → top row (smaller row number)
-    const row1 = Math.ceil((minY - originY) / resY);   // minY → bottom row
-
-    // Clamp to image bounds
-    const x0 = Math.max(0, Math.min(col0, imgWidth - 1));
-    const x1 = Math.max(0, Math.min(col1, imgWidth));
-    const y0 = Math.max(0, Math.min(row0, imgHeight - 1));
-    const y1 = Math.max(0, Math.min(row1, imgHeight));
-
-    const windowWidth = x1 - x0;
-    const windowHeight = y1 - y0;
-
-    console.log(`[slu-geotiff] bbox SWEREF=(${minX.toFixed(0)},${minY.toFixed(0)})-(${maxX.toFixed(0)},${maxY.toFixed(0)}) window=[${x0},${y0},${x1},${y1}] ${windowWidth}x${windowHeight}px`);
-
-    if (windowWidth <= 0 || windowHeight <= 0) {
-      return NextResponse.json({ values: [], insideCount: 0 });
+    if (hasLocalFiles()) {
+      console.log('[slu-geotiff] Använder lokala GeoTIFF-filer');
+      result = await computeLocal(ring, minX, minY, maxX, maxY);
+    } else {
+      console.log('[slu-geotiff] Lokala filer saknas — hämtar via exportImage');
+      result = await computeRemote(ring, minX, minY, maxX, maxY);
     }
-
-    // Build point-in-polygon mask
-    const insideMask: boolean[] = new Array(windowWidth * windowHeight);
-    let insideCount = 0;
-    for (let row = 0; row < windowHeight; row++) {
-      for (let col = 0; col < windowWidth; col++) {
-        // Pixel center → SWEREF99TM coordinates
-        const px = originX + (x0 + col + 0.5) * resX;
-        const py = originY + (y0 + row + 0.5) * resY;
-        const inside = pointInPolygon(px, py, ring);
-        insideMask[row * windowWidth + col] = inside;
-        if (inside) insideCount++;
-      }
-    }
-
-    console.log(`[slu-geotiff] insideCount=${insideCount} of ${windowWidth * windowHeight} pixels`);
-
-    if (insideCount === 0) {
-      return NextResponse.json({ values: [], insideCount: 0 });
-    }
-
-    // Read each species file in parallel, compute mean within polygon
-    const window = [x0, y0, x1, y1] as [number, number, number, number];
-    const results = await Promise.all(
-      SPECIES.map(async (sp) => {
-        try {
-          const img = await getImage(sp.file);
-          const rasters = await img.readRasters({ window });
-          const data = rasters[0] as Int16Array | Uint16Array | Float32Array;
-
-          let sum = 0;
-          let validCount = 0;
-          for (let i = 0; i < insideMask.length; i++) {
-            if (!insideMask[i]) continue;
-            const val = data[i];
-            // Skip nodata values (typically -9999, 32767, or similar)
-            if (nodata !== null && val === nodata) continue;
-            if (val < 0) continue;
-            sum += val;
-            validCount++;
-          }
-
-          const mean = validCount > 0 ? sum / validCount : 0;
-          return { key: sp.key, namn: sp.namn, meanRaw: mean, pixelCount: validCount };
-        } catch (e) {
-          console.error(`[slu-geotiff] Error reading ${sp.file}: ${e}`);
-          return { key: sp.key, namn: sp.namn, meanRaw: 0, pixelCount: 0 };
-        }
-      }),
-    );
 
     console.log(
-      `[slu-geotiff] Results: ${results.map((r) => `${r.key}=${r.meanRaw.toFixed(0)}`).join(', ')}`,
+      `[slu-geotiff] Results: ${result.values.map((r) => `${r.key}=${r.meanRaw.toFixed(0)}`).join(', ')} (${result.insideCount} pixlar)`,
     );
 
-    return NextResponse.json({
-      values: results,
-      insideCount,
-    });
+    return NextResponse.json(result);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     console.error(`[slu-geotiff] ERROR: ${msg}`);

@@ -5,23 +5,11 @@
 //   Band 4: Biomassa, 5: P95, 6: Vegkvot, 7: UnixDay, 8: Löv/Avlövat, 9: NMD skogsmark
 //   Rasterfunktion "Gallringsindex": 4 klasser (0=Lågt, 1=Medel, 2=Högt, 3=Akut)
 //
-// Trädslagsfördelning: Lokala GeoTIFF-filer (SLU Skogskarta, 12.5m pixel)
-//   Nedladdade från Skogsstyrelsens FTP till data/slu-skogskarta/
-//   Läses via /api/slu-geotiff med pixelsampling inom polygon
+// Trädslagsfördelning: SLU Skogskarta (12.5m pixel) via /api/slu-geotiff
+//   Lokala GeoTIFF-filer om tillgängliga, annars exportImage från ImageServer
+//   Per-pixel sampling inom polygon — unik data per objekt
 
 const SGD_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SkogligaGrunddata_3_1/ImageServer';
-// SLU Skogskarta: multiband ImageServer (12 band, EPSG:3006)
-// Band 5-11: TallVolym, GranVolym, BjörkVolym, ContortaVolym, BokVolym, EkVolym, ÖvrigtVolym
-const SLU_SERVICE = 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SLUskogskarta_1_0/ImageServer';
-const SLU_SPECIES_BANDS = [
-  { band: 5, key: 'tall', namn: 'Tall' },
-  { band: 6, key: 'gran', namn: 'Gran' },
-  { band: 7, key: 'bjork', namn: 'Björk' },
-  { band: 8, key: 'contorta', namn: 'Contorta' },
-  { band: 9, key: 'bok', namn: 'Bok' },
-  { band: 10, key: 'ek', namn: 'Ek' },
-  { band: 11, key: 'ovrigt', namn: 'Övrigt löv' },
-];
 
 export interface Tradslag {
   namn: string;
@@ -146,10 +134,10 @@ async function fetchStats(service: string, geometry: string, proxyUrl: string, r
   return data;
 }
 
-// SLU Skogskarta: Lokala GeoTIFF-filer (12.5m pixel) via /api/slu-geotiff
-// Skogsstyrelsens ImageServer API returnerar per-tile-data (~50-100km upplösning).
-// Lokala filer ger pixelexakt trädslagsfördelning inom polygonen.
-async function fetchSluLocal(
+// SLU Skogskarta: hämtar trädslagsfördelning via /api/slu-geotiff
+// API:t använder lokala GeoTIFF-filer om de finns, annars exportImage från
+// Skogsstyrelsens ImageServer med per-pixel beräkning (inte tile-aggregat).
+async function fetchSluSpecies(
   swerefRing: number[][],
 ): Promise<{ key: string; namn: string; meanRaw: number }[]> {
   const resp = await fetch('/api/slu-geotiff', {
@@ -159,133 +147,16 @@ async function fetchSluLocal(
   });
   if (!resp.ok) {
     const text = await resp.text().catch(() => '');
-    console.error(`[skoglig] fetchSluLocal error: ${resp.status} ${text.slice(0, 300)}`);
-    throw new Error(`SLU GeoTIFF ${resp.status}`);
+    console.error(`[skoglig] fetchSluSpecies error: ${resp.status} ${text.slice(0, 300)}`);
+    throw new Error(`SLU ${resp.status}`);
   }
   const data = await resp.json();
-  console.log(`[skoglig] SLU lokal: ${(data.values || []).map((v: { key: string; meanRaw: number }) => `${v.key}=${v.meanRaw.toFixed(1)}`).join(', ')} (${data.insideCount} pixlar)`);
-  return data.values || [];
-}
-
-// SLU Skogskarta: Remote fallback via identify endpoint (per-pixel)
-// computeStatisticsHistograms returnerar tile-aggregat (~50-100km) — alla polygoner
-// i samma tile får identiska värden. identify returnerar pixelvärden vid specifik punkt.
-// Vi samplar flera punkter inom polygonen och beräknar medelvärde.
-async function fetchSluIdentify(
-  point: { x: number; y: number },
-  proxyUrl: string,
-): Promise<number[]> {
-  const formParams = new URLSearchParams({
-    geometry: JSON.stringify({ x: point.x, y: point.y }),
-    geometryType: 'esriGeometryPoint',
-    sr: '3006',
-    returnGeometry: 'false',
-    returnCatalogItems: 'false',
-    f: 'json',
-  });
-
-  const targetUrl = `${SLU_SERVICE}/identify`;
-  const formBody = formParams.toString();
-
-  const resp = await fetch(proxyUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ targetUrl, body: formBody }),
-  });
-
-  if (!resp.ok) throw new Error(`SLU identify ${resp.status}`);
-  const data = await resp.json();
-
-  // identify returns { value: "v0 v1 v2 ... v11" } with space-separated band values
-  if (data.value && typeof data.value === 'string') {
-    return data.value.split(/[\s,]+/).map(Number);
+  if (data.error) {
+    throw new Error(data.error);
   }
-  // Some servers return { properties: { Values: [v0, v1, ...] } }
-  if (data.properties?.Values) {
-    return data.properties.Values.map(Number);
-  }
-  return [];
-}
-
-// Generera samplingspunkter inom polygon (centroid + rutnätspunkter)
-function samplePointsInPolygon(ring: number[][]): { x: number; y: number }[] {
-  // Beräkna bounding box
-  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-  let cx = 0, cy = 0;
-  const n = ring.length;
-  for (const [x, y] of ring) {
-    if (x < minX) minX = x;
-    if (x > maxX) maxX = x;
-    if (y < minY) minY = y;
-    if (y > maxY) maxY = y;
-    cx += x; cy += y;
-  }
-  cx /= n; cy /= n;
-  const points: { x: number; y: number }[] = [{ x: cx, y: cy }];
-
-  // Lägg till 4 kvartspunkter (halvvägs mellan centroid och bbox-kant)
-  const offsets = [
-    { x: (cx + minX) / 2, y: cy },
-    { x: (cx + maxX) / 2, y: cy },
-    { x: cx, y: (cy + minY) / 2 },
-    { x: cx, y: (cy + maxY) / 2 },
-  ];
-
-  // Enkel punkt-i-polygon-test (ray casting)
-  for (const p of offsets) {
-    let inside = false;
-    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-      const xi = ring[i][0], yi = ring[i][1];
-      const xj = ring[j][0], yj = ring[j][1];
-      if ((yi > p.y) !== (yj > p.y) && p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi) {
-        inside = !inside;
-      }
-    }
-    if (inside) points.push(p);
-  }
-
-  return points;
-}
-
-async function fetchSluRemote(
-  geometry: string,
-  proxyUrl: string,
-): Promise<{ key: string; namn: string; meanRaw: number }[]> {
-  const geom = JSON.parse(geometry);
-  const ring: number[][] = geom.rings[0];
-  const samplePoints = samplePointsInPolygon(ring);
-
-  console.log(`[skoglig] SLU identify: samplar ${samplePoints.length} punkter`);
-
-  // Sampla alla punkter parallellt
-  const allValues = await Promise.all(
-    samplePoints.map(p => fetchSluIdentify(p, proxyUrl).catch(() => [] as number[]))
-  );
-
-  // Filtrera bort tomma/felaktiga svar och beräkna medelvärde per band
-  const validSamples = allValues.filter(v => v.length >= 12);
-  if (validSamples.length === 0) {
-    console.warn('[skoglig] SLU identify: inga giltiga svar');
-    return [];
-  }
-
-  console.log(`[skoglig] SLU identify: ${validSamples.length}/${samplePoints.length} giltiga svar`);
-
-  const results: { key: string; namn: string; meanRaw: number }[] = [];
-  for (const sp of SLU_SPECIES_BANDS) {
-    let sum = 0, count = 0;
-    for (const vals of validSamples) {
-      const v = vals[sp.band];
-      if (!isNaN(v) && v >= 0) { sum += v; count++; }
-    }
-    const mean = count > 0 ? sum / count : 0;
-    if (mean > 0) {
-      results.push({ key: sp.key, namn: sp.namn, meanRaw: mean });
-    }
-  }
-
-  console.log(`[skoglig] SLU identify trädslag: ${results.map(r => `${r.key}=${r.meanRaw.toFixed(1)}`).join(', ')}`);
-  return results;
+  const values = data.values || [];
+  console.log(`[skoglig] SLU trädslag: ${values.map((v: { key: string; meanRaw: number }) => `${v.key}=${v.meanRaw.toFixed(1)}`).join(', ')} (${data.insideCount} pixlar)`);
+  return values;
 }
 
 // Gallringsmall: mål-grundyta efter gallring baserat på medelhöjd och ståndortsindex
@@ -397,21 +268,12 @@ export async function beraknaVolym(
       rasterFunctionArguments: { sis: 'g16-g22' },
     });
     // SGD: computeStatisticsHistograms (POST) — laserdata
-    // SLU: lokala GeoTIFF → remote ImageServer fallback — trädslagsfördelning
-    const [sgdData, sluLocalSpecies, gallringsData] = await Promise.all([
+    // SLU: /api/slu-geotiff (lokal GeoTIFF eller remote exportImage) — trädslagsfördelning
+    const [sgdData, sluSpecies, gallringsData] = await Promise.all([
       fetchStats(SGD_SERVICE, geometry, proxyUrl),
-      fetchSluLocal(ring).catch((e) => { console.warn('[skoglig] SLU GeoTIFF ej tillgänglig:', e?.message); return []; }),
+      fetchSluSpecies(ring).catch((e) => { console.warn('[skoglig] SLU trädslag ej tillgänglig:', e?.message); return []; }),
       fetchStats(SGD_SERVICE, geometry, proxyUrl, gallringsRule).catch(() => null),
     ]);
-    // Om lokala GeoTIFF-filer inte gav data, prova remote ImageServer
-    let sluSpecies = sluLocalSpecies;
-    if (sluSpecies.length === 0) {
-      console.log('[skoglig] Försöker SLU remote fallback...');
-      sluSpecies = await fetchSluRemote(geometry, proxyUrl).catch((e) => {
-        console.warn('[skoglig] SLU remote fallback misslyckades:', e?.message);
-        return [];
-      });
-    }
     const sgdStats = sgdData.statistics || [];
 
     // --- SkogligaGrunddata (laserdata) ---
