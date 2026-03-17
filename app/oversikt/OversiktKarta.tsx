@@ -2,9 +2,37 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { motion, useSpring, useMotionValue, useTransform } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
+
+/* ── Animated count-up hook ── */
+function useCountUp(target: number, duration = 1.2, active = true): number {
+  const [val, setVal] = useState(0);
+  useEffect(() => {
+    if (!active || target <= 0) { setVal(target); return; }
+    setVal(0);
+    const start = performance.now();
+    let raf: number;
+    const tick = (now: number) => {
+      const t = Math.min((now - start) / (duration * 1000), 1);
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - t, 3);
+      setVal(Math.round(eased * target));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, duration, active]);
+  return val;
+}
+
+/* ── AnimatedNumber component ── */
+function AnimatedNumber({ value, style }: { value: number; style?: React.CSSProperties }) {
+  const display = useCountUp(value);
+  return <span style={style}>{formatVolym(display)}</span>;
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -73,10 +101,46 @@ function korbarhetsLabel(barighet?: string): { text: string; color: string } {
   return { text: 'EJ KÖRBART', color: '#ef4444' };
 }
 
+/* ── Staggered species bar segment ── */
+function SpeciesSegment({ pct, color, delay }: { pct: number; color: string; delay: number }) {
+  return (
+    <motion.div
+      initial={{ width: 0 }}
+      animate={{ width: `${pct}%` }}
+      transition={{ duration: 0.6, delay, ease: [0.22, 1, 0.36, 1] }}
+      style={{
+        minWidth: 3, height: '100%',
+        background: color,
+        boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.2)',
+      }}
+    />
+  );
+}
+
 /* ── ObjCard popup (positioned fixed at screen bottom) ── */
 function ObjCard({ obj }: { obj: OversiktObjekt }) {
   const o = obj;
   const tf = TF[o.typ] || C.yellow;
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // Mouse tilt effect
+  const mouseX = useMotionValue(0);
+  const mouseY = useMotionValue(0);
+  const rotateX = useSpring(useTransform(mouseY, [-0.5, 0.5], [5, -5]), { stiffness: 300, damping: 30 });
+  const rotateY = useSpring(useTransform(mouseX, [-0.5, 0.5], [-5, 5]), { stiffness: 300, damping: 30 });
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    const el = cardRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    mouseX.set((e.clientX - rect.left) / rect.width - 0.5);
+    mouseY.set((e.clientY - rect.top) / rect.height - 0.5);
+  }, [mouseX, mouseY]);
+
+  const handleMouseLeave = useCallback(() => {
+    mouseX.set(0);
+    mouseY.set(0);
+  }, [mouseX, mouseY]);
 
   // Status dot
   const statusColor = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning'
@@ -84,7 +148,11 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
   const atgardLabel = o.atgard || (o.typ === 'slutavverkning' ? 'AU' : 'Gallring');
 
   // Volym
-  const volPerHa = o.volym && o.areal ? (o.volym / o.areal).toFixed(0) : '–';
+  const volPerHaNum = o.volym && o.areal ? Math.round(o.volym / o.areal) : 0;
+
+  // Animated numbers
+  const animVolym = useCountUp(o.volym || 0);
+  const animVolHa = useCountUp(volPerHaNum);
 
   // Körbarhet
   const korb = korbarhetsLabel(o.barighet);
@@ -118,7 +186,6 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
     background: 'linear-gradient(180deg, #ffffff 0%, #a0a0a0 100%)',
     WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
     backgroundClip: 'text',
-    textShadow: '0 2px 4px rgba(0,0,0,0.3)',
     filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
   };
 
@@ -129,16 +196,28 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
   if (o.markagare_ska_ha_ved && o.markagare_ved_text) noteringar.push(o.markagare_ved_text);
 
   return (
-    <div onClick={(e) => e.stopPropagation()} style={{
-      position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
-      width: 380, maxWidth: 'calc(100% - 24px)',
-      background: 'rgba(15,15,20,0.85)',
-      backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-      borderRadius: 24, overflow: 'hidden',
-      border: '1px solid rgba(255,255,255,0.12)',
-      boxShadow: '0 32px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.1)',
-      zIndex: 20, animation: 'fadeUp .2s ease-out',
-    }}>
+    <motion.div
+      ref={cardRef}
+      onClick={(e) => e.stopPropagation()}
+      onMouseMove={handleMouseMove}
+      onMouseLeave={handleMouseLeave}
+      initial={{ opacity: 0, y: 40, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+      style={{
+        position: 'absolute', bottom: 16, left: '50%', x: '-50%',
+        width: 380, maxWidth: 'calc(100% - 24px)',
+        perspective: 1000,
+        rotateX, rotateY,
+        background: 'rgba(15,15,20,0.82)',
+        backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+        borderRadius: 24, overflow: 'hidden',
+        border: '1px solid rgba(255,255,255,0.12)',
+        boxShadow: '0 32px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 0 40px rgba(255,255,255,0.03)',
+        zIndex: 20,
+        transformStyle: 'preserve-3d',
+      }}
+    >
       <div style={{ height: 2, background: `linear-gradient(90deg,${tf},transparent)` }} />
       <div style={{ padding: '24px 24px 22px', maxHeight: '65vh', overflowY: 'auto' }}>
 
@@ -153,16 +232,26 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           </div>
         </div>
 
-        {/* 2. Volym */}
+        {/* 2. Volym — animated count-up */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '18px 14px', textAlign: 'center' }}>
-            <div style={numStyle}>{formatVolym(o.volym || 0)}</div>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1, duration: 0.4 }}
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '18px 14px', textAlign: 'center' }}
+          >
+            <div style={numStyle}>{formatVolym(animVolym)}</div>
             <div style={{ fontSize: 9, color: S.muted, marginTop: 10, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 500 }}>Total m³sk</div>
-          </div>
-          <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '18px 14px', textAlign: 'center' }}>
-            <div style={numStyle}>{volPerHa}</div>
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15, duration: 0.4 }}
+            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '18px 14px', textAlign: 'center' }}
+          >
+            <div style={numStyle}>{volPerHaNum > 0 ? animVolHa : '–'}</div>
             <div style={{ fontSize: 9, color: S.muted, marginTop: 10, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 500 }}>m³sk/ha</div>
-          </div>
+          </motion.div>
         </div>
 
         {/* 3. Trailer label */}
@@ -217,7 +306,7 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
 
         {(o.ovrigt_info || noteringar.length > 0 || o.info_anteckningar) && <Div />}
 
-        {/* 6. Trädslag */}
+        {/* 6. Trädslag — animated staggered bar */}
         {ber?.tradslag && ber.tradslag.length > 0 && !ber.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt')) && (
           <>
             <div style={{ padding: '16px 0' }}>
@@ -231,20 +320,27 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
                   <>
                     <div style={{ display: 'flex', height: 16, borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
                       {slag.map((ts, i) => (
-                        <div key={i} style={{
-                          width: `${(ts.andel / total) * 100}%`, minWidth: 3,
-                          background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG,
-                          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.2)',
-                        }} />
+                        <SpeciesSegment
+                          key={i}
+                          pct={(ts.andel / total) * 100}
+                          color={TRADSLAG_FARG[ts.namn] || DEFAULT_FARG}
+                          delay={0.15 + i * 0.08}
+                        />
                       ))}
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
                       {slag.map((ts, i) => (
-                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <motion.div
+                          key={i}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: 0.2 + i * 0.06, duration: 0.3 }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+                        >
                           <span style={{ width: 8, height: 8, borderRadius: 4, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, flexShrink: 0, boxShadow: `0 0 4px ${(TRADSLAG_FARG[ts.namn] || DEFAULT_FARG)}40` }} />
                           <span style={{ fontSize: 11, color: S.text, fontWeight: 500 }}>{ts.namn}</span>
                           <span style={{ fontSize: 11, color: S.muted, marginLeft: 'auto', fontWeight: 600 }}>{Math.round(ts.andel * 100)}%</span>
-                        </div>
+                        </motion.div>
                       ))}
                     </div>
                   </>
@@ -337,7 +433,7 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           Visa avverkning →
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -476,11 +572,22 @@ function buildMarkerEl(
   w.dataset.objektId = obj.id;
   w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isHistoryKlar ? '0.3' : '1'}`;
 
-  // Pulse ring on active objects (ring that expands and fades out)
-  if (isActive && !isHistoryKlar) {
+  // Glowing pulse rings — status-based colors
+  // Green=planerad, Yellow=pågående, Red/white=klar
+  if (!isHistoryKlar) {
+    const pulseColor = isActive ? st.c : (obj.status === 'klar' ? '#ef4444' : obj.status === 'planerad' || obj.status === 'importerad' ? '#22c55e' : tf);
+    // Outer expanding ring
     const p = document.createElement('div');
-    p.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;border:3px solid ${tf};animation:pulseMarker 2.5s infinite;pointer-events:none`;
+    p.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;border:2px solid ${pulseColor};animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) infinite;pointer-events:none`;
     w.appendChild(p);
+    // Second ring with offset for continuous effect
+    const p2 = document.createElement('div');
+    p2.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;border:1.5px solid ${pulseColor};animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) 1.25s infinite;pointer-events:none`;
+    w.appendChild(p2);
+    // Static glow behind the dot
+    const glow = document.createElement('div');
+    glow.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 8}px;height:${dotSize + 8}px;margin-left:-${(dotSize + 8) / 2}px;margin-top:-${(dotSize + 8) / 2}px;border-radius:50%;background:radial-gradient(circle,${pulseColor}25 0%,transparent 70%);pointer-events:none;animation:glowPulse 3s ease-in-out infinite`;
+    w.appendChild(glow);
   }
 
   // Dot circle
@@ -965,6 +1072,8 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
   return (
     <div style={{ position: 'absolute', inset: 0 }} onClick={() => { setSelectedId(null); setSelectedGrotId(null); setShowMaskinDrop(false); }}>
       <style>{`
+        @keyframes pulseRing{0%{transform:scale(1);opacity:.7}70%{transform:scale(2.8);opacity:0}100%{transform:scale(2.8);opacity:0}}
+        @keyframes glowPulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.15)}}
         @keyframes pulseMarker{0%{transform:scale(1);opacity:.6}70%{transform:scale(2.5);opacity:0}100%{transform:scale(2.5);opacity:0}}
         @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(10px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
         ${labelCss}
