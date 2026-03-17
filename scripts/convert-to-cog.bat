@@ -43,6 +43,6 @@ echo.
 echo === Alla COG-filer ===
 dir "%OUTPUT_DIR%\*.tif" 2>nul || echo (inga filer)
 echo.
-echo Nasta steg: ladda upp alla .tif i %OUTPUT_DIR%\ till Cloudflare R2.
+echo Nasta steg: kor scripts\upload-to-r2.bat
 
 endlocal

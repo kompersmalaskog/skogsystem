@@ -2,21 +2,11 @@
 # Ladda upp COG-filer till Cloudflare R2
 #
 # Förutsättningar:
-#   1. Cloudflare-konto med R2 aktiverat
-#   2. Wrangler CLI installerad: npm install -g wrangler
-#   3. Inloggad: wrangler login
+#   1. Wrangler CLI: npm install -g wrangler
+#   2. Inloggad:     wrangler login
 #
-# Setup:
-#   1. Skapa R2-bucket:
-#      wrangler r2 bucket create slu-skogskarta
-#
-#   2. Aktivera publik åtkomst via Cloudflare Dashboard:
-#      R2 → slu-skogskarta → Settings → Public access → Allow Access
-#      Välj "Custom Domain" eller "R2.dev subdomain"
-#      Kopiera URL:en (t.ex. https://slu-skogskarta.<account>.r2.dev)
-#
-#   3. Lägg till i Vercel miljövariabler:
-#      SLU_COG_BASE_URL=https://slu-skogskarta.<account>.r2.dev
+# Bucket: slu-skogskarta
+# Publik URL: https://pub-34a728ec09b04898b17779b0dfc4d9d6.r2.dev
 #
 # Kör: bash scripts/upload-to-r2.sh
 
@@ -39,8 +29,10 @@ done
 
 echo ""
 echo "=== Uppladdning klar ==="
+echo "Verifiera: wrangler r2 object list $BUCKET"
 echo ""
-echo "Verifiera med: wrangler r2 object list $BUCKET"
+echo "Publik URL: https://pub-34a728ec09b04898b17779b0dfc4d9d6.r2.dev"
+echo "Testa:      curl -I https://pub-34a728ec09b04898b17779b0dfc4d9d6.r2.dev/gran.tif"
 echo ""
-echo "Lägg sedan till i Vercel → Settings → Environment Variables:"
-echo "  SLU_COG_BASE_URL = https://slu-skogskarta.<ditt-account-id>.r2.dev"
+echo "Vercel env var (om ej redan satt):"
+echo "  SLU_COG_BASE_URL=https://pub-34a728ec09b04898b17779b0dfc4d9d6.r2.dev"
