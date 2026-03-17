@@ -1457,6 +1457,25 @@ export default function UppfoljningPage() {
         tidAgg.set(key, (tidAgg.get(key) || 0) + (t.bransle_liter || 0));
       });
 
+      // Build per-(objekt_id, maskin_id) diesel map for shared objekt_ids
+      const tidPerMaskin = new Map<string, number>();
+      tid.forEach(t => {
+        if (t.objekt_id && t.maskin_id) {
+          const k = t.objekt_id + '::' + t.maskin_id;
+          tidPerMaskin.set(k, (tidPerMaskin.get(k) || 0) + (t.bransle_liter || 0));
+        }
+      });
+
+      // Map objekt_id → set of maskin_ids from fakt_tid (to detect machines without dim_objekt)
+      const tidMaskinPerObjekt = new Map<string, Set<string>>();
+      tid.forEach(t => {
+        if (t.objekt_id && t.maskin_id) {
+          const s = tidMaskinPerObjekt.get(t.objekt_id) || new Set();
+          s.add(t.maskin_id);
+          tidMaskinPerObjekt.set(t.objekt_id, s);
+        }
+      });
+
       const voGroups = new Map<string, any[]>();
       dimObjekt.forEach(d => {
         if (!d.objekt_id) return;
@@ -1470,17 +1489,36 @@ export default function UppfoljningPage() {
       const result: UppfoljningObjekt[] = [];
 
       voGroups.forEach((entries, key) => {
-        // Classify entries by machine type
+        // Classify dim_objekt entries by machine type
         const skordareEntries: any[] = [];
         const skotareEntries: any[] = [];
         const unknownEntries: any[] = [];
+        const knownMaskinIds = new Set<string>();
 
         for (const e of entries) {
+          if (e.maskin_id) knownMaskinIds.add(e.maskin_id);
           const maskin = maskinMap.get(e.maskin_id);
           const mType = getMachineType(maskin);
           if (mType === 'skordare') skordareEntries.push(e);
           else if (mType === 'skotare') skotareEntries.push(e);
           else unknownEntries.push(e);
+        }
+
+        // Detect machines from fakt_tid that have no dim_objekt entry
+        const allObjektIds = entries.map((e: any) => e.objekt_id);
+        for (const oid of allObjektIds) {
+          const tidMaskiner = tidMaskinPerObjekt.get(oid);
+          if (!tidMaskiner) continue;
+          for (const mid of tidMaskiner) {
+            if (knownMaskinIds.has(mid)) continue;
+            knownMaskinIds.add(mid);
+            const maskin = maskinMap.get(mid);
+            const mType = getMachineType(maskin);
+            const synthetic = { objekt_id: oid, maskin_id: mid, _synthetic: true };
+            if (mType === 'skordare') skordareEntries.push(synthetic);
+            else if (mType === 'skotare') skotareEntries.push(synthetic);
+            else unknownEntries.push(synthetic);
+          }
         }
 
         // Fallback: classify unknowns by checking which fact tables have data
@@ -1520,11 +1558,24 @@ export default function UppfoljningPage() {
           const l = lassAgg.get(e.objekt_id);
           if (l) { stVol += l.vol; stCount += l.count; }
         }
+        // If skotare shares objekt_id with skördare and has no own lass, check shared objekt_ids
+        if (stCount === 0 && skotareEntry) {
+          for (const e of skordareEntries) {
+            const l = lassAgg.get(e.objekt_id);
+            if (l) { stVol += l.vol; stCount += l.count; }
+          }
+        }
 
-        // Aggregate diesel across all objekt_ids per machine type
+        // Aggregate diesel per machine type using per-maskin map (handles shared objekt_ids)
         let skDiesel = 0, stDiesel = 0;
-        for (const e of skordareEntries) skDiesel += tidAgg.get(e.objekt_id) || 0;
-        for (const e of skotareEntries) stDiesel += tidAgg.get(e.objekt_id) || 0;
+        for (const e of skordareEntries) {
+          const k = e.objekt_id + '::' + e.maskin_id;
+          skDiesel += tidPerMaskin.get(k) || 0;
+        }
+        for (const e of skotareEntries) {
+          const k = e.objekt_id + '::' + e.maskin_id;
+          stDiesel += tidPerMaskin.get(k) || 0;
+        }
 
         const skStart = skordareEntry?.start_date || null;
         const skSlut = skordareEntry?.end_date || skordareEntry?.skordning_avslutad || null;
@@ -1540,8 +1591,8 @@ export default function UppfoljningPage() {
           dagar = allDone && latestEnd ? daysBetween(earliestStart, latestEnd) : daysSince(earliestStart);
         }
 
-        const skMaskinId = prodMaskinMap.get(skordareEntry?.objekt_id) || skordareEntry?.maskin_id;
-        const stMaskinId = tidMaskinMap.get(skotareEntry?.objekt_id) || skotareEntry?.maskin_id;
+        const skMaskinId = skordareEntry?.maskin_id || prodMaskinMap.get(skordareEntry?.objekt_id);
+        const stMaskinId = skotareEntry?.maskin_id || tidMaskinMap.get(skotareEntry?.objekt_id);
 
         result.push({
           vo_nummer: vo,
