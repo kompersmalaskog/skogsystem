@@ -30,6 +30,7 @@ yarn-error.log*
 
 # SLU Skogskarta GeoTIFF data (~5 GB)
 /data/slu-skogskarta/
+/data/slu-cog/
 
 # Lantmäteriet DEM raw data (temp processing files)
 /data/terrain-tmp/
