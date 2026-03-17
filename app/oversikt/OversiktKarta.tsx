@@ -5,8 +5,6 @@ import { createClient } from '@supabase/supabase-js';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
-import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning';
-import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -58,17 +56,6 @@ function InfoRow({ label, val, warn }: { label: string; val: string; warn?: bool
 }
 
 /* ── Helper: build square polygon from lat/lng + areal ── */
-function arealToPolygon(lat: number, lng: number, arealHa: number): { lat: number; lon: number }[] {
-  const sideM = Math.sqrt(arealHa * 10000) / 2;
-  const dLat = sideM / 111320;
-  const dLon = sideM / (111320 * Math.cos(lat * Math.PI / 180));
-  return [
-    { lat: lat - dLat, lon: lng - dLon },
-    { lat: lat - dLat, lon: lng + dLon },
-    { lat: lat + dLat, lon: lng + dLon },
-    { lat: lat + dLat, lon: lng - dLon },
-  ];
-}
 
 /* ── Körbarhet mapping ── */
 function korbarhetsLabel(barighet?: string): { text: string; color: string } {
@@ -103,40 +90,8 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
   const kontaktNamn = o.kontakt_namn || o.markagare || null;
   const kontaktTel = o.kontakt_telefon || null;
 
-  // Skogliga grunddata
-  const [skogData, setSkogData] = useState<VolymResultat | null>(null);
-  const [skogLoading, setSkogLoading] = useState(false);
-  const cacheRef = useRef<Record<string, VolymResultat>>({});
-
-  // Körbarhetsdata (jordart + lutning)
-  const [korbData, setKorbData] = useState<KorbarhetsResultat | null>(null);
-  const korbCacheRef = useRef<Record<string, KorbarhetsResultat>>({});
-
-  useEffect(() => {
-    if (!o.lat || !o.lng) return;
-    const key = o.id;
-    const areal = o.areal || 2;
-    const polygon = arealToPolygon(o.lat, o.lng, areal);
-
-    // Volym
-    if (cacheRef.current[key]) { setSkogData(cacheRef.current[key]); }
-    else {
-      setSkogLoading(true);
-      beraknaVolym(polygon, '/api/wms-proxy').then(res => {
-        cacheRef.current[key] = res;
-        setSkogData(res);
-      }).catch(() => setSkogData(null)).finally(() => setSkogLoading(false));
-    }
-
-    // Körbarhet (jordart + lutning)
-    if (korbCacheRef.current[key]) { setKorbData(korbCacheRef.current[key]); }
-    else {
-      beraknaKorbarhet(polygon, '/api/wms-proxy', '/api/wms-proxy').then(res => {
-        korbCacheRef.current[key] = res;
-        setKorbData(res);
-      }).catch(() => setKorbData(null));
-    }
-  }, [o.id, o.lat, o.lng, o.areal]);
+  // Beräknad data från trakt_data (sparad i planeringsvyn)
+  const ber = o.trakt_data?.beraknad;
 
   const S = {
     surface: '#1a1a18',
@@ -218,40 +173,54 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           </div>
         )}
 
-        {/* Trädslag + Diameter/Höjd OR Jordart + Lutning */}
-        {(skogLoading || (skogData && skogData.status === 'done') || (korbData && korbData.status === 'done')) && (() => {
-          const hasRealTradslag = skogData && skogData.status === 'done' && skogData.tradslag.length > 0 &&
-            !skogData.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt'));
-          return (
-            <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
-              {skogLoading ? (
-                <div style={{ fontSize: 10, color: S.muted }}>Hämtar skogliga data...</div>
-              ) : hasRealTradslag && skogData ? (<>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Trädslag</span>
-                  <div style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
-                    {skogData.tradslag.slice(0, 4).map((ts, i) => (
-                      <span key={i} style={{ fontSize: 11, fontWeight: 500, color: S.text }}>
-                        {ts.namn} <span style={{ color: S.muted }}>{Math.round(ts.andel * 100)}%</span>
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 16, fontSize: 11 }}>
-                  <span style={{ color: S.muted }}>Diameter <span style={{ fontWeight: 600, color: S.text }}>{skogData.medeldiameter > 0 ? `${skogData.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
-                  <span style={{ color: S.muted }}>Höjd <span style={{ fontWeight: 600, color: S.text }}>{skogData.medelhojd > 0 ? `${skogData.medelhojd.toFixed(0)} m` : '–'}</span></span>
-                </div>
-              </>) : korbData && korbData.status === 'done' && korbData.dominantJordart ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Mark</span>
-                  <div style={{ flex: 1, textAlign: 'right', fontSize: 11, fontWeight: 500, color: S.text }}>
-                    {korbData.dominantJordart} · {korbData.medelLutning.toFixed(1)}° lutning
-                  </div>
-                </div>
-              ) : null}
+        {/* Trädslag från beräknad data */}
+        {ber?.tradslag && ber.tradslag.length > 0 && !ber.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt')) && (
+          <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Trädslag</span>
+              <div style={{ display: 'flex', gap: 8, flex: 1, justifyContent: 'flex-end' }}>
+                {ber.tradslag.slice(0, 4).map((ts, i) => (
+                  <span key={i} style={{ fontSize: 11, fontWeight: 500, color: S.text }}>
+                    {ts.namn} <span style={{ color: S.muted }}>{Math.round(ts.andel * 100)}%</span>
+                  </span>
+                ))}
+              </div>
             </div>
-          );
-        })()}
+            <div style={{ display: 'flex', gap: 16, fontSize: 11 }}>
+              <span style={{ color: S.muted }}>Diameter <span style={{ fontWeight: 600, color: S.text }}>{ber.medeldiameter ? `${ber.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
+              <span style={{ color: S.muted }}>Höjd <span style={{ fontWeight: 600, color: S.text }}>{ber.medelhojd ? `${ber.medelhojd.toFixed(0)} m` : '–'}</span></span>
+            </div>
+          </div>
+        )}
+
+        {/* Jordart + Lutning */}
+        {ber?.jordart && (
+          <div style={{ background: S.surface2, borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Mark</span>
+              <div style={{ flex: 1, textAlign: 'right', fontSize: 11, fontWeight: 500, color: S.text }}>
+                {ber.jordart}{ber.medelLutning != null ? ` · ${ber.medelLutning.toFixed(1)}° lutning` : ''}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Restriktioner */}
+        {ber?.restriktioner && ber.restriktioner.length > 0 && (
+          <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.15)', borderRadius: 12, padding: '12px 14px', marginBottom: 14 }}>
+            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#ef4444', marginBottom: 6 }}>
+              Restriktioner ({ber.restriktioner.length})
+            </div>
+            {ber.restriktioner.slice(0, 5).map((r, i) => (
+              <div key={i} style={{ fontSize: 11, color: S.text, marginBottom: i < Math.min(ber.restriktioner!.length, 5) - 1 ? 4 : 0 }}>
+                {r.name}{r.warning ? <span style={{ color: '#ef4444', fontSize: 10 }}> — {r.warning}</span> : ''}
+              </div>
+            ))}
+            {ber.restriktioner.length > 5 && (
+              <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>+{ber.restriktioner.length - 5} till</div>
+            )}
+          </div>
+        )}
 
         {/* 6. Maskiner */}
         {(o.skordare_maskin || o.skotare_maskin) && (

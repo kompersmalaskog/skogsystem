@@ -63,6 +63,21 @@ export interface OversiktObjekt {
   grot_volym: number | null;
   grot_anteckning: string | null;
   grot_deadline: string | null;
+  // Beräknad data
+  trakt_data?: {
+    volym?: number;
+    areal?: number;
+    beraknad?: {
+      tradslag?: { namn: string; volymHa: number; totalVolym: number; andel: number }[];
+      jordart?: string;
+      jordartFordelning?: { namn: string; andel: number }[];
+      medelLutning?: number;
+      medeldiameter?: number;
+      medelhojd?: number;
+      restriktioner?: { type: string; name: string; details?: string; warning?: string }[];
+      beraknadAt?: number;
+    };
+  };
 }
 
 export type TabId = 'karta' | 'objekt' | 'maskiner' | 'grot';
