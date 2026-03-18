@@ -442,7 +442,13 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                 </div>
               </div>
               <div className="bal-note">
-                Skotaren behövde <strong>14% mer tid</strong> än skördaren. Följ detta över fler objekt — ett konsekvent mönster signalerar behov av mer skotarkapacitet.
+                {(() => {
+                  if (data.skordareBalG15h === 0) return null;
+                  const diffPct = Math.abs(((data.skotareBalG15h - data.skordareBalG15h) / data.skordareBalG15h) * 100);
+                  if (diffPct < 5) return <>Skördare och skotare körde i god balans på det här objektet.</>;
+                  if (data.skotareBalG15h > data.skordareBalG15h) return <>Skotaren behövde <strong>{diffPct.toFixed(0)}% mer tid</strong> än skördaren på det här objektet.</>;
+                  return <>Skördaren behövde <strong>{diffPct.toFixed(0)}% mer tid</strong> än skotaren på det här objektet.</>;
+                })()}
               </div>
             </div>
           </div>
