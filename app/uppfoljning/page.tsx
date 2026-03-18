@@ -274,7 +274,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const dieselPerG15St = stTid.g15 > 0 ? Math.round((stTid.dieselTot / stTid.g15) * 100) / 100 : 0;
 
       const totalDiesel = Math.round(skTid.dieselTot) + Math.round(stTid.dieselTot);
-      const totalDieselPerM3 = obj.volymSkotare > 0 ? Math.round((totalDiesel / obj.volymSkotare) * 100) / 100 : 0;
+      const totalDieselPerM3 = obj.volymSkordare > 0 ? Math.round((totalDiesel / obj.volymSkordare) * 100) / 100 : 0;
 
       // Kvar i skogen
       const volSk = obj.volymSkordare;
