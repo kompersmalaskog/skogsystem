@@ -62,7 +62,7 @@ export default function TopBar() {
           fontSize: 20,
           lineHeight: 1,
         }}>
-          🏠
+          <img src="/home-icon.png" alt="Hem" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />
         </Link>
       ) : null}
 
