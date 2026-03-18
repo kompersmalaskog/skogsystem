@@ -300,7 +300,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         .uppf-live-label { font-size:10px; color:var(--text-ter); letter-spacing:0.04em; }
         .uppf-ts-label { font-size:11px; color:var(--text-ter); margin-bottom:3px; text-align:right; }
         .uppf-ts-val { font-size:13px; color:var(--text-sec); text-align:right; }
-        .uppf-content { padding:0 1.75rem 4rem; max-width:900px; }
+        .uppf-content { padding:0 1.75rem 4rem; max-width:900px; margin:0 auto; }
         .section-reveal { padding:2rem 0; border-bottom:1px solid var(--border); opacity:0; transform:translateY(16px); transition:opacity 0.55s ease, transform 0.55s cubic-bezier(0.16,1,0.3,1); }
         .section-reveal:last-child { border-bottom:none; }
         .section-reveal.visible { opacity:1; transform:translateY(0); }
