@@ -32,10 +32,10 @@ interface Star { x: number; y: number; r: number; phase: number; speed: number }
 interface Meteor { x: number; y: number; angle: number; speed: number; life: number; maxLife: number }
 
 const SKY: Record<Phase, [string, string, string]> = {
-  dawn: ['#1a1035', '#c05050', '#f0c878'],
-  day: ['#4a90d0', '#88c4f0', '#c0d8c0'],
-  dusk: ['#1a1040', '#802050', '#806040'],
-  night: ['#050510', '#0e1030', '#0a1020'],
+  dawn: ['#0e0818', '#3a1830', '#6a3828'],
+  day: ['#0a1520', '#122a1a', '#1a3a20'],
+  dusk: ['#0e0820', '#2a1030', '#3a2020'],
+  night: ['#050510', '#0a0a1a', '#080c14'],
 }
 
 const TREE_COLORS: Record<Season, [string, string, string]> = {
