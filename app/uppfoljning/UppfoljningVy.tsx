@@ -261,15 +261,15 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
   const maxDieselSkot = Math.max(...data.dieselSkotare.map(d => d.liter));
   const maxLass = Math.max(...data.lassPerDag.map(d => d.lass));
 
-  const tradslagColorMap: Record<string, string> = {
-    'Gran': '#2d6a4f',
-    'Tall': '#a0522d',
-    'Björk': '#c8c8c8',
-    'Övrigt': '#6b7c3a',
-    'ÖVR_LÖV': '#6b7c3a',
-  };
-  const defaultTradslagColors = ['#2d6a4f', '#a0522d', '#c8c8c8', '#6b7c3a'];
-  const tradslagColors = data.tradslag.map((t, i) => tradslagColorMap[t.namn] || defaultTradslagColors[i] || '#6b7c3a');
+  function getTradslagColor(namn: string): string {
+    const n = namn.toLowerCase();
+    if (n === 'gran') return '#2d6a4f';
+    if (n === 'tall') return '#a0522d';
+    if (n === 'björk') return '#c8c8c8';
+    if (n === 'övrigt' || n === 'övr_löv' || n === 'övrigt löv') return '#6b7c3a';
+    return '#6b7c3a';
+  }
+  const tradslagColors = data.tradslag.map(t => getTradslagColor(t.namn));
 
   return (
     <>
