@@ -50,22 +50,15 @@ const THEME_COLORS: Record<TimePhase, { baseBg: string; titleColor: string; titl
 
 export default function HomeClient() {
   const [phase, setPhase] = useState<TimePhase>('night');
-  const [showSplash, setShowSplash] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
 
   useEffect(() => {
     setPhase(getTimePhase());
     const interval = setInterval(() => setPhase(getTimePhase()), 60000);
-
-    // Visa splash bara en gång per session
-    if (!sessionStorage.getItem('splash_shown')) {
-      setShowSplash(true);
-    }
-
     return () => clearInterval(interval);
   }, []);
 
   const handleSplashComplete = useCallback(() => {
-    sessionStorage.setItem('splash_shown', '1');
     setShowSplash(false);
   }, []);
 
