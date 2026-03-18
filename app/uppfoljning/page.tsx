@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import UppfoljningVy, { type UppfoljningData, type Maskin, type AvbrottRad, type DieselDag } from './UppfoljningVy';
+import UppfoljningVy, { type UppfoljningData, type Maskin, type Forare, type AvbrottRad, type DieselDag } from './UppfoljningVy';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -119,8 +119,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         return;
       }
 
-      const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes] = await Promise.all([
-        supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
+      const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes, dimOperatorRes] = await Promise.all([
+        supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
         supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar, processtyp, tradslag_id').in('objekt_id', ids),
         supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
@@ -128,6 +128,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek').in('objekt_id', ids),
         stId ? supabase.from('fakt_lass').select('objekt_id, datum, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
         stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
+        supabase.from('dim_operator').select('operator_id, operator_namn'),
       ]);
 
       const tidRows = tidRes.data || [];
@@ -138,12 +139,16 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const avbrottRows = avbrottRes.data || [];
       const lassRows = (lassRes.data || []) as any[];
       const lassSortRows = (lassSortRes.data || []) as any[];
+      const dimOperators = dimOperatorRes.data || [];
 
       const sortMap = new Map<string, string>();
       dimSort.forEach((s: any) => { if (s.namn) sortMap.set(s.sortiment_id, s.namn); });
 
       const tradslagMap = new Map<string, string>();
       dimTradslag.forEach((t: any) => { if (t.namn) tradslagMap.set(t.tradslag_id, t.namn); });
+
+      const operatorMap = new Map<string, string>();
+      dimOperators.forEach((o: any) => { if (o.operator_namn) operatorMap.set(o.operator_id, o.operator_namn); });
 
       // Build time data with per-day breakdown
       const buildTid = (rows: any[]) => {
@@ -318,6 +323,39 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           return { datum: `${date.getDate()}/${date.getMonth() + 1}`, liter: Math.round(d.diesel) };
         });
 
+      // Build förare per maskin from fakt_tid rows
+      const buildForare = (rows: any[]): { aktiv: string; tidigare: Forare[] } => {
+        // Group by operator_id, track first/last date
+        const opDates = new Map<string, { min: string; max: string }>();
+        rows.forEach((r: any) => {
+          const opId = r.operator_id;
+          if (!opId) return;
+          const d = r.datum;
+          if (!d) return;
+          const prev = opDates.get(opId);
+          if (!prev) {
+            opDates.set(opId, { min: d, max: d });
+          } else {
+            if (d < prev.min) prev.min = d;
+            if (d > prev.max) prev.max = d;
+          }
+        });
+        if (opDates.size === 0) return { aktiv: '', tidigare: [] };
+        // Sort by last date descending — most recent is aktiv
+        const sorted = Array.from(opDates.entries())
+          .sort(([, a], [, b]) => b.max.localeCompare(a.max));
+        const aktiv = operatorMap.get(sorted[0][0]) || sorted[0][0];
+        const tidigare: Forare[] = sorted.slice(1).map(([opId, dates]) => ({
+          namn: operatorMap.get(opId) || opId,
+          fran: fmtDate(dates.min),
+          till: fmtDate(dates.max),
+        }));
+        return { aktiv, tidigare };
+      };
+
+      const skForare = buildForare(skTidRows);
+      const stForare = buildForare(stTidRows);
+
       // Build maskiner array
       const maskiner: Maskin[] = [];
       if (obj.skordareModell) {
@@ -326,7 +364,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           modell: obj.skordareModell,
           start: fmtDate(obj.skordareStart),
           slut: obj.skordareSlut ? fmtDate(obj.skordareSlut) : 'pågår',
-          aktivForare: '',
+          aktivForare: skForare.aktiv,
+          ...(skForare.tidigare.length > 0 ? { tidigareForare: skForare.tidigare } : {}),
         });
       }
       if (obj.skotareModell) {
@@ -335,7 +374,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           modell: obj.skotareModell,
           start: fmtDate(obj.skotareStart),
           slut: obj.skotareSlut ? fmtDate(obj.skotareSlut) : 'pågår',
-          aktivForare: '',
+          aktivForare: stForare.aktiv,
+          ...(stForare.tidigare.length > 0 ? { tidigareForare: stForare.tidigare } : {}),
         });
       }
 
