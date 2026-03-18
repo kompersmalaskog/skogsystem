@@ -71,7 +71,7 @@ export default function HomeClient() {
           transition: all 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         .app-icon:hover {
-          transform: translateY(-4px) scale(1.05);
+          transform: translateY(-3px) scale(1.05);
           box-shadow: 0 12px 24px rgba(0,0,0,0.5), 0 4px 8px rgba(0,0,0,0.4) !important;
         }
         .app-icon:active {
