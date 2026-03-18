@@ -67,8 +67,15 @@ export default function HomeClient() {
       transition: 'background 2s ease',
     }}>
       <style>{`
+        @keyframes glow-pulse {
+          0%, 100% { filter: drop-shadow(0 0 8px rgba(34,197,94,0.5)); }
+          50% { filter: drop-shadow(0 0 18px rgba(34,197,94,0.85)); }
+        }
         .app-icon {
           transition: all 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .app-icon.glow-icon {
+          animation: glow-pulse 3s ease-in-out infinite;
         }
         .app-icon:hover {
           transform: translateY(-3px) scale(1.05);
@@ -112,14 +119,13 @@ export default function HomeClient() {
               <div style={{
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
               }}>
-                <div className="app-icon" style={{
+                <div className={`app-icon${app.img ? ' glow-icon' : ''}`} style={{
                   width: 80, height: 80, borderRadius: 20,
                   background: app.img ? 'transparent' : app.color,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 38, lineHeight: 1,
                   boxShadow: '0 8px 16px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3)',
                   overflow: 'hidden',
-                  ...(app.img ? { filter: 'drop-shadow(0 0 10px rgba(34,197,94,0.7))' } : {}),
                 }}>
                   {app.img ? <img src={app.img} alt={app.label} style={{ width: 80, height: 80, borderRadius: 20, objectFit: 'cover' }} /> : app.icon}
                 </div>
