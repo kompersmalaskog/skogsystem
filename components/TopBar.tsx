@@ -26,6 +26,8 @@ export default function TopBar() {
   const isHome = pathname === '/'
   const pageName = pageNames[pathname] || pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2)
 
+  if (isHome) return null
+
   return (
     <header style={{
       position: 'fixed',
