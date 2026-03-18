@@ -6,6 +6,13 @@ const nextConfig = {
   eslint: {
     ignoreDuringBuilds: true,
   },
+  outputFileTracingExcludes: {
+    '*': [
+      './app/ForestBackground.tsx',
+      'maplibre-gl/**',
+      'sharp/**',
+    ],
+  },
 }
 
 module.exports = nextConfig
