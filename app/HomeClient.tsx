@@ -113,14 +113,14 @@ export default function HomeClient() {
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
               }}>
                 <div className="app-icon" style={{
-                  width: 62, height: 62, borderRadius: 18,
+                  width: 80, height: 80, borderRadius: 20,
                   background: app.img ? 'transparent' : app.color,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 30, lineHeight: 1,
+                  fontSize: 38, lineHeight: 1,
                   boxShadow: '0 8px 16px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3)',
                   overflow: 'hidden',
                 }}>
-                  {app.img ? <img src={app.img} alt={app.label} style={{ width: 62, height: 62, borderRadius: 18, objectFit: 'cover' }} /> : app.icon}
+                  {app.img ? <img src={app.img} alt={app.label} style={{ width: 80, height: 80, borderRadius: 20, objectFit: 'cover' }} /> : app.icon}
                 </div>
                 <span style={{
                   fontSize: 11, fontWeight: 500, color: '#fff',
