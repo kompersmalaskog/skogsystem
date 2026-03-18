@@ -15,7 +15,7 @@ const apps: { href: string; label: string; icon: string; color: string; img?: st
   { href: '/planner', label: 'Planner', icon: '🗓️', color: '#FF2D55' },
   { href: '/objekt', label: 'Objekt', icon: '🌲', color: '#34C759' },
   { href: '/karta', label: 'Karta', icon: '🗺️', color: '#007AFF' },
-  { href: '/oversikt', label: 'Översikt', icon: '👁️', color: '#5856D6' },
+  { href: '/oversikt', label: 'Översikt', icon: '', color: '#5856D6', img: '/oversikt-icon.png' },
   { href: '/redigering', label: 'Redigering', icon: '✏️', color: '#FF9500' },
   { href: '/kalibrering', label: 'Kalibrering', icon: '⚙️', color: '#8E8E93' },
   { href: '/bestallningar', label: 'Beställningar', icon: '📦', color: '#FF3B30' },
