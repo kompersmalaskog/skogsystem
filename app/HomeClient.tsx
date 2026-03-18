@@ -119,6 +119,7 @@ export default function HomeClient() {
                   fontSize: 38, lineHeight: 1,
                   boxShadow: '0 8px 16px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3)',
                   overflow: 'hidden',
+                  ...(app.img ? { filter: 'drop-shadow(0 0 10px rgba(34,197,94,0.7))' } : {}),
                 }}>
                   {app.img ? <img src={app.img} alt={app.label} style={{ width: 80, height: 80, borderRadius: 20, objectFit: 'cover' }} /> : app.icon}
                 </div>
