@@ -119,7 +119,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         return;
       }
 
-      const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes] = await Promise.all([
+      const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes] = await Promise.all([
         supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
         supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar, processtyp, tradslag_id').in('objekt_id', ids),
         supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
@@ -127,6 +127,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         supabase.from('dim_tradslag').select('tradslag_id, namn'),
         supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek').in('objekt_id', ids),
         stId ? supabase.from('fakt_lass').select('objekt_id, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
+        stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
       ]);
 
       const tidRows = tidRes.data || [];
@@ -136,6 +137,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const dimTradslag = dimTradslagRes.data || [];
       const avbrottRows = avbrottRes.data || [];
       const lassRows = (lassRes.data || []) as any[];
+      const lassSortRows = (lassSortRes.data || []) as any[];
 
       const sortMap = new Map<string, string>();
       dimSort.forEach((s: any) => { if (s.namn) sortMap.set(s.sortiment_id, s.namn); });
@@ -229,13 +231,20 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         .map(([namn, vol]) => ({ namn, pct: totalTradslagVol > 0 ? Math.round((vol / totalTradslagVol) * 100) : 0 }))
         .sort((a, b) => b.pct - a.pct);
 
-      // Sortiment
-      const skSort = skId ? sortRows.filter((r: any) => r.objekt_id === skId) : [];
+      // Sortiment — use FPR (skotare/fakt_lass_sortiment) if available, fallback to HPR (skördare/fakt_sortiment)
       const sortAgg = new Map<string, number>();
-      skSort.forEach((r: any) => {
-        const namn = sortMap.get(r.sortiment_id) || r.sortiment_id || 'Övrigt';
-        sortAgg.set(namn, (sortAgg.get(namn) || 0) + (r.volym_m3sub || 0));
-      });
+      if (lassSortRows.length > 0) {
+        lassSortRows.forEach((r: any) => {
+          const namn = r.sortiment_namn || sortMap.get(r.sortiment_id) || r.sortiment_id || 'Övrigt';
+          sortAgg.set(namn, (sortAgg.get(namn) || 0) + (r.volym_m3sub || 0));
+        });
+      } else {
+        const skSort = skId ? sortRows.filter((r: any) => r.objekt_id === skId) : [];
+        skSort.forEach((r: any) => {
+          const namn = sortMap.get(r.sortiment_id) || r.sortiment_id || 'Övrigt';
+          sortAgg.set(namn, (sortAgg.get(namn) || 0) + (r.volym_m3sub || 0));
+        });
+      }
       const sortiment = Array.from(sortAgg.entries())
         .map(([namn, vol]) => ({ namn, m3: Math.round(vol) }))
         .sort((a, b) => b.m3 - a.m3);
