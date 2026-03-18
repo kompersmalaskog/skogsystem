@@ -1,10 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 
 const ForestBackground = dynamic(() => import('./ForestBackground'), { ssr: false })
+const SplashScreen = dynamic(() => import('./SplashScreen'), { ssr: false })
 
 const apps: { href: string; label: string; icon: string; color: string; img?: string }[] = [
   { href: '/uppfoljning', label: 'Uppföljning', icon: '', color: '#007AFF', img: '/uppfoljning-icon.png' },
@@ -49,11 +50,23 @@ const THEME_COLORS: Record<TimePhase, { baseBg: string; titleColor: string; titl
 
 export default function HomeClient() {
   const [phase, setPhase] = useState<TimePhase>('night');
+  const [showSplash, setShowSplash] = useState(false);
 
   useEffect(() => {
     setPhase(getTimePhase());
     const interval = setInterval(() => setPhase(getTimePhase()), 60000);
+
+    // Visa splash bara en gång per session
+    if (!sessionStorage.getItem('splash_shown')) {
+      setShowSplash(true);
+    }
+
     return () => clearInterval(interval);
+  }, []);
+
+  const handleSplashComplete = useCallback(() => {
+    sessionStorage.setItem('splash_shown', '1');
+    setShowSplash(false);
   }, []);
 
   const theme = THEME_COLORS[phase];
@@ -86,6 +99,8 @@ export default function HomeClient() {
           box-shadow: 0 2px 6px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2) !important;
         }
       `}</style>
+
+      {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
 
       <ForestBackground />
 
