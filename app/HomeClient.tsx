@@ -3,12 +3,12 @@
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 
-const apps = [
+const apps: { href: string; label: string; icon: string; color: string; img?: string }[] = [
   { href: '/uppfoljning', label: 'Uppföljning', icon: '📊', color: '#007AFF' },
   { href: '/maskinvy', label: 'Maskinvy', icon: '🚜', color: '#34C759' },
   { href: '/arbetsrapport', label: 'Arbetsrapport', icon: '📋', color: '#FF9500' },
   { href: '/starta-jobb', label: 'Starta jobb', icon: '▶️', color: '#FF3B30' },
-  { href: '/planering', label: 'Planering', icon: '📅', color: '#5856D6' },
+  { href: '/planering', label: 'Planering', icon: '', color: '#5856D6', img: '/icon.png' },
   { href: '/planner', label: 'Planner', icon: '🗓️', color: '#FF2D55' },
   { href: '/objekt', label: 'Objekt', icon: '🌲', color: '#34C759' },
   { href: '/karta', label: 'Karta', icon: '🗺️', color: '#007AFF' },
@@ -114,7 +114,7 @@ export default function HomeClient() {
                   fontSize: 30, lineHeight: 1,
                   boxShadow: '0 8px 16px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3)',
                 }}>
-                  {app.icon}
+                  {app.img ? <img src={app.img} alt={app.label} style={{ width: 40, height: 40, borderRadius: 8 }} /> : app.icon}
                 </div>
                 <span style={{
                   fontSize: 11, fontWeight: 500, color: '#fff',

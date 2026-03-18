@@ -8,7 +8,6 @@ const nextConfig = {
   },
   outputFileTracingExcludes: {
     '*': [
-      './app/ForestBackground.tsx',
       'maplibre-gl/**',
       'sharp/**',
     ],
