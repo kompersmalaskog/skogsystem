@@ -9,7 +9,7 @@ const ForestBackground = dynamic(() => import('./ForestBackground'), { ssr: fals
 const apps: { href: string; label: string; icon: string; color: string; img?: string }[] = [
   { href: '/uppfoljning', label: 'Uppföljning', icon: '', color: '#007AFF', img: '/uppfoljning-icon.png' },
   { href: '/maskinvy', label: 'Maskinvy', icon: '🚜', color: '#34C759' },
-  { href: '/arbetsrapport', label: 'Arbetsrapport', icon: '📋', color: '#FF9500' },
+  { href: '/arbetsrapport', label: 'Arbetsrapport', icon: '', color: '#FF9500', img: '/arbetsrapport-icon.png' },
   { href: '/starta-jobb', label: 'Starta jobb', icon: '▶️', color: '#FF3B30' },
   { href: '/planering', label: 'Planering', icon: '', color: '#5856D6', img: '/planering-icon.png' },
   { href: '/planner', label: 'Planner', icon: '🗓️', color: '#FF2D55' },
