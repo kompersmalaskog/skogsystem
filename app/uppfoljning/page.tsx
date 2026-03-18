@@ -126,7 +126,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
         supabase.from('dim_tradslag').select('tradslag_id, namn'),
         supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek').in('objekt_id', ids),
-        stId ? supabase.from('fakt_lass').select('objekt_id, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
+        stId ? supabase.from('fakt_lass').select('objekt_id, datum, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
         stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
       ]);
 
@@ -269,12 +269,25 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
       // Lass
       let totalLassVol = 0, totalKor = 0;
-      lassRows.forEach((l: any) => { totalLassVol += l.volym_m3sob || 0; totalKor += l.korstracka_m || 0; });
+      const lassPerDagMap = new Map<string, number>();
+      lassRows.forEach((l: any) => {
+        totalLassVol += l.volym_m3sob || 0;
+        totalKor += l.korstracka_m || 0;
+        if (l.datum) {
+          lassPerDagMap.set(l.datum, (lassPerDagMap.get(l.datum) || 0) + 1);
+        }
+      });
       const antalLass = lassRows.length;
       const snittLass = antalLass > 0 ? Math.round((totalLassVol / antalLass) * 10) / 10 : 0;
       const lassPerG15 = stTid.g15 > 0 ? Math.round((antalLass / stTid.g15) * 100) / 100 : 0;
       const m3PerG15St = stTid.g15 > 0 ? Math.round((obj.volymSkotare / stTid.g15) * 10) / 10 : 0;
       const avstand = antalLass > 0 ? Math.round(totalKor / antalLass) : 0;
+      const lassPerDag = Array.from(lassPerDagMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([d, count]) => {
+          const date = new Date(d);
+          return { datum: `${date.getDate()}/${date.getMonth() + 1}`, lass: count };
+        });
 
       // Diesel
       const dieselPerM3Sk = obj.volymSkordare > 0 ? Math.round((skTid.dieselTot / obj.volymSkordare) * 100) / 100 : 0;
@@ -375,7 +388,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         snittlassM3: snittLass,
         lassG15h: lassPerG15,
         skotningsavstand: avstand,
-        lassPerDag: [],
+        lassPerDag,
         // Balans
         skordareBalG15h: skTid.g15,
         skotareBalG15h: stTid.g15,
