@@ -2,9 +2,6 @@
 
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
-import dynamic from 'next/dynamic'
-
-const ForestBackground = dynamic(() => import('./ForestBackground'), { ssr: false })
 
 const apps = [
   { href: '/uppfoljning', label: 'Uppföljning', icon: '📊', color: '#007AFF' },
@@ -79,8 +76,6 @@ export default function HomeClient() {
           box-shadow: 0 2px 6px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2) !important;
         }
       `}</style>
-
-      <ForestBackground />
 
       <div style={{ position: 'relative', zIndex: 10, padding: '60px 20px 20px', maxWidth: 500, margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: 36 }}>
