@@ -11,7 +11,7 @@ const apps: { href: string; label: string; icon: string; color: string; img?: st
   { href: '/maskinvy', label: 'Maskinvy', icon: '🚜', color: '#34C759' },
   { href: '/arbetsrapport', label: 'Arbetsrapport', icon: '📋', color: '#FF9500' },
   { href: '/starta-jobb', label: 'Starta jobb', icon: '▶️', color: '#FF3B30' },
-  { href: '/planering', label: 'Planering', icon: '', color: '#5856D6', img: '/icon.png' },
+  { href: '/planering', label: 'Planering', icon: '', color: '#5856D6', img: '/planering-icon.png' },
   { href: '/planner', label: 'Planner', icon: '🗓️', color: '#FF2D55' },
   { href: '/objekt', label: 'Objekt', icon: '🌲', color: '#34C759' },
   { href: '/karta', label: 'Karta', icon: '🗺️', color: '#007AFF' },
