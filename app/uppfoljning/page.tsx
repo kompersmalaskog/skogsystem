@@ -8,20 +8,14 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-/* ── Maskinvy-style design tokens ── */
-const C = {
-  bg: '#111110', surface: '#1a1a18', surface2: '#222220',
-  border: 'rgba(255,255,255,0.07)', border2: 'rgba(255,255,255,0.12)',
-  text: '#e8e8e4', muted: '#7a7a72', dim: '#3a3a36',
-  accent: '#5aff8c', accent2: '#1a4a2e',
-  warn: '#ffb340', danger: '#ff5f57', blue: '#5b8fff',
-  yellow: '#ffb340', green: '#5aff8c',
-};
-const ff = "'Geist', system-ui, sans-serif";
-const ffNum = "'Fraunces', Georgia, serif";
-
-const FONT_URL = 'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Geist:wght@400;500;600;700&display=swap';
-const globalCss = ``;
+/* ── Design tokens — black/white only ── */
+const bg = '#000';
+const text = '#fff';
+const muted = 'rgba(255,255,255,0.4)';
+const divider = 'rgba(255,255,255,0.08)';
+const good = '#22c55e';
+const bad = '#ef4444';
+const ff = 'system-ui, sans-serif';
 
 /* ── Types ── */
 interface UppfoljningObjekt {
@@ -95,65 +89,55 @@ function useChartJs(): boolean {
   return ready;
 }
 
-/* ── Chart config constants ── */
-const chartGrid = { color: 'rgba(255,255,255,0.05)' };
-const chartTicks = { color: '#7a7a72', font: { size: 11, family: 'Geist' } };
+/* ── Chart config — minimal black/white ── */
+const chartGrid = { color: 'rgba(255,255,255,0.06)' };
+const chartTicks = { color: 'rgba(255,255,255,0.3)', font: { size: 11, family: 'system-ui' } };
 const chartTooltip = {
-  backgroundColor: '#1a1a18', titleColor: '#e8e8e4', bodyColor: '#7a7a72',
+  backgroundColor: '#111', titleColor: '#fff', bodyColor: 'rgba(255,255,255,0.6)',
   borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, padding: 10,
 };
 
-/* ── Bar (maskinvy-style progress bar) ── */
+/* ── Thin progress bar ── */
 function Bar({ pct, color, height = 3 }: { pct: number; color: string; height?: number }) {
   return (
-    <div style={{ height, background: C.dim, borderRadius: 2, overflow: 'hidden' }}>
+    <div style={{ height, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
       <div style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', background: color, borderRadius: 2, transition: 'width 1s cubic-bezier(0.4,0,0.2,1)' }} />
     </div>
   );
 }
 
-/* ── Drill-down Panel (maskinvy-style right sliding overlay) ── */
-function DrillPanel({ open, onClose, icon, title, subtitle, children }: {
-  open: boolean; onClose: () => void; icon: string; title: string; subtitle?: string; children: React.ReactNode;
+/* ── Drill-down Panel — full-width on mobile ── */
+function DrillPanel({ open, onClose, title, children }: {
+  open: boolean; onClose: () => void; title: string; children: React.ReactNode;
 }) {
   return (
     <>
       <div onClick={onClose} style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)',
-        backdropFilter: 'blur(4px)', zIndex: 500,
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+        zIndex: 500,
         opacity: open ? 1 : 0, pointerEvents: open ? 'all' : 'none',
         transition: 'opacity 0.25s',
       }} />
       <div style={{
         position: 'fixed', top: 0, right: 0, bottom: 0,
-        width: 520, background: C.surface,
-        borderLeft: `1px solid ${C.border2}`,
+        width: 'min(520px, 100vw)', background: bg,
         zIndex: 501, overflowY: 'auto',
         transform: open ? 'translateX(0)' : 'translateX(100%)',
         transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)',
       }}>
         <div style={{
-          position: 'sticky', top: 0, background: C.surface,
-          borderBottom: `1px solid ${C.border}`,
-          padding: '18px 24px', display: 'flex', alignItems: 'center', gap: 14, zIndex: 10,
+          position: 'sticky', top: 0, background: bg,
+          borderBottom: `1px solid ${divider}`,
+          padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex: 10,
         }}>
-          <div style={{
-            width: 44, height: 44, borderRadius: 8,
-            background: 'rgba(255,255,255,0.07)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.7)', flexShrink: 0,
-          }}>{icon}</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: ffNum, fontSize: 18, fontWeight: 500 }}>{title}</div>
-            {subtitle && <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>{subtitle}</div>}
-          </div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: text }}>{title}</div>
           <button onClick={onClose} style={{
-            width: 30, height: 30, borderRadius: '50%',
-            background: 'rgba(255,255,255,0.07)', border: 'none', cursor: 'pointer',
-            color: C.muted, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 32, height: 32, borderRadius: '50%',
+            background: 'rgba(255,255,255,0.06)', border: 'none', cursor: 'pointer',
+            color: muted, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}>✕</button>
         </div>
-        <div style={{ padding: '20px 24px 40px' }}>
+        <div style={{ padding: '24px 24px 60px' }}>
           {children}
         </div>
       </div>
@@ -161,106 +145,56 @@ function DrillPanel({ open, onClose, icon, title, subtitle, children }: {
   );
 }
 
-/* ── KPI grid (maskinvy forar-kpis style) ── */
-function KpiGrid({ items }: { items: { v: string | number; l: string }[] }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(items.length, 3)},1fr)`, gap: 8, marginBottom: 20 }}>
-      {items.map((x, i) => (
-        <div key={i} style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px', textAlign: 'center' }}>
-          <div style={{ fontFamily: ffNum, fontSize: 24, lineHeight: 1, color: C.text }}>{x.v}</div>
-          <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginTop: 4 }}>{x.l}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ── Section label (maskinvy fsec-title style) ── */
-function SectionLabel({ text }: { text: string }) {
-  return (
-    <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 10 }}>
-      {text}
-    </div>
-  );
-}
-
-/* ── Data row (maskinvy frow style) ── */
+/* ── Simple data row ── */
 function DataRow({ label, value, last, warn }: { label: string; value: string | number; last?: boolean; warn?: boolean }) {
   return (
     <div style={{
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-      padding: '9px 0', borderBottom: last ? 'none' : `1px solid ${C.border}`, fontSize: 12,
+      padding: '12px 0', borderBottom: last ? 'none' : `1px solid ${divider}`, fontSize: 14,
     }}>
-      <span style={{ color: C.muted }}>{label}</span>
-      <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: warn ? C.warn : undefined }}>{value}</span>
+      <span style={{ color: muted }}>{label}</span>
+      <span style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: warn ? bad : text }}>{value}</span>
     </div>
   );
 }
 
-/* ── Clickable card (maskinvy card style) ── */
-function ClickCard({ title, badge, onClick, children }: {
-  title: string; badge?: string; onClick?: () => void; children: React.ReactNode;
+/* ── Tappable section ── */
+function TapSection({ label, onClick, children }: {
+  label?: string; onClick?: () => void; children: React.ReactNode;
 }) {
   return (
     <div onClick={onClick} style={{
-      background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16,
-      overflow: 'hidden', transition: 'border-color 0.2s',
-      cursor: onClick ? 'pointer' : undefined, marginBottom: 8,
+      padding: '28px 0', borderBottom: `1px solid ${divider}`,
+      cursor: onClick ? 'pointer' : undefined,
     }}>
-      <div style={{ padding: '18px 22px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.9px', color: C.muted }}>{title}</div>
-        {badge && <span style={{
-          display: 'inline-flex', alignItems: 'center', padding: '2px 8px', borderRadius: 20,
-          fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
-          background: 'rgba(90,255,140,0.1)', color: C.accent,
-        }}>{badge}</span>}
-      </div>
-      <div style={{ padding: '14px 22px 20px' }}>{children}</div>
+      {label && <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 16 }}>{label}</div>}
+      {children}
     </div>
   );
 }
 
-/* ── ObjektKort — simplified card ── */
+/* ── ObjektKort — minimal list item ── */
 function ObjektKort({ obj, onClick }: { obj: UppfoljningObjekt; onClick: () => void }) {
-  const done = obj.status === 'avslutat';
+  const vol = Math.round(obj.volymSkordare);
   return (
     <div onClick={onClick} style={{
-      background: C.surface, borderRadius: 16, padding: '18px 22px', cursor: 'pointer',
-      marginBottom: 8, border: `1px solid ${C.border}`, transition: 'border-color 0.2s',
+      padding: '20px 0', cursor: 'pointer',
+      borderBottom: `1px solid ${divider}`,
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: '-0.3px', color: C.text }}>{obj.namn}</div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 3 }}>{obj.agare}</div>
-        </div>
-        {done && (
-          <span style={{
-            fontSize: 11, fontWeight: 600, color: C.accent, padding: '4px 12px',
-            background: 'rgba(90,255,140,0.1)', borderRadius: 20, flexShrink: 0, marginLeft: 12,
-          }}>Klar</span>
-        )}
+      <div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: text }}>{obj.namn}</div>
+        <div style={{ fontSize: 13, color: muted, marginTop: 4 }}>{obj.agare}</div>
       </div>
-      {!done && (obj.skordareModell || obj.skotareModell) && (
-        <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
-          {obj.skordareModell && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: C.surface2, borderRadius: 8 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.blue, flexShrink: 0 }} />
-              <span style={{ fontSize: 11, color: C.text }}>{obj.skordareModell}</span>
-            </div>
-          )}
-          {obj.skotareModell && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: C.surface2, borderRadius: 8 }}>
-              <div style={{ width: 6, height: 6, borderRadius: '50%', background: C.accent, flexShrink: 0 }} />
-              <span style={{ fontSize: 11, color: C.text }}>{obj.skotareModell}</span>
-            </div>
-          )}
-        </div>
-      )}
+      <div style={{ textAlign: 'right' }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: text, fontVariantNumeric: 'tabular-nums' }}>{vol > 0 ? vol : '--'}</div>
+        <div style={{ fontSize: 11, color: muted }}>m³</div>
+      </div>
     </div>
   );
 }
 
-/* ── ObjektDetalj — maskinvy-styled detail view with drill-down charts ── */
+/* ── ObjektDetalj — redesigned detail view ── */
 function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => void }) {
   const [d, setD] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -294,7 +228,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
       if (ids.length === 0) {
         setD({
-          medelstam: 0, tidPerDag: [], dieselPerDag: [],
+          medelstam: 0, tidPerDag: [],
           skordare: { arbetstid: 0, g15: 0, g0: 0, kortaStopp: 0, avbrott: 0, rast: 0, tomgang: 0,
             stamPerG15: 0, m3PerG15: 0, flertrad: 0, antalStammar: 0,
             diesel: { tot: 0, perM3: 0, perTim: 0 }, sortiment: [], avbrott_lista: [],
@@ -551,20 +485,20 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         data: {
           labels,
           datasets: [
-            { label: 'G15', data: d.tidPerDag.map((t: any) => +t.g15.toFixed(1)), backgroundColor: 'rgba(90,255,140,0.5)', borderRadius: 3, stack: 's' },
-            { label: 'Avbrott', data: d.tidPerDag.map((t: any) => +t.avbrott.toFixed(1)), backgroundColor: 'rgba(255,179,64,0.4)', borderRadius: 3, stack: 's' },
-            { label: 'Rast', data: d.tidPerDag.map((t: any) => +t.rast.toFixed(1)), backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, stack: 's' },
+            { label: 'G15', data: d.tidPerDag.map((t: any) => +t.g15.toFixed(1)), backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 2, stack: 's' },
+            { label: 'Avbrott', data: d.tidPerDag.map((t: any) => +t.avbrott.toFixed(1)), backgroundColor: 'rgba(239,68,68,0.4)', borderRadius: 2, stack: 's' },
+            { label: 'Rast', data: d.tidPerDag.map((t: any) => +t.rast.toFixed(1)), backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 2, stack: 's' },
           ],
         },
         options: {
           responsive: true, interaction: { mode: 'index', intersect: false },
           plugins: {
-            legend: { position: 'top', labels: { font: { family: 'Geist', size: 11 }, boxWidth: 8, borderRadius: 2, padding: 12, color: '#7a7a72' } },
+            legend: { position: 'top', labels: { font: { family: 'system-ui', size: 11 }, boxWidth: 8, borderRadius: 2, padding: 12, color: 'rgba(255,255,255,0.4)' } },
             tooltip: chartTooltip,
           },
           scales: {
             x: { stacked: true, grid: chartGrid, ticks: { ...chartTicks, font: { size: 10 } } },
-            y: { stacked: true, grid: chartGrid, ticks: chartTicks, title: { display: true, text: 'Timmar', color: '#7a7a72', font: { size: 10 } } },
+            y: { stacked: true, grid: chartGrid, ticks: chartTicks, title: { display: true, text: 'Timmar', color: 'rgba(255,255,255,0.3)', font: { size: 10 } } },
           },
         },
       });
@@ -583,13 +517,13 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           datasets: [
             {
               label: 'Liter', data: d.tidPerDag.map((t: any) => +t.diesel.toFixed(0)),
-              backgroundColor: d.tidPerDag.map((t: any) => t.diesel === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(90,255,140,0.5)'),
-              borderRadius: 3, yAxisID: 'y', order: 1,
+              backgroundColor: d.tidPerDag.map((t: any) => t.diesel === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.3)'),
+              borderRadius: 2, yAxisID: 'y', order: 1,
             },
             {
               label: 'G15h', data: d.tidPerDag.map((t: any) => +t.g15.toFixed(1)),
-              type: 'line', borderColor: 'rgba(91,143,255,0.6)', backgroundColor: 'rgba(91,143,255,0.05)',
-              pointBackgroundColor: d.tidPerDag.map((t: any) => t.g15 > 0 ? '#5b8fff' : 'transparent'),
+              type: 'line', borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'transparent',
+              pointBackgroundColor: d.tidPerDag.map((t: any) => t.g15 > 0 ? 'rgba(255,255,255,0.5)' : 'transparent'),
               pointRadius: d.tidPerDag.map((t: any) => t.g15 > 0 ? 3 : 0),
               tension: 0.3, yAxisID: 'y2', order: 0,
             },
@@ -600,8 +534,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           plugins: { legend: { display: false }, tooltip: chartTooltip },
           scales: {
             x: { grid: chartGrid, ticks: { ...chartTicks, font: { size: 10 } } },
-            y: { grid: chartGrid, ticks: chartTicks, title: { display: true, text: 'Liter', color: '#7a7a72', font: { size: 10 } } },
-            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: { ...chartTicks, color: '#5b8fff' }, title: { display: true, text: 'G15h', color: '#5b8fff', font: { size: 10 } } },
+            y: { grid: chartGrid, ticks: chartTicks, title: { display: true, text: 'Liter', color: 'rgba(255,255,255,0.3)', font: { size: 10 } } },
+            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: chartTicks, title: { display: true, text: 'G15h', color: 'rgba(255,255,255,0.3)', font: { size: 10 } } },
           },
         },
       });
@@ -615,11 +549,11 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         data: {
           labels: sortLabels,
           datasets: [
-            { label: 'm³', data: d.skordare.sortiment.map((s: any) => s.vol), backgroundColor: 'rgba(90,255,140,0.5)', borderRadius: 4, yAxisID: 'y', order: 1 },
+            { label: 'm³', data: d.skordare.sortiment.map((s: any) => s.vol), backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 3, yAxisID: 'y', order: 1 },
             {
               label: 'Antal', data: d.skordare.sortiment.map((s: any) => s.st), type: 'line',
-              borderColor: 'rgba(91,143,255,0.6)', backgroundColor: 'rgba(91,143,255,0.05)',
-              pointBackgroundColor: '#5b8fff', pointRadius: 4, tension: 0.3, yAxisID: 'y2', order: 0,
+              borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'transparent',
+              pointBackgroundColor: 'rgba(255,255,255,0.5)', pointRadius: 4, tension: 0.3, yAxisID: 'y2', order: 0,
             },
           ],
         },
@@ -628,8 +562,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           plugins: { legend: { display: false }, tooltip: chartTooltip },
           scales: {
             x: { grid: chartGrid, ticks: chartTicks },
-            y: { grid: chartGrid, ticks: chartTicks, title: { display: true, text: 'm³', color: '#7a7a72', font: { size: 10 } } },
-            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: { ...chartTicks, color: '#5b8fff' }, title: { display: true, text: 'Antal', color: '#5b8fff', font: { size: 10 } } },
+            y: { grid: chartGrid, ticks: chartTicks, title: { display: true, text: 'm³', color: 'rgba(255,255,255,0.3)', font: { size: 10 } } },
+            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: chartTicks, title: { display: true, text: 'Antal', color: 'rgba(255,255,255,0.3)', font: { size: 10 } } },
           },
         },
       });
@@ -642,11 +576,11 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         data: {
           labels: d.tradslagData.map((t: any) => t.namn),
           datasets: [
-            { label: 'm³', data: d.tradslagData.map((t: any) => t.vol), backgroundColor: 'rgba(90,255,140,0.5)', borderRadius: 4, yAxisID: 'y', order: 1 },
+            { label: 'm³', data: d.tradslagData.map((t: any) => t.vol), backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 3, yAxisID: 'y', order: 1 },
             {
               label: 'Stammar', data: d.tradslagData.map((t: any) => t.st), type: 'line',
-              borderColor: 'rgba(91,143,255,0.6)', backgroundColor: 'rgba(91,143,255,0.05)',
-              pointBackgroundColor: '#5b8fff', pointRadius: 4, tension: 0.3, yAxisID: 'y2', order: 0,
+              borderColor: 'rgba(255,255,255,0.2)', backgroundColor: 'transparent',
+              pointBackgroundColor: 'rgba(255,255,255,0.5)', pointRadius: 4, tension: 0.3, yAxisID: 'y2', order: 0,
             },
           ],
         },
@@ -655,8 +589,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           plugins: { legend: { display: false }, tooltip: chartTooltip },
           scales: {
             x: { grid: chartGrid, ticks: chartTicks },
-            y: { grid: chartGrid, ticks: chartTicks, title: { display: true, text: 'm³', color: '#7a7a72', font: { size: 10 } } },
-            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: { ...chartTicks, color: '#5b8fff' }, title: { display: true, text: 'Stammar', color: '#5b8fff', font: { size: 10 } } },
+            y: { grid: chartGrid, ticks: chartTicks, title: { display: true, text: 'm³', color: 'rgba(255,255,255,0.3)', font: { size: 10 } } },
+            y2: { position: 'right', grid: { drawOnChartArea: false }, ticks: chartTicks, title: { display: true, text: 'Stammar', color: 'rgba(255,255,255,0.3)', font: { size: 10 } } },
           },
         },
       });
@@ -666,8 +600,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
   if (loading || !d) {
     return (
-      <div style={{ minHeight: '100vh', background: C.bg, color: C.text, fontFamily: ff, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: C.muted, fontSize: 14 }}>Laddar detaljer...</div>
+      <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: ff, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: muted, fontSize: 14 }}>Laddar...</div>
       </div>
     );
   }
@@ -676,16 +610,11 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
   const volSt = Math.round(obj.volymSkotare);
   const maskin = obj.skordareModell || '–';
   const skotare = obj.skotareModell || null;
-  const vo = obj.vo_nummer || null;
-  const uid = obj.skordareObjektId || obj.skotareObjektId || '–';
   const stammar = obj.stammar;
 
   const framkort = volSk > 0 ? Math.round((volSt / volSk) * 100) : 0;
   const kvar = 100 - framkort;
-  const tf = obj.typ === 'slutavverkning' ? C.warn : C.accent;
   const sagbart = d.skordare.sortiment.length > 0 ? Math.round((d.skordare.sortiment.filter((s: any) => s.namn.toLowerCase().includes('timmer')).reduce((a: number, s: any) => a + s.vol, 0) / Math.max(1, d.skordare.sortiment.reduce((a: number, s: any) => a + s.vol, 0))) * 100) : 0;
-  const produktiv = d.skordare.arbetstid > 0 ? Math.round((d.skordare.g15 / d.skordare.arbetstid) * 100) : 0;
-  const produktivSt = d.skotare.arbetstid > 0 ? Math.round((d.skotare.g15 / d.skotare.arbetstid) * 100) : 0;
 
   const skDagar = daysBetweenNull(obj.skordareStart, obj.skordareSlut);
   const stDagar = daysBetweenNull(obj.skotareStart, obj.skotareSlut);
@@ -693,7 +622,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
   const isElephantKing = obj.skotareModellMaskinId === 'A110148';
 
-  // Total time percentages for time bar
+  // Combined time
   const totalRuntime = d.skordare.g15 + d.skotare.g15;
   const totalAvbrott = (d.skordare.avbrott + d.skotare.avbrott) / 60;
   const totalRast = (d.skordare.rast + d.skotare.rast) / 60;
@@ -705,18 +634,10 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
   const pctRast = totalTime > 0 ? Math.round((totalRast / totalTime) * 100) : 0;
   const pctTomgang = totalTime > 0 ? 100 - pctG15 - pctAvbrott - pctRast : 0;
 
-  // Per-machine time percentages
-  const skTimeTot = d.skordare.g15 + d.skordare.avbrott / 60 + d.skordare.rast / 60 + d.skordare.tomgang / 60;
-  const skPctG15 = skTimeTot > 0 ? Math.round((d.skordare.g15 / skTimeTot) * 100) : 0;
-  const skPctAvbrott = skTimeTot > 0 ? Math.round((d.skordare.avbrott / 60 / skTimeTot) * 100) : 0;
-  const skPctRast = skTimeTot > 0 ? Math.round((d.skordare.rast / 60 / skTimeTot) * 100) : 0;
-  const skPctTomgang = skTimeTot > 0 ? 100 - skPctG15 - skPctAvbrott - skPctRast : 0;
-
-  const stTimeTot = d.skotare.g15 + d.skotare.avbrott / 60 + d.skotare.rast / 60 + d.skotare.tomgang / 60;
-  const stPctG15 = stTimeTot > 0 ? Math.round((d.skotare.g15 / stTimeTot) * 100) : 0;
-  const stPctAvbrott = stTimeTot > 0 ? Math.round((d.skotare.avbrott / 60 / stTimeTot) * 100) : 0;
-  const stPctRast = stTimeTot > 0 ? Math.round((d.skotare.rast / 60 / stTimeTot) * 100) : 0;
-  const stPctTomgang = stTimeTot > 0 ? 100 - stPctG15 - stPctAvbrott - stPctRast : 0;
+  // Combined diesel
+  const totalDiesel = d.skordare.diesel.tot + d.skotare.diesel.tot;
+  const totalDieselPerM3 = (obj.volymSkordare + obj.volymSkotare) > 0
+    ? Math.round((totalDiesel / (obj.volymSkordare + obj.volymSkotare)) * 100) / 100 : 0;
 
   const handleSmalBred = async (val: 'smal' | 'bred') => {
     setSmalBred(val);
@@ -729,640 +650,448 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
   };
 
   return (
-    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: C.bg, color: C.text, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
-      <style>{globalCss}</style>
+    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: bg, color: text, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
 
       {/* ── Header ── */}
-      <div style={{ padding: '14px 22px 22px', background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-        <button onClick={onBack} style={{ background: 'none', border: 'none', color: C.blue, fontSize: 13, cursor: 'pointer', padding: 0, marginBottom: 16, fontFamily: ff, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 16 }}>‹</span> Tillbaka
+      <div style={{ padding: '20px 24px 0' }}>
+        <button onClick={onBack} style={{ background: 'none', border: 'none', color: muted, fontSize: 14, cursor: 'pointer', padding: 0, marginBottom: 24, fontFamily: ff, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 18 }}>‹</span> Tillbaka
         </button>
 
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontFamily: ffNum, fontSize: 26, fontWeight: 700, letterSpacing: '-1px', marginBottom: 6, color: C.text }}>{obj.namn}</div>
-          <div style={{ fontSize: 13, color: C.muted }}>
-            {obj.agare} · {obj.areal} ha
-            <span style={{
-              marginLeft: 10, padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600, letterSpacing: '0.3px',
-              background: obj.typ === 'slutavverkning' ? 'rgba(255,179,64,0.1)' : 'rgba(90,255,140,0.1)', color: tf,
-            }}>
-              {obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}
-            </span>
-          </div>
-          <div style={{ fontSize: 10, color: C.dim, marginTop: 8, letterSpacing: '0.3px' }}>
-            {vo && <span>VO {vo} · </span>}ID {uid}
-          </div>
+        <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 6 }}>{obj.namn}</div>
+        <div style={{ fontSize: 14, color: muted, marginBottom: 4 }}>{obj.agare} · {obj.areal} ha · {obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}</div>
+
+        {/* Machine info - minimal */}
+        <div style={{ fontSize: 13, color: muted, marginTop: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div>{maskin} · {fmtDate(obj.skordareStart)} → {obj.skordareSlut ? fmtDate(obj.skordareSlut) : 'pågår'}{skDagar !== null ? ` · ${skDagar}d` : ''}</div>
+          {skotare && <div>{skotare} · {obj.skotareStart ? `${fmtDate(obj.skotareStart)} → ${obj.skotareSlut ? fmtDate(obj.skotareSlut) : 'pågår'}` : 'Väntar'}{stDagar !== null ? ` · ${stDagar}d` : ''}</div>}
+          {glapp !== null && glapp > 0 && <div style={{ color: bad, fontSize: 12 }}>{glapp} dagar mellanrum</div>}
+          {obj.skotareStart && glapp !== null && glapp <= 0 && <div style={{ color: good, fontSize: 12 }}>Parallellkörning</div>}
         </div>
 
-        {/* Maskiner med datum */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ padding: '12px 14px', background: C.surface2, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.blue }} />
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{maskin}</div>
-                <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Skördare</div>
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 12, color: C.text }}>{fmtDate(obj.skordareStart)} → {obj.skordareSlut ? fmtDate(obj.skordareSlut) : 'pågår'}</div>
-              {skDagar !== null && <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{skDagar} dagar</div>}
-            </div>
-          </div>
-
-          {glapp !== null && glapp > 0 && (
-            <div style={{ textAlign: 'center', padding: '4px 0' }}>
-              <span style={{ fontSize: 10, color: glapp > 7 ? C.warn : C.muted }}>{glapp} dagar mellanrum</span>
-            </div>
-          )}
-          {obj.skotareStart && glapp !== null && glapp <= 0 && (
-            <div style={{ textAlign: 'center', padding: '4px 0' }}>
-              <span style={{ fontSize: 10, color: C.accent }}>Parallellkörning</span>
-            </div>
-          )}
-
-          <div style={{ padding: '12px 14px', background: C.surface2, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: C.accent }} />
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{skotare || 'Ej tilldelad'}</div>
-                <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>Skotare</div>
-              </div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              {obj.skotareStart ? (
-                <>
-                  <div style={{ fontSize: 12, color: C.text }}>{fmtDate(obj.skotareStart)} → {obj.skotareSlut ? fmtDate(obj.skotareSlut) : 'pågår'}</div>
-                  {stDagar !== null && <div style={{ fontSize: 10, color: C.muted, marginTop: 2 }}>{stDagar} dagar</div>}
-                </>
-              ) : (
-                <div style={{ fontSize: 12, color: C.dim }}>Väntar</div>
-              )}
+        {/* Smal/Bred toggle for Elephant King */}
+        {isElephantKing && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 16 }}>
+            <span style={{ fontSize: 13, color: muted }}>Lastbredd</span>
+            <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 3 }}>
+              {(['smal', 'bred'] as const).map(v => (
+                <button key={v} onClick={() => handleSmalBred(v)} style={{
+                  padding: '5px 16px', border: 'none', borderRadius: 6,
+                  fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+                  background: smalBred === v ? 'rgba(255,255,255,0.1)' : 'transparent',
+                  color: smalBred === v ? text : muted,
+                  transition: 'all 0.15s',
+                }}>
+                  {v === 'smal' ? 'Smal' : 'Bred'}
+                </button>
+              ))}
             </div>
           </div>
-
-          {/* Smal/Bred toggle for Elephant King */}
-          {isElephantKing && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', background: C.surface2, borderRadius: 10 }}>
-              <span style={{ fontSize: 11, color: C.muted, flex: 1 }}>Skotare lastbredd</span>
-              <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3 }}>
-                {(['smal', 'bred'] as const).map(v => (
-                  <button key={v} onClick={() => handleSmalBred(v)} style={{
-                    padding: '5px 14px', border: 'none', borderRadius: 6,
-                    fontSize: 11, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-                    background: smalBred === v ? C.surface : 'transparent',
-                    color: smalBred === v ? C.accent : C.muted,
-                    transition: 'all 0.15s',
-                  }}>
-                    {v === 'smal' ? 'Smal' : 'Bred'}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+        )}
       </div>
 
-      <div style={{ padding: '16px 16px 80px', maxWidth: 700, margin: '0 auto' }}>
+      <div style={{ padding: '0 24px 100px', maxWidth: 600, margin: '0 auto' }}>
 
-        {/* ── Hero KPIs ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-          <div style={{ background: C.surface, borderRadius: 16, padding: '24px 18px', textAlign: 'center', border: `1px solid ${C.border}`, position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', bottom: -60, right: -60, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(90,255,140,0.08) 0%, transparent 70%)', pointerEvents: 'none' }} />
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: C.muted, marginBottom: 12 }}>Skördat</div>
-            <div style={{ fontFamily: ffNum, fontSize: 48, fontWeight: 700, letterSpacing: '-2px', lineHeight: 1, color: C.accent }}>{volSk}</div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>m³fub</div>
+        {/* ── Hero KPIs — two massive numbers ── */}
+        <div style={{ display: 'flex', justifyContent: 'space-around', padding: '48px 0 32px', borderBottom: `1px solid ${divider}` }}>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 56, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{volSk}</div>
+            <div style={{ fontSize: 13, color: muted, marginTop: 8 }}>m³ skördat</div>
           </div>
-          <div style={{ background: C.surface, borderRadius: 16, padding: '24px 18px', textAlign: 'center', border: `1px solid ${C.border}`, position: 'relative', overflow: 'hidden' }}>
-            <div style={{ position: 'absolute', bottom: -60, right: -60, width: 200, height: 200, borderRadius: '50%', background: 'radial-gradient(circle, rgba(91,143,255,0.08) 0%, transparent 70%)', pointerEvents: 'none' }} />
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: C.muted, marginBottom: 12 }}>Skotat</div>
-            <div style={{ fontFamily: ffNum, fontSize: 48, fontWeight: 700, letterSpacing: '-2px', lineHeight: 1, color: C.blue }}>{volSt}</div>
-            <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>m³fub</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-          <div style={{ background: C.surface, borderRadius: 16, padding: '18px 16px', textAlign: 'center', border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 8 }}>Medelstam</div>
-            <div style={{ fontFamily: ffNum, fontSize: 28, fontWeight: 700, letterSpacing: '-1px', color: C.text }}>{d.medelstam > 0 ? d.medelstam : '–'}<span style={{ fontSize: 11, fontWeight: 400, color: C.muted, fontFamily: ff }}> m³fub</span></div>
-          </div>
-          <div style={{ background: C.surface, borderRadius: 16, padding: '18px 16px', textAlign: 'center', border: `1px solid ${C.border}` }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 8 }}>Volym/ha</div>
-            <div style={{ fontFamily: ffNum, fontSize: 28, fontWeight: 700, letterSpacing: '-1px', color: C.text }}>{obj.areal > 0 ? (volSk / obj.areal).toFixed(0) : '–'}<span style={{ fontSize: 11, fontWeight: 400, color: C.muted, fontFamily: ff }}> m³</span></div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 56, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{volSt}</div>
+            <div style={{ fontSize: 13, color: muted, marginTop: 8 }}>m³ skotat</div>
           </div>
         </div>
 
         {/* ── Kvar i skogen ── */}
-        <div style={{ background: C.surface, borderRadius: 16, padding: '20px 22px', marginBottom: 8, border: `1px solid ${C.border}` }}>
+        <TapSection>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-            <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted }}>Kvar i skogen</span>
-            <span style={{ fontFamily: ffNum, fontSize: 32, fontWeight: 700, letterSpacing: '-1px', color: kvar > 30 ? C.warn : C.accent }}>{kvar}%</span>
+            <span style={{ fontSize: 13, color: muted }}>Kvar i skogen</span>
+            <span style={{ fontSize: 36, fontWeight: 700, color: kvar > 30 ? bad : good }}>{kvar}%</span>
           </div>
-          <Bar pct={kvar} color={kvar > 30 ? C.warn : C.accent} height={4} />
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: C.muted, marginTop: 10 }}>
-            <span>Skotat {volSt} m³</span>
-            <span>Kvar ~{volSk - volSt} m³</span>
+          <Bar pct={framkort} color={kvar > 30 ? bad : good} height={3} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: muted, marginTop: 10 }}>
+            <span>Framkört {volSt} m³</span>
+            <span>~{Math.max(0, volSk - volSt)} m³ kvar</span>
+          </div>
+        </TapSection>
+
+        {/* ── Tidsbalans ── */}
+        {d.skordare.g15 > 0 && d.skotare.g15 > 0 && (() => {
+          const diff = d.skordare.g15 - d.skotare.g15;
+          const skPct = Math.round((d.skordare.g15 / (d.skordare.g15 + d.skotare.g15)) * 100);
+          const stPct = 100 - skPct;
+          const skotareBakom = diff > 0;
+          return (
+            <TapSection label="Tidsbalans">
+              <div style={{ display: 'flex', height: 24, borderRadius: 3, overflow: 'hidden', gap: 2, marginBottom: 12 }}>
+                <div style={{ flex: skPct, background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: text }}>{fmtH(d.skordare.g15)}</div>
+                <div style={{ flex: stPct, background: 'rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: text }}>{fmtH(d.skotare.g15)}</div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: muted }}>
+                <span>Skördare</span>
+                <span>Skotare</span>
+              </div>
+              {Math.abs(diff) > 0.5 && (
+                <div style={{ textAlign: 'center', fontSize: 13, marginTop: 12, color: skotareBakom ? bad : good }}>
+                  Skotaren {Math.abs(diff).toFixed(1)}h {skotareBakom ? 'efter' : 'före'}
+                </div>
+              )}
+            </TapSection>
+          );
+        })()}
+
+        {/* ── Produktionstakt ── */}
+        {(d.skordare.m3PerG15 > 0 || d.skotare.m3PerG15 > 0) && (
+          <TapSection label="Produktionstakt">
+            <div style={{ display: 'flex', justifyContent: 'space-around' }}>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 40, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{d.skordare.m3PerG15}</div>
+                <div style={{ fontSize: 12, color: muted, marginTop: 6 }}>m³/G15h skördare</div>
+              </div>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 40, fontWeight: 700, lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{d.skotare.m3PerG15}</div>
+                <div style={{ fontSize: 12, color: muted, marginTop: 6 }}>m³/G15h skotare</div>
+              </div>
+            </div>
+          </TapSection>
+        )}
+
+        {/* ── Combined Tid ── */}
+        <TapSection label="Tid" onClick={() => setPanel('tid')}>
+          <div style={{ display: 'flex', height: 20, borderRadius: 3, overflow: 'hidden', gap: 1, marginBottom: 16 }}>
+            {pctG15 > 0 && <div style={{ flex: pctG15, background: 'rgba(255,255,255,0.25)' }} />}
+            {pctAvbrott > 0 && <div style={{ flex: pctAvbrott, background: 'rgba(239,68,68,0.3)' }} />}
+            {pctRast > 0 && <div style={{ flex: pctRast, background: 'rgba(255,255,255,0.06)' }} />}
+            {pctTomgang > 0 && <div style={{ flex: pctTomgang, background: 'rgba(255,255,255,0.03)' }} />}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <div>
+              <div style={{ fontSize: 11, color: muted, marginBottom: 4 }}>Skördare</div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtH(d.skordare.g15)}</div>
+              <div style={{ fontSize: 12, color: muted }}>G0 {fmtH(d.skordare.g0)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: muted, marginBottom: 4 }}>Skotare</div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{fmtH(d.skotare.g15)}</div>
+              <div style={{ fontSize: 12, color: muted }}>G0 {fmtH(d.skotare.g0)}</div>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: muted, marginTop: 12, display: 'flex', gap: 16 }}>
+            <span>G15 {pctG15}%</span>
+            <span>Avbrott {pctAvbrott}%</span>
+            <span>Rast {pctRast}%</span>
+          </div>
+        </TapSection>
+
+        {/* ── Combined Produktion ── */}
+        <TapSection label="Produktion" onClick={() => setPanel('produktion')}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{d.skordare.stamPerG15}</div>
+              <div style={{ fontSize: 11, color: muted }}>st/G15h</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{d.medelstam || '–'}</div>
+              <div style={{ fontSize: 11, color: muted }}>medelstam</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{d.skordare.flertrad}%</div>
+              <div style={{ fontSize: 11, color: muted }}>flerträd</div>
+            </div>
+          </div>
+          {d.tradslagData.length > 0 && d.tradslagData.slice(0, 3).map((ts: any, i: number) => {
+            const totVol = d.tradslagData.reduce((a: number, x: any) => a + x.vol, 0);
+            const pct = totVol > 0 ? Math.round((ts.vol / totVol) * 100) : 0;
+            return (
+              <div key={i} style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                  <span>{ts.namn}</span>
+                  <span style={{ color: muted }}>{ts.vol} m³ · {pct}%</span>
+                </div>
+                <Bar pct={pct} color="rgba(255,255,255,0.2)" />
+              </div>
+            );
+          })}
+          {d.skotare.lass > 0 && (
+            <div style={{ marginTop: 20, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{d.skotare.lass}</div>
+                <div style={{ fontSize: 11, color: muted }}>lass</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{d.skotare.snittLass}</div>
+                <div style={{ fontSize: 11, color: muted }}>m³/lass</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{d.skotare.avstand}</div>
+                <div style={{ fontSize: 11, color: muted }}>m avstånd</div>
+              </div>
+            </div>
+          )}
+        </TapSection>
+
+        {/* ── Combined Diesel ── */}
+        {totalDiesel > 0 && (
+          <TapSection label="Diesel" onClick={() => setPanel('diesel')}>
+            <div style={{ fontSize: 40, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{totalDiesel.toLocaleString('sv')} <span style={{ fontSize: 16, fontWeight: 400, color: muted }}>liter</span></div>
+            <div style={{ fontSize: 13, color: muted, marginTop: 8 }}>{totalDieselPerM3} L/m³ totalt</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, marginTop: 20 }}>
+              <div>
+                <div style={{ fontSize: 12, color: muted, marginBottom: 4 }}>Skördare</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{d.skordare.diesel.tot} L</div>
+                <div style={{ fontSize: 12, color: muted }}>{d.skordare.diesel.perM3} L/m³ · {d.skordare.diesel.perTim} L/G15h</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: muted, marginBottom: 4 }}>Skotare</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{d.skotare.diesel.tot} L</div>
+                <div style={{ fontSize: 12, color: muted }}>{d.skotare.diesel.perM3} L/m³ · {d.skotare.diesel.perG15} L/G15h</div>
+              </div>
+            </div>
+          </TapSection>
+        )}
+
+        {/* ── Combined Avbrott ── */}
+        {(d.skordare.avbrott_lista.length > 0 || d.skotare.avbrott_lista.length > 0) && (
+          <TapSection label="Avbrott" onClick={() => setPanel('avbrott')}>
+            <div style={{ fontSize: 28, fontWeight: 700, color: bad, fontVariantNumeric: 'tabular-nums' }}>{fmtHM(d.skordare.avbrott + d.skotare.avbrott)}</div>
+            <div style={{ fontSize: 13, color: muted, marginTop: 4, marginBottom: 16 }}>totalt stillestånd</div>
+            {[...d.skordare.avbrott_lista, ...d.skotare.avbrott_lista]
+              .sort((a: any, b: any) => b.tid - a.tid)
+              .slice(0, 4)
+              .map((a: any, i: number) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: i < 3 ? `1px solid ${divider}` : 'none', fontSize: 13 }}>
+                  <span style={{ color: muted }}>{a.orsak} ({a.antal}x)</span>
+                  <span style={{ fontWeight: 600, color: bad, fontVariantNumeric: 'tabular-nums' }}>{fmtHM(a.tid)}</span>
+                </div>
+              ))}
+          </TapSection>
+        )}
+
+        {/* ── Extra KPIs ── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24, padding: '32px 0' }}>
+          <div>
+            <div style={{ fontSize: 28, fontWeight: 700 }}>{d.medelstam > 0 ? d.medelstam : '–'}</div>
+            <div style={{ fontSize: 12, color: muted }}>medelstam m³fub</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 28, fontWeight: 700 }}>{obj.areal > 0 ? (volSk / obj.areal).toFixed(0) : '–'}</div>
+            <div style={{ fontSize: 12, color: muted }}>m³/ha</div>
           </div>
         </div>
 
-        {/* ── TIDSBALANS ── */}
-        {d.skordare.g15 > 0 && d.skotare.g15 > 0 && (() => {
-          const diff = d.skordare.g15 - d.skotare.g15;
-          const pctDiff = d.skordare.g15 > 0 ? Math.round((diff / d.skordare.g15) * 100) : 0;
-          const skotareBakom = diff > 0;
-          const diffColor = skotareBakom ? C.danger : C.accent;
-          const diffText = skotareBakom
-            ? `Skotaren låg ${Math.abs(diff).toFixed(1)}h efter skördaren (${Math.abs(pctDiff)}% långsammare)`
-            : diff < 0
-              ? `Skotaren låg ${Math.abs(diff).toFixed(1)}h före skördaren (${Math.abs(pctDiff)}% snabbare)`
-              : 'Skördare och skotare i balans';
-          const skPct = Math.round((d.skordare.g15 / (d.skordare.g15 + d.skotare.g15)) * 100);
-          const stPct = 100 - skPct;
-          return (
-            <div style={{ background: C.surface, borderRadius: 16, padding: '20px 22px', marginBottom: 8, border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 14 }}>Tidsbalans</div>
-              <div style={{ display: 'flex', height: 18, borderRadius: 5, overflow: 'hidden', gap: 2, marginBottom: 12 }}>
-                <div style={{ flex: skPct, background: 'rgba(91,143,255,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 9, fontWeight: 600 }}>{fmtH(d.skordare.g15)}</div>
-                <div style={{ flex: stPct, background: 'rgba(90,255,140,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 9, fontWeight: 600 }}>{fmtH(d.skotare.g15)}</div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'center', gap: 20, fontSize: 11, color: C.muted, marginBottom: 14 }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: 2, background: C.blue, display: 'inline-block' }} />Skördare</span>
-                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: 2, background: C.accent, display: 'inline-block' }} />Skotare</span>
-              </div>
-              <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 500, color: diffColor }}>{diffText}</div>
-            </div>
-          );
-        })()}
-
-        {/* ── PRODUKTIONSTAKT ── */}
-        {(d.skordare.m3PerG15 > 0 || d.skotare.m3PerG15 > 0) && (() => {
-          const skTakt = d.skordare.m3PerG15;
-          const stTakt = d.skotare.m3PerG15;
-          const diff = skTakt - stTakt;
-          const pctDiff = skTakt > 0 ? Math.round((diff / skTakt) * 100) : 0;
-          const diffText = skTakt > 0 && stTakt > 0
-            ? (diff > 0
-              ? `Skotaren ${Math.abs(pctDiff)}% långsammare`
-              : diff < 0
-                ? `Skotaren ${Math.abs(pctDiff)}% snabbare`
-                : 'Samma takt')
-            : stTakt === 0 ? 'Skotardata saknas' : 'Skördardata saknas';
-          return (
-            <div style={{ background: C.surface, borderRadius: 16, padding: '20px 22px', marginBottom: 8, border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 14 }}>Produktionstakt</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-                <div style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: ffNum, fontSize: 28, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{skTakt}</div>
-                  <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginTop: 6 }}>Skördare m³/G15h</div>
-                </div>
-                <div style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: ffNum, fontSize: 28, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{stTakt}</div>
-                  <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginTop: 6 }}>Skotare m³/G15h</div>
-                </div>
-              </div>
-              <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 500, color: C.text }}>{diffText}</div>
-            </div>
-          );
-        })()}
-
-        {/* ══════════ SKÖRDARE ══════════ */}
-        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', color: C.blue, marginTop: 16, marginBottom: 8, paddingLeft: 4 }}>Skördare · {maskin || '–'}</div>
-
-        {/* ── SKÖRDARE TID ── */}
-        <ClickCard title="Tid" badge={`${produktiv}% produktiv`} onClick={() => setPanel('tid')}>
-          <div style={{ display: 'flex', height: 18, borderRadius: 5, overflow: 'hidden', gap: 2, marginBottom: 14 }}>
-            {skPctG15 > 0 && <div style={{ flex: skPctG15, background: 'rgba(90,255,140,0.25)' }} />}
-            {skPctAvbrott > 0 && <div style={{ flex: skPctAvbrott, background: 'rgba(255,179,64,0.2)' }} />}
-            {skPctRast > 0 && <div style={{ flex: skPctRast, background: 'rgba(255,255,255,0.04)' }} />}
-            {skPctTomgang > 0 && <div style={{ flex: skPctTomgang, background: 'rgba(91,143,255,0.15)' }} />}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            <div style={{ background: C.surface2, borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-              <div style={{ fontFamily: ffNum, fontSize: 22, lineHeight: 1 }}>{fmtH(d.skordare.g15)}</div>
-              <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.5px', color: C.muted, marginTop: 3 }}>G15</div>
-            </div>
-            <div style={{ background: C.surface2, borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-              <div style={{ fontFamily: ffNum, fontSize: 22, lineHeight: 1 }}>{fmtH(d.skordare.g0)}</div>
-              <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.5px', color: C.muted, marginTop: 3 }}>G0</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.muted }}><div style={{ width: 6, height: 6, borderRadius: 2, background: 'rgba(90,255,140,0.4)' }} />G15 {fmtH(d.skordare.g15)}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.muted }}><div style={{ width: 6, height: 6, borderRadius: 2, background: 'rgba(255,179,64,0.4)' }} />Avbrott {fmtHM(d.skordare.avbrott)}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.muted }}><div style={{ width: 6, height: 6, borderRadius: 2, background: 'rgba(255,255,255,0.08)' }} />Rast {fmtHM(d.skordare.rast)}</div>
-          </div>
-          <div style={{ marginTop: 12, fontSize: 10, color: C.muted, textAlign: 'center', letterSpacing: '0.3px' }}>Tryck för tidsdetaljer →</div>
-        </ClickCard>
-
-        {/* ── SKÖRDARE PRODUKTION ── */}
-        <ClickCard title="Produktion" badge={`${d.skordare.flertrad}% flerträd`} onClick={() => setPanel('produktion')}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 14 }}>
-            {[
-              { l: 'Stammar/G15h', v: d.skordare.stamPerG15 },
-              { l: 'm³fub/G15h', v: d.skordare.m3PerG15 },
-              { l: 'Medelstam', v: d.medelstam ? `${d.medelstam} m³` : '–' },
-              { l: 'Stammar', v: d.skordare.antalStammar || stammar },
-            ].map((p, i) => (
-              <div key={i} style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px', textAlign: 'center' }}>
-                <div style={{ fontFamily: ffNum, fontSize: 20, fontWeight: 700, lineHeight: 1 }}>{typeof p.v === 'number' ? p.v.toLocaleString('sv') : p.v}</div>
-                <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginTop: 6 }}>{p.l}</div>
-              </div>
-            ))}
-          </div>
-          {d.tradslagData.length > 0 && (
-            <>
-              {d.tradslagData.slice(0, 4).map((ts: any, i: number) => {
-                const totVol = d.tradslagData.reduce((a: number, x: any) => a + x.vol, 0);
-                const pct = totVol > 0 ? Math.round((ts.vol / totVol) * 100) : 0;
-                return (
-                  <div key={i} style={{ padding: '9px 0', borderBottom: i < Math.min(d.tradslagData.length, 4) - 1 ? `1px solid ${C.border}` : 'none' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 5 }}>
-                      <span style={{ fontSize: 13, fontWeight: 400 }}>{ts.namn}</span>
-                      <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>{ts.vol} m³ · {pct}%</span>
-                    </div>
-                    <Bar pct={pct} color="rgba(255,255,255,0.2)" />
-                  </div>
-                );
-              })}
-            </>
-          )}
-          <div style={{ marginTop: 12, fontSize: 10, color: C.muted, textAlign: 'center', letterSpacing: '0.3px' }}>Tryck för sortiment & trädslag →</div>
-        </ClickCard>
-
-        {/* ── SKÖRDARE AVBROTT ── */}
-        {d.skordare.avbrott_lista.length > 0 && (
-          <ClickCard title="Avbrott" badge={fmtHM(d.skordare.avbrott)} onClick={() => setPanel('avbrott')}>
-            {d.skordare.avbrott_lista.slice(0, 4).map((a: any, i: number) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: i < 3 ? `1px solid ${C.border}` : 'none', fontSize: 12 }}>
-                <span style={{ color: C.muted }}>{a.orsak} <span style={{ fontSize: 10 }}>({a.antal}x)</span></span>
-                <span style={{ fontWeight: 600, color: C.warn, fontVariantNumeric: 'tabular-nums' }}>{fmtHM(a.tid)}</span>
-              </div>
-            ))}
-            <div style={{ marginTop: 12, fontSize: 10, color: C.muted, textAlign: 'center', letterSpacing: '0.3px' }}>Tryck för alla avbrott →</div>
-          </ClickCard>
-        )}
-
-        {/* ── SKÖRDARE DIESEL ── */}
-        {d.skordare.diesel.tot > 0 && (
-          <ClickCard title="Diesel" badge={`${d.skordare.diesel.perM3} L/m³`} onClick={() => setPanel('diesel')}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
-              <div style={{ background: C.surface2, borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                <div style={{ fontFamily: ffNum, fontSize: 18, lineHeight: 1 }}>{d.skordare.diesel.tot}</div>
-                <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.5px', color: C.muted, marginTop: 3 }}>Liter</div>
-              </div>
-              <div style={{ background: C.surface2, borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                <div style={{ fontFamily: ffNum, fontSize: 18, lineHeight: 1 }}>{d.skordare.diesel.perM3}</div>
-                <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.5px', color: C.muted, marginTop: 3 }}>L/m³fub</div>
-              </div>
-              <div style={{ background: C.surface2, borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                <div style={{ fontFamily: ffNum, fontSize: 18, lineHeight: 1 }}>{d.skordare.diesel.perTim}</div>
-                <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.5px', color: C.muted, marginTop: 3 }}>L/G15h</div>
-              </div>
-            </div>
-            <div style={{ marginTop: 12, fontSize: 10, color: C.muted, textAlign: 'center', letterSpacing: '0.3px' }}>Tryck för diesel per dag →</div>
-          </ClickCard>
-        )}
-
-        {/* ══════════ SKOTARE ══════════ */}
-        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '2px', color: C.accent, marginTop: 24, marginBottom: 8, paddingLeft: 4 }}>Skotare · {skotare || '–'}</div>
-
-        {/* ── SKOTARE TID ── */}
-        <ClickCard title="Tid" badge={`${produktivSt}% produktiv`} onClick={() => setPanel('tid')}>
-          <div style={{ display: 'flex', height: 18, borderRadius: 5, overflow: 'hidden', gap: 2, marginBottom: 14 }}>
-            {stPctG15 > 0 && <div style={{ flex: stPctG15, background: 'rgba(90,255,140,0.25)' }} />}
-            {stPctAvbrott > 0 && <div style={{ flex: stPctAvbrott, background: 'rgba(255,179,64,0.2)' }} />}
-            {stPctRast > 0 && <div style={{ flex: stPctRast, background: 'rgba(255,255,255,0.04)' }} />}
-            {stPctTomgang > 0 && <div style={{ flex: stPctTomgang, background: 'rgba(91,143,255,0.15)' }} />}
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            <div style={{ background: C.surface2, borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-              <div style={{ fontFamily: ffNum, fontSize: 22, lineHeight: 1 }}>{fmtH(d.skotare.g15)}</div>
-              <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.5px', color: C.muted, marginTop: 3 }}>G15</div>
-            </div>
-            <div style={{ background: C.surface2, borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-              <div style={{ fontFamily: ffNum, fontSize: 22, lineHeight: 1 }}>{fmtH(d.skotare.g0)}</div>
-              <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.5px', color: C.muted, marginTop: 3 }}>G0</div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.muted }}><div style={{ width: 6, height: 6, borderRadius: 2, background: 'rgba(90,255,140,0.4)' }} />G15 {fmtH(d.skotare.g15)}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.muted }}><div style={{ width: 6, height: 6, borderRadius: 2, background: 'rgba(255,179,64,0.4)' }} />Avbrott {fmtHM(d.skotare.avbrott)}</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.muted }}><div style={{ width: 6, height: 6, borderRadius: 2, background: 'rgba(255,255,255,0.08)' }} />Rast {fmtHM(d.skotare.rast)}</div>
-          </div>
-          <div style={{ marginTop: 12, fontSize: 10, color: C.muted, textAlign: 'center', letterSpacing: '0.3px' }}>Tryck för tidsdetaljer →</div>
-        </ClickCard>
-
-        {/* ── SKOTARE PRODUKTION ── */}
-        {d.skotare.lass > 0 && (
-          <ClickCard title="Produktion" badge={`${d.skotare.lass} lass`} onClick={() => setPanel('skotarproduktion')}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
-              {[
-                { l: 'Antal lass', v: d.skotare.lass },
-                { l: 'Snitt lass', v: `${d.skotare.snittLass} m³` },
-                { l: 'Lass/G15', v: d.skotare.lassPerG15 },
-                { l: 'm³/G15', v: d.skotare.m3PerG15 },
-                { l: 'Skotningsavst.', v: `${d.skotare.avstand} m` },
-              ].map((p, i) => (
-                <div key={i} style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: ffNum, fontSize: 20, fontWeight: 700, lineHeight: 1 }}>{p.v}</div>
-                  <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginTop: 6 }}>{p.l}</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ marginTop: 12, fontSize: 10, color: C.muted, textAlign: 'center', letterSpacing: '0.3px' }}>Tryck för skotardetaljer →</div>
-          </ClickCard>
-        )}
-
-        {/* ── SKÖRDARE VS SKOTARE ── */}
-        {(d.skordare.g15 > 0 || d.skotare.g15 > 0) && (() => {
-          const skG15 = d.skordare.g15;
-          const stG15 = d.skotare.g15;
-          const skTakt = d.skordare.m3PerG15;
-          const stTakt = d.skotare.m3PerG15;
-          const diffH = skG15 - stG15;
-          const pctDiff = skG15 > 0 ? Math.round((diffH / skG15) * 100) : 0;
-          const diffText = skG15 > 0 && stG15 > 0
-            ? (diffH > 0
-              ? `Skotaren ${Math.abs(diffH).toFixed(1)}h mindre (${Math.abs(pctDiff)}%)`
-              : diffH < 0
-                ? `Skotaren ${Math.abs(diffH).toFixed(1)}h mer (${Math.abs(pctDiff)}%)`
-                : 'Lika mycket tid')
-            : '';
-          return (
-            <div style={{ background: C.surface, borderRadius: 16, padding: '20px 22px', marginBottom: 8, border: `1px solid ${C.border}` }}>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: C.muted, marginBottom: 14 }}>Skördare vs Skotare</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
-                <div style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px' }}>
-                  <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginBottom: 8 }}>Skördare</div>
-                  <div style={{ fontFamily: ffNum, fontSize: 24, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{fmtH(skG15)}</div>
-                  <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{skTakt} m³/G15h</div>
-                </div>
-                <div style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px' }}>
-                  <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginBottom: 8 }}>Skotare</div>
-                  <div style={{ fontFamily: ffNum, fontSize: 24, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1 }}>{fmtH(stG15)}</div>
-                  <div style={{ fontSize: 11, color: C.muted, marginTop: 4 }}>{stTakt} m³/G15h</div>
-                </div>
-              </div>
-              {diffText && <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 500, color: C.text }}>{diffText}</div>}
-            </div>
-          );
-        })()}
-
-        {/* ── SKOTARE AVBROTT ── */}
-        {d.skotare.avbrott_lista.length > 0 && (
-          <ClickCard title="Avbrott" badge={fmtHM(d.skotare.avbrott)} onClick={() => setPanel('avbrott')}>
-            {d.skotare.avbrott_lista.slice(0, 4).map((a: any, i: number) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '9px 0', borderBottom: i < 3 ? `1px solid ${C.border}` : 'none', fontSize: 12 }}>
-                <span style={{ color: C.muted }}>{a.orsak} <span style={{ fontSize: 10 }}>({a.antal}x)</span></span>
-                <span style={{ fontWeight: 600, color: C.warn, fontVariantNumeric: 'tabular-nums' }}>{fmtHM(a.tid)}</span>
-              </div>
-            ))}
-            <div style={{ marginTop: 12, fontSize: 10, color: C.muted, textAlign: 'center', letterSpacing: '0.3px' }}>Tryck för alla avbrott →</div>
-          </ClickCard>
-        )}
-
-        {/* ── SKOTARE DIESEL ── */}
-        {d.skotare.diesel.tot > 0 && (
-          <ClickCard title="Diesel" badge={`${d.skotare.diesel.perM3} L/m³`} onClick={() => setPanel('diesel')}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 6 }}>
-              <div style={{ background: C.surface2, borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                <div style={{ fontFamily: ffNum, fontSize: 18, lineHeight: 1 }}>{d.skotare.diesel.tot}</div>
-                <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.5px', color: C.muted, marginTop: 3 }}>Liter</div>
-              </div>
-              <div style={{ background: C.surface2, borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                <div style={{ fontFamily: ffNum, fontSize: 18, lineHeight: 1 }}>{d.skotare.diesel.perM3}</div>
-                <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.5px', color: C.muted, marginTop: 3 }}>L/m³fub</div>
-              </div>
-              <div style={{ background: C.surface2, borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
-                <div style={{ fontFamily: ffNum, fontSize: 18, lineHeight: 1 }}>{d.skotare.diesel.perG15}</div>
-                <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.5px', color: C.muted, marginTop: 3 }}>L/G15h</div>
-              </div>
-            </div>
-            <div style={{ marginTop: 12, fontSize: 10, color: C.muted, textAlign: 'center', letterSpacing: '0.3px' }}>Tryck för diesel per dag →</div>
-          </ClickCard>
-        )}
       </div>
 
       {/* ══════════ DRILL-DOWN PANELS ══════════ */}
 
       {/* ── TID Panel ── */}
-      <DrillPanel open={panel === 'tid'} onClose={closePanel} icon="⏱" title="Tidsfördelning" subtitle={`${obj.namn} · ${maskin}`}>
-        <KpiGrid items={[
-          { v: fmtH(d.skordare.arbetstid + d.skotare.arbetstid), l: 'Arbetstid' },
-          { v: fmtH(totalRuntime), l: 'G15 totalt' },
-          { v: fmtHM(d.skordare.avbrott + d.skotare.avbrott), l: 'Avbrott' },
-        ]} />
-
-        <SectionLabel text="Fördelning" />
-        <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
-          <DataRow label="G15 (produktiv)" value={`${fmtH(totalRuntime)} · ${pctG15}%`} />
-          <DataRow label="Avbrott" value={`${fmtHM(d.skordare.avbrott + d.skotare.avbrott)} · ${pctAvbrott}%`} />
-          <DataRow label="Rast" value={`${fmtHM(d.skordare.rast + d.skotare.rast)} · ${pctRast}%`} />
-          <DataRow label="Tomgång" value={`${fmtHM(d.skordare.tomgang + d.skotare.tomgang)} · ${pctTomgang}%`} />
-          <DataRow label="Korta stopp" value={fmtHM(d.skordare.kortaStopp + d.skotare.kortaStopp)} last />
+      <DrillPanel open={panel === 'tid'} onClose={closePanel} title="Tidsfördelning">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 32 }}>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{fmtH(d.skordare.arbetstid + d.skotare.arbetstid)}</div><div style={{ fontSize: 11, color: muted }}>arbetstid</div></div>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{fmtH(totalRuntime)}</div><div style={{ fontSize: 11, color: muted }}>G15 totalt</div></div>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{fmtHM(d.skordare.avbrott + d.skotare.avbrott)}</div><div style={{ fontSize: 11, color: muted }}>avbrott</div></div>
         </div>
 
-        <SectionLabel text="Per maskin" />
-        <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
-          <DataRow label={`Skördare G15`} value={fmtH(d.skordare.g15)} />
-          <DataRow label={`Skördare G0`} value={fmtH(d.skordare.g0)} />
-          <DataRow label={`Skotare G15`} value={fmtH(d.skotare.g15)} />
-          <DataRow label={`Skotare G0`} value={fmtH(d.skotare.g0)} last />
-        </div>
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Fördelning</div>
+        <DataRow label="G15 (produktiv)" value={`${fmtH(totalRuntime)} · ${pctG15}%`} />
+        <DataRow label="Avbrott" value={`${fmtHM(d.skordare.avbrott + d.skotare.avbrott)} · ${pctAvbrott}%`} />
+        <DataRow label="Rast" value={`${fmtHM(d.skordare.rast + d.skotare.rast)} · ${pctRast}%`} />
+        <DataRow label="Tomgång" value={`${fmtHM(d.skordare.tomgang + d.skotare.tomgang)} · ${pctTomgang}%`} />
+        <DataRow label="Korta stopp" value={fmtHM(d.skordare.kortaStopp + d.skotare.kortaStopp)} last />
+
+        <div style={{ height: 32 }} />
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Per maskin</div>
+        <DataRow label="Skördare G15" value={fmtH(d.skordare.g15)} />
+        <DataRow label="Skördare G0" value={fmtH(d.skordare.g0)} />
+        <DataRow label="Skotare G15" value={fmtH(d.skotare.g15)} />
+        <DataRow label="Skotare G0" value={fmtH(d.skotare.g0)} last />
 
         {d.tidPerDag.length > 0 && (
           <>
-            <SectionLabel text="Tid per dag" />
+            <div style={{ height: 32 }} />
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Tid per dag</div>
             <canvas ref={tidChartRef} style={{ maxHeight: 220, marginBottom: 16 }} />
           </>
         )}
       </DrillPanel>
 
       {/* ── PRODUKTION Panel ── */}
-      <DrillPanel open={panel === 'produktion'} onClose={closePanel} icon="🌲" title="Produktion & sortiment" subtitle={`${obj.namn} · ${maskin}`}>
-        <KpiGrid items={[
-          { v: volSk.toLocaleString('sv'), l: 'm³ totalt' },
-          { v: (d.skordare.antalStammar || stammar).toLocaleString('sv'), l: 'Stammar' },
-          { v: d.skordare.m3PerG15, l: 'm³/G15h' },
-        ]} />
+      <DrillPanel open={panel === 'produktion'} onClose={closePanel} title="Produktion">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 32 }}>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{volSk.toLocaleString('sv')}</div><div style={{ fontSize: 11, color: muted }}>m³ totalt</div></div>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{(d.skordare.antalStammar || stammar).toLocaleString('sv')}</div><div style={{ fontSize: 11, color: muted }}>stammar</div></div>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{d.skordare.m3PerG15}</div><div style={{ fontSize: 11, color: muted }}>m³/G15h</div></div>
+        </div>
 
         {d.tradslagData.length > 0 && (
           <>
-            <SectionLabel text="Per trädslag" />
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Per trädslag</div>
             <canvas ref={prodChartRef} style={{ maxHeight: 180, marginBottom: 16 }} />
-            <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
-              {d.tradslagData.map((ts: any, i: number) => {
-                const totVol = d.tradslagData.reduce((a: number, x: any) => a + x.vol, 0);
-                const pct = totVol > 0 ? Math.round((ts.vol / totVol) * 100) : 0;
-                return <DataRow key={i} label={ts.namn} value={`${ts.vol} m³ · ${pct}% · ${ts.st} st`} last={i === d.tradslagData.length - 1} />;
-              })}
-            </div>
+            {d.tradslagData.map((ts: any, i: number) => {
+              const totVol = d.tradslagData.reduce((a: number, x: any) => a + x.vol, 0);
+              const pct = totVol > 0 ? Math.round((ts.vol / totVol) * 100) : 0;
+              return <DataRow key={i} label={ts.namn} value={`${ts.vol} m³ · ${pct}% · ${ts.st} st`} last={i === d.tradslagData.length - 1} />;
+            })}
+            <div style={{ height: 24 }} />
           </>
         )}
 
         {d.skordare.sortiment.length > 0 && (
           <>
-            <SectionLabel text="Sortiment" />
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Sortiment</div>
             <canvas ref={sortChartRef} style={{ maxHeight: 180, marginBottom: 16 }} />
-            <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
-              {d.skordare.sortiment.map((s: any, i: number) => {
-                const totVol = d.skordare.sortiment.reduce((a: number, x: any) => a + x.vol, 0);
-                const pct = totVol > 0 ? Math.round((s.vol / totVol) * 100) : 0;
-                return <DataRow key={i} label={s.namn} value={`${s.vol} m³ · ${pct}% · ${s.st} st`} last={i === d.skordare.sortiment.length - 1} />;
-              })}
-            </div>
+            {d.skordare.sortiment.map((s: any, i: number) => {
+              const totVol = d.skordare.sortiment.reduce((a: number, x: any) => a + x.vol, 0);
+              const pct = totVol > 0 ? Math.round((s.vol / totVol) * 100) : 0;
+              return <DataRow key={i} label={s.namn} value={`${s.vol} m³ · ${pct}% · ${s.st} st`} last={i === d.skordare.sortiment.length - 1} />;
+            })}
+            <div style={{ height: 24 }} />
           </>
         )}
 
-        <SectionLabel text="Produktivitet" />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Produktivitet</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
           {[
-            { l: 'Stammar/G15h', v: d.skordare.stamPerG15 },
+            { l: 'st/G15h', v: d.skordare.stamPerG15 },
             { l: 'm³/G15h', v: d.skordare.m3PerG15 },
-            { l: 'MTH-andel', v: `${d.skordare.flertrad}%` },
+            { l: 'MTH', v: `${d.skordare.flertrad}%` },
             { l: 'Medelstam', v: d.medelstam },
             { l: 'Sågbart', v: `${sagbart}%` },
-            { l: 'Volym/ha', v: obj.areal > 0 ? `${(volSk / obj.areal).toFixed(0)}` : '–' },
+            { l: 'm³/ha', v: obj.areal > 0 ? `${(volSk / obj.areal).toFixed(0)}` : '–' },
           ].map((p, i) => (
-            <div key={i} style={{ background: C.surface2, borderRadius: 10, padding: '14px 12px', textAlign: 'center' }}>
-              <div style={{ fontFamily: ffNum, fontSize: 20, fontWeight: 700, lineHeight: 1 }}>{p.v}</div>
-              <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.6px', color: C.muted, marginTop: 6 }}>{p.l}</div>
+            <div key={i} style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 20, fontWeight: 700 }}>{p.v}</div>
+              <div style={{ fontSize: 11, color: muted }}>{p.l}</div>
             </div>
           ))}
         </div>
+
+        {d.skotare.lass > 0 && (
+          <>
+            <div style={{ height: 16 }} />
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Skotare</div>
+            <DataRow label="Antal lass" value={d.skotare.lass} />
+            <DataRow label="m³/G15h" value={d.skotare.m3PerG15} />
+            <DataRow label="Lass/G15h" value={d.skotare.lassPerG15} />
+            <DataRow label="Snitt lassvolym" value={`${d.skotare.snittLass} m³`} />
+            <DataRow label="Skotningsavstånd" value={`${d.skotare.avstand} m`} last />
+          </>
+        )}
       </DrillPanel>
 
       {/* ── AVBROTT Panel ── */}
-      <DrillPanel open={panel === 'avbrott'} onClose={closePanel} icon="⚠" title="Avbrott & stillestånd" subtitle={`${obj.namn}`}>
-        <KpiGrid items={[
-          { v: fmtHM(d.skordare.avbrott + d.skotare.avbrott), l: 'Avbrott totalt' },
-          { v: fmtHM(d.skordare.rast + d.skotare.rast), l: 'Rast' },
-          { v: fmtHM(d.skordare.kortaStopp + d.skotare.kortaStopp), l: 'Korta stopp' },
-        ]} />
+      <DrillPanel open={panel === 'avbrott'} onClose={closePanel} title="Avbrott">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 32 }}>
+          <div><div style={{ fontSize: 24, fontWeight: 700, color: bad }}>{fmtHM(d.skordare.avbrott + d.skotare.avbrott)}</div><div style={{ fontSize: 11, color: muted }}>avbrott</div></div>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{fmtHM(d.skordare.rast + d.skotare.rast)}</div><div style={{ fontSize: 11, color: muted }}>rast</div></div>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{fmtHM(d.skordare.kortaStopp + d.skotare.kortaStopp)}</div><div style={{ fontSize: 11, color: muted }}>korta stopp</div></div>
+        </div>
 
         {d.skordare.avbrott_lista.length > 0 && (
           <>
-            <SectionLabel text={`Skördare · ${maskin}`} />
-            <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
-              {d.skordare.avbrott_lista.map((a: any, i: number) => (
-                <div key={i} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '9px 0', borderBottom: i < d.skordare.avbrott_lista.length - 1 ? `1px solid ${C.border}` : 'none', fontSize: 12,
-                }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500 }}>{a.orsak}</div>
-                    <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{a.typ}</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.warn }}>{fmtHM(a.tid)}</div>
-                    <div style={{ fontSize: 10, color: C.muted }}>{a.antal} {a.antal === 1 ? 'gång' : 'gånger'}</div>
-                  </div>
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Skördare · {maskin}</div>
+            {d.skordare.avbrott_lista.map((a: any, i: number) => (
+              <div key={i} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '10px 0', borderBottom: i < d.skordare.avbrott_lista.length - 1 ? `1px solid ${divider}` : 'none', fontSize: 13,
+              }}>
+                <div>
+                  <div>{a.orsak}</div>
+                  <div style={{ fontSize: 11, color: muted, marginTop: 1 }}>{a.typ} · {a.antal}x</div>
                 </div>
-              ))}
-            </div>
+                <div style={{ fontWeight: 600, color: bad, fontVariantNumeric: 'tabular-nums' }}>{fmtHM(a.tid)}</div>
+              </div>
+            ))}
+            <div style={{ height: 24 }} />
           </>
         )}
 
         {d.skotare.avbrott_lista.length > 0 && (
           <>
-            <SectionLabel text={`Skotare · ${skotare || '–'}`} />
-            <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
-              {d.skotare.avbrott_lista.map((a: any, i: number) => (
-                <div key={i} style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '9px 0', borderBottom: i < d.skotare.avbrott_lista.length - 1 ? `1px solid ${C.border}` : 'none', fontSize: 12,
-                }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500 }}>{a.orsak}</div>
-                    <div style={{ fontSize: 10, color: C.muted, marginTop: 1 }}>{a.typ}</div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontWeight: 600, fontVariantNumeric: 'tabular-nums', color: C.warn }}>{fmtHM(a.tid)}</div>
-                    <div style={{ fontSize: 10, color: C.muted }}>{a.antal} {a.antal === 1 ? 'gång' : 'gånger'}</div>
-                  </div>
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Skotare · {skotare || '–'}</div>
+            {d.skotare.avbrott_lista.map((a: any, i: number) => (
+              <div key={i} style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '10px 0', borderBottom: i < d.skotare.avbrott_lista.length - 1 ? `1px solid ${divider}` : 'none', fontSize: 13,
+              }}>
+                <div>
+                  <div>{a.orsak}</div>
+                  <div style={{ fontSize: 11, color: muted, marginTop: 1 }}>{a.typ} · {a.antal}x</div>
                 </div>
-              ))}
-            </div>
+                <div style={{ fontWeight: 600, color: bad, fontVariantNumeric: 'tabular-nums' }}>{fmtHM(a.tid)}</div>
+              </div>
+            ))}
           </>
         )}
 
         {d.skordare.avbrott_lista.length === 0 && d.skotare.avbrott_lista.length === 0 && (
-          <div style={{ textAlign: 'center', padding: 40, color: C.muted }}>Inga avbrott registrerade</div>
+          <div style={{ textAlign: 'center', padding: 40, color: muted }}>Inga avbrott registrerade</div>
         )}
       </DrillPanel>
 
       {/* ── DIESEL Panel ── */}
-      <DrillPanel open={panel === 'diesel'} onClose={closePanel} icon="⛽" title="Dieselförbrukning" subtitle={`${obj.namn}`}>
-        <KpiGrid items={[
-          { v: (d.skordare.diesel.tot + d.skotare.diesel.tot).toLocaleString('sv'), l: 'Liter totalt' },
-          { v: (d.skordare.diesel.perM3 + d.skotare.diesel.perM3).toFixed(2), l: 'L/m³fub' },
-          { v: d.skordare.diesel.perTim, l: 'L/G15h skördare' },
-        ]} />
-
-        <SectionLabel text="Per maskin" />
-        <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
-          <DataRow label="Skördare totalt" value={`${d.skordare.diesel.tot} L`} />
-          <DataRow label="Skördare L/m³" value={d.skordare.diesel.perM3} />
-          <DataRow label="Skördare L/G15h" value={d.skordare.diesel.perTim} />
-          <DataRow label="Skotare totalt" value={`${d.skotare.diesel.tot} L`} />
-          <DataRow label="Skotare L/m³" value={d.skotare.diesel.perM3} />
-          <DataRow label="Skotare L/G15h" value={d.skotare.diesel.perG15} last />
+      <DrillPanel open={panel === 'diesel'} onClose={closePanel} title="Diesel">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 32 }}>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{totalDiesel.toLocaleString('sv')}</div><div style={{ fontSize: 11, color: muted }}>liter totalt</div></div>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{totalDieselPerM3}</div><div style={{ fontSize: 11, color: muted }}>L/m³fub</div></div>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{d.skordare.diesel.perTim}</div><div style={{ fontSize: 11, color: muted }}>L/G15h sk.</div></div>
         </div>
+
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Per maskin</div>
+        <DataRow label="Skördare totalt" value={`${d.skordare.diesel.tot} L`} />
+        <DataRow label="Skördare L/m³" value={d.skordare.diesel.perM3} />
+        <DataRow label="Skördare L/G15h" value={d.skordare.diesel.perTim} />
+        <DataRow label="Skotare totalt" value={`${d.skotare.diesel.tot} L`} />
+        <DataRow label="Skotare L/m³" value={d.skotare.diesel.perM3} />
+        <DataRow label="Skotare L/G15h" value={d.skotare.diesel.perG15} last />
 
         {d.tidPerDag.length > 0 && (
           <>
-            <SectionLabel text="Diesel per dag" />
-            <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: C.muted }}><div style={{ width: 7, height: 7, borderRadius: '50%', background: C.accent }} />Liter</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: C.muted }}><div style={{ width: 7, height: 7, borderRadius: '50%', background: C.blue }} />G15h</div>
-            </div>
+            <div style={{ height: 32 }} />
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Diesel per dag</div>
             <canvas ref={dieselChartRef} style={{ maxHeight: 220, marginBottom: 16 }} />
           </>
         )}
       </DrillPanel>
 
       {/* ── SKOTARPRODUKTION Panel ── */}
-      <DrillPanel open={panel === 'skotarproduktion'} onClose={closePanel} icon="🚜" title="Skotarproduktion" subtitle={`${obj.namn} · ${skotare || '–'}`}>
-        <KpiGrid items={[
-          { v: d.skotare.lass, l: 'Antal lass' },
-          { v: `${d.skotare.snittLass} m³`, l: 'Snitt per lass' },
-          { v: fmtH(d.skotare.g15), l: 'G15-timmar' },
-        ]} />
-
-        <SectionLabel text="Produktivitet" />
-        <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
-          <DataRow label="m³/G15h" value={d.skotare.m3PerG15} />
-          <DataRow label="Lass/G15h" value={d.skotare.lassPerG15} />
-          <DataRow label="Snitt lassvolym" value={`${d.skotare.snittLass} m³`} />
-          <DataRow label="Skotningsavstånd" value={`${d.skotare.avstand} m`} last />
+      <DrillPanel open={panel === 'skotarproduktion'} onClose={closePanel} title="Skotarproduktion">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginBottom: 32 }}>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{d.skotare.lass}</div><div style={{ fontSize: 11, color: muted }}>antal lass</div></div>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{d.skotare.snittLass} m³</div><div style={{ fontSize: 11, color: muted }}>snitt/lass</div></div>
+          <div><div style={{ fontSize: 24, fontWeight: 700 }}>{fmtH(d.skotare.g15)}</div><div style={{ fontSize: 11, color: muted }}>G15</div></div>
         </div>
 
-        <SectionLabel text="Tid" />
-        <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
-          <DataRow label="Arbetstid" value={fmtH(d.skotare.arbetstid)} />
-          <DataRow label="G15" value={fmtH(d.skotare.g15)} />
-          <DataRow label="G0" value={fmtH(d.skotare.g0)} />
-          <DataRow label="Korta stopp" value={fmtHM(d.skotare.kortaStopp)} />
-          <DataRow label="Avbrott" value={fmtHM(d.skotare.avbrott)} />
-          <DataRow label="Rast" value={fmtHM(d.skotare.rast)} />
-          <DataRow label="Tomgång" value={fmtHM(d.skotare.tomgang)} last />
-        </div>
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Produktivitet</div>
+        <DataRow label="m³/G15h" value={d.skotare.m3PerG15} />
+        <DataRow label="Lass/G15h" value={d.skotare.lassPerG15} />
+        <DataRow label="Snitt lassvolym" value={`${d.skotare.snittLass} m³`} />
+        <DataRow label="Skotningsavstånd" value={`${d.skotare.avstand} m`} last />
 
-        <SectionLabel text="Diesel" />
-        <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px', marginBottom: 20 }}>
-          <DataRow label="Totalt" value={`${d.skotare.diesel.tot} L`} />
-          <DataRow label="Per m³fub" value={`${d.skotare.diesel.perM3} L`} />
-          <DataRow label="Per G15h" value={`${d.skotare.diesel.perG15} L`} last />
-        </div>
+        <div style={{ height: 32 }} />
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Tid</div>
+        <DataRow label="Arbetstid" value={fmtH(d.skotare.arbetstid)} />
+        <DataRow label="G15" value={fmtH(d.skotare.g15)} />
+        <DataRow label="G0" value={fmtH(d.skotare.g0)} />
+        <DataRow label="Korta stopp" value={fmtHM(d.skotare.kortaStopp)} />
+        <DataRow label="Avbrott" value={fmtHM(d.skotare.avbrott)} />
+        <DataRow label="Rast" value={fmtHM(d.skotare.rast)} />
+        <DataRow label="Tomgång" value={fmtHM(d.skotare.tomgang)} last />
+
+        <div style={{ height: 32 }} />
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Diesel</div>
+        <DataRow label="Totalt" value={`${d.skotare.diesel.tot} L`} />
+        <DataRow label="Per m³fub" value={`${d.skotare.diesel.perM3} L`} />
+        <DataRow label="Per G15h" value={`${d.skotare.diesel.perG15} L`} last />
 
         {d.skotare.avbrott_lista.length > 0 && (
           <>
-            <SectionLabel text="Avbrott" />
-            <div style={{ background: C.surface2, borderRadius: 10, padding: '4px 16px' }}>
-              {d.skotare.avbrott_lista.map((a: any, i: number) => (
-                <DataRow key={i} label={`${a.orsak} (${a.antal}x)`} value={fmtHM(a.tid)} last={i === d.skotare.avbrott_lista.length - 1} warn />
-              ))}
-            </div>
+            <div style={{ height: 32 }} />
+            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '1px', color: muted, marginBottom: 12 }}>Avbrott</div>
+            {d.skotare.avbrott_lista.map((a: any, i: number) => (
+              <DataRow key={i} label={`${a.orsak} (${a.antal}x)`} value={fmtHM(a.tid)} last={i === d.skotare.avbrott_lista.length - 1} warn />
+            ))}
           </>
         )}
       </DrillPanel>
@@ -1399,16 +1128,6 @@ export default function UppfoljningPage() {
   const [filter, setFilter] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
   const [sok, setSok] = useState('');
   const [valt, setValt] = useState<UppfoljningObjekt | null>(null);
-
-  // Load Google Fonts via <link> to avoid hydration mismatch from @import in <style>
-  useEffect(() => {
-    if (!document.querySelector(`link[href="${FONT_URL}"]`)) {
-      const link = document.createElement('link');
-      link.rel = 'stylesheet';
-      link.href = FONT_URL;
-      document.head.appendChild(link);
-    }
-  }, []);
 
   useEffect(() => {
     (async () => {
@@ -1688,63 +1407,57 @@ export default function UppfoljningPage() {
   }
 
   return (
-    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: C.bg, color: C.text, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
-      <style>{globalCss}</style>
+    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: bg, color: text, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
 
-      <div style={{ padding: '28px 22px 0' }}>
-        <div style={{ fontFamily: ffNum, fontSize: 28, fontWeight: 700, letterSpacing: '-1px', marginBottom: 22, color: C.text }}>Uppföljning</div>
+      <div style={{ padding: '32px 24px 0' }}>
+        <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 28 }}>Uppföljning</div>
 
-        <div style={{ display: 'flex', alignItems: 'center', background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: '11px 16px', gap: 10, marginBottom: 16, transition: 'border-color 0.2s' }}>
-          <span style={{ fontSize: 14, color: C.dim }}>⌕</span>
-          <input
-            type="text"
-            placeholder="Sök objekt, ägare, VO..."
-            value={sok}
-            onChange={e => setSok(e.target.value)}
-            style={{ flex: 1, border: 'none', background: 'none', fontSize: 14, color: C.text, outline: 'none', fontFamily: ff }}
-          />
-          {sok && <button onClick={() => setSok('')} style={{ background: C.muted, border: 'none', color: C.bg, width: 18, height: 18, borderRadius: '50%', fontSize: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>}
-        </div>
+        <input
+          type="text"
+          placeholder="Sök objekt, ägare, VO..."
+          value={sok}
+          onChange={e => setSok(e.target.value)}
+          style={{
+            width: '100%', boxSizing: 'border-box', border: 'none',
+            borderBottom: `1px solid ${divider}`,
+            background: 'none', fontSize: 15, color: text, outline: 'none', fontFamily: ff,
+            padding: '12px 0', marginBottom: 20,
+          }}
+        />
 
-        <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3, marginBottom: 14, width: 'fit-content' }}>
+        <div style={{ display: 'flex', gap: 2, marginBottom: 16 }}>
           {(['alla', 'pagaende', 'avslutat'] as const).map(f => (
             <button key={f} onClick={() => setFlik(f)} style={{
-              padding: '6px 16px', border: 'none', borderRadius: 6,
-              fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-              background: flik === f ? C.surface2 : 'transparent',
-              color: flik === f ? C.text : C.muted, transition: 'all 0.15s',
+              padding: '8px 18px', border: 'none', borderRadius: 0,
+              fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
+              background: 'none',
+              color: flik === f ? text : muted,
+              borderBottom: flik === f ? `2px solid ${text}` : '2px solid transparent',
+              transition: 'all 0.15s',
             }}>
               {f === 'alla' ? 'Alla' : f === 'pagaende' ? 'Pågående' : 'Avslutade'}
             </button>
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
-          {[{ k: 'alla', l: 'Alla' }, { k: 'slutavverkning', l: 'Slutavverkning' }, { k: 'gallring', l: 'Gallring' }].map(f => (
+        <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+          {[{ k: 'alla', l: 'Alla' }, { k: 'slutavverkning', l: 'Slutavv.' }, { k: 'gallring', l: 'Gallring' }].map(f => (
             <button key={f.k} onClick={() => setFilter(f.k as any)} style={{
-              padding: '5px 14px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer',
-              letterSpacing: '0.3px', border: 'none', fontFamily: ff, transition: 'all 0.15s',
-              background: filter === f.k
-                ? (f.k === 'slutavverkning' ? 'rgba(255,179,64,0.1)' : f.k === 'gallring' ? 'rgba(90,255,140,0.1)' : 'rgba(255,255,255,0.06)')
-                : 'rgba(255,255,255,0.03)',
-              color: filter === f.k
-                ? (f.k === 'slutavverkning' ? C.warn : f.k === 'gallring' ? C.accent : C.text)
-                : C.muted,
+              padding: 0, border: 'none', cursor: 'pointer', fontFamily: ff,
+              fontSize: 13, background: 'none',
+              color: filter === f.k ? text : muted,
+              fontWeight: filter === f.k ? 600 : 400,
+              transition: 'all 0.15s',
             }}>{f.l}</button>
           ))}
         </div>
       </div>
 
-      <div style={{ padding: '0 16px 120px', maxWidth: 700, margin: '0 auto' }}>
+      <div style={{ padding: '0 24px 120px', maxWidth: 600, margin: '0 auto' }}>
         {loading ? (
-          <div style={{ textAlign: 'center', padding: 60, color: C.muted }}>
-            <div style={{ fontSize: 14 }}>Laddar...</div>
-          </div>
+          <div style={{ textAlign: 'center', padding: 60, color: muted, fontSize: 14 }}>Laddar...</div>
         ) : lista.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 60, color: C.muted }}>
-            <div style={{ fontSize: 36, marginBottom: 12, opacity: .3 }}>○</div>
-            <div style={{ fontSize: 14 }}>Inga objekt hittades</div>
-          </div>
+          <div style={{ textAlign: 'center', padding: 60, color: muted, fontSize: 14 }}>Inga objekt hittades</div>
         ) : (
           lista.map(o => (
             <ObjektKort key={o.skordareObjektId || o.skotareObjektId || o.vo_nummer} obj={o} onClick={() => setValt(o)} />
