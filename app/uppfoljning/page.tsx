@@ -128,7 +128,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek').in('objekt_id', ids),
         stId ? supabase.from('fakt_lass').select('objekt_id, datum, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
         stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
-        supabase.from('dim_operator').select('operator_id, operator_namn'),
+        supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
       ]);
 
       const tidRows = tidRes.data || [];
@@ -148,7 +148,10 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       dimTradslag.forEach((t: any) => { if (t.namn) tradslagMap.set(t.tradslag_id, t.namn); });
 
       const operatorMap = new Map<string, string>();
-      dimOperators.forEach((o: any) => { if (o.operator_namn) operatorMap.set(o.operator_id, o.operator_namn); });
+      dimOperators.forEach((o: any) => {
+        const namn = o.operator_namn || o.operator_key || '';
+        if (namn) operatorMap.set(o.operator_id, namn);
+      });
 
       // Build time data with per-day breakdown
       const buildTid = (rows: any[]) => {
@@ -324,6 +327,15 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         });
 
       // Build förare per maskin from fakt_tid rows
+      const opNamn = (opId: string): string => {
+        // Try dim_operator lookup first
+        const namn = operatorMap.get(opId);
+        if (namn) return namn;
+        // Fallback: strip maskin_id prefix (format: "maskinId_opKey")
+        const idx = opId.indexOf('_');
+        return idx >= 0 ? opId.substring(idx + 1) : opId;
+      };
+
       const buildForare = (rows: any[]): { aktiv: string; tidigare: Forare[] } => {
         // Group by operator_id, track first/last date
         const opDates = new Map<string, { min: string; max: string }>();
@@ -344,9 +356,9 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         // Sort by last date descending — most recent is aktiv
         const sorted = Array.from(opDates.entries())
           .sort(([, a], [, b]) => b.max.localeCompare(a.max));
-        const aktiv = operatorMap.get(sorted[0][0]) || sorted[0][0];
+        const aktiv = opNamn(sorted[0][0]);
         const tidigare: Forare[] = sorted.slice(1).map(([opId, dates]) => ({
-          namn: operatorMap.get(opId) || opId,
+          namn: opNamn(opId),
           fran: fmtDate(dates.min),
           till: fmtDate(dates.max),
         }));
