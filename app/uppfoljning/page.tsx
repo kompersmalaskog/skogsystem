@@ -47,6 +47,8 @@ interface UppfoljningObjekt {
   externPrisTyp: 'm3' | 'timme';
   externPris: number;
   externAntal: number;
+  skordareLastDate: string | null;
+  skotareLastDate: string | null;
 }
 
 /* ── Helpers ── */
@@ -86,22 +88,60 @@ function inferType(huvudtyp: string | undefined): 'slutavverkning' | 'gallring' 
   return 'slutavverkning';
 }
 
+/* ── Status helpers ── */
+function getObjektStatus(obj: UppfoljningObjekt): { text: string; color: string } {
+  if (obj.status === 'avslutat') return { text: 'Avslutat', color: 'rgba(255,255,255,0.3)' };
+  const now = new Date();
+  const sevenDaysAgo = new Date(now.getTime() - 7 * 864e5).toISOString().slice(0, 10);
+  const skActive = obj.skordareLastDate && obj.skordareLastDate >= sevenDaysAgo;
+  const stActive = obj.skotareLastDate && obj.skotareLastDate >= sevenDaysAgo;
+  const skDone = !!obj.skordareSlut;
+  if (skActive) return { text: 'Skördare kör', color: '#4ade80' };
+  if (skDone && stActive) return { text: 'Skotare kör', color: '#60a5fa' };
+  if (skDone && !obj.skotareStart && !stActive) return { text: 'Väntar på skotning', color: '#f59e0b' };
+  if (skDone && !stActive) return { text: 'Väntar på skotning', color: '#f59e0b' };
+  if (obj.skordareModell && !skActive && !skDone) return { text: 'Skördare kör', color: '#4ade80' };
+  return { text: 'Pågående', color: 'rgba(255,255,255,0.5)' };
+}
+
 /* ── ObjektKort — list item ── */
 function ObjektKort({ obj, onClick }: { obj: UppfoljningObjekt; onClick: () => void }) {
   const vol = Math.round(obj.volymSkordare);
+  const framkort = obj.volymSkordare > 0 ? Math.min(100, Math.round((obj.volymSkotare / obj.volymSkordare) * 100)) : 0;
+  const status = getObjektStatus(obj);
+  const maskin = obj.skordareModell || obj.skotareModell || '';
+  const start = obj.skordareStart ? fmtDate(obj.skordareStart) : obj.skotareStart ? fmtDate(obj.skotareStart) : '';
+
   return (
     <div onClick={onClick} style={{
-      padding: '20px 0', cursor: 'pointer',
+      padding: '12px 0', cursor: 'pointer',
       borderBottom: `1px solid ${divider}`,
-      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
     }}>
-      <div>
-        <div style={{ fontSize: 16, fontWeight: 600, color: text }}>{obj.namn}</div>
-        <div style={{ fontSize: 13, color: muted, marginTop: 4 }}>{obj.agare}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
+          <div style={{ fontSize: 12, color: muted, marginTop: 2 }}>{obj.agare}</div>
+          {(maskin || start) && (
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>
+              {maskin}{maskin && start ? ' · ' : ''}{start}
+            </div>
+          )}
+        </div>
+        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: text, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{vol > 0 ? vol : '--'}</div>
+          <div style={{ fontSize: 10, color: muted }}>m³</div>
+        </div>
       </div>
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontSize: 20, fontWeight: 700, color: text, fontVariantNumeric: 'tabular-nums' }}>{vol > 0 ? vol : '--'}</div>
-        <div style={{ fontSize: 11, color: muted }}>m³</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+        {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning && obj.volymSkordare > 0 && (
+          <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden', maxWidth: 120 }}>
+            <div style={{ height: '100%', width: `${framkort}%`, background: framkort >= 95 ? '#4ade80' : 'rgba(255,255,255,0.35)', borderRadius: 2, transition: 'width 0.3s' }} />
+          </div>
+        )}
+        {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning && obj.volymSkordare > 0 && (
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontVariantNumeric: 'tabular-nums' }}>{framkort}%</span>
+        )}
+        <span style={{ fontSize: 10, color: status.color, fontWeight: 500, marginLeft: 'auto' }}>{status.text}</span>
       </div>
     </div>
   );
@@ -576,8 +616,8 @@ function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
 export default function UppfoljningPage() {
   const [loading, setLoading] = useState(true);
   const [objekt, setObjekt] = useState<UppfoljningObjekt[]>([]);
-  const [flik, setFlik] = useState<'alla' | 'pagaende' | 'avslutat'>('alla');
-  const [filter, setFilter] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
+  const [flik, setFlik] = useState<'alla' | 'pagaende' | 'avslutat'>('pagaende');
+  const [filter, setFilter] = useState<'alla' | 'slutavverkning' | 'gallring' | 'grot'>('alla');
   const [sok, setSok] = useState('');
   const [valt, setValt] = useState<UppfoljningObjekt | null>(null);
 
@@ -617,7 +657,7 @@ export default function UppfoljningPage() {
           ? fetchPaginated<any>(() => supabase.from('fakt_lass').select('objekt_id, volym_m3sob').in('objekt_id', allObjektIds))
           : Promise.resolve([] as any[]),
         allObjektIds.length > 0
-          ? fetchPaginated<any>(() => supabase.from('fakt_tid').select('objekt_id, maskin_id, bransle_liter').in('objekt_id', allObjektIds))
+          ? fetchPaginated<any>(() => supabase.from('fakt_tid').select('objekt_id, maskin_id, bransle_liter, datum').in('objekt_id', allObjektIds))
           : Promise.resolve([] as any[]),
       ]);
 
@@ -683,6 +723,16 @@ export default function UppfoljningPage() {
           const s = tidMaskinPerObjekt.get(t.objekt_id) || new Set();
           s.add(t.maskin_id);
           tidMaskinPerObjekt.set(t.objekt_id, s);
+        }
+      });
+
+      // Track last activity date per (objekt_id::maskin_id)
+      const lastDatePerMaskin = new Map<string, string>();
+      tid.forEach(t => {
+        if (t.objekt_id && t.maskin_id && t.datum) {
+          const k = t.objekt_id + '::' + t.maskin_id;
+          const prev = lastDatePerMaskin.get(k);
+          if (!prev || t.datum > prev) lastDatePerMaskin.set(k, t.datum);
         }
       });
 
@@ -797,6 +847,18 @@ export default function UppfoljningPage() {
         const skMaskinId = skordareEntry?.maskin_id || prodMaskinMap.get(skordareEntry?.objekt_id);
         const stMaskinId = skotareEntry?.maskin_id || tidMaskinMap.get(skotareEntry?.objekt_id);
 
+        // Find last activity dates
+        let skLastDate: string | null = null;
+        for (const e of skordareEntries) {
+          const d = lastDatePerMaskin.get(e.objekt_id + '::' + e.maskin_id);
+          if (d && (!skLastDate || d > skLastDate)) skLastDate = d;
+        }
+        let stLastDate: string | null = null;
+        for (const e of skotareEntries) {
+          const d = lastDatePerMaskin.get(e.objekt_id + '::' + e.maskin_id);
+          if (d && (!stLastDate || d > stLastDate)) stLastDate = d;
+        }
+
         result.push({
           vo_nummer: vo,
           namn,
@@ -849,6 +911,8 @@ export default function UppfoljningPage() {
             }
             return 0;
           })(),
+          skordareLastDate: skLastDate,
+          skotareLastDate: stLastDate,
         });
       });
 
@@ -861,7 +925,11 @@ export default function UppfoljningPage() {
   const lista = useMemo(() => {
     return objekt
       .filter(o => flik === 'alla' || o.status === flik)
-      .filter(o => filter === 'alla' || o.typ === filter)
+      .filter(o => {
+        if (filter === 'alla') return true;
+        if (filter === 'grot') return o.grotSkotning;
+        return o.typ === filter;
+      })
       .filter(o => {
         if (!sok.trim()) return true;
         const t = sok.toLowerCase();
@@ -908,7 +976,7 @@ export default function UppfoljningPage() {
         </div>
 
         <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
-          {[{ k: 'alla', l: 'Alla' }, { k: 'slutavverkning', l: 'Slutavv.' }, { k: 'gallring', l: 'Gallring' }].map(f => (
+          {[{ k: 'alla', l: 'Alla' }, { k: 'slutavverkning', l: 'Slutavv.' }, { k: 'gallring', l: 'Gallring' }, { k: 'grot', l: 'Grot' }].map(f => (
             <button key={f.k} onClick={() => setFilter(f.k as any)} style={{
               padding: 0, border: 'none', cursor: 'pointer', fontFamily: ff,
               fontSize: 13, background: 'none',
