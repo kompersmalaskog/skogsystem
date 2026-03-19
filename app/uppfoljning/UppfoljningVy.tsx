@@ -37,6 +37,7 @@ export interface UppfoljningData {
   skotat: number;
   kvarPct: number;
   egenSkotning?: boolean;
+  grotSkotning?: boolean;
   maskiner: Maskin[];
   // Tidredovisning
   skordareG15h: number;
@@ -163,7 +164,12 @@ function HBar({ label, pct, val, delay = 0 }: { label: string; pct: number; val:
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningData }) {
   const egen = data.egenSkotning === true;
-  const tabChoices = egen ? (['tid', 'produktion', 'diesel', 'avbrott'] as const) : (['tid', 'produktion', 'diesel', 'avbrott', 'skotare'] as const);
+  const grot = data.grotSkotning === true;
+  const tabChoices = egen
+    ? (['tid', 'produktion', 'diesel', 'avbrott'] as const)
+    : grot
+      ? (['tid', 'diesel', 'avbrott', 'skotare'] as const)
+      : (['tid', 'produktion', 'diesel', 'avbrott', 'skotare'] as const);
   const [aktifTab, setAktifTab] = useState<'tid' | 'produktion' | 'diesel' | 'avbrott' | 'skotare'>('tid');
   const [visaForare, setVisaForare] = useState<Record<number, boolean>>({});
   const [timestamp, setTimestamp] = useState('');
@@ -402,6 +408,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
           <div>
             <div className="uppf-header-label">Uppföljning</div>
             <div className="uppf-header-title">{data.objektNamn}</div>
+            {grot && <div style={{ fontSize: 12, color: '#4ade80', fontWeight: 600, letterSpacing: '0.05em', marginTop: 2 }}>GROT-skotning</div>}
             <div className="uppf-live"><span className="uppf-live-dot" /><span className="uppf-live-label">LIVE</span></div>
           </div>
           <div>
@@ -416,11 +423,13 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
           <div className="section-reveal">
             <div className="sec-label">Volym</div>
             <div className="hero-grid">
-              <div className="card3d">
-                <div className="hero-label">Skördat</div>
-                <div className="hero-num">{skordat}</div>
-                <div className="hero-unit">m³fub</div>
-              </div>
+              {!grot && (
+                <div className="card3d">
+                  <div className="hero-label">Skördat</div>
+                  <div className="hero-num">{skordat}</div>
+                  <div className="hero-unit">m³fub</div>
+                </div>
+              )}
               {!egen && (
                 <div className="card3d">
                   <div className="hero-label">Skotat</div>
@@ -429,7 +438,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                 </div>
               )}
             </div>
-            {!egen && (
+            {!egen && !grot && (
               <div className="progress-wrap card3d" style={{ padding: '1.25rem' }}>
                 <div className="progress-top">
                   <div className="progress-pct">{kvar}<span style={{ fontSize: '18px', color: 'var(--text-sec)', fontWeight: 300 }}>%</span></div>
@@ -441,7 +450,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
           </div>
 
           {/* BALANS */}
-          <div className="section-reveal">
+          {!grot && <div className="section-reveal">
             {egen ? (
               <>
                 <div className="sec-label">Skotning</div>
@@ -479,13 +488,13 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                 </div>
               </>
             )}
-          </div>
+          </div>}
 
           {/* MASKINER */}
           <div className="section-reveal">
             <div className="sec-label">Maskiner</div>
             <div className="two-col">
-              {data.maskiner.filter(m => !(egen && m.typ === 'Skotare')).map((m, i) => (
+              {data.maskiner.filter(m => !(egen && m.typ === 'Skotare') && !(grot && m.typ === 'Skördare')).map((m, i) => (
                 <div key={i} className="card3d">
                   <div className="maskin-header">
                     <div>
@@ -541,7 +550,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
               <div className="panel">
                 <div className="panel-two">
                   {[
-                    { label: 'Skördare', rows: [['G15h', data.skordareG15h + 'h'], ['G0 tid', data.skordareG0 + 'h'], ['Tomgång', data.skordareTomgang + 'h'], ['Korta stopp', data.skordareKortaStopp + 'h'], ['Rast', data.skordareRast + 'h'], ['Avbrott', data.skordareAvbrott + 'h']], total: (data.skordareG15h + data.skordareG0 + data.skordareTomgang + data.skordareKortaStopp + data.skordareRast + data.skordareAvbrott).toFixed(1) + 'h' },
+                    ...(!grot ? [{ label: 'Skördare', rows: [['G15h', data.skordareG15h + 'h'], ['G0 tid', data.skordareG0 + 'h'], ['Tomgång', data.skordareTomgang + 'h'], ['Korta stopp', data.skordareKortaStopp + 'h'], ['Rast', data.skordareRast + 'h'], ['Avbrott', data.skordareAvbrott + 'h']], total: (data.skordareG15h + data.skordareG0 + data.skordareTomgang + data.skordareKortaStopp + data.skordareRast + data.skordareAvbrott).toFixed(1) + 'h' }] : []),
                     ...(!egen ? [{ label: 'Skotare', rows: [['G15h', data.skotareG15h + 'h'], ['G0 tid', data.skotareG0 + 'h'], ['Tomgång', data.skotareTomgang + 'h'], ['Korta stopp', data.skotareKortaStopp + 'h'], ['Rast', data.skotareRast + 'h'], ['Avbrott', data.skotareAvbrott + 'h']], total: (data.skotareG15h + data.skotareG0 + data.skotareTomgang + data.skotareKortaStopp + data.skotareRast + data.skotareAvbrott).toFixed(1) + 'h' }] : []),
                   ].map(m => (
                     <div key={m.label} className="panel-card">
@@ -595,19 +604,21 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
             {aktifTab === 'diesel' && (
               <div className="panel">
                 <div className="card3d" style={{ marginBottom: 12 }}>
-                  <div className="sec-label" style={{ marginBottom: '1rem' }}>{egen ? 'Totalt — Skördare' : 'Totalt — Skördare + Skotare'}</div>
+                  <div className="sec-label" style={{ marginBottom: '1rem' }}>{egen ? 'Totalt — Skördare' : grot ? 'Totalt — Skotare' : 'Totalt — Skördare + Skotare'}</div>
                   <div className="diesel-hero">
                     <div><div className="diesel-big">{dieselTot}</div><div className="diesel-unit">liter totalt</div></div>
                     <div><div className="diesel-big">{dieselM3}</div><div className="diesel-unit">L/m³fub fritt bilväg</div></div>
                   </div>
                 </div>
                 <div className="panel-two" style={{ marginBottom: 12 }}>
-                  <div className="panel-card">
-                    <h3>Skördare</h3>
-                    <div className="row"><span className="row-label">Liter totalt</span><span className="row-val">{data.skordareL.toLocaleString('sv-SE')} L</span></div>
-                    <div className="row"><span className="row-label">L/m³</span><span className="row-val">{data.skordareL_M3}</span></div>
-                    <div className="row"><span className="row-label">L/G15h</span><span className="row-val">{data.skordareL_G15h}</span></div>
-                  </div>
+                  {!grot && (
+                    <div className="panel-card">
+                      <h3>Skördare</h3>
+                      <div className="row"><span className="row-label">Liter totalt</span><span className="row-val">{data.skordareL.toLocaleString('sv-SE')} L</span></div>
+                      <div className="row"><span className="row-label">L/m³</span><span className="row-val">{data.skordareL_M3}</span></div>
+                      <div className="row"><span className="row-label">L/G15h</span><span className="row-val">{data.skordareL_G15h}</span></div>
+                    </div>
+                  )}
                   {!egen && (
                     <div className="panel-card">
                       <h3>Skotare</h3>
@@ -618,11 +629,15 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                   )}
                 </div>
                 <div className="panel-card">
-                  <h3>Skördare — Diesel per dag</h3>
-                  {data.dieselSkordare.map((d, i) => <HBar key={d.datum} label={d.datum} pct={Math.round(d.liter / maxDieselSkord * 100)} val={d.liter + ' L'} delay={i * 60} />)}
+                  {!grot && (
+                    <>
+                      <h3>Skördare — Diesel per dag</h3>
+                      {data.dieselSkordare.map((d, i) => <HBar key={d.datum} label={d.datum} pct={Math.round(d.liter / maxDieselSkord * 100)} val={d.liter + ' L'} delay={i * 60} />)}
+                    </>
+                  )}
                   {!egen && (
                     <>
-                      <div className="sub-label">Skotare — Diesel per dag</div>
+                      {grot ? <h3>Skotare — Diesel per dag</h3> : <div className="sub-label">Skotare — Diesel per dag</div>}
                       {data.dieselSkotare.map((d, i) => <HBar key={d.datum} label={d.datum} pct={Math.round(d.liter / maxDieselSkot * 100)} val={d.liter + ' L'} delay={i * 60} />)}
                     </>
                   )}
@@ -634,7 +649,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
             {aktifTab === 'avbrott' && (
               <div className="panel">
                 <div className="panel-two">
-                  {[{ label: 'Skördare', rows: data.avbrottSkordare, totalt: data.avbrottSkordare_totalt }, ...(!egen ? [{ label: 'Skotare', rows: data.avbrottSkotare, totalt: data.avbrottSkotareTotalt }] : [])].map(m => (
+                  {[...(!grot ? [{ label: 'Skördare', rows: data.avbrottSkordare, totalt: data.avbrottSkordare_totalt }] : []), ...(!egen ? [{ label: 'Skotare', rows: data.avbrottSkotare, totalt: data.avbrottSkotareTotalt }] : [])].map(m => (
                     <div key={m.label} className="panel-card">
                       <h3>{m.label}</h3>
                       <table className="avbrott-table">

@@ -41,6 +41,7 @@ interface UppfoljningObjekt {
   dagar: number | null;
   status: 'pagaende' | 'avslutat';
   egenSkotning: boolean;
+  grotSkotning: boolean;
 }
 
 /* ── Helpers ── */
@@ -442,6 +443,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         skotat: Math.round(volSt),
         kvarPct,
         egenSkotning: obj.egenSkotning,
+        grotSkotning: obj.grotSkotning,
         maskiner,
         // Tid — all in hours
         skordareG15h: skTid.g15,
@@ -541,7 +543,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
   return {
     objektNamn: obj.namn,
-    skordat: 0, skotat: 0, kvarPct: 0, egenSkotning: obj.egenSkotning, maskiner: [],
+    skordat: 0, skotat: 0, kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning, maskiner: [],
     skordareG15h: 0, skordareG0: 0, skordareTomgang: 0, skordareKortaStopp: 0, skordareRast: 0, skordareAvbrott: 0,
     skotareG15h: 0, skotareG0: 0, skotareTomgang: 0, skotareKortaStopp: 0, skotareRast: 0, skotareAvbrott: 0,
     skordareM3G15h: 0, skordareStammarG15h: 0, skordareMedelstam: 0,
@@ -807,6 +809,7 @@ export default function UppfoljningPage() {
           dagar,
           status: allDone ? 'avslutat' : 'pagaende',
           egenSkotning: entries.some((e: any) => e.egen_skotning === true),
+          grotSkotning: entries.some((e: any) => e.risskotning === true),
         });
       });
 
