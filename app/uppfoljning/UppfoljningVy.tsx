@@ -160,7 +160,7 @@ function HBar({ label, pct, val, delay = 0 }: { label: string; pct: number; val:
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────
-export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningData }) {
+export default function UppfoljningVy({ data = demoData, onBack }: { data?: UppfoljningData; onBack?: () => void }) {
   const [aktifTab, setAktifTab] = useState<'tid' | 'produktion' | 'diesel' | 'avbrott' | 'skotare'>('tid');
   const [visaForare, setVisaForare] = useState<Record<number, boolean>>({});
   const [timestamp, setTimestamp] = useState('');
@@ -300,6 +300,8 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         .uppf-live-label { font-size:10px; color:var(--text-ter); letter-spacing:0.04em; }
         .uppf-ts-label { font-size:11px; color:var(--text-ter); margin-bottom:3px; text-align:right; }
         .uppf-ts-val { font-size:13px; color:var(--text-sec); text-align:right; }
+        .uppf-back { background:none; border:none; color:var(--text-ter); font-size:13px; cursor:pointer; padding:4px 0; font-family:inherit; display:inline-flex; align-items:center; gap:4px; transition:color 0.2s; margin-top:6px; }
+        .uppf-back:hover { color:var(--text-sec); }
         .uppf-content { padding:0 1.75rem 4rem; max-width:900px; margin:0 auto; }
         .section-reveal { padding:2rem 0; border-bottom:1px solid var(--border); opacity:0; transform:translateY(16px); transition:opacity 0.55s ease, transform 0.55s cubic-bezier(0.16,1,0.3,1); }
         .section-reveal:last-child { border-bottom:none; }
@@ -404,6 +406,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
           <div>
             <div className="uppf-ts-label">Senast uppdaterad</div>
             <div className="uppf-ts-val">{timestamp || '—'}</div>
+            {onBack && <button className="uppf-back" onClick={onBack}>← Tillbaka</button>}
           </div>
         </div>
 

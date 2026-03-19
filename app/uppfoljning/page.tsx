@@ -460,17 +460,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
   }
 
   return (
-    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflowY: 'auto' }}>
-      <div style={{ padding: '12px 16px 0' }}>
-        <button onClick={onBack} style={{
-          background: 'none', border: 'none', color: muted, fontSize: 14,
-          cursor: 'pointer', padding: 0, fontFamily: ff, fontWeight: 500,
-          display: 'flex', alignItems: 'center', gap: 4,
-        }}>
-          <span style={{ fontSize: 18 }}>‹</span> Tillbaka
-        </button>
-      </div>
-      <UppfoljningVy data={data} />
+    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflowY: 'auto', background: '#070708' }}>
+      <UppfoljningVy data={data} onBack={onBack} />
     </div>
   );
 }
