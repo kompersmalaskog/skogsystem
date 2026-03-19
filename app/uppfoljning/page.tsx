@@ -461,7 +461,27 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
   return (
     <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflowY: 'auto', background: '#070708' }}>
-      <UppfoljningVy data={data} onBack={onBack} />
+      {/* × close button in TopBar row */}
+      <button onClick={onBack} style={{
+        position: 'fixed',
+        top: 10,
+        right: 12,
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        background: 'rgba(255,255,255,0.08)',
+        border: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        cursor: 'pointer',
+        zIndex: 1001,
+        color: 'rgba(255,255,255,0.7)',
+        fontSize: 18,
+        lineHeight: 1,
+        fontFamily: 'system-ui, sans-serif',
+      }}>×</button>
+      <UppfoljningVy data={data} />
     </div>
   );
 }
