@@ -36,6 +36,7 @@ export interface UppfoljningData {
   skordat: number;
   skotat: number;
   kvarPct: number;
+  egenSkotning?: boolean;
   maskiner: Maskin[];
   // Tidredovisning
   skordareG15h: number;
@@ -161,6 +162,8 @@ function HBar({ label, pct, val, delay = 0 }: { label: string; pct: number; val:
 
 // ── Main Component ─────────────────────────────────────────────────────────
 export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningData }) {
+  const egen = data.egenSkotning === true;
+  const tabChoices = egen ? (['tid', 'produktion', 'diesel', 'avbrott'] as const) : (['tid', 'produktion', 'diesel', 'avbrott', 'skotare'] as const);
   const [aktifTab, setAktifTab] = useState<'tid' | 'produktion' | 'diesel' | 'avbrott' | 'skotare'>('tid');
   const [visaForare, setVisaForare] = useState<Record<number, boolean>>({});
   const [timestamp, setTimestamp] = useState('');
@@ -418,56 +421,71 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                 <div className="hero-num">{skordat}</div>
                 <div className="hero-unit">m³fub</div>
               </div>
-              <div className="card3d">
-                <div className="hero-label">Skotat</div>
-                <div className="hero-num">{skotat}</div>
-                <div className="hero-unit">m³fub</div>
-              </div>
+              {!egen && (
+                <div className="card3d">
+                  <div className="hero-label">Skotat</div>
+                  <div className="hero-num">{skotat}</div>
+                  <div className="hero-unit">m³fub</div>
+                </div>
+              )}
             </div>
-            <div className="progress-wrap card3d" style={{ padding: '1.25rem' }}>
-              <div className="progress-top">
-                <div className="progress-pct">{kvar}<span style={{ fontSize: '18px', color: 'var(--text-sec)', fontWeight: 300 }}>%</span></div>
-                <div className="progress-lbl">kvar i skogen</div>
+            {!egen && (
+              <div className="progress-wrap card3d" style={{ padding: '1.25rem' }}>
+                <div className="progress-top">
+                  <div className="progress-pct">{kvar}<span style={{ fontSize: '18px', color: 'var(--text-sec)', fontWeight: 300 }}>%</span></div>
+                  <div className="progress-lbl">kvar i skogen</div>
+                </div>
+                <div className="progress-track"><div ref={progressRef} className="progress-fill" /></div>
               </div>
-              <div className="progress-track"><div ref={progressRef} className="progress-fill" /></div>
-            </div>
+            )}
           </div>
 
           {/* BALANS */}
           <div className="section-reveal">
-            <div className="sec-label">Balans — Skördare vs Skotare</div>
-            <div className="card3d" style={{ padding: 0, overflow: 'hidden' }}>
-              <div className="two-col" style={{ gap: 0 }}>
-                <div className="bal-inner" style={{ borderRight: '1px solid var(--border)' }}>
-                  <div className="bal-machine">Skördare</div>
-                  <div className="bal-num">{skordareBalStr}</div>
-                  <div className="bal-unit">G15h</div>
-                  <div className="bal-bar"><div ref={balSkordRef} className="bal-fill" /></div>
+            {egen ? (
+              <>
+                <div className="sec-label">Skotning</div>
+                <div className="card3d" style={{ padding: '1.25rem', textAlign: 'center' }}>
+                  <div style={{ fontSize: 14, color: 'var(--text-sec)' }}>Egen skotning</div>
                 </div>
-                <div className="bal-inner">
-                  <div className="bal-machine">Skotare</div>
-                  <div className="bal-num">{skotareBalStr}</div>
-                  <div className="bal-unit">G15h</div>
-                  <div className="bal-bar"><div ref={balSkotRef} className="bal-fill" /></div>
+              </>
+            ) : (
+              <>
+                <div className="sec-label">Balans — Skördare vs Skotare</div>
+                <div className="card3d" style={{ padding: 0, overflow: 'hidden' }}>
+                  <div className="two-col" style={{ gap: 0 }}>
+                    <div className="bal-inner" style={{ borderRight: '1px solid var(--border)' }}>
+                      <div className="bal-machine">Skördare</div>
+                      <div className="bal-num">{skordareBalStr}</div>
+                      <div className="bal-unit">G15h</div>
+                      <div className="bal-bar"><div ref={balSkordRef} className="bal-fill" /></div>
+                    </div>
+                    <div className="bal-inner">
+                      <div className="bal-machine">Skotare</div>
+                      <div className="bal-num">{skotareBalStr}</div>
+                      <div className="bal-unit">G15h</div>
+                      <div className="bal-bar"><div ref={balSkotRef} className="bal-fill" /></div>
+                    </div>
+                  </div>
+                  <div className="bal-note">
+                    {(() => {
+                      if (data.skordareBalG15h === 0) return null;
+                      const diffPct = Math.abs(((data.skotareBalG15h - data.skordareBalG15h) / data.skordareBalG15h) * 100);
+                      if (diffPct < 5) return <>Skördare och skotare körde i god balans på det här objektet.</>;
+                      if (data.skotareBalG15h > data.skordareBalG15h) return <>Skotaren behövde <strong>{diffPct.toFixed(0)}% mer tid</strong> än skördaren på det här objektet.</>;
+                      return <>Skördaren behövde <strong>{diffPct.toFixed(0)}% mer tid</strong> än skotaren på det här objektet.</>;
+                    })()}
+                  </div>
                 </div>
-              </div>
-              <div className="bal-note">
-                {(() => {
-                  if (data.skordareBalG15h === 0) return null;
-                  const diffPct = Math.abs(((data.skotareBalG15h - data.skordareBalG15h) / data.skordareBalG15h) * 100);
-                  if (diffPct < 5) return <>Skördare och skotare körde i god balans på det här objektet.</>;
-                  if (data.skotareBalG15h > data.skordareBalG15h) return <>Skotaren behövde <strong>{diffPct.toFixed(0)}% mer tid</strong> än skördaren på det här objektet.</>;
-                  return <>Skördaren behövde <strong>{diffPct.toFixed(0)}% mer tid</strong> än skotaren på det här objektet.</>;
-                })()}
-              </div>
-            </div>
+              </>
+            )}
           </div>
 
           {/* MASKINER */}
           <div className="section-reveal">
             <div className="sec-label">Maskiner</div>
             <div className="two-col">
-              {data.maskiner.map((m, i) => (
+              {data.maskiner.filter(m => !(egen && m.typ === 'Skotare')).map((m, i) => (
                 <div key={i} className="card3d">
                   <div className="maskin-header">
                     <div>
@@ -506,7 +524,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
 
             {/* TABS */}
             <div ref={tabsRef} className="tabs-wrap">
-              {(['tid', 'produktion', 'diesel', 'avbrott', 'skotare'] as const).map(tab => (
+              {tabChoices.map(tab => (
                 <button
                   key={tab}
                   className={`tab-btn${aktifTab === tab ? ' tab-active' : ''}`}
@@ -524,7 +542,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                 <div className="panel-two">
                   {[
                     { label: 'Skördare', rows: [['G15h', data.skordareG15h + 'h'], ['G0 tid', data.skordareG0 + 'h'], ['Tomgång', data.skordareTomgang + 'h'], ['Korta stopp', data.skordareKortaStopp + 'h'], ['Rast', data.skordareRast + 'h'], ['Avbrott', data.skordareAvbrott + 'h']], total: (data.skordareG15h + data.skordareG0 + data.skordareTomgang + data.skordareKortaStopp + data.skordareRast + data.skordareAvbrott).toFixed(1) + 'h' },
-                    { label: 'Skotare', rows: [['G15h', data.skotareG15h + 'h'], ['G0 tid', data.skotareG0 + 'h'], ['Tomgång', data.skotareTomgang + 'h'], ['Korta stopp', data.skotareKortaStopp + 'h'], ['Rast', data.skotareRast + 'h'], ['Avbrott', data.skotareAvbrott + 'h']], total: (data.skotareG15h + data.skotareG0 + data.skotareTomgang + data.skotareKortaStopp + data.skotareRast + data.skotareAvbrott).toFixed(1) + 'h' },
+                    ...(!egen ? [{ label: 'Skotare', rows: [['G15h', data.skotareG15h + 'h'], ['G0 tid', data.skotareG0 + 'h'], ['Tomgång', data.skotareTomgang + 'h'], ['Korta stopp', data.skotareKortaStopp + 'h'], ['Rast', data.skotareRast + 'h'], ['Avbrott', data.skotareAvbrott + 'h']], total: (data.skotareG15h + data.skotareG0 + data.skotareTomgang + data.skotareKortaStopp + data.skotareRast + data.skotareAvbrott).toFixed(1) + 'h' }] : []),
                   ].map(m => (
                     <div key={m.label} className="panel-card">
                       <h3>{m.label}</h3>
@@ -546,12 +564,14 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                     <div className="row"><span className="row-label">Stammar/G15h</span><span className="row-val">{data.skordareStammarG15h}</span></div>
                     <div className="row"><span className="row-label">Medelstam</span><span className="row-val">{data.skordareMedelstam} m³</span></div>
                   </div>
-                  <div className="panel-card">
-                    <h3>Skotare</h3>
-                    <div className="row"><span className="row-label">m³/G15h</span><span className="row-val">{data.skotareM3G15h}</span></div>
-                    <div className="row"><span className="row-label">Lass/G15h</span><span className="row-val">{data.skotareLassG15h}</span></div>
-                    <div className="row"><span className="row-label">Snittlass</span><span className="row-val">{data.skotareSnittlass} m³</span></div>
-                  </div>
+                  {!egen && (
+                    <div className="panel-card">
+                      <h3>Skotare</h3>
+                      <div className="row"><span className="row-label">m³/G15h</span><span className="row-val">{data.skotareM3G15h}</span></div>
+                      <div className="row"><span className="row-label">Lass/G15h</span><span className="row-val">{data.skotareLassG15h}</span></div>
+                      <div className="row"><span className="row-label">Snittlass</span><span className="row-val">{data.skotareSnittlass} m³</span></div>
+                    </div>
+                  )}
                 </div>
                 <div className="panel-two">
                   <div className="panel-card">
@@ -575,7 +595,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
             {aktifTab === 'diesel' && (
               <div className="panel">
                 <div className="card3d" style={{ marginBottom: 12 }}>
-                  <div className="sec-label" style={{ marginBottom: '1rem' }}>Totalt — Skördare + Skotare</div>
+                  <div className="sec-label" style={{ marginBottom: '1rem' }}>{egen ? 'Totalt — Skördare' : 'Totalt — Skördare + Skotare'}</div>
                   <div className="diesel-hero">
                     <div><div className="diesel-big">{dieselTot}</div><div className="diesel-unit">liter totalt</div></div>
                     <div><div className="diesel-big">{dieselM3}</div><div className="diesel-unit">L/m³fub fritt bilväg</div></div>
@@ -588,18 +608,24 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                     <div className="row"><span className="row-label">L/m³</span><span className="row-val">{data.skordareL_M3}</span></div>
                     <div className="row"><span className="row-label">L/G15h</span><span className="row-val">{data.skordareL_G15h}</span></div>
                   </div>
-                  <div className="panel-card">
-                    <h3>Skotare</h3>
-                    <div className="row"><span className="row-label">Liter totalt</span><span className="row-val">{data.skotareL.toLocaleString('sv-SE')} L</span></div>
-                    <div className="row"><span className="row-label">L/m³</span><span className="row-val">{data.skotareL_M3}</span></div>
-                    <div className="row"><span className="row-label">L/G15h</span><span className="row-val">{data.skotareL_G15h}</span></div>
-                  </div>
+                  {!egen && (
+                    <div className="panel-card">
+                      <h3>Skotare</h3>
+                      <div className="row"><span className="row-label">Liter totalt</span><span className="row-val">{data.skotareL.toLocaleString('sv-SE')} L</span></div>
+                      <div className="row"><span className="row-label">L/m³</span><span className="row-val">{data.skotareL_M3}</span></div>
+                      <div className="row"><span className="row-label">L/G15h</span><span className="row-val">{data.skotareL_G15h}</span></div>
+                    </div>
+                  )}
                 </div>
                 <div className="panel-card">
                   <h3>Skördare — Diesel per dag</h3>
                   {data.dieselSkordare.map((d, i) => <HBar key={d.datum} label={d.datum} pct={Math.round(d.liter / maxDieselSkord * 100)} val={d.liter + ' L'} delay={i * 60} />)}
-                  <div className="sub-label">Skotare — Diesel per dag</div>
-                  {data.dieselSkotare.map((d, i) => <HBar key={d.datum} label={d.datum} pct={Math.round(d.liter / maxDieselSkot * 100)} val={d.liter + ' L'} delay={i * 60} />)}
+                  {!egen && (
+                    <>
+                      <div className="sub-label">Skotare — Diesel per dag</div>
+                      {data.dieselSkotare.map((d, i) => <HBar key={d.datum} label={d.datum} pct={Math.round(d.liter / maxDieselSkot * 100)} val={d.liter + ' L'} delay={i * 60} />)}
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -608,7 +634,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
             {aktifTab === 'avbrott' && (
               <div className="panel">
                 <div className="panel-two">
-                  {[{ label: 'Skördare', rows: data.avbrottSkordare, totalt: data.avbrottSkordare_totalt }, { label: 'Skotare', rows: data.avbrottSkotare, totalt: data.avbrottSkotareTotalt }].map(m => (
+                  {[{ label: 'Skördare', rows: data.avbrottSkordare, totalt: data.avbrottSkordare_totalt }, ...(!egen ? [{ label: 'Skotare', rows: data.avbrottSkotare, totalt: data.avbrottSkotareTotalt }] : [])].map(m => (
                     <div key={m.label} className="panel-card">
                       <h3>{m.label}</h3>
                       <table className="avbrott-table">

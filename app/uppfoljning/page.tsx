@@ -441,6 +441,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         skordat: Math.round(volSk),
         skotat: Math.round(volSt),
         kvarPct,
+        egenSkotning: obj.egenSkotning,
         maskiner,
         // Tid — all in hours
         skordareG15h: skTid.g15,
@@ -540,7 +541,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
   return {
     objektNamn: obj.namn,
-    skordat: 0, skotat: 0, kvarPct: 0, maskiner: [],
+    skordat: 0, skotat: 0, kvarPct: 0, egenSkotning: obj.egenSkotning, maskiner: [],
     skordareG15h: 0, skordareG0: 0, skordareTomgang: 0, skordareKortaStopp: 0, skordareRast: 0, skordareAvbrott: 0,
     skotareG15h: 0, skotareG0: 0, skotareTomgang: 0, skotareKortaStopp: 0, skotareRast: 0, skotareAvbrott: 0,
     skordareM3G15h: 0, skordareStammarG15h: 0, skordareMedelstam: 0,
