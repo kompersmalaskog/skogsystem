@@ -749,12 +749,13 @@ export default function PlannerPage() {
 
     // === Produktionshögar (HPR-data) ===
     map.addSource('hogar-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    // Cirkelradie: volym-baserad storlek * zoom-baserad skalning
-    // Utzoomad (z13): liten, inzoomad (z18): stor
+    // Cirkelradie: volym-baserad, min 8px, max 25px
     const hogarRadius = [
-      '*',
-      ['interpolate', ['linear'], ['get', 'volym'], 0.1, 2, 1, 3, 5, 5, 20, 8, 50, 12],
-      ['interpolate', ['exponential', 1.5], ['zoom'], 13, 0.4, 15, 0.8, 16, 1.2, 17, 2, 18, 3],
+      'interpolate', ['linear'], ['get', 'volym'],
+      0, 8,
+      5, 12,
+      20, 18,
+      50, 25,
     ] as any;
     map.addLayer({
       id: 'hogar-circle',
@@ -1682,6 +1683,7 @@ export default function PlannerPage() {
         coords[0] += e.lngLat.lng > coords[0] ? 360 : -360;
       }
       const volym = parseFloat(p.volym).toFixed(2);
+      alert(`Hög klickad: ${volym} m³, ${p.stammar} stammar, ${p.tradslag}`);
       const maplibregl = (window as any).maplibregl;
       if (!maplibregl) return;
       new maplibregl.Popup({ offset: 12, closeButton: true, maxWidth: '220px' })
