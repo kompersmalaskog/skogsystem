@@ -125,15 +125,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
         supabase.from('dim_tradslag').select('tradslag_id, namn'),
-        (() => {
-          // Query fakt_avbrott by both objekt_id and maskin_id to catch data stored under different objekt_ids
-          const avbrottMids = [obj.skordareModellMaskinId, obj.skotareModellMaskinId].filter(Boolean) as string[];
-          if (avbrottMids.length > 0) {
-            return supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum')
-              .or(`objekt_id.in.(${ids.join(',')}),maskin_id.in.(${avbrottMids.join(',')})`);
-          }
-          return supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').in('objekt_id', ids);
-        })(),
+        supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').in('objekt_id', ids),
         stId ? supabase.from('fakt_lass').select('objekt_id, datum, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
         stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
         supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
@@ -144,7 +136,23 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const sortRows = sortRes.data || [];
       const dimSort = dimSortRes.data || [];
       const dimTradslag = dimTradslagRes.data || [];
-      const avbrottRows = avbrottRes.data || [];
+      let avbrottRows = avbrottRes.data || [];
+
+      // If objekt_id query missed avbrott for a machine, fetch by maskin_id as fallback
+      const skMidFb = obj.skordareModellMaskinId;
+      const stMidFb = obj.skotareModellMaskinId;
+      const hasSkAvbrott = skMidFb ? avbrottRows.some((r: any) => r.maskin_id === skMidFb) : true;
+      const hasStAvbrott = stMidFb ? avbrottRows.some((r: any) => r.maskin_id === stMidFb) : true;
+      if (!hasSkAvbrott || !hasStAvbrott) {
+        const fallbackQueries = [];
+        if (!hasSkAvbrott && skMidFb) fallbackQueries.push(supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').eq('maskin_id', skMidFb).limit(2000));
+        if (!hasStAvbrott && stMidFb) fallbackQueries.push(supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').eq('maskin_id', stMidFb).limit(2000));
+        const fallbackResults = await Promise.all(fallbackQueries);
+        for (const res of fallbackResults) {
+          if (res.data) avbrottRows = [...avbrottRows, ...res.data];
+        }
+      }
+
       const lassRows = (lassRes.data || []) as any[];
       const lassSortRows = (lassSortRes.data || []) as any[];
       const dimOperators = dimOperatorRes.data || [];
@@ -292,19 +300,22 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           .sort((a, b) => parseFloat(b.tid) - parseFloat(a.tid));
       };
       // Filter avbrott: match by objekt_id OR by maskin_id (for data stored under different objekt_ids)
-      // Use fakt_tid date range to scope maskin_id-based matches
+      // Use fakt_tid date range + object work period to scope maskin_id-based matches
       const skDatumSet = new Set(skTidRows.map((r: any) => r.datum).filter(Boolean));
       const stDatumSet = new Set(stTidRows.map((r: any) => r.datum).filter(Boolean));
+      const inDateRange = (datum: string | null, start: string | null, slut: string | null): boolean => {
+        if (!datum || !start) return false;
+        return datum >= start && (!slut || datum <= slut);
+      };
       const skAvbrott = skMid ? avbrottRows.filter((r: any) => {
         if (r.maskin_id === skMid) {
-          // Match by maskin_id: accept if objekt_id matches OR datum falls within work period
-          return r.objekt_id === skId || skDatumSet.has(r.datum);
+          return r.objekt_id === skId || skDatumSet.has(r.datum) || inDateRange(r.datum, obj.skordareStart, obj.skordareSlut);
         }
         return r.objekt_id === skId && !shared;
       }) : (skId ? avbrottRows.filter((r: any) => r.objekt_id === skId) : []);
       const stAvbrott = stMid ? avbrottRows.filter((r: any) => {
         if (r.maskin_id === stMid) {
-          return r.objekt_id === stId || stDatumSet.has(r.datum);
+          return r.objekt_id === stId || stDatumSet.has(r.datum) || inDateRange(r.datum, obj.skotareStart, obj.skotareSlut);
         }
         return r.objekt_id === stId && !shared;
       }) : (stId ? avbrottRows.filter((r: any) => r.objekt_id === stId) : []);
