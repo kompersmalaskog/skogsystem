@@ -227,6 +227,9 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
                 if 'm3sob' in cat.lower():
                     total_volym += val
 
+        # BioEnergyAdaption (GROT) — sitter på Stem-nivån, inte SingleTreeProcessedStem
+        bio_energy = get_text(stem, 'BioEnergyAdaption', ns)
+
         result['stammar'].append({
             'stam_nummer': stam_nummer,
             'tradslag': tradslag,
@@ -235,6 +238,7 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
             'lng': stem_lon,
             'antal_stockar': antal_stockar,
             'total_volym': round(total_volym, 6) if total_volym > 0 else None,
+            'bio_energy_adaption': bio_energy if bio_energy else None,
         })
 
     # Fil-datum: använd äldsta stam eller filnamnets datum
@@ -350,6 +354,8 @@ def upload_hpr(parsed: Dict[str, Any], objekt_map: Dict[str, str]) -> bool:
                 row['antal_stockar'] = s['antal_stockar']
             if s['total_volym'] is not None:
                 row['total_volym'] = s['total_volym']
+            if s.get('bio_energy_adaption'):
+                row['bio_energy_adaption'] = s['bio_energy_adaption']
             rows.append(row)
 
         resp = requests.post(

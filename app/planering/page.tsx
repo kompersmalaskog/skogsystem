@@ -413,6 +413,7 @@ export default function PlannerPage() {
     lm_ortofoto: false,
     // HPR produktionshögar
     produktionshogar: false,
+    grothogar: false,
   });
 
   const wmsLayerGroups = [
@@ -774,6 +775,39 @@ export default function PlannerPage() {
       id: 'hogar-label',
       type: 'symbol',
       source: 'hogar-source',
+      layout: {
+        'text-field': ['concat', ['to-string', ['round', ['get', 'volym']]], ''],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 15, 0, 17, 10, 18, 13],
+        'text-font': ['Open Sans Bold'],
+        'text-allow-overlap': false,
+        visibility: 'none',
+      },
+      paint: {
+        'text-color': '#fff',
+        'text-halo-color': 'rgba(0,0,0,0.7)',
+        'text-halo-width': 1,
+      },
+    });
+
+    // === GROT-högar (separat lager) ===
+    map.addSource('grot-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'grot-circle',
+      type: 'circle',
+      source: 'grot-source',
+      paint: {
+        'circle-radius': hogarRadius,
+        'circle-color': '#f59e0b',
+        'circle-opacity': 0.85,
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 17, 2],
+        'circle-stroke-color': 'rgba(255,255,255,0.6)',
+      },
+      layout: { visibility: 'none' },
+    });
+    map.addLayer({
+      id: 'grot-label',
+      type: 'symbol',
+      source: 'grot-source',
       layout: {
         'text-field': ['concat', ['to-string', ['round', ['get', 'volym']]], ''],
         'text-size': ['interpolate', ['linear'], ['zoom'], 15, 0, 17, 10, 18, 13],
@@ -1668,6 +1702,15 @@ export default function PlannerPage() {
     if (map.getLayer('hogar-label')) map.setLayoutProperty('hogar-label', 'visibility', vis);
   }, [overlays.produktionshogar, mapLibreReady]);
 
+  // === GROT-högar: Toggle visibility ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const vis = overlays.grothogar ? 'visible' : 'none';
+    if (map.getLayer('grot-circle')) map.setLayoutProperty('grot-circle', 'visibility', vis);
+    if (map.getLayer('grot-label')) map.setLayoutProperty('grot-label', 'visibility', vis);
+  }, [overlays.grothogar, mapLibreReady]);
+
   // === Produktionshögar: Klick-popup ===
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -1683,7 +1726,6 @@ export default function PlannerPage() {
         coords[0] += e.lngLat.lng > coords[0] ? 360 : -360;
       }
       const volym = parseFloat(p.volym).toFixed(2);
-      alert(`Hög klickad: ${volym} m³, ${p.stammar} stammar, ${p.tradslag}`);
       const maplibregl = (window as any).maplibregl;
       if (!maplibregl) return;
       new maplibregl.Popup({ offset: 12, closeButton: true, maxWidth: '220px' })
@@ -1710,13 +1752,58 @@ export default function PlannerPage() {
     };
   }, [mapLibreReady]);
 
-  // === Produktionshögar: Hämta och klustra HPR-stammar ===
+  // === GROT-högar: Klick-popup ===
   useEffect(() => {
     const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !valtObjekt?.id || !overlays.produktionshogar) {
+    if (!map || !mapLibreReady) return;
+
+    const handleGrotClick = (e: any) => {
+      if (!e.features?.length) return;
+      e.originalEvent?.stopPropagation();
+      const p = e.features[0].properties;
+      const coords = e.features[0].geometry.coordinates.slice();
+      while (Math.abs(e.lngLat.lng - coords[0]) > 180) {
+        coords[0] += e.lngLat.lng > coords[0] ? 360 : -360;
+      }
+      const volym = parseFloat(p.volym).toFixed(2);
+      const maplibregl = (window as any).maplibregl;
+      if (!maplibregl) return;
+      new maplibregl.Popup({ offset: 12, closeButton: true, maxWidth: '220px' })
+        .setLngLat(coords)
+        .setHTML(`<div style="font-family:system-ui;font-size:13px;line-height:1.7;padding:2px 0">
+          <div style="font-weight:700;font-size:16px;margin-bottom:2px;color:#f59e0b">GROT-h\u00F6g</div>
+          <div style="font-weight:600">${volym} m\u00B3</div>
+          <div>${p.tradslag}</div>
+          <div>${p.stammar} stammar</div>
+          ${p.datum ? `<div style="color:#888;font-size:11px;margin-top:2px">${p.datum}</div>` : ''}
+        </div>`)
+        .addTo(map);
+    };
+    const handleEnterG = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const handleLeaveG = () => { map.getCanvas().style.cursor = ''; };
+
+    map.on('click', 'grot-circle', handleGrotClick);
+    map.on('mouseenter', 'grot-circle', handleEnterG);
+    map.on('mouseleave', 'grot-circle', handleLeaveG);
+
+    return () => {
+      map.off('click', 'grot-circle', handleGrotClick);
+      map.off('mouseenter', 'grot-circle', handleEnterG);
+      map.off('mouseleave', 'grot-circle', handleLeaveG);
+    };
+  }, [mapLibreReady]);
+
+  // === Produktionshögar + GROT: Hämta och klustra HPR-stammar ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const anyActive = overlays.produktionshogar || overlays.grothogar;
+    if (!map || !mapLibreReady || !valtObjekt?.id || !anyActive) {
       // Rensa data om toggle av eller inget objekt
       if (map && map.getSource('hogar-source')) {
         (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: [] });
+      }
+      if (map && map.getSource('grot-source')) {
+        (map.getSource('grot-source') as any).setData({ type: 'FeatureCollection', features: [] });
       }
       return;
     }
@@ -1743,10 +1830,13 @@ export default function PlannerPage() {
         if (map.getSource('hogar-source')) {
           (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: [] });
         }
+        if (map.getSource('grot-source')) {
+          (map.getSource('grot-source') as any).setData({ type: 'FeatureCollection', features: [] });
+        }
         return;
       }
 
-      // Hämta stammar i batchar (max 1000 per request)
+      // Hämta stammar i batchar (max 1000 per request) — inkludera bio_energy_adaption
       const filIds = filer.map(f => f.id);
       const filDatum: Record<string, string> = {};
       filer.forEach(f => { if (f.fil_datum) filDatum[f.id] = f.fil_datum.slice(0, 10); });
@@ -1757,7 +1847,7 @@ export default function PlannerPage() {
         while (true) {
           const { data, error } = await supabase
             .from('hpr_stammar')
-            .select('lat, lng, total_volym, tradslag, hpr_fil_id')
+            .select('lat, lng, total_volym, tradslag, hpr_fil_id, bio_energy_adaption')
             .eq('hpr_fil_id', fid)
             .not('lat', 'is', null)
             .range(offset, offset + 999);
@@ -1776,6 +1866,7 @@ export default function PlannerPage() {
       const CLUSTER_RAD_LNG = 0.00016;
       const used = new Uint8Array(allStammar.length);
       const hogar: any[] = [];
+      const grotHogar: any[] = [];
 
       for (let i = 0; i < allStammar.length; i++) {
         if (used[i]) continue;
@@ -1803,10 +1894,11 @@ export default function PlannerPage() {
         const cLat = sumLat / n;
         const cLng = sumLng / n;
 
-        // Summera volym och trädslag
+        // Summera volym och trädslag, räkna GROT-stammar
         let volym = 0;
         const tradslagCount: Record<string, number> = {};
         let datum = '';
+        let grotCount = 0;
 
         for (const idx of cluster) {
           const st = allStammar[idx];
@@ -1815,6 +1907,9 @@ export default function PlannerPage() {
           tradslagCount[ts] = (tradslagCount[ts] || 0) + 1;
           if (!datum && st.hpr_fil_id && filDatum[st.hpr_fil_id]) {
             datum = filDatum[st.hpr_fil_id];
+          }
+          if (st.bio_energy_adaption) {
+            grotCount++;
           }
         }
 
@@ -1826,23 +1921,36 @@ export default function PlannerPage() {
         const color = dominantPct > 0.7 ? (TRADSLAG_COLOR[dominant] || BLANDAT_COLOR) : BLANDAT_COLOR;
 
         if (volym > 0.01) {
+          // Timmer/massa-hög (alltid)
           hogar.push({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [cLng, cLat] },
             properties: { volym: Math.round(volym * 100) / 100, tradslag, stammar: n, datum, color },
           });
+
+          // GROT-hög (om minst en stam har bio_energy_adaption)
+          if (grotCount > 0) {
+            grotHogar.push({
+              type: 'Feature' as const,
+              geometry: { type: 'Point' as const, coordinates: [cLng + 0.00008, cLat + 0.00008] }, // Liten offset så de inte överlappar helt
+              properties: { volym: Math.round(volym * 100) / 100, tradslag, stammar: grotCount, datum, color: '#f59e0b' },
+            });
+          }
         }
       }
 
-      console.log(`[HPR] ${hogar.length} högar skapade`);
+      console.log(`[HPR] ${hogar.length} timmer-hogar, ${grotHogar.length} GROT-hogar skapade`);
 
       if (map.getSource('hogar-source')) {
         (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: hogar });
       }
+      if (map.getSource('grot-source')) {
+        (map.getSource('grot-source') as any).setData({ type: 'FeatureCollection', features: grotHogar });
+      }
     };
 
     loadHogar();
-  }, [valtObjekt?.id, overlays.produktionshogar, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [valtObjekt?.id, overlays.produktionshogar, overlays.grothogar, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === MapLibre: Ritverktyg (freehand + klick) + symbolplacering ===
   useEffect(() => {
@@ -9248,6 +9356,48 @@ export default function PlannerPage() {
                     borderRadius: '50%',
                     background: '#fff',
                     transform: overlays.produktionshogar ? 'translateX(18px)' : 'translateX(0)',
+                    transition: 'transform 0.2s ease',
+                  }} />
+                </div>
+              </div>
+              <div
+                onClick={() => setOverlays(prev => ({ ...prev, grothogar: !prev.grothogar }))}
+                style={{
+                  padding: '16px 20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '50%',
+                  background: overlays.grothogar
+                    ? '#f59e0b'
+                    : 'rgba(255,255,255,0.1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s ease',
+                }} />
+                <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>GROT (grenar & toppar)</span>
+                <div style={{
+                  width: '44px',
+                  height: '26px',
+                  borderRadius: '13px',
+                  background: overlays.grothogar ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                  padding: '2px',
+                  transition: 'background 0.2s ease',
+                }}>
+                  <div style={{
+                    width: '22px',
+                    height: '22px',
+                    borderRadius: '50%',
+                    background: '#fff',
+                    transform: overlays.grothogar ? 'translateX(18px)' : 'translateX(0)',
                     transition: 'transform 0.2s ease',
                   }} />
                 </div>
