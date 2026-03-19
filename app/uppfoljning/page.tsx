@@ -461,7 +461,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
   return (
     <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflowY: 'auto', background: '#070708' }}>
-      {/* × close button in TopBar row */}
+      {/* × close button — same style as hem-knapp in TopBar */}
       <button onClick={onBack} style={{
         position: 'fixed',
         top: 10,
@@ -476,11 +476,16 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         justifyContent: 'center',
         cursor: 'pointer',
         zIndex: 1001,
+        textDecoration: 'none',
         color: 'rgba(255,255,255,0.7)',
-        fontSize: 18,
+        fontSize: 20,
         lineHeight: 1,
-        fontFamily: 'system-ui, sans-serif',
-      }}>×</button>
+      }}>
+        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
       <UppfoljningVy data={data} />
     </div>
   );
