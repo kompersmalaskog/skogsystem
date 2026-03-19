@@ -592,15 +592,33 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
               <div className="panel">
                 <div className="panel-two">
                   {[
-                    ...(!grot ? [{ label: 'Skördare', rows: [['G15h', data.skordareG15h + 'h'], ['G0 tid', data.skordareG0 + 'h'], ['Tomgång', data.skordareTomgang + 'h'], ['Korta stopp', data.skordareKortaStopp + 'h'], ['Rast', data.skordareRast + 'h'], ['Avbrott', data.skordareAvbrott + 'h']], total: (data.skordareG15h + data.skordareG0 + data.skordareTomgang + data.skordareKortaStopp + data.skordareRast + data.skordareAvbrott).toFixed(1) + 'h' }] : []),
-                    ...((!egen && !extern) ? [{ label: 'Skotare', rows: [['G15h', data.skotareG15h + 'h'], ['G0 tid', data.skotareG0 + 'h'], ['Tomgång', data.skotareTomgang + 'h'], ['Korta stopp', data.skotareKortaStopp + 'h'], ['Rast', data.skotareRast + 'h'], ['Avbrott', data.skotareAvbrott + 'h']], total: (data.skotareG15h + data.skotareG0 + data.skotareTomgang + data.skotareKortaStopp + data.skotareRast + data.skotareAvbrott).toFixed(1) + 'h' }] : []),
-                  ].map(m => (
-                    <div key={m.label} className="panel-card">
-                      <h3>{m.label}</h3>
-                      {m.rows.map(([l, v]) => <div key={l} className="row"><span className="row-label">{l}</span><span className="row-val">{v}</span></div>)}
-                      <div className="row row-total"><span className="row-label">Total tid</span><span className="row-val">{m.total}</span></div>
-                    </div>
-                  ))}
+                    ...(!grot ? [{
+                      label: 'Skördare',
+                      g15: data.skordareG15h, g0: data.skordareG0, tomgang: data.skordareTomgang,
+                      kortaStopp: data.skordareKortaStopp, avbrott: data.skordareAvbrott, rast: data.skordareRast,
+                    }] : []),
+                    ...((!egen && !extern) ? [{
+                      label: 'Skotare',
+                      g15: data.skotareG15h, g0: data.skotareG0, tomgang: data.skotareTomgang,
+                      kortaStopp: data.skotareKortaStopp, avbrott: data.skotareAvbrott, rast: data.skotareRast,
+                    }] : []),
+                  ].map(m => {
+                    const arbetstid = Math.round((m.g15 + m.avbrott) * 10) / 10;
+                    const totaltid = Math.round((arbetstid + m.rast) * 10) / 10;
+                    return (
+                      <div key={m.label} className="panel-card">
+                        <h3>{m.label}</h3>
+                        <div className="row"><span className="row-label">Grundtid G(t)</span><span className="row-val">{m.g15}h</span></div>
+                        <div className="row"><span className="row-label">Grundtid G(0)</span><span className="row-val">{m.g0}h</span></div>
+                        <div className="row"><span className="row-label">Tomgång</span><span className="row-val">{m.tomgang}h</span></div>
+                        <div className="row"><span className="row-label">Korta stopp</span><span className="row-val">{m.kortaStopp}h</span></div>
+                        <div className="row"><span className="row-label">Avbrott</span><span className="row-val">{m.avbrott}h</span></div>
+                        <div className="row row-total"><span className="row-label">Arbetstid</span><span className="row-val">{arbetstid}h</span></div>
+                        <div className="row"><span className="row-label">Rast</span><span className="row-val">{m.rast}h</span></div>
+                        <div className="row row-total"><span className="row-label">Totaltid</span><span className="row-val">{totaltid}h</span></div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
