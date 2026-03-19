@@ -411,6 +411,8 @@ export default function PlannerPage() {
     // Lantmäteriet (via proxy)
     lm_skuggning: false,
     lm_ortofoto: false,
+    // HPR produktionshögar
+    produktionshogar: false,
   });
 
   const wmsLayerGroups = [
@@ -744,6 +746,58 @@ export default function PlannerPage() {
       map.addSource('wms-korbarhet', { type: 'raster', tiles: ['/api/korbarhet-tiles?bbox={bbox-epsg-3857}&width=256&height=256'], tileSize: 256 });
       map.addLayer({ id: 'wms-layer-korbarhet', type: 'raster', source: 'wms-korbarhet', paint: { 'raster-opacity': 0.7 }, layout: { visibility: 'none' } }, 'zone-fill');
     } catch (e) { console.error('[MapLibre] korbarhet error:', e); }
+
+    // === Produktionshögar (HPR-data) ===
+    map.addSource('hogar-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'hogar-circle',
+      type: 'circle',
+      source: 'hogar-source',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['get', 'volym'], 0.1, 4, 1, 8, 5, 16, 20, 28, 50, 40],
+        'circle-color': ['get', 'color'],
+        'circle-opacity': 0.85,
+        'circle-stroke-width': 1.5,
+        'circle-stroke-color': 'rgba(255,255,255,0.6)',
+      },
+      layout: { visibility: 'none' },
+    });
+    map.addLayer({
+      id: 'hogar-label',
+      type: 'symbol',
+      source: 'hogar-source',
+      layout: {
+        'text-field': ['concat', ['to-string', ['round', ['get', 'volym']]], ''],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 14, 0, 16, 10, 18, 13],
+        'text-font': ['Open Sans Bold'],
+        'text-allow-overlap': false,
+        visibility: 'none',
+      },
+      paint: {
+        'text-color': '#fff',
+        'text-halo-color': 'rgba(0,0,0,0.7)',
+        'text-halo-width': 1,
+      },
+    });
+
+    // Popup vid klick på hög
+    map.on('click', 'hogar-circle', (e: any) => {
+      if (!e.features?.length) return;
+      const p = e.features[0].properties;
+      const coords = e.features[0].geometry.coordinates.slice();
+      const html = `<div style="font-family:system-ui;font-size:13px;line-height:1.6;min-width:140px">
+        <div style="font-weight:700;font-size:15px;margin-bottom:4px">${parseFloat(p.volym).toFixed(2)} m³</div>
+        <div style="color:#aaa">${p.tradslag}</div>
+        <div style="color:#aaa">${p.stammar} stammar</div>
+        ${p.datum ? `<div style="color:#666;font-size:11px;margin-top:4px">${p.datum}</div>` : ''}
+      </div>`;
+      new (window as any).maplibregl.Popup({ offset: 10, closeButton: false })
+        .setLngLat(coords)
+        .setHTML(html)
+        .addTo(map);
+    });
+    map.on('mouseenter', 'hogar-circle', () => { map.getCanvas().style.cursor = 'pointer'; });
+    map.on('mouseleave', 'hogar-circle', () => { map.getCanvas().style.cursor = ''; });
 
     // Ensure base map layer visibility matches current mapType
     const setBaseVis = (id: string, vis: boolean) => {
@@ -1615,6 +1669,149 @@ export default function PlannerPage() {
       }
     });
   }, [overlays, mapLibreReady]);
+
+  // === Produktionshögar: Toggle visibility ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const vis = overlays.produktionshogar ? 'visible' : 'none';
+    if (map.getLayer('hogar-circle')) map.setLayoutProperty('hogar-circle', 'visibility', vis);
+    if (map.getLayer('hogar-label')) map.setLayoutProperty('hogar-label', 'visibility', vis);
+  }, [overlays.produktionshogar, mapLibreReady]);
+
+  // === Produktionshögar: Hämta och klustra HPR-stammar ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !valtObjekt?.id || !overlays.produktionshogar) {
+      // Rensa data om toggle av eller inget objekt
+      if (map && map.getSource('hogar-source')) {
+        (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: [] });
+      }
+      return;
+    }
+
+    const TRADSLAG_COLOR: Record<string, string> = {
+      'GRAN': '#2d6a4f',
+      'TALL': '#a0522d',
+      'BJÖRK': '#c8c8c8',
+      'ÖVR_LÖV': '#8fbc8f',
+    };
+    const BLANDAT_COLOR = '#6b7c3a';
+
+    const loadHogar = async () => {
+      console.log('[HPR] Laddar stammar för objekt', valtObjekt.id);
+
+      // Hämta alla hpr_filer för detta objekt
+      const { data: filer, error: filErr } = await supabase
+        .from('hpr_filer')
+        .select('id, fil_datum')
+        .eq('objekt_id', valtObjekt.id);
+
+      if (filErr || !filer || filer.length === 0) {
+        console.log('[HPR] Inga HPR-filer för detta objekt');
+        if (map.getSource('hogar-source')) {
+          (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: [] });
+        }
+        return;
+      }
+
+      // Hämta stammar i batchar (max 1000 per request)
+      const filIds = filer.map(f => f.id);
+      const filDatum: Record<string, string> = {};
+      filer.forEach(f => { if (f.fil_datum) filDatum[f.id] = f.fil_datum.slice(0, 10); });
+
+      let allStammar: any[] = [];
+      for (const fid of filIds) {
+        let offset = 0;
+        while (true) {
+          const { data, error } = await supabase
+            .from('hpr_stammar')
+            .select('lat, lng, total_volym, tradslag, hpr_fil_id')
+            .eq('hpr_fil_id', fid)
+            .not('lat', 'is', null)
+            .range(offset, offset + 999);
+          if (error || !data || data.length === 0) break;
+          allStammar = allStammar.concat(data);
+          if (data.length < 1000) break;
+          offset += 1000;
+        }
+      }
+
+      console.log(`[HPR] ${allStammar.length} stammar hämtade, klustrar...`);
+
+      // Klustra stammar inom ~10m radie
+      // 10m ≈ 0.00009 grader lat, 0.00016 grader lng vid 56°N
+      const CLUSTER_RAD_LAT = 0.00009;
+      const CLUSTER_RAD_LNG = 0.00016;
+      const used = new Uint8Array(allStammar.length);
+      const hogar: any[] = [];
+
+      for (let i = 0; i < allStammar.length; i++) {
+        if (used[i]) continue;
+        const s = allStammar[i];
+        if (!s.lat || !s.lng) continue;
+
+        const cluster = [i];
+        used[i] = 1;
+        let sumLat = s.lat, sumLng = s.lng;
+
+        for (let j = i + 1; j < allStammar.length; j++) {
+          if (used[j]) continue;
+          const t = allStammar[j];
+          if (!t.lat || !t.lng) continue;
+          if (Math.abs(t.lat - s.lat) < CLUSTER_RAD_LAT && Math.abs(t.lng - s.lng) < CLUSTER_RAD_LNG) {
+            cluster.push(j);
+            used[j] = 1;
+            sumLat += t.lat;
+            sumLng += t.lng;
+          }
+        }
+
+        // Centroid
+        const n = cluster.length;
+        const cLat = sumLat / n;
+        const cLng = sumLng / n;
+
+        // Summera volym och trädslag
+        let volym = 0;
+        const tradslagCount: Record<string, number> = {};
+        let datum = '';
+
+        for (const idx of cluster) {
+          const st = allStammar[idx];
+          volym += st.total_volym || 0;
+          const ts = st.tradslag || 'OKÄNT';
+          tradslagCount[ts] = (tradslagCount[ts] || 0) + 1;
+          if (!datum && st.hpr_fil_id && filDatum[st.hpr_fil_id]) {
+            datum = filDatum[st.hpr_fil_id];
+          }
+        }
+
+        // Dominant trädslag
+        const sorted = Object.entries(tradslagCount).sort((a, b) => b[1] - a[1]);
+        const dominant = sorted[0][0];
+        const dominantPct = sorted[0][1] / n;
+        const tradslag = sorted.map(([k, v]) => `${k} ${Math.round(100 * v / n)}%`).join(', ');
+        const color = dominantPct > 0.7 ? (TRADSLAG_COLOR[dominant] || BLANDAT_COLOR) : BLANDAT_COLOR;
+
+        if (volym > 0.01) {
+          hogar.push({
+            type: 'Feature' as const,
+            geometry: { type: 'Point' as const, coordinates: [cLng, cLat] },
+            properties: { volym: Math.round(volym * 100) / 100, tradslag, stammar: n, datum, color },
+          });
+        }
+      }
+
+      console.log(`[HPR] ${hogar.length} högar skapade`);
+
+      if (map.getSource('hogar-source')) {
+        (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: hogar });
+      }
+    };
+
+    loadHogar();
+  }, [valtObjekt?.id, overlays.produktionshogar, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === MapLibre: Ritverktyg (freehand + klick) + symbolplacering ===
   useEffect(() => {
@@ -8963,6 +9160,67 @@ export default function PlannerPage() {
                   </div>
                 </div>
               ))}
+            </div>
+
+            {/* Produktionshögar (HPR) */}
+            <div style={{
+              background: '#0a0a0a',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              <div style={{
+                padding: '12px 16px 8px',
+                fontSize: '11px',
+                opacity: 0.4,
+                textTransform: 'uppercase',
+                letterSpacing: '1px'
+              }}>
+                Produktionsdata
+              </div>
+              <div
+                onClick={() => setOverlays(prev => ({ ...prev, produktionshogar: !prev.produktionshogar }))}
+                style={{
+                  padding: '16px 20px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '16px',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{
+                  width: '28px',
+                  height: '28px',
+                  borderRadius: '50%',
+                  background: overlays.produktionshogar
+                    ? 'radial-gradient(circle, #2d6a4f 40%, #a0522d 100%)'
+                    : 'rgba(255,255,255,0.1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s ease',
+                }} />
+                <span style={{ flex: 1, fontSize: '15px', color: '#fff' }}>Avverkade stammar</span>
+                <div style={{
+                  width: '44px',
+                  height: '26px',
+                  borderRadius: '13px',
+                  background: overlays.produktionshogar ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                  padding: '2px',
+                  transition: 'background 0.2s ease',
+                }}>
+                  <div style={{
+                    width: '22px',
+                    height: '22px',
+                    borderRadius: '50%',
+                    background: '#fff',
+                    transform: overlays.produktionshogar ? 'translateX(18px)' : 'translateX(0)',
+                    transition: 'transform 0.2s ease',
+                  }} />
+                </div>
+              </div>
             </div>
 
             {/* Zontyper - visas om zoner är på */}
