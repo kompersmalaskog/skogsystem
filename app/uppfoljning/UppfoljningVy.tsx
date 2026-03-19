@@ -342,11 +342,11 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         .forare-header { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:10px; color:var(--text-ter); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px; }
         .forare-row { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:12px; color:var(--text-sec); padding:5px 0; }
         .forare-list { margin-top:10px; padding-top:10px; border-top:1px solid var(--border); }
-        .tabs-wrap { display:flex; margin-top:1.75rem; border-bottom:1px solid var(--border); overflow-x:auto; position:relative; scrollbar-width:none; -ms-overflow-style:none; }
+        .tabs-wrap { display:flex; margin-top:1.75rem; border-top:1px solid var(--border-strong); border-bottom:1px solid var(--border); overflow-x:auto; position:relative; scrollbar-width:none; -ms-overflow-style:none; padding-top:4px; }
         .tabs-wrap::-webkit-scrollbar { display:none; }
-        .tab-btn { padding:8px 16px; font-size:11px; font-weight:500; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-ter); background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; white-space:nowrap; font-family:inherit; transition:color 0.25s; }
+        .tab-btn { padding:12px 20px; font-size:12px; font-weight:500; letter-spacing:0.04em; text-transform:uppercase; color:#888; background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; white-space:nowrap; font-family:inherit; transition:color 0.25s, background 0.25s; border-radius:6px 6px 0 0; }
         .tab-btn:hover { color:var(--text-sec); }
-        .tab-active { color:var(--text) !important; }
+        .tab-active { color:var(--text) !important; background:rgba(255,255,255,0.08); }
         .tab-slider { position:absolute; bottom:-1px; height:2px; background:linear-gradient(90deg,rgba(255,255,255,0.2),rgba(255,255,255,0.7),rgba(255,255,255,0.2)); border-radius:2px; transition:left 0.35s cubic-bezier(0.34,1.2,0.64,1), width 0.35s cubic-bezier(0.34,1.2,0.64,1); pointer-events:none; box-shadow:0 0 8px rgba(255,255,255,0.3); }
         .panel { padding:1.5rem 0; }
         .panel-two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
