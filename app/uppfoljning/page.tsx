@@ -120,12 +120,20 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       }
 
       const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes, dimOperatorRes] = await Promise.all([
-        supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
+        supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
         supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar, processtyp, tradslag_id').in('objekt_id', ids),
         supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
         supabase.from('dim_tradslag').select('tradslag_id, namn'),
-        supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek').in('objekt_id', ids),
+        (() => {
+          // Query fakt_avbrott by both objekt_id and maskin_id to catch data stored under different objekt_ids
+          const avbrottMids = [obj.skordareModellMaskinId, obj.skotareModellMaskinId].filter(Boolean) as string[];
+          if (avbrottMids.length > 0) {
+            return supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum')
+              .or(`objekt_id.in.(${ids.join(',')}),maskin_id.in.(${avbrottMids.join(',')})`);
+          }
+          return supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').in('objekt_id', ids);
+        })(),
         stId ? supabase.from('fakt_lass').select('objekt_id, datum, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
         stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
         supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
@@ -155,7 +163,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
       // Build time data with per-day breakdown
       const buildTid = (rows: any[]) => {
-        let processing = 0, terrain = 0, otherWork = 0, maintenance = 0, disturbance = 0, rast = 0, kortStopp = 0, diesel = 0, engineTime = 0, tomgangTotal = 0;
+        let processing = 0, terrain = 0, otherWork = 0, maintenance = 0, disturbance = 0, avbrottSek = 0, rast = 0, kortStopp = 0, diesel = 0, engineTime = 0, tomgangTotal = 0;
         const perDag = new Map<string, any>();
 
         rows.forEach(r => {
@@ -164,6 +172,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           const o = r.other_work_sek || 0;
           const m = r.maintenance_sek || 0;
           const di = r.disturbance_sek || 0;
+          const ab = r.avbrott_sek || 0;
           const ra = r.rast_sek || 0;
           const ks = r.kort_stopp_sek || 0;
           const d = r.bransle_liter || 0;
@@ -171,7 +180,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           const tg = r.tomgang_sek || 0;
 
           processing += p; terrain += t; otherWork += o;
-          maintenance += m; disturbance += di; rast += ra;
+          maintenance += m; disturbance += di; avbrottSek += ab; rast += ra;
           kortStopp += ks; diesel += d; engineTime += et; tomgangTotal += tg;
 
           const datum = r.datum;
@@ -200,7 +209,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           g15: Math.round(g15h * 10) / 10,
           g0: Math.round(g0h * 10) / 10,
           kortaStopp: kortStopp / 3600,
-          avbrott: (maintenance + disturbance) / 3600,
+          avbrott: (maintenance + disturbance + avbrottSek) / 3600,
           rast: rast / 3600,
           tomgang: tomgangTotal / 3600,
           dieselTot: diesel,
@@ -257,10 +266,20 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         .map(([namn, vol]) => ({ namn, m3: Math.round(vol) }))
         .sort((a, b) => b.m3 - a.m3);
 
-      // Avbrott
-      const buildAvbrott = (rows: any[]): AvbrottRad[] => {
-        const m = new Map<string, { tid: number; antal: number; typ: string }>();
+      // Avbrott — deduplicate rows from overlapping MOM files before aggregating
+      const deduplicateAvbrott = (rows: any[]): any[] => {
+        // Group by datum+maskin_id+kategori_kod+typ, keep the entry with the longest duration (latest MOM file)
+        const groups = new Map<string, any>();
         rows.forEach(r => {
+          const key = `${r.datum}|${r.maskin_id}|${r.kategori_kod}|${r.typ}|${r.langd_sek}`;
+          if (!groups.has(key)) groups.set(key, r);
+        });
+        return Array.from(groups.values());
+      };
+      const buildAvbrott = (rows: any[]): AvbrottRad[] => {
+        const deduped = deduplicateAvbrott(rows);
+        const m = new Map<string, { tid: number; antal: number; typ: string }>();
+        deduped.forEach(r => {
           const orsak = r.kategori_kod || r.typ || 'Övrigt';
           const typ = r.typ || 'Övrigt';
           const prev = m.get(orsak) || { tid: 0, antal: 0, typ };
@@ -272,8 +291,23 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           .map(([orsak, v]) => ({ orsak, typ: v.typ, tid: `${(v.tid / 3600).toFixed(1)}h`, antal: v.antal }))
           .sort((a, b) => parseFloat(b.tid) - parseFloat(a.tid));
       };
-      const skAvbrott = skId ? avbrottRows.filter((r: any) => r.objekt_id === skId && (!shared || !skMid || r.maskin_id === skMid)) : [];
-      const stAvbrott = stId ? avbrottRows.filter((r: any) => r.objekt_id === stId && (!shared || !stMid || r.maskin_id === stMid)) : [];
+      // Filter avbrott: match by objekt_id OR by maskin_id (for data stored under different objekt_ids)
+      // Use fakt_tid date range to scope maskin_id-based matches
+      const skDatumSet = new Set(skTidRows.map((r: any) => r.datum).filter(Boolean));
+      const stDatumSet = new Set(stTidRows.map((r: any) => r.datum).filter(Boolean));
+      const skAvbrott = skMid ? avbrottRows.filter((r: any) => {
+        if (r.maskin_id === skMid) {
+          // Match by maskin_id: accept if objekt_id matches OR datum falls within work period
+          return r.objekt_id === skId || skDatumSet.has(r.datum);
+        }
+        return r.objekt_id === skId && !shared;
+      }) : (skId ? avbrottRows.filter((r: any) => r.objekt_id === skId) : []);
+      const stAvbrott = stMid ? avbrottRows.filter((r: any) => {
+        if (r.maskin_id === stMid) {
+          return r.objekt_id === stId || stDatumSet.has(r.datum);
+        }
+        return r.objekt_id === stId && !shared;
+      }) : (stId ? avbrottRows.filter((r: any) => r.objekt_id === stId) : []);
 
       // Lass
       let totalLassVol = 0, totalKor = 0;
@@ -430,11 +464,11 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         skotareL_G15h: dieselPerG15St,
         dieselSkordare,
         dieselSkotare,
-        // Avbrott — total computed from same fakt_avbrott rows as detail list
+        // Avbrott — deduplicated totals from fakt_avbrott
         avbrottSkordare: buildAvbrott(skAvbrott),
-        avbrottSkordare_totalt: `${(skAvbrott.reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
+        avbrottSkordare_totalt: `${(deduplicateAvbrott(skAvbrott).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
         avbrottSkotare: buildAvbrott(stAvbrott),
-        avbrottSkotareTotalt: `${(stAvbrott.reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
+        avbrottSkotareTotalt: `${(deduplicateAvbrott(stAvbrott).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
         // Skotarproduktion
         antalLass,
         snittlassM3: snittLass,
