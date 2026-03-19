@@ -50,6 +50,33 @@ async function hamtaMaskinerFranSupabase() {
 }
 
 async function sparaObjektTillSupabase(obj) {
+  // Build ovrigt_info JSON from extern skotning fields
+  let ovrigtInfo = null;
+  if (obj._extern_skotning) {
+    ovrigtInfo = JSON.stringify({
+      extern_skotning: true,
+      extern_foretag: obj._extern_foretag || '',
+      extern_pris_typ: obj._extern_pris_typ || 'm3',
+      extern_pris: obj._extern_pris || 0,
+      extern_antal: obj._extern_antal || 0,
+    });
+  } else if (obj.ovrigt_info) {
+    // If extern was turned off but there was old ovrigt_info, clear extern fields
+    try {
+      const parsed = JSON.parse(obj.ovrigt_info);
+      if (parsed.extern_skotning) {
+        delete parsed.extern_skotning;
+        delete parsed.extern_foretag;
+        delete parsed.extern_pris_typ;
+        delete parsed.extern_pris;
+        delete parsed.extern_antal;
+        ovrigtInfo = Object.keys(parsed).length > 0 ? JSON.stringify(parsed) : null;
+      } else {
+        ovrigtInfo = obj.ovrigt_info;
+      }
+    } catch { ovrigtInfo = obj.ovrigt_info; }
+  }
+
   const res = await fetch(`${SUPABASE_URL}/rest/v1/dim_objekt?objekt_id=eq.${obj.objekt_id}`, {
     method: 'PATCH',
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}`, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
@@ -64,12 +91,30 @@ async function sparaObjektTillSupabase(obj) {
       stubbbehandling: obj.stubbbehandling || false,
       extra_vagn: obj.extra_vagn || false,
       skordning_avslutad: obj.skordning_avslutad || null,
-      skotning_avslutad: obj.skotning_avslutad || null
+      skotning_avslutad: obj.skotning_avslutad || null,
+      ovrigt_info: ovrigtInfo,
     })
   })
   return res.ok
 }
 // === SLUT SUPABASE ===
+
+function parseExternSkotning(obj) {
+  const copy = { ...obj };
+  try {
+    if (obj.ovrigt_info) {
+      const parsed = JSON.parse(obj.ovrigt_info);
+      if (parsed.extern_skotning) {
+        copy._extern_skotning = true;
+        copy._extern_foretag = parsed.extern_foretag || '';
+        copy._extern_pris_typ = parsed.extern_pris_typ || 'm3';
+        copy._extern_pris = parsed.extern_pris || 0;
+        copy._extern_antal = parsed.extern_antal || 0;
+      }
+    }
+  } catch {}
+  return copy;
+}
 
 function getSaknas(obj) {
   if (obj.exkludera) return []
@@ -642,6 +687,19 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
         ))}
       </div>
 
+      <div style={styles.sectionLabel}>Extern skotning</div>
+      <div style={styles.switchList}>
+        <EgenskapSwitch label="Extern skotare (inlejd)" active={valtObjekt._extern_skotning === true} onClick={() => setValtObjekt({...valtObjekt, _extern_skotning: !valtObjekt._extern_skotning})} />
+      </div>
+      {valtObjekt._extern_skotning && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+          <LockedInput label="Företag / person" value={valtObjekt._extern_foretag || ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_foretag: v})} placeholder="Namn på extern skotare..." />
+          <SimpleChipSelect label="Pristyp" value={valtObjekt._extern_pris_typ || 'm3'} options={['m3', 'timme']} onChange={(v) => setValtObjekt({...valtObjekt, _extern_pris_typ: v})} />
+          <LockedInput label={`Pris per ${valtObjekt._extern_pris_typ === 'timme' ? 'timme' : 'm³'} (kr)`} value={valtObjekt._extern_pris ? String(valtObjekt._extern_pris) : ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_pris: parseFloat(v) || 0})} placeholder="0" />
+          <LockedInput label={`Antal ${valtObjekt._extern_pris_typ === 'timme' ? 'timmar' : 'm³'}`} value={valtObjekt._extern_antal ? String(valtObjekt._extern_antal) : ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_antal: parseFloat(v) || 0})} placeholder="0" />
+        </div>
+      )}
+
       <div style={styles.sectionLabel}>Avslut</div>
       <div style={styles.switchList}>
         <DateToggle 
@@ -796,7 +854,7 @@ export default function ObjektRedigering() {
       ) : (
         <div style={styles.lista}>
           {ofullstandiga.map((obj, i) => (
-            <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => setValtObjekt({...obj})}>
+            <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => setValtObjekt(parseExternSkotning(obj))}>
               <div style={styles.kortInner}>
                 <div style={styles.kortTop}>
                   <div style={{flex: 1}}>
@@ -823,7 +881,7 @@ export default function ObjektRedigering() {
           </div>
           <div style={styles.lista}>
             {exkluderade.map((obj, i) => (
-              <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => setValtObjekt({...obj})}>
+              <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => setValtObjekt(parseExternSkotning(obj))}>
                 <div style={{...styles.kortInner, opacity: 0.5}}>
                   <div style={styles.kortTop}>
                     <div style={{flex: 1}}>
@@ -1016,7 +1074,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
 
       <div style={styles.lista}>
         {filtered.map((obj, i) => (
-          <AnimatedCard key={obj.objekt_id} delay={i * 40} onClick={() => setValtObjekt({...obj})}>
+          <AnimatedCard key={obj.objekt_id} delay={i * 40} onClick={() => setValtObjekt(parseExternSkotning(obj))}>
             <div style={styles.kortInner}>
               <div style={styles.kortTop}>
                 <div style={{flex: 1}}>

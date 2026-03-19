@@ -42,6 +42,11 @@ interface UppfoljningObjekt {
   status: 'pagaende' | 'avslutat';
   egenSkotning: boolean;
   grotSkotning: boolean;
+  externSkotning: boolean;
+  externForetag: string;
+  externPrisTyp: 'm3' | 'timme';
+  externPris: number;
+  externAntal: number;
 }
 
 /* ── Helpers ── */
@@ -444,6 +449,11 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         kvarPct,
         egenSkotning: obj.egenSkotning,
         grotSkotning: obj.grotSkotning,
+        externSkotning: obj.externSkotning,
+        externForetag: obj.externForetag,
+        externPrisTyp: obj.externPrisTyp,
+        externPris: obj.externPris,
+        externAntal: obj.externAntal,
         maskiner,
         // Tid — all in hours
         skordareG15h: skTid.g15,
@@ -543,7 +553,9 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
   return {
     objektNamn: obj.namn,
-    skordat: 0, skotat: 0, kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning, maskiner: [],
+    skordat: 0, skotat: 0, kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning,
+    externSkotning: obj.externSkotning, externForetag: obj.externForetag, externPrisTyp: obj.externPrisTyp, externPris: obj.externPris, externAntal: obj.externAntal,
+    maskiner: [],
     skordareG15h: 0, skordareG0: 0, skordareTomgang: 0, skordareKortaStopp: 0, skordareRast: 0, skordareAvbrott: 0,
     skotareG15h: 0, skotareG0: 0, skotareTomgang: 0, skotareKortaStopp: 0, skotareRast: 0, skotareAvbrott: 0,
     skordareM3G15h: 0, skordareStammarG15h: 0, skordareMedelstam: 0,
@@ -810,6 +822,33 @@ export default function UppfoljningPage() {
           status: allDone ? 'avslutat' : 'pagaende',
           egenSkotning: entries.some((e: any) => e.egen_skotning === true),
           grotSkotning: entries.some((e: any) => e.risskotning === true),
+          externSkotning: entries.some((e: any) => {
+            try { return e.ovrigt_info && JSON.parse(e.ovrigt_info).extern_skotning === true; } catch { return false; }
+          }),
+          externForetag: (() => {
+            for (const e of entries) {
+              try { const p = e.ovrigt_info && JSON.parse(e.ovrigt_info); if (p?.extern_skotning) return p.extern_foretag || ''; } catch {}
+            }
+            return '';
+          })(),
+          externPrisTyp: (() => {
+            for (const e of entries) {
+              try { const p = e.ovrigt_info && JSON.parse(e.ovrigt_info); if (p?.extern_skotning) return p.extern_pris_typ || 'm3'; } catch {}
+            }
+            return 'm3' as const;
+          })(),
+          externPris: (() => {
+            for (const e of entries) {
+              try { const p = e.ovrigt_info && JSON.parse(e.ovrigt_info); if (p?.extern_skotning) return p.extern_pris || 0; } catch {}
+            }
+            return 0;
+          })(),
+          externAntal: (() => {
+            for (const e of entries) {
+              try { const p = e.ovrigt_info && JSON.parse(e.ovrigt_info); if (p?.extern_skotning) return p.extern_antal || 0; } catch {}
+            }
+            return 0;
+          })(),
         });
       });
 
