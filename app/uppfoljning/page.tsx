@@ -460,8 +460,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
   }
 
   return (
-    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflowY: 'auto', background: '#070708' }}>
-      {/* × close button — same style as hem-knapp in TopBar */}
+    <>
+      {/* × close button — rendered outside scroll container, same style as TopBar hem-knapp */}
       <button onClick={onBack} style={{
         position: 'fixed',
         top: 10,
@@ -476,7 +476,6 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         justifyContent: 'center',
         cursor: 'pointer',
         zIndex: 1001,
-        textDecoration: 'none',
         color: 'rgba(255,255,255,0.7)',
         fontSize: 20,
         lineHeight: 1,
@@ -486,8 +485,10 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
           <line x1="6" y1="6" x2="18" y2="18" />
         </svg>
       </button>
-      <UppfoljningVy data={data} />
-    </div>
+      <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflowY: 'auto', background: '#070708' }}>
+        <UppfoljningVy data={data} />
+      </div>
+    </>
   );
 }
 
