@@ -430,11 +430,11 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         skotareL_G15h: dieselPerG15St,
         dieselSkordare,
         dieselSkotare,
-        // Avbrott
+        // Avbrott — total computed from same fakt_avbrott rows as detail list
         avbrottSkordare: buildAvbrott(skAvbrott),
-        avbrottSkordare_totalt: `${skTid.avbrott.toFixed(1)}h`,
+        avbrottSkordare_totalt: `${(skAvbrott.reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
         avbrottSkotare: buildAvbrott(stAvbrott),
-        avbrottSkotareTotalt: `${stTid.avbrott.toFixed(1)}h`,
+        avbrottSkotareTotalt: `${(stAvbrott.reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
         // Skotarproduktion
         antalLass,
         snittlassM3: snittLass,
