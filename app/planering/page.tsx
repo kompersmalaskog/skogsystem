@@ -749,16 +749,23 @@ export default function PlannerPage() {
 
     // === Produktionshögar (HPR-data) ===
     map.addSource('hogar-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    // Cirkelradie: volym-baserad storlek * zoom-baserad skalning
+    // Utzoomad (z13): liten, inzoomad (z18): stor
+    const hogarRadius = [
+      '*',
+      ['interpolate', ['linear'], ['get', 'volym'], 0.1, 2, 1, 3, 5, 5, 20, 8, 50, 12],
+      ['interpolate', ['exponential', 1.5], ['zoom'], 13, 0.4, 15, 0.8, 16, 1.2, 17, 2, 18, 3],
+    ] as any;
     map.addLayer({
       id: 'hogar-circle',
       type: 'circle',
       source: 'hogar-source',
       paint: {
-        'circle-radius': ['interpolate', ['linear'], ['get', 'volym'], 0.1, 4, 1, 8, 5, 16, 20, 28, 50, 40],
+        'circle-radius': hogarRadius,
         'circle-color': ['get', 'color'],
-        'circle-opacity': 0.85,
-        'circle-stroke-width': 1.5,
-        'circle-stroke-color': 'rgba(255,255,255,0.6)',
+        'circle-opacity': 0.8,
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 17, 1.5],
+        'circle-stroke-color': 'rgba(255,255,255,0.5)',
       },
       layout: { visibility: 'none' },
     });
@@ -768,7 +775,7 @@ export default function PlannerPage() {
       source: 'hogar-source',
       layout: {
         'text-field': ['concat', ['to-string', ['round', ['get', 'volym']]], ''],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 14, 0, 16, 10, 18, 13],
+        'text-size': ['interpolate', ['linear'], ['zoom'], 15, 0, 17, 10, 18, 13],
         'text-font': ['Open Sans Bold'],
         'text-allow-overlap': false,
         visibility: 'none',
@@ -779,25 +786,6 @@ export default function PlannerPage() {
         'text-halo-width': 1,
       },
     });
-
-    // Popup vid klick på hög
-    map.on('click', 'hogar-circle', (e: any) => {
-      if (!e.features?.length) return;
-      const p = e.features[0].properties;
-      const coords = e.features[0].geometry.coordinates.slice();
-      const html = `<div style="font-family:system-ui;font-size:13px;line-height:1.6;min-width:140px">
-        <div style="font-weight:700;font-size:15px;margin-bottom:4px">${parseFloat(p.volym).toFixed(2)} m³</div>
-        <div style="color:#aaa">${p.tradslag}</div>
-        <div style="color:#aaa">${p.stammar} stammar</div>
-        ${p.datum ? `<div style="color:#666;font-size:11px;margin-top:4px">${p.datum}</div>` : ''}
-      </div>`;
-      new (window as any).maplibregl.Popup({ offset: 10, closeButton: false })
-        .setLngLat(coords)
-        .setHTML(html)
-        .addTo(map);
-    });
-    map.on('mouseenter', 'hogar-circle', () => { map.getCanvas().style.cursor = 'pointer'; });
-    map.on('mouseleave', 'hogar-circle', () => { map.getCanvas().style.cursor = ''; });
 
     // Ensure base map layer visibility matches current mapType
     const setBaseVis = (id: string, vis: boolean) => {
@@ -1678,6 +1666,47 @@ export default function PlannerPage() {
     if (map.getLayer('hogar-circle')) map.setLayoutProperty('hogar-circle', 'visibility', vis);
     if (map.getLayer('hogar-label')) map.setLayoutProperty('hogar-label', 'visibility', vis);
   }, [overlays.produktionshogar, mapLibreReady]);
+
+  // === Produktionshögar: Klick-popup ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+
+    const handleHogarClick = (e: any) => {
+      if (!e.features?.length) return;
+      e.originalEvent?.stopPropagation();
+      const p = e.features[0].properties;
+      const coords = e.features[0].geometry.coordinates.slice();
+      // Ensure popup at correct position when map is rotated
+      while (Math.abs(e.lngLat.lng - coords[0]) > 180) {
+        coords[0] += e.lngLat.lng > coords[0] ? 360 : -360;
+      }
+      const volym = parseFloat(p.volym).toFixed(2);
+      const maplibregl = (window as any).maplibregl;
+      if (!maplibregl) return;
+      new maplibregl.Popup({ offset: 12, closeButton: true, maxWidth: '220px' })
+        .setLngLat(coords)
+        .setHTML(`<div style="font-family:system-ui;font-size:13px;line-height:1.7;padding:2px 0">
+          <div style="font-weight:700;font-size:16px;margin-bottom:2px">${volym} m\u00B3</div>
+          <div>${p.tradslag}</div>
+          <div>${p.stammar} stammar</div>
+          ${p.datum ? `<div style="color:#888;font-size:11px;margin-top:2px">${p.datum}</div>` : ''}
+        </div>`)
+        .addTo(map);
+    };
+    const handleEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
+    const handleLeave = () => { map.getCanvas().style.cursor = ''; };
+
+    map.on('click', 'hogar-circle', handleHogarClick);
+    map.on('mouseenter', 'hogar-circle', handleEnter);
+    map.on('mouseleave', 'hogar-circle', handleLeave);
+
+    return () => {
+      map.off('click', 'hogar-circle', handleHogarClick);
+      map.off('mouseenter', 'hogar-circle', handleEnter);
+      map.off('mouseleave', 'hogar-circle', handleLeave);
+    };
+  }, [mapLibreReady]);
 
   // === Produktionshögar: Hämta och klustra HPR-stammar ===
   useEffect(() => {
