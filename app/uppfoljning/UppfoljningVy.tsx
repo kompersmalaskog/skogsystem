@@ -333,7 +333,9 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         .maskin-type { font-size:11px; color:var(--text-ter); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; font-weight:500; }
         .maskin-model { font-size:15px; font-weight:500; letter-spacing:-0.01em; }
         .badge { font-size:10px; padding:3px 9px; border-radius:20px; background:rgba(255,255,255,0.04); color:var(--text-sec); display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border); box-shadow:inset 0 1px 0 rgba(255,255,255,0.06); }
-        .badge-dot { width:5px; height:5px; border-radius:50%; background:var(--text); animation:lp 2s ease-in-out infinite; }
+        .badge-aktiv .badge-dot { width:5px; height:5px; border-radius:50%; background:#4ade80; box-shadow:0 0 6px rgba(74,222,128,0.6); animation:lp 2s ease-in-out infinite; }
+        .badge-klar { color:#6e6e73; }
+        .badge-klar .badge-dot { width:5px; height:5px; border-radius:50%; background:#6e6e73; }
         .maskin-meta { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
         .maskin-lbl { font-size:10px; color:var(--text-ter); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.04em; }
         .maskin-val { font-size:13px; color:var(--text-sec); }
@@ -472,7 +474,11 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                       <div className="maskin-type">{m.typ}</div>
                       <div className="maskin-model">{m.modell}</div>
                     </div>
-                    <div className="badge"><span className="badge-dot" />Aktiv</div>
+                    {m.slut === 'pågår' ? (
+                      <div className="badge badge-aktiv"><span className="badge-dot" />Aktiv</div>
+                    ) : (
+                      <div className="badge badge-klar"><span className="badge-dot" />Klar</div>
+                    )}
                   </div>
                   <div className="maskin-meta">
                     <div><div className="maskin-lbl">Start</div><div className="maskin-val">{m.start}</div></div>
