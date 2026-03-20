@@ -80,7 +80,7 @@ const MANAD = ['', 'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
 // ============================================================
 
 function normalizeBolag(b: string | null): string {
-  if (!b || b.trim() === '') return 'Okant'
+  if (!b || b.trim() === '') return 'Okänt'
   const lower = b.trim().toLowerCase()
   if (lower === 'vida') return 'Vida'
   if (lower === 'ata') return 'ATA'
@@ -324,7 +324,7 @@ export default function HelikopterV2Page() {
       labels,
       datasets: [
         {
-          label: 'Skordare (ack.)',
+          label: 'Skördare (ack.)',
           data: skordareAcc,
           borderColor: '#FF9F0A',
           backgroundColor: (ctx: any) => {
@@ -402,7 +402,7 @@ export default function HelikopterV2Page() {
       },
       tooltip: {
         callbacks: {
-          label: (ctx: any) => `${ctx.dataset.label}: ${ctx.parsed.y?.toLocaleString()} m\u00B3`,
+          label: (ctx: any) => `${ctx.dataset.label}: ${ctx.parsed.y?.toLocaleString()} m³fub`,
         },
       },
     },
@@ -433,7 +433,7 @@ export default function HelikopterV2Page() {
   const totalOskotat = oskotatLista.reduce((s, o) => s + (o.oskotat_m3 || 0), 0)
 
   // ============================================================
-  // Section 5: Dagsmal resterande manad
+  // Section 5: Dagsmål resterande månad
   // ============================================================
 
   const dagsmal = useMemo(() => {
@@ -451,8 +451,8 @@ export default function HelikopterV2Page() {
     return {
       kvar,
       rows: [
-        { label: 'Skordare slutavverkning', kvar: Math.max(0, slutBest - slutSkordat), perDag: kvar > 0 ? Math.max(0, slutBest - slutSkordat) / kvar : 0 },
-        { label: 'Skordare gallring', kvar: Math.max(0, gallBest - gallSkordat), perDag: kvar > 0 ? Math.max(0, gallBest - gallSkordat) / kvar : 0 },
+        { label: 'Skördare slutavverkning', kvar: Math.max(0, slutBest - slutSkordat), perDag: kvar > 0 ? Math.max(0, slutBest - slutSkordat) / kvar : 0 },
+        { label: 'Skördare gallring', kvar: Math.max(0, gallBest - gallSkordat), perDag: kvar > 0 ? Math.max(0, gallBest - gallSkordat) / kvar : 0 },
         { label: 'Skotare slutavverkning', kvar: Math.max(0, slutBest - slutSkotat), perDag: kvar > 0 ? Math.max(0, slutBest - slutSkotat) / kvar : 0 },
         { label: 'Skotare gallring', kvar: Math.max(0, gallBest - gallSkotat), perDag: kvar > 0 ? Math.max(0, gallBest - gallSkotat) / kvar : 0 },
       ],
@@ -517,10 +517,10 @@ export default function HelikopterV2Page() {
           {/* Section 1: KPI-kort */}
           {/* ============================================================ */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-            <KpiCard label="Skordat" value={Math.round(kpi.skordat).toLocaleString()} unit="m\u00B3" />
-            <KpiCard label="Skotat" value={Math.round(kpi.skotat).toLocaleString()} unit="m\u00B3" />
-            <KpiCard label="Oskotat" value={Math.round(kpi.oskotat).toLocaleString()} unit="m\u00B3" />
-            <KpiCard label="Takt" value={Math.round(kpi.takt).toLocaleString()} unit="m\u00B3/dag" />
+            <KpiCard label="Skördat" value={Math.round(kpi.skordat).toLocaleString()} unit="m³fub" />
+            <KpiCard label="Skotat" value={Math.round(kpi.skotat).toLocaleString()} unit="m³fub" />
+            <KpiCard label="Oskotat" value={Math.round(kpi.oskotat).toLocaleString()} unit="m³fub" />
+            <KpiCard label="Takt" value={Math.round(kpi.takt).toLocaleString()} unit="m³fub/dag" />
           </div>
 
           {/* ============================================================ */}
@@ -528,7 +528,7 @@ export default function HelikopterV2Page() {
           {/* ============================================================ */}
           <div style={{ ...card, marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <span style={{ fontSize: 14, fontWeight: 600 }}>Bolag - levererat vs lovat</span>
+              <span style={{ fontSize: 14, fontWeight: 600 }}>Bolag — levererat vs lovat</span>
             </div>
             <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
               <Tab label="Alla" active={bolagFilter === 'alla'} onClick={() => setBolagFilter('alla')} />
@@ -556,7 +556,7 @@ export default function HelikopterV2Page() {
                       </>
                     ) : (
                       <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>
-                        {Math.round(row.skotat).toLocaleString()} m&sup3; &middot; Ingen bestallning
+                        {Math.round(row.skotat).toLocaleString()} m³fub &middot; Ingen beställning
                       </span>
                     )}
                   </div>
@@ -579,7 +579,7 @@ export default function HelikopterV2Page() {
           {/* Section 3: Trend-graf */}
           {/* ============================================================ */}
           <div style={{ ...card, marginBottom: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Trend - ackumulerat</div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Trend — ackumulerat</div>
             <div style={{ height: 280 }}>
               <Line data={chartData} options={chartOptions} plugins={[todayLinePlugin]} />
             </div>
@@ -592,7 +592,7 @@ export default function HelikopterV2Page() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: 14, fontWeight: 600 }}>Oskotat virke</span>
               <span style={{ fontSize: 18, fontWeight: 700, color: muted, fontVariantNumeric: 'tabular-nums' }}>
-                {Math.round(totalOskotat).toLocaleString()} m&sup3;
+                {Math.round(totalOskotat).toLocaleString()} m³fub
               </span>
             </div>
             <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
@@ -619,7 +619,7 @@ export default function HelikopterV2Page() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, marginLeft: 8 }}>
-                  <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{Math.round(o.oskotat_m3)} m&sup3;</span>
+                  <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{Math.round(o.oskotat_m3)} m³fub</span>
                   <span style={{
                     fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 8,
                     background: `${statusColor(o.dagarLive)}20`,
@@ -638,12 +638,12 @@ export default function HelikopterV2Page() {
           </div>
 
           {/* ============================================================ */}
-          {/* Section 5: Dagsmal resterande manad */}
+          {/* Section 5: Dagsmål resterande månad */}
           {/* ============================================================ */}
           {dagsmal && dagsmal.kvar > 0 && (
             <div style={{ ...card, marginBottom: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
-                <span style={{ fontSize: 14, fontWeight: 600 }}>Dagsmal resterande</span>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>Dagsmål resterande</span>
                 <span style={{ fontSize: 12, color: muted }}>{dagsmal.kvar} arbetsdagar</span>
               </div>
 
@@ -656,10 +656,10 @@ export default function HelikopterV2Page() {
                   <span style={{ fontSize: 12, color: muted }}>{row.label}</span>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                     <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)' }}>
-                      {Math.round(row.kvar).toLocaleString()} m&sup3;
+                      {Math.round(row.kvar).toLocaleString()} m³fub
                     </span>
                     <span style={{ fontSize: 18, fontWeight: 700, color: text, fontVariantNumeric: 'tabular-nums' }}>
-                      {Math.round(row.perDag)} m&sup3;/d
+                      {Math.round(row.perDag)} m³fub/d
                     </span>
                   </div>
                 </div>
@@ -669,7 +669,7 @@ export default function HelikopterV2Page() {
 
           {manadAvslutad && dagsmal === null && (
             <div style={{ ...card, marginBottom: 20, textAlign: 'center', color: muted, fontSize: 12 }}>
-              Manaden ar avslutad
+              Månaden är avslutad
             </div>
           )}
         </div>
