@@ -7,7 +7,7 @@ import dynamic from 'next/dynamic'
 const ForestBackground = dynamic(() => import('./ForestBackground'), { ssr: false })
 const SplashScreen = dynamic(() => import('./SplashScreen'), { ssr: false })
 
-const apps: { href: string; label: string; icon: string; color: string; img?: string }[] = [
+const apps: { href: string; label: string; icon: string; color: string; img?: string; badge?: string }[] = [
   { href: '/uppfoljning', label: 'Uppföljning', icon: '', color: '#007AFF', img: '/uppfoljning-icon.png' },
   { href: '/maskinvy', label: 'Maskinvy', icon: '🚜', color: '#34C759' },
   { href: '/arbetsrapport', label: 'Arbetsrapport', icon: '', color: '#FF9500', img: '/arbetsrapport-icon.png' },
@@ -21,6 +21,7 @@ const apps: { href: string; label: string; icon: string; color: string; img?: st
   { href: '/kalibrering', label: 'Kalibrering', icon: '⚙️', color: '#8E8E93' },
   { href: '/bestallningar', label: 'Beställningar', icon: '📦', color: '#FF3B30' },
   { href: '/helikopter', label: 'Helikopter', icon: '🚁', color: '#007AFF' },
+  { href: '/helikopter-v2', label: 'Helikopter 2', icon: '🚁', color: '#007AFF', badge: '2' },
   { href: '/forbattringsforslag', label: 'Förslag', icon: '💡', color: '#FFCC00' },
 ]
 
@@ -128,14 +129,24 @@ export default function HomeClient() {
                 display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
               }}>
                 <div className={`app-icon${app.img ? ' glow-icon' : ''}`} style={{
+                  position: 'relative',
                   width: 80, height: 80, borderRadius: 20,
                   background: app.img ? 'transparent' : app.color,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   fontSize: 38, lineHeight: 1,
                   boxShadow: '0 8px 16px rgba(0,0,0,0.4), 0 2px 4px rgba(0,0,0,0.3)',
-                  overflow: 'hidden',
+                  overflow: 'visible',
                 }}>
                   {app.img ? <img src={app.img} alt={app.label} style={{ width: 80, height: 80, borderRadius: 20, objectFit: 'cover' }} /> : app.icon}
+                  {app.badge && (
+                    <span style={{
+                      position: 'absolute', bottom: 4, right: 4,
+                      width: 22, height: 22, borderRadius: 11,
+                      background: '#fff', color: app.color,
+                      fontSize: 13, fontWeight: 800, lineHeight: '22px', textAlign: 'center',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.4)',
+                    }}>{app.badge}</span>
+                  )}
                 </div>
                 <span style={{
                   fontSize: 11, fontWeight: 500, color: '#fff',
