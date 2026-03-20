@@ -119,7 +119,7 @@ function daysInMonth(ar: number, manad: number): { date: Date; label: string; is
 function Pill({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button onClick={onClick} style={{
-      padding: '6px 14px', borderRadius: 20, fontSize: 13, fontWeight: 500, cursor: 'pointer',
+      padding: '4px 10px', borderRadius: 20, fontSize: 12, fontWeight: 500, cursor: 'pointer',
       background: active ? 'rgba(255,255,255,0.12)' : 'transparent',
       color: active ? '#fff' : 'rgba(255,255,255,0.4)',
       border: active ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(255,255,255,0.06)',
@@ -131,12 +131,12 @@ function Pill({ label, active, onClick }: { label: string; active: boolean; onCl
 function KpiCard({ label, value, unit, accent }: { label: string; value: string; unit: string; accent?: string }) {
   return (
     <div style={{
-      flex: 1, minWidth: 0, background: '#111', borderRadius: 16, padding: '16px 14px',
+      flex: 1, minWidth: 0, background: '#111', borderRadius: 12, padding: '8px 10px',
       border: '1px solid rgba(255,255,255,0.06)',
     }}>
-      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 6, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: accent || '#fff', lineHeight: 1.1 }}>{value}</div>
-      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2 }}>{unit}</div>
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: accent || '#fff', lineHeight: 1.1 }}>{value}</div>
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>{unit}</div>
     </div>
   )
 }
@@ -323,7 +323,7 @@ export default function HelikopterV2Page() {
       legend: {
         display: true,
         position: 'top' as const,
-        labels: { color: 'rgba(255,255,255,0.5)', font: { size: 11 }, boxWidth: 12, padding: 12 },
+        labels: { color: 'rgba(255,255,255,0.5)', font: { size: 9 }, boxWidth: 8, padding: 6 },
       },
       tooltip: {
         callbacks: {
@@ -408,24 +408,23 @@ export default function HelikopterV2Page() {
     <div style={{
       minHeight: '100vh', background: '#000', color: '#fff',
       fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif',
-      padding: '16px 16px 120px',
-      maxWidth: 600, margin: '0 auto',
+      padding: '12px 20px 100px',
     }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <button onClick={() => bytManad('prev')} style={{
-          width: 40, height: 40, borderRadius: 20, background: 'rgba(255,255,255,0.06)',
+          width: 36, height: 36, borderRadius: 18, background: 'rgba(255,255,255,0.06)',
           border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)',
           fontSize: 20, cursor: 'pointer',
         }}>&#8249;</button>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 26, fontWeight: 700 }}>{MANAD[manad]} {ar}</div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+          <div style={{ fontSize: 22, fontWeight: 700 }}>{MANAD[manad]} {ar}</div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 1 }}>
             {manadAvslutad ? 'Avslutad' : `${kvarDagar} arbetsdagar kvar`}
           </div>
         </div>
         <button onClick={() => bytManad('next')} style={{
-          width: 40, height: 40, borderRadius: 20, background: 'rgba(255,255,255,0.06)',
+          width: 36, height: 36, borderRadius: 18, background: 'rgba(255,255,255,0.06)',
           border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)',
           fontSize: 20, cursor: 'pointer',
         }}>&#8250;</button>
@@ -440,7 +439,7 @@ export default function HelikopterV2Page() {
           {/* ============================================================ */}
           {/* Section 1: KPI-kort */}
           {/* ============================================================ */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
             <KpiCard label="Skordat" value={Math.round(kpi.skordat).toLocaleString()} unit="m\u00B3" accent="#FF9F0A" />
             <KpiCard label="Skotat" value={Math.round(kpi.skotat).toLocaleString()} unit="m\u00B3" accent="#30D158" />
             <KpiCard label="Oskotat" value={Math.round(kpi.oskotat).toLocaleString()} unit="m\u00B3" accent={kpi.oskotat > 500 ? '#ef4444' : '#f59e0b'} />
@@ -451,26 +450,26 @@ export default function HelikopterV2Page() {
           {/* Section 2: Bolag */}
           {/* ============================================================ */}
           <div style={{
-            background: '#111', borderRadius: 20, padding: '16px 16px 8px',
-            border: '1px solid rgba(255,255,255,0.06)', marginBottom: 24,
+            background: '#111', borderRadius: 16, padding: '10px 14px 4px',
+            border: '1px solid rgba(255,255,255,0.06)', marginBottom: 12,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <span style={{ fontSize: 15, fontWeight: 600 }}>Bolag - levererat vs lovat</span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Bolag - levererat vs lovat</span>
             </div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
               <Pill label="Alla" active={bolagFilter === 'alla'} onClick={() => setBolagFilter('alla')} />
               <Pill label="Slutavverkning" active={bolagFilter === 'slutavverkning'} onClick={() => setBolagFilter('slutavverkning')} />
               <Pill label="Gallring" active={bolagFilter === 'gallring'} onClick={() => setBolagFilter('gallring')} />
             </div>
 
             {bolagRows.length === 0 && (
-              <div style={{ padding: '20px 0', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>Ingen data</div>
+              <div style={{ padding: '10px 0', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Ingen data</div>
             )}
 
-            {bolagRows.map((row, i) => (
-              <div key={row.namn} style={{ marginBottom: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                  <span style={{ fontSize: 14, fontWeight: 500 }}>{row.namn}</span>
+            {bolagRows.slice(0, 4).map((row, i) => (
+              <div key={row.namn} style={{ marginBottom: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500 }}>{row.namn}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     {row.best > 0 ? (
                       <>
@@ -486,9 +485,9 @@ export default function HelikopterV2Page() {
                     )}
                   </div>
                 </div>
-                <div style={{ height: 6, background: 'rgba(255,255,255,0.06)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
                   <div style={{
-                    height: '100%', borderRadius: 3,
+                    height: '100%', borderRadius: 2,
                     width: `${Math.min(100, row.best > 0 ? row.procent : (row.skotat > 0 ? 30 : 0))}%`,
                     background: row.best > 0 ? procentColor(row.procent) : 'rgba(255,255,255,0.15)',
                     transition: 'width 0.8s ease',
@@ -502,11 +501,11 @@ export default function HelikopterV2Page() {
           {/* Section 3: Trend-graf */}
           {/* ============================================================ */}
           <div style={{
-            background: '#111', borderRadius: 20, padding: 16,
-            border: '1px solid rgba(255,255,255,0.06)', marginBottom: 24,
+            background: '#111', borderRadius: 16, padding: '10px 14px',
+            border: '1px solid rgba(255,255,255,0.06)', marginBottom: 12,
           }}>
-            <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Trend - ackumulerat</div>
-            <div style={{ height: 220 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Trend - ackumulerat</div>
+            <div style={{ height: 120 }}>
               <Line data={chartData} options={chartOptions} />
             </div>
           </div>
@@ -515,42 +514,42 @@ export default function HelikopterV2Page() {
           {/* Section 4: Oskotat virke */}
           {/* ============================================================ */}
           <div style={{
-            background: '#111', borderRadius: 20, padding: '16px 16px 8px',
-            border: '1px solid rgba(255,255,255,0.06)', marginBottom: 24,
+            background: '#111', borderRadius: 16, padding: '10px 14px 4px',
+            border: '1px solid rgba(255,255,255,0.06)', marginBottom: 12,
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <span style={{ fontSize: 15, fontWeight: 600 }}>Oskotat virke</span>
-              <span style={{ fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.4)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600 }}>Oskotat virke</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.4)' }}>
                 {Math.round(totalOskotat).toLocaleString()} m&sup3;
               </span>
             </div>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
               <Pill label="Alla" active={oskotatFilter === 'alla'} onClick={() => setOskotatFilter('alla')} />
               <Pill label="Slutavverkning" active={oskotatFilter === 'slutavverkning'} onClick={() => setOskotatFilter('slutavverkning')} />
               <Pill label="Gallring" active={oskotatFilter === 'gallring'} onClick={() => setOskotatFilter('gallring')} />
             </div>
 
             {oskotatLista.length === 0 && (
-              <div style={{ padding: '20px 0', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 13 }}>Inget oskotat</div>
+              <div style={{ padding: '10px 0', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 12 }}>Inget oskotat</div>
             )}
 
-            {oskotatLista.map((o) => (
+            {oskotatLista.slice(0, 3).map((o) => (
               <div key={o.objekt_id} style={{
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)',
+                padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)',
               }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {o.object_name || o.objekt_id}
                   </div>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>
+                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 1 }}>
                     {normalizeBolag(o.bolag)} {o.huvudtyp ? `\u00B7 ${o.huvudtyp}` : ''}
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, marginLeft: 8 }}>
-                  <span style={{ fontSize: 14, fontWeight: 600 }}>{Math.round(o.oskotat_m3)} m&sup3;</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, marginLeft: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>{Math.round(o.oskotat_m3)} m&sup3;</span>
                   <span style={{
-                    fontSize: 12, fontWeight: 600, padding: '2px 8px', borderRadius: 10,
+                    fontSize: 11, fontWeight: 600, padding: '1px 6px', borderRadius: 8,
                     background: `${statusColor(o.dagarLive)}20`,
                     color: statusColor(o.dagarLive),
                   }}>
@@ -559,6 +558,11 @@ export default function HelikopterV2Page() {
                 </div>
               </div>
             ))}
+            {oskotatLista.length > 3 && (
+              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'center', padding: '6px 0' }}>
+                +{oskotatLista.length - 3} till
+              </div>
+            )}
           </div>
 
           {/* ============================================================ */}
@@ -566,43 +570,39 @@ export default function HelikopterV2Page() {
           {/* ============================================================ */}
           {dagsmal && dagsmal.kvar > 0 && (
             <div style={{
-              background: '#111', borderRadius: 20, padding: '16px',
-              border: '1px solid rgba(255,255,255,0.06)', marginBottom: 24,
+              background: '#111', borderRadius: 16, padding: '10px 14px',
+              border: '1px solid rgba(255,255,255,0.06)', marginBottom: 12,
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 16 }}>
-                <span style={{ fontSize: 15, fontWeight: 600 }}>Dagsmal resterande</span>
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>{dagsmal.kvar} arbetsdagar</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600 }}>Dagsmal resterande</span>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>{dagsmal.kvar} arbetsdagar</span>
               </div>
 
               {dagsmal.rows.map((row, i) => (
                 <div key={i} style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 0',
+                  padding: '6px 0',
                   borderBottom: i < dagsmal.rows.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
                 }}>
-                  <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>{row.label}</span>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                    <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>
-                      {Math.round(row.kvar).toLocaleString()} m&sup3; kvar
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>{row.label}</span>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
+                      {Math.round(row.kvar).toLocaleString()} m&sup3;
                     </span>
-                    <span style={{ fontSize: 16, fontWeight: 700, color: '#fff' }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>
                       {Math.round(row.perDag)} m&sup3;/d
                     </span>
                   </div>
                 </div>
               ))}
-
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 10 }}>
-                Lordag/sondag = inga mal
-              </div>
             </div>
           )}
 
           {manadAvslutad && dagsmal === null && (
             <div style={{
-              background: '#111', borderRadius: 20, padding: 16,
-              border: '1px solid rgba(255,255,255,0.06)', marginBottom: 24,
-              textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 13,
+              background: '#111', borderRadius: 16, padding: 10,
+              border: '1px solid rgba(255,255,255,0.06)', marginBottom: 12,
+              textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: 12,
             }}>
               Manaden ar avslutad
             </div>
