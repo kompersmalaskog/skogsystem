@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -55,6 +55,18 @@ const text = '#fff'
 const muted = 'rgba(255,255,255,0.4)'
 const divider = 'rgba(255,255,255,0.08)'
 const ff = 'system-ui, sans-serif'
+
+// Card style matching UppfoljningVy card3d
+const card: React.CSSProperties = {
+  background: 'linear-gradient(160deg, #1a1a1c 0%, #0f0f10 100%)',
+  border: '1px solid rgba(255,255,255,0.07)',
+  borderTopColor: 'rgba(255,255,255,0.18)',
+  borderRadius: 16,
+  padding: '1.25rem',
+  boxShadow: '0 8px 24px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.7)',
+  position: 'relative',
+  overflow: 'hidden',
+}
 
 const SUPABASE_URL = 'https://mxydghzfacbenbgpodex.supabase.co'
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14eWRnaHpmYWNiZW5iZ3BvZGV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4NzU2MjMsImV4cCI6MjA4NDQ1MTYyM30.NRBG5HcAtEXRTyf4YTp71A3iATk6U3DGhfdJ5EYlMyo'
@@ -136,10 +148,10 @@ function Tab({ label, active, onClick }: { label: string; active: boolean; onCli
 
 function KpiCard({ label, value, unit, accent }: { label: string; value: string; unit: string; accent?: string }) {
   return (
-    <div style={{ flex: 1, minWidth: 0 }}>
-      <div style={{ fontSize: 12, color: muted, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: accent || text, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
-      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>{unit}</div>
+    <div style={{ ...card, padding: '14px 16px', flex: 1, minWidth: 0 }}>
+      <div style={{ fontSize: 12, color: muted, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: accent || text, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 4 }}>{unit}</div>
     </div>
   )
 }
@@ -444,7 +456,7 @@ export default function HelikopterV2Page() {
           {/* ============================================================ */}
           {/* Section 1: KPI-kort */}
           {/* ============================================================ */}
-          <div style={{ display: 'flex', gap: 16, marginBottom: 28, borderBottom: `1px solid ${divider}`, paddingBottom: 20 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
             <KpiCard label="Skordat" value={Math.round(kpi.skordat).toLocaleString()} unit="m\u00B3" accent="#FF9F0A" />
             <KpiCard label="Skotat" value={Math.round(kpi.skotat).toLocaleString()} unit="m\u00B3" accent="#30D158" />
             <KpiCard label="Oskotat" value={Math.round(kpi.oskotat).toLocaleString()} unit="m\u00B3" accent={kpi.oskotat > 500 ? '#ef4444' : '#f59e0b'} />
@@ -454,7 +466,7 @@ export default function HelikopterV2Page() {
           {/* ============================================================ */}
           {/* Section 2: Bolag */}
           {/* ============================================================ */}
-          <div style={{ marginBottom: 28 }}>
+          <div style={{ ...card, marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: 14, fontWeight: 600 }}>Bolag - levererat vs lovat</span>
             </div>
@@ -487,7 +499,7 @@ export default function HelikopterV2Page() {
                     )}
                   </div>
                 </div>
-                <div style={{ height: 4, background: divider, borderRadius: 2, overflow: 'hidden' }}>
+                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
                   <div style={{
                     height: '100%', borderRadius: 2,
                     width: `${Math.min(100, row.best > 0 ? row.procent : (row.skotat > 0 ? 30 : 0))}%`,
@@ -502,7 +514,7 @@ export default function HelikopterV2Page() {
           {/* ============================================================ */}
           {/* Section 3: Trend-graf */}
           {/* ============================================================ */}
-          <div style={{ marginBottom: 28 }}>
+          <div style={{ ...card, marginBottom: 20 }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Trend - ackumulerat</div>
             <div style={{ height: 120 }}>
               <Line data={chartData} options={chartOptions} />
@@ -512,7 +524,7 @@ export default function HelikopterV2Page() {
           {/* ============================================================ */}
           {/* Section 4: Oskotat virke */}
           {/* ============================================================ */}
-          <div style={{ marginBottom: 28 }}>
+          <div style={{ ...card, marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: 14, fontWeight: 600 }}>Oskotat virke</span>
               <span style={{ fontSize: 18, fontWeight: 700, color: muted, fontVariantNumeric: 'tabular-nums' }}>
@@ -565,7 +577,7 @@ export default function HelikopterV2Page() {
           {/* Section 5: Dagsmal resterande manad */}
           {/* ============================================================ */}
           {dagsmal && dagsmal.kvar > 0 && (
-            <div style={{ marginBottom: 28 }}>
+            <div style={{ ...card, marginBottom: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>Dagsmal resterande</span>
                 <span style={{ fontSize: 12, color: muted }}>{dagsmal.kvar} arbetsdagar</span>
@@ -592,10 +604,7 @@ export default function HelikopterV2Page() {
           )}
 
           {manadAvslutad && dagsmal === null && (
-            <div style={{
-              padding: 16, textAlign: 'center', color: muted, fontSize: 12,
-              borderTop: `1px solid ${divider}`, borderBottom: `1px solid ${divider}`,
-            }}>
+            <div style={{ ...card, marginBottom: 20, textAlign: 'center', color: muted, fontSize: 12 }}>
               Manaden ar avslutad
             </div>
           )}
