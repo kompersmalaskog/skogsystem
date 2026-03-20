@@ -166,6 +166,8 @@ export default function HelikopterV2Page() {
   const [loading, setLoading] = useState(true)
   const [ar, setAr] = useState(() => new Date().getFullYear())
   const [manad, setManad] = useState(() => new Date().getMonth() + 1)
+  const [kpiFilter, setKpiFilter] = useState<TypFilter>('alla')
+  const [trendFilter, setTrendFilter] = useState<TypFilter>('alla')
   const [bolagFilter, setBolagFilter] = useState<TypFilter>('alla')
   const [oskotatFilter, setOskotatFilter] = useState<TypFilter>('alla')
 
@@ -198,11 +200,18 @@ export default function HelikopterV2Page() {
     return data.filter(o => o.skordare_klar && o.skordare_klar >= start && o.skordare_klar < end)
   }, [data, ar, manad])
 
+  // Helper: filter manadData by typ
+  const filterByTyp = (rows: ObjektRow[], typ: TypFilter) => {
+    if (typ === 'alla') return rows
+    return rows.filter(o => (o.huvudtyp || '').toLowerCase() === typ)
+  }
+
   // KPI totals
   const kpi = useMemo(() => {
-    const skordat = manadData.reduce((s, o) => s + (o.skordat_m3 || 0), 0)
-    const skotat = manadData.reduce((s, o) => s + (o.skotat_m3 || 0), 0)
-    const oskotat = manadData.reduce((s, o) => s + (o.oskotat_m3 || 0), 0)
+    const filtered = filterByTyp(manadData, kpiFilter)
+    const skordat = filtered.reduce((s, o) => s + (o.skordat_m3 || 0), 0)
+    const skotat = filtered.reduce((s, o) => s + (o.skotat_m3 || 0), 0)
+    const oskotat = filtered.reduce((s, o) => s + (o.oskotat_m3 || 0), 0)
     // Takt: skördat per arbetsdag hittills i månaden
     const now = new Date()
     let passedWorkdays = 0
@@ -220,7 +229,7 @@ export default function HelikopterV2Page() {
     }
     const takt = passedWorkdays > 0 ? skordat / passedWorkdays : 0
     return { skordat, skotat, oskotat, takt }
-  }, [manadData, ar, manad, manadAvslutad])
+  }, [manadData, ar, manad, manadAvslutad, kpiFilter])
 
   // Beställning defaults
   const slutBest = useMemo(() => {
@@ -279,6 +288,7 @@ export default function HelikopterV2Page() {
   }, [ar, manad])
 
   const chartData = useMemo(() => {
+    const trendData = filterByTyp(manadData, trendFilter)
     const days = daysInMonth(ar, manad)
     let cumSkordare = 0
     let cumSkotare = 0
@@ -304,7 +314,7 @@ export default function HelikopterV2Page() {
         continue
       }
 
-      for (const o of manadData) {
+      for (const o of trendData) {
         if (o.skordare_klar === ds) cumSkordare += o.skordat_m3 || 0
         if (o.skotare_start === ds) cumSkotare += o.skotat_m3 || 0
       }
@@ -369,7 +379,7 @@ export default function HelikopterV2Page() {
         },
       ],
     }
-  }, [manadData, ar, manad])
+  }, [manadData, ar, manad, trendFilter])
 
   // Today line plugin
   const todayLinePlugin = useMemo(() => ({
@@ -516,6 +526,11 @@ export default function HelikopterV2Page() {
           {/* ============================================================ */}
           {/* Section 1: KPI-kort */}
           {/* ============================================================ */}
+          <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+            <Tab label="Alla" active={kpiFilter === 'alla'} onClick={() => setKpiFilter('alla')} />
+            <Tab label="Slutavverkning" active={kpiFilter === 'slutavverkning'} onClick={() => setKpiFilter('slutavverkning')} />
+            <Tab label="Gallring" active={kpiFilter === 'gallring'} onClick={() => setKpiFilter('gallring')} />
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
             <KpiCard label="Skördat" value={Math.round(kpi.skordat).toLocaleString()} unit="m³fub" />
             <KpiCard label="Skotat" value={Math.round(kpi.skotat).toLocaleString()} unit="m³fub" />
@@ -579,7 +594,14 @@ export default function HelikopterV2Page() {
           {/* Section 3: Trend-graf */}
           {/* ============================================================ */}
           <div style={{ ...card, marginBottom: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Trend — ackumulerat</div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <span style={{ fontSize: 14, fontWeight: 600 }}>Trend — ackumulerat</span>
+            </div>
+            <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+              <Tab label="Alla" active={trendFilter === 'alla'} onClick={() => setTrendFilter('alla')} />
+              <Tab label="Slutavverkning" active={trendFilter === 'slutavverkning'} onClick={() => setTrendFilter('slutavverkning')} />
+              <Tab label="Gallring" active={trendFilter === 'gallring'} onClick={() => setTrendFilter('gallring')} />
+            </div>
             <div style={{ height: 280 }}>
               <Line data={chartData} options={chartOptions} plugins={[todayLinePlugin]} />
             </div>
