@@ -146,11 +146,11 @@ function Tab({ label, active, onClick }: { label: string; active: boolean; onCli
   )
 }
 
-function KpiCard({ label, value, unit, accent }: { label: string; value: string; unit: string; accent?: string }) {
+function KpiCard({ label, value, unit }: { label: string; value: string; unit: string }) {
   return (
     <div style={{ ...card, padding: '14px 16px', flex: 1, minWidth: 0 }}>
       <div style={{ fontSize: 12, color: muted, marginBottom: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: accent || text, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: text, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums', textShadow: '0 0 20px rgba(255,255,255,0.4)' }}>{value}</div>
       <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 4 }}>{unit}</div>
     </div>
   )
@@ -272,6 +272,12 @@ export default function HelikopterV2Page() {
   // Section 3: Trend chart data
   // ============================================================
 
+  const todayIndex = useMemo(() => {
+    const now = new Date()
+    if (ar === now.getFullYear() && manad === now.getMonth() + 1) return now.getDate() - 1
+    return -1
+  }, [ar, manad])
+
   const chartData = useMemo(() => {
     const days = daysInMonth(ar, manad)
     let cumSkordare = 0
@@ -283,11 +289,15 @@ export default function HelikopterV2Page() {
     const now = new Date()
     const isCurrentMonth = ar === now.getFullYear() && manad === now.getMonth() + 1
 
-    for (const day of days) {
+    // Find last data index for glow points
+    let lastSkordareIdx = -1
+    let lastSkotareIdx = -1
+
+    for (let i = 0; i < days.length; i++) {
+      const day = days[i]
       const ds = day.date.toISOString().slice(0, 10)
       labels.push(day.label)
 
-      // Only plot up to today for current month
       if (isCurrentMonth && day.date > now) {
         skordareAcc.push(null)
         skotareAcc.push(null)
@@ -300,7 +310,15 @@ export default function HelikopterV2Page() {
       }
       skordareAcc.push(Math.round(cumSkordare))
       skotareAcc.push(Math.round(cumSkotare))
+      lastSkordareIdx = i
+      lastSkotareIdx = i
     }
+
+    // Point radius arrays — glow on last data point only
+    const skordarePointRadius = skordareAcc.map((_, i) => i === lastSkordareIdx ? 5 : 0)
+    const skotarePointRadius = skotareAcc.map((_, i) => i === lastSkotareIdx ? 5 : 0)
+    const skordarePointBg = skordareAcc.map((_, i) => i === lastSkordareIdx ? '#FF9F0A' : 'transparent')
+    const skotarePointBg = skotareAcc.map((_, i) => i === lastSkotareIdx ? '#30D158' : 'transparent')
 
     return {
       labels,
@@ -309,27 +327,69 @@ export default function HelikopterV2Page() {
           label: 'Skordare (ack.)',
           data: skordareAcc,
           borderColor: '#FF9F0A',
-          backgroundColor: 'rgba(255,159,10,0.08)',
+          backgroundColor: (ctx: any) => {
+            const chart = ctx.chart
+            const { ctx: c, chartArea } = chart
+            if (!chartArea) return 'rgba(255,159,10,0.15)'
+            const gradient = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
+            gradient.addColorStop(0, 'rgba(255,159,10,0.25)')
+            gradient.addColorStop(1, 'rgba(255,159,10,0.02)')
+            return gradient
+          },
           fill: true,
-          tension: 0.3,
-          pointRadius: 0,
-          borderWidth: 2,
+          tension: 0.4,
+          pointRadius: skordarePointRadius,
+          pointBackgroundColor: skordarePointBg,
+          pointBorderColor: skordarePointBg,
+          pointHoverRadius: 7,
+          borderWidth: 2.5,
           spanGaps: false,
         },
         {
           label: 'Skotare (ack.)',
           data: skotareAcc,
           borderColor: '#30D158',
-          backgroundColor: 'rgba(48,209,88,0.08)',
+          backgroundColor: (ctx: any) => {
+            const chart = ctx.chart
+            const { ctx: c, chartArea } = chart
+            if (!chartArea) return 'rgba(48,209,88,0.15)'
+            const gradient = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
+            gradient.addColorStop(0, 'rgba(48,209,88,0.25)')
+            gradient.addColorStop(1, 'rgba(48,209,88,0.02)')
+            return gradient
+          },
           fill: true,
-          tension: 0.3,
-          pointRadius: 0,
-          borderWidth: 2,
+          tension: 0.4,
+          pointRadius: skotarePointRadius,
+          pointBackgroundColor: skotarePointBg,
+          pointBorderColor: skotarePointBg,
+          pointHoverRadius: 7,
+          borderWidth: 2.5,
           spanGaps: false,
         },
       ],
     }
   }, [manadData, ar, manad])
+
+  // Today line plugin
+  const todayLinePlugin = useMemo(() => ({
+    id: 'todayLine',
+    afterDraw(chart: any) {
+      if (todayIndex < 0) return
+      const { ctx, chartArea, scales } = chart
+      const x = scales.x.getPixelForValue(todayIndex)
+      if (x < chartArea.left || x > chartArea.right) return
+      ctx.save()
+      ctx.beginPath()
+      ctx.setLineDash([4, 4])
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)'
+      ctx.lineWidth = 1
+      ctx.moveTo(x, chartArea.top)
+      ctx.lineTo(x, chartArea.bottom)
+      ctx.stroke()
+      ctx.restore()
+    },
+  }), [todayIndex])
 
   const chartOptions = useMemo(() => ({
     responsive: true,
@@ -338,7 +398,7 @@ export default function HelikopterV2Page() {
       legend: {
         display: true,
         position: 'top' as const,
-        labels: { color: muted, font: { size: 9 }, boxWidth: 8, padding: 6 },
+        labels: { color: muted, font: { size: 10 }, boxWidth: 10, padding: 8 },
       },
       tooltip: {
         callbacks: {
@@ -349,11 +409,11 @@ export default function HelikopterV2Page() {
     scales: {
       x: {
         ticks: { color: muted, font: { size: 10 }, maxTicksLimit: 10 },
-        grid: { color: divider },
+        grid: { display: false },
       },
       y: {
         ticks: { color: muted, font: { size: 10 }, callback: (v: any) => `${v}` },
-        grid: { color: divider },
+        grid: { color: 'rgba(255,255,255,0.04)' },
       },
     },
   }), [])
@@ -457,9 +517,9 @@ export default function HelikopterV2Page() {
           {/* Section 1: KPI-kort */}
           {/* ============================================================ */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
-            <KpiCard label="Skordat" value={Math.round(kpi.skordat).toLocaleString()} unit="m\u00B3" accent="#FF9F0A" />
-            <KpiCard label="Skotat" value={Math.round(kpi.skotat).toLocaleString()} unit="m\u00B3" accent="#30D158" />
-            <KpiCard label="Oskotat" value={Math.round(kpi.oskotat).toLocaleString()} unit="m\u00B3" accent={kpi.oskotat > 500 ? '#ef4444' : '#f59e0b'} />
+            <KpiCard label="Skordat" value={Math.round(kpi.skordat).toLocaleString()} unit="m\u00B3" />
+            <KpiCard label="Skotat" value={Math.round(kpi.skotat).toLocaleString()} unit="m\u00B3" />
+            <KpiCard label="Oskotat" value={Math.round(kpi.oskotat).toLocaleString()} unit="m\u00B3" />
             <KpiCard label="Takt" value={Math.round(kpi.takt).toLocaleString()} unit="m\u00B3/dag" />
           </div>
 
@@ -495,18 +555,22 @@ export default function HelikopterV2Page() {
                         </span>
                       </>
                     ) : (
-                      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)', fontStyle: 'italic' }}>Ej planerat</span>
+                      <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>
+                        {Math.round(row.skotat).toLocaleString()} m&sup3; &middot; Ingen bestallning
+                      </span>
                     )}
                   </div>
                 </div>
-                <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%', borderRadius: 2,
-                    width: `${Math.min(100, row.best > 0 ? row.procent : (row.skotat > 0 ? 30 : 0))}%`,
-                    background: row.best > 0 ? procentColor(row.procent) : 'rgba(255,255,255,0.15)',
-                    transition: 'width 0.8s ease',
-                  }} />
-                </div>
+                {row.best > 0 && (
+                  <div style={{ height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{
+                      height: '100%', borderRadius: 2,
+                      width: `${Math.min(100, row.procent)}%`,
+                      background: procentColor(row.procent),
+                      transition: 'width 0.8s ease',
+                    }} />
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -516,8 +580,8 @@ export default function HelikopterV2Page() {
           {/* ============================================================ */}
           <div style={{ ...card, marginBottom: 20 }}>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Trend - ackumulerat</div>
-            <div style={{ height: 120 }}>
-              <Line data={chartData} options={chartOptions} />
+            <div style={{ height: 280 }}>
+              <Line data={chartData} options={chartOptions} plugins={[todayLinePlugin]} />
             </div>
           </div>
 
