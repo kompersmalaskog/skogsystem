@@ -52,6 +52,7 @@ export default function OversiktPage() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [maskinKo, setMaskinKo] = useState<MaskinKoItem[]>([]);
   const [prodMap, setProdMap] = useState<Record<string, ProdAgg>>({});
+  const [grotAnpassad, setGrotAnpassad] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   const fetchAll = async () => {
@@ -65,6 +66,12 @@ export default function OversiktPage() {
     if (maskinerRes.data) setMaskiner(maskinerRes.data);
     if (koRes.data) setMaskinKo(koRes.data);
     setLoading(false);
+
+    // Fetch grot_anpassad from dim_objekt
+    const grotRes = await supabase.from('dim_objekt').select('vo_nummer').eq('grot_anpassad', true);
+    if (grotRes.data) {
+      setGrotAnpassad(new Set(grotRes.data.map((r: { vo_nummer: string }) => r.vo_nummer)));
+    }
 
     // Production data — paginated, can be large
     const [prodRows, lassRows] = await Promise.all([
@@ -131,6 +138,7 @@ export default function OversiktPage() {
           <div style={{ position: 'absolute', inset: 0, display: activeTab === 'grot' ? 'block' : 'none', overflow: 'auto' }}>
             <OversiktGrot
               objekt={objekt}
+              grotAnpassadVo={grotAnpassad}
               supabase={supabase}
               onRefresh={refreshObjekt}
             />

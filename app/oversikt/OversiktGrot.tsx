@@ -7,6 +7,7 @@ import { formatVolym, grotDeadlineDays } from './oversikt-utils';
 
 interface Props {
   objekt: OversiktObjekt[];
+  grotAnpassadVo: Set<string>;
   supabase: any;
   onRefresh: () => Promise<void>;
 }
@@ -23,20 +24,17 @@ function fmtDate(d: string): string {
   return new Date(d + (d.includes('T') ? '' : 'T00:00:00')).toLocaleDateString('sv-SE', { year: 'numeric', month: '2-digit', day: '2-digit' });
 }
 
-export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
+export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefresh }: Props) {
   const [selG, setSelG] = useState<string | null>(null);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [grotVol, setGrotVol] = useState<Record<string, string>>({});
   const [deadlines, setDeadlines] = useState<Record<string, string>>({});
+  const [skotDates, setSkotDates] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [skordDates, setSkordDates] = useState<Record<string, string>>({});
-  // Dirty tracking per object
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
-  // "Sparat!" feedback per object
   const [savedMsg, setSavedMsg] = useState<Record<string, boolean>>({});
-  // Auto-save timer refs (10 second timer per object)
   const autoSaveRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  // "Sparat!" message timer refs
   const savedMsgRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 
   // Fetch skordning_avslutad from dim_objekt
@@ -56,7 +54,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     })();
   }, [supabase]);
 
-  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       Object.values(autoSaveRef.current).forEach(clearTimeout);
@@ -66,8 +63,16 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
 
   const isSkotat = (o: OversiktObjekt) => o.grot_status === 'skotat' || o.grot_status === 'hoglagd' || o.grot_status === 'flisad' || o.grot_status === 'borttransporterad' || o.grot_status === 'bortkord';
 
+  // Visa BARA grotanpassade objekt
   const grotObjekt = useMemo(() => {
-    const list = objekt.filter(o => o.typ === 'slutavverkning');
+    const list = objekt.filter(o => {
+      // Måste vara grotanpassad (från dim_objekt)
+      if (o.vo_nummer && grotAnpassadVo.has(o.vo_nummer)) return true;
+      // Eller har grot-data redan registrerad
+      if (o.grot_volym && o.grot_volym > 0) return true;
+      if (o.grot_status && o.grot_status !== 'ej_aktuellt') return true;
+      return false;
+    });
     return list.sort((a, b) => {
       const sa = isSkotat(a);
       const sb = isSkotat(b);
@@ -77,14 +82,22 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
       if (!a.grot_deadline && b.grot_deadline) return 1;
       return a.namn.localeCompare(b.namn);
     });
-  }, [objekt]);
+  }, [objekt, grotAnpassadVo]);
 
-  /** Unified save: writes grot_volym, grot_anteckning, grot_deadline for one object */
+  // Påminnelser: objekt med önskat skotningsdatum inom 3 dagar
+  const reminders = useMemo(() => {
+    return grotObjekt.filter(o => {
+      const dateStr = skotDates[o.id] || o.grot_deadline;
+      if (!dateStr || isSkotat(o)) return false;
+      const days = grotDeadlineDays(dateStr);
+      return days !== null && days >= 0 && days <= 3;
+    });
+  }, [grotObjekt, skotDates]);
+
   const saveAll = useCallback(async (id: string, showMsg: boolean) => {
     const obj = objekt.find(o => o.id === id);
     if (!obj) return;
 
-    // Clear auto-save timer
     if (autoSaveRef.current[id]) {
       clearTimeout(autoSaveRef.current[id]);
       delete autoSaveRef.current[id];
@@ -118,7 +131,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     await onRefresh();
   }, [objekt, grotVol, notes, deadlines, supabase, onRefresh]);
 
-  /** Start/restart 10-second auto-save timer */
   const startAutoSave = useCallback((id: string) => {
     if (autoSaveRef.current[id]) clearTimeout(autoSaveRef.current[id]);
     autoSaveRef.current[id] = setTimeout(() => {
@@ -126,7 +138,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
     }, 10000);
   }, [saveAll]);
 
-  /** Mark dirty + start auto-save timer */
   const markDirty = useCallback((id: string) => {
     setDirty(prev => ({ ...prev, [id]: true }));
     startAutoSave(id);
@@ -159,7 +170,6 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
   };
 
   const handleExpand = (id: string) => {
-    // If collapsing and dirty → auto-save (no message)
     if (selG === id && dirty[id]) {
       saveAll(id, false);
     }
@@ -181,6 +191,33 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
 
   return (
     <div style={{ height: '100%', overflowY: 'auto', padding: '14px 16px 80px', fontFamily: ff }}>
+
+      {/* Påminnelser — 3 dagar före önskat datum */}
+      {reminders.length > 0 && (
+        <div style={{
+          marginBottom: 16, padding: '14px 16px',
+          background: 'rgba(249,115,22,0.06)',
+          border: '1px solid rgba(249,115,22,0.15)',
+          borderRadius: 14,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.orange, marginBottom: 8 }}>
+            Påminnelse — skotning snart
+          </div>
+          {reminders.map(o => {
+            const dateStr = skotDates[o.id] || o.grot_deadline;
+            const days = dateStr ? grotDeadlineDays(dateStr) : null;
+            return (
+              <div key={o.id} style={{ fontSize: 13, color: C.t1, marginBottom: 4 }}>
+                {o.namn}
+                <span style={{ color: C.orange, marginLeft: 8, fontWeight: 600 }}>
+                  {days === 0 ? 'Idag' : days === 1 ? 'Imorgon' : `Om ${days} dagar`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {grotObjekt.map(obj => {
         const expanded = selG === obj.id;
         const skotat = isSkotat(obj);
@@ -192,12 +229,17 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
         const avverkat = getAvverkat(obj);
         const dagar = avverkat ? daysSince(avverkat) : null;
         const gv = grotVol[obj.id] !== undefined ? (grotVol[obj.id] ? parseFloat(grotVol[obj.id]) : null) : obj.grot_volym;
+        const skotatDirekt = obj.skotare_ris_direkt === true;
 
         return (
           <div key={obj.id} onClick={() => handleExpand(obj.id)} style={{
-            background: expanded ? C.card : 'transparent', borderRadius: 14,
+            background: expanded ? C.cardGrad : 'transparent', borderRadius: 16,
             padding: expanded ? 16 : 14, margin: expanded ? '6px 0' : 0,
-            borderBottom: expanded ? 'none' : `1px solid ${C.border}`,
+            borderLeft: expanded ? `1px solid ${C.border}` : 'none',
+            borderRight: expanded ? `1px solid ${C.border}` : 'none',
+            borderTop: expanded ? `1px solid ${C.borderTop}` : 'none',
+            borderBottom: expanded ? `1px solid ${C.border}` : `1px solid ${C.border}`,
+            boxShadow: expanded ? C.shadowSm : 'none',
             cursor: 'pointer', opacity: skotat && !expanded ? 0.4 : 1, transition: 'all 0.15s',
           }}>
             {/* Collapsed row */}
@@ -207,17 +249,20 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 15, fontWeight: 600 }}>{obj.namn}</span>
+                  {skotatDirekt && (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: C.orange, padding: '2px 8px', background: C.od, borderRadius: 20 }}>Direkt</span>
+                  )}
                   {isOverdue && (
-                    <span style={{ fontSize: 9, fontWeight: 600, color: C.red, padding: '2px 8px', background: C.rd, borderRadius: 5 }}>Försenad</span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: C.red, padding: '2px 8px', background: C.rd, borderRadius: 20 }}>Försenad</span>
                   )}
                   {isUrgent && (
-                    <span style={{ fontSize: 9, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 5 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 20 }}>
                       {deadlineDays === 0 ? 'Idag' : `${deadlineDays}d kvar`}
                     </span>
                   )}
                 </div>
                 {dl && !skotat && (
-                  <div style={{ fontSize: 10, color: isOverdue ? C.red : isUrgent ? C.yellow : C.t3, marginTop: 2 }}>
+                  <div style={{ fontSize: 11, color: isOverdue ? C.red : isUrgent ? C.yellow : C.t3, marginTop: 2 }}>
                     Senast: {formatDeadline(dl)}
                   </div>
                 )}
@@ -230,10 +275,10 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
               <div style={{ textAlign: 'right', flexShrink: 0, marginRight: 8 }}>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>
                   {gv ? formatVolym(gv) : '–'}
-                  <span style={{ fontSize: 10, fontWeight: 400, color: C.t4 }}> m³</span>
+                  <span style={{ fontSize: 11, fontWeight: 400, color: C.t4 }}> m³</span>
                 </div>
                 {dagar !== null && dagar >= 0 && (
-                  <div style={{ fontSize: 10, color: C.t3 }}>{dagar}d</div>
+                  <div style={{ fontSize: 11, color: C.t3 }}>{dagar}d</div>
                 )}
               </div>
 
@@ -247,6 +292,7 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                   color: skotat ? '#fff' : C.t2,
                   fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: ff,
                   transition: 'all 0.2s', opacity: saving ? 0.5 : 1,
+                  minHeight: 44, minWidth: 44,
                 }}
               >
                 {skotat ? 'Skotat' : 'Ej skotat'}
@@ -266,15 +312,31 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                   </div>
                 )}
 
+                {/* Skotas direkt / senare */}
+                {skotatDirekt && (
+                  <div style={{
+                    fontSize: 12, fontWeight: 600, color: C.orange,
+                    marginBottom: 10, padding: '6px 12px',
+                    background: C.od, borderRadius: 10, display: 'inline-block',
+                  }}>
+                    GROT ska skotas direkt
+                  </div>
+                )}
+                {!skotatDirekt && (
+                  <div style={{ fontSize: 12, color: C.t3, marginBottom: 10 }}>
+                    Skotas senare
+                  </div>
+                )}
+
                 {/* GROT-volym */}
                 <div style={{ marginBottom: 10 }}>
-                  <label style={{ fontSize: 10, color: C.t4, display: 'block', marginBottom: 4 }}>GROT-volym (m³)</label>
+                  <label style={{ fontSize: 11, color: C.t4, display: 'block', marginBottom: 4 }}>GROT-volym (m³)</label>
                   <input
                     type="number"
                     value={grotVol[obj.id] ?? (obj.grot_volym != null ? String(obj.grot_volym) : '')}
                     onChange={e => handleGrotVolChange(obj.id, e.target.value)}
                     placeholder="GROT m³"
-                    style={{ width: 120, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff }}
+                    style={{ width: 120, padding: '8px 12px', borderRadius: 14, border: `1px solid ${C.border}`, background: C.surface, color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, minHeight: 44 }}
                   />
                 </div>
 
@@ -284,17 +346,17 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                   onChange={e => handleNoteChange(obj.id, e.target.value)}
                   placeholder="Skriv notering..."
                   rows={2}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: ff, boxSizing: 'border-box', marginBottom: 10 }}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 14, border: `1px solid ${C.border}`, background: C.surface, color: C.t1, fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: ff, boxSizing: 'border-box', marginBottom: 10 }}
                 />
 
-                {/* Deadline */}
+                {/* Deadline — önskat skotningsdatum */}
                 <div style={{ marginBottom: 14 }}>
-                  <label style={{ fontSize: 10, color: C.t4, display: 'block', marginBottom: 4 }}>Ska vara borta senast</label>
+                  <label style={{ fontSize: 11, color: C.t4, display: 'block', marginBottom: 4 }}>Önskat skotningsdatum</label>
                   <input
                     type="date"
                     value={deadlines[obj.id] ?? obj.grot_deadline ?? ''}
                     onChange={e => handleDeadlineChange(obj.id, e.target.value)}
-                    style={{ width: 170, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.border}`, background: 'rgba(255,255,255,0.03)', color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, colorScheme: 'dark' }}
+                    style={{ width: 170, padding: '8px 12px', borderRadius: 14, border: `1px solid ${C.border}`, background: C.surface, color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, colorScheme: 'dark', minHeight: 44 }}
                   />
                 </div>
 
@@ -303,12 +365,12 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
                   <button
                     onClick={(e) => handleSave(obj.id, e)}
                     style={{
-                      padding: '8px 24px', borderRadius: 8,
+                      padding: '8px 24px', borderRadius: 16,
                       border: 'none',
                       background: dirty[obj.id] ? C.green : 'rgba(255,255,255,0.08)',
                       color: dirty[obj.id] ? '#fff' : C.t3,
                       fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: ff,
-                      transition: 'all 0.2s',
+                      transition: 'all 0.2s', minHeight: 44,
                     }}
                   >
                     Spara
@@ -327,8 +389,8 @@ export default function OversiktGrot({ objekt, supabase, onRefresh }: Props) {
 
       {grotObjekt.length === 0 && (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: C.t4 }}>
-          <div style={{ fontSize: 16, marginBottom: 8 }}>Inga slutavverkningsobjekt</div>
-          <div style={{ fontSize: 11 }}>GROT hanteras för slutavverkning</div>
+          <div style={{ fontSize: 16, marginBottom: 8 }}>Inga grotanpassade objekt</div>
+          <div style={{ fontSize: 11 }}>Objekt måste vara markerade som grotanpassade i dim_objekt</div>
         </div>
       )}
     </div>
