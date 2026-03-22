@@ -80,36 +80,43 @@ export interface OversiktObjekt {
   };
 }
 
-export type TabId = 'karta' | 'objekt' | 'maskiner' | 'grot';
+export type TabId = 'karta' | 'maskiner' | 'grot';
 
-/* Design tokens matching mockup exactly */
+/* Design tokens — matched to UppfoljningVy design language */
 export const C = {
-  bg: '#09090b',
-  card: '#111113',
-  border: 'rgba(255,255,255,0.05)',
-  t1: '#fafafa',
-  t2: 'rgba(255,255,255,0.55)',
-  t3: 'rgba(255,255,255,0.25)',
-  t4: 'rgba(255,255,255,0.1)',
+  bg: '#070708',
+  surface: '#0f0f10',
+  surface3: '#1a1a1c',
+  card: '#0f0f10',
+  cardGrad: 'linear-gradient(160deg, #1a1a1c 0%, #0f0f10 100%)',
+  border: 'rgba(255,255,255,0.07)',
+  borderTop: 'rgba(255,255,255,0.18)',
+  borderStrong: 'rgba(255,255,255,0.13)',
+  shadowSm: '0 2px 8px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.6)',
+  shadowMd: '0 8px 24px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.7)',
+  t1: '#f5f5f7',
+  t2: '#a1a1a6',
+  t3: '#6e6e73',
+  t4: 'rgba(255,255,255,0.2)',
   yellow: '#eab308',
   green: '#22c55e',
   orange: '#f97316',
   blue: '#3b82f6',
   red: '#ef4444',
-  yd: 'rgba(234,179,8,0.1)',
-  gd: 'rgba(34,197,94,0.1)',
-  bd: 'rgba(59,130,246,0.1)',
-  od: 'rgba(249,115,22,0.1)',
-  rd: 'rgba(239,68,68,0.1)',
+  yd: 'rgba(234,179,8,0.12)',
+  gd: 'rgba(34,197,94,0.12)',
+  bd: 'rgba(59,130,246,0.12)',
+  od: 'rgba(249,115,22,0.12)',
+  rd: 'rgba(239,68,68,0.12)',
 };
 
 export const ST: Record<string, { l: string; c: string; bg: string }> = {
-  importerad: { l: 'Importerad', c: '#71717a', bg: 'rgba(113,113,122,0.08)' },
-  planerad: { l: 'Planerad', c: '#71717a', bg: 'rgba(113,113,122,0.08)' },
-  pagaende: { l: 'Pågående', c: C.yellow, bg: C.yd },
+  importerad: { l: 'Importerad', c: C.blue, bg: C.bd },
+  planerad: { l: 'Planerad', c: '#71717a', bg: 'rgba(113,113,122,0.1)' },
+  pagaende: { l: 'Pågående', c: C.green, bg: C.gd },
   skordning: { l: 'Skördning', c: C.yellow, bg: C.yd },
-  skotning: { l: 'Skotning', c: C.orange, bg: 'rgba(249,115,22,0.08)' },
-  klar: { l: 'Klar', c: C.green, bg: C.gd },
+  skotning: { l: 'Skotning', c: C.orange, bg: C.od },
+  klar: { l: 'Klar', c: '#71717a', bg: 'rgba(113,113,122,0.1)' },
 };
 
 export const TF: Record<string, string> = {

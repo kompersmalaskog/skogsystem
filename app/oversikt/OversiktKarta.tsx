@@ -43,10 +43,13 @@ declare global {
   interface Window { maplibregl: any; }
 }
 
+interface ProdAgg { skordareVol: number; skotareVol: number; }
+
 interface Props {
   objekt: OversiktObjekt[];
   maskiner: Maskin[];
   maskinKo: MaskinKoItem[];
+  prodMap: Record<string, ProdAgg>;
 }
 
 /* ── Haversine distance in km (with decimals) ── */
@@ -69,7 +72,7 @@ function segKey(lng1: number, lat1: number, lng2: number, lat2: number): string 
 function Tag({ children, w }: { children: React.ReactNode; w?: boolean }) {
   return (
     <span style={{
-      fontSize: 10, fontWeight: 600, color: w ? C.yellow : 'rgba(255,255,255,0.7)',
+      fontSize: 11, fontWeight: 600, color: w ? C.yellow : 'rgba(255,255,255,0.7)',
       padding: '4px 10px', borderRadius: 100,
       background: w ? 'rgba(234,179,8,0.1)' : 'rgba(255,255,255,0.04)',
       border: w ? '1px solid rgba(234,179,8,0.2)' : '1px solid rgba(255,255,255,0.08)',
@@ -84,7 +87,7 @@ function Tag({ children, w }: { children: React.ReactNode; w?: boolean }) {
 function InfoRow({ label, val, warn }: { label: string; val: string; warn?: boolean }) {
   return (
     <div style={{ flex: 1, background: 'rgba(255,255,255,0.025)', padding: '6px 4px', textAlign: 'center' }}>
-      <div style={{ fontSize: 8, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 11, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: 11, fontWeight: 600, color: warn ? C.yellow : C.t2 }}>{val}</div>
     </div>
   );
@@ -118,7 +121,7 @@ function SpeciesSegment({ pct, color, delay }: { pct: number; color: string; del
 }
 
 /* ── ObjCard popup (positioned fixed at screen bottom) ── */
-function ObjCard({ obj }: { obj: OversiktObjekt }) {
+function ObjCard({ obj, prod }: { obj: OversiktObjekt; prod?: ProdAgg }) {
   const o = obj;
   const tf = TF[o.typ] || C.yellow;
   const cardRef = useRef<HTMLDivElement>(null);
@@ -144,7 +147,7 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
 
   // Status dot
   const statusColor = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning'
-    ? '#22c55e' : o.status === 'klar' ? '#fafafa' : '#71717a';
+    ? '#22c55e' : o.status === 'klar' ? C.t1 : '#71717a';
   const atgardLabel = o.atgard || (o.typ === 'slutavverkning' ? 'AU' : 'Gallring');
 
   // Volym
@@ -169,11 +172,11 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
   const ber = o.trakt_data?.beraknad;
 
   const S = {
-    surface: '#1a1a18',
+    surface: C.surface3,
     surface2: '#222220',
-    border: 'rgba(255,255,255,0.07)',
-    text: '#e8e8e4',
-    muted: '#7a7a72',
+    border: C.border,
+    text: C.t1,
+    muted: C.t3,
     accent: '#5aff8c',
   };
 
@@ -209,11 +212,12 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
         width: 380, maxWidth: 'calc(100% - 24px)',
         perspective: 1000,
         rotateX, rotateY,
-        background: 'rgba(15,15,20,0.82)',
+        background: 'linear-gradient(160deg, rgba(26,26,28,0.92) 0%, rgba(15,15,16,0.92) 100%)',
         backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
         borderRadius: 24, overflow: 'hidden',
-        border: '1px solid rgba(255,255,255,0.12)',
-        boxShadow: '0 32px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.1), inset 0 0 40px rgba(255,255,255,0.03)',
+        border: `1px solid ${C.border}`,
+        borderTopColor: C.borderTop,
+        boxShadow: `${C.shadowMd}, inset 0 1px 0 rgba(255,255,255,0.08)`,
         zIndex: 20,
         transformStyle: 'preserve-3d',
       }}
@@ -232,85 +236,68 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           </div>
         </div>
 
-        {/* 2. Volym — animated count-up */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 22 }}>
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1, duration: 0.4 }}
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '18px 14px', textAlign: 'center' }}
-          >
-            <div style={numStyle}>{formatVolym(animVolym)}</div>
-            <div style={{ fontSize: 9, color: S.muted, marginTop: 10, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 500 }}>Total m³sk</div>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15, duration: 0.4 }}
-            style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: '18px 14px', textAlign: 'center' }}
-          >
-            <div style={numStyle}>{volPerHaNum > 0 ? animVolHa : '–'}</div>
-            <div style={{ fontSize: 9, color: S.muted, marginTop: 10, textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 500 }}>m³sk/ha</div>
-          </motion.div>
+        {/* 2. Produktion (om maskin är aktiv) */}
+        {prod && (prod.skordareVol > 0 || prod.skotareVol > 0) && (() => {
+          const kvar = Math.max(0, (o.volym || 0) - prod.skordareVol);
+          return (
+            <>
+              <div style={{ marginBottom: 22 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 10 }}>Produktion</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                  {prod.skordareVol > 0 && (
+                    <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: S.text }}>{formatVolym(Math.round(prod.skordareVol))}</div>
+                      <div style={{ fontSize: 10, color: S.muted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Skördat m³</div>
+                    </div>
+                  )}
+                  {prod.skotareVol > 0 && (
+                    <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: S.text }}>{formatVolym(Math.round(prod.skotareVol))}</div>
+                      <div style={{ fontSize: 10, color: S.muted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Skotat m³</div>
+                    </div>
+                  )}
+                  {kvar > 0 && (
+                    <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: S.text }}>{formatVolym(Math.round(kvar))}</div>
+                      <div style={{ fontSize: 10, color: S.muted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Kvar m³</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <Div />
+            </>
+          );
+        })()}
+
+        {/* 3. Planering */}
+        <div style={{ padding: '16px 0' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 10 }}>Planering</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 10px', textAlign: 'center' }}>
+              <div style={numStyle}>{formatVolym(animVolym)}</div>
+              <div style={{ fontSize: 10, color: S.muted, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Planerad m³</div>
+            </div>
+            {o.areal > 0 && (
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 10px', textAlign: 'center' }}>
+                <div style={numStyle}>{o.areal}</div>
+                <div style={{ fontSize: 10, color: S.muted, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>ha</div>
+              </div>
+            )}
+          </div>
+          {trailerLabel && (
+            <div style={{ marginTop: 10 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', color: trailerColor }}>{trailerLabel}</span>
+            </div>
+          )}
         </div>
 
-        {/* 3. Trailer label */}
-        {trailerLabel && (
-          <div style={{ marginBottom: 20 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', color: '#e8e8e4' }}>{trailerLabel}</span>
-          </div>
-        )}
-
         <Div />
-
-        {/* 4. Kontakt */}
-        {(kontaktNamn || kontaktTel) && (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 0' }}>
-              <div style={{ width: 32, height: 32, borderRadius: 16, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: S.text }}>{kontaktNamn || '–'}</div>
-              </div>
-              {kontaktTel && (
-                <a href={`tel:${kontaktTel}`} style={{ fontSize: 12, color: '#5b8fff', textDecoration: 'none', fontWeight: 500 }}>{kontaktTel}</a>
-              )}
-            </div>
-            <Div />
-          </>
-        )}
-
-        {/* 5. Tillträde / Noteringar */}
-        {(o.ovrigt_info || noteringar.length > 0 || o.info_anteckningar) && (
-          <div style={{ padding: '16px 0' }}>
-            {o.ovrigt_info && (
-              <div style={{ marginBottom: (noteringar.length > 0 || o.info_anteckningar) ? 14 : 0 }}>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Tillträde</div>
-                <div style={{ fontSize: 12, color: S.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{o.ovrigt_info}</div>
-              </div>
-            )}
-            {(noteringar.length > 0 || o.info_anteckningar) && (
-              <div>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Noteringar</div>
-                {noteringar.map((n, i) => (
-                  <div key={i} style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginBottom: 4 }}>{n}</div>
-                ))}
-                {o.info_anteckningar && (
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: noteringar.length > 0 ? 4 : 0 }}>{o.info_anteckningar}</div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-        {(o.ovrigt_info || noteringar.length > 0 || o.info_anteckningar) && <Div />}
 
         {/* 6. Trädslag — animated staggered bar */}
         {ber?.tradslag && ber.tradslag.length > 0 && !ber.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt')) && (
           <>
             <div style={{ padding: '16px 0' }}>
-              <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 10 }}>Trädslag</div>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 10 }}>Trädslag</div>
               {(() => {
                 const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': '#FFA726', 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' }
                 const DEFAULT_FARG = '#9E9E9E'
@@ -359,7 +346,7 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
         {ber?.jordart && (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '14px 0' }}>
-              <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Mark</span>
+              <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Mark</span>
               <div style={{ flex: 1, textAlign: 'right', fontSize: 12, fontWeight: 500, color: S.text }}>
                 {ber.jordart}{ber.medelLutning != null ? ` · ${ber.medelLutning.toFixed(1)}° lutning` : ''}
               </div>
@@ -373,16 +360,16 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           <>
             <div style={{ padding: '14px 0' }}>
               <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.1)', borderRadius: 14, padding: '14px 16px' }}>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#ef4444', marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#ef4444', marginBottom: 6 }}>
                   Restriktioner ({ber.restriktioner.length})
                 </div>
                 {ber.restriktioner.slice(0, 5).map((r, i) => (
                   <div key={i} style={{ fontSize: 11, color: S.text, marginBottom: i < Math.min(ber.restriktioner!.length, 5) - 1 ? 4 : 0 }}>
-                    {r.name}{r.warning ? <span style={{ color: '#ef4444', fontSize: 10 }}> — {r.warning}</span> : ''}
+                    {r.name}{r.warning ? <span style={{ color: '#ef4444', fontSize: 11 }}> — {r.warning}</span> : ''}
                   </div>
                 ))}
                 {ber.restriktioner.length > 5 && (
-                  <div style={{ fontSize: 10, color: S.muted, marginTop: 4 }}>+{ber.restriktioner.length - 5} till</div>
+                  <div style={{ fontSize: 11, color: S.muted, marginTop: 4 }}>+{ber.restriktioner.length - 5} till</div>
                 )}
               </div>
             </div>
@@ -390,40 +377,135 @@ function ObjCard({ obj }: { obj: OversiktObjekt }) {
           </>
         )}
 
-        {/* 9. Maskiner */}
-        {(o.skordare_maskin || o.skotare_maskin) && (
-          <div style={{ padding: '16px 0' }}>
-            <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 10 }}>Maskiner</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: (o.skotare_lastreder_breddat || o.skotare_ris_direkt || o.skordare_manuell_fallning || o.markagare_ska_ha_ved) ? 10 : 0 }}>
-              {o.skordare_maskin && (
-                <span style={{
-                  fontSize: 12, fontWeight: 600, color: S.text, padding: '9px 16px', borderRadius: 12,
-                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                  transition: 'background 0.2s ease',
-                }}>
-                  {o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}
-                </span>
-              )}
-              {o.skotare_maskin && (
-                <span style={{
-                  fontSize: 12, fontWeight: 600, color: S.text, padding: '9px 16px', borderRadius: 12,
-                  background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                  transition: 'background 0.2s ease',
-                }}>
-                  {o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}
-                </span>
-              )}
+        {/* 9. Logistik */}
+        {(o.transport_trailer_in != null || o.transport_kommentar || o.barighet || o.terrang) && (
+          <>
+            <div style={{ padding: '14px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 8 }}>Logistik</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {o.barighet && (
+                  <div style={{ fontSize: 12, color: S.text }}>
+                    <span style={{ color: S.muted }}>Bärighet:</span> {o.barighet}
+                  </div>
+                )}
+                {o.terrang && (
+                  <div style={{ fontSize: 12, color: S.text }}>
+                    <span style={{ color: S.muted }}>Terräng:</span> {o.terrang}
+                  </div>
+                )}
+                {o.transport_kommentar && (
+                  <div style={{ fontSize: 12, color: S.text, lineHeight: 1.5 }}>
+                    {o.transport_kommentar}
+                  </div>
+                )}
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {o.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
-              {o.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
-              {o.skordare_manuell_fallning && <Tag w>Manuell fällning</Tag>}
-              {o.markagare_ska_ha_ved && <Tag>Ved</Tag>}
-            </div>
-          </div>
+            <Div />
+          </>
         )}
 
-        {/* 10. Footer */}
+        {/* 10. GROT */}
+        {(o.grot_volym || o.grot_status !== 'ej_aktuellt') && (
+          <>
+            <div style={{ padding: '14px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 8 }}>GROT</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {o.grot_volym && (
+                  <div style={{ fontSize: 12, color: S.text }}>Volym: {formatVolym(o.grot_volym)} m³</div>
+                )}
+                {o.skotare_ris_direkt && (
+                  <div style={{ fontSize: 12, color: C.yellow }}>Ska skotas direkt</div>
+                )}
+                {o.grot_deadline && (
+                  <div style={{ fontSize: 12, color: S.muted }}>
+                    Senast: {new Date(o.grot_deadline + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </div>
+                )}
+                {o.grot_anteckning && (
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>{o.grot_anteckning}</div>
+                )}
+              </div>
+            </div>
+            <Div />
+          </>
+        )}
+
+        {/* 11. Maskiner */}
+        {(o.skordare_maskin || o.skotare_maskin) && (
+          <>
+            <div style={{ padding: '14px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 8 }}>Maskiner</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: (o.skotare_lastreder_breddat || o.skotare_ris_direkt || o.skordare_manuell_fallning || o.markagare_ska_ha_ved) ? 10 : 0 }}>
+                {o.skordare_maskin && (
+                  <span style={{ fontSize: 12, fontWeight: 600, color: S.text, padding: '9px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    {o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}
+                  </span>
+                )}
+                {o.skotare_maskin && (
+                  <span style={{ fontSize: 12, fontWeight: 600, color: S.text, padding: '9px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                    {o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {o.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
+                {o.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
+                {o.skordare_manuell_fallning && <Tag w>Manuell fällning</Tag>}
+                {o.markagare_ska_ha_ved && <Tag>Ved</Tag>}
+              </div>
+            </div>
+            <Div />
+          </>
+        )}
+
+        {/* 12. Kontakt */}
+        {(kontaktNamn || kontaktTel) && (
+          <>
+            <div style={{ padding: '14px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 8 }}>Kontakt</div>
+              {kontaktNamn && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: kontaktTel ? 4 : 0 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: S.text }}>{kontaktNamn}</span>
+                  {kontaktTel && (
+                    <a href={`tel:${kontaktTel}`} style={{ fontSize: 12, color: '#5b8fff', textDecoration: 'none', fontWeight: 500 }}>{kontaktTel}</a>
+                  )}
+                </div>
+              )}
+            </div>
+            <Div />
+          </>
+        )}
+
+        {/* 13. Anteckningar från planeraren */}
+        {(o.info_anteckningar || o.ovrigt_info || noteringar.length > 0) && (
+          <>
+            <div style={{ padding: '14px 0' }}>
+              {o.info_anteckningar && (
+                <div style={{ marginBottom: (o.ovrigt_info || noteringar.length > 0) ? 12 : 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Anteckningar</div>
+                  <div style={{ fontSize: 12, color: S.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{o.info_anteckningar}</div>
+                </div>
+              )}
+              {o.ovrigt_info && (
+                <div style={{ marginBottom: noteringar.length > 0 ? 12 : 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Tillträde</div>
+                  <div style={{ fontSize: 12, color: S.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{o.ovrigt_info}</div>
+                </div>
+              )}
+              {noteringar.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Övriga noteringar</div>
+                  {noteringar.map((n, i) => (
+                    <div key={i} style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginBottom: 4 }}>{n}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <Div />
+          </>
+        )}
+
+        {/* 14. Footer */}
         <button onClick={() => window.location.href = `/planering?objekt=${o.id}`} style={{
           width: '100%', marginTop: 10, padding: '14px 0',
           background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
@@ -453,8 +535,8 @@ function GrotCard({ obj }: { obj: OversiktObjekt }) {
     <div onClick={(e) => e.stopPropagation()} style={{
       position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
       width: 300, maxWidth: 'calc(100% - 24px)',
-      background: 'rgba(13,13,15,.97)', backdropFilter: 'blur(24px)',
-      borderRadius: 14, overflow: 'hidden', border: `1px solid ${C.border}`, zIndex: 20,
+      background: 'linear-gradient(160deg, rgba(26,26,28,0.97) 0%, rgba(15,15,16,0.97) 100%)', backdropFilter: 'blur(24px)',
+      borderRadius: 16, overflow: 'hidden', border: `1px solid ${C.border}`, borderTopColor: C.borderTop, boxShadow: C.shadowMd, zIndex: 20,
       animation: 'fadeUp .2s ease-out',
     }}>
       <div style={{ height: 2, background: `linear-gradient(90deg,${clr},transparent)` }} />
@@ -463,13 +545,13 @@ function GrotCard({ obj }: { obj: OversiktObjekt }) {
           <div style={{ width: 10, height: 10, background: clr, transform: 'rotate(45deg)', borderRadius: 2, flexShrink: 0 }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 16, fontWeight: 700 }}>{obj.namn}</div>
-            <div style={{ fontSize: 10, color: C.t3 }}>{sl[obj.grot_status] || obj.grot_status}</div>
+            <div style={{ fontSize: 11, color: C.t3 }}>{sl[obj.grot_status] || obj.grot_status}</div>
           </div>
           {isOverdue && (
-            <span style={{ fontSize: 9, fontWeight: 600, color: C.red, padding: '2px 8px', background: C.rd, borderRadius: 5 }}>Försenad</span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: C.red, padding: '2px 8px', background: C.rd, borderRadius: 5 }}>Försenad</span>
           )}
           {isUrgent && (
-            <span style={{ fontSize: 9, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 5 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 5 }}>
               {deadlineDays === 0 ? 'Idag' : `${deadlineDays}d kvar`}
             </span>
           )}
@@ -484,7 +566,7 @@ function GrotCard({ obj }: { obj: OversiktObjekt }) {
                 {i > 0 && <div style={{ width: 16, height: 2, background: filled ? step.color : 'rgba(255,255,255,0.06)' }} />}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <div style={{ width: 7, height: 7, borderRadius: '50%', background: filled ? step.color : 'rgba(255,255,255,0.08)' }} />
-                  <span style={{ fontSize: 9, color: filled ? step.color : C.t4, fontWeight: filled ? 600 : 400 }}>{step.label}</span>
+                  <span style={{ fontSize: 11, color: filled ? step.color : C.t4, fontWeight: filled ? 600 : 400 }}>{step.label}</span>
                 </div>
               </React.Fragment>
             );
@@ -493,16 +575,16 @@ function GrotCard({ obj }: { obj: OversiktObjekt }) {
 
         <div style={{ display: 'flex', gap: 2, borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
           <div style={{ flex: 1, background: bgTint, padding: '8px 4px', textAlign: 'center' }}>
-            <div style={{ fontSize: 8, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Volym</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{obj.grot_volym ? formatVolym(obj.grot_volym) : '–'} <span style={{ fontSize: 9, fontWeight: 400, color: C.t4 }}>m³</span></div>
+            <div style={{ fontSize: 11, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Volym</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{obj.grot_volym ? formatVolym(obj.grot_volym) : '–'} <span style={{ fontSize: 11, fontWeight: 400, color: C.t4 }}>m³</span></div>
           </div>
           <div style={{ flex: 1, background: bgTint, padding: '8px 4px', textAlign: 'center' }}>
-            <div style={{ fontSize: 8, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Lass</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{lass || '–'} <span style={{ fontSize: 9, fontWeight: 400, color: C.t4 }}>st</span></div>
+            <div style={{ fontSize: 11, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Lass</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{lass || '–'} <span style={{ fontSize: 11, fontWeight: 400, color: C.t4 }}>st</span></div>
           </div>
         </div>
         {obj.grot_deadline && (
-          <div style={{ fontSize: 10, color: isOverdue ? C.red : isUrgent ? C.yellow : C.t3, marginBottom: 6 }}>
+          <div style={{ fontSize: 11, color: isOverdue ? C.red : isUrgent ? C.yellow : C.t3, marginBottom: 6 }}>
             Senast: {new Date(obj.grot_deadline + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' })}
           </div>
         )}
@@ -532,7 +614,7 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
   const lbl = document.createElement('div');
   lbl.className = 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + sz / 2 + 4}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
-  lbl.innerHTML = `<div style="font-size:10px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
+  lbl.innerHTML = `<div style="font-size:11px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
   w.appendChild(lbl);
 
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
@@ -616,9 +698,10 @@ function buildMarkerEl(
   lbl.className = isActive ? 'ovk-lbl ovk-lbl-active' : 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
   const clr = isHistoryKlar ? '#71717a' : '#fff';
-  let html = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${obj.namn}</div>`;
+  const volLabel = obj.volym ? ` (${Math.round(obj.volym)} m³)` : '';
+  let html = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${obj.namn}${volLabel}</div>`;
   if (isHistoryKlar) {
-    html += `<div style="font-size:9px;color:#71717a;font-family:${ff};margin-top:2px;background:rgba(0,0,0,0.6);padding:1px 6px;border-radius:4px;display:inline-block">Klar</div>`;
+    html += `<div style="font-size:11px;color:#71717a;font-family:${ff};margin-top:2px;background:rgba(0,0,0,0.6);padding:1px 6px;border-radius:4px;display:inline-block">Klar</div>`;
   }
   lbl.innerHTML = html;
   w.appendChild(lbl);
@@ -627,7 +710,7 @@ function buildMarkerEl(
   if (maskinName) {
     const md = document.createElement('div');
     md.style.cssText = `position:absolute;bottom:${hitSize / 2 + dotSize / 2 + 6}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
-    md.innerHTML = `<div style="background:rgba(0,0,0,0.85);padding:3px 8px;border-radius:6px;font-size:10px;font-weight:600;color:#fff;font-family:${ff}">${maskinName}</div>`;
+    md.innerHTML = `<div style="background:rgba(0,0,0,0.85);padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;color:#fff;font-family:${ff}">${maskinName}</div>`;
     w.appendChild(md);
   } else if (showChips) {
     // Machine chips for active objects (no maskinFilter)
@@ -640,7 +723,7 @@ function buildMarkerEl(
         if (m) {
           const ch = document.createElement('div');
           ch.style.cssText = `background:rgba(0,0,0,.85);padding:3px 8px;border-radius:6px`;
-          ch.innerHTML = `<span style="font-size:10px;font-weight:600;color:#fff;font-family:${ff}">${getMaskinDisplayName(m)}</span>`;
+          ch.innerHTML = `<span style="font-size:11px;font-weight:600;color:#fff;font-family:${ff}">${getMaskinDisplayName(m)}</span>`;
           md.appendChild(ch);
         }
       });
@@ -653,7 +736,7 @@ function buildMarkerEl(
 }
 
 /* ════════════════════════════════════════════════════════════════ */
-export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
+export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: Props) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markersMapRef = useRef<Map<string, any>>(new Map());
@@ -684,35 +767,39 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
     return maskiner.filter(m => ids.has(m.maskin_id));
   }, [maskiner, maskinKo]);
 
-  /* ── Route data: ONLY when a specific machine is filtered ── */
+  /* ── Route data: show for filtered machine, or ALL machines ── */
   const routeData = useMemo(() => {
-    // "Alla maskiner" = no numbering, no route lines
-    if (!maskinFilter) return [];
-    const m = queuedMaskiner.find(x => x.maskin_id === maskinFilter);
-    if (!m) return [];
+    const machineList = maskinFilter
+      ? queuedMaskiner.filter(x => x.maskin_id === maskinFilter)
+      : queuedMaskiner;
 
-    const koItems = maskinKo
-      .filter(k => k.maskin_id === maskinFilter)
-      .sort((a, b) => a.ordning - b.ordning);
-    if (!koItems.length) return [];
+    return machineList.map((m, mi) => {
+      const koItems = maskinKo
+        .filter(k => k.maskin_id === m.maskin_id)
+        .sort((a, b) => a.ordning - b.ordning);
+      if (!koItems.length) return null;
 
-    const numbered: Record<string, number> = {};
-    const lineCoords: [number, number][] = [];
-    let num = 1;
+      const numbered: Record<string, number> = {};
+      const lineCoords: [number, number][] = [];
+      let num = 1;
 
-    koItems.forEach(k => {
-      const o = objekt.find(x => x.id === k.objekt_id);
-      if (!o || !o.lat || !o.lng || o.status === 'klar') return;
-      const isAct = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning';
-      lineCoords.push([o.lng, o.lat]);
-      if (!isAct) { numbered[o.id] = num; num++; }
-    });
+      koItems.forEach(k => {
+        const o = objekt.find(x => x.id === k.objekt_id);
+        if (!o || !o.lat || !o.lng || o.status === 'klar') return;
+        const isAct = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning';
+        lineCoords.push([o.lng, o.lat]);
+        if (!isAct) { numbered[o.id] = num; num++; }
+      });
 
-    const color = getMaskinTyp(m.typ) === 'skördare' ? C.yellow : C.orange;
-    return [{ maskinId: m.maskin_id, color, numbered, lineCoords }];
+      if (lineCoords.length === 0) return null;
+      const color = maskinFilter
+        ? (getMaskinTyp(m.typ) === 'skördare' ? C.yellow : C.orange)
+        : RC[mi % RC.length];
+      return { maskinId: m.maskin_id, color, numbered, lineCoords };
+    }).filter(Boolean) as { maskinId: string; color: string; numbered: Record<string, number>; lineCoords: [number, number][] }[];
   }, [queuedMaskiner, maskinKo, objekt, maskinFilter]);
 
-  /* ── Merged queue-number lookup: objId → number ── */
+  /* ── Merged queue-number lookup: objId → number (use first machine's number) ── */
   const queueNums = useMemo(() => {
     const nums: Record<string, number> = {};
     routeData.forEach(rd => {
@@ -776,8 +863,8 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
 
     return {
       obj,
-      // Numbers only when a specific machine is filtered
-      queueNum: (maskinFilter && !isK) ? (queueNums[obj.id] ?? null) : null,
+      // Show queue numbers when routes are visible
+      queueNum: (!isK && queueNums[obj.id] != null) ? queueNums[obj.id] : null,
       isHistoryKlar: isK,
       showChips: isA,
       maskinName,
@@ -972,7 +1059,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         const oy = Math.round(-perpY * push);
 
         const el = document.createElement('div');
-        el.style.cssText = `background:rgba(0,0,0,0.7);color:#fff;font-size:9px;font-weight:500;font-family:${ff};padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap`;
+        el.style.cssText = `background:rgba(0,0,0,0.7);color:#fff;font-size:11px;font-weight:500;font-family:${ff};padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap`;
         el.textContent = label;
 
         const marker = new window.maplibregl.Marker({ element: el, anchor: 'center', offset: [ox, oy] })
@@ -1089,7 +1176,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
       {/* ── Filter button (top right) ── */}
       <button onClick={e => { e.stopPropagation(); setShowFilterPanel(p => !p); }} style={{
         position: 'absolute', top: 16, right: 16, zIndex: 15,
-        width: 40, height: 40, borderRadius: 10,
+        width: 44, height: 44, borderRadius: 12,
         background: showFilterPanel ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,.75)',
         backdropFilter: 'blur(16px)', border: `1px solid ${C.border}`,
         color: (filt !== 'alla' || showHist || showGrot || maskinFilter) ? C.yellow : C.t1,
@@ -1102,7 +1189,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
       {/* ── Filter panel (slides in from right) ── */}
       <div onClick={e => e.stopPropagation()} style={{
         position: 'absolute', top: 0, right: 0, bottom: 0, width: 280, zIndex: 14,
-        background: 'rgba(9,9,11,0.95)', backdropFilter: 'blur(24px)',
+        background: 'rgba(7,7,8,0.95)', backdropFilter: 'blur(24px)',
         borderLeft: `1px solid ${C.border}`,
         transform: showFilterPanel ? 'translateX(0)' : 'translateX(100%)',
         transition: 'transform 0.25s cubic-bezier(.4,0,.2,1)',
@@ -1116,7 +1203,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         </div>
 
         {/* Typ */}
-        <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Typ</div>
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Typ</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
           {([
             { k: 'alla' as const, l: 'Alla' },
@@ -1132,25 +1219,25 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         </div>
 
         {/* Visa */}
-        <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Visa</div>
+        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Visa</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
           <button onClick={() => setShowHist(h => !h)} style={{
             padding: '10px 14px', background: showHist ? 'rgba(255,255,255,0.08)' : 'transparent',
             color: showHist ? C.t1 : C.t2, border: 'none', borderRadius: 8, fontSize: 12,
             fontWeight: showHist ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>Historik <span style={{ fontSize: 10, color: showHist ? C.green : C.t4 }}>{showHist ? 'PÅ' : 'AV'}</span></button>
+          }}>Historik <span style={{ fontSize: 11, color: showHist ? C.green : C.t4 }}>{showHist ? 'PÅ' : 'AV'}</span></button>
           <button onClick={() => { setShowGrot(g => !g); if (showGrot) setSelectedGrotId(null); }} style={{
             padding: '10px 14px', background: showGrot ? C.yd : 'transparent',
             color: showGrot ? C.yellow : C.t2, border: 'none', borderRadius: 8, fontSize: 12,
             fontWeight: showGrot ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>GROT <span style={{ fontSize: 10, color: showGrot ? C.yellow : C.t4 }}>{showGrot ? 'PÅ' : 'AV'}</span></button>
+          }}>GROT <span style={{ fontSize: 11, color: showGrot ? C.yellow : C.t4 }}>{showGrot ? 'PÅ' : 'AV'}</span></button>
         </div>
 
         {/* Maskin */}
         {maskiner.length > 0 && (<>
-          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Maskin</div>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Maskin</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <button onClick={() => { setMaskinFilter(null); setSelectedId(null); }} style={{
               padding: '10px 14px', background: !maskinFilter ? 'rgba(255,255,255,0.08)' : 'transparent',
@@ -1164,7 +1251,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
               return (
                 <div key={typ}>
                   <div style={{
-                    padding: '8px 14px 4px', fontSize: 9, fontWeight: 600, color: C.t4,
+                    padding: '8px 14px 4px', fontSize: 11, fontWeight: 600, color: C.t4,
                     textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: ff,
                   }}>{typ}</div>
                   {group.map(m => {
@@ -1194,32 +1281,32 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo }: Props) {
         position: 'absolute',
         ...((selectedObj || selectedGrotObj) ? { top: 70 } : { bottom: 16 }),
         left: 16, display: 'flex', gap: 10, background: 'rgba(0,0,0,.65)',
-        backdropFilter: 'blur(12px)', padding: '6px 12px', borderRadius: 8, zIndex: 10,
+        backdropFilter: 'blur(12px)', padding: '8px 14px', borderRadius: 12, zIndex: 10,
         alignItems: 'center',
       }}>
         {Object.entries(ST).filter(([k]) => ['planerad', 'pagaende', 'klar'].includes(k)).map(([k, v]) => (
           <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: v.c, opacity: 0.7 }} />
-            <span style={{ fontSize: 9, color: C.t3 }}>{v.l}</span>
+            <span style={{ fontSize: 11, color: C.t3 }}>{v.l}</span>
           </div>
         ))}
         {showGrot && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <div style={{ width: 6, height: 6, background: C.yellow, transform: 'rotate(45deg)', borderRadius: 1 }} />
-            <span style={{ fontSize: 9, color: C.t3 }}>GROT</span>
+            <span style={{ fontSize: 11, color: C.t3 }}>GROT</span>
           </div>
         )}
         {totalDistance.total > 0 && (
           <>
             <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.1)' }} />
-            <span style={{ fontSize: 9, color: C.t2, fontWeight: 600, fontFamily: ff }}>
+            <span style={{ fontSize: 11, color: C.t2, fontWeight: 600, fontFamily: ff }}>
               Total rutt: {totalDistance.anyApprox ? '~' : ''}{totalDistance.total < 1 ? `${Math.round(totalDistance.total * 1000)} m` : `${totalDistance.total.toFixed(1)} km`}
             </span>
           </>
         )}
       </div>
 
-      {selectedObj && <ObjCard obj={selectedObj} />}
+      {selectedObj && <ObjCard obj={selectedObj} prod={prodMap[selectedObj.id]} />}
       {selectedGrotObj && <GrotCard obj={selectedGrotObj} />}
     </div>
   );
