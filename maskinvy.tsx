@@ -14,14 +14,14 @@ const MASKINVY_SCRIPT = `
 Chart.defaults.font.family = 'Geist';
 Chart.defaults.color = '#7a7a72';
 
-const classes = ['0.0–0.1','0.1–0.2','0.2–0.3','0.3–0.4','0.4–0.5','0.5–0.7','0.7+'];
-const m3g15   = [7.7,10.3,10.5,11.1,12.0,12.7,15.0];
-const stg15   = [102,73,42,32,27,21,36];
-const volym   = [138,298,545,311,252,228,75];
-const stammar = [1840,2130,2180,890,560,380,180];
+var classes = ['0.0–0.1','0.1–0.2','0.2–0.3','0.3–0.4','0.4–0.5','0.5–0.7','0.7+'];
+var m3g15   = [7.7,10.3,10.5,11.1,12.0,12.7,15.0];
+var stg15   = [102,73,42,32,27,21,36];
+var volym   = [138,298,545,311,252,228,75];
+var stammar = [1840,2130,2180,890,560,380,180];
 
-const grid    = {color:'rgba(255,255,255,0.05)'};
-const ticks   = {color:'#7a7a72',font:{size:11}};
+var grid    = {color:'rgba(255,255,255,0.05)'};
+var ticks   = {color:'#7a7a72',font:{size:11}};
 const tooltip = {backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10};
 
 // Count-up animation
