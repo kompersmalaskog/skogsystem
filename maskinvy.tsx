@@ -1,6 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+type Maskin = { maskin_id: number; modell: string; tillverkare: string; typ: string };
 
 const MASKINVY_SCRIPT = `
 Chart.defaults.font.family = 'Geist';
@@ -641,6 +649,15 @@ function closeObjJmf() { closeAllPanels(); }
 `;
 
 export default function Maskinvy() {
+  const [maskiner, setMaskiner] = useState<Maskin[]>([]);
+  const [vald, setVald] = useState('');
+
+  useEffect(() => {
+    supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ').then(({ data }) => {
+      if (data) { setMaskiner(data); setVald(data[0]?.modell ?? ''); }
+    });
+  }, []);
+
   useEffect(() => {
     let scriptEl: HTMLScriptElement | null = null;
 
@@ -673,9 +690,37 @@ export default function Maskinvy() {
     };
   }, []);
 
+  const valdMaskin = maskiner.find(m => m.modell === vald);
+
   return (
     <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch', zIndex: 1 }}>
-      <style dangerouslySetInnerHTML={{ __html: `:root {
+      {/* ── MASKINVÄLJARE (Supabase) ── */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 200, background: 'rgba(17,17,16,0.92)',
+        backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.07)',
+        padding: '10px 36px', display: 'flex', alignItems: 'center', gap: 12,
+        fontFamily: "'Geist', system-ui, sans-serif",
+      }}>
+        <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#7a7a72' }}>Maskin</span>
+        <select
+          value={vald}
+          onChange={e => setVald(e.target.value)}
+          style={{
+            background: '#222220', color: '#e8e8e4', border: '1px solid rgba(255,255,255,0.12)',
+            borderRadius: 7, padding: '6px 12px', fontSize: 13, fontFamily: "'Geist', system-ui, sans-serif",
+            outline: 'none', cursor: 'pointer', minWidth: 240,
+          }}
+        >
+          {maskiner.map(m => (
+            <option key={m.maskin_id} value={m.modell}>{m.tillverkare} {m.modell} ({m.typ})</option>
+          ))}
+        </select>
+        {valdMaskin && (
+          <span style={{ fontSize: 11, color: '#7a7a72' }}>ID: {valdMaskin.maskin_id}</span>
+        )}
+      </div>
+      <style dangerouslySetInnerHTML={{ __html: `.mach-wrap { display: none !important; }
+:root {
   --bg:       #111110;
   --surface:  #1a1a18;
   --surface2: #222220;
