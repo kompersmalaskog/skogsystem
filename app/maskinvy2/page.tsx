@@ -17,7 +17,7 @@ const C = {
   bg: '#111110', surface: '#1a1a18', surface2: '#222220',
   border: 'rgba(255,255,255,0.07)', border2: 'rgba(255,255,255,0.13)',
   t1: '#e8e8e4', t2: '#a8a8a2', t3: '#7a7a72', t4: '#3a3a36',
-  green: '#5aff8c', red: '#ff5f57', amber: '#ffb340', blue: '#60a5fa',
+  green: '#00c48c', red: '#ff5f57', amber: '#ffb340', blue: '#60a5fa',
 };
 
 /* ══════════════════════════════════════════════════════════════
@@ -350,6 +350,15 @@ function BarChart({ bars, prevAvg, color }: {
   );
 }
 
+function SectionTitle({ children }: { children: string }) {
+  return (
+    <div style={{
+      fontSize: 13, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em',
+      color: C.t3, marginBottom: 12, fontFamily: ff,
+    }}>{children}</div>
+  );
+}
+
 /* ══════════════════════════════════════════════════════════════
    MAIN PAGE
    ══════════════════════════════════════════════════════════════ */
@@ -375,6 +384,8 @@ export default function Maskinvy2Page() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [operatorer, setOperatorer] = useState<Operator[]>([]);
 
+  const [prodYear, setProdYear] = useState<ProdRow[]>([]);
+
   const [activeKpi, setActiveKpi] = useState<KpiId | null>(null);
   const [selectedOp, setSelectedOp] = useState<string | null>(null);
 
@@ -387,13 +398,14 @@ export default function Maskinvy2Page() {
     const curr = dateRange(periodType, year, week, month, quarter);
     const prev = prevRange(periodType, year, week, month, quarter);
 
-    const [tc, tp, pc, pp, mr, or_] = await Promise.all([
+    const [tc, tp, pc, pp, mr, or_, py] = await Promise.all([
       supabase.from('fakt_tid').select(tidCols).gte('datum', curr.start).lte('datum', curr.end),
       supabase.from('fakt_tid').select(tidCols).gte('datum', prev.start).lte('datum', prev.end),
       supabase.from('fakt_produktion').select(prodCols).gte('datum', curr.start).lte('datum', curr.end),
       supabase.from('fakt_produktion').select(prodCols).gte('datum', prev.start).lte('datum', prev.end),
       supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ'),
       supabase.from('dim_operator').select('operator_id,operator_namn,operator_key'),
+      supabase.from('fakt_produktion').select(prodCols).gte('datum', `${year}-01-01`).lte('datum', `${year}-12-31`),
     ]);
 
     setTidCurr((tc.data || []) as TidRow[]);
@@ -402,6 +414,7 @@ export default function Maskinvy2Page() {
     setProdPrev((pp.data || []) as ProdRow[]);
     setMaskiner((mr.data || []) as Maskin[]);
     setOperatorer((or_.data || []) as Operator[]);
+    setProdYear((py.data || []) as ProdRow[]);
     setLoading(false);
   }, [periodType, year, week, month, quarter]);
 
@@ -543,6 +556,16 @@ export default function Maskinvy2Page() {
     }
   }, [periodType, year, week, month, quarter]);
 
+  // ── Monthly volume bars (full year, filtered by machine) ──
+  const fProdYear = useMemo(() => prodYear.filter(r => machineIds.has(r.maskin_id)), [prodYear, machineIds]);
+  const monthlyVolym = useMemo(() => {
+    return MON_SV.map((label, mo) => {
+      const prefix = `${year}-${String(mo + 1).padStart(2, '0')}`;
+      const vol = fProdYear.filter(r => r.datum.startsWith(prefix)).reduce((s, r) => s + (r.volym_m3sub || 0), 0);
+      return { label, value: vol };
+    });
+  }, [year, fProdYear]);
+
   // ── Chart color per KPI ──
   const chartColor = (k: KpiId) => {
     switch (k) { case 'volym': return C.green; case 'produktivitet': return C.blue; case 'diesel': return C.amber; case 'utnyttjandegrad': return '#a78bfa'; }
@@ -604,12 +627,10 @@ export default function Maskinvy2Page() {
         overflow: 'auto', WebkitOverflowScrolling: 'touch' as any,
         background: C.bg, fontFamily: ff, color: C.t1, zIndex: 1,
       }}>
-        <div style={{ padding: '20px 20px 80px', maxWidth: 600, margin: '0 auto' }}>
+        <div style={{ padding: '20px 20px 100px', maxWidth: 600, margin: '0 auto' }}>
 
           {/* ═══ FILTERS ═══ */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-
-            {/* Machine selector */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 28 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Select value={selectedMaskin} onChange={v => setSelectedMaskin(v)}>
                 <option value="alla">Alla {machineType === 'skordare' ? 'skördare' : 'skotare'}</option>
@@ -620,104 +641,213 @@ export default function Maskinvy2Page() {
                 ))}
               </Select>
             </div>
-
-          {/* Period type + selectors */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3 }}>
-              {(['vecka', 'manad', 'kvartal', 'ar'] as const).map(p => (
-                <Pill key={p} label={p === 'vecka' ? 'Vecka' : p === 'manad' ? 'Månad' : p === 'kvartal' ? 'Kvartal' : 'År'}
-                  active={periodType === p} onClick={() => setPeriodType(p)} />
-              ))}
-            </div>
-
-            {/* Year selector */}
-            <Select value={year} onChange={v => setYear(Number(v))}>
-              {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </Select>
-
-            {/* Week selector */}
-            {periodType === 'vecka' && (
-              <Select value={week} onChange={v => setWeek(Number(v))} style={{ width: 72 }}>
-                {Array.from({ length: maxWeeks(year) }, (_, i) => i + 1).map(w => (
-                  <option key={w} value={w}>v{w}</option>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3 }}>
+                {(['vecka', 'manad', 'kvartal', 'ar'] as const).map(p => (
+                  <Pill key={p} label={p === 'vecka' ? 'Vecka' : p === 'manad' ? 'Månad' : p === 'kvartal' ? 'Kvartal' : 'År'}
+                    active={periodType === p} onClick={() => setPeriodType(p)} />
+                ))}
+              </div>
+              <Select value={year} onChange={v => setYear(Number(v))}>
+                {Array.from({ length: 5 }, (_, i) => now.getFullYear() - i).map(y => (
+                  <option key={y} value={y}>{y}</option>
                 ))}
               </Select>
-            )}
-
-            {/* Month selector */}
-            {periodType === 'manad' && (
-              <Select value={month} onChange={v => setMonth(Number(v))}>
-                {MON_SV.map((m, i) => <option key={i} value={i}>{m}</option>)}
-              </Select>
-            )}
-
-            {/* Quarter selector */}
-            {periodType === 'kvartal' && (
-              <Select value={quarter} onChange={v => setQuarter(Number(v))}>
-                {[0, 1, 2, 3].map(q => <option key={q} value={q}>Q{q + 1}</option>)}
-              </Select>
-            )}
+              {periodType === 'vecka' && (
+                <Select value={week} onChange={v => setWeek(Number(v))} style={{ width: 72 }}>
+                  {Array.from({ length: maxWeeks(year) }, (_, i) => i + 1).map(w => (
+                    <option key={w} value={w}>v{w}</option>
+                  ))}
+                </Select>
+              )}
+              {periodType === 'manad' && (
+                <Select value={month} onChange={v => setMonth(Number(v))}>
+                  {MON_SV.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                </Select>
+              )}
+              {periodType === 'kvartal' && (
+                <Select value={quarter} onChange={v => setQuarter(Number(v))}>
+                  {[0, 1, 2, 3].map(q => <option key={q} value={q}>Q{q + 1}</option>)}
+                </Select>
+              )}
+            </div>
+            <div style={{ fontSize: 12, color: C.t3 }}>{periodLabel}</div>
           </div>
 
-          <div style={{ fontSize: 12, color: C.t3 }}>{periodLabel}</div>
-        </div>
+          {/* ═══ KPI CARDS ═══ */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 32 }}>
+            {(['volym', 'produktivitet', 'diesel', 'utnyttjandegrad'] as const).map(k => {
+              const cv = kpiVal(aggCurr, k);
+              const pv = kpiVal(aggPrev, k);
+              const dir = trend(k, cv, pv);
+              const pct = trendPct(cv, pv);
+              const meta = KPI_META[k];
+              const isGood = dir === 'up';
+              const tCol = dir === 'flat' ? C.t4 : isGood ? C.green : C.red;
+              const arrow = dir === 'up' ? '↑' : dir === 'down' ? '↓' : '→';
+              const active = activeKpi === k;
 
-        {/* ═══ LEVEL 1 — 4 KPI CARDS ═══ */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 28 }}>
-          {(['volym', 'produktivitet', 'diesel', 'utnyttjandegrad'] as const).map(k => {
-            const cv = kpiVal(aggCurr, k);
-            const pv = kpiVal(aggPrev, k);
-            const dir = trend(k, cv, pv);
-            const pct = trendPct(cv, pv);
-            const meta = KPI_META[k];
-            const isGood = dir === 'up';
-            const tCol = dir === 'flat' ? C.t4 : isGood ? C.green : C.red;
-            const arrow = dir === 'up' ? '↑' : dir === 'down' ? '↓' : '→';
-            const active = activeKpi === k;
-
-            return (
-              <div key={k} onClick={() => { setActiveKpi(active ? null : k); setSelectedOp(null); }} style={{
-                background: active ? 'linear-gradient(145deg, #1e1e1c, #141412)' : C.surface,
-                border: `1px solid ${active ? C.border2 : C.border}`,
-                borderRadius: 14, padding: '16px 18px', cursor: 'pointer',
-                transition: 'all 0.2s',
-                boxShadow: active ? '0 12px 40px rgba(0,0,0,0.5)' : 'none',
-              }}>
-                <div style={{ fontSize: 11, color: C.t3, fontWeight: 600, letterSpacing: '0.04em', marginBottom: 8 }}>
-                  {meta.label}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <span style={{
-                    fontSize: 28, fontWeight: 700, lineHeight: 1, letterSpacing: -1.5,
-                    color: C.t1, fontVariantNumeric: 'tabular-nums',
-                    textShadow: '0 0 20px rgba(255,255,255,0.1)',
+              return (
+                <div key={k} onClick={() => { setActiveKpi(active ? null : k); setSelectedOp(null); }} style={{
+                  background: C.surface,
+                  border: `1px solid ${active ? 'rgba(0,196,140,0.3)' : 'rgba(255,255,255,0.08)'}`,
+                  borderRadius: 16, padding: 24, cursor: 'pointer',
+                  transition: 'all 0.2s',
+                  boxShadow: active ? '0 0 0 1px rgba(0,196,140,0.15)' : 'none',
+                }}>
+                  <div style={{
+                    fontSize: 11, color: C.t3, fontWeight: 600, letterSpacing: '0.08em',
+                    textTransform: 'uppercase', marginBottom: 12,
                   }}>
-                    {fN(cv, meta.dec)}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: tCol }}>
+                    {meta.label}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 12 }}>
+                    <span style={{
+                      fontSize: 42, fontWeight: 700, lineHeight: 1, letterSpacing: -2,
+                      color: C.t1, fontVariantNumeric: 'tabular-nums',
+                    }}>
+                      {fN(cv, meta.dec)}
+                    </span>
+                    <span style={{ fontSize: 14, color: C.t3 }}>{meta.unit}</span>
+                  </div>
+                  <div style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    fontSize: 12, fontWeight: 600, color: tCol,
+                    background: dir === 'flat' ? 'transparent' : isGood ? 'rgba(0,196,140,0.1)' : 'rgba(255,95,87,0.1)',
+                    borderRadius: 20, padding: '3px 10px',
+                  }}>
                     {arrow} {Math.abs(pct).toFixed(0)}%
-                  </span>
+                  </div>
                 </div>
-                <div style={{ fontSize: 10, color: C.t4, marginTop: 4 }}>{meta.unit}</div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
 
-        {/* ═══ SUMMARY ═══ */}
-        <div style={{
-          background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-          padding: '14px 18px', fontSize: 12, color: C.t3, lineHeight: 1.8,
-        }}>
-          <span style={{ color: C.t1, fontWeight: 600 }}>{fN(aggCurr.volym, 0)}</span> m³fub
-          {' · '}
-          <span style={{ color: C.t1, fontWeight: 600 }}>{fN(aggCurr.g15Sek / 3600, 0)}</span> G15h
-          {' · '}
-          <span style={{ color: C.t1, fontWeight: 600 }}>{fN(aggCurr.stammar, 0)}</span> stammar
-          {' · '}
-          <span style={{ color: C.t1, fontWeight: 600 }}>{fN(aggCurr.bransle, 0)}</span> l diesel
+          {/* ═══ FÖRARE ═══ */}
+          <SectionTitle>Förare</SectionTitle>
+          <div style={{
+            background: C.surface, borderRadius: 16,
+            border: '1px solid rgba(255,255,255,0.08)', marginBottom: 32, overflow: 'hidden',
+          }}>
+            {opsCurr.length === 0 && (
+              <div style={{ padding: 24, textAlign: 'center', color: C.t4, fontSize: 13 }}>Inga förare hittades</div>
+            )}
+            {opsCurr.map((op, i) => {
+              const g15h = op.g15Sek / 3600;
+              const prod = g15h > 0 ? op.volym / g15h : 0;
+              const prevOp = opsPrev.find(o => o.id === op.id);
+              const prevProd = prevOp ? (prevOp.g15Sek > 0 ? prevOp.volym / (prevOp.g15Sek / 3600) : 0) : 0;
+              const dir = trend('produktivitet', prod, prevProd);
+              const tCol = dir === 'flat' ? C.t4 : dir === 'up' ? C.green : C.red;
+              const arrow = dir === 'up' ? '↑' : dir === 'down' ? '↓' : '→';
+              const isLast = i === opsCurr.length - 1;
+
+              return (
+                <div key={op.id} onClick={() => { setSelectedOp(op.id); if (!activeKpi) setActiveKpi('volym'); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', padding: '16px 20px',
+                    borderBottom: isLast ? 'none' : '1px solid rgba(255,255,255,0.05)',
+                    cursor: 'pointer', transition: 'background 0.15s',
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.03)')}
+                  onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <div style={{
+                    width: 36, height: 36, borderRadius: 18,
+                    background: 'rgba(0,196,140,0.1)', border: '1px solid rgba(0,196,140,0.2)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 12, fontWeight: 700, color: C.green, flexShrink: 0, marginRight: 14,
+                  }}>
+                    {op.namn.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: C.t1, marginBottom: 2 }}>{op.namn}</div>
+                    <div style={{ fontSize: 11, color: C.t3 }}>{op.maskinModell}</div>
+                  </div>
+                  <div style={{ textAlign: 'right', marginRight: 14 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: C.t1, fontVariantNumeric: 'tabular-nums' }}>
+                      {fN(op.volym, 0)} m³
+                    </div>
+                    <div style={{ fontSize: 11, color: C.t3, fontVariantNumeric: 'tabular-nums' }}>
+                      {fN(prod, 1)} m³/G15h
+                    </div>
+                  </div>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: tCol }}>{arrow}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ═══ MÅNADSPRODUKTION ═══ */}
+          <SectionTitle>Volym per månad — {year}</SectionTitle>
+          <div style={{
+            background: C.surface, borderRadius: 16,
+            border: '1px solid rgba(255,255,255,0.08)', padding: 24, marginBottom: 32,
+          }}>
+            {(() => {
+              const maxV = Math.max(...monthlyVolym.map(b => b.value), 0.001);
+              const H = 140;
+              return (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: H }}>
+                    {monthlyVolym.map((b, i) => {
+                      const isCurrent = i === month && periodType !== 'ar';
+                      return (
+                        <div key={i} style={{
+                          flex: 1, display: 'flex', flexDirection: 'column',
+                          alignItems: 'center', height: '100%', justifyContent: 'flex-end',
+                        }}>
+                          {b.value > 0 && (
+                            <div style={{
+                              fontSize: 9, color: C.t3, fontWeight: 600,
+                              fontVariantNumeric: 'tabular-nums', marginBottom: 4,
+                            }}>
+                              {fN(b.value, 0)}
+                            </div>
+                          )}
+                          <div style={{
+                            width: '70%', maxWidth: 32,
+                            height: `${Math.max((b.value / maxV) * 100, b.value > 0 ? 3 : 0)}%`,
+                            background: isCurrent ? C.green : b.value > 0 ? 'rgba(0,196,140,0.35)' : 'rgba(255,255,255,0.04)',
+                            borderRadius: '4px 4px 0 0', transition: 'height 0.4s ease',
+                          }} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ display: 'flex', gap: 4, marginTop: 8 }}>
+                    {monthlyVolym.map((b, i) => (
+                      <div key={i} style={{
+                        flex: 1, textAlign: 'center', fontSize: 9, fontWeight: 500,
+                        color: i === month ? C.t1 : C.t4,
+                      }}>{b.label}</div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+
+          {/* ═══ SAMMANFATTNING ═══ */}
+          <div style={{
+            background: C.surface, borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)',
+            padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16,
+          }}>
+            {[
+              { label: 'Volym', value: fN(aggCurr.volym, 0), unit: 'm³fub' },
+              { label: 'G15-tid', value: fN(aggCurr.g15Sek / 3600, 0), unit: 'timmar' },
+              { label: 'Stammar', value: fN(aggCurr.stammar, 0), unit: 'st' },
+              { label: 'Diesel', value: fN(aggCurr.bransle, 0), unit: 'liter' },
+            ].map(s => (
+              <div key={s.label}>
+                <div style={{ fontSize: 10, color: C.t4, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>{s.label}</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: C.t1, fontVariantNumeric: 'tabular-nums' }}>{s.value}</span>
+                  <span style={{ fontSize: 11, color: C.t3 }}>{s.unit}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -730,7 +860,6 @@ export default function Maskinvy2Page() {
       >
         {activeKpi && (
           <>
-            {/* Chart */}
             <div style={{ marginBottom: 24 }}>
               <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>
                 {periodType === 'vecka' ? 'Per dag' : periodType === 'manad' ? 'Per dag' : 'Per månad'}
@@ -738,9 +867,8 @@ export default function Maskinvy2Page() {
               <BarChart bars={chartBars} prevAvg={prevChartAvg} color={chartColor(activeKpi)} />
             </div>
 
-            {/* Driver list */}
             <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>
-              Förare — rankad på {KPI_META[activeKpi].label.toLowerCase()}
+              Förare
             </div>
             {opsCurr.length === 0 && (
               <div style={{ padding: '20px 0', textAlign: 'center', color: C.t4, fontSize: 12 }}>Inga förare hittades</div>
@@ -762,22 +890,22 @@ export default function Maskinvy2Page() {
                 return (
                   <div key={op.id} onClick={() => setSelectedOp(op.id)} style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '12px 0', borderBottom: `1px solid ${C.border}`, cursor: 'pointer',
+                    padding: '14px 0', borderBottom: `1px solid ${C.border}`, cursor: 'pointer',
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                       <span style={{
-                        width: 22, height: 22, borderRadius: 11, background: C.surface2,
+                        width: 24, height: 24, borderRadius: 12, background: C.surface2,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 11, fontWeight: 700, color: C.t3, flexShrink: 0,
                       }}>{i + 1}</span>
-                      <span style={{ fontSize: 13, fontWeight: 500, color: C.t1 }}>{op.namn}</span>
+                      <span style={{ fontSize: 14, fontWeight: 500, color: C.t1 }}>{op.namn}</span>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                      <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: C.t1 }}>
+                      <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: C.t1 }}>
                         {fN(v, KPI_META[activeKpi!].dec)}
                       </span>
-                      <span style={{ fontSize: 10, color: C.t4 }}>{KPI_META[activeKpi!].unit}</span>
-                      <span style={{ fontSize: 12, color: tCol, fontWeight: 600 }}>{arrow}</span>
+                      <span style={{ fontSize: 11, color: C.t4 }}>{KPI_META[activeKpi!].unit}</span>
+                      <span style={{ fontSize: 13, color: tCol, fontWeight: 700 }}>{arrow}</span>
                     </div>
                   </div>
                 );
@@ -795,11 +923,9 @@ export default function Maskinvy2Page() {
       >
         {selOp && (
           <>
-            {/* Driver header */}
             <div style={{ fontSize: 12, color: C.t3, marginBottom: 20 }}>{selOp.maskinModell}</div>
 
-            {/* 4 KPI mini-cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 24 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 28 }}>
               {(['volym', 'produktivitet', 'diesel', 'utnyttjandegrad'] as const).map(k => {
                 const v = kpiVal(selOp, k);
                 const pv = selOpPrev ? kpiVal(selOpPrev, k) : 0;
@@ -810,34 +936,38 @@ export default function Maskinvy2Page() {
 
                 return (
                   <div key={k} style={{
-                    background: C.surface, border: `1px solid ${C.border}`,
-                    borderRadius: 10, padding: '12px 14px',
+                    background: C.surface, border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: 14, padding: '16px 18px',
                   }}>
-                    <div style={{ fontSize: 10, color: C.t4, marginBottom: 4 }}>{meta.label}</div>
+                    <div style={{ fontSize: 10, color: C.t4, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>{meta.label}</div>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-                      <span style={{ fontSize: 20, fontWeight: 700, color: C.t1, fontVariantNumeric: 'tabular-nums' }}>
+                      <span style={{ fontSize: 24, fontWeight: 700, color: C.t1, fontVariantNumeric: 'tabular-nums' }}>
                         {fN(v, meta.dec)}
                       </span>
-                      <span style={{ fontSize: 11, color: tCol, fontWeight: 600 }}>{arrow}</span>
+                      <span style={{ fontSize: 11, color: C.t3 }}>{meta.unit}</span>
                     </div>
-                    <div style={{ fontSize: 9, color: C.t4, marginTop: 2 }}>{meta.unit}</div>
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 3,
+                      fontSize: 11, fontWeight: 600, color: tCol, marginTop: 6,
+                    }}>
+                      {arrow} {Math.abs(trendPct(v, pv)).toFixed(0)}%
+                    </div>
                   </div>
                 );
               })}
             </div>
 
-            {/* Data table */}
             <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
               {periodType === 'vecka' ? 'Per dag' : 'Per månad'}
             </div>
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
                 <thead>
                   <tr style={{ borderBottom: `1px solid ${C.border2}` }}>
                     {['', 'Volym', 'Prod.', 'Diesel', 'Utnyttj.'].map((h, i) => (
                       <th key={i} style={{
-                        padding: '8px 6px', textAlign: i === 0 ? 'left' : 'right',
-                        fontSize: 10, fontWeight: 600, color: C.t4, letterSpacing: '0.05em',
+                        padding: '10px 6px', textAlign: i === 0 ? 'left' : 'right',
+                        fontSize: 10, fontWeight: 600, color: C.t4, letterSpacing: '0.06em',
                       }}>{h}</th>
                     ))}
                   </tr>
@@ -851,11 +981,11 @@ export default function Maskinvy2Page() {
                     const hasData = row.agg.g15Sek > 0;
                     return (
                       <tr key={i} style={{ borderBottom: `1px solid ${C.border}` }}>
-                        <td style={{ padding: '8px 6px', color: C.t2, fontWeight: 500 }}>{row.label}</td>
-                        <td style={{ padding: '8px 6px', textAlign: 'right', color: hasData ? C.t1 : C.t4 }}>{hasData ? fN(v, 0) : '–'}</td>
-                        <td style={{ padding: '8px 6px', textAlign: 'right', color: hasData ? C.t1 : C.t4 }}>{hasData ? fN(p, 1) : '–'}</td>
-                        <td style={{ padding: '8px 6px', textAlign: 'right', color: hasData ? C.t1 : C.t4 }}>{hasData ? fN(d, 2) : '–'}</td>
-                        <td style={{ padding: '8px 6px', textAlign: 'right', color: hasData ? C.t1 : C.t4 }}>{hasData ? fN(u, 1) : '–'}</td>
+                        <td style={{ padding: '10px 6px', color: C.t2, fontWeight: 500 }}>{row.label}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'right', color: hasData ? C.t1 : C.t4 }}>{hasData ? fN(v, 0) : '–'}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'right', color: hasData ? C.t1 : C.t4 }}>{hasData ? fN(p, 1) : '–'}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'right', color: hasData ? C.t1 : C.t4 }}>{hasData ? fN(d, 2) : '–'}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'right', color: hasData ? C.t1 : C.t4 }}>{hasData ? fN(u, 1) : '–'}</td>
                       </tr>
                     );
                   })}
@@ -865,7 +995,6 @@ export default function Maskinvy2Page() {
           </>
         )}
       </SlidePanel>
-    </div>
     </>
   );
 }
