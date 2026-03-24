@@ -2,8 +2,8 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import { motion, useSpring, useMotionValue, useTransform } from 'framer-motion';
-import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF } from './oversikt-types';
+import { motion } from 'framer-motion';
+import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF, T, BTN, SP } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
 
@@ -63,7 +63,7 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
 }
 
 /* ── Segment distance (OSRM or fallback) ── */
-interface SegmentDist { km: number; approx: boolean; }
+interface SegmentDist { km: number; approx: boolean; geometry?: [number, number][]; }
 function segKey(lng1: number, lat1: number, lng2: number, lat2: number): string {
   return `${lng1},${lat1};${lng2},${lat2}`;
 }
@@ -124,396 +124,186 @@ function SpeciesSegment({ pct, color, delay }: { pct: number; color: string; del
 function ObjCard({ obj, prod }: { obj: OversiktObjekt; prod?: ProdAgg }) {
   const o = obj;
   const tf = TF[o.typ] || C.yellow;
-  const cardRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
 
-  // Mouse tilt effect
-  const mouseX = useMotionValue(0);
-  const mouseY = useMotionValue(0);
-  const rotateX = useSpring(useTransform(mouseY, [-0.5, 0.5], [5, -5]), { stiffness: 300, damping: 30 });
-  const rotateY = useSpring(useTransform(mouseX, [-0.5, 0.5], [-5, 5]), { stiffness: 300, damping: 30 });
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    const el = cardRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    mouseX.set((e.clientX - rect.left) / rect.width - 0.5);
-    mouseY.set((e.clientY - rect.top) / rect.height - 0.5);
-  }, [mouseX, mouseY]);
-
-  const handleMouseLeave = useCallback(() => {
-    mouseX.set(0);
-    mouseY.set(0);
-  }, [mouseX, mouseY]);
-
-  // Status dot
-  const statusColor = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning'
-    ? '#22c55e' : o.status === 'klar' ? C.t1 : '#71717a';
-  const atgardLabel = o.atgard || (o.typ === 'slutavverkning' ? 'AU' : 'Gallring');
-
-  // Volym
-  const volPerHaNum = o.volym && o.areal ? Math.round(o.volym / o.areal) : 0;
-
-  // Animated numbers
-  const animVolym = useCountUp(o.volym || 0);
-  const animVolHa = useCountUp(volPerHaNum);
-
-  // Körbarhet
-  const korb = korbarhetsLabel(o.barighet);
-
-  // Trailer
-  const trailerLabel = o.trailer_behovs === true ? 'TRAILER' : o.trailer_behovs === false ? 'HJULAR' : (o.transport_trailer_in === true ? 'TRAILER' : o.transport_trailer_in === false ? 'HJULAR' : null);
-  const trailerColor = trailerLabel === 'TRAILER' ? '#f97316' : '#71717a';
-
-  // Kontakt
+  const st = ST[o.status] || ST.planerad;
   const kontaktNamn = o.kontakt_namn || o.markagare || null;
   const kontaktTel = o.kontakt_telefon || null;
-
-  // Beräknad data från trakt_data (sparad i planeringsvyn)
   const ber = o.trakt_data?.beraknad;
-
-  const S = {
-    surface: C.surface3,
-    surface2: '#222220',
-    border: C.border,
-    text: C.t1,
-    muted: C.t3,
-    accent: '#5aff8c',
-  };
-
-  // Gradient divider
-  const Div = () => <div style={{ height: 1, margin: '0 -24px', background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent)' }} />;
-
-  // Gradient text style for large numbers
-  const numStyle: React.CSSProperties = {
-    fontSize: 36, fontWeight: 800, letterSpacing: '-2px', lineHeight: 1,
-    background: 'linear-gradient(180deg, #ffffff 0%, #a0a0a0 100%)',
-    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text',
-    filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))',
-  };
-
-  // Collect noteringar
   const noteringar: string[] = [];
   if (o.transport_kommentar) noteringar.push(o.transport_kommentar);
   if (o.skordare_manuell_fallning && o.skordare_manuell_fallning_text) noteringar.push(o.skordare_manuell_fallning_text);
   if (o.markagare_ska_ha_ved && o.markagare_ved_text) noteringar.push(o.markagare_ved_text);
+  const hasDetails = !!(ber?.tradslag?.length || ber?.jordart || ber?.restriktioner?.length ||
+    o.barighet || o.terrang || o.transport_kommentar || o.grot_volym ||
+    o.skordare_maskin || o.skotare_maskin || o.info_anteckningar || o.ovrigt_info || noteringar.length);
+
+  const Sec = ({ label }: { label: string }) => (
+    <div style={{ ...T.label, marginBottom: SP.sm }}>{label}</div>
+  );
+  const Div = () => <div style={{ height: 1, background: C.border }} />;
 
   return (
     <motion.div
-      ref={cardRef}
       onClick={(e) => e.stopPropagation()}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={handleMouseLeave}
-      initial={{ opacity: 0, y: 40, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 260, damping: 20 }}
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 25 }}
       style={{
         position: 'absolute', bottom: 16, left: '50%', x: '-50%',
         width: 380, maxWidth: 'calc(100% - 24px)',
-        perspective: 1000,
-        rotateX, rotateY,
-        background: 'linear-gradient(160deg, rgba(26,26,28,0.92) 0%, rgba(15,15,16,0.92) 100%)',
-        backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-        borderRadius: 24, overflow: 'hidden',
+        background: C.surface3,
+        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+        borderRadius: SP.xl, overflow: 'hidden',
         border: `1px solid ${C.border}`,
-        borderTopColor: C.borderTop,
-        boxShadow: `${C.shadowMd}, inset 0 1px 0 rgba(255,255,255,0.08)`,
-        zIndex: 20,
-        transformStyle: 'preserve-3d',
+        boxShadow: C.shadowMd, zIndex: 20,
       }}
     >
       <div style={{ height: 2, background: `linear-gradient(90deg,${tf},transparent)` }} />
-      <div style={{ padding: '24px 24px 22px', maxHeight: '65vh', overflowY: 'auto' }}>
+      <div style={{ padding: SP.xl, maxHeight: expanded ? '70vh' : '40vh', overflowY: 'auto' }}>
 
-        {/* 1. Header */}
-        <div style={{ marginBottom: 22 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-            <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', color: '#f0f0ec', lineHeight: 1.2 }}>{o.namn}</div>
-            <div style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0, boxShadow: `0 0 8px ${statusColor}90` }} />
+        {/* Sammanfattning — alltid synlig */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: SP.md, marginBottom: SP.lg }}>
+          <div style={{ flex: 1 }}>
+            <div style={T.h1}>{o.namn}</div>
+            <div style={{ ...T.caption, marginTop: SP.xs }}>
+              {o.volym ? `${formatVolym(o.volym)} m³` : '–'}
+              {o.areal ? ` · ${o.areal} ha` : ''}
+            </div>
           </div>
-          <div style={{ fontSize: 12, color: S.muted, letterSpacing: '0.01em' }}>
-            {o.areal || '–'} ha · {atgardLabel}
-          </div>
+          <div style={{
+            padding: `${SP.xs}px ${SP.sm}px`, borderRadius: SP.sm,
+            background: st.bg, ...T.caption, fontWeight: 600, color: st.c,
+          }}>{st.l}</div>
         </div>
 
-        {/* 2. Produktion (om maskin är aktiv) */}
-        {prod && (prod.skordareVol > 0 || prod.skotareVol > 0) && (() => {
-          const kvar = Math.max(0, (o.volym || 0) - prod.skordareVol);
-          return (
-            <>
-              <div style={{ marginBottom: 22 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 10 }}>Produktion</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
-                  {prod.skordareVol > 0 && (
-                    <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: S.text }}>{formatVolym(Math.round(prod.skordareVol))}</div>
-                      <div style={{ fontSize: 10, color: S.muted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Skördat m³</div>
+        {/* Produktion om finns */}
+        {prod && (prod.skordareVol > 0 || prod.skotareVol > 0) && (
+          <>
+            <div style={{ display: 'flex', gap: SP.md, marginBottom: SP.lg }}>
+              {prod.skordareVol > 0 && (
+                <div style={{ flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` }}>
+                  <div style={{ ...T.h2, fontSize: 20 }}>{formatVolym(Math.round(prod.skordareVol))}</div>
+                  <div style={{ ...T.caption, marginTop: SP.xs }}>Skördat m³</div>
+                </div>
+              )}
+              {prod.skotareVol > 0 && (
+                <div style={{ flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` }}>
+                  <div style={{ ...T.h2, fontSize: 20 }}>{formatVolym(Math.round(prod.skotareVol))}</div>
+                  <div style={{ ...T.caption, marginTop: SP.xs }}>Skotat m³</div>
+                </div>
+              )}
+            </div>
+            <Div />
+          </>
+        )}
+
+        {/* Markägare */}
+        {kontaktNamn && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP.md}px 0` }}>
+            <span style={T.body}>{kontaktNamn}</span>
+            {kontaktTel && (
+              <a href={`tel:${kontaktTel}`} style={{ ...T.caption, color: C.blue, textDecoration: 'none', fontWeight: 500 }}>{kontaktTel}</a>
+            )}
+          </div>
+        )}
+
+        {/* Expanderad detalj */}
+        {expanded && (
+          <div style={{ marginTop: SP.md }}>
+            <Div />
+
+            {/* Trädslag */}
+            {ber?.tradslag && ber.tradslag.length > 0 && !ber.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt')) && (() => {
+              const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': '#FFA726', 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' };
+              const slag = ber.tradslag.filter(ts => !ts.namn.toLowerCase().includes('okänt') && ts.andel > 0).slice(0, 6);
+              const total = slag.reduce((s, ts) => s + ts.andel, 0);
+              return (
+                <div style={{ padding: `${SP.md}px 0` }}>
+                  <Sec label="Trädslag" />
+                  <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', marginBottom: SP.sm }}>
+                    {slag.map((ts, i) => (
+                      <div key={i} style={{ width: `${(ts.andel / total) * 100}%`, minWidth: 3, height: '100%', background: TRADSLAG_FARG[ts.namn] || '#9E9E9E' }} />
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: `${SP.xs}px ${SP.lg}px` }}>
+                    {slag.map((ts, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP.sm }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 4, background: TRADSLAG_FARG[ts.namn] || '#9E9E9E', flexShrink: 0 }} />
+                        <span style={T.caption}>{ts.namn} {Math.round(ts.andel * 100)}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Restriktioner */}
+            {ber?.restriktioner && ber.restriktioner.length > 0 && (
+              <div style={{ padding: `${SP.md}px 0` }}>
+                <div style={{ background: C.rd, border: `1px solid ${C.red}20`, borderRadius: SP.md, padding: SP.md }}>
+                  <Sec label={`Restriktioner (${ber.restriktioner.length})`} />
+                  {ber.restriktioner.slice(0, 5).map((r, i) => (
+                    <div key={i} style={{ ...T.caption, color: C.t1, marginBottom: SP.xs }}>
+                      {r.name}{r.warning ? <span style={{ color: C.red }}> — {r.warning}</span> : ''}
                     </div>
-                  )}
-                  {prod.skotareVol > 0 && (
-                    <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: S.text }}>{formatVolym(Math.round(prod.skotareVol))}</div>
-                      <div style={{ fontSize: 10, color: S.muted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Skotat m³</div>
-                    </div>
-                  )}
-                  {kvar > 0 && (
-                    <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: 20, fontWeight: 700, color: S.text }}>{formatVolym(Math.round(kvar))}</div>
-                      <div style={{ fontSize: 10, color: S.muted, marginTop: 4, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Kvar m³</div>
-                    </div>
-                  )}
+                  ))}
                 </div>
               </div>
-              <Div />
-            </>
-          );
-        })()}
+            )}
 
-        {/* 3. Planering */}
-        <div style={{ padding: '16px 0' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 10 }}>Planering</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 10px', textAlign: 'center' }}>
-              <div style={numStyle}>{formatVolym(animVolym)}</div>
-              <div style={{ fontSize: 10, color: S.muted, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Planerad m³</div>
-            </div>
-            {o.areal > 0 && (
-              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '12px 10px', textAlign: 'center' }}>
-                <div style={numStyle}>{o.areal}</div>
-                <div style={{ fontSize: 10, color: S.muted, marginTop: 6, textTransform: 'uppercase', letterSpacing: '0.5px' }}>ha</div>
+            {/* Logistik */}
+            {(o.barighet || o.terrang || o.transport_kommentar) && (
+              <div style={{ padding: `${SP.md}px 0` }}>
+                <Sec label="Logistik" />
+                {o.barighet && <div style={T.caption}><span style={{ color: C.t3 }}>Bärighet:</span> <span style={{ color: C.t1 }}>{o.barighet}</span></div>}
+                {o.terrang && <div style={{ ...T.caption, marginTop: SP.xs }}><span style={{ color: C.t3 }}>Terräng:</span> <span style={{ color: C.t1 }}>{o.terrang}</span></div>}
+                {o.transport_kommentar && <div style={{ ...T.caption, color: C.t1, marginTop: SP.xs }}>{o.transport_kommentar}</div>}
+              </div>
+            )}
+
+            {/* Maskiner */}
+            {(o.skordare_maskin || o.skotare_maskin) && (
+              <div style={{ padding: `${SP.md}px 0` }}>
+                <Sec label="Maskiner" />
+                <div style={{ display: 'flex', gap: SP.sm, flexWrap: 'wrap' }}>
+                  {o.skordare_maskin && <span style={{ ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: C.surface, border: `1px solid ${C.border}` }}>{o.skordare_maskin}</span>}
+                  {o.skotare_maskin && <span style={{ ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: C.surface, border: `1px solid ${C.border}` }}>{o.skotare_maskin}</span>}
+                </div>
+              </div>
+            )}
+
+            {/* Anteckningar */}
+            {(o.info_anteckningar || o.ovrigt_info) && (
+              <div style={{ padding: `${SP.md}px 0` }}>
+                <Sec label="Anteckningar" />
+                {o.info_anteckningar && <div style={{ ...T.caption, color: C.t2, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{o.info_anteckningar}</div>}
+                {o.ovrigt_info && <div style={{ ...T.caption, color: C.t2, lineHeight: 1.6, whiteSpace: 'pre-wrap', marginTop: SP.sm }}>{o.ovrigt_info}</div>}
               </div>
             )}
           </div>
-          {trailerLabel && (
-            <div style={{ marginTop: 10 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.04em', color: trailerColor }}>{trailerLabel}</span>
-            </div>
+        )}
+
+        {/* Knappar */}
+        <div style={{ display: 'flex', gap: SP.sm, marginTop: SP.lg }}>
+          {hasDetails && (
+            <button onClick={() => setExpanded(!expanded)}
+              style={{ ...BTN.secondary, flex: 1, fontFamily: ff }}>
+              {expanded ? 'Visa mindre' : 'Visa mer'}
+            </button>
+          )}
+          {o.lat != null && o.lng != null && (
+            <button onClick={() => {
+              const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+              const url = isIOS
+                ? `maps://maps.apple.com/?daddr=${o.lat},${o.lng}`
+                : `https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}`;
+              window.open(url, '_blank');
+            }} style={{ ...BTN.primary, flex: 1, fontFamily: ff }}>
+              Navigera hit
+            </button>
           )}
         </div>
-
-        <Div />
-
-        {/* 6. Trädslag — animated staggered bar */}
-        {ber?.tradslag && ber.tradslag.length > 0 && !ber.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt')) && (
-          <>
-            <div style={{ padding: '16px 0' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 10 }}>Trädslag</div>
-              {(() => {
-                const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': '#FFA726', 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' }
-                const DEFAULT_FARG = '#9E9E9E'
-                const slag = ber.tradslag.filter(ts => !ts.namn.toLowerCase().includes('okänt') && ts.andel > 0).slice(0, 6)
-                const total = slag.reduce((s, ts) => s + ts.andel, 0)
-                return (
-                  <>
-                    <div style={{ display: 'flex', height: 16, borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
-                      {slag.map((ts, i) => (
-                        <SpeciesSegment
-                          key={i}
-                          pct={(ts.andel / total) * 100}
-                          color={TRADSLAG_FARG[ts.namn] || DEFAULT_FARG}
-                          delay={0.15 + i * 0.08}
-                        />
-                      ))}
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px' }}>
-                      {slag.map((ts, i) => (
-                        <motion.div
-                          key={i}
-                          initial={{ opacity: 0, x: -10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: 0.2 + i * 0.06, duration: 0.3 }}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
-                        >
-                          <span style={{ width: 8, height: 8, borderRadius: 4, background: TRADSLAG_FARG[ts.namn] || DEFAULT_FARG, flexShrink: 0, boxShadow: `0 0 4px ${(TRADSLAG_FARG[ts.namn] || DEFAULT_FARG)}40` }} />
-                          <span style={{ fontSize: 11, color: S.text, fontWeight: 500 }}>{ts.namn}</span>
-                          <span style={{ fontSize: 11, color: S.muted, marginLeft: 'auto', fontWeight: 600 }}>{Math.round(ts.andel * 100)}%</span>
-                        </motion.div>
-                      ))}
-                    </div>
-                  </>
-                )
-              })()}
-              <div style={{ display: 'flex', gap: 20, marginTop: 14 }}>
-                <span style={{ fontSize: 11, color: S.muted }}>Diameter <span style={{ fontWeight: 700, color: S.text }}>{ber.medeldiameter ? `${ber.medeldiameter.toFixed(0)} cm` : '–'}</span></span>
-                <span style={{ fontSize: 11, color: S.muted }}>Höjd <span style={{ fontWeight: 700, color: S.text }}>{ber.medelhojd ? `${ber.medelhojd.toFixed(0)} m` : '–'}</span></span>
-              </div>
-            </div>
-            <Div />
-          </>
-        )}
-
-        {/* 7. Jordart + Lutning */}
-        {ber?.jordart && (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '14px 0' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted }}>Mark</span>
-              <div style={{ flex: 1, textAlign: 'right', fontSize: 12, fontWeight: 500, color: S.text }}>
-                {ber.jordart}{ber.medelLutning != null ? ` · ${ber.medelLutning.toFixed(1)}° lutning` : ''}
-              </div>
-            </div>
-            <Div />
-          </>
-        )}
-
-        {/* 8. Restriktioner */}
-        {ber?.restriktioner && ber.restriktioner.length > 0 && (
-          <>
-            <div style={{ padding: '14px 0' }}>
-              <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.1)', borderRadius: 14, padding: '14px 16px' }}>
-                <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#ef4444', marginBottom: 6 }}>
-                  Restriktioner ({ber.restriktioner.length})
-                </div>
-                {ber.restriktioner.slice(0, 5).map((r, i) => (
-                  <div key={i} style={{ fontSize: 11, color: S.text, marginBottom: i < Math.min(ber.restriktioner!.length, 5) - 1 ? 4 : 0 }}>
-                    {r.name}{r.warning ? <span style={{ color: '#ef4444', fontSize: 11 }}> — {r.warning}</span> : ''}
-                  </div>
-                ))}
-                {ber.restriktioner.length > 5 && (
-                  <div style={{ fontSize: 11, color: S.muted, marginTop: 4 }}>+{ber.restriktioner.length - 5} till</div>
-                )}
-              </div>
-            </div>
-            <Div />
-          </>
-        )}
-
-        {/* 9. Logistik */}
-        {(o.transport_trailer_in != null || o.transport_kommentar || o.barighet || o.terrang) && (
-          <>
-            <div style={{ padding: '14px 0' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 8 }}>Logistik</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {o.barighet && (
-                  <div style={{ fontSize: 12, color: S.text }}>
-                    <span style={{ color: S.muted }}>Bärighet:</span> {o.barighet}
-                  </div>
-                )}
-                {o.terrang && (
-                  <div style={{ fontSize: 12, color: S.text }}>
-                    <span style={{ color: S.muted }}>Terräng:</span> {o.terrang}
-                  </div>
-                )}
-                {o.transport_kommentar && (
-                  <div style={{ fontSize: 12, color: S.text, lineHeight: 1.5 }}>
-                    {o.transport_kommentar}
-                  </div>
-                )}
-              </div>
-            </div>
-            <Div />
-          </>
-        )}
-
-        {/* 10. GROT */}
-        {(o.grot_volym || o.grot_status !== 'ej_aktuellt') && (
-          <>
-            <div style={{ padding: '14px 0' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 8 }}>GROT</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {o.grot_volym && (
-                  <div style={{ fontSize: 12, color: S.text }}>Volym: {formatVolym(o.grot_volym)} m³</div>
-                )}
-                {o.skotare_ris_direkt && (
-                  <div style={{ fontSize: 12, color: C.yellow }}>Ska skotas direkt</div>
-                )}
-                {o.grot_deadline && (
-                  <div style={{ fontSize: 12, color: S.muted }}>
-                    Senast: {new Date(o.grot_deadline + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </div>
-                )}
-                {o.grot_anteckning && (
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>{o.grot_anteckning}</div>
-                )}
-              </div>
-            </div>
-            <Div />
-          </>
-        )}
-
-        {/* 11. Maskiner */}
-        {(o.skordare_maskin || o.skotare_maskin) && (
-          <>
-            <div style={{ padding: '14px 0' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 8 }}>Maskiner</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: (o.skotare_lastreder_breddat || o.skotare_ris_direkt || o.skordare_manuell_fallning || o.markagare_ska_ha_ved) ? 10 : 0 }}>
-                {o.skordare_maskin && (
-                  <span style={{ fontSize: 12, fontWeight: 600, color: S.text, padding: '9px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                    {o.skordare_maskin}{o.skordare_band ? ` · Band ${o.skordare_band_par || ''}p` : ''}
-                  </span>
-                )}
-                {o.skotare_maskin && (
-                  <span style={{ fontSize: 12, fontWeight: 600, color: S.text, padding: '9px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)' }}>
-                    {o.skotare_maskin}{o.skotare_band ? ` · Band ${o.skotare_band_par || ''}p` : ''}
-                  </span>
-                )}
-              </div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {o.skotare_lastreder_breddat && <Tag>Brett lastrede</Tag>}
-                {o.skotare_ris_direkt && <Tag>GROT direkt</Tag>}
-                {o.skordare_manuell_fallning && <Tag w>Manuell fällning</Tag>}
-                {o.markagare_ska_ha_ved && <Tag>Ved</Tag>}
-              </div>
-            </div>
-            <Div />
-          </>
-        )}
-
-        {/* 12. Kontakt */}
-        {(kontaktNamn || kontaktTel) && (
-          <>
-            <div style={{ padding: '14px 0' }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 8 }}>Kontakt</div>
-              {kontaktNamn && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: kontaktTel ? 4 : 0 }}>
-                  <span style={{ fontSize: 13, fontWeight: 500, color: S.text }}>{kontaktNamn}</span>
-                  {kontaktTel && (
-                    <a href={`tel:${kontaktTel}`} style={{ fontSize: 12, color: '#5b8fff', textDecoration: 'none', fontWeight: 500 }}>{kontaktTel}</a>
-                  )}
-                </div>
-              )}
-            </div>
-            <Div />
-          </>
-        )}
-
-        {/* 13. Anteckningar från planeraren */}
-        {(o.info_anteckningar || o.ovrigt_info || noteringar.length > 0) && (
-          <>
-            <div style={{ padding: '14px 0' }}>
-              {o.info_anteckningar && (
-                <div style={{ marginBottom: (o.ovrigt_info || noteringar.length > 0) ? 12 : 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Anteckningar</div>
-                  <div style={{ fontSize: 12, color: S.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{o.info_anteckningar}</div>
-                </div>
-              )}
-              {o.ovrigt_info && (
-                <div style={{ marginBottom: noteringar.length > 0 ? 12 : 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Tillträde</div>
-                  <div style={{ fontSize: 12, color: S.text, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{o.ovrigt_info}</div>
-                </div>
-              )}
-              {noteringar.length > 0 && (
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: S.muted, marginBottom: 6 }}>Övriga noteringar</div>
-                  {noteringar.map((n, i) => (
-                    <div key={i} style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginBottom: 4 }}>{n}</div>
-                  ))}
-                </div>
-              )}
-            </div>
-            <Div />
-          </>
-        )}
-
-        {/* 14. Footer */}
-        <button onClick={() => window.location.href = `/planering?objekt=${o.id}`} style={{
-          width: '100%', marginTop: 10, padding: '14px 0',
-          background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 14, color: S.text, fontSize: 13, fontWeight: 600,
-          cursor: 'pointer', fontFamily: ff, transition: 'all 0.2s ease', letterSpacing: '-0.01em',
-        }}>
-          Visa avverkning →
-        </button>
       </div>
     </motion.div>
   );
@@ -628,6 +418,7 @@ const RC = ['#3b82f6', '#f97316', '#22c55e', '#a855f7', '#ec4899', '#06b6d4'];
 interface MInfo {
   obj: OversiktObjekt;
   queueNum: number | null;
+  isMachinePos: boolean;
   isHistoryKlar: boolean;
   showChips: boolean;
   maskinName: string | null;
@@ -641,12 +432,13 @@ function buildMarkerEl(
   isSelected: boolean,
   onClick: () => void,
 ): HTMLDivElement {
-  const { obj, queueNum, isHistoryKlar, showChips, maskinName } = info;
+  const { obj, queueNum, isMachinePos, isHistoryKlar, showChips, maskinName } = info;
   const isActive = obj.status === 'pagaende' || obj.status === 'skordning' || obj.status === 'skotning';
   const tf = isHistoryKlar ? '#52525b' : (TF[obj.typ] || C.yellow);
   const st = ST[obj.status] || ST.planerad;
-  const dotSize = isSelected ? 34 : isActive ? 30 : isHistoryKlar ? 16 : 24;
-  const hitSize = 34; // constant so MapLibre anchor never shifts
+  const isStop = queueNum !== null;
+  const dotSize = isSelected ? 38 : isMachinePos ? 36 : isStop ? 36 : isActive ? 30 : isHistoryKlar ? 16 : 24;
+  const hitSize = 38; // constant so MapLibre anchor never shifts
 
   // Wrapper — no position property, MapLibre's .maplibregl-marker class handles it
   const w = document.createElement('div');
@@ -654,10 +446,9 @@ function buildMarkerEl(
   w.dataset.objektId = obj.id;
   w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isHistoryKlar ? '0.3' : '1'}`;
 
-  // Glowing pulse rings — status-based colors
-  // Green=planerad, Yellow=pågående, Red/white=klar
-  if (!isHistoryKlar) {
-    const pulseColor = isActive ? st.c : (obj.status === 'klar' ? '#ef4444' : obj.status === 'planerad' || obj.status === 'importerad' ? '#22c55e' : tf);
+  // Glowing pulse rings — ONLY for active objects (pagaende/skordning/skotning)
+  if (isActive) {
+    const pulseColor = st.c;
     // Outer expanding ring
     const p = document.createElement('div');
     p.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;border:2px solid ${pulseColor};animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) infinite;pointer-events:none`;
@@ -678,10 +469,17 @@ function buildMarkerEl(
     // Klar in history mode: gray circle with checkmark
     dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${C.bg};border:1.5px solid #52525b;display:flex;align-items:center;justify-content:center`;
     dot.innerHTML = `<span style="font-size:${Math.round(dotSize * 0.55)}px;color:#71717a;line-height:1">✓</span>`;
+  } else if (isMachinePos) {
+    // Machine position: white rounded square with gear icon + pulse ring
+    const pulse = document.createElement('div');
+    pulse.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 12}px;height:${dotSize + 12}px;margin-left:-${(dotSize + 12) / 2}px;margin-top:-${(dotSize + 12) / 2}px;border-radius:10px;border:2px solid rgba(255,255,255,0.5);animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) infinite;pointer-events:none`;
+    w.appendChild(pulse);
+    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(255,255,255,0.25),0 2px 8px rgba(0,0,0,.4)`;
+    dot.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
   } else if (queueNum !== null) {
-    // Queued planned object: filled type-color circle with WHITE number
+    // Stop pin: colored circle (orange/yellow) with white number — 36px
     dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${tf};display:flex;align-items:center;justify-content:center;box-shadow:${isSelected ? `0 0 20px ${tf}40` : '0 2px 8px rgba(0,0,0,.5)'}`;
-    dot.innerHTML = `<span style="font-size:${dotSize >= 24 ? 13 : 10}px;font-weight:700;color:#fff;font-family:${ff};text-shadow:0 1px 2px rgba(0,0,0,.3)">${queueNum}</span>`;
+    dot.innerHTML = `<span style="font-size:16px;font-weight:800;color:#fff;font-family:${ff};text-shadow:0 1px 2px rgba(0,0,0,.3)">${queueNum}</span>`;
   } else {
     // Active (pulsing) or unqueued: status inner dot
     const innerSize = isSelected ? 10 : isActive ? 8 : 6;
@@ -767,13 +565,12 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
     return maskiner.filter(m => ids.has(m.maskin_id));
   }, [maskiner, maskinKo]);
 
-  /* ── Route data: show for filtered machine, or ALL machines ── */
+  /* ── Route data: ONLY when a specific machine is filtered ── */
   const routeData = useMemo(() => {
-    const machineList = maskinFilter
-      ? queuedMaskiner.filter(x => x.maskin_id === maskinFilter)
-      : queuedMaskiner;
+    if (!maskinFilter) return [];
+    const machineList = queuedMaskiner.filter(x => x.maskin_id === maskinFilter);
 
-    return machineList.map((m, mi) => {
+    return machineList.map((m) => {
       const koItems = maskinKo
         .filter(k => k.maskin_id === m.maskin_id)
         .sort((a, b) => a.ordning - b.ordning);
@@ -781,22 +578,33 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
 
       const numbered: Record<string, number> = {};
       const lineCoords: [number, number][] = [];
+      let firstObjId: string | null = null;
       let num = 1;
 
+      // Find the first object with coordinates — that's the machine position (kugghjul)
+      const validObjs: { id: string; lng: number; lat: number; isAct: boolean }[] = [];
       koItems.forEach(k => {
         const o = objekt.find(x => x.id === k.objekt_id);
-        if (!o || !o.lat || !o.lng || o.status === 'klar') return;
+        if (!o || o.lat == null || o.lng == null) return;
         const isAct = o.status === 'pagaende' || o.status === 'skordning' || o.status === 'skotning';
-        lineCoords.push([o.lng, o.lat]);
-        if (!isAct) { numbered[o.id] = num; num++; }
+        validObjs.push({ id: o.id, lng: o.lng, lat: o.lat, isAct });
+      });
+
+      validObjs.forEach((vo, idx) => {
+        lineCoords.push([vo.lng, vo.lat]);
+        if (idx === 0) {
+          // First = machine position (kugghjul, no number)
+          firstObjId = vo.id;
+        } else {
+          // Rest = numbered 1, 2, 3...
+          numbered[vo.id] = num; num++;
+        }
       });
 
       if (lineCoords.length === 0) return null;
-      const color = maskinFilter
-        ? (getMaskinTyp(m.typ) === 'skördare' ? C.yellow : C.orange)
-        : RC[mi % RC.length];
-      return { maskinId: m.maskin_id, color, numbered, lineCoords };
-    }).filter(Boolean) as { maskinId: string; color: string; numbered: Record<string, number>; lineCoords: [number, number][] }[];
+      const color = getMaskinTyp(m.typ) === 'skördare' ? C.yellow : C.orange;
+      return { maskinId: m.maskin_id, color, numbered, lineCoords, firstObjId };
+    }).filter(Boolean) as { maskinId: string; color: string; numbered: Record<string, number>; lineCoords: [number, number][]; firstObjId: string | null }[];
   }, [queuedMaskiner, maskinKo, objekt, maskinFilter]);
 
   /* ── Merged queue-number lookup: objId → number (use first machine's number) ── */
@@ -806,6 +614,13 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
       Object.entries(rd.numbered).forEach(([id, n]) => { if (!(id in nums)) nums[id] = n; });
     });
     return nums;
+  }, [routeData]);
+
+  /* ── Machine positions: objId → true if it's the first object in any machine's queue ── */
+  const machinePositions = useMemo(() => {
+    const pos = new Set<string>();
+    routeData.forEach(rd => { if (rd.firstObjId) pos.add(rd.firstObjId); });
+    return pos;
   }, [routeData]);
 
   /* ── Total route distance (from OSRM or fallback) ── */
@@ -832,20 +647,41 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
 
   /* ── Visible object IDs ── */
   const visIds = useMemo(() => {
-    let list = objekt.filter(o => o.lat && o.lng);
-    if (filt !== 'alla') list = list.filter(o => o.typ === filt);
+    let list = objekt.filter(o => o.lat != null && o.lng != null);
+
     if (maskinFilter) {
-      const ids = new Set(maskinKo.filter(k => k.maskin_id === maskinFilter).map(k => k.objekt_id));
+      // Machine filter: show ALL objects in this machine's queue — ignore typ/status filters
+      const koForMachine = maskinKo.filter(k => k.maskin_id === maskinFilter);
+      const ids = new Set(koForMachine.map(k => k.objekt_id));
+      // Debug: find missing objects
+      const missing = koForMachine.filter(k => !list.some(o => o.id === k.objekt_id));
+      if (missing.length > 0) {
+        const allObjIds = new Set(objekt.map(o => o.id));
+        missing.forEach(k => {
+          const inObjekt = allObjIds.has(k.objekt_id);
+          const o = objekt.find(x => x.id === k.objekt_id);
+          console.warn(`[Karta] Objekt ${k.objekt_id} saknas på kartan — finns i objekt-tabell: ${inObjekt}, har koordinater: ${o ? `lat=${o.lat} lng=${o.lng}` : 'N/A'}`);
+        });
+      }
       list = list.filter(o => ids.has(o.id));
+    } else {
+      // No machine filter: show only planned objects (not importerad/unplanned)
+      const PLANERADE = ['planerad', 'pagaende', 'skordning', 'skotning'];
+      list = list.filter(o => PLANERADE.includes(o.status) || (showHist && o.status === 'klar'));
+      if (filt !== 'alla') {
+        list = list.filter(o => {
+          if (filt === 'slutavverkning') return o.typ === 'slutavverkning' || o.typ === 'slut';
+          return o.typ === filt;
+        });
+      }
     }
-    if (!showHist) list = list.filter(o => o.status !== 'klar');
     return list.map(o => o.id);
   }, [objekt, filt, maskinFilter, maskinKo, showHist]);
 
   /* ── GROT objects (with coordinates and grot_volym > 0) ── */
   const grotObjekt = useMemo(() => {
     if (!showGrot) return [];
-    return objekt.filter(o => o.lat && o.lng && o.grot_volym && o.grot_volym > 0);
+    return objekt.filter(o => o.lat != null && o.lng != null && o.grot_volym && o.grot_volym > 0);
   }, [objekt, showGrot]);
 
   const selectedGrotObj = selectedGrotId ? objekt.find(o => o.id === selectedGrotId) : null;
@@ -863,13 +699,13 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
 
     return {
       obj,
-      // Show queue numbers when routes are visible
       queueNum: (!isK && queueNums[obj.id] != null) ? queueNums[obj.id] : null,
+      isMachinePos: machinePositions.has(obj.id),
       isHistoryKlar: isK,
       showChips: isA,
       maskinName,
     };
-  }, [queueNums, maskinFilter, maskiner]);
+  }, [queueNums, machinePositions, maskinFilter, maskiner]);
 
   /* ── Load MapLibre CDN ── */
   useEffect(() => {
@@ -895,7 +731,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
   useEffect(() => {
     if (!mapReady || !mapContainerRef.current || mapRef.current) return;
 
-    const wc = objekt.filter(o => o.lat && o.lng);
+    const wc = objekt.filter(o => o.lat != null && o.lng != null);
     const center: [number, number] = wc.length
       ? [wc.reduce((s, o) => s + o.lng!, 0) / wc.length, wc.reduce((s, o) => s + o.lat!, 0) / wc.length]
       : [14.70, 56.40];
@@ -919,7 +755,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
       map.addLayer({
         id: 'routes', type: 'line', source: 'routes',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-dasharray': [6, 4], 'line-opacity': 0.6 },
+        paint: { 'line-color': ['get', 'color'], 'line-width': 4, 'line-opacity': 0.8 },
       });
 
       if (wc.length > 1) {
@@ -943,132 +779,132 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
     };
   }, [mapReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── Update route lines when route data changes ── */
+  /* ── Update route lines — use OSRM road geometry when available ── */
   useEffect(() => {
     if (!mapRef.current || !mapStyleLoaded) return;
     const src = mapRef.current.getSource('routes');
     if (!src) return;
 
-    const features = routeData
-      .filter(rd => rd.lineCoords.length >= 2)
-      .map(rd => ({
-        type: 'Feature' as const,
-        properties: { color: rd.color },
-        geometry: { type: 'LineString' as const, coordinates: rd.lineCoords },
-      }));
-    src.setData({ type: 'FeatureCollection', features });
-  }, [routeData, mapStyleLoaded]);
-
-  /* ── Fetch OSRM road distances for route segments ── */
-  useEffect(() => {
-    if (routeData.length === 0) { setOsrmDist({}); return; }
-
-    let cancelled = false;
-    const toFetch: { key: string; lng1: number; lat1: number; lng2: number; lat2: number }[] = [];
-
+    const features: any[] = [];
     routeData.forEach(rd => {
+      if (rd.lineCoords.length < 2) return;
+
       for (let i = 0; i < rd.lineCoords.length - 1; i++) {
         const [lng1, lat1] = rd.lineCoords[i];
         const [lng2, lat2] = rd.lineCoords[i + 1];
-        const key = segKey(lng1, lat1, lng2, lat2);
-        if (!osrmCacheRef.current[key]) toFetch.push({ key, lng1, lat1, lng2, lat2 });
+        const seg = osrmDist[segKey(lng1, lat1, lng2, lat2)];
+        const hasRoadGeom = seg?.geometry && seg.geometry.length > 2;
+        const coords = hasRoadGeom ? seg!.geometry! : [rd.lineCoords[i], rd.lineCoords[i + 1]];
+        features.push({
+          type: 'Feature',
+          properties: { color: '#3b82f6' },
+          geometry: { type: 'LineString', coordinates: coords },
+        });
       }
     });
-
-    // If all cached, set immediately
-    if (toFetch.length === 0) {
-      const all: Record<string, SegmentDist> = {};
-      routeData.forEach(rd => {
-        for (let i = 0; i < rd.lineCoords.length - 1; i++) {
-          const [lng1, lat1] = rd.lineCoords[i];
-          const [lng2, lat2] = rd.lineCoords[i + 1];
-          const key = segKey(lng1, lat1, lng2, lat2);
-          all[key] = osrmCacheRef.current[key];
-        }
-      });
-      setOsrmDist(all);
-      return;
+    try {
+      src.setData({ type: 'FeatureCollection', features });
+    } catch (err) {
+      console.error('[Rutt] setData error:', err);
     }
+  }, [routeData, mapStyleLoaded, osrmDist, maskinFilter]);
+
+  /* ── Fetch OSRM road distances + geometry per segment ── */
+  useEffect(() => {
+    if (!maskinFilter || routeData.length === 0) { setOsrmDist({}); return; }
+
+    let cancelled = false;
 
     const run = async () => {
       const results: Record<string, SegmentDist> = {};
 
-      await Promise.all(toFetch.map(async ({ key, lng1, lat1, lng2, lat2 }) => {
-        try {
-          const url = `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=false`;
-          const res = await fetch(url);
-          const data = await res.json();
-          if (data.routes?.[0]?.distance != null) {
-            results[key] = { km: data.routes[0].distance / 1000, approx: false };
-          } else {
-            throw new Error('No route');
-          }
-        } catch {
-          results[key] = { km: haversineKm(lat1, lng1, lat2, lng2) * 1.4, approx: true };
-        }
-      }));
-
-      if (cancelled) return;
-
-      // Merge into cache
-      Object.assign(osrmCacheRef.current, results);
-
-      // Build full map for current route
-      const all: Record<string, SegmentDist> = {};
-      routeData.forEach(rd => {
+      for (const rd of routeData) {
         for (let i = 0; i < rd.lineCoords.length - 1; i++) {
           const [lng1, lat1] = rd.lineCoords[i];
           const [lng2, lat2] = rd.lineCoords[i + 1];
           const key = segKey(lng1, lat1, lng2, lat2);
-          all[key] = osrmCacheRef.current[key];
+
+          if (osrmCacheRef.current[key]) {
+            results[key] = osrmCacheRef.current[key];
+            continue;
+          }
+
+          try {
+            const url = `https://router.project-osrm.org/route/v1/driving/${lng1},${lat1};${lng2},${lat2}?overview=full&geometries=geojson`;
+            console.log(`[OSRM] Fetching: ${url}`);
+            const res = await fetch(url);
+            const json = await res.json();
+            console.log(`[OSRM] Response status=${json.code}, routes=${json.routes?.length}, geometry points=${json.routes?.[0]?.geometry?.coordinates?.length}`);
+            if (json.routes?.[0]) {
+              const route = json.routes[0];
+              const geom = route.geometry?.coordinates as [number, number][] | undefined;
+              if (geom && geom.length > 0) {
+                console.log(`[OSRM] Got road geometry: ${geom.length} points, ${(route.distance / 1000).toFixed(1)} km`);
+                results[key] = { km: route.distance / 1000, approx: false, geometry: geom };
+              } else {
+                console.warn(`[OSRM] No geometry in response, using fallback`);
+                results[key] = { km: route.distance / 1000, approx: false };
+              }
+            } else {
+              throw new Error(`OSRM code: ${json.code}`);
+            }
+          } catch (err) {
+            console.error(`[OSRM] Failed:`, err);
+            results[key] = { km: haversineKm(lat1, lng1, lat2, lng2) * 1.4, approx: true };
+          }
         }
-      });
-      setOsrmDist(all);
+      }
+
+      if (cancelled) return;
+      Object.assign(osrmCacheRef.current, results);
+      setOsrmDist({ ...results });
     };
 
     run();
     return () => { cancelled = true; };
-  }, [routeData]);
+  }, [routeData, maskinFilter]);
 
-  /* ── Distance labels on route segments (OSRM-aware) ── */
+  /* ── Distance labels — only when a specific machine is filtered ── */
   useEffect(() => {
     distMarkersRef.current.forEach(m => m.remove());
     distMarkersRef.current = [];
 
-    if (!mapRef.current || !mapStyleLoaded) return;
+    if (!mapRef.current || !mapStyleLoaded || !maskinFilter) return;
 
     routeData.forEach(rd => {
+      let cumDist = 0;
       for (let i = 0; i < rd.lineCoords.length - 1; i++) {
         const [lng1, lat1] = rd.lineCoords[i];
         const [lng2, lat2] = rd.lineCoords[i + 1];
-        const midLng = (lng1 + lng2) / 2;
-        const midLat = (lat1 + lat2) / 2;
 
         const key = segKey(lng1, lat1, lng2, lat2);
         const seg = osrmDist[key];
-        const dist = seg ? seg.km : haversineKm(lat1, lng1, lat2, lng2) * 1.4;
-        const prefix = (!seg || seg.approx) ? '~' : '';
-        const label = dist < 1 ? `${prefix}${Math.round(dist * 1000)} m` : `${prefix}${dist.toFixed(1)} km`;
+        const segDist = seg ? seg.km : haversineKm(lat1, lng1, lat2, lng2);
+        cumDist += segDist;
+        const prefix = seg && !seg.approx ? '' : '~';
+        const segText = segDist < 1 ? `${prefix}${Math.round(segDist * 1000)} m` : `${prefix}${segDist.toFixed(1)} km`;
 
-        // Perpendicular pixel offset: push label to the right of the line direction
-        const angle = Math.atan2(lat2 - lat1, lng2 - lng1);
-        const perpX = -Math.sin(angle);
-        const perpY = Math.cos(angle);
-        const push = dist < 5 ? 50 : dist < 15 ? 30 : 0;
-        const ox = Math.round(perpX * push);
-        const oy = Math.round(-perpY * push);
+        // Place at midpoint of road geometry
+        let midLng: number, midLat: number;
+        if (seg?.geometry && seg.geometry.length > 2) {
+          const midIdx = Math.floor(seg.geometry.length / 2);
+          [midLng, midLat] = seg.geometry[midIdx];
+        } else {
+          midLng = (lng1 + lng2) / 2;
+          midLat = (lat1 + lat2) / 2;
+        }
 
         const el = document.createElement('div');
-        el.style.cssText = `background:rgba(0,0,0,0.7);color:#fff;font-size:11px;font-weight:500;font-family:${ff};padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap`;
-        el.textContent = label;
+        el.style.cssText = `background:rgba(0,0,0,0.85);color:#fff;font-size:12px;font-weight:600;font-family:${ff};padding:4px 10px;border-radius:8px;pointer-events:none;white-space:nowrap`;
+        el.textContent = segText;
 
-        const marker = new window.maplibregl.Marker({ element: el, anchor: 'center', offset: [ox, oy] })
+        const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat([midLng, midLat])
           .addTo(mapRef.current);
         distMarkersRef.current.push(marker);
       }
     });
-  }, [routeData, mapStyleLoaded, osrmDist]);
+  }, [routeData, mapStyleLoaded, maskinFilter, osrmDist]);
 
   /* ── Sync markers: add new, remove stale ── */
   useEffect(() => {
@@ -1082,7 +918,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
     visIds.forEach(id => {
       if (!have.has(id)) {
         const o = objekt.find(x => x.id === id);
-        if (!o || !o.lat || !o.lng) return;
+        if (!o || o.lat == null || o.lng == null) return;
         const el = buildMarkerEl(mkInfo(o), maskinKo, maskiner, false, () => handleMarkerClick(id));
         const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat([o.lng, o.lat]).addTo(mapRef.current);
@@ -1090,6 +926,22 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
       }
     });
   }, [visIds, mapReady, objekt, maskiner, maskinKo, handleMarkerClick, mkInfo]);
+
+  /* ── Auto-fit bounds when machine filter changes ── */
+  useEffect(() => {
+    if (!mapRef.current || !mapStyleLoaded || !maskinFilter) return;
+    const points = visIds
+      .map(id => objekt.find(o => o.id === id))
+      .filter((o): o is OversiktObjekt => !!o && o.lat != null && o.lng != null);
+    if (points.length === 0) return;
+    if (points.length === 1) {
+      mapRef.current.flyTo({ center: [points[0].lng!, points[0].lat!], zoom: 13, duration: 600 });
+    } else {
+      const b = new window.maplibregl.LngLatBounds();
+      points.forEach(o => b.extend([o.lng!, o.lat!]));
+      mapRef.current.fitBounds(b, { padding: 80, maxZoom: 14, duration: 600 });
+    }
+  }, [maskinFilter, visIds, objekt, mapStyleLoaded]);
 
   /* ── Update marker content (selection, numbers, history state) ── */
   useEffect(() => {
@@ -1139,15 +991,6 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
       el.style.opacity = selectedGrotId === id ? '1' : '0.7';
     });
   }, [selectedGrotId, objekt, mapReady]);
-
-  /* ── Toggle distance marker visibility based on zoom ── */
-  useEffect(() => {
-    const show = zoomLevel < 11;
-    distMarkersRef.current.forEach(m => {
-      const el = m.getElement();
-      if (el) el.style.display = show ? '' : 'none';
-    });
-  }, [zoomLevel]);
 
   // Zoom-based label visibility CSS
   const labelCss = zoomLevel < 10
