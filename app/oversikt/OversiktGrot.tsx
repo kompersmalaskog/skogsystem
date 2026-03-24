@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
-import { OversiktObjekt, C } from './oversikt-types';
+import { OversiktObjekt, C, T, BTN, SP } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, grotDeadlineDays } from './oversikt-utils';
 
@@ -190,17 +190,16 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
   };
 
   return (
-    <div style={{ height: '100%', overflowY: 'auto', padding: '14px 16px 80px', fontFamily: ff }}>
+    <div style={{ height: '100%', overflowY: 'auto', padding: `${SP.md}px ${SP.lg}px 80px`, fontFamily: ff }}>
 
       {/* Påminnelser — 3 dagar före önskat datum */}
       {reminders.length > 0 && (
         <div style={{
-          marginBottom: 16, padding: '14px 16px',
-          background: 'rgba(249,115,22,0.06)',
-          border: '1px solid rgba(249,115,22,0.15)',
-          borderRadius: 14,
+          marginBottom: SP.lg, padding: `${SP.md}px ${SP.lg}px`,
+          background: C.od, border: `1px solid ${C.orange}25`,
+          borderRadius: SP.md,
         }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.orange, marginBottom: 8 }}>
+          <div style={{ ...T.body, fontWeight: 700, color: C.orange, marginBottom: SP.sm }}>
             Påminnelse — skotning snart
           </div>
           {reminders.map(o => {
@@ -233,8 +232,8 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
 
         return (
           <div key={obj.id} onClick={() => handleExpand(obj.id)} style={{
-            background: expanded ? C.cardGrad : 'transparent', borderRadius: 16,
-            padding: expanded ? 16 : 14, margin: expanded ? '6px 0' : 0,
+            background: expanded ? C.cardGrad : 'transparent', borderRadius: SP.lg,
+            padding: expanded ? SP.lg : SP.md, margin: expanded ? `${SP.sm}px 0` : 0,
             borderLeft: expanded ? `1px solid ${C.border}` : 'none',
             borderRight: expanded ? `1px solid ${C.border}` : 'none',
             borderTop: expanded ? `1px solid ${C.borderTop}` : 'none',
@@ -248,7 +247,7 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
 
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 15, fontWeight: 600 }}>{obj.namn}</span>
+                  <span style={T.body}>{obj.namn}</span>
                   {skotatDirekt && (
                     <span style={{ fontSize: 11, fontWeight: 600, color: C.orange, padding: '2px 8px', background: C.od, borderRadius: 20 }}>Direkt</span>
                   )}
@@ -329,14 +328,14 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
                 )}
 
                 {/* GROT-volym */}
-                <div style={{ marginBottom: 10 }}>
-                  <label style={{ fontSize: 11, color: C.t4, display: 'block', marginBottom: 4 }}>GROT-volym (m³)</label>
+                <div style={{ marginBottom: SP.md }}>
+                  <label style={{ ...T.label, display: 'block', marginBottom: SP.xs }}>GROT-volym (m³)</label>
                   <input
                     type="number"
                     value={grotVol[obj.id] ?? (obj.grot_volym != null ? String(obj.grot_volym) : '')}
                     onChange={e => handleGrotVolChange(obj.id, e.target.value)}
                     placeholder="GROT m³"
-                    style={{ width: 120, padding: '8px 12px', borderRadius: 14, border: `1px solid ${C.border}`, background: C.surface, color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, minHeight: 44 }}
+                    style={{ width: 120, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.md, border: `1px solid ${C.border}`, background: C.surface, color: C.t1, ...T.body, outline: 'none', fontFamily: ff, minHeight: 44 }}
                   />
                 </div>
 
@@ -346,7 +345,7 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
                   onChange={e => handleNoteChange(obj.id, e.target.value)}
                   placeholder="Skriv notering..."
                   rows={2}
-                  style={{ width: '100%', padding: '8px 12px', borderRadius: 14, border: `1px solid ${C.border}`, background: C.surface, color: C.t1, fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: ff, boxSizing: 'border-box', marginBottom: 10 }}
+                  style={{ width: '100%', padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.md, border: `1px solid ${C.border}`, background: C.surface, color: C.t1, ...T.caption, outline: 'none', resize: 'vertical', fontFamily: ff, boxSizing: 'border-box', marginBottom: SP.md }}
                 />
 
                 {/* Deadline — önskat skotningsdatum */}
@@ -356,29 +355,25 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
                     type="date"
                     value={deadlines[obj.id] ?? obj.grot_deadline ?? ''}
                     onChange={e => handleDeadlineChange(obj.id, e.target.value)}
-                    style={{ width: 170, padding: '8px 12px', borderRadius: 14, border: `1px solid ${C.border}`, background: C.surface, color: C.t1, fontSize: 13, outline: 'none', fontFamily: ff, colorScheme: 'dark', minHeight: 44 }}
+                    style={{ width: 170, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.md, border: `1px solid ${C.border}`, background: C.surface, color: C.t1, ...T.body, outline: 'none', fontFamily: ff, colorScheme: 'dark', minHeight: 44 }}
                   />
                 </div>
 
                 {/* Save button */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: SP.md }}>
                   <button
                     onClick={(e) => handleSave(obj.id, e)}
                     style={{
-                      padding: '8px 24px', borderRadius: 16,
-                      border: 'none',
-                      background: dirty[obj.id] ? C.green : 'rgba(255,255,255,0.08)',
-                      color: dirty[obj.id] ? '#fff' : C.t3,
-                      fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: ff,
-                      transition: 'all 0.2s', minHeight: 44,
+                      ...BTN.primary, fontFamily: ff,
+                      background: dirty[obj.id] ? C.green : BTN.primary.background,
+                      color: dirty[obj.id] ? C.t1 : C.t3,
+                      transition: 'all 0.2s',
                     }}
                   >
                     Spara
                   </button>
                   {savedMsg[obj.id] && (
-                    <span style={{ fontSize: 12, color: C.green, fontWeight: 600, transition: 'opacity 0.3s' }}>
-                      Sparat!
-                    </span>
+                    <span style={{ ...T.caption, color: C.green, fontWeight: 600 }}>Sparat!</span>
                   )}
                 </div>
               </div>
@@ -388,9 +383,9 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
       })}
 
       {grotObjekt.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: C.t4 }}>
-          <div style={{ fontSize: 16, marginBottom: 8 }}>Inga grotanpassade objekt</div>
-          <div style={{ fontSize: 11 }}>Objekt måste vara markerade som grotanpassade i dim_objekt</div>
+        <div style={{ textAlign: 'center', padding: `60px ${SP.xl}px`, color: C.t4 }}>
+          <div style={T.body}>Inga grotanpassade objekt</div>
+          <div style={{ ...T.caption, marginTop: SP.sm }}>Objekt måste vara markerade som grotanpassade i dim_objekt</div>
         </div>
       )}
     </div>
