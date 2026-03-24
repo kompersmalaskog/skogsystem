@@ -10,7 +10,7 @@ const supabase = createClient(
 
 type Maskin = { maskin_id: number; modell: string; tillverkare: string; typ: string };
 
-const MASKINVY_SCRIPT = `
+const MASKINVY_SCRIPT = `(function(){
 Chart.defaults.font.family = 'Geist';
 Chart.defaults.color = '#7a7a72';
 
@@ -646,7 +646,15 @@ function openObjJmf() {
   document.getElementById('objJmfPanel').classList.add('open');
 }
 function closeObjJmf() { closeAllPanels(); }
-`;
+
+// Expose to global scope for onclick handlers
+Object.assign(window, {
+  toggleMMenu, pickM, openForare, closeForare, openBolag, closeBolag,
+  openTradslag, closeTradslag, openTid, closeTid, toggleCmp, runCmp,
+  openDag, closeDag, openObjTyp, closeObjTyp, openObjJmf, closeObjJmf,
+  toggleForareAvbrott, closeAllPanels
+});
+})();`;
 
 export default function Maskinvy() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
