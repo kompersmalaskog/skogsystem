@@ -39,7 +39,7 @@ export default function RootLayout({
         <link rel="icon" type="image/png" href="/icon.png" />
         <link rel="apple-touch-icon" href="/icon.png" />
       </head>
-      <body style={{ margin: 0, padding: 0, overflow: 'hidden' }}>
+      <body style={{ margin: 0, padding: 0 }}>
         <TopBar />
         <div style={{ paddingTop: 56 }}>
           {children}
