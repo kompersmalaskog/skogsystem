@@ -729,7 +729,7 @@ export default function Maskinvy() {
   --text:     #e8e8e4;
   --muted:    #7a7a72;
   --dim:      #3a3a36;
-  --accent:   #5aff8c;
+  --accent:   #00c48c;
   --accent2:  #1a4a2e;
   --warn:     #ffb340;
   --danger:   #ff5f57;
@@ -846,7 +846,8 @@ body {
 .anim { opacity: 0; animation: fadeUp 0.5s forwards; }
 
 /* ── HERO ── */
-.hero { display: grid; grid-template-columns: 2.2fr 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+.hero { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+.hero-main { grid-column: 1 / -1; }
 
 .hero-main {
   background: var(--surface); border: 1px solid var(--border);
@@ -871,7 +872,7 @@ body {
 
 .kpi {
   background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
-  padding: 22px 18px; position: relative; overflow: hidden;
+  padding: 24px 20px; position: relative; overflow: hidden;
   transition: border-color 0.2s, transform 0.2s;
 }
 .kpi:hover { border-color: var(--border2); transform: translateY(-1px); }
@@ -879,7 +880,7 @@ body {
 .kpi:nth-child(4){animation-delay:0.2s} .kpi:nth-child(5){animation-delay:0.25s}
 
 .k-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 10px; }
-.k-val { font-family: 'Fraunces', serif; font-size: 32px; line-height: 1; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
+.k-val { font-family: 'Fraunces', serif; font-size: 36px; line-height: 1; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
 .k-unit { font-size: 11px; color: var(--muted); }
 .k-delta { margin-top: 10px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 20px; }
 .up   { color: var(--accent); background: rgba(90,255,140,0.1); }
@@ -925,7 +926,7 @@ body {
 .op-sl { font-size: 10px; color: var(--muted); }
 
 /* ── PROGRESS ── */
-.prog { height: 3px; background: var(--dim); border-radius: 2px; overflow: hidden; margin-top: 5px; }
+.prog { height: 6px; background: var(--dim); border-radius: 3px; overflow: hidden; margin-top: 5px; }
 .pf   { height: 100%; border-radius: 2px; transition: width 1s cubic-bezier(0.4,0,0.2,1); }
 
 /* ── KALIBRERING ── */
@@ -1027,7 +1028,7 @@ body {
 
 .forar-panel {
   position: fixed; top: 0; right: 0; bottom: 0;
-  width: 520px; background: var(--surface);
+  width: min(520px, 100vw); background: var(--surface);
   border-left: 1px solid var(--border2);
   z-index: 501; overflow-y: auto;
   transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
@@ -1078,7 +1079,7 @@ body {
 
 .bolag-panel {
   position: fixed; top: 0; right: 0; bottom: 0;
-  width: 480px; background: var(--surface);
+  width: min(480px, 100vw); background: var(--surface);
   border-left: 1px solid var(--border2);
   z-index: 501; overflow-y: auto;
   transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
@@ -1094,7 +1095,7 @@ body {
 
 .dag-panel {
   position: fixed; top: 0; right: 0; bottom: 0;
-  width: 460px; background: var(--surface);
+  width: min(460px, 100vw); background: var(--surface);
   border-left: 1px solid var(--border2);
   z-index: 501; overflow-y: auto;
   transform: translateX(100%); transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
@@ -1723,7 +1724,7 @@ body {
 
 
 <!-- OBJ JMF PANEL -->
-<div class="bolag-panel" id="objJmfPanel" style="width:560px;">
+<div class="bolag-panel" id="objJmfPanel" style="width:min(560px,100vw);">
   <div class="forar-head">
     <div class="forar-av" style="border-radius:8px;font-size:13px;">⚡</div>
     <div>
