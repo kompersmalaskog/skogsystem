@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import Jamforelse from '../maskinvy/Jamforelse';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -22,6 +23,7 @@ const C = {
 /* ══════════════════════════════════════════════════════════════
    TYPES
    ══════════════════════════════════════════════════════════════ */
+type ViewMode = 'skordare' | 'skotare' | 'jamforelse';
 type MachineType = 'skordare' | 'skotare';
 type PeriodType = 'vecka' | 'manad' | 'kvartal' | 'ar';
 type KpiId = 'volym' | 'produktivitet' | 'diesel' | 'utnyttjandegrad';
@@ -356,7 +358,8 @@ export default function Maskinvy2Page() {
   const currWeek = isoWeek(now);
 
   // ── State ──
-  const [machineType, setMachineType] = useState<MachineType>('skordare');
+  const [mode, setMode] = useState<ViewMode>('skordare');
+  const machineType: MachineType = mode === 'skotare' ? 'skotare' : 'skordare';
   const [selectedMaskin, setSelectedMaskin] = useState<string>('alla');
   const [periodType, setPeriodType] = useState<PeriodType>('manad');
   const [year, setYear] = useState(now.getFullYear());
@@ -546,42 +549,77 @@ export default function Maskinvy2Page() {
   };
 
   /* ── Render ── */
+
+  // ── Toggle bar (always visible) ──
+  const toggleBar = (
+    <div style={{
+      position: 'fixed', top: 56, left: 0, right: 0, height: 44,
+      background: 'rgba(17,17,16,0.95)', backdropFilter: 'blur(20px)',
+      borderBottom: `1px solid ${C.border}`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      zIndex: 60, fontFamily: ff,
+    }}>
+      <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3 }}>
+        {([['skordare', 'Skördare'], ['skotare', 'Skotare'], ['jamforelse', 'Jämförelse']] as const).map(([m, label]) => (
+          <button key={m} onClick={() => { setMode(m as ViewMode); if (m !== mode) setSelectedMaskin('alla'); }} style={{
+            padding: '5px 20px', border: 'none', background: mode === m ? C.surface2 : 'transparent',
+            borderRadius: 6, fontFamily: ff, fontSize: 13, fontWeight: 500,
+            color: mode === m ? C.t1 : C.t3, cursor: 'pointer', transition: 'all 0.15s',
+            letterSpacing: -0.2,
+          }}>{label}</button>
+        ))}
+      </div>
+    </div>
+  );
+
+  // ── Jämförelse mode ──
+  if (mode === 'jamforelse') {
+    return (
+      <>
+        {toggleBar}
+        <Jamforelse />
+      </>
+    );
+  }
+
+  // ── Loading state ──
   if (loading) {
     return (
-      <div style={{
-        position: 'fixed', top: 100, left: 0, right: 0, bottom: 0,
-        background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: C.t3, fontFamily: ff, fontSize: 13, zIndex: 1,
-      }}>Laddar data...</div>
+      <>
+        {toggleBar}
+        <div style={{
+          position: 'fixed', top: 100, left: 0, right: 0, bottom: 0,
+          background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: C.t3, fontFamily: ff, fontSize: 13, zIndex: 1,
+        }}>Laddar data...</div>
+      </>
     );
   }
 
   return (
-    <div style={{
-      position: 'fixed', top: 100, left: 0, right: 0, bottom: 0,
-      overflow: 'auto', WebkitOverflowScrolling: 'touch' as any,
-      background: C.bg, fontFamily: ff, color: C.t1, zIndex: 1,
-    }}>
-      <div style={{ padding: '20px 20px 80px', maxWidth: 600, margin: '0 auto' }}>
+    <>
+      {toggleBar}
+      <div style={{
+        position: 'fixed', top: 100, left: 0, right: 0, bottom: 0,
+        overflow: 'auto', WebkitOverflowScrolling: 'touch' as any,
+        background: C.bg, fontFamily: ff, color: C.t1, zIndex: 1,
+      }}>
+        <div style={{ padding: '20px 20px 80px', maxWidth: 600, margin: '0 auto' }}>
 
-        {/* ═══ FILTERS ═══ */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+          {/* ═══ FILTERS ═══ */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
 
-          {/* Machine type + specific machine */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3 }}>
-              <Pill label="Skördare" active={machineType === 'skordare'} onClick={() => { setMachineType('skordare'); setSelectedMaskin('alla'); }} />
-              <Pill label="Skotare" active={machineType === 'skotare'} onClick={() => { setMachineType('skotare'); setSelectedMaskin('alla'); }} />
+            {/* Machine selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Select value={selectedMaskin} onChange={v => setSelectedMaskin(v)}>
+                <option value="alla">Alla {machineType === 'skordare' ? 'skördare' : 'skotare'}</option>
+                {typeMaskiner.map(m => (
+                  <option key={m.maskin_id} value={m.maskin_id}>
+                    {`${m.tillverkare} ${m.modell}`.trim() || m.maskin_id}
+                  </option>
+                ))}
+              </Select>
             </div>
-            <Select value={selectedMaskin} onChange={v => setSelectedMaskin(v)}>
-              <option value="alla">Alla {machineType === 'skordare' ? 'skördare' : 'skotare'}</option>
-              {typeMaskiner.map(m => (
-                <option key={m.maskin_id} value={m.maskin_id}>
-                  {`${m.tillverkare} ${m.modell}`.trim() || m.maskin_id}
-                </option>
-              ))}
-            </Select>
-          </div>
 
           {/* Period type + selectors */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -828,5 +866,6 @@ export default function Maskinvy2Page() {
         )}
       </SlidePanel>
     </div>
+    </>
   );
 }
