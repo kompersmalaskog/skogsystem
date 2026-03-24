@@ -242,10 +242,21 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
 
           return (
             <div key={maskin.maskin_id} style={{ marginBottom: 32 }}>
-              {/* Maskinnamn */}
+              {/* Maskinnamn + status */}
               <div style={{ padding: `0 ${SP.xs}px ${SP.lg}px` }}>
                 <div style={T.h1}>{name}</div>
-                <div style={{ ...T.caption, marginTop: SP.xs }}>{isSk ? 'Skördare' : 'Skotare'}</div>
+                <div style={{ ...T.caption, marginTop: SP.xs }}>
+                  {isSk ? 'Skördare' : 'Skotare'}
+                  {(() => {
+                    if (ko.length === 0) return <span style={{ color: C.t4 }}> · Ledig</span>;
+                    const firstObj = getObj(ko[0].objekt_id);
+                    if (!firstObj) return null;
+                    const isAct = firstObj.status === 'pagaende' || firstObj.status === 'skordning' || firstObj.status === 'skotning';
+                    return isAct
+                      ? <span style={{ color: C.green }}> · Pågående: {firstObj.namn}</span>
+                      : <span style={{ color: C.t3 }}> · Nästa: {firstObj.namn}</span>;
+                  })()}
+                </div>
               </div>
 
               {/* Objektlista med drag-and-drop */}
