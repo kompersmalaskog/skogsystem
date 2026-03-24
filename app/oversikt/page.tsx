@@ -57,12 +57,20 @@ export default function OversiktPage() {
 
   const fetchAll = async () => {
     // Core data — small tables, single fetch
-    const [objektRes, maskinerRes, koRes] = await Promise.all([
-      supabase.from('objekt').select(OBJEKT_SELECT).order('namn'),
+    const [maskinerRes, koRes] = await Promise.all([
       supabase.from('dim_maskin').select('*').order('modell'),
       supabase.from('maskin_ko').select('*').order('ordning'),
     ]);
-    if (objektRes.data) setObjekt(objektRes.data);
+
+    // Fetch ALL objekt with pagination (Supabase default limit is 1000)
+    let allObjekt = await fetchAllRows<any>(() => supabase.from('objekt').select(OBJEKT_SELECT).order('namn'));
+    if (allObjekt.length === 0) {
+      // OBJEKT_SELECT might have invalid columns — fallback to select('*')
+      console.warn('[Översikt] OBJEKT_SELECT returned 0 rows, falling back to select(*)');
+      allObjekt = await fetchAllRows<any>(() => supabase.from('objekt').select('*').order('namn'));
+    }
+    console.log(`[Översikt] Hämtade ${allObjekt.length} objekt`);
+    setObjekt(allObjekt);
     if (maskinerRes.data) setMaskiner(maskinerRes.data);
     if (koRes.data) setMaskinKo(koRes.data);
     setLoading(false);
@@ -109,8 +117,9 @@ export default function OversiktPage() {
   };
 
   const refreshObjekt = async () => {
-    const res = await supabase.from('objekt').select(OBJEKT_SELECT).order('namn');
-    if (res.data) setObjekt(res.data);
+    let data = await fetchAllRows<any>(() => supabase.from('objekt').select(OBJEKT_SELECT).order('namn'));
+    if (data.length === 0) data = await fetchAllRows<any>(() => supabase.from('objekt').select('*').order('namn'));
+    setObjekt(data);
   };
 
   return (

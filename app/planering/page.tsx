@@ -748,59 +748,100 @@ export default function PlannerPage() {
       map.addLayer({ id: 'wms-layer-korbarhet', type: 'raster', source: 'wms-korbarhet', paint: { 'raster-opacity': 0.7 }, layout: { visibility: 'none' } }, 'zone-fill');
     } catch (e) { console.error('[MapLibre] korbarhet error:', e); }
 
-    // === Produktionshögar (HPR-data) ===
-    map.addSource('hogar-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    // Cirkelradie: volym-baserad, min 8px, max 25px
-    const hogarRadius = [
-      'interpolate', ['linear'], ['get', 'volym'],
-      0, 8,
-      5, 12,
-      20, 18,
-      50, 25,
-    ] as any;
+    // === Produktionshögar (HPR-data) — pie chart-ikoner med klustring ===
+    map.addSource('hogar-source', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] },
+      cluster: true,
+      clusterRadius: 60,
+      clusterMaxZoom: 13,
+      clusterProperties: { totalVolym: ['+', ['get', 'volym']] },
+    });
+    // Kluster-lager (visas vid zoom < 14)
     map.addLayer({
-      id: 'hogar-circle',
+      id: 'hogar-cluster',
       type: 'circle',
       source: 'hogar-source',
+      filter: ['has', 'point_count'],
       paint: {
-        'circle-radius': hogarRadius,
-        'circle-color': ['get', 'color'],
+        'circle-radius': ['interpolate', ['linear'], ['get', 'totalVolym'], 0, 16, 50, 24, 200, 38],
+        'circle-color': '#1d9e75',
         'circle-opacity': 0.8,
-        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 17, 1.5],
-        'circle-stroke-color': 'rgba(255,255,255,0.5)',
+        'circle-stroke-width': 2.5,
+        'circle-stroke-color': 'rgba(255,255,255,0.8)',
       },
       layout: { visibility: 'none' },
     });
     map.addLayer({
-      id: 'hogar-label',
+      id: 'hogar-cluster-label',
       type: 'symbol',
       source: 'hogar-source',
+      filter: ['has', 'point_count'],
       layout: {
-        'text-field': ['concat', ['to-string', ['round', ['get', 'volym']]], ''],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 15, 0, 17, 10, 18, 13],
+        'text-field': ['concat', ['to-string', ['round', ['get', 'totalVolym']]], ' m\u00B3'],
+        'text-size': 12,
         'text-font': ['Open Sans Bold'],
-        'text-allow-overlap': false,
+        'text-allow-overlap': true,
         visibility: 'none',
       },
+      paint: { 'text-color': '#fff', 'text-halo-color': 'rgba(0,0,0,0.6)', 'text-halo-width': 1 },
+    });
+    // Hitdetection-cirkel (osynlig, fast radie för klick — UNDER pie charts)
+    map.addLayer({
+      id: 'hogar-hit',
+      type: 'circle',
+      source: 'hogar-source',
+      filter: ['!', ['has', 'point_count']],
       paint: {
-        'text-color': '#fff',
-        'text-halo-color': 'rgba(0,0,0,0.7)',
-        'text-halo-width': 1,
+        'circle-radius': ['interpolate', ['linear'], ['get', 'volym'], 0, 10, 5, 14, 20, 20, 50, 26],
+        'circle-color': 'transparent',
+        'circle-opacity': 0,
+      },
+      layout: { visibility: 'none' },
+    });
+    // Enskilda högar (pie charts, visas vid zoom >= 14)
+    map.addLayer({
+      id: 'hogar-circle',
+      type: 'symbol',
+      source: 'hogar-source',
+      filter: ['!', ['has', 'point_count']],
+      layout: {
+        'icon-image': ['get', 'pieIcon'],
+        'icon-size': ['interpolate', ['linear'], ['get', 'volym'], 0, 0.4, 5, 0.6, 20, 0.9, 50, 1.2],
+        'icon-allow-overlap': true,
+        visibility: 'none',
       },
     });
 
     // === GROT-högar (separat lager) ===
     map.addSource('grot-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    const grotRadius = [
+      'interpolate', ['linear'], ['get', 'volym'],
+      0, 8, 5, 12, 20, 18, 50, 25,
+    ] as any;
+    // GROT skugga
+    map.addLayer({
+      id: 'grot-shadow',
+      type: 'circle',
+      source: 'grot-source',
+      paint: {
+        'circle-radius': grotRadius,
+        'circle-color': 'rgba(0,0,0,0.3)',
+        'circle-translate': [0, 2],
+        'circle-blur': 0.4,
+      },
+      layout: { visibility: 'none' },
+    });
     map.addLayer({
       id: 'grot-circle',
       type: 'circle',
       source: 'grot-source',
       paint: {
-        'circle-radius': hogarRadius,
+        'circle-radius': grotRadius,
         'circle-color': '#f59e0b',
         'circle-opacity': 0.85,
-        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 17, 2],
-        'circle-stroke-color': 'rgba(255,255,255,0.6)',
+        'circle-stroke-width': 2.5,
+        'circle-stroke-color': 'rgba(255,255,255,0.8)',
       },
       layout: { visibility: 'none' },
     });
@@ -820,6 +861,55 @@ export default function PlannerPage() {
         'text-halo-color': 'rgba(0,0,0,0.7)',
         'text-halo-width': 1,
       },
+    });
+
+    // === Pulsring för vald hög ===
+    map.addSource('pulse-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'hogar-pulse',
+      type: 'circle',
+      source: 'pulse-source',
+      paint: {
+        'circle-radius': 20,
+        'circle-color': 'transparent',
+        'circle-opacity': 0,
+        'circle-stroke-width': 3,
+        'circle-stroke-color': '#1d9e75',
+        'circle-stroke-opacity': 0.6,
+      },
+    });
+
+    // === Multi-select högar (grön ring runt valda) ===
+    map.addSource('hogar-selected-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'hogar-selected-ring',
+      type: 'circle',
+      source: 'hogar-selected-source',
+      paint: {
+        'circle-radius': 22,
+        'circle-color': 'transparent',
+        'circle-stroke-width': 3,
+        'circle-stroke-color': '#22c55e',
+        'circle-stroke-opacity': 0.9,
+      },
+    });
+
+    // === Skotning-markering (polygon) ===
+    map.addSource('skotning-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'skotning-fill', type: 'fill', source: 'skotning-source',
+      paint: { 'fill-color': 'rgba(29,158,117,0.2)' },
+    });
+    map.addLayer({
+      id: 'skotning-line', type: 'line', source: 'skotning-source',
+      paint: { 'line-color': '#1d9e75', 'line-width': 3 },
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+    });
+    map.addSource('skotning-dash-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    map.addLayer({
+      id: 'skotning-dash', type: 'line', source: 'skotning-dash-source',
+      paint: { 'line-color': '#1d9e75', 'line-width': 2, 'line-dasharray': [4, 4] },
+      layout: { 'line-cap': 'round' },
     });
 
     // Ensure base map layer visibility matches current mapType
@@ -1453,6 +1543,40 @@ export default function PlannerPage() {
   const freehandActiveRef = useRef(false);
   const freehandStartScreenRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   
+  // Skotning-markering (polygon-ritning för skotare)
+  const [skotningDrawing, setSkotningDrawing] = useState(false);
+  const [skotningCoords, setSkotningCoords] = useState<[number, number][]>([]);
+  const [skotningPolygon, setSkotningPolygon] = useState<[number, number][] | null>(null);
+  const [skotningPanel, setSkotningPanel] = useState(false);
+  const [skotningHogar, setSkotningHogar] = useState<{ sortiment: string; volym: number; color: string; typ: 'virke' | 'grot' }[]>([]);
+  const [skotningAntalHogar, setSkotningAntalHogar] = useState(0);
+  const [skotningChecked, setSkotningChecked] = useState<Record<number, boolean>>({});
+  const [skotningSparat, setSkotningSparat] = useState(false);
+  const skotningCoordsRef = useRef<[number, number][]>([]);
+  const skotningScreenCoordsRef = useRef<[number, number][]>([]);
+  const skotningActiveRef = useRef(false);
+  const skotningCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [skotningReload, setSkotningReload] = useState(0);
+  const [kvarData, setKvarData] = useState<{ sortiment: string; total: number; uttag: number; kvar: number; color: string }[]>([]);
+  const hogarFeaturesRef = useRef<any[]>([]);
+  const grotFeaturesRef = useRef<any[]>([]);
+  const generatePieIconRef = useRef<((sortimentData: Record<string, number>, size: number) => ImageData) | null>(null);
+  const [valdHog, setValdHog] = useState<{
+    volym: number; stammar: number; datum: string; tradslag: string;
+    sortimentVolym: Record<string, number>; coords: [number, number];
+    isGrot?: boolean;
+  } | null>(null);
+  const pulseFrameRef = useRef<number>(0);
+
+  // Multi-select högar
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [selectedHogarIdx, setSelectedHogarIdx] = useState<Set<number>>(new Set());
+  const [multiSelectPanel, setMultiSelectPanel] = useState(false);
+  const [multiSelectSparat, setMultiSelectSparat] = useState(false);
+  const [multiSelectChecked, setMultiSelectChecked] = useState<Record<number, boolean>>({});
+  const featureClickedRef = useRef(false); // Förhindra att handleMapClick rensar efter feature-klick
+
+
   // Zoner
   const [isZoneMode, setIsZoneMode] = useState(false);
   const [zoneType, setZoneType] = useState<string | null>(null);
@@ -1698,8 +1822,10 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const vis = overlays.produktionshogar ? 'visible' : 'none';
+    if (map.getLayer('hogar-hit')) map.setLayoutProperty('hogar-hit', 'visibility', vis);
     if (map.getLayer('hogar-circle')) map.setLayoutProperty('hogar-circle', 'visibility', vis);
-    if (map.getLayer('hogar-label')) map.setLayoutProperty('hogar-label', 'visibility', vis);
+    if (map.getLayer('hogar-cluster')) map.setLayoutProperty('hogar-cluster', 'visibility', vis);
+    if (map.getLayer('hogar-cluster-label')) map.setLayoutProperty('hogar-cluster-label', 'visibility', vis);
   }, [overlays.produktionshogar, mapLibreReady]);
 
   // === GROT-högar: Toggle visibility ===
@@ -1708,47 +1834,123 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const vis = overlays.grothogar ? 'visible' : 'none';
     if (map.getLayer('grot-circle')) map.setLayoutProperty('grot-circle', 'visibility', vis);
+    if (map.getLayer('grot-shadow')) map.setLayoutProperty('grot-shadow', 'visibility', vis);
     if (map.getLayer('grot-label')) map.setLayoutProperty('grot-label', 'visibility', vis);
   }, [overlays.grothogar, mapLibreReady]);
 
-  // === Produktionshögar: Klick-popup ===
+  // === Produktionshögar: Klick → multi-select (varje tryck) ===
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
 
+    // Hitta feature-index i hogarFeaturesRef baserat på koordinater
+    const findFeatureIdx = (coords: [number, number]): number => {
+      const features = hogarFeaturesRef.current;
+      for (let i = 0; i < features.length; i++) {
+        const [fLng, fLat] = features[i].geometry.coordinates;
+        if (Math.abs(fLng - coords[0]) < 0.0001 && Math.abs(fLat - coords[1]) < 0.0001) return i;
+      }
+      return -1;
+    };
+
+    // Uppdatera selected-högar visual source
+    const updateSelectedSource = (selected: Set<number>) => {
+      const features = hogarFeaturesRef.current;
+      const selFeatures = Array.from(selected)
+        .filter(i => i >= 0 && i < features.length)
+        .map(i => ({
+          type: 'Feature' as const,
+          geometry: features[i].geometry,
+          properties: { idx: i },
+        }));
+      try {
+        const src = map.getSource('hogar-selected-source') as any;
+        if (src) src.setData({ type: 'FeatureCollection', features: selFeatures });
+      } catch { /* */ }
+    };
+
     const handleHogarClick = (e: any) => {
       if (!e.features?.length) return;
       e.originalEvent?.stopPropagation();
-      const p = e.features[0].properties;
-      const coords = e.features[0].geometry.coordinates.slice();
-      // Ensure popup at correct position when map is rotated
-      while (Math.abs(e.lngLat.lng - coords[0]) > 180) {
-        coords[0] += e.lngLat.lng > coords[0] ? 360 : -360;
-      }
-      const volym = parseFloat(p.volym).toFixed(2);
-      const maplibregl = (window as any).maplibregl;
-      if (!maplibregl) return;
-      new maplibregl.Popup({ offset: 12, closeButton: true, maxWidth: '220px' })
-        .setLngLat(coords)
-        .setHTML(`<div style="font-family:system-ui;font-size:13px;line-height:1.7;padding:2px 0">
-          <div style="font-weight:700;font-size:16px;margin-bottom:2px">${volym} m\u00B3</div>
-          <div>${p.tradslag}</div>
-          <div>${p.stammar} stammar</div>
-          ${p.datum ? `<div style="color:#888;font-size:11px;margin-top:2px">${p.datum}</div>` : ''}
-        </div>`)
-        .addTo(map);
+      featureClickedRef.current = true;
+      const coords = e.features[0].geometry.coordinates.slice() as [number, number];
+      const idx = findFeatureIdx(coords);
+      if (idx < 0) return;
+
+      // Stäng singel-panel om öppen
+      setValdHog(null);
+
+      // Alltid multi-select: toggle hög
+      setSelectedHogarIdx(prev => {
+        const next = new Set(prev);
+        if (next.has(idx)) next.delete(idx); else next.add(idx);
+        updateSelectedSource(next);
+        if (next.size === 0) {
+          setMultiSelectPanel(false);
+          setMultiSelectMode(false);
+        } else {
+          setMultiSelectMode(true);
+          setMultiSelectPanel(true);
+          setMultiSelectSparat(false);
+          setMultiSelectChecked({});
+        }
+        return next;
+      });
+      if (navigator.vibrate) navigator.vibrate(30);
     };
+
     const handleEnter = () => { map.getCanvas().style.cursor = 'pointer'; };
     const handleLeave = () => { map.getCanvas().style.cursor = ''; };
 
-    map.on('click', 'hogar-circle', handleHogarClick);
-    map.on('mouseenter', 'hogar-circle', handleEnter);
-    map.on('mouseleave', 'hogar-circle', handleLeave);
+    // Kluster-klick → zooma in
+    const handleClusterClick = (e: any) => {
+      featureClickedRef.current = true;
+      const features = map.queryRenderedFeatures(e.point, { layers: ['hogar-cluster'] });
+      if (!features.length) return;
+      const clusterId = features[0].properties.cluster_id;
+      const src = map.getSource('hogar-source') as any;
+      if (src && src.getClusterExpansionZoom) {
+        src.getClusterExpansionZoom(clusterId, (err: any, zoom: number) => {
+          if (err) return;
+          map.easeTo({ center: (features[0].geometry as any).coordinates, zoom: Math.min(zoom + 1, 20), duration: 500 });
+        });
+      }
+    };
+
+    // Stäng panel vid klick på tom kartyta
+    const handleMapClick = (e: any) => {
+      // Om en feature-handler redan hanterat klicket, skippa
+      if (featureClickedRef.current) {
+        featureClickedRef.current = false;
+        return;
+      }
+      const layers = ['hogar-hit', 'hogar-circle', 'hogar-cluster', 'grot-circle'];
+      const hit = map.queryRenderedFeatures(e.point, { layers: layers.filter(l => map.getLayer(l)) });
+      if (hit.length === 0) {
+        setMultiSelectMode(false);
+        setSelectedHogarIdx(new Set());
+        setMultiSelectPanel(false);
+        updateSelectedSource(new Set());
+        setValdHog(null);
+      }
+    };
+
+    map.on('click', 'hogar-hit', handleHogarClick);
+    map.on('click', 'hogar-cluster', handleClusterClick);
+    map.on('click', handleMapClick);
+    map.on('mouseenter', 'hogar-hit', handleEnter);
+    map.on('mouseleave', 'hogar-hit', handleLeave);
+    map.on('mouseenter', 'hogar-cluster', handleEnter);
+    map.on('mouseleave', 'hogar-cluster', handleLeave);
 
     return () => {
-      map.off('click', 'hogar-circle', handleHogarClick);
-      map.off('mouseenter', 'hogar-circle', handleEnter);
-      map.off('mouseleave', 'hogar-circle', handleLeave);
+      map.off('click', 'hogar-hit', handleHogarClick);
+      map.off('click', 'hogar-cluster', handleClusterClick);
+      map.off('click', handleMapClick);
+      map.off('mouseenter', 'hogar-hit', handleEnter);
+      map.off('mouseleave', 'hogar-hit', handleLeave);
+      map.off('mouseenter', 'hogar-cluster', handleEnter);
+      map.off('mouseleave', 'hogar-cluster', handleLeave);
     };
   }, [mapLibreReady]);
 
@@ -1760,24 +1962,18 @@ export default function PlannerPage() {
     const handleGrotClick = (e: any) => {
       if (!e.features?.length) return;
       e.originalEvent?.stopPropagation();
+      featureClickedRef.current = true;
       const p = e.features[0].properties;
-      const coords = e.features[0].geometry.coordinates.slice();
-      while (Math.abs(e.lngLat.lng - coords[0]) > 180) {
-        coords[0] += e.lngLat.lng > coords[0] ? 360 : -360;
-      }
-      const volym = parseFloat(p.volym).toFixed(2);
-      const maplibregl = (window as any).maplibregl;
-      if (!maplibregl) return;
-      new maplibregl.Popup({ offset: 12, closeButton: true, maxWidth: '220px' })
-        .setLngLat(coords)
-        .setHTML(`<div style="font-family:system-ui;font-size:13px;line-height:1.7;padding:2px 0">
-          <div style="font-weight:700;font-size:16px;margin-bottom:2px;color:#f59e0b">GROT-h\u00F6g</div>
-          <div style="font-weight:600">${volym} m\u00B3</div>
-          <div>${p.tradslag}</div>
-          <div>${p.stammar} stammar</div>
-          ${p.datum ? `<div style="color:#888;font-size:11px;margin-top:2px">${p.datum}</div>` : ''}
-        </div>`)
-        .addTo(map);
+      const coords = e.features[0].geometry.coordinates.slice() as [number, number];
+      setValdHog({
+        volym: parseFloat(p.volym) || 0,
+        stammar: parseInt(p.stammar) || 0,
+        datum: p.datum || '',
+        tradslag: p.tradslag || '',
+        sortimentVolym: { 'GROT': parseFloat(p.volym) || 0 },
+        coords,
+        isGrot: true,
+      });
     };
     const handleEnterG = () => { map.getCanvas().style.cursor = 'pointer'; };
     const handleLeaveG = () => { map.getCanvas().style.cursor = ''; };
@@ -1793,12 +1989,80 @@ export default function PlannerPage() {
     };
   }, [mapLibreReady]);
 
+  // === Pulsring på vald hög (singel) ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const src = map.getSource('pulse-source') as any;
+    if (!src) return;
+
+    if (!valdHog) {
+      src.setData({ type: 'FeatureCollection', features: [] });
+      cancelAnimationFrame(pulseFrameRef.current);
+      return;
+    }
+
+    src.setData({
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', geometry: { type: 'Point', coordinates: valdHog.coords }, properties: {} }],
+    });
+
+    const animate = () => {
+      if (!map.getLayer('hogar-pulse')) return;
+      const t = (Date.now() % 1500) / 1500;
+      const r = 16 + t * 28;
+      const o = 0.7 - t * 0.7;
+      try {
+        map.setPaintProperty('hogar-pulse', 'circle-radius', r);
+        map.setPaintProperty('hogar-pulse', 'circle-stroke-opacity', o);
+      } catch { /* */ }
+      pulseFrameRef.current = requestAnimationFrame(animate);
+    };
+    pulseFrameRef.current = requestAnimationFrame(animate);
+
+    return () => { cancelAnimationFrame(pulseFrameRef.current); };
+  }, [valdHog, mapLibreReady]);
+
+  // === Pulsring på multi-select högar ===
+  const multiPulseRef = useRef<number>(0);
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !map.getLayer('hogar-selected-ring')) return;
+
+    if (selectedHogarIdx.size === 0) {
+      cancelAnimationFrame(multiPulseRef.current);
+      try {
+        map.setPaintProperty('hogar-selected-ring', 'circle-stroke-opacity', 0.9);
+        map.setPaintProperty('hogar-selected-ring', 'circle-radius', 22);
+      } catch { /* */ }
+      return;
+    }
+
+    const animate = () => {
+      if (!map.getLayer('hogar-selected-ring')) return;
+      const t = (Date.now() % 1200) / 1200;
+      const pulse = 0.5 + 0.5 * Math.sin(t * Math.PI * 2); // 0→1→0
+      const radius = 20 + pulse * 6;   // 20–26
+      const opacity = 0.6 + pulse * 0.4; // 0.6–1.0
+      try {
+        map.setPaintProperty('hogar-selected-ring', 'circle-radius', radius);
+        map.setPaintProperty('hogar-selected-ring', 'circle-stroke-opacity', opacity);
+      } catch { /* */ }
+      multiPulseRef.current = requestAnimationFrame(animate);
+    };
+    multiPulseRef.current = requestAnimationFrame(animate);
+
+    return () => { cancelAnimationFrame(multiPulseRef.current); };
+  }, [selectedHogarIdx, mapLibreReady]);
+
   // === Produktionshögar + GROT: Hämta och klustra HPR-stammar ===
   useEffect(() => {
     const map = mapInstanceRef.current;
     const anyActive = overlays.produktionshogar || overlays.grothogar;
     if (!map || !mapLibreReady || !valtObjekt?.id || !anyActive) {
       // Rensa data om toggle av eller inget objekt
+      hogarFeaturesRef.current = [];
+      grotFeaturesRef.current = [];
       if (map && map.getSource('hogar-source')) {
         (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: [] });
       }
@@ -1809,12 +2073,86 @@ export default function PlannerPage() {
     }
 
     const TRADSLAG_COLOR: Record<string, string> = {
-      'GRAN': '#2d6a4f',
-      'TALL': '#a0522d',
-      'BJÖRK': '#c8c8c8',
-      'ÖVR_LÖV': '#8fbc8f',
+      'GRAN': '#1d9e75',
+      'TALL': '#e8832a',
+      'BJÖRK': '#f0f0f0',
+      'ÖVR_LÖV': '#888780',
     };
     const BLANDAT_COLOR = '#6b7c3a';
+
+    const getSortimentColor = (s: string): string => {
+      if (s.startsWith('Gran')) return '#1d9e75';
+      if (s.startsWith('Tall')) return '#e8832a';
+      if (s.startsWith('Björk')) return '#f0f0f0';
+      if (s.startsWith('Övr_löv')) return '#888780';
+      if (s === 'GROT') return '#8B5E3C';
+      return '#6b7c3a';
+    };
+
+    const generatePieIcon = (sortimentData: Record<string, number>, size: number): ImageData => {
+      const canvas = document.createElement('canvas');
+      canvas.width = size;
+      canvas.height = size;
+      const ctx = canvas.getContext('2d')!;
+      const cx = size / 2, cy = size / 2, r = size / 2 - 3;
+
+      // Skugga (mörk cirkel med offset nedåt)
+      ctx.beginPath();
+      ctx.arc(cx, cy + 2, r, 0, 2 * Math.PI);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.fill();
+
+      // Pie slices
+      const total = Object.values(sortimentData).reduce((a, b) => a + b, 0);
+      if (total === 0) {
+        ctx.beginPath();
+        ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+        ctx.fillStyle = '#6b7c3a';
+        ctx.fill();
+      } else {
+        let startAngle = -Math.PI / 2;
+        const entries = Object.entries(sortimentData).sort((a, b) => b[1] - a[1]);
+        for (const [sortiment, vol] of entries) {
+          const sliceAngle = (vol / total) * 2 * Math.PI;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.arc(cx, cy, r, startAngle, startAngle + sliceAngle);
+          ctx.closePath();
+          ctx.fillStyle = getSortimentColor(sortiment);
+          ctx.fill();
+          startAngle += sliceAngle;
+        }
+      }
+
+      // 3D-gradient overlay (ljus topp, mörk botten)
+      const grad = ctx.createLinearGradient(cx, cy - r, cx, cy + r);
+      grad.addColorStop(0, 'rgba(255,255,255,0.18)');
+      grad.addColorStop(0.5, 'rgba(255,255,255,0)');
+      grad.addColorStop(1, 'rgba(0,0,0,0.22)');
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Highlight-glans (ljus halvmåne uppe till vänster)
+      ctx.beginPath();
+      ctx.arc(cx - r * 0.25, cy - r * 0.25, r * 0.5, 0, 2 * Math.PI);
+      const gloss = ctx.createRadialGradient(cx - r * 0.25, cy - r * 0.25, 0, cx - r * 0.25, cy - r * 0.25, r * 0.5);
+      gloss.addColorStop(0, 'rgba(255,255,255,0.22)');
+      gloss.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = gloss;
+      ctx.fill();
+
+      // Vit kant
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, 2 * Math.PI);
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+
+      return ctx.getImageData(0, 0, size, size);
+    };
+    generatePieIconRef.current = generatePieIcon;
 
     const loadHogar = async () => {
       console.log('[HPR] Laddar stammar för objekt', valtObjekt.id);
@@ -1847,7 +2185,7 @@ export default function PlannerPage() {
         while (true) {
           const { data, error } = await supabase
             .from('hpr_stammar')
-            .select('lat, lng, total_volym, tradslag, hpr_fil_id, bio_energy_adaption')
+            .select('lat, lng, total_volym, tradslag, hpr_fil_id, bio_energy_adaption, sortiment')
             .eq('hpr_fil_id', fid)
             .not('lat', 'is', null)
             .range(offset, offset + 999);
@@ -1858,28 +2196,32 @@ export default function PlannerPage() {
         }
       }
 
-      console.log(`[HPR] ${allStammar.length} stammar hämtade, klustrar...`);
+      console.log(`[HPR] objekt_id=${valtObjekt.id}, filer=${filer.length}, fil-ids=[${filIds.join(', ')}]`);
+
+      // Filtrera bort stammar utan koordinater (dedup ej nödvändig — delete-before-insert ger bara en HPR-fil per objekt)
+      const dedupStammar = allStammar.filter(s => s.lat && s.lng);
+      console.log(`[HPR] ${dedupStammar.length} stammar med koordinater (av ${allStammar.length} totalt)`);
 
       // Klustra stammar inom ~10m radie
       // 10m ≈ 0.00009 grader lat, 0.00016 grader lng vid 56°N
       const CLUSTER_RAD_LAT = 0.00009;
       const CLUSTER_RAD_LNG = 0.00016;
-      const used = new Uint8Array(allStammar.length);
+      const used = new Uint8Array(dedupStammar.length);
       const hogar: any[] = [];
       const grotHogar: any[] = [];
 
-      for (let i = 0; i < allStammar.length; i++) {
+      for (let i = 0; i < dedupStammar.length; i++) {
         if (used[i]) continue;
-        const s = allStammar[i];
+        const s = dedupStammar[i];
         if (!s.lat || !s.lng) continue;
 
         const cluster = [i];
         used[i] = 1;
         let sumLat = s.lat, sumLng = s.lng;
 
-        for (let j = i + 1; j < allStammar.length; j++) {
+        for (let j = i + 1; j < dedupStammar.length; j++) {
           if (used[j]) continue;
-          const t = allStammar[j];
+          const t = dedupStammar[j];
           if (!t.lat || !t.lng) continue;
           if (Math.abs(t.lat - s.lat) < CLUSTER_RAD_LAT && Math.abs(t.lng - s.lng) < CLUSTER_RAD_LNG) {
             cluster.push(j);
@@ -1894,17 +2236,22 @@ export default function PlannerPage() {
         const cLat = sumLat / n;
         const cLng = sumLng / n;
 
-        // Summera volym och trädslag, räkna GROT-stammar
+        // Summera volym och trädslag, räkna GROT-stammar, samla sortiment-volymer
         let volym = 0;
         const tradslagCount: Record<string, number> = {};
+        const sortimentVolym: Record<string, number> = {};
         let datum = '';
         let grotCount = 0;
 
         for (const idx of cluster) {
-          const st = allStammar[idx];
-          volym += st.total_volym || 0;
+          const st = dedupStammar[idx];
+          const stVol = st.total_volym || 0;
+          volym += stVol;
           const ts = st.tradslag || 'OKÄNT';
           tradslagCount[ts] = (tradslagCount[ts] || 0) + 1;
+          if (st.sortiment) {
+            sortimentVolym[st.sortiment] = (sortimentVolym[st.sortiment] || 0) + stVol;
+          }
           if (!datum && st.hpr_fil_id && filDatum[st.hpr_fil_id]) {
             datum = filDatum[st.hpr_fil_id];
           }
@@ -1920,12 +2267,17 @@ export default function PlannerPage() {
         const tradslag = sorted.map(([k, v]) => `${k} ${Math.round(100 * v / n)}%`).join(', ');
         const color = dominantPct > 0.7 ? (TRADSLAG_COLOR[dominant] || BLANDAT_COLOR) : BLANDAT_COLOR;
 
+        // Dominant sortiment
+        const sortimentSorted = Object.entries(sortimentVolym).sort((a, b) => b[1] - a[1]);
+        const sortiment = sortimentSorted.length > 0 ? sortimentSorted[0][0] : (dominant || 'Okänt');
+
         if (volym > 0.01) {
           // Timmer/massa-hög (alltid)
+          const pieIdx = hogar.length;
           hogar.push({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [cLng, cLat] },
-            properties: { volym: Math.round(volym * 100) / 100, tradslag, stammar: n, datum, color },
+            properties: { volym: Math.round(volym * 100) / 100, tradslag, sortiment, stammar: n, datum, color, sortimentVolymJson: JSON.stringify(sortimentVolym), pieIcon: `pie-${pieIdx}` },
           });
 
           // GROT-hög (om minst en stam har bio_energy_adaption)
@@ -1939,18 +2291,277 @@ export default function PlannerPage() {
         }
       }
 
-      console.log(`[HPR] ${hogar.length} timmer-hogar, ${grotHogar.length} GROT-hogar skapade`);
+      const totalVolymFore = hogar.reduce((s, h) => s + (h.properties.volym || 0), 0);
+      console.log(`[HPR] ${hogar.length} timmer-hogar (${totalVolymFore.toFixed(1)} m³), ${grotHogar.length} GROT-hogar skapade`);
 
-      if (map.getSource('hogar-source')) {
-        (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: hogar });
+      // === Dra av skotning_uttag volymer ===
+      const { data: uttag, error: uttagErr } = await supabase
+        .from('skotning_uttag')
+        .select('tradslag, volym, polygon_coords')
+        .eq('objekt_id', valtObjekt.id);
+
+      if (uttagErr) {
+        console.error('[HPR] uttag-query FEL:', uttagErr);
       }
+
+      // Point-in-polygon (ray casting)
+      const pipTest = (point: [number, number], poly: [number, number][]): boolean => {
+        let inside = false;
+        const [px, py] = point;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const [xi, yi] = poly[i];
+          const [xj, yj] = poly[j];
+          if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+        }
+        return inside;
+      };
+
+      // Djup kopia — deduktionen muterar properties, originaldatan ska vara orörd
+      let filteredHogar = hogar.map(h => ({
+        ...h,
+        geometry: { ...h.geometry, coordinates: [...h.geometry.coordinates] },
+        properties: { ...h.properties },
+      }));
+      if (uttag && uttag.length > 0) {
+        // Separera uttag med polygon vs utan
+        const polyUttag = uttag.filter(u => u.polygon_coords && Array.isArray(u.polygon_coords) && u.polygon_coords.length >= 3);
+        const legacyUttag = uttag.filter(u => !u.polygon_coords || !Array.isArray(u.polygon_coords) || u.polygon_coords.length < 3);
+
+        console.log(`[HPR] uttag: ${uttag.length} rader (${polyUttag.length} med polygon, ${legacyUttag.length} legacy)`);
+
+        // === Polygon-baserat avdrag: proportionellt per polygon ===
+        if (polyUttag.length > 0) {
+          // Gruppera polygon-uttag per unik polygon → sortiment: volym
+          const polyGroups: { poly: [number, number][]; sortVol: Record<string, number> }[] = [];
+          const seen = new Map<string, number>();
+          for (const u of polyUttag) {
+            const polyKey = JSON.stringify(u.polygon_coords);
+            let idx = seen.get(polyKey);
+            if (idx === undefined) {
+              idx = polyGroups.length;
+              seen.set(polyKey, idx);
+              polyGroups.push({ poly: u.polygon_coords as [number, number][], sortVol: {} });
+            }
+            polyGroups[idx].sortVol[u.tradslag] = (polyGroups[idx].sortVol[u.tradslag] || 0) + u.volym;
+          }
+
+          // Per polygon: beräkna totalPerSort inuti, dra av proportionellt
+          for (const grp of polyGroups) {
+            const totalInPoly: Record<string, number> = {};
+            for (const h of filteredHogar) {
+              const [hLng, hLat] = h.geometry.coordinates;
+              if (!pipTest([hLng, hLat], grp.poly)) continue;
+              const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
+              for (const [sort, vol] of Object.entries(sv)) {
+                totalInPoly[sort] = (totalInPoly[sort] || 0) + (vol as number);
+              }
+            }
+
+            const newFiltered: typeof filteredHogar = [];
+            for (const h of filteredHogar) {
+              const [hLng, hLat] = h.geometry.coordinates;
+              if (!pipTest([hLng, hLat], grp.poly)) { newFiltered.push(h); continue; }
+              const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
+              let newTotal = 0;
+              const newSv: Record<string, number> = {};
+              for (const [sort, vol] of Object.entries(sv)) {
+                const uttaget = grp.sortVol[sort] || 0;
+                const totalSort = totalInPoly[sort] || 1;
+                const fraction = (vol as number) / totalSort;
+                const avdrag = uttaget * fraction;
+                const rest = Math.max(0, (vol as number) - avdrag);
+                if (rest > 0.001) newSv[sort] = rest;
+                newTotal += rest;
+              }
+              if (newTotal > 0.01) {
+                h.properties.volym = Math.round(newTotal * 100) / 100;
+                h.properties.sortimentVolymJson = JSON.stringify(newSv);
+                newFiltered.push(h);
+              }
+            }
+            filteredHogar = newFiltered;
+          }
+          console.log(`[HPR] polygon-uttag: ${hogar.length - filteredHogar.length} högar borttagna, ${filteredHogar.length} kvar`);
+        }
+
+        // === Legacy avdrag (utan polygon_coords): proportionellt per sortiment ===
+        if (legacyUttag.length > 0) {
+          const uttagMap: Record<string, number> = {};
+          legacyUttag.forEach(u => { uttagMap[u.tradslag] = (uttagMap[u.tradslag] || 0) + u.volym; });
+          console.log(`[HPR] legacy uttag per sortiment:`, JSON.stringify(uttagMap));
+
+          const totalPerSort: Record<string, number> = {};
+          filteredHogar.forEach(h => {
+            const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
+            for (const [sort, vol] of Object.entries(sv)) {
+              totalPerSort[sort] = (totalPerSort[sort] || 0) + vol;
+            }
+          });
+
+          const newFiltered: typeof filteredHogar = [];
+          for (const h of filteredHogar) {
+            const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
+            let newTotal = 0;
+            const newSv: Record<string, number> = {};
+            for (const [sort, vol] of Object.entries(sv)) {
+              const uttaget = uttagMap[sort] || 0;
+              const totalSort = totalPerSort[sort] || 1;
+              const fraction = vol / totalSort;
+              const avdrag = uttaget * fraction;
+              const rest = Math.max(0, vol - avdrag);
+              if (rest > 0.001) newSv[sort] = rest;
+              newTotal += rest;
+            }
+            if (newTotal > 0.01) {
+              h.properties.volym = Math.round(newTotal * 100) / 100;
+              h.properties.sortimentVolymJson = JSON.stringify(newSv);
+              newFiltered.push(h);
+            }
+          }
+          filteredHogar = newFiltered;
+        }
+
+        const totalVolymEfter = filteredHogar.reduce((s, h) => s + (h.properties.volym || 0), 0);
+        console.log(`[HPR] ${hogar.length - filteredHogar.length} högar borttagna totalt, ${filteredHogar.length} kvar (${totalVolymEfter.toFixed(1)} m³)`);
+      }
+
+      // Uppdatera pieIcon index efter filtrering
+      for (let i = 0; i < filteredHogar.length; i++) {
+        filteredHogar[i].properties.pieIcon = `pie-${i}`;
+      }
+
+      // Generera pie chart-ikoner för varje hög
+      for (let i = 0; i < filteredHogar.length; i++) {
+        const iconId = `pie-${i}`;
+        try {
+          const sv = JSON.parse(filteredHogar[i].properties.sortimentVolymJson || '{}');
+          const iconData = generatePieIcon(sv, 48);
+          if (map.hasImage(iconId)) map.removeImage(iconId);
+          map.addImage(iconId, { width: 48, height: 48, data: new Uint8ClampedArray(iconData.data) });
+        } catch { /* */ }
+      }
+
+      hogarFeaturesRef.current = filteredHogar;
+      if (map.getSource('hogar-source')) {
+        (map.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: filteredHogar });
+      }
+      // === Dra av GROT-uttag ===
+      let filteredGrot = grotHogar;
+      if (uttag && uttag.length > 0) {
+        const grotPolyUttag = uttag.filter(u => u.tradslag === 'GROT' && u.polygon_coords && Array.isArray(u.polygon_coords) && u.polygon_coords.length >= 3);
+        const grotLegacyUttag = uttag.filter(u => u.tradslag === 'GROT' && (!u.polygon_coords || !Array.isArray(u.polygon_coords) || u.polygon_coords.length < 3));
+
+        // Polygon-baserat: ta bort GROT-högar inuti sparade polygoner
+        if (grotPolyUttag.length > 0) {
+          const polys = [...new Set(grotPolyUttag.map(u => JSON.stringify(u.polygon_coords)))].map(s => JSON.parse(s) as [number, number][]);
+          filteredGrot = [];
+          for (const h of grotHogar) {
+            const [hLng, hLat] = h.geometry.coordinates;
+            let inside = false;
+            for (const poly of polys) {
+              if (pipTest([hLng, hLat], poly)) { inside = true; break; }
+            }
+            if (!inside) filteredGrot.push(h);
+          }
+          console.log(`[HPR] polygon: ${grotHogar.length - filteredGrot.length} GROT-högar borttagna, ${filteredGrot.length} kvar`);
+        }
+
+        // Legacy: proportionellt avdrag
+        const grotLegacyVol = grotLegacyUttag.reduce((s, u) => s + u.volym, 0);
+        if (grotLegacyVol > 0) {
+          const totalGrot = filteredGrot.reduce((s, h) => s + (h.properties.volym || 0), 0);
+          const newGrot: typeof filteredGrot = [];
+          for (const h of filteredGrot) {
+            const fraction = h.properties.volym / (totalGrot || 1);
+            const rest = Math.max(0, h.properties.volym - grotLegacyVol * fraction);
+            if (rest > 0.01) {
+              h.properties.volym = Math.round(rest * 100) / 100;
+              newGrot.push(h);
+            }
+          }
+          filteredGrot = newGrot;
+          console.log(`[HPR] legacy: ${grotHogar.length - filteredGrot.length} GROT-högar borttagna, ${filteredGrot.length} kvar`);
+        }
+      }
+
+      grotFeaturesRef.current = filteredGrot;
       if (map.getSource('grot-source')) {
-        (map.getSource('grot-source') as any).setData({ type: 'FeatureCollection', features: grotHogar });
+        (map.getSource('grot-source') as any).setData({ type: 'FeatureCollection', features: filteredGrot });
       }
     };
 
     loadHogar();
   }, [valtObjekt?.id, overlays.produktionshogar, overlays.grothogar, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
+  // OBS: skotningReload borttagen från deps — save-handlers gör lokal uppdatering av kartan,
+  // loadHogar ska INTE köras om efter sparande (det skriver över den lokala uppdateringen och högar "kommer tillbaka")
+
+  // === Supabase realtime: skotning_uttag ===
+  useEffect(() => {
+    if (!valtObjekt?.id) return;
+    const channel = supabase.channel('skotning-uttag-' + valtObjekt.id)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'skotning_uttag',
+        filter: `objekt_id=eq.${valtObjekt.id}`,
+      }, () => {
+        setSkotningReload(prev => prev + 1);
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [valtObjekt?.id]);
+
+  // === Kvar att köra: auto-laddning ===
+  useEffect(() => {
+    if (!valtObjekt?.id) { setKvarData([]); return; }
+    const getSortColor = (s: string): string => {
+      if (s.startsWith('Gran')) return '#1d9e75';
+      if (s.startsWith('Tall')) return '#e8832a';
+      if (s.startsWith('Björk')) return '#f0f0f0';
+      if (s.startsWith('Övr_löv')) return '#888780';
+      return '#6b7c3a';
+    };
+    const load = async () => {
+      const { data: filer } = await supabase.from('hpr_filer').select('id').eq('objekt_id', valtObjekt.id);
+      if (!filer || filer.length === 0) { setKvarData([]); return; }
+      // Hämta alla stammar (dedup ej nödvändig — delete-before-insert ger bara en HPR-fil per objekt)
+      let allStammar: { sortiment: string; total_volym: number }[] = [];
+      for (const f of filer) {
+        let offset = 0;
+        while (true) {
+          const { data } = await supabase.from('hpr_stammar')
+            .select('sortiment, total_volym')
+            .eq('hpr_fil_id', f.id)
+            .not('sortiment', 'is', null)
+            .range(offset, offset + 999);
+          if (!data || data.length === 0) break;
+          allStammar = allStammar.concat(data as any);
+          if (data.length < 1000) break;
+          offset += 1000;
+        }
+      }
+      // Summera volym per sortiment (dedup ej nödvändig — delete-before-insert ger bara en HPR-fil per objekt)
+      const totalPerSort: Record<string, number> = {};
+      for (const s of allStammar) {
+        if (!s.sortiment) continue;
+        totalPerSort[s.sortiment] = (totalPerSort[s.sortiment] || 0) + (s.total_volym || 0);
+      }
+      const { data: uttag } = await supabase.from('skotning_uttag').select('tradslag, volym').eq('objekt_id', valtObjekt.id);
+      const uttagPerSort: Record<string, number> = {};
+      uttag?.forEach(u => { uttagPerSort[u.tradslag] = (uttagPerSort[u.tradslag] || 0) + u.volym; });
+      const result = Object.entries(totalPerSort)
+        .map(([sortiment, total]) => ({
+          sortiment,
+          total: Math.round(total * 10) / 10,
+          uttag: Math.round((uttagPerSort[sortiment] || 0) * 10) / 10,
+          kvar: Math.round((total - (uttagPerSort[sortiment] || 0)) * 10) / 10,
+          color: getSortColor(sortiment),
+        }))
+        .sort((a, b) => b.total - a.total);
+      setKvarData(result);
+    };
+    load();
+  }, [valtObjekt?.id, skotningReload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === MapLibre: Ritverktyg (freehand + klick) + symbolplacering ===
   useEffect(() => {
@@ -2228,6 +2839,288 @@ export default function PlannerPage() {
       if (map.dragPan) map.dragPan.enable();
     };
   }, [isDrawMode, isZoneMode, selectedSymbol, isArrowMode, arrowType, mapLibreReady, markerMenuOpen, currentDrawCoords]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // === Skotning polygon-ritning (canvas overlay — inga React state-uppdateringar under ritning) ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !skotningDrawing) return;
+
+    const mapCanvas = map.getCanvas();
+    const container = map.getContainer();
+
+    // Skapa canvas overlay för ritning
+    const overlay = document.createElement('canvas');
+    overlay.width = container.clientWidth * (window.devicePixelRatio || 1);
+    overlay.height = container.clientHeight * (window.devicePixelRatio || 1);
+    overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5;';
+    container.appendChild(overlay);
+    const ctx = overlay.getContext('2d')!;
+    ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+    skotningCanvasRef.current = overlay;
+
+    const screenToLngLatSk = (clientX: number, clientY: number): [number, number] => {
+      const rect = mapCanvas.getBoundingClientRect();
+      const pt = map.unproject([clientX - rect.left, clientY - rect.top]);
+      return [pt.lng, pt.lat];
+    };
+
+    // Point-in-polygon (ray casting)
+    const pointInPolygon = (point: [number, number], polygon: [number, number][]): boolean => {
+      let inside = false;
+      const [px, py] = point;
+      for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+        const [xi, yi] = polygon[i];
+        const [xj, yj] = polygon[j];
+        if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) {
+          inside = !inside;
+        }
+      }
+      return inside;
+    };
+
+    // Rita polygon + finger-indikator på canvas
+    const drawOverlay = (fingerX?: number, fingerY?: number) => {
+      const w = overlay.width / (window.devicePixelRatio || 1);
+      const h = overlay.height / (window.devicePixelRatio || 1);
+      ctx.clearRect(0, 0, w, h);
+
+      const screenPts = skotningScreenCoordsRef.current;
+      if (screenPts.length < 2) {
+        // Rita bara finger-indikator
+        if (fingerX !== undefined && fingerY !== undefined) {
+          const rect = mapCanvas.getBoundingClientRect();
+          const fx = fingerX - rect.left, fy = fingerY - rect.top;
+          ctx.beginPath();
+          ctx.arc(fx, fy, 18, 0, 2 * Math.PI);
+          ctx.strokeStyle = 'rgba(29,158,117,0.6)';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+        return;
+      }
+
+      const rect = mapCanvas.getBoundingClientRect();
+
+      // Fylld polygon
+      ctx.beginPath();
+      ctx.moveTo(screenPts[0][0] - rect.left, screenPts[0][1] - rect.top);
+      for (let i = 1; i < screenPts.length; i++) {
+        ctx.lineTo(screenPts[i][0] - rect.left, screenPts[i][1] - rect.top);
+      }
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(29,158,117,0.2)';
+      ctx.fill();
+
+      // Kantlinje
+      ctx.beginPath();
+      ctx.moveTo(screenPts[0][0] - rect.left, screenPts[0][1] - rect.top);
+      for (let i = 1; i < screenPts.length; i++) {
+        ctx.lineTo(screenPts[i][0] - rect.left, screenPts[i][1] - rect.top);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = '#1d9e75';
+      ctx.lineWidth = 3;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // Streckad linje från sista punkt till start
+      ctx.beginPath();
+      const last = screenPts[screenPts.length - 1];
+      const first = screenPts[0];
+      ctx.moveTo(last[0] - rect.left, last[1] - rect.top);
+      ctx.lineTo(first[0] - rect.left, first[1] - rect.top);
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = '#1d9e75';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Finger-indikator
+      if (fingerX !== undefined && fingerY !== undefined) {
+        const fx = fingerX - rect.left, fy = fingerY - rect.top;
+        ctx.beginPath();
+        ctx.arc(fx, fy, 18, 0, 2 * Math.PI);
+        ctx.strokeStyle = 'rgba(29,158,117,0.6)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+    };
+
+    let lastX = 0, lastY = 0;
+
+    const onDown = (e: MouseEvent | TouchEvent) => {
+      if ('button' in e && e.button !== 0) return;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      lastX = clientX;
+      lastY = clientY;
+      skotningActiveRef.current = true;
+      const coord = screenToLngLatSk(clientX, clientY);
+      skotningCoordsRef.current = [coord];
+      skotningScreenCoordsRef.current = [[clientX, clientY]];
+      drawOverlay(clientX, clientY);
+    };
+
+    const onMove = (e: MouseEvent | TouchEvent) => {
+      if (!skotningActiveRef.current) return;
+      if ('buttons' in e && e.buttons === 0) return;
+      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
+      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+      const dx = clientX - lastX, dy = clientY - lastY;
+      if (dx * dx + dy * dy < 225) return; // 15px tröskel (225 = 15²)
+      lastX = clientX;
+      lastY = clientY;
+      const coord = screenToLngLatSk(clientX, clientY);
+      skotningCoordsRef.current.push(coord);
+      skotningScreenCoordsRef.current.push([clientX, clientY]);
+      drawOverlay(clientX, clientY);
+    };
+
+    const onUp = () => {
+      if (!skotningActiveRef.current) return;
+      skotningActiveRef.current = false;
+
+      // Ta bort canvas overlay
+      if (skotningCanvasRef.current && skotningCanvasRef.current.parentNode) {
+        skotningCanvasRef.current.parentNode.removeChild(skotningCanvasRef.current);
+        skotningCanvasRef.current = null;
+      }
+
+      map.dragPan.enable();
+      map.scrollZoom.enable();
+      if (map.touchZoomRotate) map.touchZoomRotate.enable();
+
+      const coords = [...skotningCoordsRef.current];
+      skotningCoordsRef.current = [];
+      skotningScreenCoordsRef.current = [];
+
+      if (coords.length < 3) return;
+
+      // Close polygon
+      const polygon = [...coords, coords[0]];
+      setSkotningPolygon(polygon);
+      setSkotningCoords(coords);
+      setSkotningDrawing(false);
+      setSkotningSparat(false);
+      setSkotningChecked({});
+
+      // Update polygon on map (en enda gång)
+      try {
+        const src = map.getSource('skotning-source') as any;
+        if (src) {
+          src.setData({
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [polygon] } }],
+          });
+        }
+        const dashSrc = map.getSource('skotning-dash-source') as any;
+        if (dashSrc) dashSrc.setData({ type: 'FeatureCollection', features: [] });
+      } catch { /* */ }
+
+      // Identify högar within polygon — respektera aktiva lager
+      try {
+        const getSortColor = (s: string): string => {
+          if (s.startsWith('Gran')) return '#1d9e75';
+          if (s.startsWith('Tall')) return '#e8832a';
+          if (s.startsWith('Björk')) return '#f0f0f0';
+          if (s.startsWith('Övr_löv')) return '#888780';
+          if (s === 'GROT') return '#8B5E3C';
+          return '#6b7c3a';
+        };
+
+        const grouped: { sortiment: string; volym: number; color: string; typ: 'virke' | 'grot' }[] = [];
+        let antalHogar = 0;
+
+        // Virke-högar (bara om virkes-lagret är aktivt)
+        if (overlays.produktionshogar) {
+          const virkeSortMap: Record<string, { volym: number; color: string }> = {};
+          for (const f of hogarFeaturesRef.current) {
+            const [lng, lat] = f.geometry.coordinates;
+            if (pointInPolygon([lng, lat], coords)) {
+              antalHogar++;
+              const svJson = f.properties?.sortimentVolymJson;
+              if (svJson) {
+                try {
+                  const sv: Record<string, number> = JSON.parse(svJson);
+                  for (const [sort, vol] of Object.entries(sv)) {
+                    const v = typeof vol === 'number' ? vol : parseFloat(vol) || 0;
+                    if (virkeSortMap[sort]) {
+                      virkeSortMap[sort].volym += v;
+                    } else {
+                      virkeSortMap[sort] = { volym: v, color: getSortColor(sort) };
+                    }
+                  }
+                } catch { /* */ }
+              }
+            }
+          }
+          const virkeItems = Object.entries(virkeSortMap)
+            .map(([sortiment, d]) => ({ sortiment, volym: Math.round(d.volym * 10) / 10, color: d.color, typ: 'virke' as const }))
+            .sort((a, b) => b.volym - a.volym);
+          grouped.push(...virkeItems);
+        }
+
+        // GROT-högar (bara om GROT-lagret är aktivt)
+        if (overlays.grothogar) {
+          let grotVol = 0;
+          let grotCount = 0;
+          for (const f of grotFeaturesRef.current) {
+            const [lng, lat] = f.geometry.coordinates;
+            if (pointInPolygon([lng, lat], coords)) {
+              antalHogar++;
+              grotVol += f.properties?.volym || 0;
+              grotCount++;
+            }
+          }
+          if (grotCount > 0) {
+            grouped.push({ sortiment: 'GROT', volym: Math.round(grotVol * 10) / 10, color: '#8B5E3C', typ: 'grot' });
+          }
+        }
+
+        setSkotningHogar(grouped);
+        setSkotningAntalHogar(antalHogar);
+        const checked: Record<number, boolean> = {};
+        grouped.forEach((_, i) => { checked[i] = true; });
+        setSkotningChecked(checked);
+      } catch (err) { console.error('[Skotning] hogar identify error:', err); }
+
+      setSkotningPanel(true);
+      setSkotningSparat(false);
+    };
+
+    mapCanvas.addEventListener('mousedown', onDown);
+    mapCanvas.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    mapCanvas.addEventListener('touchstart', onDown, { passive: true });
+    mapCanvas.addEventListener('touchmove', onMove, { passive: true });
+    document.addEventListener('touchend', onUp);
+
+    // Lås kartan under ritning
+    map.dragPan.disable();
+    map.scrollZoom.disable();
+    if (map.touchZoomRotate) map.touchZoomRotate.disable();
+
+    map.getCanvasContainer().style.setProperty('cursor', 'crosshair', 'important');
+
+    return () => {
+      mapCanvas.removeEventListener('mousedown', onDown);
+      mapCanvas.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      mapCanvas.removeEventListener('touchstart', onDown);
+      mapCanvas.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
+      map.getCanvasContainer().style.removeProperty('cursor');
+      if (map.dragPan) map.dragPan.enable();
+      if (map.scrollZoom) map.scrollZoom.enable();
+      if (map.touchZoomRotate) map.touchZoomRotate.enable();
+      // Cleanup canvas
+      if (skotningCanvasRef.current && skotningCanvasRef.current.parentNode) {
+        skotningCanvasRef.current.parentNode.removeChild(skotningCanvasRef.current);
+        skotningCanvasRef.current = null;
+      }
+    };
+  }, [skotningDrawing, mapLibreReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Högerklick / långtryck på karta → "Sätt min position här" (simulerad position)
   useEffect(() => {
@@ -3447,6 +4340,15 @@ export default function PlannerPage() {
           <path d="M9 14l2 2 4-4" />
         </svg>
       ),
+      'menu-skotning': (
+        <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="2" y="10" width="14" height="8" rx="2" />
+          <circle cx="6" cy="20" r="2" />
+          <circle cx="14" cy="20" r="2" />
+          <path d="M16 14h4l2 4v2h-6" />
+          <path d="M5 10V6h8v4" />
+        </svg>
+      ),
     };
     return icons[iconId] || (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.5">
@@ -3605,6 +4507,7 @@ export default function PlannerPage() {
     { id: 'emergency', name: 'Nödläge', desc: 'SOS, position, sjukvård', icon: 'menu-emergency' },
     { id: 'briefing', name: 'Briefing', desc: 'Guidad traktgenomgång', icon: 'menu-briefing' },
     { id: 'briefing-checklist', name: 'Kvittering', desc: 'Kvittera markeringar', icon: 'menu-briefing-checklist' },
+    { id: 'skotning', name: 'Skotning', desc: 'Utskotad volym', icon: 'menu-skotning' },
   ];
 
   // === GPS ===
@@ -9402,6 +10305,7 @@ export default function PlannerPage() {
                   }} />
                 </div>
               </div>
+              {/* Kvar att köra — flyttad till huvudmenyn */}
             </div>
 
             {/* Zontyper - visas om zoner är på */}
@@ -9991,7 +10895,7 @@ export default function PlannerPage() {
           }}>
             
             {/* === HUVUDMENY (3x3 grid) === */}
-            {!activeCategory && (
+            {!activeCategory && (<>
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(3, 1fr)',
@@ -10184,6 +11088,64 @@ export default function PlannerPage() {
                   }}>
                     Förslag
                   </span>
+                </div>
+              </div>
+
+              {/* Kvar att köra — flyttad till Skotning-kategori */}
+            </>)}
+
+            {/* === SKOTNING === */}
+            {activeCategory === 'skotning' && (
+              <div style={{ padding: '12px' }}>
+                <div style={{
+                  background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '20px', padding: '16px',
+                }}>
+                  <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>
+                    Skotningsstatus
+                  </div>
+                  {kvarData.length === 0 ? (
+                    <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)', textAlign: 'center', padding: '20px 0' }}>
+                      Ingen skotningsdata för detta objekt
+                    </div>
+                  ) : (<>
+                    {kvarData.map((d, i) => {
+                      const pct = d.total > 0 ? (d.uttag / d.total) * 100 : 0;
+                      const done = d.kvar <= 0;
+                      return (
+                        <div key={i} style={{ marginBottom: '10px', opacity: done ? 0.35 : 1 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+                            <span style={{ color: '#fff', textDecoration: done ? 'line-through' : 'none' }}>{d.sortiment}</span>
+                            <span style={{ color: done ? 'rgba(255,255,255,0.3)' : d.kvar < d.total * 0.2 ? '#f59e0b' : '#fff', fontWeight: '600' }}>
+                              {done ? '0' : d.kvar.toFixed(1)} m³
+                            </span>
+                          </div>
+                          <div style={{ height: '10px', borderRadius: '5px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                            <div style={{
+                              height: '100%', borderRadius: '5px',
+                              width: `${Math.min(100, pct)}%`,
+                              background: d.color,
+                              transition: 'width 0.5s ease',
+                            }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '6px' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.4)' }}>Totalt utskotat</span>
+                        <span style={{ fontWeight: '600', color: '#1d9e75' }}>
+                          {kvarData.reduce((s, d) => s + Math.max(0, d.uttag), 0).toFixed(1)} m³
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                        <span style={{ color: 'rgba(255,255,255,0.5)' }}>Totalt kvar</span>
+                        <span style={{ fontWeight: '700', color: '#3b82f6' }}>
+                          {kvarData.reduce((s, d) => s + Math.max(0, d.kvar), 0).toFixed(1)} m³
+                        </span>
+                      </div>
+                    </div>
+                  </>)}
                 </div>
               </div>
             )}
@@ -15238,6 +16200,790 @@ export default function PlannerPage() {
         </div>
         );
       })()}
+
+      {/* === Skotning penna-knapp (nedre vänster) === */}
+      {!skotningPanel && (
+        <button
+          onClick={() => {
+            const map = mapInstanceRef.current;
+            if (skotningDrawing) {
+              setSkotningDrawing(false);
+              if (map) {
+                map.dragPan.enable();
+                map.scrollZoom.enable();
+                if (map.touchZoomRotate) map.touchZoomRotate.enable();
+              }
+            } else {
+              setSkotningDrawing(true);
+              setSkotningPolygon(null);
+              setSkotningPanel(false);
+              setSkotningHogar([]);
+              setSkotningSparat(false);
+              if (map) {
+                map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
+                try {
+                  const src = map.getSource('skotning-source') as any;
+                  if (src) src.setData({ type: 'FeatureCollection', features: [] });
+                  const dashSrc = map.getSource('skotning-dash-source') as any;
+                  if (dashSrc) dashSrc.setData({ type: 'FeatureCollection', features: [] });
+                } catch { /* */ }
+                map.dragPan.disable();
+                map.scrollZoom.disable();
+                if (map.touchZoomRotate) map.touchZoomRotate.disable();
+              }
+            }
+          }}
+          style={{
+            position: 'fixed',
+            bottom: 'calc(100px + env(safe-area-inset-bottom, 0px))',
+            left: '14px',
+            zIndex: 400,
+            width: '44px',
+            height: '44px',
+            borderRadius: '12px',
+            border: 'none',
+            background: skotningDrawing ? '#1d9e75' : 'rgba(0,0,0,0.5)',
+            color: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: skotningDrawing ? '0 0 12px rgba(29,158,117,0.6)' : '0 2px 8px rgba(0,0,0,0.4)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+            transition: 'background 0.2s ease, box-shadow 0.2s ease',
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+            <path d="m15 5 4 4" />
+          </svg>
+        </button>
+      )}
+
+      {/* === Multi-select högar panel (slide-in från höger) === */}
+      {multiSelectPanel && !skotningPanel && (() => {
+        const features = hogarFeaturesRef.current;
+        const getSortColor = (s: string): string => {
+          if (s.startsWith('Gran')) return '#1d9e75';
+          if (s.startsWith('Tall')) return '#e8832a';
+          if (s.startsWith('Björk')) return '#f0f0f0';
+          if (s.startsWith('Övr_löv')) return '#888780';
+          if (s === 'GROT') return '#8B5E3C';
+          return '#6b7c3a';
+        };
+        // Summera sortiment från valda högar
+        const sortimentMap: Record<string, { volym: number; color: string }> = {};
+        for (const idx of selectedHogarIdx) {
+          if (idx < 0 || idx >= features.length) continue;
+          const sv: Record<string, number> = JSON.parse(features[idx].properties?.sortimentVolymJson || '{}');
+          for (const [sort, vol] of Object.entries(sv)) {
+            const v = typeof vol === 'number' ? vol : parseFloat(String(vol)) || 0;
+            if (sortimentMap[sort]) sortimentMap[sort].volym += v;
+            else sortimentMap[sort] = { volym: v, color: getSortColor(sort) };
+          }
+        }
+        const grouped = Object.entries(sortimentMap)
+          .map(([sortiment, d]) => ({ sortiment, volym: Math.round(d.volym * 10) / 10, color: d.color }))
+          .sort((a, b) => b.volym - a.volym);
+        const totalVol = grouped.reduce((s, h) => s + h.volym, 0);
+
+        // Initiera checked om tom
+        if (grouped.length > 0 && Object.keys(multiSelectChecked).length === 0) {
+          const init: Record<number, boolean> = {};
+          grouped.forEach((_, i) => { init[i] = true; });
+          setTimeout(() => setMultiSelectChecked(init), 0);
+        }
+
+        return (
+          <div style={{
+            position: 'fixed', top: '56px', right: 0, bottom: 0,
+            width: '340px', maxWidth: '90vw',
+            background: 'rgba(10,12,8,0.96)',
+            backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
+            borderLeft: '1px solid rgba(34,197,94,0.3)',
+            zIndex: 500,
+            display: 'flex', flexDirection: 'column',
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '20px 56px 16px 20px',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              display: 'flex', alignItems: 'center', gap: '12px',
+              position: 'relative',
+            }}>
+              <div style={{
+                width: '36px', height: '36px', borderRadius: '10px',
+                background: 'rgba(34,197,94,0.2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: '18px',
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="M8 12l3 3 5-5" />
+                </svg>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '16px', fontWeight: '700', color: '#fff' }}>Valda högar</div>
+                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
+                  {selectedHogarIdx.size} högar · {totalVol.toFixed(1)} m³ totalt
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  setMultiSelectPanel(false);
+                  setMultiSelectMode(false);
+                  setSelectedHogarIdx(new Set());
+                  setMultiSelectChecked({});
+                  try {
+                    const src = mapInstanceRef.current?.getSource('hogar-selected-source') as any;
+                    if (src) src.setData({ type: 'FeatureCollection', features: [] });
+                  } catch { /* */ }
+                }}
+                style={{
+                  position: 'absolute', top: '12px', right: '12px',
+                  width: '36px', height: '36px', borderRadius: '50%',
+                  background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)',
+                  color: '#fff', fontSize: '20px', fontWeight: '600', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >&times;</button>
+            </div>
+
+            {/* Hint */}
+            {multiSelectMode && (
+              <div style={{
+                padding: '10px 16px', background: 'rgba(34,197,94,0.08)',
+                borderBottom: '1px solid rgba(255,255,255,0.04)',
+                fontSize: '12px', color: 'rgba(34,197,94,0.7)', textAlign: 'center',
+              }}>
+                Tryck på fler högar på kartan för att lägga till
+              </div>
+            )}
+
+            {/* Sortiment list */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+              {grouped.length === 0 ? (
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>
+                  Inga sortiment i valda högar.
+                </div>
+              ) : (
+                grouped.map((h, i) => (
+                  <div
+                    key={i}
+                    onClick={() => setMultiSelectChecked(prev => ({ ...prev, [i]: !prev[i] }))}
+                    style={{
+                      padding: '14px 12px',
+                      display: 'flex', alignItems: 'center', gap: '12px',
+                      borderRadius: '10px',
+                      background: multiSelectChecked[i] ? 'rgba(34,197,94,0.08)' : 'transparent',
+                      cursor: 'pointer',
+                      borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    }}
+                  >
+                    <div style={{
+                      width: '22px', height: '22px', borderRadius: '6px',
+                      border: multiSelectChecked[i] ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                      background: multiSelectChecked[i] ? '#22c55e' : 'transparent',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      {multiSelectChecked[i] && (
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
+                          <path d="M5 12 L10 17 L19 8" />
+                        </svg>
+                      )}
+                    </div>
+                    <div style={{
+                      width: '20px', height: '20px', borderRadius: '50%',
+                      background: h.color, flexShrink: 0,
+                    }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '14px', color: '#fff', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {h.sortiment}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)', fontWeight: '500', flexShrink: 0 }}>
+                      {h.volym.toFixed(1)} m³
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Summary + save */}
+            {grouped.length > 0 && (
+              <div style={{
+                padding: '16px 20px',
+                paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+                borderTop: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(0,0,0,0.3)',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '13px' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.5)' }}>
+                    {Object.values(multiSelectChecked).filter(Boolean).length} av {grouped.length} sortiment valda
+                  </span>
+                  <span style={{ color: '#22c55e', fontWeight: '600' }}>
+                    {grouped.filter((_, i) => multiSelectChecked[i]).reduce((s, h) => s + h.volym, 0).toFixed(1)} m³
+                  </span>
+                </div>
+                {multiSelectSparat ? (
+                  <div style={{
+                    padding: '14px', borderRadius: '12px',
+                    background: 'rgba(34,197,94,0.15)',
+                    textAlign: 'center', color: '#22c55e',
+                    fontSize: '14px', fontWeight: '600',
+                  }}>
+                    Sparat!
+                  </div>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      const selected = grouped.filter((_, i) => multiSelectChecked[i]);
+                      if (selected.length === 0 || !valtObjekt?.id) return;
+
+                      // Beräkna convex hull av valda högar
+                      const pts: [number, number][] = [];
+                      for (const idx of selectedHogarIdx) {
+                        if (idx >= 0 && idx < features.length) {
+                          pts.push(features[idx].geometry.coordinates as [number, number]);
+                        }
+                      }
+                      // Skapa en buffrad polygon runt punkterna (liten offset ~15m)
+                      const BUF = 0.00015; // ~15m
+                      let polyCoords: [number, number][];
+                      if (pts.length === 1) {
+                        // Enskild punkt → cirkel-approximation
+                        const [cx, cy] = pts[0];
+                        polyCoords = Array.from({ length: 8 }, (_, i) => {
+                          const a = (i / 8) * 2 * Math.PI;
+                          return [cx + BUF * Math.cos(a), cy + BUF * Math.sin(a)] as [number, number];
+                        });
+                      } else {
+                        // Convex hull + buffer
+                        const sorted = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+                        const cross = (o: number[], a: number[], b: number[]) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+                        const lower: number[][] = [];
+                        for (const p of sorted) { while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop(); lower.push(p); }
+                        const upper: number[][] = [];
+                        for (const p of sorted.reverse()) { while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop(); upper.push(p); }
+                        lower.pop(); upper.pop();
+                        const hull = lower.concat(upper) as [number, number][];
+                        // Buffer: flytta varje punkt utåt från centroid
+                        const cx = hull.reduce((s, p) => s + p[0], 0) / hull.length;
+                        const cy = hull.reduce((s, p) => s + p[1], 0) / hull.length;
+                        polyCoords = hull.map(([x, y]) => {
+                          const dx = x - cx, dy = y - cy;
+                          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+                          return [x + (dx / dist) * BUF, y + (dy / dist) * BUF] as [number, number];
+                        });
+                      }
+
+                      const cLat = polyCoords.reduce((s, c) => s + c[1], 0) / polyCoords.length;
+                      const cLng = polyCoords.reduce((s, c) => s + c[0], 0) / polyCoords.length;
+
+                      const rows = selected.map(h => ({
+                        objekt_id: valtObjekt.id,
+                        lat: cLat,
+                        lng: cLng,
+                        tradslag: h.sortiment,
+                        volym: h.volym,
+                        polygon_coords: polyCoords,
+                      }));
+
+                      const { error } = await supabase.from('skotning_uttag').insert(rows);
+                      if (error) {
+                        console.error('[MultiSelect] Sparfel:', error);
+                        alert('Kunde inte spara: ' + error.message);
+                      } else {
+                        setMultiSelectSparat(true);
+                        if (navigator.vibrate) navigator.vibrate(50);
+
+                        // === Direkt lokal uppdatering av kartan ===
+                        const checkedSorts = new Set(selected.map(s => s.sortiment));
+                        const pipLocal = (pt: [number, number], poly: [number, number][]): boolean => {
+                          let inside = false;
+                          const [px, py] = pt;
+                          for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                            const [xi, yi] = poly[i]; const [xj, yj] = poly[j];
+                            if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+                          }
+                          return inside;
+                        };
+                        // Djup kopia av features — mutera INTE originalen
+                        const newFeatures: typeof hogarFeaturesRef.current = [];
+                        for (const h of hogarFeaturesRef.current) {
+                          const [hLng, hLat] = h.geometry.coordinates;
+                          if (!pipLocal([hLng, hLat], polyCoords)) {
+                            newFeatures.push({ ...h, geometry: { ...h.geometry, coordinates: [...h.geometry.coordinates] }, properties: { ...h.properties } });
+                            continue;
+                          }
+                          const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
+                          const newSv: Record<string, number> = {};
+                          for (const [sort, vol] of Object.entries(sv)) {
+                            if (checkedSorts.has(sort)) continue; // dra av helt — detta sortiment sparades som uttag
+                            newSv[sort] = vol;
+                          }
+                          const rest = Object.values(newSv).reduce((s, v) => s + v, 0);
+                          if (rest <= 0.01) continue; // högen försvinner
+                          newFeatures.push({
+                            ...h,
+                            geometry: { ...h.geometry, coordinates: [...h.geometry.coordinates] },
+                            properties: { ...h.properties, volym: Math.round(rest * 100) / 100, sortimentVolymJson: JSON.stringify(newSv) },
+                          });
+                        }
+                        for (let i = 0; i < newFeatures.length; i++) newFeatures[i].properties.pieIcon = `pie-${i}`;
+                        // Regenerera pie chart-ikoner så tårtdiagrammen speglar kvarvarande sortiment
+                        try {
+                          const m = mapInstanceRef.current;
+                          const genPie = generatePieIconRef.current;
+                          if (m && genPie) {
+                            for (let i = 0; i < newFeatures.length; i++) {
+                              const iconId = `pie-${i}`;
+                              const sv = JSON.parse(newFeatures[i].properties.sortimentVolymJson || '{}');
+                              const iconData = genPie(sv, 48);
+                              if (m.hasImage(iconId)) m.removeImage(iconId);
+                              m.addImage(iconId, { width: 48, height: 48, data: new Uint8ClampedArray(iconData.data) });
+                            }
+                          }
+                        } catch { /* */ }
+                        hogarFeaturesRef.current = newFeatures;
+                        try {
+                          const m = mapInstanceRef.current;
+                          if (m?.getSource('hogar-source')) {
+                            (m.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: newFeatures });
+                          }
+                        } catch { /* */ }
+                        if (checkedSorts.has('GROT')) {
+                          const newGrot = grotFeaturesRef.current.filter(h => {
+                            const [hLng, hLat] = h.geometry.coordinates;
+                            return !pipLocal([hLng, hLat], polyCoords);
+                          });
+                          grotFeaturesRef.current = newGrot;
+                          try {
+                            const m = mapInstanceRef.current;
+                            if (m?.getSource('grot-source')) {
+                              (m.getSource('grot-source') as any).setData({ type: 'FeatureCollection', features: newGrot });
+                            }
+                          } catch { /* */ }
+                        }
+
+                        // Uppdatera kvarData (sidebar) — men INTE loadHogar (den skriver över lokala uppdateringen)
+                        setSkotningReload(prev => prev + 1);
+
+                        setTimeout(() => {
+                          setMultiSelectPanel(false);
+                          setMultiSelectMode(false);
+                          setSelectedHogarIdx(new Set());
+                          setMultiSelectChecked({});
+                          setMultiSelectSparat(false);
+                          try {
+                            const src = mapInstanceRef.current?.getSource('hogar-selected-source') as any;
+                            if (src) src.setData({ type: 'FeatureCollection', features: [] });
+                          } catch { /* */ }
+                        }, 1000);
+                      }
+                    }}
+                    style={{
+                      width: '100%', padding: '14px',
+                      borderRadius: '12px', border: 'none',
+                      background: '#22c55e', color: '#fff',
+                      fontSize: '15px', fontWeight: '600',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Spara uttag
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* === Vald hög-panel (slide-in från höger) === */}
+      {valdHog && !skotningPanel && !multiSelectPanel && (
+        <div style={{
+          position: 'fixed', top: '56px', right: 0, bottom: 0,
+          width: '300px', maxWidth: '85vw',
+          background: 'rgba(10,12,8,0.96)',
+          backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
+          borderLeft: '1px solid rgba(29,158,117,0.2)',
+          zIndex: 500,
+          display: 'flex', flexDirection: 'column',
+        }}>
+          {/* Rubrik + stäng */}
+          <div style={{
+            padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+          }}>
+            <div style={{ fontSize: '15px', fontWeight: '600', color: valdHog.isGrot ? '#f59e0b' : '#1d9e75' }}>
+              {valdHog.isGrot ? 'GROT-hög' : 'Produktionshög'}
+            </div>
+            <button
+              onClick={() => setValdHog(null)}
+              style={{
+                width: '36px', height: '36px', borderRadius: '50%',
+                border: 'none', background: 'rgba(255,255,255,0.1)',
+                color: '#fff', fontSize: '18px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >&times;</button>
+          </div>
+
+          {/* Innehåll */}
+          <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
+            {/* Total volym */}
+            <div style={{ fontSize: '28px', fontWeight: '700', color: '#fff', marginBottom: '16px' }}>
+              {valdHog.volym.toFixed(2)} <span style={{ fontSize: '16px', fontWeight: '400', opacity: 0.5 }}>m³</span>
+            </div>
+
+            {/* Sortiment-lista */}
+            <div style={{
+              background: 'rgba(255,255,255,0.04)', borderRadius: '12px',
+              padding: '12px', marginBottom: '16px',
+            }}>
+              {Object.entries(valdHog.sortimentVolym)
+                .sort((a, b) => b[1] - a[1])
+                .map(([s, v], i) => {
+                  const getCol = (s: string) => {
+                    if (s.startsWith('Gran')) return '#1d9e75';
+                    if (s.startsWith('Tall')) return '#e8832a';
+                    if (s.startsWith('Björk')) return '#f0f0f0';
+                    if (s.startsWith('Övr_löv')) return '#888780';
+                    if (s === 'GROT') return '#f59e0b';
+                    return '#6b7c3a';
+                  };
+                  return (
+                    <div key={i} style={{
+                      display: 'flex', alignItems: 'center', gap: '10px',
+                      padding: '8px 4px',
+                      borderBottom: i < Object.keys(valdHog.sortimentVolym).length - 1
+                        ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                    }}>
+                      <div style={{
+                        width: '10px', height: '10px', borderRadius: '50%',
+                        background: getCol(s), flexShrink: 0,
+                      }} />
+                      <span style={{ flex: 1, fontSize: '14px', color: '#fff' }}>{s}</span>
+                      <span style={{ fontSize: '14px', fontWeight: '600', color: '#fff' }}>
+                        {v.toFixed(2)} m³
+                      </span>
+                    </div>
+                  );
+                })}
+            </div>
+
+            {/* Metadata */}
+            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', lineHeight: '1.8' }}>
+              <div>{valdHog.stammar} stammar</div>
+              {valdHog.tradslag && <div>Trädslag: {valdHog.tradslag}</div>}
+              {valdHog.datum && <div>Datum: {valdHog.datum}</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === Skotning panel (slide-in från höger) === */}
+      <div style={{
+        position: 'fixed', top: '56px', right: 0, bottom: 0,
+        width: '340px', maxWidth: '90vw',
+        background: 'rgba(10,12,8,0.96)',
+        backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)',
+        borderLeft: '1px solid rgba(29,158,117,0.2)',
+        zIndex: 500,
+        display: 'flex', flexDirection: 'column',
+        transform: skotningPanel ? 'translateX(0)' : 'translateX(100%)',
+        transition: 'transform 0.3s cubic-bezier(0.4,0,0.2,1)',
+        pointerEvents: skotningPanel ? 'auto' : 'none',
+      }}>
+          {/* Header */}
+          <div style={{
+            padding: '20px 56px 16px 20px',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
+            display: 'flex', alignItems: 'center', gap: '12px',
+            position: 'relative',
+          }}>
+            <div style={{
+              width: '36px', height: '36px', borderRadius: '10px',
+              background: 'rgba(29,158,117,0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1d9e75" strokeWidth="2">
+                <polygon points="3,3 21,6 18,18 6,21" />
+              </svg>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: '16px', fontWeight: '700', color: '#fff' }}>Skotningsuttag</div>
+              <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
+                {skotningAntalHogar} högar · {skotningHogar.reduce((s, h) => s + h.volym, 0).toFixed(1)} m³ totalt
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setSkotningPanel(false);
+                setSkotningPolygon(null);
+                setSkotningHogar([]);
+                // Clear polygon from map
+                const map = mapInstanceRef.current;
+                if (map) {
+                  try {
+                    const src = map.getSource('skotning-source') as any;
+                    if (src) src.setData({ type: 'FeatureCollection', features: [] });
+                  } catch { /* */ }
+                }
+              }}
+              style={{
+                position: 'absolute', top: '12px', right: '12px',
+                width: '36px', height: '36px', borderRadius: '50%',
+                background: 'rgba(255,255,255,0.15)', border: '1px solid rgba(255,255,255,0.2)',
+                color: '#fff', fontSize: '20px', fontWeight: '600', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, zIndex: 10,
+              }}
+            >×</button>
+          </div>
+
+          {/* Sortiment list */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
+            {skotningHogar.length === 0 ? (
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>
+                Inga högar hittades inom det markerade området. Kontrollera att lager är aktiverade.
+              </div>
+            ) : (
+              (() => {
+                const hasVirke = skotningHogar.some(h => h.typ === 'virke');
+                const hasGrot = skotningHogar.some(h => h.typ === 'grot');
+                const showHeaders = hasVirke && hasGrot;
+                return skotningHogar.map((h, i) => {
+                  // Visa sektionsrubrik vid första virke/grot-posten om båda finns
+                  const prevTyp = i > 0 ? skotningHogar[i - 1].typ : null;
+                  const showHeader = showHeaders && h.typ !== prevTyp;
+                  return (
+                    <div key={i}>
+                      {showHeader && (
+                        <div style={{
+                          fontSize: '11px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
+                          color: h.typ === 'grot' ? '#8B5E3C' : 'rgba(255,255,255,0.4)',
+                          padding: '12px 0 6px', marginTop: i > 0 ? '8px' : 0,
+                          borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                        }}>
+                          {h.typ === 'virke' ? 'Virke' : 'GROT'}
+                        </div>
+                      )}
+                      <div
+                        onClick={() => setSkotningChecked(prev => ({ ...prev, [i]: !prev[i] }))}
+                        style={{
+                          padding: '14px 12px',
+                          display: 'flex', alignItems: 'center', gap: '12px',
+                          borderRadius: '10px',
+                          background: skotningChecked[i] ? 'rgba(29,158,117,0.08)' : 'transparent',
+                          cursor: 'pointer',
+                          borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        }}
+                      >
+                        <div style={{
+                          width: '22px', height: '22px', borderRadius: '6px',
+                          border: skotningChecked[i] ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                          background: skotningChecked[i] ? '#1d9e75' : 'transparent',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          flexShrink: 0,
+                        }}>
+                          {skotningChecked[i] && (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3">
+                              <path d="M5 12 L10 17 L19 8" />
+                            </svg>
+                          )}
+                        </div>
+                        <div style={{
+                          width: '20px', height: '20px', borderRadius: '50%',
+                          background: h.color, flexShrink: 0,
+                        }} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: '14px', color: '#fff', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {h.sortiment}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '14px', color: 'rgba(255,255,255,0.6)', fontWeight: '500', flexShrink: 0 }}>
+                          {h.volym.toFixed(1)} m³
+                        </div>
+                      </div>
+                    </div>
+                  );
+                });
+              })()
+            )}
+          </div>
+
+          {/* Summary + save */}
+          {skotningHogar.length > 0 && (
+            <div style={{
+              padding: '16px 20px',
+              paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
+              borderTop: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(0,0,0,0.3)',
+            }}>
+              {/* Summary */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px', fontSize: '13px' }}>
+                <span style={{ color: 'rgba(255,255,255,0.5)' }}>
+                  {Object.values(skotningChecked).filter(Boolean).length} av {skotningHogar.length} sortiment valda
+                </span>
+                <span style={{ color: '#1d9e75', fontWeight: '600' }}>
+                  {skotningHogar.filter((_, i) => skotningChecked[i]).reduce((s, h) => s + h.volym, 0).toFixed(1)} m³
+                </span>
+              </div>
+              {skotningSparat ? (
+                <div style={{
+                  padding: '14px', borderRadius: '12px',
+                  background: 'rgba(29,158,117,0.15)',
+                  textAlign: 'center', color: '#1d9e75',
+                  fontSize: '14px', fontWeight: '600',
+                }}>
+                  Sparat!
+                </div>
+              ) : (
+                <button
+                  onClick={async () => {
+                    const selected = skotningHogar.filter((_, i) => skotningChecked[i]);
+                    if (selected.length === 0 || !valtObjekt?.id || !skotningPolygon) return;
+                    // Centroid av polygonen
+                    const polyCoords = skotningPolygon.slice(0, -1); // ta bort stängningspunkten
+                    const cLat = polyCoords.reduce((s, c) => s + c[1], 0) / polyCoords.length;
+                    const cLng = polyCoords.reduce((s, c) => s + c[0], 0) / polyCoords.length;
+                    const rows = selected.map(h => ({
+                      objekt_id: valtObjekt.id,
+                      lat: cLat,
+                      lng: cLng,
+                      tradslag: h.sortiment,
+                      volym: h.volym,
+                      polygon_coords: polyCoords, // Spara polygon för exakt hög-matchning
+                    }));
+                    const { error } = await supabase.from('skotning_uttag').insert(rows);
+                    if (error) {
+                      console.error('[Skotning] Sparfel:', error);
+                      alert('Kunde inte spara: ' + error.message);
+                    } else {
+                      setSkotningSparat(true);
+                      if (navigator.vibrate) navigator.vibrate(50);
+
+                      // === Direkt lokal uppdatering av kartan ===
+                      const checkedSorts = new Set(selected.map(s => s.sortiment));
+                      const pipLocal = (pt: [number, number], poly: [number, number][]): boolean => {
+                        let inside = false;
+                        const [px, py] = pt;
+                        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+                          const [xi, yi] = poly[i]; const [xj, yj] = poly[j];
+                          if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) inside = !inside;
+                        }
+                        return inside;
+                      };
+                      // Djup kopia av features — mutera INTE originalen
+                      const newFeatures: typeof hogarFeaturesRef.current = [];
+                      for (const h of hogarFeaturesRef.current) {
+                        const [hLng, hLat] = h.geometry.coordinates;
+                        if (!pipLocal([hLng, hLat], polyCoords)) {
+                          newFeatures.push({ ...h, geometry: { ...h.geometry, coordinates: [...h.geometry.coordinates] }, properties: { ...h.properties } });
+                          continue;
+                        }
+                        const sv: Record<string, number> = JSON.parse(h.properties.sortimentVolymJson || '{}');
+                        const newSv: Record<string, number> = {};
+                        for (const [sort, vol] of Object.entries(sv)) {
+                          if (checkedSorts.has(sort)) continue; // dra av helt — detta sortiment sparades som uttag
+                          newSv[sort] = vol;
+                        }
+                        const rest = Object.values(newSv).reduce((s, v) => s + v, 0);
+                        if (rest <= 0.01) continue; // högen försvinner
+                        newFeatures.push({
+                          ...h,
+                          geometry: { ...h.geometry, coordinates: [...h.geometry.coordinates] },
+                          properties: { ...h.properties, volym: Math.round(rest * 100) / 100, sortimentVolymJson: JSON.stringify(newSv) },
+                        });
+                      }
+                      for (let i = 0; i < newFeatures.length; i++) newFeatures[i].properties.pieIcon = `pie-${i}`;
+                      // Regenerera pie chart-ikoner så tårtdiagrammen speglar kvarvarande sortiment
+                      try {
+                        const m = mapInstanceRef.current;
+                        const genPie = generatePieIconRef.current;
+                        if (m && genPie) {
+                          for (let i = 0; i < newFeatures.length; i++) {
+                            const iconId = `pie-${i}`;
+                            const sv = JSON.parse(newFeatures[i].properties.sortimentVolymJson || '{}');
+                            const iconData = genPie(sv, 48);
+                            if (m.hasImage(iconId)) m.removeImage(iconId);
+                            m.addImage(iconId, { width: 48, height: 48, data: new Uint8ClampedArray(iconData.data) });
+                          }
+                        }
+                      } catch { /* */ }
+                      hogarFeaturesRef.current = newFeatures;
+                      try {
+                        const m = mapInstanceRef.current;
+                        if (m?.getSource('hogar-source')) {
+                          (m.getSource('hogar-source') as any).setData({ type: 'FeatureCollection', features: newFeatures });
+                        }
+                      } catch { /* */ }
+                      // Filtrera GROT-högar
+                      if (checkedSorts.has('GROT')) {
+                        const newGrot = grotFeaturesRef.current.filter(h => {
+                          const [hLng, hLat] = h.geometry.coordinates;
+                          return !pipLocal([hLng, hLat], polyCoords);
+                        });
+                        grotFeaturesRef.current = newGrot;
+                        try {
+                          const m = mapInstanceRef.current;
+                          if (m?.getSource('grot-source')) {
+                            (m.getSource('grot-source') as any).setData({ type: 'FeatureCollection', features: newGrot });
+                          }
+                        } catch { /* */ }
+                      }
+
+                      // Uppdatera kvarData (sidebar) — men INTE loadHogar
+                      setSkotningReload(prev => prev + 1);
+
+                      // Auto-stäng panel och rensa polygon efter 1s
+                      setTimeout(() => {
+                        setSkotningPanel(false);
+                        setSkotningPolygon(null);
+                        try {
+                          const m = mapInstanceRef.current;
+                          if (m) {
+                            const src = m.getSource('skotning-source') as any;
+                            if (src) src.setData({ type: 'FeatureCollection', features: [] });
+                          }
+                        } catch { /* */ }
+                      }, 1000);
+                    }
+                  }}
+                  style={{
+                    width: '100%', padding: '14px',
+                    borderRadius: '12px', border: 'none',
+                    background: '#1d9e75', color: '#fff',
+                    fontSize: '15px', fontWeight: '600',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Spara uttag
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+      {/* Skotning pulse animation */}
+      <style>{`
+        @keyframes skotningPulse {
+          0% { transform: scale(1); opacity: 0.8; border-color: rgba(29,158,117,0.5); }
+          50% { transform: scale(1.4); opacity: 0.3; border-color: rgba(29,158,117,0.2); }
+          100% { transform: scale(1); opacity: 0.8; border-color: rgba(29,158,117,0.5); }
+        }
+      `}</style>
+
+      {/* Finger-indikator ritas nu direkt på canvas overlay */}
+      <style>{`
+        @keyframes skotningRing {
+          0% { transform: scale(0.6); opacity: 0.8; }
+          100% { transform: scale(1.6); opacity: 0; }
+        }
+      `}</style>
     </div>
   );
 }

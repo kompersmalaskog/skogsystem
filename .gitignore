@@ -41,6 +41,16 @@ yarn-error.log*
 # Python import scripts (contains secrets)
 skogsmaskin_import*.py
 
+# Python cache
+__pycache__/
+*.pyc
+
+# Wrangler
+.wrangler/
+
+# Claude Code local settings (may contain secrets)
+.claude/settings.local.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

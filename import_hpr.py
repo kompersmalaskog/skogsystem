@@ -11,6 +11,7 @@ import re
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+from collections import Counter
 
 try:
     import requests
@@ -22,8 +23,30 @@ except ImportError:
 # KONFIGURATION
 # ============================================================
 
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://mxydghzfacbenbgpodex.supabase.co")
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+def _load_env_local():
+    """Läs .env.local från projektmappen (samma katalog som scriptet eller förälder)."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    for d in [script_dir, os.path.dirname(script_dir)]:
+        env_path = os.path.join(d, '.env.local')
+        if os.path.isfile(env_path):
+            with open(env_path, encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#') or '=' not in line:
+                        continue
+                    key, _, val = line.partition('=')
+                    key = key.strip()
+                    val = val.strip().strip('"').strip("'")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+            return
+
+_load_env_local()
+
+SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL",
+               os.environ.get("SUPABASE_URL", "https://mxydghzfacbenbgpodex.supabase.co"))
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY",
+               os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", ""))
 
 ONEDRIVE_BASE = r"C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer"
 BEHANDLADE = os.path.join(ONEDRIVE_BASE, "Behandlade")
@@ -167,12 +190,19 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
         sp_name = get_text(sp_def, 'SpeciesGroupName', ns)
         species_names[sp_key] = sp_name
 
-    # Sortiment/produkt-karta
-    product_names = {}
+    # Sortiment/produkt-karta (ProductGroupName = "Timmer", "Kubb", "Massa" etc.)
+    product_groups = {}
     for prod_def in find_all_elements(machine, 'ProductDefinition', ns):
         prod_key = get_text(prod_def, 'ProductKey', ns)
-        prod_name = get_text(prod_def, 'ProductName', ns)
-        product_names[prod_key] = prod_name
+        # ProductGroupName sitter under ClassifiedProductDefinition
+        pgn = None
+        for elem in prod_def.iter():
+            tag = elem.tag.replace(ns, '') if ns else elem.tag
+            if tag == 'ProductGroupName' and elem.text:
+                pgn = elem.text
+                break
+        if prod_key and pgn:
+            product_groups[prod_key] = pgn
 
     # Stammar
     stam_nummer = 0
@@ -218,17 +248,25 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
         for log in find_all_elements(single_tree, 'Log', ns):
             antal_stockar += 1
             prod_key = get_text(log, 'ProductKey', ns)
-            if prod_key and prod_key in product_names:
-                sortiment_list.append(product_names[prod_key])
+            if prod_key and prod_key in product_groups:
+                sortiment_list.append(product_groups[prod_key])
 
             for vol_elem in find_all_elements(log, 'LogVolume', ns):
                 cat = get_attr(vol_elem, 'logVolumeCategory')
                 val = safe_float(vol_elem.text)
-                if 'm3sob' in cat.lower():
+                if 'm3sub' in cat.lower():
                     total_volym += val
 
         # BioEnergyAdaption (GROT) — sitter på Stem-nivån, inte SingleTreeProcessedStem
         bio_energy = get_text(stem, 'BioEnergyAdaption', ns)
+
+        # Dominant sortiment: tradslag + ProductGroupName (t.ex. "Gran Timmer", "Tall Kubb")
+        sortiment = None
+        if sortiment_list:
+            dominant_group = Counter(sortiment_list).most_common(1)[0][0]
+            if dominant_group:
+                ts_cap = tradslag.capitalize() if tradslag else ''
+                sortiment = f"{ts_cap} {dominant_group}".strip() or None
 
         result['stammar'].append({
             'stam_nummer': stam_nummer,
@@ -239,6 +277,7 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
             'antal_stockar': antal_stockar,
             'total_volym': round(total_volym, 6) if total_volym > 0 else None,
             'bio_energy_adaption': bio_energy if bio_energy else None,
+            'sortiment': sortiment,
         })
 
     # Fil-datum: använd äldsta stam eller filnamnets datum
@@ -292,8 +331,41 @@ def fetch_existing_filnamn() -> set:
         offset += page_size
     return all_names
 
+def delete_existing_for_objekt(objekt_id: str) -> int:
+    """Radera alla hpr_stammar och hpr_filer för ett objekt.
+    Stammar raderas först (FK-beroende), sedan filer.
+    Returnerar antal raderade filer."""
+    # Hämta alla hpr_filer.id för detta objekt
+    url = f"{SUPABASE_URL}/rest/v1/hpr_filer?select=id&objekt_id=eq.{objekt_id}"
+    resp = requests.get(url, headers=HEADERS, timeout=30)
+    if resp.status_code != 200 or not resp.json():
+        return 0
+
+    fil_ids = [r['id'] for r in resp.json()]
+
+    # Radera hpr_stammar per fil (FK-beroende)
+    for fid in fil_ids:
+        resp = requests.delete(
+            f"{SUPABASE_URL}/rest/v1/hpr_stammar?hpr_fil_id=eq.{fid}",
+            headers=HEADERS, timeout=60
+        )
+        if resp.status_code not in [200, 204]:
+            logger.warning(f"  Varning: kunde inte radera stammar för fil {fid}: {resp.status_code}")
+
+    # Radera hpr_filer för objektet
+    resp = requests.delete(
+        f"{SUPABASE_URL}/rest/v1/hpr_filer?objekt_id=eq.{objekt_id}",
+        headers=HEADERS, timeout=30
+    )
+    if resp.status_code not in [200, 204]:
+        logger.warning(f"  Varning: kunde inte radera hpr_filer för objekt {objekt_id}: {resp.status_code}")
+
+    return len(fil_ids)
+
+
 def upload_hpr(parsed: Dict[str, Any], objekt_map: Dict[str, str]) -> bool:
-    """Ladda upp en parsad HPR-fil till hpr_filer + hpr_stammar."""
+    """Ladda upp en parsad HPR-fil till hpr_filer + hpr_stammar.
+    Raderar befintliga data för objektet först (senaste filen ersätter alltid)."""
     filnamn = parsed['filnamn']
 
     # Skapa hpr_filer-rad
@@ -309,6 +381,12 @@ def upload_hpr(parsed: Dict[str, Any], objekt_map: Dict[str, str]) -> bool:
         if vo in objekt_map:
             fil_row['objekt_id'] = objekt_map[vo]
             break
+
+    # Radera befintliga HPR-data för detta objekt (ny fil ersätter alltid)
+    if 'objekt_id' in fil_row:
+        deleted = delete_existing_for_objekt(fil_row['objekt_id'])
+        if deleted > 0:
+            logger.info(f"  Raderade {deleted} gamla HPR-filer för objekt")
 
     # maskin_id FK pekar på maskiner-tabellen som är tom — lämna null
 
@@ -354,8 +432,8 @@ def upload_hpr(parsed: Dict[str, Any], objekt_map: Dict[str, str]) -> bool:
                 row['antal_stockar'] = s['antal_stockar']
             if s['total_volym'] is not None:
                 row['total_volym'] = s['total_volym']
-            if s.get('bio_energy_adaption'):
-                row['bio_energy_adaption'] = s['bio_energy_adaption']
+            row['bio_energy_adaption'] = s.get('bio_energy_adaption') or None
+            row['sortiment'] = s.get('sortiment') or None
             rows.append(row)
 
         resp = requests.post(
