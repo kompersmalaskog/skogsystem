@@ -3,161 +3,62 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 
-// === TYPES ===
-interface Matpunkt {
-  position: number;
-  benamning: string;
-  diameter_maskin: number;
-  diameter_operator: number;
-}
-
-interface Stock {
-  stock_nummer: number;
-  sortiment: string;
-  langd_maskin: number;
-  langd_operator: number;
-  matpunkter: Matpunkt[];
-}
-
-interface KontrollStam {
-  id: string;
+// === TYPES (matching actual Supabase tables) ===
+interface FaktKalibrering {
+  id: number;
   datum: string;
-  stam_nummer: number;
+  maskin_id: string;
+  operator_id: string | null;
   tradslag: string;
-  antal_stockar: number;
-  typ: 'check' | 'calib' | 'missing';
-  kalibrering: string | null;
-  temperatur: number | null;
-  volym_m3fub: number | null;
-  stockar: Stock[];
+  antal_kontrollstammar: number;
+  antal_kontrollstockar: number;
+  langd_avvikelse_snitt_cm: number;
+  langd_avvikelse_min_cm: number;
+  langd_avvikelse_max_cm: number;
+  dia_avvikelse_snitt_mm: number;
+  dia_avvikelse_min_mm: number;
+  dia_avvikelse_max_mm: number;
+  status: string;
+  filnamn: string;
+  skapad_tid: string;
 }
 
-interface HistoryEntry {
-  stems?: { num: number; species: string; logs: number; lenDiff: number; diaDiff: number; temp: number }[];
-  type: 'check' | 'calib' | 'missing';
-  calib?: string;
-  vol?: number;
+interface DetaljKontrollStock {
+  id: number;
+  maskin_id: string;
+  kontroll_datum: string;
+  stam_nummer: number;
+  stock_nummer: number;
+  maskin_langd_cm: number;
+  maskin_toppdia_mm: number;
+  operator_langd_cm: number;
+  operator_toppdia_mm: number;
+  langd_avvikelse_cm: number;
+  dia_avvikelse_mm: number;
+  filnamn: string;
+  skapad_tid: string;
+  maskin_volym_sub: number | null;
+  operator_volym_sub: number | null;
+  volym_avvikelse: number | null;
+  latitude: number | null;
+  longitude: number | null;
+  objekt_id: string | null;
 }
 
-// === HELPERS ===
-function buildStem475(stam: KontrollStam): Record<number, {
-  product: string;
-  length: { m: number; o: number };
-  profile: { pos: number; label: string; m: number; o: number }[];
-}> {
-  const result: Record<number, any> = {};
-  stam.stockar.forEach(stock => {
-    result[stock.stock_nummer] = {
-      product: stock.sortiment,
-      length: { m: stock.langd_maskin, o: stock.langd_operator },
-      profile: stock.matpunkter
-        .sort((a, b) => a.position - b.position)
-        .map(mp => ({
-          pos: mp.position,
-          label: mp.benamning,
-          m: mp.diameter_maskin,
-          o: mp.diameter_operator,
-        })),
-    };
-  });
-  return result;
-}
-
-function buildHistoryData(stammar: KontrollStam[]): Record<number, HistoryEntry> {
-  const result: Record<number, HistoryEntry> = {};
-  stammar.forEach(s => {
-    const day = new Date(s.datum).getDate();
-    if (s.typ === 'missing') {
-      result[day] = { type: 'missing', vol: s.volym_m3fub ?? undefined };
-    } else {
-      // Calculate average diffs from stockar
-      let totalLenDiff = 0;
-      let totalDiaDiff = 0;
-      let diaCount = 0;
-      s.stockar.forEach(stock => {
-        totalLenDiff += stock.langd_maskin - stock.langd_operator;
-        stock.matpunkter.forEach(mp => {
-          if (mp.benamning !== 'Topp') {
-            totalDiaDiff += mp.diameter_maskin - mp.diameter_operator;
-            diaCount++;
-          }
-        });
-      });
-      const avgLenDiff = s.stockar.length > 0 ? Math.round(totalLenDiff / s.stockar.length) : 0;
-      const avgDiaDiff = diaCount > 0 ? Math.round(totalDiaDiff / diaCount) : 0;
-
-      result[day] = {
-        type: s.typ as 'check' | 'calib',
-        calib: s.kalibrering ?? undefined,
-        stems: [{
-          num: s.stam_nummer,
-          species: s.tradslag,
-          logs: s.antal_stockar,
-          lenDiff: avgLenDiff,
-          diaDiff: avgDiaDiff,
-          temp: s.temperatur ?? 0,
-        }],
-      };
-    }
-  });
-  return result;
-}
-
-function buildHistoryList(stammar: KontrollStam[]): { day: number; species?: string; stem?: number; diaDiff?: number; type: string }[] {
-  return stammar
-    .sort((a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime())
-    .map(s => {
-      const day = new Date(s.datum).getDate();
-      if (s.typ === 'missing') {
-        return { day, type: 'missing' };
-      }
-      let totalDiaDiff = 0;
-      let diaCount = 0;
-      s.stockar.forEach(stock => {
-        stock.matpunkter.forEach(mp => {
-          if (mp.benamning !== 'Topp') {
-            totalDiaDiff += mp.diameter_maskin - mp.diameter_operator;
-            diaCount++;
-          }
-        });
-      });
-      return {
-        day,
-        species: s.tradslag,
-        stem: s.stam_nummer,
-        diaDiff: diaCount > 0 ? Math.round(totalDiaDiff / diaCount) : 0,
-        type: s.typ,
-      };
-    });
-}
-
-function buildSpeciesData(stammar: KontrollStam[]): Record<string, { count: number; lenDiff: number; diaDiff: number; stems: number[] }> {
-  const species: Record<string, { totalLen: number; totalDia: number; diaCount: number; lenCount: number; stems: number[] }> = {};
-  stammar.filter(s => s.typ !== 'missing').forEach(s => {
-    const key = s.tradslag.toLowerCase();
-    if (!species[key]) species[key] = { totalLen: 0, totalDia: 0, diaCount: 0, lenCount: 0, stems: [] };
-    species[key].stems.push(s.stam_nummer);
-    s.stockar.forEach(stock => {
-      species[key].totalLen += stock.langd_maskin - stock.langd_operator;
-      species[key].lenCount++;
-      stock.matpunkter.forEach(mp => {
-        if (mp.benamning !== 'Topp') {
-          species[key].totalDia += mp.diameter_maskin - mp.diameter_operator;
-          species[key].diaCount++;
-        }
-      });
-    });
-  });
-  const result: Record<string, { count: number; lenDiff: number; diaDiff: number; stems: number[] }> = {};
-  Object.entries(species).forEach(([key, v]) => {
-    result[key] = {
-      count: v.stems.length,
-      lenDiff: v.lenCount > 0 ? Math.round(v.totalLen / v.lenCount * 10) / 10 : 0,
-      diaDiff: v.diaCount > 0 ? Math.round(v.totalDia / v.diaCount * 10) / 10 : 0,
-      stems: v.stems,
-    };
-  });
-  return result;
+interface KalibHistorik {
+  id: number;
+  datum: string;
+  maskin_id: string;
+  operator_id: string | null;
+  tradslag: string;
+  orsak: string;
+  beskrivning: string;
+  langd_justering_mm: number | null;
+  dia_justering_mm: number | null;
+  position_cm: number | null;
+  filnamn: string;
+  skapad_tid: string;
+  typ: string;
 }
 
 export default function KalibreringPage() {
@@ -166,88 +67,44 @@ export default function KalibreringPage() {
   const [modalContent, setModalContent] = useState<{ title: string; subtitle: string; body: React.ReactNode } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Data from Supabase
-  const [todayStam, setTodayStam] = useState<KontrollStam | null>(null);
-  const [allStammar, setAllStammar] = useState<KontrollStam[]>([]);
+  const [allKalib, setAllKalib] = useState<FaktKalibrering[]>([]);
+  const [stockMap, setStockMap] = useState<Record<string, DetaljKontrollStock[]>>({});
+  const [historik, setHistorik] = useState<KalibHistorik[]>([]);
 
   useEffect(() => {
     async function fetchData() {
       try {
-        // Fetch all kontroll_stammar sorted by date
-        const { data: stammarRows, error: stamErr } = await supabase
-          .from('kontroll_stammar')
+        const { data: kalibRows, error: kalibErr } = await supabase
+          .from('fakt_kalibrering')
           .select('*')
           .order('datum', { ascending: false });
 
-        if (stamErr) { console.error('kontroll_stammar error:', stamErr); setLoading(false); return; }
-        if (!stammarRows || stammarRows.length === 0) { setLoading(false); return; }
+        if (kalibErr) { console.error('fakt_kalibrering error:', kalibErr); setLoading(false); return; }
+        if (!kalibRows || kalibRows.length === 0) { setLoading(false); return; }
 
-        // Fetch all stockar for these stammar
-        const stamIds = stammarRows.map((s: any) => s.id);
-        const { data: stockarRows, error: stockErr } = await supabase
-          .from('kontroll_stockar')
+        setAllKalib(kalibRows);
+
+        const { data: stockRows, error: stockErr } = await supabase
+          .from('detalj_kontroll_stock')
           .select('*')
-          .in('kontroll_stam_id', stamIds)
           .order('stock_nummer', { ascending: true });
 
-        if (stockErr) console.error('kontroll_stockar error:', stockErr);
+        if (stockErr) console.error('detalj_kontroll_stock error:', stockErr);
 
-        // Fetch all matpunkter for these stockar
-        const stockIds = (stockarRows || []).map((s: any) => s.id);
-        let matpunkterRows: any[] = [];
-        if (stockIds.length > 0) {
-          const { data: mpRows, error: mpErr } = await supabase
-            .from('kontroll_matpunkter')
-            .select('*')
-            .in('kontroll_stock_id', stockIds)
-            .order('position', { ascending: true });
-          if (mpErr) console.error('kontroll_matpunkter error:', mpErr);
-          matpunkterRows = mpRows || [];
-        }
-
-        // Build matpunkter map: stock_id -> matpunkter[]
-        const mpMap: Record<string, Matpunkt[]> = {};
-        matpunkterRows.forEach((mp: any) => {
-          if (!mpMap[mp.kontroll_stock_id]) mpMap[mp.kontroll_stock_id] = [];
-          mpMap[mp.kontroll_stock_id].push({
-            position: mp.position,
-            benamning: mp.benamning,
-            diameter_maskin: mp.diameter_maskin,
-            diameter_operator: mp.diameter_operator,
-          });
+        const sMap: Record<string, DetaljKontrollStock[]> = {};
+        (stockRows || []).forEach((s: DetaljKontrollStock) => {
+          if (!sMap[s.filnamn]) sMap[s.filnamn] = [];
+          sMap[s.filnamn].push(s);
         });
+        setStockMap(sMap);
 
-        // Build stockar map: stam_id -> stockar[]
-        const stockMap: Record<string, Stock[]> = {};
-        (stockarRows || []).forEach((s: any) => {
-          if (!stockMap[s.kontroll_stam_id]) stockMap[s.kontroll_stam_id] = [];
-          stockMap[s.kontroll_stam_id].push({
-            stock_nummer: s.stock_nummer,
-            sortiment: s.sortiment,
-            langd_maskin: s.langd_maskin,
-            langd_operator: s.langd_operator,
-            matpunkter: mpMap[s.id] || [],
-          });
-        });
+        const { data: histRows, error: histErr } = await supabase
+          .from('fakt_kalibrering_historik')
+          .select('*')
+          .order('datum', { ascending: false });
 
-        // Build full KontrollStam objects
-        const stammar: KontrollStam[] = stammarRows.map((s: any) => ({
-          id: s.id,
-          datum: s.datum,
-          stam_nummer: s.stam_nummer,
-          tradslag: s.tradslag,
-          antal_stockar: s.antal_stockar,
-          typ: s.typ as 'check' | 'calib' | 'missing',
-          kalibrering: s.kalibrering,
-          temperatur: s.temperatur,
-          volym_m3fub: s.volym_m3fub,
-          stockar: stockMap[s.id] || [],
-        }));
-
-        setAllStammar(stammar);
-        // Today's stem = most recent non-missing entry
-        const today = stammar.find(s => s.typ !== 'missing');
-        setTodayStam(today || null);
+        if (histErr) console.error('fakt_kalibrering_historik error:', histErr);
+        setHistorik(histRows || []);
       } catch (err) {
         console.error('Fetch error:', err);
       } finally {
@@ -257,68 +114,53 @@ export default function KalibreringPage() {
     fetchData();
   }, []);
 
-  // Derived data
-  const stem475 = todayStam ? buildStem475(todayStam) : {};
-  const historyData = buildHistoryData(allStammar);
-  const historyList = buildHistoryList(allStammar);
-  const speciesData = buildSpeciesData(allStammar);
+  // === Derived data ===
+  const latestKalib = allKalib.length > 0 ? allKalib[0] : null;
+  const latestStockar = latestKalib ? (stockMap[latestKalib.filnamn] || []).sort((a, b) => a.stock_nummer - b.stock_nummer) : [];
+  const totalLatestLen = latestStockar.reduce((a, s) => a + s.maskin_langd_cm, 0);
 
-  // Report calculations
-  const checkStammar = allStammar.filter(s => s.typ !== 'missing');
-  const calibStammar = allStammar.filter(s => s.typ === 'calib');
-  const totalVolym = allStammar.reduce((acc, s) => acc + (s.volym_m3fub ?? 0), 0);
-  const kontrollFrekvens = checkStammar.length > 0 ? Math.round(totalVolym / checkStammar.length) : 0;
-
-  // Overall average diffs for report
-  let reportTotalLen = 0, reportLenCount = 0, reportTotalDia = 0, reportDiaCount = 0;
-  checkStammar.forEach(s => {
-    s.stockar.forEach(stock => {
-      reportTotalLen += stock.langd_maskin - stock.langd_operator;
-      reportLenCount++;
-      stock.matpunkter.forEach(mp => {
-        if (mp.benamning !== 'Topp') {
-          reportTotalDia += mp.diameter_maskin - mp.diameter_operator;
-          reportDiaCount++;
-        }
-      });
-    });
+  // Per-species stats (weighted by antal_kontrollstockar)
+  const speciesData: Record<string, { count: number; totalStockar: number; lenDiff: number; diaDiff: number }> = {};
+  allKalib.forEach(k => {
+    const key = k.tradslag.toLowerCase();
+    if (!speciesData[key]) speciesData[key] = { count: 0, totalStockar: 0, lenDiff: 0, diaDiff: 0 };
+    speciesData[key].count++;
+    speciesData[key].totalStockar += k.antal_kontrollstockar;
+    speciesData[key].lenDiff += k.langd_avvikelse_snitt_cm * k.antal_kontrollstockar;
+    speciesData[key].diaDiff += k.dia_avvikelse_snitt_mm * k.antal_kontrollstockar;
   });
-  const avgLenReport = reportLenCount > 0 ? Math.round(reportTotalLen / reportLenCount * 10) / 10 : 0;
-  const avgDiaReport = reportDiaCount > 0 ? Math.round(reportTotalDia / reportDiaCount * 10) / 10 : 0;
+  Object.values(speciesData).forEach(v => {
+    if (v.totalStockar > 0) {
+      v.lenDiff = Math.round(v.lenDiff / v.totalStockar * 10) / 10;
+      v.diaDiff = Math.round(v.diaDiff / v.totalStockar * 10) / 10;
+    }
+  });
 
-  // Today hero metrics
-  let todayLenDiff = 0, todayDiaDiff = 0;
-  if (todayStam) {
-    let tl = 0, td = 0, dc = 0, lc = 0;
-    todayStam.stockar.forEach(stock => {
-      tl += stock.langd_maskin - stock.langd_operator;
-      lc++;
-      stock.matpunkter.forEach(mp => {
-        if (mp.benamning !== 'Topp') {
-          td += mp.diameter_maskin - mp.diameter_operator;
-          dc++;
-        }
-      });
-    });
-    todayLenDiff = lc > 0 ? Math.round(tl / lc) : 0;
-    todayDiaDiff = dc > 0 ? Math.round(td / dc) : 0;
-  }
+  // Report averages (weighted)
+  const totalStockar = allKalib.reduce((a, k) => a + k.antal_kontrollstockar, 0);
+  const avgLenReport = totalStockar > 0 ? Math.round(allKalib.reduce((a, k) => a + k.langd_avvikelse_snitt_cm * k.antal_kontrollstockar, 0) / totalStockar * 10) / 10 : 0;
+  const avgDiaReport = totalStockar > 0 ? Math.round(allKalib.reduce((a, k) => a + k.dia_avvikelse_snitt_mm * k.antal_kontrollstockar, 0) / totalStockar * 10) / 10 : 0;
 
-  const todayTotalLen = todayStam ? todayStam.stockar.reduce((a, s) => a + s.langd_maskin, 0) : 0;
+  // Unique calibration adjustments
+  const kalibFileSet = new Set(historik.map(h => h.filnamn));
+  const calibCount = kalibFileSet.size;
 
-  // Calendar – build from allStammar for the month of the most recent entry
-  const calendarMonth = allStammar.length > 0 ? new Date(allStammar[0].datum) : new Date();
+  // Calendar
+  const calendarMonth = allKalib.length > 0 ? new Date(allKalib[0].datum) : new Date();
   const year = calendarMonth.getFullYear();
   const month = calendarMonth.getMonth();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDow = (new Date(year, month, 1).getDay() + 6) % 7; // Monday=0
+  const firstDow = (new Date(year, month, 1).getDay() + 6) % 7;
   const monthName = new Date(year, month).toLocaleDateString('sv-SE', { month: 'long' });
 
-  const stamByDay: Record<number, KontrollStam> = {};
-  allStammar.forEach(s => {
-    const d = new Date(s.datum);
+  // Group kalib by day
+  const kalibByDay: Record<number, FaktKalibrering[]> = {};
+  allKalib.forEach(k => {
+    const d = new Date(k.datum);
     if (d.getFullYear() === year && d.getMonth() === month) {
-      stamByDay[d.getDate()] = s;
+      const day = d.getDate();
+      if (!kalibByDay[day]) kalibByDay[day] = [];
+      kalibByDay[day].push(k);
     }
   });
 
@@ -328,105 +170,121 @@ export default function KalibreringPage() {
   for (let d = 1; d <= daysInMonth; d++) {
     const dow = (firstDow + d - 1) % 7;
     const isWeekend = dow >= 5;
-    const stam = stamByDay[d];
+    const dayKalibs = kalibByDay[d];
     const isToday = todayDate.getFullYear() === year && todayDate.getMonth() === month && todayDate.getDate() === d;
+    const hasWarning = dayKalibs?.some(k => k.status === 'VARNING');
+    const hasCalib = dayKalibs?.some(k => kalibFileSet.has(k.filnamn));
     calendarDays.push({
       day: d,
-      off: isWeekend && !stam,
-      check: stam?.typ === 'check',
-      calib: stam?.typ === 'calib',
-      warn: stam?.typ === 'missing',
+      off: isWeekend && !dayKalibs,
+      check: !!dayKalibs && !hasWarning,
+      warn: hasWarning,
+      calib: hasCalib && !hasWarning,
       today: isToday,
     });
   }
 
-  const openLogModal = (logNum: number) => {
-    const log = stem475[logNum];
-    if (!log) return;
-    const maxDia = Math.max(...log.profile.map(p => p.m));
-    const minDia = Math.min(...log.profile.map(p => p.m));
-    const lenDiff = log.length.m - log.length.o;
-    const controlDias = log.profile.filter(p => p.label !== 'Topp');
-    const avgDiff = Math.round(controlDias.reduce((a, p) => a + (p.m - p.o), 0) / controlDias.length);
+  // History list
+  const historyList = allKalib.slice(0, 30).map(k => ({
+    kalib: k,
+    date: new Date(k.datum),
+  }));
+
+  // === Modals ===
+  const openStockModal = (stock: DetaljKontrollStock) => {
+    const lenDiff = stock.langd_avvikelse_cm;
+    const diaDiff = stock.dia_avvikelse_mm;
+    const lenCls = Math.abs(lenDiff) > 3 ? 'bad' : Math.abs(lenDiff) > 2 ? 'warn' : 'good';
+    const diaCls = Math.abs(diaDiff) > 6 ? 'bad' : Math.abs(diaDiff) > 4 ? 'warn' : 'good';
 
     setModalContent({
-      title: `Stock ${logNum}`,
-      subtitle: `${log.product} • ${log.length.m} cm`,
+      title: `Stock ${stock.stock_nummer}`,
+      subtitle: `Stam #${stock.stam_nummer} • ${stock.kontroll_datum}`,
       body: (
         <>
-          <div className="profile-section">
-            <div className="profile-title">Diameterprofil</div>
-            <div className="profile-subtitle">Maskinens mätningar från rot till topp (mm)</div>
-            <div className="profile-chart">
-              {log.profile.map((p, i) => {
-                const barHeight = 20 + ((p.m - minDia) / (maxDia - minDia || 1)) * 60;
-                const isTop = p.label === 'Topp';
-                const diff = !isTop ? p.m - p.o : null;
-                const diffClass = diff !== null ? (Math.abs(diff) > 6 ? 'bad' : Math.abs(diff) > 4 ? 'warn' : 'good') : '';
-                return (
-                  <div key={i} className="profile-point">
-                    <div className="profile-bar" style={{ height: `${barHeight}px` }} />
-                    <div className="profile-value">{p.m}</div>
-                    <div className="profile-label">{p.label}</div>
-                    {diff !== null && <div className={`profile-diff ${diffClass}`}>{diff >= 0 ? '+' : ''}{diff}</div>}
-                  </div>
-                );
-              })}
+          <div className="total-summary">
+            <div className="total-title">Mätjämförelse</div>
+            <div className="total-grid two-col">
+              <div className="total-item">
+                <div className="total-label">Längd maskin</div>
+                <div className="total-value">{stock.maskin_langd_cm}<span className="total-unit"> cm</span></div>
+              </div>
+              <div className="total-item">
+                <div className="total-label">Längd operatör</div>
+                <div className="total-value">{stock.operator_langd_cm}<span className="total-unit"> cm</span></div>
+              </div>
             </div>
-            <div className="profile-legend"><span>← Rot</span><span>Topp →</span></div>
           </div>
-          <div className="summary-row">
-            <div className="summary-item"><div className="summary-label">Längd</div><div className="summary-value">{log.length.m} cm</div><div className="summary-diff">{lenDiff >= 0 ? '+' : ''}{lenDiff} vs op</div></div>
-            <div className="summary-item"><div className="summary-label">Topp ⌀</div><div className="summary-value">{log.profile[log.profile.length - 1].m} mm</div></div>
-            <div className="summary-item"><div className="summary-label">Dia (M−O)</div><div className="summary-value">{avgDiff >= 0 ? '+' : ''}{avgDiff} mm</div><div className="summary-hint">snitt</div></div>
+          <div className="summary-row" style={{ marginTop: '16px' }}>
+            <div className="summary-item">
+              <div className="summary-label">Längd (M−O)</div>
+              <div className={`summary-value`}>{lenDiff >= 0 ? '+' : ''}{lenDiff} cm</div>
+              <div className={`profile-diff ${lenCls}`} style={{ display: 'inline-block' }}>{lenCls === 'good' ? 'OK' : lenCls === 'warn' ? 'Nära gräns' : 'Utanför'}</div>
+            </div>
+            <div className="summary-item">
+              <div className="summary-label">Topp ⌀ maskin</div>
+              <div className="summary-value">{stock.maskin_toppdia_mm} mm</div>
+              <div className="summary-hint">op: {stock.operator_toppdia_mm} mm</div>
+            </div>
+            <div className="summary-item">
+              <div className="summary-label">Dia (M−O)</div>
+              <div className="summary-value">{diaDiff >= 0 ? '+' : ''}{diaDiff} mm</div>
+              <div className={`profile-diff ${diaCls}`} style={{ display: 'inline-block' }}>{diaCls === 'good' ? 'OK' : diaCls === 'warn' ? 'Nära gräns' : 'Utanför'}</div>
+            </div>
           </div>
+          {(stock.maskin_volym_sub != null && stock.operator_volym_sub != null) && (
+            <div className="info-box" style={{ marginTop: '16px' }}>
+              <div className="info-box-icon">📦</div>
+              <div className="info-box-content">
+                <div className="info-box-title">Volym (m³sub)</div>
+                <div className="info-box-text">Maskin: {stock.maskin_volym_sub?.toFixed(4)} • Operatör: {stock.operator_volym_sub?.toFixed(4)} • Diff: {stock.volym_avvikelse?.toFixed(4)}</div>
+              </div>
+            </div>
+          )}
         </>
       )
     });
     setModalOpen(true);
   };
 
-  const openStemOverview = () => {
-    if (!todayStam) return;
-    let totalLen = 0, totalLenDiff = 0;
-    const allDiaDiffs: number[] = [];
-    Object.values(stem475).forEach(log => {
-      totalLen += log.length.m;
-      totalLenDiff += (log.length.m - log.length.o);
-      log.profile.forEach(p => { if (p.label !== 'Topp') allDiaDiffs.push(p.m - p.o); });
-    });
-    const avgDiaDiff = allDiaDiffs.length > 0 ? Math.round(allDiaDiffs.reduce((a, b) => a + b, 0) / allDiaDiffs.length) : 0;
-    const avgLenDiff = Object.keys(stem475).length > 0 ? Math.round(totalLenDiff / Object.keys(stem475).length * 10) / 10 : 0;
+  const openStemOverview = (kalib: FaktKalibrering) => {
+    const stocks = (stockMap[kalib.filnamn] || []).sort((a, b) => a.stock_nummer - b.stock_nummer);
+    const totalLen = stocks.reduce((a, s) => a + s.maskin_langd_cm, 0);
 
     setModalContent({
-      title: `Stam #${todayStam.stam_nummer}`,
-      subtitle: `${todayStam.tradslag} • ${todayStam.antal_stockar} stockar • Alla mätpunkter`,
+      title: `Kontroll ${new Date(kalib.datum).toLocaleDateString('sv-SE')}`,
+      subtitle: `${kalib.tradslag} • ${kalib.antal_kontrollstockar} stockar • ${kalib.status}`,
       body: (
         <>
           <div className="total-summary">
-            <div className="total-title">Snitt för hela stammen</div>
+            <div className="total-title">Snitt för kontrollen</div>
             <div className="total-grid">
-              <div className="total-item"><div className="total-label">Total längd</div><div className="total-value">{(totalLen/100).toFixed(1)}<span className="total-unit"> m</span></div></div>
-              <div className="total-item"><div className="total-label">Längd (M−O)</div><div className="total-value">{avgLenDiff >= 0 ? '+' : ''}{avgLenDiff}<span className="total-unit"> cm</span></div></div>
-              <div className="total-item"><div className="total-label">Dia (M−O)</div><div className="total-value">{avgDiaDiff >= 0 ? '+' : ''}{avgDiaDiff}<span className="total-unit"> mm</span></div></div>
+              <div className="total-item"><div className="total-label">Total längd</div><div className="total-value">{(totalLen / 100).toFixed(1)}<span className="total-unit"> m</span></div></div>
+              <div className="total-item"><div className="total-label">Längd (M−O)</div><div className="total-value">{kalib.langd_avvikelse_snitt_cm >= 0 ? '+' : ''}{kalib.langd_avvikelse_snitt_cm}<span className="total-unit"> cm</span></div></div>
+              <div className="total-item"><div className="total-label">Dia (M−O)</div><div className="total-value">{kalib.dia_avvikelse_snitt_mm >= 0 ? '+' : ''}{kalib.dia_avvikelse_snitt_mm}<span className="total-unit"> mm</span></div></div>
             </div>
           </div>
-          <div className="modal-section-header"><div className="modal-section-title">Per stock</div><div className="modal-section-subtitle">Tryck för detaljer</div></div>
-          <div className="overview-grid">
-            {Object.entries(stem475).map(([num, log]) => {
-              const topDia = log.profile[log.profile.length - 1].m;
-              const cDias = log.profile.filter(p => p.label !== 'Topp');
-              const avg = cDias.length > 0 ? Math.round(cDias.reduce((a, p) => a + (p.m - p.o), 0) / cDias.length) : 0;
-              const cls = Math.abs(avg) > 6 ? 'bad' : Math.abs(avg) > 4 ? 'warn' : 'good';
-              return (
-                <div key={num} className="overview-log" onClick={() => { setModalOpen(false); setTimeout(() => openLogModal(parseInt(num)), 150); }}>
-                  <div className="overview-log-num">{num}</div>
-                  <div className="overview-log-info"><div className="overview-log-title">{log.product}</div><div className="overview-log-meta">{log.length.m} cm • Topp ⌀{topDia}</div></div>
-                  <div className={`overview-log-diff ${cls}`}>{avg >= 0 ? '+' : ''}{avg} mm</div>
-                </div>
-              );
-            })}
-          </div>
+          {stocks.length > 0 && (
+            <>
+              <div className="modal-section-header"><div className="modal-section-title">Per stock</div><div className="modal-section-subtitle">Tryck för detaljer</div></div>
+              <div className="overview-grid">
+                {stocks.map(stock => {
+                  const diaDiff = stock.dia_avvikelse_mm;
+                  const cls = Math.abs(diaDiff) > 6 ? 'bad' : Math.abs(diaDiff) > 4 ? 'warn' : 'good';
+                  return (
+                    <div key={stock.id} className="overview-log" onClick={() => { setModalOpen(false); setTimeout(() => openStockModal(stock), 150); }}>
+                      <div className="overview-log-num">{stock.stock_nummer}</div>
+                      <div className="overview-log-info">
+                        <div className="overview-log-title">Stock #{stock.stock_nummer}</div>
+                        <div className="overview-log-meta">{stock.maskin_langd_cm} cm • Topp ⌀{stock.maskin_toppdia_mm}</div>
+                      </div>
+                      <div className={`overview-log-diff ${cls}`}>{diaDiff >= 0 ? '+' : ''}{diaDiff} mm</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </>
       )
     });
@@ -434,48 +292,63 @@ export default function KalibreringPage() {
   };
 
   const openDayModal = (day: number) => {
-    const data = historyData[day];
-    if (!data) return;
+    const dayKalibs = kalibByDay[day];
+    if (!dayKalibs || dayKalibs.length === 0) return;
+    const k = dayKalibs[0];
+    const stocks = (stockMap[k.filnamn] || []).sort((a, b) => a.stock_nummer - b.stock_nummer);
+    const dayHistorik = historik.filter(h => h.filnamn === k.filnamn);
 
-    if (data.type === 'missing') {
-      setModalContent({
-        title: `${day} ${monthName}`, subtitle: 'Ingen kontroll',
-        body: (<div className="info-box warm"><div className="info-box-icon">⚠️</div><div className="info-box-content"><div className="info-box-title">Kontroll saknas</div><div className="info-box-text">{data.vol} m³fub producerades denna dag utan att en kontrollstam mättes.</div></div></div>)
-      });
-    } else if (data.type === 'calib') {
-      const stem = data.stems![0];
-      setModalContent({
-        title: `${day} ${monthName}`, subtitle: 'Kalibrering utförd',
-        body: (
-          <>
-            <div className="total-summary calib-style"><div className="total-title calib-title">Kalibrering</div><div className="calib-value">{data.calib}</div></div>
-            <div className="weather-box"><div className="weather-icon">{stem.temp <= -10 ? '🥶' : stem.temp <= -5 ? '❄️' : '🌡️'}</div><div className="weather-info"><div className="weather-temp">{stem.temp}°C vid mätning</div><div className="weather-note">{stem.temp <= -10 ? 'Extrem kyla' : stem.temp <= -5 ? 'Kyla kan påverka mätningen' : 'Normal temperatur'}</div></div></div>
-            <div className="modal-section-header"><div className="modal-section-title">Kontrollstam</div></div>
-            <div className="overview-log"><div className="overview-log-num">{stem.num}</div><div className="overview-log-info"><div className="overview-log-title">Stam #{stem.num} • {stem.species}</div><div className="overview-log-meta">{stem.logs} stockar</div></div><div className="overview-log-diff">{stem.diaDiff >= 0 ? '+' : ''}{stem.diaDiff} mm</div></div>
-          </>
-        )
-      });
-    } else {
-      const stem = data.stems![0];
-      const isTodayStem = todayStam && stem.num === todayStam.stam_nummer;
-      setModalContent({
-        title: `${day} ${monthName}`, subtitle: '1 kontrollstam',
-        body: (
-          <>
-            <div className="total-summary">
-              <div className="total-title">Dagens mätning</div>
-              <div className="total-grid">
-                <div className="total-item"><div className="total-label">Trädslag</div><div className="total-value small">{stem.species}</div></div>
-                <div className="total-item"><div className="total-label">Längd (M−O)</div><div className="total-value">{stem.lenDiff >= 0 ? '+' : ''}{stem.lenDiff}<span className="total-unit"> cm</span></div></div>
-                <div className="total-item"><div className="total-label">Dia (M−O)</div><div className="total-value">{stem.diaDiff >= 0 ? '+' : ''}{stem.diaDiff}<span className="total-unit"> mm</span></div></div>
-              </div>
+    setModalContent({
+      title: `${day} ${monthName}`,
+      subtitle: `${dayKalibs.length} kontroll${dayKalibs.length > 1 ? 'er' : ''} • ${k.status}`,
+      body: (
+        <>
+          <div className="total-summary">
+            <div className="total-title">Dagens mätning</div>
+            <div className="total-grid">
+              <div className="total-item"><div className="total-label">Trädslag</div><div className="total-value small">{k.tradslag}</div></div>
+              <div className="total-item"><div className="total-label">Längd (M−O)</div><div className="total-value">{k.langd_avvikelse_snitt_cm >= 0 ? '+' : ''}{k.langd_avvikelse_snitt_cm}<span className="total-unit"> cm</span></div></div>
+              <div className="total-item"><div className="total-label">Dia (M−O)</div><div className="total-value">{k.dia_avvikelse_snitt_mm >= 0 ? '+' : ''}{k.dia_avvikelse_snitt_mm}<span className="total-unit"> mm</span></div></div>
             </div>
-            <div className="weather-box"><div className="weather-icon">{stem.temp <= -10 ? '🥶' : stem.temp <= -5 ? '❄️' : '🌡️'}</div><div className="weather-info"><div className="weather-temp">{stem.temp}°C vid mätning</div><div className="weather-note">{stem.temp <= -10 ? 'Extrem kyla kan påverka mätningen' : stem.temp <= -5 ? 'Kyla kan påverka mätningen' : 'Normal temperatur'}</div></div></div>
-            <div className="overview-log" onClick={isTodayStem ? openStemOverview : undefined}><div className="overview-log-num">#</div><div className="overview-log-info"><div className="overview-log-title">Stam #{stem.num}</div><div className="overview-log-meta">{stem.logs} stockar</div></div>{isTodayStem && <span className="overview-link">Visa →</span>}</div>
-          </>
-        )
-      });
-    }
+          </div>
+          {stocks.length > 0 && (
+            <>
+              <div className="modal-section-header"><div className="modal-section-title">Stockar</div></div>
+              <div className="overview-grid">
+                {stocks.map(stock => (
+                  <div key={stock.id} className="overview-log" onClick={() => { setModalOpen(false); setTimeout(() => openStockModal(stock), 150); }}>
+                    <div className="overview-log-num">{stock.stock_nummer}</div>
+                    <div className="overview-log-info">
+                      <div className="overview-log-title">Stock #{stock.stock_nummer}</div>
+                      <div className="overview-log-meta">{stock.maskin_langd_cm} cm • ⌀{stock.maskin_toppdia_mm}</div>
+                    </div>
+                    <div className="overview-log-diff">{stock.dia_avvikelse_mm >= 0 ? '+' : ''}{stock.dia_avvikelse_mm} mm</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+          {dayHistorik.length > 0 && (
+            <>
+              <div className="modal-section-header"><div className="modal-section-title">Kalibreringshistorik</div></div>
+              {dayHistorik.map(h => (
+                <div key={h.id} className="info-box" style={{ marginBottom: '8px' }}>
+                  <div className="info-box-icon">⚙️</div>
+                  <div className="info-box-content">
+                    <div className="info-box-title">{h.typ === 'langd' ? 'Längdjustering' : 'Diameterjustering'} • {h.tradslag}</div>
+                    <div className="info-box-text">
+                      {h.typ === 'langd' ? `${h.langd_justering_mm} mm` : `${h.dia_justering_mm} mm`}
+                      {h.position_cm ? ` vid ${h.position_cm} cm` : ''}
+                      {h.orsak !== 'none' ? ` • ${h.orsak}` : ''}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+        </>
+      )
+    });
     setModalOpen(true);
   };
 
@@ -483,8 +356,10 @@ export default function KalibreringPage() {
     const data = speciesData[species];
     if (!data) return;
     const name = species === 'gran' ? 'Gran' : species === 'tall' ? 'Tall' : species.charAt(0).toUpperCase() + species.slice(1);
+    const speciesKalibs = allKalib.filter(k => k.tradslag.toLowerCase() === species).slice(0, 20);
+
     setModalContent({
-      title: name, subtitle: `${data.count} kontrollstammar`,
+      title: name, subtitle: `${data.count} kontroller`,
       body: (
         <>
           <div className="total-summary">
@@ -494,23 +369,23 @@ export default function KalibreringPage() {
               <div className="total-item"><div className="total-label">Dia (M−O)</div><div className="total-value">{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff}<span className="total-unit"> mm</span></div></div>
             </div>
           </div>
-          <div className="modal-section-header"><div className="modal-section-title">Stammar</div></div>
+          <div className="modal-section-header"><div className="modal-section-title">Senaste kontroller</div></div>
           <div className="overview-grid">
-            {data.stems.map(stemNum => {
-              const dayEntry = Object.entries(historyData).find(([, v]) => v.stems && v.stems[0].num === stemNum);
-              if (!dayEntry) return null;
-              const [day, dayData] = dayEntry;
-              const stem = dayData.stems![0];
+            {speciesKalibs.map(k => {
+              const d = new Date(k.datum);
               return (
-                <div key={stemNum} className="overview-log" onClick={() => openDayModal(parseInt(day))}>
-                  <div className="overview-log-num">{day}</div>
-                  <div className="overview-log-info"><div className="overview-log-title">Stam #{stem.num}</div><div className="overview-log-meta">{stem.logs} stockar • {stem.temp}°C</div></div>
-                  <div className="overview-log-diff">{stem.diaDiff >= 0 ? '+' : ''}{stem.diaDiff} mm</div>
+                <div key={k.id} className="overview-log" onClick={() => { setModalOpen(false); setTimeout(() => openStemOverview(k), 150); }}>
+                  <div className="overview-log-num">{d.getDate()}</div>
+                  <div className="overview-log-info">
+                    <div className="overview-log-title">{d.toLocaleDateString('sv-SE')}</div>
+                    <div className="overview-log-meta">{k.antal_kontrollstockar} stockar • {k.status}</div>
+                  </div>
+                  <div className="overview-log-diff">{k.dia_avvikelse_snitt_mm >= 0 ? '+' : ''}{k.dia_avvikelse_snitt_mm} mm</div>
                 </div>
               );
             })}
           </div>
-          <div className="info-box"><div className="info-box-icon">📊</div><div className="info-box-content"><div className="info-box-title">Tillräckligt underlag?</div><div className="info-box-text">{data.count >= 5 ? `Ja, ${data.count} stammar ger ett bra underlag.` : 'Fler kontroller behövs för att dra säkra slutsatser.'}</div></div></div>
+          <div className="info-box"><div className="info-box-icon">📊</div><div className="info-box-content"><div className="info-box-title">Tillräckligt underlag?</div><div className="info-box-text">{data.count >= 5 ? `Ja, ${data.count} kontroller ger ett bra underlag.` : 'Fler kontroller behövs för att dra säkra slutsatser.'}</div></div></div>
         </>
       )
     });
@@ -530,7 +405,7 @@ export default function KalibreringPage() {
     );
   }
 
-  if (allStammar.length === 0) {
+  if (allKalib.length === 0) {
     return (
       <>
         <style jsx global>{`
@@ -539,13 +414,12 @@ export default function KalibreringPage() {
           .kalib-empty-title{font-size:22px;font-weight:600;color:#1d1d1f;margin-bottom:8px}
           .kalib-empty-text{font-size:15px;max-width:320px}
         `}</style>
-        <div className="kalib-empty"><div className="kalib-empty-icon">📏</div><div className="kalib-empty-title">Inga kontrollmätningar</div><div className="kalib-empty-text">När kontrollstammar registreras visas de här med jämförelser och statistik.</div></div>
+        <div className="kalib-empty"><div className="kalib-empty-icon">📏</div><div className="kalib-empty-title">Inga kontrollmätningar</div><div className="kalib-empty-text">När HQC-filer importeras visas kontrolldata här med jämförelser och statistik.</div></div>
       </>
     );
   }
 
-  // Format date for report
-  const reportDate = allStammar.length > 0 ? new Date(allStammar[0].datum).toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  const reportDate = new Date(allKalib[0].datum).toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
 
   return (
     <>
@@ -742,54 +616,63 @@ export default function KalibreringPage() {
 
       <div className="kalib-page">
         <nav className="nav">
-          <button className={`nav-pill ${activeTab === 'today' ? 'active' : ''}`} onClick={() => setActiveTab('today')}>Idag</button>
+          <button className={`nav-pill ${activeTab === 'today' ? 'active' : ''}`} onClick={() => setActiveTab('today')}>Senaste</button>
           <button className={`nav-pill ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>Historik</button>
           <button className={`nav-pill ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>Rapport</button>
         </nav>
 
         <div className="container">
-          {activeTab === 'today' && todayStam && (
+          {activeTab === 'today' && latestKalib && (
             <>
               <header className="page-header">
                 <div className="page-eyebrow">Kontrollmätning</div>
-                <h1 className="page-title">Stam #{todayStam.stam_nummer}</h1>
-                <p className="page-subtitle">{todayStam.tradslag} • {todayStam.antal_stockar} stockar • Kontrollerad {new Date(todayStam.datum).toLocaleDateString('sv-SE')}</p>
+                <h1 className="page-title">{latestKalib.tradslag}</h1>
+                <p className="page-subtitle">{latestKalib.antal_kontrollstockar} stockar • {new Date(latestKalib.datum).toLocaleDateString('sv-SE')} • {latestKalib.maskin_id}</p>
               </header>
               <div className="card">
                 <div className="section-title">Så mätte maskinen</div>
-                <div className="section-subtitle">Jämfört med operatörens manuella mätning</div>
+                <div className="section-subtitle">Snittavvikelse maskin jämfört med operatör</div>
                 <div className="hero-metrics">
-                  <div className="hero-metric"><div className="hero-metric-value">{todayLenDiff >= 0 ? '+' : ''}{todayLenDiff}</div><div className="hero-metric-label">Längd (cm)</div><div className="hero-metric-hint">Maskin − Operatör</div></div>
-                  <div className="hero-metric"><div className="hero-metric-value">{todayDiaDiff >= 0 ? '+' : ''}{todayDiaDiff}</div><div className="hero-metric-label">Diameter (mm)</div><div className="hero-metric-hint">Maskin − Operatör</div></div>
-                </div>
-                <div className="info-box"><div className="info-box-icon">📊</div><div className="info-box-content"><div className="info-box-title">En stam räcker inte</div><div className="info-box-text">För att veta om justering behövs måste du se trenden över flera kontroller.</div></div></div>
-              </div>
-              {todayStam.temperatur !== null && (
-                <div className="card card-tight">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                    <div style={{ fontSize: '32px' }}>{todayStam.temperatur <= -10 ? '🥶' : todayStam.temperatur <= -5 ? '❄️' : '🌡️'}</div>
-                    <div><div style={{ fontWeight: 600, marginBottom: '2px' }}>{todayStam.temperatur}°C vid mätning</div><div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{todayStam.temperatur <= -5 ? 'Kyla kan påverka mätningen.' : 'Normal temperatur.'}</div></div>
+                  <div className="hero-metric">
+                    <div className="hero-metric-value">{latestKalib.langd_avvikelse_snitt_cm >= 0 ? '+' : ''}{latestKalib.langd_avvikelse_snitt_cm}</div>
+                    <div className="hero-metric-label">Längd (cm)</div>
+                    <div className="hero-metric-hint">min {latestKalib.langd_avvikelse_min_cm} / max {latestKalib.langd_avvikelse_max_cm}</div>
                   </div>
+                  <div className="hero-metric">
+                    <div className="hero-metric-value">{latestKalib.dia_avvikelse_snitt_mm >= 0 ? '+' : ''}{latestKalib.dia_avvikelse_snitt_mm}</div>
+                    <div className="hero-metric-label">Diameter (mm)</div>
+                    <div className="hero-metric-hint">min {latestKalib.dia_avvikelse_min_mm} / max {latestKalib.dia_avvikelse_max_mm}</div>
+                  </div>
+                </div>
+                {latestKalib.status === 'VARNING' ? (
+                  <div className="info-box warm"><div className="info-box-icon">⚠️</div><div className="info-box-content"><div className="info-box-title">Varning</div><div className="info-box-text">Avvikelserna överstiger rekommenderade gränsvärden. Kontrollera kalibreringen.</div></div></div>
+                ) : (
+                  <div className="info-box"><div className="info-box-icon">✅</div><div className="info-box-content"><div className="info-box-title">OK</div><div className="info-box-text">Avvikelserna ligger inom godkända gränsvärden.</div></div></div>
+                )}
+              </div>
+              {latestStockar.length > 0 && (
+                <div className="card">
+                  <div className="section-title">Stockar</div>
+                  <div className="section-subtitle">{latestKalib.tradslag} • {latestStockar.length} stockar • {(totalLatestLen / 100).toFixed(1)} meter • Tryck för detaljer</div>
+                  <div className="stem-viz">
+                    <div className="stem-viz-inner">
+                      <span className="stem-label">Rot</span>
+                      {latestStockar.map(stock => {
+                        const baseW = 40 + Math.min(60, stock.maskin_langd_cm / 8);
+                        const baseH = 25 + Math.min(50, stock.maskin_toppdia_mm / 3);
+                        return (
+                          <div key={stock.id} className="log-block" onClick={() => openStockModal(stock)}>
+                            <div className="log-body" style={{ width: baseW, height: baseH }}><span className="log-num">{stock.stock_nummer}</span></div>
+                            <div className="log-info"><div className="log-length">{stock.maskin_langd_cm} cm</div><div className="log-product">⌀{stock.maskin_toppdia_mm}</div></div>
+                          </div>
+                        );
+                      })}
+                      <span className="stem-label">Topp</span>
+                    </div>
+                  </div>
+                  <button className="btn-stem-overview" onClick={() => openStemOverview(latestKalib)}><span>Visa alla stockar</span><span className="btn-arrow">→</span></button>
                 </div>
               )}
-              <div className="card">
-                <div className="section-title">Stammen</div>
-                <div className="section-subtitle">{todayStam.tradslag} • {todayStam.antal_stockar} stockar • {(todayTotalLen / 100).toFixed(1)} meter • Tryck för detaljer</div>
-                <div className="stem-viz">
-                  <div className="stem-viz-inner">
-                    <span className="stem-label">Rot</span>
-                    {Object.entries(stem475).map(([n, log]) => {
-                      const num = parseInt(n);
-                      const baseW = 40 + Math.min(60, log.length.m / 8);
-                      const baseH = 25 + Math.min(50, (log.profile[0]?.m ?? 200) / 6);
-                      return (<div key={num} className="log-block" onClick={() => openLogModal(num)}><div className="log-body" style={{width: baseW, height: baseH}}><span className="log-num">{num}</span></div><div className="log-info"><div className="log-length">{log.length.m} cm</div><div className="log-product">{log.product}</div></div></div>);
-                    })}
-                    <span className="stem-label">Topp</span>
-                  </div>
-                </div>
-                <button className="btn-stem-overview" onClick={openStemOverview}><span>Visa hela stammen</span><span className="btn-arrow">→</span></button>
-                <div className="info-box"><div className="info-box-icon">👆</div><div className="info-box-content"><div className="info-box-title">Tryck på en stock för detaljer</div><div className="info-box-text">Eller &quot;Visa hela stammen&quot; för sammanfattning.</div></div></div>
-              </div>
             </>
           )}
 
@@ -798,20 +681,19 @@ export default function KalibreringPage() {
               <header className="page-header">
                 <div className="page-eyebrow">Historik</div>
                 <h1 className="page-title">Hur mäter maskinen?</h1>
-                <p className="page-subtitle">{checkStammar.length} kontroller • {calibStammar.length} kalibreringar</p>
+                <p className="page-subtitle">{allKalib.length} kontroller • {calibCount} med kalibreringar</p>
               </header>
               <div className="card">
                 <div className="section-title">Per trädslag</div>
-                <div className="section-subtitle">Hur maskinen mäter i snitt (M − Operatör)</div>
+                <div className="section-subtitle">Viktad snittavvikelse (M − Operatör)</div>
                 <div className="simple-bars">
                   {Object.entries(speciesData).map(([key, data]) => {
                     const name = key === 'gran' ? 'Gran' : key === 'tall' ? 'Tall' : key.charAt(0).toUpperCase() + key.slice(1);
-                    const emoji = key === 'tall' ? '🌲' : '🌲';
                     return (
-                      <div key={key} className="bar-group" onClick={() => openSpeciesDetail(key)} style={{cursor:'pointer'}}>
-                        <div className="bar-header"><span className="bar-species">{emoji} {name}</span><span className="bar-count">{data.count} stammar</span></div>
-                        <div className="bar-row"><span className="bar-label">Längd</span><div className="bar-track"><div className="bar-zero"/><div className={`bar-fill ${data.lenDiff < 0 ? 'neg' : 'pos'}`} style={{width:`${Math.min(100, Math.abs(data.lenDiff) * 20)}%`}}/></div><span className="bar-value">{data.lenDiff >= 0 ? '+' : ''}{data.lenDiff} cm</span></div>
-                        <div className="bar-row"><span className="bar-label">Diameter</span><div className="bar-track"><div className="bar-zero"/><div className={`bar-fill ${data.diaDiff < 0 ? 'neg' : 'pos'}`} style={{width:`${Math.min(100, Math.abs(data.diaDiff) * 20)}%`}}/></div><span className={`bar-value ${Math.abs(data.diaDiff) > 3 ? 'warn' : ''}`}>{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff} mm</span></div>
+                      <div key={key} className="bar-group" onClick={() => openSpeciesDetail(key)} style={{ cursor: 'pointer' }}>
+                        <div className="bar-header"><span className="bar-species">🌲 {name}</span><span className="bar-count">{data.count} kontroller</span></div>
+                        <div className="bar-row"><span className="bar-label">Längd</span><div className="bar-track"><div className="bar-zero" /><div className={`bar-fill ${data.lenDiff < 0 ? 'neg' : 'pos'}`} style={{ width: `${Math.min(100, Math.abs(data.lenDiff) * 20)}%` }} /></div><span className="bar-value">{data.lenDiff >= 0 ? '+' : ''}{data.lenDiff} cm</span></div>
+                        <div className="bar-row"><span className="bar-label">Diameter</span><div className="bar-track"><div className="bar-zero" /><div className={`bar-fill ${data.diaDiff < 0 ? 'neg' : 'pos'}`} style={{ width: `${Math.min(100, Math.abs(data.diaDiff) * 20)}%` }} /></div><span className={`bar-value ${Math.abs(data.diaDiff) > 3 ? 'warn' : ''}`}>{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff} mm</span></div>
                       </div>
                     );
                   })}
@@ -819,16 +701,18 @@ export default function KalibreringPage() {
               </div>
               <div className="card">
                 <div className="section-title">Senaste kontrollerna</div>
-                <div className="section-subtitle">Diameter-avvikelse per dag</div>
+                <div className="section-subtitle">Diameteravvikelse per kontroll</div>
                 <div className="simple-list">
-                  {historyList.map((item, i) => {
-                    const monthShort = monthName.substring(0, 3);
+                  {historyList.map(({ kalib: k, date }) => {
+                    const day = date.getDate();
+                    const monthShort = date.toLocaleDateString('sv-SE', { month: 'short' });
+                    const isWarn = k.status === 'VARNING';
                     return (
-                      <div key={i} className={`list-item ${item.type==='calib'?'calib':''} ${item.type==='missing'?'warn':''}`} onClick={() => openDayModal(item.day)}>
-                        <div className="list-date"><span className="list-day">{item.day}</span><span className="list-month">{monthShort}</span></div>
-                        <div className="list-info">{item.type==='missing'?<span className="list-missing">Ingen kontroll</span>:<><span className="list-species">{item.species}</span><span className="list-stem">#{item.stem}</span></>}</div>
-                        {item.type==='calib'?<div className="list-calib-badge">Kalibrering</div>:item.type!=='missing'?<div className="list-bar-container"><div className={`list-bar ${item.diaDiff!<0?'neg':'pos'}`} style={{width:`${Math.min(100,Math.abs(item.diaDiff!)*20)}%`}}/></div>:null}
-                        <span className={`list-value ${item.type==='missing'?'warn':''} ${item.type==='calib'?'calib':''}`}>{item.type==='missing'?'—':item.type==='calib'?'⚙️':`${item.diaDiff!>=0?'+':''}${item.diaDiff} mm`}</span>
+                      <div key={k.id} className={`list-item ${isWarn ? 'warn' : ''}`} onClick={() => openStemOverview(k)}>
+                        <div className="list-date"><span className="list-day">{day}</span><span className="list-month">{monthShort}</span></div>
+                        <div className="list-info"><span className="list-species">{k.tradslag}</span><span className="list-stem">{k.antal_kontrollstockar} stockar</span></div>
+                        <div className="list-bar-container"><div className={`list-bar ${k.dia_avvikelse_snitt_mm < 0 ? 'neg' : 'pos'}`} style={{ width: `${Math.min(100, Math.abs(k.dia_avvikelse_snitt_mm) * 20)}%` }} /></div>
+                        <span className={`list-value ${isWarn ? 'warn' : ''}`}>{k.dia_avvikelse_snitt_mm >= 0 ? '+' : ''}{k.dia_avvikelse_snitt_mm} mm</span>
                       </div>
                     );
                   })}
@@ -839,16 +723,16 @@ export default function KalibreringPage() {
                 <div className="mini-calendar">
                   <div className="mini-cal-header"><span>M</span><span>T</span><span>O</span><span>T</span><span>F</span><span>L</span><span>S</span></div>
                   <div className="mini-cal-grid">
-                    {calendarDays.map((d,i) => {
-                      if(d.day===null) return <div key={i} className="mini-day empty"/>;
-                      let cls='mini-day';
-                      if(d.off)cls+=' off';if(d.check)cls+=' check';if(d.calib)cls+=' calib';if(d.warn)cls+=' warn';if(d.today)cls+=' today';
-                      const clickable=d.check||d.calib||d.warn;
-                      return <div key={i} className={cls} onClick={clickable?()=>openDayModal(d.day!):undefined}>{d.day}</div>;
+                    {calendarDays.map((d, i) => {
+                      if (d.day === null) return <div key={i} className="mini-day empty" />;
+                      let cls = 'mini-day';
+                      if (d.off) cls += ' off'; if (d.check) cls += ' check'; if (d.calib) cls += ' calib'; if (d.warn) cls += ' warn'; if (d.today) cls += ' today';
+                      const clickable = d.check || d.calib || d.warn;
+                      return <div key={i} className={cls} onClick={clickable ? () => openDayModal(d.day!) : undefined}>{d.day}</div>;
                     })}
                   </div>
                 </div>
-                <div className="mini-legend"><span><span className="dot green"/>Kontroll</span><span><span className="dot blue"/>Kalib.</span><span><span className="dot orange"/>Saknas</span></div>
+                <div className="mini-legend"><span><span className="dot green" />Kontroll</span><span><span className="dot blue" />Kalib.</span><span><span className="dot orange" />Varning</span></div>
               </div>
             </>
           )}
@@ -859,18 +743,18 @@ export default function KalibreringPage() {
               <div className="report-section">
                 <div className="report-section-title">Nyckeltal</div>
                 <div className="report-metrics">
-                  <div className="report-metric"><div className="report-metric-value">{Math.round(totalVolym)}</div><div className="report-metric-unit">m³fub</div><div className="report-metric-label">Total volym</div></div>
-                  <div className="report-metric"><div className="report-metric-value">{checkStammar.length}</div><div className="report-metric-unit">st</div><div className="report-metric-label">Kontrollstammar</div></div>
-                  <div className="report-metric"><div className="report-metric-value">{kontrollFrekvens}</div><div className="report-metric-unit">m³fub</div><div className="report-metric-label">Kontrollfrekvens</div></div>
-                  <div className="report-metric"><div className="report-metric-value">{calibStammar.length}</div><div className="report-metric-unit">st</div><div className="report-metric-label">Kalibreringar</div></div>
+                  <div className="report-metric"><div className="report-metric-value">{allKalib.length}</div><div className="report-metric-unit">st</div><div className="report-metric-label">Kontroller</div></div>
+                  <div className="report-metric"><div className="report-metric-value">{totalStockar}</div><div className="report-metric-unit">st</div><div className="report-metric-label">Kontrollstockar</div></div>
+                  <div className="report-metric"><div className="report-metric-value">{calibCount}</div><div className="report-metric-unit">st</div><div className="report-metric-label">Kalibreringar</div></div>
+                  <div className="report-metric"><div className="report-metric-value">{allKalib.filter(k => k.status === 'VARNING').length}</div><div className="report-metric-unit">st</div><div className="report-metric-label">Varningar</div></div>
                 </div>
               </div>
               <div className="report-section">
                 <div className="report-section-title">Genomsnittlig avvikelse</div>
-                <div className="report-section-desc">Maskin jämfört med operatör</div>
+                <div className="report-section-desc">Maskin jämfört med operatör (viktat snitt)</div>
                 <div className="report-results">
-                  <div className="report-result"><div className="report-result-label">Längd</div><div className="report-result-bar"><div className="report-bar-track"><div className="report-bar-zero"/><div className={`report-bar-fill ${avgLenReport < 0 ? 'neg' : ''}`} style={{width:`${Math.min(50, Math.abs(avgLenReport) * 10)}%`, ...(avgLenReport >= 0 ? {left:'50%'} : {right:'50%'})}}/></div></div><div className="report-result-value">{avgLenReport >= 0 ? '+' : ''}{avgLenReport} cm</div></div>
-                  <div className="report-result"><div className="report-result-label">Diameter</div><div className="report-result-bar"><div className="report-bar-track"><div className="report-bar-zero"/><div className={`report-bar-fill ${avgDiaReport < 0 ? 'neg' : ''}`} style={{width:`${Math.min(50, Math.abs(avgDiaReport) * 10)}%`, ...(avgDiaReport >= 0 ? {left:'50%'} : {right:'50%'})}}/></div></div><div className="report-result-value">{avgDiaReport >= 0 ? '+' : ''}{avgDiaReport} mm</div></div>
+                  <div className="report-result"><div className="report-result-label">Längd</div><div className="report-result-bar"><div className="report-bar-track"><div className="report-bar-zero" /><div className={`report-bar-fill ${avgLenReport < 0 ? 'neg' : ''}`} style={{ width: `${Math.min(50, Math.abs(avgLenReport) * 10)}%`, ...(avgLenReport >= 0 ? { left: '50%' } : { right: '50%' }) }} /></div></div><div className="report-result-value">{avgLenReport >= 0 ? '+' : ''}{avgLenReport} cm</div></div>
+                  <div className="report-result"><div className="report-result-label">Diameter</div><div className="report-result-bar"><div className="report-bar-track"><div className="report-bar-zero" /><div className={`report-bar-fill ${avgDiaReport < 0 ? 'neg' : ''}`} style={{ width: `${Math.min(50, Math.abs(avgDiaReport) * 10)}%`, ...(avgDiaReport >= 0 ? { left: '50%' } : { right: '50%' }) }} /></div></div><div className="report-result-value">{avgDiaReport >= 0 ? '+' : ''}{avgDiaReport} mm</div></div>
                 </div>
                 {(() => {
                   const withinTolerance = Math.abs(avgLenReport) <= 3 && Math.abs(avgDiaReport) <= 4;
@@ -888,7 +772,7 @@ export default function KalibreringPage() {
               <div className="report-section">
                 <div className="report-section-title">Per trädslag</div>
                 <div className="report-species-table">
-                  <div className="report-table-header"><span></span><span>Stammar</span><span>Längd</span><span>Diameter</span></div>
+                  <div className="report-table-header"><span></span><span>Kontroller</span><span>Längd</span><span>Diameter</span></div>
                   {Object.entries(speciesData).map(([key, data]) => {
                     const name = key === 'gran' ? 'Gran' : key === 'tall' ? 'Tall' : key.charAt(0).toUpperCase() + key.slice(1);
                     return (
@@ -899,17 +783,22 @@ export default function KalibreringPage() {
                   })}
                 </div>
               </div>
-              <button className="btn btn-primary" style={{width:'100%',marginTop:'24px'}}>Exportera PDF</button>
+              {latestKalib && (
+                <div className="report-footer">
+                  <div><div className="report-signature-name">Kontrolldata</div><div className="report-signature-role">Automatiskt genererad från HQC-filer</div></div>
+                  <div className="report-machine"><div>{latestKalib.maskin_id}</div><div className="report-machine-sub">{allKalib.length} kontroller totalt</div></div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        <div className={`modal-overlay ${modalOpen?'open':''}`} onClick={()=>setModalOpen(false)}>
-          <div className="modal" onClick={e=>e.stopPropagation()}>
-            <div className="modal-handle"/>
+        <div className={`modal-overlay ${modalOpen ? 'open' : ''}`} onClick={() => setModalOpen(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-handle" />
             <div className="modal-header"><div className="modal-title">{modalContent?.title}</div><div className="modal-subtitle">{modalContent?.subtitle}</div></div>
             <div className="modal-body">{modalContent?.body}</div>
-            <button className="modal-close" onClick={()=>setModalOpen(false)}>Stäng</button>
+            <button className="modal-close" onClick={() => setModalOpen(false)}>Stäng</button>
           </div>
         </div>
       </div>
