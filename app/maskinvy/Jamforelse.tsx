@@ -548,6 +548,7 @@ export default function Jamforelse() {
           </tbody>
         </table>
       </div>
+      </div>
     </div>
   );
 }
