@@ -357,6 +357,7 @@ export default function Maskinvy2Page() {
 
   // ── State ──
   const [machineType, setMachineType] = useState<MachineType>('skordare');
+  const [selectedMaskin, setSelectedMaskin] = useState<string>('alla');
   const [periodType, setPeriodType] = useState<PeriodType>('manad');
   const [year, setYear] = useState(now.getFullYear());
   const [week, setWeek] = useState(currWeek.week);
@@ -403,19 +404,30 @@ export default function Maskinvy2Page() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
+  // ── Machines of selected type ──
+  const typeMaskiner = useMemo(() => {
+    const check = machineType === 'skordare' ? isSkordare : (t: string | null) => !isSkordare(t);
+    return maskiner
+      .filter(m => check(m.typ))
+      .sort((a, b) => (`${a.tillverkare} ${a.modell}`).localeCompare(`${b.tillverkare} ${b.modell}`));
+  }, [maskiner, machineType]);
+
   // ── Machine filter ──
   const machineIds = useMemo(() => {
+    // Specific machine selected
+    if (selectedMaskin !== 'alla') return new Set([selectedMaskin]);
+
+    // All of this type
     const ids = new Set<string>();
     const check = machineType === 'skordare' ? isSkordare : (t: string | null) => !isSkordare(t);
     maskiner.filter(m => check(m.typ)).forEach(m => ids.add(m.maskin_id));
-    // Include unknown machines for skördare (default)
     tidCurr.forEach(r => {
       const m = maskiner.find(mm => mm.maskin_id === r.maskin_id);
       if (!m && machineType === 'skordare') ids.add(r.maskin_id);
       else if (m && check(m.typ)) ids.add(r.maskin_id);
     });
     return ids;
-  }, [maskiner, tidCurr, machineType]);
+  }, [maskiner, tidCurr, machineType, selectedMaskin]);
 
   const fTidC = useMemo(() => tidCurr.filter(r => machineIds.has(r.maskin_id)), [tidCurr, machineIds]);
   const fTidP = useMemo(() => tidPrev.filter(r => machineIds.has(r.maskin_id)), [tidPrev, machineIds]);
@@ -555,10 +567,20 @@ export default function Maskinvy2Page() {
         {/* ═══ FILTERS ═══ */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
 
-          {/* Machine type */}
-          <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3 }}>
-            <Pill label="Skördare" active={machineType === 'skordare'} onClick={() => setMachineType('skordare')} />
-            <Pill label="Skotare" active={machineType === 'skotare'} onClick={() => setMachineType('skotare')} />
+          {/* Machine type + specific machine */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3 }}>
+              <Pill label="Skördare" active={machineType === 'skordare'} onClick={() => { setMachineType('skordare'); setSelectedMaskin('alla'); }} />
+              <Pill label="Skotare" active={machineType === 'skotare'} onClick={() => { setMachineType('skotare'); setSelectedMaskin('alla'); }} />
+            </div>
+            <Select value={selectedMaskin} onChange={v => setSelectedMaskin(v)}>
+              <option value="alla">Alla {machineType === 'skordare' ? 'skördare' : 'skotare'}</option>
+              {typeMaskiner.map(m => (
+                <option key={m.maskin_id} value={m.maskin_id}>
+                  {`${m.tillverkare} ${m.modell}`.trim() || m.maskin_id}
+                </option>
+              ))}
+            </Select>
           </div>
 
           {/* Period type + selectors */}
