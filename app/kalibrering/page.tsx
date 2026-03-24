@@ -1,64 +1,36 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
 
-// === DATA ===
-const stem475: Record<number, {
-  product: string;
-  length: { m: number; o: number };
-  profile: { pos: number; label: string; m: number; o: number }[];
-}> = {
-  1: { 
-    product: 'Massaved', 
-    length: {m:318,o:321}, 
-    profile: [
-      {pos: 130, label: 'D130', m: 276, o: 269},
-      {pos: 200, label: 'D200', m: 265, o: 263},
-      {pos: 318, label: 'Topp', m: 257, o: 261}
-    ]
-  },
-  2: { 
-    product: 'Timmer', 
-    length: {m:493,o:496}, 
-    profile: [
-      {pos: 100, label: 'D100', m: 253, o: 258},
-      {pos: 200, label: 'D200', m: 248, o: 252},
-      {pos: 300, label: 'D300', m: 241, o: 250},
-      {pos: 400, label: 'D400', m: 239, o: 240},
-      {pos: 493, label: 'Topp', m: 234, o: 237}
-    ]
-  },
-  3: { 
-    product: 'Timmer', 
-    length: {m:494,o:495}, 
-    profile: [
-      {pos: 100, label: 'D100', m: 226, o: 232},
-      {pos: 200, label: 'D200', m: 216, o: 222},
-      {pos: 300, label: 'D300', m: 210, o: 216},
-      {pos: 400, label: 'D400', m: 204, o: 206},
-      {pos: 494, label: 'Topp', m: 197, o: 201}
-    ]
-  },
-  4: { 
-    product: 'Kubb', 
-    length: {m:311,o:310}, 
-    profile: [
-      {pos: 100, label: 'D100', m: 186, o: 186},
-      {pos: 200, label: 'D200', m: 180, o: 180},
-      {pos: 311, label: 'Topp', m: 169, o: 168}
-    ]
-  },
-  5: { 
-    product: 'Massaved', 
-    length: {m:404,o:404}, 
-    profile: [
-      {pos: 100, label: 'D100', m: 154, o: 157},
-      {pos: 200, label: 'D200', m: 141, o: 142},
-      {pos: 300, label: 'D300', m: 129, o: 124},
-      {pos: 404, label: 'Topp', m: 109, o: 107}
-    ]
-  }
-};
+// === TYPES ===
+interface Matpunkt {
+  position: number;
+  benamning: string;
+  diameter_maskin: number;
+  diameter_operator: number;
+}
+
+interface Stock {
+  stock_nummer: number;
+  sortiment: string;
+  langd_maskin: number;
+  langd_operator: number;
+  matpunkter: Matpunkt[];
+}
+
+interface KontrollStam {
+  id: string;
+  datum: string;
+  stam_nummer: number;
+  tradslag: string;
+  antal_stockar: number;
+  typ: 'check' | 'calib' | 'missing';
+  kalibrering: string | null;
+  temperatur: number | null;
+  volym_m3fub: number | null;
+  stockar: Stock[];
+}
 
 interface HistoryEntry {
   stems?: { num: number; species: string; logs: number; lenDiff: number; diaDiff: number; temp: number }[];
@@ -67,27 +39,306 @@ interface HistoryEntry {
   vol?: number;
 }
 
-const historyData: Record<number, HistoryEntry> = {
-  6: { stems: [{num: 112, species: 'Gran', logs: 4, lenDiff: -2, diaDiff: -4, temp: -2}], type: 'check' },
-  7: { stems: [{num: 156, species: 'Tall', logs: 5, lenDiff: 0, diaDiff: -2, temp: -3}], type: 'check' },
-  8: { stems: [{num: 201, species: 'Gran', logs: 4, lenDiff: -1, diaDiff: -3, temp: -7}], type: 'calib', calib: '+2mm' },
-  9: { stems: [{num: 245, species: 'Tall', logs: 3, lenDiff: 1, diaDiff: -1, temp: -4}], type: 'check' },
-  10: { stems: [{num: 221, species: 'Gran', logs: 6, lenDiff: -2, diaDiff: -3, temp: -12}], type: 'check' },
-  13: { type: 'missing', vol: 98 },
-  14: { stems: [{num: 892, species: 'Tall', logs: 4, lenDiff: -1, diaDiff: +2, temp: -2}], type: 'check' },
-  15: { stems: [{num: 36, species: 'Gran', logs: 6, lenDiff: 0, diaDiff: -2, temp: -5}], type: 'calib', calib: '−1mm@D100, +1mm@D300' },
-  16: { stems: [{num: 475, species: 'Gran', logs: 5, lenDiff: -1, diaDiff: -3, temp: -8}], type: 'check' }
-};
+// === HELPERS ===
+function buildStem475(stam: KontrollStam): Record<number, {
+  product: string;
+  length: { m: number; o: number };
+  profile: { pos: number; label: string; m: number; o: number }[];
+}> {
+  const result: Record<number, any> = {};
+  stam.stockar.forEach(stock => {
+    result[stock.stock_nummer] = {
+      product: stock.sortiment,
+      length: { m: stock.langd_maskin, o: stock.langd_operator },
+      profile: stock.matpunkter
+        .sort((a, b) => a.position - b.position)
+        .map(mp => ({
+          pos: mp.position,
+          label: mp.benamning,
+          m: mp.diameter_maskin,
+          o: mp.diameter_operator,
+        })),
+    };
+  });
+  return result;
+}
 
-const speciesData = {
-  gran: { count: 5, lenDiff: -0.8, diaDiff: -3.2, stems: [112, 201, 221, 36, 475] },
-  tall: { count: 3, lenDiff: 0.3, diaDiff: -1.8, stems: [156, 245, 892] }
-};
+function buildHistoryData(stammar: KontrollStam[]): Record<number, HistoryEntry> {
+  const result: Record<number, HistoryEntry> = {};
+  stammar.forEach(s => {
+    const day = new Date(s.datum).getDate();
+    if (s.typ === 'missing') {
+      result[day] = { type: 'missing', vol: s.volym_m3fub ?? undefined };
+    } else {
+      // Calculate average diffs from stockar
+      let totalLenDiff = 0;
+      let totalDiaDiff = 0;
+      let diaCount = 0;
+      s.stockar.forEach(stock => {
+        totalLenDiff += stock.langd_maskin - stock.langd_operator;
+        stock.matpunkter.forEach(mp => {
+          if (mp.benamning !== 'Topp') {
+            totalDiaDiff += mp.diameter_maskin - mp.diameter_operator;
+            diaCount++;
+          }
+        });
+      });
+      const avgLenDiff = s.stockar.length > 0 ? Math.round(totalLenDiff / s.stockar.length) : 0;
+      const avgDiaDiff = diaCount > 0 ? Math.round(totalDiaDiff / diaCount) : 0;
+
+      result[day] = {
+        type: s.typ as 'check' | 'calib',
+        calib: s.kalibrering ?? undefined,
+        stems: [{
+          num: s.stam_nummer,
+          species: s.tradslag,
+          logs: s.antal_stockar,
+          lenDiff: avgLenDiff,
+          diaDiff: avgDiaDiff,
+          temp: s.temperatur ?? 0,
+        }],
+      };
+    }
+  });
+  return result;
+}
+
+function buildHistoryList(stammar: KontrollStam[]): { day: number; species?: string; stem?: number; diaDiff?: number; type: string }[] {
+  return stammar
+    .sort((a, b) => new Date(b.datum).getTime() - new Date(a.datum).getTime())
+    .map(s => {
+      const day = new Date(s.datum).getDate();
+      if (s.typ === 'missing') {
+        return { day, type: 'missing' };
+      }
+      let totalDiaDiff = 0;
+      let diaCount = 0;
+      s.stockar.forEach(stock => {
+        stock.matpunkter.forEach(mp => {
+          if (mp.benamning !== 'Topp') {
+            totalDiaDiff += mp.diameter_maskin - mp.diameter_operator;
+            diaCount++;
+          }
+        });
+      });
+      return {
+        day,
+        species: s.tradslag,
+        stem: s.stam_nummer,
+        diaDiff: diaCount > 0 ? Math.round(totalDiaDiff / diaCount) : 0,
+        type: s.typ,
+      };
+    });
+}
+
+function buildSpeciesData(stammar: KontrollStam[]): Record<string, { count: number; lenDiff: number; diaDiff: number; stems: number[] }> {
+  const species: Record<string, { totalLen: number; totalDia: number; diaCount: number; lenCount: number; stems: number[] }> = {};
+  stammar.filter(s => s.typ !== 'missing').forEach(s => {
+    const key = s.tradslag.toLowerCase();
+    if (!species[key]) species[key] = { totalLen: 0, totalDia: 0, diaCount: 0, lenCount: 0, stems: [] };
+    species[key].stems.push(s.stam_nummer);
+    s.stockar.forEach(stock => {
+      species[key].totalLen += stock.langd_maskin - stock.langd_operator;
+      species[key].lenCount++;
+      stock.matpunkter.forEach(mp => {
+        if (mp.benamning !== 'Topp') {
+          species[key].totalDia += mp.diameter_maskin - mp.diameter_operator;
+          species[key].diaCount++;
+        }
+      });
+    });
+  });
+  const result: Record<string, { count: number; lenDiff: number; diaDiff: number; stems: number[] }> = {};
+  Object.entries(species).forEach(([key, v]) => {
+    result[key] = {
+      count: v.stems.length,
+      lenDiff: v.lenCount > 0 ? Math.round(v.totalLen / v.lenCount * 10) / 10 : 0,
+      diaDiff: v.diaCount > 0 ? Math.round(v.totalDia / v.diaCount * 10) / 10 : 0,
+      stems: v.stems,
+    };
+  });
+  return result;
+}
 
 export default function KalibreringPage() {
   const [activeTab, setActiveTab] = useState<'today' | 'history' | 'report'>('today');
   const [modalOpen, setModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState<{ title: string; subtitle: string; body: React.ReactNode } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Data from Supabase
+  const [todayStam, setTodayStam] = useState<KontrollStam | null>(null);
+  const [allStammar, setAllStammar] = useState<KontrollStam[]>([]);
+
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        // Fetch all kontroll_stammar sorted by date
+        const { data: stammarRows, error: stamErr } = await supabase
+          .from('kontroll_stammar')
+          .select('*')
+          .order('datum', { ascending: false });
+
+        if (stamErr) { console.error('kontroll_stammar error:', stamErr); setLoading(false); return; }
+        if (!stammarRows || stammarRows.length === 0) { setLoading(false); return; }
+
+        // Fetch all stockar for these stammar
+        const stamIds = stammarRows.map((s: any) => s.id);
+        const { data: stockarRows, error: stockErr } = await supabase
+          .from('kontroll_stockar')
+          .select('*')
+          .in('kontroll_stam_id', stamIds)
+          .order('stock_nummer', { ascending: true });
+
+        if (stockErr) console.error('kontroll_stockar error:', stockErr);
+
+        // Fetch all matpunkter for these stockar
+        const stockIds = (stockarRows || []).map((s: any) => s.id);
+        let matpunkterRows: any[] = [];
+        if (stockIds.length > 0) {
+          const { data: mpRows, error: mpErr } = await supabase
+            .from('kontroll_matpunkter')
+            .select('*')
+            .in('kontroll_stock_id', stockIds)
+            .order('position', { ascending: true });
+          if (mpErr) console.error('kontroll_matpunkter error:', mpErr);
+          matpunkterRows = mpRows || [];
+        }
+
+        // Build matpunkter map: stock_id -> matpunkter[]
+        const mpMap: Record<string, Matpunkt[]> = {};
+        matpunkterRows.forEach((mp: any) => {
+          if (!mpMap[mp.kontroll_stock_id]) mpMap[mp.kontroll_stock_id] = [];
+          mpMap[mp.kontroll_stock_id].push({
+            position: mp.position,
+            benamning: mp.benamning,
+            diameter_maskin: mp.diameter_maskin,
+            diameter_operator: mp.diameter_operator,
+          });
+        });
+
+        // Build stockar map: stam_id -> stockar[]
+        const stockMap: Record<string, Stock[]> = {};
+        (stockarRows || []).forEach((s: any) => {
+          if (!stockMap[s.kontroll_stam_id]) stockMap[s.kontroll_stam_id] = [];
+          stockMap[s.kontroll_stam_id].push({
+            stock_nummer: s.stock_nummer,
+            sortiment: s.sortiment,
+            langd_maskin: s.langd_maskin,
+            langd_operator: s.langd_operator,
+            matpunkter: mpMap[s.id] || [],
+          });
+        });
+
+        // Build full KontrollStam objects
+        const stammar: KontrollStam[] = stammarRows.map((s: any) => ({
+          id: s.id,
+          datum: s.datum,
+          stam_nummer: s.stam_nummer,
+          tradslag: s.tradslag,
+          antal_stockar: s.antal_stockar,
+          typ: s.typ as 'check' | 'calib' | 'missing',
+          kalibrering: s.kalibrering,
+          temperatur: s.temperatur,
+          volym_m3fub: s.volym_m3fub,
+          stockar: stockMap[s.id] || [],
+        }));
+
+        setAllStammar(stammar);
+        // Today's stem = most recent non-missing entry
+        const today = stammar.find(s => s.typ !== 'missing');
+        setTodayStam(today || null);
+      } catch (err) {
+        console.error('Fetch error:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchData();
+  }, []);
+
+  // Derived data
+  const stem475 = todayStam ? buildStem475(todayStam) : {};
+  const historyData = buildHistoryData(allStammar);
+  const historyList = buildHistoryList(allStammar);
+  const speciesData = buildSpeciesData(allStammar);
+
+  // Report calculations
+  const checkStammar = allStammar.filter(s => s.typ !== 'missing');
+  const calibStammar = allStammar.filter(s => s.typ === 'calib');
+  const totalVolym = allStammar.reduce((acc, s) => acc + (s.volym_m3fub ?? 0), 0);
+  const kontrollFrekvens = checkStammar.length > 0 ? Math.round(totalVolym / checkStammar.length) : 0;
+
+  // Overall average diffs for report
+  let reportTotalLen = 0, reportLenCount = 0, reportTotalDia = 0, reportDiaCount = 0;
+  checkStammar.forEach(s => {
+    s.stockar.forEach(stock => {
+      reportTotalLen += stock.langd_maskin - stock.langd_operator;
+      reportLenCount++;
+      stock.matpunkter.forEach(mp => {
+        if (mp.benamning !== 'Topp') {
+          reportTotalDia += mp.diameter_maskin - mp.diameter_operator;
+          reportDiaCount++;
+        }
+      });
+    });
+  });
+  const avgLenReport = reportLenCount > 0 ? Math.round(reportTotalLen / reportLenCount * 10) / 10 : 0;
+  const avgDiaReport = reportDiaCount > 0 ? Math.round(reportTotalDia / reportDiaCount * 10) / 10 : 0;
+
+  // Today hero metrics
+  let todayLenDiff = 0, todayDiaDiff = 0;
+  if (todayStam) {
+    let tl = 0, td = 0, dc = 0, lc = 0;
+    todayStam.stockar.forEach(stock => {
+      tl += stock.langd_maskin - stock.langd_operator;
+      lc++;
+      stock.matpunkter.forEach(mp => {
+        if (mp.benamning !== 'Topp') {
+          td += mp.diameter_maskin - mp.diameter_operator;
+          dc++;
+        }
+      });
+    });
+    todayLenDiff = lc > 0 ? Math.round(tl / lc) : 0;
+    todayDiaDiff = dc > 0 ? Math.round(td / dc) : 0;
+  }
+
+  const todayTotalLen = todayStam ? todayStam.stockar.reduce((a, s) => a + s.langd_maskin, 0) : 0;
+
+  // Calendar – build from allStammar for the month of the most recent entry
+  const calendarMonth = allStammar.length > 0 ? new Date(allStammar[0].datum) : new Date();
+  const year = calendarMonth.getFullYear();
+  const month = calendarMonth.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDow = (new Date(year, month, 1).getDay() + 6) % 7; // Monday=0
+  const monthName = new Date(year, month).toLocaleDateString('sv-SE', { month: 'long' });
+
+  const stamByDay: Record<number, KontrollStam> = {};
+  allStammar.forEach(s => {
+    const d = new Date(s.datum);
+    if (d.getFullYear() === year && d.getMonth() === month) {
+      stamByDay[d.getDate()] = s;
+    }
+  });
+
+  const calendarDays: { day: number | null; check?: boolean; calib?: boolean; warn?: boolean; off?: boolean; today?: boolean }[] = [];
+  for (let i = 0; i < firstDow; i++) calendarDays.push({ day: null });
+  const todayDate = new Date();
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dow = (firstDow + d - 1) % 7;
+    const isWeekend = dow >= 5;
+    const stam = stamByDay[d];
+    const isToday = todayDate.getFullYear() === year && todayDate.getMonth() === month && todayDate.getDate() === d;
+    calendarDays.push({
+      day: d,
+      off: isWeekend && !stam,
+      check: stam?.typ === 'check',
+      calib: stam?.typ === 'calib',
+      warn: stam?.typ === 'missing',
+      today: isToday,
+    });
+  }
 
   const openLogModal = (logNum: number) => {
     const log = stem475[logNum];
@@ -136,6 +387,7 @@ export default function KalibreringPage() {
   };
 
   const openStemOverview = () => {
+    if (!todayStam) return;
     let totalLen = 0, totalLenDiff = 0;
     const allDiaDiffs: number[] = [];
     Object.values(stem475).forEach(log => {
@@ -143,12 +395,12 @@ export default function KalibreringPage() {
       totalLenDiff += (log.length.m - log.length.o);
       log.profile.forEach(p => { if (p.label !== 'Topp') allDiaDiffs.push(p.m - p.o); });
     });
-    const avgDiaDiff = Math.round(allDiaDiffs.reduce((a, b) => a + b, 0) / allDiaDiffs.length);
-    const avgLenDiff = Math.round(totalLenDiff / 5 * 10) / 10;
+    const avgDiaDiff = allDiaDiffs.length > 0 ? Math.round(allDiaDiffs.reduce((a, b) => a + b, 0) / allDiaDiffs.length) : 0;
+    const avgLenDiff = Object.keys(stem475).length > 0 ? Math.round(totalLenDiff / Object.keys(stem475).length * 10) / 10 : 0;
 
     setModalContent({
-      title: 'Stam #475',
-      subtitle: 'Gran • 5 stockar • Alla mätpunkter',
+      title: `Stam #${todayStam.stam_nummer}`,
+      subtitle: `${todayStam.tradslag} • ${todayStam.antal_stockar} stockar • Alla mätpunkter`,
       body: (
         <>
           <div className="total-summary">
@@ -164,7 +416,7 @@ export default function KalibreringPage() {
             {Object.entries(stem475).map(([num, log]) => {
               const topDia = log.profile[log.profile.length - 1].m;
               const cDias = log.profile.filter(p => p.label !== 'Topp');
-              const avg = Math.round(cDias.reduce((a, p) => a + (p.m - p.o), 0) / cDias.length);
+              const avg = cDias.length > 0 ? Math.round(cDias.reduce((a, p) => a + (p.m - p.o), 0) / cDias.length) : 0;
               const cls = Math.abs(avg) > 6 ? 'bad' : Math.abs(avg) > 4 ? 'warn' : 'good';
               return (
                 <div key={num} className="overview-log" onClick={() => { setModalOpen(false); setTimeout(() => openLogModal(parseInt(num)), 150); }}>
@@ -187,13 +439,13 @@ export default function KalibreringPage() {
 
     if (data.type === 'missing') {
       setModalContent({
-        title: `${day} januari`, subtitle: 'Ingen kontroll',
+        title: `${day} ${monthName}`, subtitle: 'Ingen kontroll',
         body: (<div className="info-box warm"><div className="info-box-icon">⚠️</div><div className="info-box-content"><div className="info-box-title">Kontroll saknas</div><div className="info-box-text">{data.vol} m³fub producerades denna dag utan att en kontrollstam mättes.</div></div></div>)
       });
     } else if (data.type === 'calib') {
       const stem = data.stems![0];
       setModalContent({
-        title: `${day} januari`, subtitle: 'Kalibrering utförd',
+        title: `${day} ${monthName}`, subtitle: 'Kalibrering utförd',
         body: (
           <>
             <div className="total-summary calib-style"><div className="total-title calib-title">Kalibrering</div><div className="calib-value">{data.calib}</div></div>
@@ -205,8 +457,9 @@ export default function KalibreringPage() {
       });
     } else {
       const stem = data.stems![0];
+      const isTodayStem = todayStam && stem.num === todayStam.stam_nummer;
       setModalContent({
-        title: `${day} januari`, subtitle: '1 kontrollstam',
+        title: `${day} ${monthName}`, subtitle: '1 kontrollstam',
         body: (
           <>
             <div className="total-summary">
@@ -218,7 +471,7 @@ export default function KalibreringPage() {
               </div>
             </div>
             <div className="weather-box"><div className="weather-icon">{stem.temp <= -10 ? '🥶' : stem.temp <= -5 ? '❄️' : '🌡️'}</div><div className="weather-info"><div className="weather-temp">{stem.temp}°C vid mätning</div><div className="weather-note">{stem.temp <= -10 ? 'Extrem kyla kan påverka mätningen' : stem.temp <= -5 ? 'Kyla kan påverka mätningen' : 'Normal temperatur'}</div></div></div>
-            <div className="overview-log" onClick={day === 16 ? openStemOverview : undefined}><div className="overview-log-num">#</div><div className="overview-log-info"><div className="overview-log-title">Stam #{stem.num}</div><div className="overview-log-meta">{stem.logs} stockar</div></div>{day === 16 && <span className="overview-link">Visa →</span>}</div>
+            <div className="overview-log" onClick={isTodayStem ? openStemOverview : undefined}><div className="overview-log-num">#</div><div className="overview-log-info"><div className="overview-log-title">Stam #{stem.num}</div><div className="overview-log-meta">{stem.logs} stockar</div></div>{isTodayStem && <span className="overview-link">Visa →</span>}</div>
           </>
         )
       });
@@ -226,9 +479,10 @@ export default function KalibreringPage() {
     setModalOpen(true);
   };
 
-  const openSpeciesDetail = (species: 'gran' | 'tall') => {
+  const openSpeciesDetail = (species: string) => {
     const data = speciesData[species];
-    const name = species === 'gran' ? 'Gran' : 'Tall';
+    if (!data) return;
+    const name = species === 'gran' ? 'Gran' : species === 'tall' ? 'Tall' : species.charAt(0).toUpperCase() + species.slice(1);
     setModalContent({
       title: name, subtitle: `${data.count} kontrollstammar`,
       body: (
@@ -263,23 +517,35 @@ export default function KalibreringPage() {
     setModalOpen(true);
   };
 
-  const calendarDays = [
-    { day: null }, { day: null }, { day: 1 }, { day: 2 }, { day: 3 }, { day: 4, off: true }, { day: 5, off: true },
-    { day: 6, check: true }, { day: 7, check: true }, { day: 8, calib: true }, { day: 9, check: true }, { day: 10, check: true }, { day: 11, off: true }, { day: 12, off: true },
-    { day: 13, warn: true }, { day: 14, check: true }, { day: 15, calib: true }, { day: 16, check: true, today: true }, { day: 17 }, { day: 18, off: true }, { day: 19, off: true }
-  ];
+  if (loading) {
+    return (
+      <>
+        <style jsx global>{`
+          .kalib-loading{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;color:#86868b}
+          .kalib-spinner{width:32px;height:32px;border:3px solid #e5e5ea;border-top-color:#0071e3;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:16px}
+          @keyframes spin{to{transform:rotate(360deg)}}
+        `}</style>
+        <div className="kalib-loading"><div className="kalib-spinner" /><div>Laddar kontrolldata…</div></div>
+      </>
+    );
+  }
 
-  const historyList = [
-    { day: 16, species: 'Gran', stem: 475, diaDiff: -3, type: 'check' },
-    { day: 15, species: 'Gran', stem: 36, diaDiff: -2, type: 'calib' },
-    { day: 14, species: 'Tall', stem: 892, diaDiff: +2, type: 'check' },
-    { day: 13, type: 'missing' },
-    { day: 10, species: 'Gran', stem: 221, diaDiff: -3, type: 'check' },
-    { day: 9, species: 'Tall', stem: 245, diaDiff: -1, type: 'check' },
-    { day: 8, species: 'Gran', stem: 201, diaDiff: -3, type: 'calib' },
-    { day: 7, species: 'Tall', stem: 156, diaDiff: -2, type: 'check' },
-    { day: 6, species: 'Gran', stem: 112, diaDiff: -4, type: 'check' },
-  ];
+  if (allStammar.length === 0) {
+    return (
+      <>
+        <style jsx global>{`
+          .kalib-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text',sans-serif;color:#86868b;text-align:center;padding:40px}
+          .kalib-empty-icon{font-size:64px;margin-bottom:16px}
+          .kalib-empty-title{font-size:22px;font-weight:600;color:#1d1d1f;margin-bottom:8px}
+          .kalib-empty-text{font-size:15px;max-width:320px}
+        `}</style>
+        <div className="kalib-empty"><div className="kalib-empty-icon">📏</div><div className="kalib-empty-title">Inga kontrollmätningar</div><div className="kalib-empty-text">När kontrollstammar registreras visas de här med jämförelser och statistik.</div></div>
+      </>
+    );
+  }
+
+  // Format date for report
+  const reportDate = allStammar.length > 0 ? new Date(allStammar[0].datum).toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
 
   return (
     <>
@@ -401,7 +667,9 @@ export default function KalibreringPage() {
         .report-result-value{width:70px;text-align:right;font-size:15px;font-weight:600}
         .report-verdict{display:flex;align-items:center;gap:12px;padding:16px;border-radius:12px}
         .report-verdict.good{background:#e8f5e9}
+        .report-verdict.warn{background:#fff3e0}
         .report-verdict-icon{width:32px;height:32px;border-radius:50%;background:var(--green);color:white;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600}
+        .report-verdict-icon.warn-icon{background:var(--orange)}
         .report-verdict-title{font-size:15px;font-weight:600}
         .report-verdict-desc{font-size:13px;color:var(--text-secondary);margin-top:2px}
         .report-species-table{border-radius:12px;overflow:hidden;border:1px solid var(--border)}
@@ -480,38 +748,41 @@ export default function KalibreringPage() {
         </nav>
 
         <div className="container">
-          {activeTab === 'today' && (
+          {activeTab === 'today' && todayStam && (
             <>
               <header className="page-header">
                 <div className="page-eyebrow">Kontrollmätning</div>
-                <h1 className="page-title">Stam #475</h1>
-                <p className="page-subtitle">Gran • 5 stockar • Kontrollerad 09:47</p>
+                <h1 className="page-title">Stam #{todayStam.stam_nummer}</h1>
+                <p className="page-subtitle">{todayStam.tradslag} • {todayStam.antal_stockar} stockar • Kontrollerad {new Date(todayStam.datum).toLocaleDateString('sv-SE')}</p>
               </header>
               <div className="card">
                 <div className="section-title">Så mätte maskinen</div>
                 <div className="section-subtitle">Jämfört med operatörens manuella mätning</div>
                 <div className="hero-metrics">
-                  <div className="hero-metric"><div className="hero-metric-value">−1</div><div className="hero-metric-label">Längd (cm)</div><div className="hero-metric-hint">Maskin − Operatör</div></div>
-                  <div className="hero-metric"><div className="hero-metric-value">−3</div><div className="hero-metric-label">Diameter (mm)</div><div className="hero-metric-hint">Maskin − Operatör</div></div>
+                  <div className="hero-metric"><div className="hero-metric-value">{todayLenDiff >= 0 ? '+' : ''}{todayLenDiff}</div><div className="hero-metric-label">Längd (cm)</div><div className="hero-metric-hint">Maskin − Operatör</div></div>
+                  <div className="hero-metric"><div className="hero-metric-value">{todayDiaDiff >= 0 ? '+' : ''}{todayDiaDiff}</div><div className="hero-metric-label">Diameter (mm)</div><div className="hero-metric-hint">Maskin − Operatör</div></div>
                 </div>
                 <div className="info-box"><div className="info-box-icon">📊</div><div className="info-box-content"><div className="info-box-title">En stam räcker inte</div><div className="info-box-text">För att veta om justering behövs måste du se trenden över flera kontroller.</div></div></div>
               </div>
-              <div className="card card-tight">
-                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                  <div style={{ fontSize: '32px' }}>❄️</div>
-                  <div><div style={{ fontWeight: 600, marginBottom: '2px' }}>−8°C vid mätning</div><div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Kyla kan påverka mätningen.</div></div>
+              {todayStam.temperatur !== null && (
+                <div className="card card-tight">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                    <div style={{ fontSize: '32px' }}>{todayStam.temperatur <= -10 ? '🥶' : todayStam.temperatur <= -5 ? '❄️' : '🌡️'}</div>
+                    <div><div style={{ fontWeight: 600, marginBottom: '2px' }}>{todayStam.temperatur}°C vid mätning</div><div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>{todayStam.temperatur <= -5 ? 'Kyla kan påverka mätningen.' : 'Normal temperatur.'}</div></div>
+                  </div>
                 </div>
-              </div>
+              )}
               <div className="card">
                 <div className="section-title">Stammen</div>
-                <div className="section-subtitle">Gran • 5 stockar • 20.2 meter • Tryck för detaljer</div>
+                <div className="section-subtitle">{todayStam.tradslag} • {todayStam.antal_stockar} stockar • {(todayTotalLen / 100).toFixed(1)} meter • Tryck för detaljer</div>
                 <div className="stem-viz">
                   <div className="stem-viz-inner">
                     <span className="stem-label">Rot</span>
-                    {[1,2,3,4,5].map(n => {
-                      const log = stem475[n];
-                      const sizes: Record<number,{w:number;h:number}> = {1:{w:55,h:65},2:{w:80,h:55},3:{w:80,h:45},4:{w:52,h:38},5:{w:68,h:30}};
-                      return (<div key={n} className="log-block" onClick={() => openLogModal(n)}><div className="log-body" style={{width:sizes[n].w,height:sizes[n].h}}><span className="log-num">{n}</span></div><div className="log-info"><div className="log-length">{log.length.m} cm</div><div className="log-product">{log.product}</div></div></div>);
+                    {Object.entries(stem475).map(([n, log]) => {
+                      const num = parseInt(n);
+                      const baseW = 40 + Math.min(60, log.length.m / 8);
+                      const baseH = 25 + Math.min(50, (log.profile[0]?.m ?? 200) / 6);
+                      return (<div key={num} className="log-block" onClick={() => openLogModal(num)}><div className="log-body" style={{width: baseW, height: baseH}}><span className="log-num">{num}</span></div><div className="log-info"><div className="log-length">{log.length.m} cm</div><div className="log-product">{log.product}</div></div></div>);
                     })}
                     <span className="stem-label">Topp</span>
                   </div>
@@ -527,40 +798,44 @@ export default function KalibreringPage() {
               <header className="page-header">
                 <div className="page-eyebrow">Historik</div>
                 <h1 className="page-title">Hur mäter maskinen?</h1>
-                <p className="page-subtitle">8 kontroller • 2 kalibreringar</p>
+                <p className="page-subtitle">{checkStammar.length} kontroller • {calibStammar.length} kalibreringar</p>
               </header>
               <div className="card">
                 <div className="section-title">Per trädslag</div>
                 <div className="section-subtitle">Hur maskinen mäter i snitt (M − Operatör)</div>
                 <div className="simple-bars">
-                  <div className="bar-group" onClick={() => openSpeciesDetail('gran')} style={{cursor:'pointer'}}>
-                    <div className="bar-header"><span className="bar-species">🌲 Gran</span><span className="bar-count">5 stammar</span></div>
-                    <div className="bar-row"><span className="bar-label">Längd</span><div className="bar-track"><div className="bar-zero"/><div className="bar-fill neg" style={{width:'16%'}}/></div><span className="bar-value">−0.8 cm</span></div>
-                    <div className="bar-row"><span className="bar-label">Diameter</span><div className="bar-track"><div className="bar-zero"/><div className="bar-fill neg" style={{width:'64%'}}/></div><span className="bar-value warn">−3.2 mm</span></div>
-                  </div>
-                  <div className="bar-group" onClick={() => openSpeciesDetail('tall')} style={{cursor:'pointer'}}>
-                    <div className="bar-header"><span className="bar-species">🌲 Tall</span><span className="bar-count">3 stammar</span></div>
-                    <div className="bar-row"><span className="bar-label">Längd</span><div className="bar-track"><div className="bar-zero"/><div className="bar-fill pos" style={{width:'6%'}}/></div><span className="bar-value">+0.3 cm</span></div>
-                    <div className="bar-row"><span className="bar-label">Diameter</span><div className="bar-track"><div className="bar-zero"/><div className="bar-fill neg" style={{width:'36%'}}/></div><span className="bar-value">−1.8 mm</span></div>
-                  </div>
+                  {Object.entries(speciesData).map(([key, data]) => {
+                    const name = key === 'gran' ? 'Gran' : key === 'tall' ? 'Tall' : key.charAt(0).toUpperCase() + key.slice(1);
+                    const emoji = key === 'tall' ? '🌲' : '🌲';
+                    return (
+                      <div key={key} className="bar-group" onClick={() => openSpeciesDetail(key)} style={{cursor:'pointer'}}>
+                        <div className="bar-header"><span className="bar-species">{emoji} {name}</span><span className="bar-count">{data.count} stammar</span></div>
+                        <div className="bar-row"><span className="bar-label">Längd</span><div className="bar-track"><div className="bar-zero"/><div className={`bar-fill ${data.lenDiff < 0 ? 'neg' : 'pos'}`} style={{width:`${Math.min(100, Math.abs(data.lenDiff) * 20)}%`}}/></div><span className="bar-value">{data.lenDiff >= 0 ? '+' : ''}{data.lenDiff} cm</span></div>
+                        <div className="bar-row"><span className="bar-label">Diameter</span><div className="bar-track"><div className="bar-zero"/><div className={`bar-fill ${data.diaDiff < 0 ? 'neg' : 'pos'}`} style={{width:`${Math.min(100, Math.abs(data.diaDiff) * 20)}%`}}/></div><span className={`bar-value ${Math.abs(data.diaDiff) > 3 ? 'warn' : ''}`}>{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff} mm</span></div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               <div className="card">
                 <div className="section-title">Senaste kontrollerna</div>
                 <div className="section-subtitle">Diameter-avvikelse per dag</div>
                 <div className="simple-list">
-                  {historyList.map((item,i) => (
-                    <div key={i} className={`list-item ${item.type==='calib'?'calib':''} ${item.type==='missing'?'warn':''}`} onClick={() => openDayModal(item.day)}>
-                      <div className="list-date"><span className="list-day">{item.day}</span><span className="list-month">jan</span></div>
-                      <div className="list-info">{item.type==='missing'?<span className="list-missing">Ingen kontroll</span>:<><span className="list-species">{item.species}</span><span className="list-stem">#{item.stem}</span></>}</div>
-                      {item.type==='calib'?<div className="list-calib-badge">Kalibrering</div>:item.type!=='missing'?<div className="list-bar-container"><div className={`list-bar ${item.diaDiff!<0?'neg':'pos'}`} style={{width:`${Math.min(100,Math.abs(item.diaDiff!)*20)}%`}}/></div>:null}
-                      <span className={`list-value ${item.type==='missing'?'warn':''} ${item.type==='calib'?'calib':''}`}>{item.type==='missing'?'—':item.type==='calib'?'⚙️':`${item.diaDiff!>=0?'+':''}${item.diaDiff} mm`}</span>
-                    </div>
-                  ))}
+                  {historyList.map((item, i) => {
+                    const monthShort = monthName.substring(0, 3);
+                    return (
+                      <div key={i} className={`list-item ${item.type==='calib'?'calib':''} ${item.type==='missing'?'warn':''}`} onClick={() => openDayModal(item.day)}>
+                        <div className="list-date"><span className="list-day">{item.day}</span><span className="list-month">{monthShort}</span></div>
+                        <div className="list-info">{item.type==='missing'?<span className="list-missing">Ingen kontroll</span>:<><span className="list-species">{item.species}</span><span className="list-stem">#{item.stem}</span></>}</div>
+                        {item.type==='calib'?<div className="list-calib-badge">Kalibrering</div>:item.type!=='missing'?<div className="list-bar-container"><div className={`list-bar ${item.diaDiff!<0?'neg':'pos'}`} style={{width:`${Math.min(100,Math.abs(item.diaDiff!)*20)}%`}}/></div>:null}
+                        <span className={`list-value ${item.type==='missing'?'warn':''} ${item.type==='calib'?'calib':''}`}>{item.type==='missing'?'—':item.type==='calib'?'⚙️':`${item.diaDiff!>=0?'+':''}${item.diaDiff} mm`}</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
               <div className="card">
-                <div className="section-title">Januari</div>
+                <div className="section-title">{monthName.charAt(0).toUpperCase() + monthName.slice(1)}</div>
                 <div className="mini-calendar">
                   <div className="mini-cal-header"><span>M</span><span>T</span><span>O</span><span>T</span><span>F</span><span>L</span><span>S</span></div>
                   <div className="mini-cal-grid">
@@ -580,42 +855,50 @@ export default function KalibreringPage() {
 
           {activeTab === 'report' && (
             <div className="report-page">
-              <div className="report-header"><div className="report-logo">🌲</div><div className="report-title-block"><div className="report-title">Kvalitetsrapport</div><div className="report-subtitle">Kontrollmätning skördare</div></div><div className="report-date">16 januari 2026</div></div>
-              <div className="report-section">
-                <div className="report-info-grid">
-                  <div className="report-info-item"><div className="report-info-label">VO-nummer</div><div className="report-info-value">11109556</div></div>
-                  <div className="report-info-item"><div className="report-info-label">Objekt</div><div className="report-info-value">Karatorp RP 2025</div></div>
-                  <div className="report-info-item"><div className="report-info-label">Entreprenör</div><div className="report-info-value">Kompersmåla Skog AB</div></div>
-                  <div className="report-info-item"><div className="report-info-label">Virkesköpare</div><div className="report-info-value">Vida Skog AB</div></div>
-                </div>
-              </div>
+              <div className="report-header"><div className="report-logo">🌲</div><div className="report-title-block"><div className="report-title">Kvalitetsrapport</div><div className="report-subtitle">Kontrollmätning skördare</div></div><div className="report-date">{reportDate}</div></div>
               <div className="report-section">
                 <div className="report-section-title">Nyckeltal</div>
                 <div className="report-metrics">
-                  <div className="report-metric"><div className="report-metric-value">847</div><div className="report-metric-unit">m³fub</div><div className="report-metric-label">Total volym</div></div>
-                  <div className="report-metric"><div className="report-metric-value">8</div><div className="report-metric-unit">st</div><div className="report-metric-label">Kontrollstammar</div></div>
-                  <div className="report-metric"><div className="report-metric-value">106</div><div className="report-metric-unit">m³fub</div><div className="report-metric-label">Kontrollfrekvens</div></div>
-                  <div className="report-metric"><div className="report-metric-value">2</div><div className="report-metric-unit">st</div><div className="report-metric-label">Kalibreringar</div></div>
+                  <div className="report-metric"><div className="report-metric-value">{Math.round(totalVolym)}</div><div className="report-metric-unit">m³fub</div><div className="report-metric-label">Total volym</div></div>
+                  <div className="report-metric"><div className="report-metric-value">{checkStammar.length}</div><div className="report-metric-unit">st</div><div className="report-metric-label">Kontrollstammar</div></div>
+                  <div className="report-metric"><div className="report-metric-value">{kontrollFrekvens}</div><div className="report-metric-unit">m³fub</div><div className="report-metric-label">Kontrollfrekvens</div></div>
+                  <div className="report-metric"><div className="report-metric-value">{calibStammar.length}</div><div className="report-metric-unit">st</div><div className="report-metric-label">Kalibreringar</div></div>
                 </div>
               </div>
               <div className="report-section">
                 <div className="report-section-title">Genomsnittlig avvikelse</div>
                 <div className="report-section-desc">Maskin jämfört med operatör</div>
                 <div className="report-results">
-                  <div className="report-result"><div className="report-result-label">Längd</div><div className="report-result-bar"><div className="report-bar-track"><div className="report-bar-zero"/><div className="report-bar-fill neg" style={{width:'10%'}}/></div></div><div className="report-result-value">−0.5 cm</div></div>
-                  <div className="report-result"><div className="report-result-label">Diameter</div><div className="report-result-bar"><div className="report-bar-track"><div className="report-bar-zero"/><div className="report-bar-fill neg" style={{width:'50%'}}/></div></div><div className="report-result-value">−2.5 mm</div></div>
+                  <div className="report-result"><div className="report-result-label">Längd</div><div className="report-result-bar"><div className="report-bar-track"><div className="report-bar-zero"/><div className={`report-bar-fill ${avgLenReport < 0 ? 'neg' : ''}`} style={{width:`${Math.min(50, Math.abs(avgLenReport) * 10)}%`, ...(avgLenReport >= 0 ? {left:'50%'} : {right:'50%'})}}/></div></div><div className="report-result-value">{avgLenReport >= 0 ? '+' : ''}{avgLenReport} cm</div></div>
+                  <div className="report-result"><div className="report-result-label">Diameter</div><div className="report-result-bar"><div className="report-bar-track"><div className="report-bar-zero"/><div className={`report-bar-fill ${avgDiaReport < 0 ? 'neg' : ''}`} style={{width:`${Math.min(50, Math.abs(avgDiaReport) * 10)}%`, ...(avgDiaReport >= 0 ? {left:'50%'} : {right:'50%'})}}/></div></div><div className="report-result-value">{avgDiaReport >= 0 ? '+' : ''}{avgDiaReport} mm</div></div>
                 </div>
-                <div className="report-verdict good"><div className="report-verdict-icon">✓</div><div className="report-verdict-text"><div className="report-verdict-title">Inom tolerans</div><div className="report-verdict-desc">Avvikelserna ligger inom godkända gränsvärden</div></div></div>
+                {(() => {
+                  const withinTolerance = Math.abs(avgLenReport) <= 3 && Math.abs(avgDiaReport) <= 4;
+                  return (
+                    <div className={`report-verdict ${withinTolerance ? 'good' : 'warn'}`}>
+                      <div className={`report-verdict-icon ${withinTolerance ? '' : 'warn-icon'}`}>{withinTolerance ? '✓' : '!'}</div>
+                      <div className="report-verdict-text">
+                        <div className="report-verdict-title">{withinTolerance ? 'Inom tolerans' : 'Utanför tolerans'}</div>
+                        <div className="report-verdict-desc">{withinTolerance ? 'Avvikelserna ligger inom godkända gränsvärden' : 'Avvikelserna överstiger rekommenderade gränsvärden'}</div>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
               <div className="report-section">
                 <div className="report-section-title">Per trädslag</div>
                 <div className="report-species-table">
                   <div className="report-table-header"><span></span><span>Stammar</span><span>Längd</span><span>Diameter</span></div>
-                  <div className="report-table-row" onClick={()=>openSpeciesDetail('gran')}><span>Gran</span><span>5</span><span>−0.8 cm</span><span>−3.2 mm</span></div>
-                  <div className="report-table-row" onClick={()=>openSpeciesDetail('tall')}><span>Tall</span><span>3</span><span>+0.3 cm</span><span>−1.8 mm</span></div>
+                  {Object.entries(speciesData).map(([key, data]) => {
+                    const name = key === 'gran' ? 'Gran' : key === 'tall' ? 'Tall' : key.charAt(0).toUpperCase() + key.slice(1);
+                    return (
+                      <div key={key} className="report-table-row" onClick={() => openSpeciesDetail(key)}>
+                        <span>{name}</span><span>{data.count}</span><span>{data.lenDiff >= 0 ? '+' : ''}{data.lenDiff} cm</span><span>{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff} mm</span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
-              <div className="report-footer"><div className="report-signature"><div className="report-signature-name">Stefan Karlsson</div><div className="report-signature-role">Operatör</div></div><div className="report-machine"><div>PONSSE Scorpion Giant 8W</div><div className="report-machine-sub">PONSSE H8 • ID: PONS20SDJAA270231</div></div></div>
               <button className="btn btn-primary" style={{width:'100%',marginTop:'24px'}}>Exportera PDF</button>
             </div>
           )}
