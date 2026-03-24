@@ -2,6 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
 
 const navItems = [
   { href: '/', label: 'Hem', icon: 'home' },
@@ -13,6 +20,8 @@ const navItems = [
   { href: '/starta-jobb', label: 'Starta jobb', icon: 'play' },
   { href: '/forbattringsforslag', label: 'Förslag', icon: 'lightbulb' },
   { href: '/maskinvy', label: 'Maskinvy', icon: 'machine' },
+  { href: '/maskin-service', label: 'Service', icon: 'wrench' },
+  { href: '/ledighet', label: 'Ledighet', icon: 'vacation' },
 ]
 
 function NavIcon({ icon, active }: { icon: string; active: boolean }) {
@@ -93,6 +102,19 @@ function NavIcon({ icon, active }: { icon: string; active: boolean }) {
           <path d="M10 12h4" />
         </svg>
       )
+    case 'wrench':
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
+        </svg>
+      )
+    case 'vacation':
+      return (
+        <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <path d="M12 6v6l4 2" />
+        </svg>
+      )
     default:
       return null
   }
@@ -100,6 +122,21 @@ function NavIcon({ icon, active }: { icon: string; active: boolean }) {
 
 export default function Navigation() {
   const pathname = usePathname()
+  const [väntande, setVäntande] = useState(0)
+  const [serviceCount, setServiceCount] = useState(0)
+
+  useEffect(() => {
+    const hämta = async () => {
+      const { count } = await supabase
+        .from('ledighet_ansokningar')
+        .select('*', { count: 'exact', head: true })
+        .eq('status', 'väntar')
+      if (count !== null) setVäntande(count)
+    }
+    hämta()
+    const interval = setInterval(hämta, 60000)
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <nav style={{
@@ -132,9 +169,22 @@ export default function Navigation() {
               fontSize: '9px',
               padding: '6px 4px',
               transition: 'color 0.2s',
+              position: 'relative',
             }}
           >
-            <NavIcon icon={item.icon} active={isActive} />
+            <span style={{ position: 'relative' }}>
+              <NavIcon icon={item.icon} active={isActive} />
+              {item.icon === 'vacation' && väntande > 0 && (
+                <span style={{
+                  position: 'absolute', top: -4, right: -8,
+                  background: '#eab308', color: '#000',
+                  fontSize: 8, fontWeight: 700, borderRadius: 6,
+                  minWidth: 14, height: 14,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: '0 3px',
+                }}>{väntande}</span>
+              )}
+            </span>
             <span>{item.label}</span>
           </Link>
         )
