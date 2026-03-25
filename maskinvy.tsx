@@ -762,9 +762,9 @@ body {
   background: rgba(17,17,16,0.88);
   backdrop-filter: blur(20px);
   border-bottom: 1px solid var(--border);
-  height: 58px;
+  height: 48px;
   display: flex; align-items: center; justify-content: space-between;
-  padding: 0 36px;
+  padding: 0 24px;
 }
 
 .brand { display: flex; align-items: center; gap: 12px; }
@@ -847,67 +847,63 @@ body {
 .cmp-go:hover { opacity: 0.85; }
 
 /* ── PAGE ── */
-.page { max-width: 1320px; margin: 0 auto; padding: 28px 36px 60px; }
+.page { max-width: 1320px; margin: 0 auto; padding: 20px 24px 60px; }
 
 /* ── ANIMATIONS ── */
 @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
 .anim { opacity: 0; animation: fadeUp 0.5s forwards; }
 
-/* ── HERO ── */
-.hero { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
-.hero-main { grid-column: 1 / -1; }
+/* ── HERO (4 KPI row) ── */
+.hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
+.hero-main { grid-column: auto; }
 
 .hero-main {
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: 16px; padding: 28px 32px;
+  background: #161614; border: 1px solid var(--border);
+  border-radius: 16px; padding: 24px;
   position: relative; overflow: hidden;
   animation-delay: 0.05s;
 }
-.hero-main::after {
-  content: ''; position: absolute; bottom: -60px; right: -60px;
-  width: 200px; height: 200px; border-radius: 50%;
-  background: radial-gradient(circle, rgba(90,255,140,0.08) 0%, transparent 70%);
-}
+.hero-main::after { display: none; }
 
-.hero-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); margin-bottom: 12px; }
+.hero-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #666; margin-bottom: 10px; }
 .hero-val {
-  font-family: 'Fraunces', serif; font-size: 64px; line-height: 1;
-  font-weight: 700; letter-spacing: -3px; color: var(--accent);
+  font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1;
+  font-weight: 700; letter-spacing: -1px; color: var(--accent);
   margin-bottom: 4px;
 }
-.hero-unit { font-size: 14px; color: var(--muted); font-weight: 400; }
-.hero-delta { margin-top: 18px; font-size: 12px; color: var(--accent); opacity: 0.8; display: flex; align-items: center; gap: 4px; }
+.hero-unit { font-size: 12px; color: #888; font-weight: 400; }
+.hero-delta { margin-top: 12px; font-size: 11px; color: var(--accent); opacity: 0.9; display: flex; align-items: center; gap: 4px; }
 
 .kpi {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
-  padding: 24px 20px; position: relative; overflow: hidden;
+  background: #161614; border: 1px solid var(--border); border-radius: 16px;
+  padding: 24px; position: relative; overflow: hidden;
   transition: border-color 0.2s, transform 0.2s;
 }
 .kpi:hover { border-color: var(--border2); transform: translateY(-1px); }
 .kpi:nth-child(2){animation-delay:0.1s} .kpi:nth-child(3){animation-delay:0.15s}
 .kpi:nth-child(4){animation-delay:0.2s} .kpi:nth-child(5){animation-delay:0.25s}
 
-.k-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 10px; }
-.k-val { font-family: 'Fraunces', serif; font-size: 36px; line-height: 1; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
-.k-unit { font-size: 11px; color: var(--muted); }
+.k-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #666; margin-bottom: 10px; }
+.k-val { font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1; font-weight: 700; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
+.k-unit { font-size: 12px; color: #888; }
 .k-delta { margin-top: 10px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 20px; }
 .up   { color: var(--accent); background: rgba(90,255,140,0.1); }
 .down { color: var(--danger); background: rgba(255,95,87,0.1); }
 
 /* ── CARD ── */
 .card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
+  background: #161614; border: 1px solid rgba(255,255,255,0.07); border-radius: 16px;
   overflow: hidden; transition: border-color 0.2s;
 }
 .card:hover { border-color: var(--border2); }
-.card-h { padding: 18px 22px 0; display: flex; align-items: center; justify-content: space-between; }
-.card-t { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.9px; color: var(--muted); }
-.card-b { padding: 14px 22px 20px; }
+.card-h { padding: 20px 24px 0; display: flex; align-items: center; justify-content: space-between; }
+.card-t { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #666; }
+.card-b { padding: 16px 24px 24px; }
 
 /* ── GRID ── */
-.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px; }
-.gf { margin-bottom: 8px; }
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
+.gf { margin-bottom: 16px; }
 
 /* ── BADGE ── */
 .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.3px; }
@@ -925,7 +921,7 @@ body {
 .op-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .op-row:last-child { border-bottom: none; padding-bottom: 0; }
 .op-row:first-child { padding-top: 0; }
-.op-av { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+.op-av { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
 .op-name { font-size: 13px; font-weight: 500; }
 .op-sub  { font-size: 11px; color: var(--muted); }
 .op-info { flex: 1; }
@@ -984,11 +980,11 @@ body {
 
 .cal-sum { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-top: 12px; }
 .cal-si { background: var(--surface2); border-radius: 8px; padding: 10px 8px; text-align: center; }
-.cal-sn { font-family: 'Fraunces', serif; font-size: 22px; line-height: 1; }
+.cal-sn { font-family: 'Geist', system-ui, sans-serif; font-size: 20px; font-weight: 700; line-height: 1; }
 .cal-sl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-top: 3px; }
 
 /* ── MEDELSTAM CARDS ── */
-.sc-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 5px; margin-top: 14px; }
+.sc-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 6px; margin-top: 14px; }
 .sc {
   background: var(--surface2); border-radius: 10px; padding: 11px 6px; text-align: center;
   border: 1px solid transparent; transition: all 0.15s; cursor: default;
@@ -996,7 +992,7 @@ body {
 .sc:hover { border-color: var(--border2); background: var(--surface); }
 .sc.best { border-color: rgba(90,255,140,0.2); }
 .sc-k { font-size: 9px; color: var(--muted); font-weight: 600; letter-spacing: 0.3px; margin-bottom: 7px; text-transform: uppercase; }
-.sc-p { font-family: 'Fraunces', serif; font-size: 17px; line-height: 1; margin-bottom: 1px; }
+.sc-p { font-family: 'Geist', system-ui, sans-serif; font-size: 16px; font-weight: 700; line-height: 1; margin-bottom: 1px; }
 .sc-u { font-size: 9px; color: var(--muted); margin-bottom: 6px; }
 .sc-d { height: 1px; background: var(--border); margin: 5px 0; }
 .sc-s { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
@@ -1012,7 +1008,7 @@ body {
 /* ── SMALL NUMS ── */
 .snum-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-top: 12px; }
 .snum { background: var(--surface2); border-radius: 8px; padding: 10px; text-align: center; }
-.snum-v { font-family: 'Fraunces', serif; font-size: 18px; line-height: 1; }
+.snum-v { font-family: 'Geist', system-ui, sans-serif; font-size: 17px; font-weight: 700; line-height: 1; }
 .snum-l { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-top: 3px; }
 
 /* ── TIDS-BAR ── */
@@ -1069,8 +1065,8 @@ body {
 .forar-body { padding: 20px 24px 40px; }
 
 .forar-kpis { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 20px; }
-.fkpi { background: var(--surface2); border-radius: 10px; padding: 14px 12px; text-align: center; }
-.fkpi-v { font-family: 'Fraunces', serif; font-size: 24px; line-height: 1; color: var(--text); }
+.fkpi { background: #161614; border-radius: 10px; padding: 14px 12px; text-align: center; }
+.fkpi-v { font-family: 'Geist', system-ui, sans-serif; font-size: 22px; font-weight: 700; line-height: 1; color: var(--text); }
 .fkpi-l { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-top: 4px; }
 
 .fsec-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 10px; }
@@ -1115,9 +1111,6 @@ body {
       <div dangerouslySetInnerHTML={{ __html: `<header class="hdr">
   <div class="brand">
     <div class="brand-mark">🌲</div>
-    <div>
-      <div class="brand-name">Kompersmåla Skog</div>
-    </div>
   </div>
 
   <div class="hdr-mid">
@@ -1172,25 +1165,19 @@ body {
 
 <div class="page" id="page">
 
-  <!-- HERO -->
+  <!-- KPI ROW — 4 cards -->
   <div class="hero">
     <div class="hero-main anim" style="animation-delay:0.05s">
-      <div class="hero-label">Volym – februari 2026</div>
+      <div class="hero-label">Volym</div>
       <div class="hero-val" id="hv">0</div>
       <div class="hero-unit">m³fub</div>
-      <div class="hero-delta">↑ 12% jämfört med januari</div>
+      <div class="hero-delta">↑ 12% mot jan</div>
     </div>
     <div class="kpi anim">
       <div class="k-label">Stammar</div>
       <div class="k-val" data-count="9240">0</div>
       <div class="k-unit">stammar</div>
       <div class="k-delta up">↑ 8%</div>
-    </div>
-    <div class="kpi anim">
-      <div class="k-label">G15-timmar</div>
-      <div class="k-val" data-count="163">0</div>
-      <div class="k-unit">timmar</div>
-      <div class="k-delta down">↓ 3%</div>
     </div>
     <div class="kpi anim">
       <div class="k-label">Produktivitet</div>
@@ -1206,8 +1193,8 @@ body {
     </div>
   </div>
 
-  <!-- ROW 1 -->
-  <div class="g3">
+  <!-- ROW 1: Operatörer + Tidsfördelning -->
+  <div class="g2">
     <div class="card anim" style="animation-delay:0.3s">
       <div class="card-h"><div class="card-t">Operatörer</div><span class="badge bg">3 aktiva</span></div>
       <div class="card-b">
@@ -1263,20 +1250,10 @@ body {
       </div>
     </div>
 
-    <div class="card anim" style="animation-delay:0.4s;cursor:pointer;" onclick="window.location.href='/kalibrering?maskin=PONS20SDJAA270231'" title="Gå till kalibreringssidan">
-      <div class="card-h"><div class="card-t">Kalibrering (HQC)</div><span class="badge bg">OK</span></div>
-      <div class="card-b">
-        <div class="kal"><div class="kal-d">2026-02-28</div><div class="kal-v">Längd −0.4 cm · Dia +1.8 mm</div><span class="badge bg">OK</span></div>
-        <div class="kal"><div class="kal-d">2026-02-14</div><div class="kal-v">Längd +0.2 cm · Dia −0.9 mm</div><span class="badge bg">OK</span></div>
-        <div class="kal"><div class="kal-d">2026-01-31</div><div class="kal-v" style="color:var(--warn)">Längd +3.1 cm · Dia +5.2 mm</div><span class="badge bw">VARNING</span></div>
-        <div class="kal"><div class="kal-d">2026-01-17</div><div class="kal-v">Längd −0.8 cm · Dia +2.1 mm</div><span class="badge bg">OK</span></div>
-        <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center;letter-spacing:0.3px;">Tryck för fullständig kalibreringshistorik →</div>
-      </div>
-    </div>
   </div>
 
-  <!-- ROW 2 -->
-  <div class="g3">
+  <!-- ROW 2: Trädslag + Kalibrering -->
+  <div class="g2">
     <div class="card anim" style="animation-delay:0.45s">
       <div class="card-h"><div class="card-t">Trädslag</div></div>
       <div class="card-b" onclick="openTradslag()" style="cursor:pointer;">
@@ -1293,6 +1270,20 @@ body {
       </div>
     </div>
 
+    <div class="card anim" style="animation-delay:0.4s;cursor:pointer;" onclick="window.location.href='/kalibrering?maskin=PONS20SDJAA270231'" title="Gå till kalibreringssidan">
+      <div class="card-h"><div class="card-t">Kalibrering (HQC)</div><span class="badge bg">OK</span></div>
+      <div class="card-b">
+        <div class="kal"><div class="kal-d">2026-02-28</div><div class="kal-v">Längd −0.4 cm · Dia +1.8 mm</div><span class="badge bg">OK</span></div>
+        <div class="kal"><div class="kal-d">2026-02-14</div><div class="kal-v">Längd +0.2 cm · Dia −0.9 mm</div><span class="badge bg">OK</span></div>
+        <div class="kal"><div class="kal-d">2026-01-31</div><div class="kal-v" style="color:var(--warn)">Längd +3.1 cm · Dia +5.2 mm</div><span class="badge bw">VARNING</span></div>
+        <div class="kal"><div class="kal-d">2026-01-17</div><div class="kal-v">Längd −0.8 cm · Dia +2.1 mm</div><span class="badge bg">OK</span></div>
+        <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center;letter-spacing:0.3px;">Tryck för kalibreringshistorik →</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 3: Bolag + Objekt -->
+  <div class="g2">
     <div class="card anim" style="animation-delay:0.5s">
       <div class="card-h"><div class="card-t">Volym per bolag</div></div>
       <div class="card-b">
