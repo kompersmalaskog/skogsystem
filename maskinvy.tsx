@@ -178,37 +178,30 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
 }));
 
 // ── MACHINE MENU ──
-function toggleMMenu(){ document.getElementById('mMenu').classList.toggle('open'); }
+function toggleMMenu(){ var el=document.getElementById('mMenu'); if(el) el.classList.toggle('open'); }
 function pickM(el,name,sub,color){
-  document.getElementById('mName').textContent=name;
-  document.getElementById('mDot').style.cssText=\`width:7px;height:7px;border-radius:50%;flex-shrink:0;background:\${color}\`;
+  var n=document.getElementById('mName'); if(n) n.textContent=name;
+  var d=document.getElementById('mDot'); if(d) d.style.cssText=\`width:7px;height:7px;border-radius:50%;flex-shrink:0;background:\${color}\`;
   document.querySelectorAll('.mach-opt').forEach(o=>o.classList.remove('sel'));
   el.classList.add('sel');
-  document.getElementById('mMenu').classList.remove('open');
+  var m=document.getElementById('mMenu'); if(m) m.classList.remove('open');
 }
 document.addEventListener('click',e=>{
-  if(!e.target.closest('.mach-wrap')) document.getElementById('mMenu').classList.remove('open');
+  var m=document.getElementById('mMenu'); if(m && !e.target.closest('.mach-wrap')) m.classList.remove('open');
 });
 
 // ── OVERLAY HELPER ──
-function openOverlay()  { document.getElementById('forarOverlay').classList.add('open'); }
-function closeOverlay() { document.getElementById('forarOverlay').classList.remove('open'); }
+function openOverlay()  { var el=document.getElementById('forarOverlay'); if(el) el.classList.add('open'); }
+function closeOverlay() { var el=document.getElementById('forarOverlay'); if(el) el.classList.remove('open'); }
 
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('forarOverlay').addEventListener('click', () => {
-    closeAllPanels();
-  });
-});
+var forarOvl = document.getElementById('forarOverlay');
+if(forarOvl) forarOvl.addEventListener('click', function(){ closeAllPanels(); });
 
 function closeAllPanels() {
   closeOverlay();
-  document.getElementById('forarPanel').classList.remove('open');
-  document.getElementById('bolagPanel').classList.remove('open');
-  document.getElementById('tradslagPanel').classList.remove('open');
-  document.getElementById('tidPanel').classList.remove('open');
-  document.getElementById('dagPanel').classList.remove('open');
-  document.getElementById('objTypPanel').classList.remove('open');
-  document.getElementById('objJmfPanel').classList.remove('open');
+  ['forarPanel','bolagPanel','tradslagPanel','tidPanel','dagPanel','objTypPanel','objJmfPanel'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.classList.remove('open');
+  });
 }
 
 // ── FÖRARE ──
@@ -358,8 +351,9 @@ function closeTid() { closeAllPanels(); }
 
 // ── COMPARE ──
 function toggleCmp(){
-  const on = document.getElementById('cmpBtn').classList.toggle('on');
-  document.getElementById('cmpBar').classList.toggle('show', on);
+  var btn = document.getElementById('cmpBtn'); if(!btn) return;
+  const on = btn.classList.toggle('on');
+  var bar = document.getElementById('cmpBar'); if(bar) bar.classList.toggle('show', on);
   if(!on){ const v=document.getElementById('cmpView'); if(v) v.remove(); }
 }
 
