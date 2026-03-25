@@ -701,33 +701,77 @@ export default function Maskinvy() {
   const valdMaskin = maskiner.find(m => m.modell === vald);
 
   return (
-    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflow: 'auto', WebkitOverflowScrolling: 'touch', zIndex: 1 }}>
-      {/* ── MASKINVÄLJARE (Supabase) ── */}
-      <div style={{
-        position: 'sticky', top: 0, zIndex: 200, background: 'rgba(17,17,16,0.92)',
-        backdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(255,255,255,0.07)',
-        padding: '10px 36px', display: 'flex', alignItems: 'center', gap: 12,
-        fontFamily: "'Geist', system-ui, sans-serif",
+    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, display: 'flex', zIndex: 1 }}>
+      {/* ── SIDEBAR ── */}
+      <aside style={{
+        width: 220, flexShrink: 0, background: '#0f0f0e', borderRight: '1px solid rgba(255,255,255,0.07)',
+        display: 'flex', flexDirection: 'column', fontFamily: "'Geist', system-ui, sans-serif",
+        overflow: 'hidden',
       }}>
-        <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.8px', color: '#7a7a72' }}>Maskin</span>
-        <select
-          value={vald}
-          onChange={e => setVald(e.target.value)}
-          style={{
-            background: '#222220', color: '#e8e8e4', border: '1px solid rgba(255,255,255,0.12)',
-            borderRadius: 7, padding: '6px 12px', fontSize: 13, fontFamily: "'Geist', system-ui, sans-serif",
-            outline: 'none', cursor: 'pointer', minWidth: 240,
-          }}
-        >
-          {maskiner.map(m => (
-            <option key={m.maskin_id} value={m.modell}>{m.tillverkare} {m.modell} ({m.typ})</option>
+        {/* Logo */}
+        <div style={{ padding: '20px 16px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: '#1a4a2e', border: '1px solid rgba(90,255,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>🌲</div>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4', letterSpacing: '-0.3px' }}>Dashboard</span>
+        </div>
+        {/* Nav */}
+        <nav style={{ flex: 1, padding: '8px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {[
+            { icon: '◻', label: 'Översikt', active: true },
+            { icon: '▤', label: 'Produktion', active: false },
+            { icon: '◉', label: 'Operatörer', active: false },
+            { icon: '⬡', label: 'Trädslag', active: false },
+            { icon: '▣', label: 'Objekt', active: false },
+            { icon: '⊘', label: 'Kalibrering', active: false },
+          ].map(item => (
+            <div key={item.label} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
+              background: item.active ? '#1e1e1c' : 'transparent',
+              borderLeft: item.active ? '3px solid #00c48c' : '3px solid transparent',
+              color: item.active ? '#e8e8e4' : '#666',
+              fontSize: 13, fontWeight: 500,
+              transition: 'all 0.15s',
+            }}>
+              <span style={{ fontSize: 14, width: 18, textAlign: 'center', opacity: item.active ? 1 : 0.5 }}>{item.icon}</span>
+              {item.label}
+            </div>
           ))}
-        </select>
-        {valdMaskin && (
-          <span style={{ fontSize: 11, color: '#7a7a72' }}>ID: {valdMaskin.maskin_id}</span>
-        )}
-      </div>
+        </nav>
+        {/* Period + Maskin at bottom */}
+        <div style={{ padding: '12px 12px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginBottom: 2 }}>Period</div>
+          <div style={{ display: 'flex', gap: 4 }}>
+            {['V', 'M', 'K', 'Å'].map((p, i) => (
+              <button key={p} style={{
+                flex: 1, padding: '5px 0', border: 'none', borderRadius: 6,
+                background: i === 1 ? '#1e1e1c' : 'transparent',
+                color: i === 1 ? '#e8e8e4' : '#555',
+                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                fontFamily: "'Geist', system-ui, sans-serif",
+              }}>{p}</button>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginTop: 8, marginBottom: 2 }}>Maskin</div>
+          <select
+            value={vald}
+            onChange={e => setVald(e.target.value)}
+            style={{
+              width: '100%', background: '#1a1a18', color: '#e8e8e4', border: '1px solid rgba(255,255,255,0.1)',
+              borderRadius: 8, padding: '8px 10px', fontSize: 12, fontFamily: "'Geist', system-ui, sans-serif",
+              outline: 'none', cursor: 'pointer',
+            }}
+          >
+            {maskiner.map(m => (
+              <option key={m.maskin_id} value={m.modell}>{m.tillverkare} {m.modell}</option>
+            ))}
+          </select>
+        </div>
+      </aside>
+      {/* ── MAIN CONTENT ── */}
+      <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch', background: '#111110' }}>
       <style dangerouslySetInnerHTML={{ __html: `.mach-wrap { display: none !important; }
+.hdr { display: none !important; }
+.cmp-bar { display: none !important; }
 :root {
   --bg:       #111110;
   --surface:  #1a1a18;
@@ -847,7 +891,7 @@ body {
 .cmp-go:hover { opacity: 0.85; }
 
 /* ── PAGE ── */
-.page { max-width: 1320px; margin: 0 auto; padding: 20px 24px 60px; }
+.page { max-width: 1400px; margin: 0 auto; padding: 24px 28px 60px; }
 
 /* ── ANIMATIONS ── */
 @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
@@ -1797,6 +1841,7 @@ body {
   </div>
   <div class="forar-body" id="fpBody"></div>
 </div>` }} />
+      </div>
     </div>
   );
 }
