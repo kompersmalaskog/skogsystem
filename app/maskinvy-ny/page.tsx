@@ -34,6 +34,20 @@ interface KPIData {
 
 type NavItem = 'oversikt' | 'produktion' | 'tradslag' | 'objekt'
 
+// Fallback demo data when Supabase returns nothing
+const FALLBACK_DAILY: DailyData[] = [
+  { datum: '2026-03-20', volym: 142.8, stammar: 620, g15h: 6.2, bransle: 68 },
+  { datum: '2026-03-21', volym: 168.3, stammar: 710, g15h: 7.1, bransle: 74 },
+  { datum: '2026-03-24', volym: 188.1, stammar: 780, g15h: 7.8, bransle: 82 },
+  { datum: '2026-03-25', volym: 195.4, stammar: 820, g15h: 8.0, bransle: 85 },
+  { datum: '2026-03-26', volym: 172.0, stammar: 700, g15h: 7.0, bransle: 75 },
+]
+const FALLBACK_KPI: KPIData = {
+  totalVolym: 866.6, totalStammar: 3630, prodPerG15h: 24.0, medelstam: 0.239,
+  branslePerM3: 0.44, effektivitet: 72, processingPct: 55, terrainPct: 18,
+  otherPct: 12, idlePct: 15,
+}
+
 export default function MaskinvyNyPage() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([])
   const [valdMaskin, setValdMaskin] = useState<string>('')
@@ -45,18 +59,36 @@ export default function MaskinvyNyPage() {
     otherPct: 0, idlePct: 0
   })
   const [loading, setLoading] = useState(true)
-  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [usingFallback, setUsingFallback] = useState(false)
+  const [dbError, setDbError] = useState<string | null>(null)
+  const sidebarOpen = true // Always show sidebar with labels
   const dailyChartRef = useRef<any>(null)
   const dailyCanvasRef = useRef<HTMLCanvasElement>(null)
 
   // Load machines
   useEffect(() => {
     supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ')
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('dim_maskin error:', error)
+          setDbError(`dim_maskin: ${error.message}`)
+          // Use fallback — show demo data without a machine selector
+          setUsingFallback(true)
+          setDaily(FALLBACK_DAILY)
+          setKpi(FALLBACK_KPI)
+          setLoading(false)
+          return
+        }
         if (data && data.length > 0) {
           setMaskiner(data)
           const skordare = data.find(m => m.typ === 'Skördare') || data[0]
           setValdMaskin(skordare.maskin_id.toString())
+        } else {
+          // No machines in DB — show fallback
+          setUsingFallback(true)
+          setDaily(FALLBACK_DAILY)
+          setKpi(FALLBACK_KPI)
+          setLoading(false)
         }
       })
   }, [])
@@ -65,86 +97,106 @@ export default function MaskinvyNyPage() {
   const loadData = useCallback(async (maskinId: string) => {
     if (!maskinId) return
     setLoading(true)
+    setDbError(null)
 
-    const now = new Date()
-    const thirtyDaysAgo = new Date(now)
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-    const fromDate = thirtyDaysAgo.toISOString().slice(0, 10)
+    try {
+      // First try without date filter to get ALL data
+      const [prodRes, tidRes] = await Promise.all([
+        supabase.from('fakt_produktion')
+          .select('datum,volym_m3sub,stammar')
+          .eq('maskin_id', maskinId)
+          .order('datum', { ascending: false })
+          .limit(500),
+        supabase.from('fakt_tid')
+          .select('datum,processing_sek,terrain_sek,other_work_sek,bransle_liter')
+          .eq('maskin_id', maskinId)
+          .order('datum', { ascending: false })
+          .limit(500)
+      ])
 
-    const [prodRes, tidRes] = await Promise.all([
-      supabase.from('fakt_produktion')
-        .select('datum,volym_m3sub,antal_stammar')
-        .eq('maskin_id', maskinId)
-        .gte('datum', fromDate)
-        .order('datum'),
-      supabase.from('fakt_tid')
-        .select('datum,processing_sek,terrain_sek,other_work_sek,bransle_liter')
-        .eq('maskin_id', maskinId)
-        .gte('datum', fromDate)
-        .order('datum')
-    ])
+      if (prodRes.error) console.error('fakt_produktion error:', prodRes.error)
+      if (tidRes.error) console.error('fakt_tid error:', tidRes.error)
 
-    const prodByDay: Record<string, { volym: number; stammar: number }> = {}
-    const tidByDay: Record<string, { proc: number; terr: number; other: number; bransle: number }> = {}
+      const hasData = (prodRes.data && prodRes.data.length > 0) || (tidRes.data && tidRes.data.length > 0)
 
-    if (prodRes.data) {
-      for (const r of prodRes.data) {
-        if (!prodByDay[r.datum]) prodByDay[r.datum] = { volym: 0, stammar: 0 }
-        prodByDay[r.datum].volym += r.volym_m3sub || 0
-        prodByDay[r.datum].stammar += r.antal_stammar || 0
+      if (!hasData) {
+        console.warn('No production data found for maskin_id:', maskinId)
+        setUsingFallback(true)
+        setDaily(FALLBACK_DAILY)
+        setKpi(FALLBACK_KPI)
+        setLoading(false)
+        return
       }
-    }
 
-    if (tidRes.data) {
-      for (const r of tidRes.data) {
-        if (!tidByDay[r.datum]) tidByDay[r.datum] = { proc: 0, terr: 0, other: 0, bransle: 0 }
-        tidByDay[r.datum].proc += r.processing_sek || 0
-        tidByDay[r.datum].terr += r.terrain_sek || 0
-        tidByDay[r.datum].other += r.other_work_sek || 0
-        tidByDay[r.datum].bransle += r.bransle_liter || 0
+      setUsingFallback(false)
+
+      const prodByDay: Record<string, { volym: number; stammar: number }> = {}
+      const tidByDay: Record<string, { proc: number; terr: number; other: number; bransle: number }> = {}
+
+      if (prodRes.data) {
+        for (const r of prodRes.data) {
+          if (!prodByDay[r.datum]) prodByDay[r.datum] = { volym: 0, stammar: 0 }
+          prodByDay[r.datum].volym += r.volym_m3sub || 0
+          prodByDay[r.datum].stammar += r.stammar || 0
+        }
       }
-    }
 
-    const allDates = new Set([...Object.keys(prodByDay), ...Object.keys(tidByDay)])
-    const dailyArr: DailyData[] = Array.from(allDates).sort().map(d => {
-      const p = prodByDay[d] || { volym: 0, stammar: 0 }
-      const t = tidByDay[d] || { proc: 0, terr: 0, other: 0, bransle: 0 }
-      const totalSek = t.proc + t.terr + t.other
-      const g15h = totalSek / 3600
-      return { datum: d, volym: p.volym, stammar: p.stammar, g15h, bransle: t.bransle }
-    })
-
-    setDaily(dailyArr)
-
-    // Calculate KPIs
-    const totVol = dailyArr.reduce((s, d) => s + d.volym, 0)
-    const totSt = dailyArr.reduce((s, d) => s + d.stammar, 0)
-    const totG15h = dailyArr.reduce((s, d) => s + d.g15h, 0)
-    const totBr = dailyArr.reduce((s, d) => s + d.bransle, 0)
-
-    let totProc = 0, totTerr = 0, totOther = 0
-    if (tidRes.data) {
-      for (const r of tidRes.data) {
-        totProc += r.processing_sek || 0
-        totTerr += r.terrain_sek || 0
-        totOther += r.other_work_sek || 0
+      if (tidRes.data) {
+        for (const r of tidRes.data) {
+          if (!tidByDay[r.datum]) tidByDay[r.datum] = { proc: 0, terr: 0, other: 0, bransle: 0 }
+          tidByDay[r.datum].proc += r.processing_sek || 0
+          tidByDay[r.datum].terr += r.terrain_sek || 0
+          tidByDay[r.datum].other += r.other_work_sek || 0
+          tidByDay[r.datum].bransle += r.bransle_liter || 0
+        }
       }
-    }
-    const totTime = totProc + totTerr + totOther
-    const estTotal = totTime > 0 ? totTime / 0.85 : 1 // Estimate idle as 15%
 
-    setKpi({
-      totalVolym: totVol,
-      totalStammar: totSt,
-      prodPerG15h: totG15h > 0 ? totVol / totG15h : 0,
-      medelstam: totSt > 0 ? totVol / totSt : 0,
-      branslePerM3: totVol > 0 ? totBr / totVol : 0,
-      effektivitet: totTime > 0 ? (totProc / totTime) * 100 : 0,
-      processingPct: totTime > 0 ? (totProc / estTotal) * 100 : 0,
-      terrainPct: totTime > 0 ? (totTerr / estTotal) * 100 : 0,
-      otherPct: totTime > 0 ? (totOther / estTotal) * 100 : 0,
-      idlePct: 15,
-    })
+      const allDates = new Set([...Object.keys(prodByDay), ...Object.keys(tidByDay)])
+      const dailyArr: DailyData[] = Array.from(allDates).sort().map(d => {
+        const p = prodByDay[d] || { volym: 0, stammar: 0 }
+        const t = tidByDay[d] || { proc: 0, terr: 0, other: 0, bransle: 0 }
+        const totalSek = t.proc + t.terr + t.other
+        const g15h = totalSek / 3600
+        return { datum: d, volym: p.volym, stammar: p.stammar, g15h, bransle: t.bransle }
+      })
+
+      setDaily(dailyArr)
+
+      // Calculate KPIs
+      const totVol = dailyArr.reduce((s, d) => s + d.volym, 0)
+      const totSt = dailyArr.reduce((s, d) => s + d.stammar, 0)
+      const totG15h = dailyArr.reduce((s, d) => s + d.g15h, 0)
+      const totBr = dailyArr.reduce((s, d) => s + d.bransle, 0)
+
+      let totProc = 0, totTerr = 0, totOther = 0
+      if (tidRes.data) {
+        for (const r of tidRes.data) {
+          totProc += r.processing_sek || 0
+          totTerr += r.terrain_sek || 0
+          totOther += r.other_work_sek || 0
+        }
+      }
+      const totTime = totProc + totTerr + totOther
+      const estTotal = totTime > 0 ? totTime / 0.85 : 1
+
+      setKpi({
+        totalVolym: totVol,
+        totalStammar: totSt,
+        prodPerG15h: totG15h > 0 ? totVol / totG15h : 0,
+        medelstam: totSt > 0 ? totVol / totSt : 0,
+        branslePerM3: totVol > 0 ? totBr / totVol : 0,
+        effektivitet: totTime > 0 ? (totProc / totTime) * 100 : 0,
+        processingPct: totTime > 0 ? (totProc / estTotal) * 100 : 0,
+        terrainPct: totTime > 0 ? (totTerr / estTotal) * 100 : 0,
+        otherPct: totTime > 0 ? (totOther / estTotal) * 100 : 0,
+        idlePct: 15,
+      })
+    } catch (err) {
+      console.error('loadData error:', err)
+      setUsingFallback(true)
+      setDaily(FALLBACK_DAILY)
+      setKpi(FALLBACK_KPI)
+    }
 
     setLoading(false)
   }, [])
@@ -238,36 +290,25 @@ export default function MaskinvyNyPage() {
         .sf-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #85948b; font-weight: 600; font-family: 'Inter', sans-serif; }
         .sf-value { font-size: 32px; font-weight: 800; color: #e5e2e1; font-family: 'Manrope', sans-serif; line-height: 1.2; }
         .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
-        .sf-sidebar { transition: width 0.3s ease; }
         @media (max-width: 1024px) {
           .sf-sidebar-desktop { display: none !important; }
           .sf-main { margin-left: 0 !important; }
-        }
-        @media (min-width: 1025px) {
-          .sf-mobile-toggle { display: none !important; }
+          .sf-header { width: 100% !important; }
         }
       `}</style>
 
       <div className="sf-body">
-        {/* Desktop Sidebar */}
-        <aside className="sf-sidebar sf-sidebar-desktop h-full fixed left-0 top-0 z-40 flex flex-col py-6 items-center overflow-hidden group"
+        {/* Desktop Sidebar — always expanded with labels */}
+        <aside className="sf-sidebar sf-sidebar-desktop h-full fixed left-0 top-0 z-40 flex flex-col py-6 overflow-hidden"
           style={{
-            width: sidebarOpen ? 256 : 80,
+            width: 240,
             background: '#0e0e0e',
             boxShadow: '1px 0 0 0 rgba(255,255,255,0.05)',
             fontFamily: "'Manrope', sans-serif",
-            transition: 'width 0.3s ease',
           }}
-          onMouseEnter={() => setSidebarOpen(true)}
-          onMouseLeave={() => setSidebarOpen(false)}
         >
-          <div className="mb-10 flex items-center gap-3 px-4 w-full" style={{ minHeight: 32 }}>
-            <span style={{ color: '#00c48c', fontWeight: 900, letterSpacing: '-0.05em', fontSize: 20, textTransform: 'uppercase', flexShrink: 0 }}>SF</span>
-            <span style={{
-              fontWeight: 900, letterSpacing: '-0.05em', fontSize: 20, textTransform: 'uppercase',
-              color: '#00c48c', whiteSpace: 'nowrap',
-              opacity: sidebarOpen ? 1 : 0, transition: 'opacity 0.2s',
-            }}>Synthetic Forest</span>
+          <div className="mb-10 flex items-center gap-3 px-5 w-full" style={{ minHeight: 32 }}>
+            <span style={{ color: '#00c48c', fontWeight: 900, letterSpacing: '-0.05em', fontSize: 20, textTransform: 'uppercase' }}>Synthetic Forest</span>
           </div>
 
           <nav className="flex flex-col w-full gap-1">
@@ -282,7 +323,7 @@ export default function MaskinvyNyPage() {
                 onClick={() => setActiveNav(item.id)}
                 className="flex items-center gap-4 py-3 w-full text-left"
                 style={{
-                  paddingLeft: sidebarOpen ? 16 : 24,
+                  paddingLeft: 20,
                   paddingRight: 16,
                   background: activeNav === item.id ? 'rgba(0,196,140,0.1)' : 'transparent',
                   color: activeNav === item.id ? '#00c48c' : '#6b7280',
@@ -295,18 +336,14 @@ export default function MaskinvyNyPage() {
                 }}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 24 }}>{item.icon}</span>
-                <span style={{
-                  opacity: sidebarOpen ? 1 : 0,
-                  transition: 'opacity 0.2s',
-                  whiteSpace: 'nowrap',
-                }}>{item.label}</span>
+                <span style={{ whiteSpace: 'nowrap' }}>{item.label}</span>
               </button>
             ))}
           </nav>
 
           {/* Machine selector at bottom */}
           <div className="mt-auto w-full px-4">
-            <div className="sf-card p-3" style={{ opacity: sidebarOpen ? 1 : 0, transition: 'opacity 0.2s' }}>
+            <div className="sf-card p-3">
               <p className="sf-label mb-1">Maskin</p>
               <select
                 value={valdMaskin}
@@ -327,7 +364,7 @@ export default function MaskinvyNyPage() {
                 ))}
               </select>
             </div>
-            <div className="mt-3 flex items-center gap-2 px-1" style={{ opacity: sidebarOpen ? 1 : 0, transition: 'opacity 0.2s' }}>
+            <div className="mt-3 flex items-center gap-2 px-1">
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#00c48c', animation: 'pulse 2s infinite' }} />
               <span style={{ fontSize: 12, fontWeight: 600, color: '#e5e2e1' }}>ONLINE</span>
             </div>
@@ -335,21 +372,15 @@ export default function MaskinvyNyPage() {
         </aside>
 
         {/* Top Header */}
-        <header className="fixed top-0 right-0 z-30 flex items-center justify-between px-6 md:px-8"
+        <header className="sf-header fixed top-0 right-0 z-30 flex items-center justify-between px-6 md:px-8"
           style={{
-            width: 'calc(100% - 5rem)',
+            width: 'calc(100% - 240px)',
             height: 76,
             background: 'rgba(19,19,19,0.8)',
             backdropFilter: 'blur(20px)',
             borderBottom: '1px solid rgba(255,255,255,0.05)',
           }}
         >
-          {/* Mobile menu button */}
-          <button className="sf-mobile-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}
-            style={{ background: 'none', border: 'none', color: '#85948b', cursor: 'pointer', marginRight: 12 }}>
-            <span className="material-symbols-outlined">menu</span>
-          </button>
-
           <div className="flex items-center gap-3">
             <h1 style={{
               fontFamily: "'Manrope', sans-serif",
@@ -385,7 +416,7 @@ export default function MaskinvyNyPage() {
         </header>
 
         {/* Main Content */}
-        <main className="sf-main" style={{ marginLeft: 80, paddingTop: 76, minHeight: '100vh' }}>
+        <main className="sf-main" style={{ marginLeft: 240, paddingTop: 76, minHeight: '100vh' }}>
           <div style={{ padding: '24px 32px', maxWidth: 1600, margin: '0 auto' }}>
             {loading ? (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 400, color: '#85948b' }}>
@@ -394,6 +425,24 @@ export default function MaskinvyNyPage() {
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                {/* Fallback / error banner */}
+                {usingFallback && (
+                  <div style={{
+                    background: 'rgba(255,179,64,0.1)',
+                    border: '1px solid rgba(255,179,64,0.3)',
+                    borderRadius: 12,
+                    padding: '12px 20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    fontSize: 13,
+                    color: '#ffb340',
+                  }}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 20 }}>info</span>
+                    <span>Visar demodata{dbError ? ` (${dbError})` : ' — ingen produktionsdata hittades i databasen'}.</span>
+                  </div>
+                )}
+
                 {/* KPI Cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
                   <KPICard label="Dagsvolym (30d)" value={fmt(kpi.totalVolym)} unit="m\u00B3fub" accent={false} />
