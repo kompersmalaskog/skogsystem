@@ -20,6 +20,7 @@ const pageNames: Record<string, string> = {
   '/helikopter': 'Helikopter',
   '/forbattringsforslag': 'Förslag',
   '/maskin-service': 'Maskinservice',
+  '/maskinvy-ny': 'Maskinvy Ny',
 }
 
 export default function TopBar() {

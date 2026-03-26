@@ -11,6 +11,7 @@ const apps: { href: string; label: string; icon: string; color: string; img?: st
   { href: '/uppfoljning', label: 'Uppföljning', icon: '', color: '#007AFF', img: '/uppfoljning-icon.png' },
   { href: '/maskinvy', label: 'Maskinvy', icon: '🚜', color: '#34C759' },
   { href: '/maskinvy2', label: 'Skördare', icon: '🌲', color: '#34C759', badge: '2' },
+  { href: '/maskinvy-ny', label: 'Synthetic Forest', icon: '🌿', color: '#00c48c' },
   { href: '/arbetsrapport', label: 'Arbetsrapport', icon: '', color: '#FF9500', img: '/arbetsrapport-icon.png' },
   { href: '/starta-jobb', label: 'Starta jobb', icon: '▶️', color: '#FF3B30' },
   { href: '/planering', label: 'Planering', icon: '', color: '#5856D6', img: '/planering-icon.png' },
