@@ -653,6 +653,7 @@ Object.assign(window, {
 export default function Maskinvy() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [vald, setVald] = useState('');
+  const [activeView, setActiveView] = useState('oversikt');
 
   useEffect(() => {
     supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ').then(({ data }) => {
@@ -692,6 +693,11 @@ export default function Maskinvy() {
     };
   }, []);
 
+  useEffect(() => {
+    const page = document.getElementById('page');
+    if (page) page.setAttribute('data-view', activeView);
+  }, [activeView]);
+
   const valdMaskin = maskiner.find(m => m.modell === vald);
 
   return (
@@ -710,32 +716,29 @@ export default function Maskinvy() {
         {/* Nav */}
         <nav style={{ flex: 1, padding: '8px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           {[
-            { icon: '◻', label: 'Översikt', target: 'sec-oversikt' },
-            { icon: '▤', label: 'Produktion', target: 'sec-produktion' },
-            { icon: '◉', label: 'Operatörer', target: 'sec-operatorer' },
-            { icon: '⬡', label: 'Trädslag', target: 'sec-tradslag' },
-            { icon: '▣', label: 'Objekt', target: 'sec-objekt' },
-            { icon: '⊘', label: 'Kalibrering', target: 'sec-kalibrering' },
-          ].map(item => (
-            <div key={item.label} onClick={() => {
-              const el = document.getElementById(item.target);
-              if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            }} style={{
+            { icon: '◻', label: 'Översikt', view: 'oversikt' },
+            { icon: '▤', label: 'Produktion', view: 'produktion' },
+            { icon: '◉', label: 'Operatörer', view: 'operatorer' },
+            { icon: '⬡', label: 'Trädslag', view: 'tradslag' },
+            { icon: '▣', label: 'Objekt', view: 'objekt' },
+            { icon: '⊘', label: 'Kalibrering', view: 'kalibrering' },
+          ].map(item => {
+            const isActive = activeView === item.view;
+            return (
+            <div key={item.label} onClick={() => setActiveView(item.view)} style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
-              background: 'transparent',
-              borderLeft: '3px solid transparent',
-              color: '#999',
+              background: isActive ? '#1e1e1c' : 'transparent',
+              borderLeft: isActive ? '3px solid #00c48c' : '3px solid transparent',
+              color: isActive ? '#e8e8e4' : '#666',
               fontSize: 13, fontWeight: 500,
               transition: 'all 0.15s',
-            }}
-            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#1e1e1c'; (e.currentTarget as HTMLElement).style.color = '#e8e8e4'; }}
-            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; (e.currentTarget as HTMLElement).style.color = '#999'; }}
-            >
-              <span style={{ fontSize: 14, width: 18, textAlign: 'center', opacity: 0.6 }}>{item.icon}</span>
+            }}>
+              <span style={{ fontSize: 14, width: 18, textAlign: 'center', opacity: isActive ? 1 : 0.5 }}>{item.icon}</span>
               {item.label}
             </div>
-          ))}
+            );
+          })}
         </nav>
         {/* Period + Maskin at bottom */}
         <div style={{ padding: '12px 12px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -772,6 +775,21 @@ export default function Maskinvy() {
       <style dangerouslySetInnerHTML={{ __html: `.mach-wrap { display: none !important; }
 .hdr { display: none !important; }
 .cmp-bar { display: none !important; }
+
+/* ── VIEW SWITCHING ── */
+.view-section { display: none !important; }
+.page[data-view="oversikt"] .vs-oversikt { display: block !important; }
+.page[data-view="produktion"] .vs-produktion { display: block !important; }
+.page[data-view="operatorer"] .vs-operatorer { display: block !important; }
+.page[data-view="tradslag"] .vs-tradslag { display: block !important; }
+.page[data-view="objekt"] .vs-objekt { display: block !important; }
+.page[data-view="kalibrering"] .vs-kalibrering { display: block !important; }
+/* grids need display:grid */
+.page[data-view="oversikt"] .vs-oversikt.hero { display: grid !important; }
+.page[data-view="oversikt"] .vs-oversikt.g2 { display: grid !important; }
+.page[data-view="operatorer"] .vs-operatorer.g2 { display: grid !important; }
+.page[data-view="objekt"] .vs-objekt.g2 { display: grid !important; }
+.page[data-view="produktion"] .vs-produktion.g2 { display: grid !important; }
 :root {
   --bg:       #111110;
   --surface:  #1a1a18;
@@ -1207,10 +1225,10 @@ body {
   <button class="cmp-go" onclick="runCmp()">Visa →</button>
 </div>
 
-<div class="page" id="page">
+<div class="page" id="page" data-view="oversikt">
 
   <!-- KPI ROW — 4 cards -->
-  <div class="hero" id="sec-oversikt">
+  <div class="hero view-section vs-oversikt" id="sec-oversikt">
     <div class="hero-main anim" style="animation-delay:0.05s">
       <div class="hero-label">Volym</div>
       <div class="hero-val" id="hv">0</div>
@@ -1238,7 +1256,7 @@ body {
   </div>
 
   <!-- ROW 1: Operatörer + Tidsfördelning -->
-  <div class="g2" id="sec-operatorer">
+  <div class="g2 view-section vs-oversikt vs-operatorer" id="sec-operatorer">
     <div class="card anim" style="animation-delay:0.3s">
       <div class="card-h"><div class="card-t">Operatörer</div><span class="badge bg">3 aktiva</span></div>
       <div class="card-b">
@@ -1296,8 +1314,8 @@ body {
 
   </div>
 
-  <!-- ROW 2: Trädslag + Kalibrering -->
-  <div class="g2" id="sec-tradslag">
+  <!-- Trädslag -->
+  <div class="gf view-section vs-tradslag" id="sec-tradslag">
     <div class="card anim" style="animation-delay:0.45s">
       <div class="card-h"><div class="card-t">Trädslag</div></div>
       <div class="card-b" onclick="openTradslag()" style="cursor:pointer;">
@@ -1313,7 +1331,10 @@ body {
         <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center;letter-spacing:0.3px;">Tryck för sortiment per trädslag →</div>
       </div>
     </div>
+  </div>
 
+  <!-- Kalibrering -->
+  <div class="gf view-section vs-kalibrering">
     <div class="card anim" id="sec-kalibrering" style="animation-delay:0.4s;cursor:pointer;" onclick="window.location.href='/kalibrering?maskin=PONS20SDJAA270231'" title="Gå till kalibreringssidan">
       <div class="card-h"><div class="card-t">Kalibrering (HQC)</div><span class="badge bg">OK</span></div>
       <div class="card-b">
@@ -1327,7 +1348,7 @@ body {
   </div>
 
   <!-- ROW 3: Bolag + Objekt -->
-  <div class="g2" id="sec-objekt">
+  <div class="g2 view-section vs-objekt" id="sec-objekt">
     <div class="card anim" style="animation-delay:0.5s">
       <div class="card-h"><div class="card-t">Volym per bolag</div></div>
       <div class="card-b">
@@ -1406,8 +1427,7 @@ body {
   </div>
 
   <!-- DAGLIG PRODUKTION -->
-  <div id="sec-produktion"></div>
-  <div class="gf">
+  <div class="gf view-section vs-produktion" id="sec-produktion">
     <div class="card anim" style="animation-delay:0.6s">
       <div class="card-h">
         <div class="card-t">Daglig produktion – februari 2026</div>
@@ -1421,7 +1441,7 @@ body {
   </div>
 
   <!-- KALENDER + SORTIMENT -->
-  <div class="g2">
+  <div class="g2 view-section vs-produktion">
     <div class="card anim" style="animation-delay:0.65s">
       <div class="card-h">
         <div class="card-t">Aktivitet – februari</div>
@@ -1460,7 +1480,7 @@ body {
   </div>
 
   <!-- MTH -->
-  <div class="gf">
+  <div class="gf view-section vs-produktion vs-tradslag">
     <div class="card anim" style="animation-delay:0.75s">
       <div class="card-h">
         <div class="card-t">Flerträd (MTH) per trädslag & medelstamsklass</div>
@@ -1486,7 +1506,7 @@ body {
   </div>
 
   <!-- PRODUKTION & PRODUKTIVITET -->
-  <div class="gf">
+  <div class="gf view-section vs-produktion">
     <div class="card anim" style="animation-delay:0.8s">
       <div class="card-h"><div class="card-t">Produktion & produktivitet per medelstamsklass</div></div>
       <div class="card-b">
@@ -1517,7 +1537,7 @@ body {
   </div>
 
   <!-- DIESEL DIAGRAM -->
-  <div style="margin-top:8px;">
+  <div class="view-section vs-produktion" style="margin-top:8px;">
     <div class="card anim" style="animation-delay:0.7s">
       <div class="card-h"><div class="card-t">Dieselförbrukning per medelstamsklass</div></div>
       <div class="card-b">
