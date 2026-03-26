@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -8,7 +8,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-// === TYPER ===
 interface Ansökan {
   id: string;
   anvandare_id: string;
@@ -21,19 +20,19 @@ interface Ansökan {
   skapad_at: string;
 }
 
-// === KONSTANTER ===
-const ff = "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif";
+const ff = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text',system-ui,sans-serif";
 
 const C = {
-  bg: '#070708',
-  surface: '#0f0f10',
-  surface2: '#151517',
-  surface3: '#1a1a1c',
-  border: 'rgba(255,255,255,0.07)',
-  borderStrong: 'rgba(255,255,255,0.13)',
-  t1: '#f5f5f7',
-  t2: '#a1a1a6',
-  t3: '#6e6e73',
+  bg: '#f5f5f0',
+  surface: '#ffffff',
+  surface2: '#ffffff',
+  surface3: '#ffffff',
+  border: 'rgba(0,0,0,0.08)',
+  borderStrong: 'rgba(0,0,0,0.15)',
+  t1: '#1a1a1a',
+  t2: '#4a4a4a',
+  t3: '#8a8a8a',
+  t4: '#b0b0b0',
   green: '#22c55e',
   greenDim: 'rgba(34,197,94,0.12)',
   red: '#ef4444',
@@ -42,8 +41,12 @@ const C = {
   yellowDim: 'rgba(234,179,8,0.12)',
   blue: '#3b82f6',
   blueDim: 'rgba(59,130,246,0.12)',
-  gray: '#6e6e73',
-  grayDim: 'rgba(110,110,115,0.12)',
+  gray: '#9ca3af',
+  grayDim: 'rgba(156,163,175,0.10)',
+  orange: '#f97316',
+  orangeDim: 'rgba(249,115,22,0.12)',
+  accent: '#3b82f6',
+  accentDim: 'rgba(59,130,246,0.10)',
 };
 
 const TYPINFO: Record<string, { label: string; color: string; bg: string }> = {
@@ -58,24 +61,25 @@ const STATUSINFO: Record<string, { label: string; color: string; bg: string }> =
   'nekad': { label: 'Nekad', color: C.red, bg: C.redDim },
 };
 
-const ANSTÄLLDA = [
-  'Martin', 'Oskar', 'Stefan', 'Peter', 'Erik', 'Jonas',
-];
-
+const ANSTÄLLDA = ['Martin', 'Oskar', 'Stefan', 'Peter', 'Erik', 'Jonas'];
 const VECKONAMN = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'];
 const MÅNADNAMN = [
   'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
   'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December',
 ];
 
-// === HJÄLPFUNKTIONER ===
-function fmtDate(d: string) {
-  const p = d.split('-');
-  return `${p[2]}/${p[1]}`;
-}
+// === Helpers ===
 
 function toISO(d: Date) {
-  return d.toISOString().split('T')[0];
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function fmtDate(d: string) {
+  const p = d.split('-');
+  return `${parseInt(p[2])} ${MÅNADNAMN[parseInt(p[1]) - 1]?.substring(0, 3).toLowerCase()}`;
 }
 
 function dagMellan(start: string, slut: string): number {
@@ -84,40 +88,121 @@ function dagMellan(start: string, slut: string): number {
   return Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
 }
 
-function isSameDay(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-}
-
 function inRange(day: Date, start: string, slut: string) {
   const d = toISO(day);
   return d >= start && d <= slut;
 }
 
-// === BADGE-KOMPONENT ===
-function Badge({ text, color, bg }: { text: string; color: string; bg: string }) {
+function getWeekNumber(d: Date): number {
+  const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = target.getUTCDay() || 7;
+  target.setUTCDate(target.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
+  return Math.ceil((((target.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+// === SVG Icons ===
+
+function IconChevron({ dir, color = C.t2 }: { dir: 'left' | 'right'; color?: string }) {
+  const pts = dir === 'left' ? '15 18 9 12 15 6' : '9 18 15 12 9 6';
   return (
-    <span style={{
-      display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '2px 8px',
-      borderRadius: 6, color, background: bg, letterSpacing: '0.02em',
-    }}>{text}</span>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points={pts} />
+    </svg>
   );
 }
 
-// === KALENDER-KOMPONENT ===
-function Kalender({
-  år, månad, onÄndraMånad, valdStart, valdSlut, onVäljDag, ansökningar,
-}: {
-  år: number; månad: number; onÄndraMånad: (delta: number) => void;
-  valdStart: string | null; valdSlut: string | null;
-  onVäljDag: (d: string) => void; ansökningar: Ansökan[];
-}) {
-  const förstaVeckodag = (new Date(år, månad, 1).getDay() + 6) % 7; // mån=0
-  const antalDagar = new Date(år, månad + 1, 0).getDate();
-  const celler: (number | null)[] = [];
-  for (let i = 0; i < förstaVeckodag; i++) celler.push(null);
-  for (let d = 1; d <= antalDagar; d++) celler.push(d);
+function IconPlus({ size = 16, color = '#fff' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  );
+}
 
-  // Skapa map av dag → ansökningstyper för snabb lookup
+function IconCheck({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+function IconX({ size = 14, color = 'currentColor' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  );
+}
+
+function IconWarning({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#c2410c" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}
+
+// === Progress Bar ===
+
+function ProgressBar({ value, max, color }: { value: number; max: number; color: string }) {
+  const pct = Math.min((value / max) * 100, 100);
+  return (
+    <div style={{
+      width: '100%', height: 6, borderRadius: 3,
+      background: 'rgba(0,0,0,0.06)', marginTop: 8,
+    }}>
+      <div style={{
+        width: `${pct}%`, height: '100%', borderRadius: 3,
+        background: color, transition: 'width 0.4s ease',
+      }} />
+    </div>
+  );
+}
+
+// === Kalender ===
+
+function Kalender({
+  år, månad, onÄndraMånad, valdStart, valdSlut, onVäljDag, ansökningar, slideDir,
+}: {
+  år: number; månad: number;
+  onÄndraMånad: (d: number) => void;
+  valdStart: string | null; valdSlut: string | null;
+  onVäljDag: (d: string) => void;
+  ansökningar: Ansökan[];
+  slideDir: 'left' | 'right' | null;
+}) {
+  const förstaVeckodag = (new Date(år, månad, 1).getDay() + 6) % 7;
+  const antalDagar = new Date(år, månad + 1, 0).getDate();
+
+  // Previous month days to fill
+  const prevMonthDays = new Date(år, månad, 0).getDate();
+
+  const rows: { cells: { day: number; inMonth: boolean }[] }[] = [];
+  let currentRow: { day: number; inMonth: boolean }[] = [];
+
+  // Fill leading days from previous month
+  for (let i = förstaVeckodag - 1; i >= 0; i--) {
+    currentRow.push({ day: prevMonthDays - i, inMonth: false });
+  }
+  for (let d = 1; d <= antalDagar; d++) {
+    currentRow.push({ day: d, inMonth: true });
+    if (currentRow.length === 7) {
+      rows.push({ cells: currentRow });
+      currentRow = [];
+    }
+  }
+  // Fill trailing days from next month
+  if (currentRow.length > 0) {
+    let nextDay = 1;
+    while (currentRow.length < 7) {
+      currentRow.push({ day: nextDay++, inMonth: false });
+    }
+    rows.push({ cells: currentRow });
+  }
+
   const dagMap = useMemo(() => {
     const map: Record<number, { typ: string; status: string }[]> = {};
     for (const a of ansökningar) {
@@ -134,496 +219,159 @@ function Kalender({
 
   const idag = new Date();
   const idagDag = idag.getFullYear() === år && idag.getMonth() === månad ? idag.getDate() : -1;
+  const animClass = slideDir === 'left' ? 'cal-slide-left' : slideDir === 'right' ? 'cal-slide-right' : '';
 
   return (
     <div>
-      {/* Månadsnavigering */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <button onClick={() => onÄndraMånad(-1)} style={navBtnStyle}>◂</button>
-        <span style={{ fontSize: 16, fontWeight: 600, color: C.t1 }}>
-          {MÅNADNAMN[månad]} {år}
-        </span>
-        <button onClick={() => onÄndraMånad(1)} style={navBtnStyle}>▸</button>
+      {/* Month nav */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 20, padding: '0 4px',
+      }}>
+        <div>
+          <span style={{ fontSize: 18, fontWeight: 700, color: C.t1 }}>
+            {MÅNADNAMN[månad]}
+          </span>
+          <span style={{ fontSize: 18, fontWeight: 400, color: C.t3, marginLeft: 8 }}>
+            {år}
+          </span>
+        </div>
+        <div style={{ display: 'flex', gap: 4 }}>
+          <button onClick={() => onÄndraMånad(-1)} style={navBtnStyle}>
+            <IconChevron dir="left" />
+          </button>
+          <button onClick={() => onÄndraMånad(1)} style={navBtnStyle}>
+            <IconChevron dir="right" />
+          </button>
+        </div>
       </div>
 
-      {/* Veckodag-header */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 4 }}>
-        {VECKONAMN.map(v => (
-          <div key={v} style={{ textAlign: 'center', fontSize: 11, color: C.t3, fontWeight: 500, padding: '4px 0' }}>
+      {/* Weekday headers */}
+      <div style={{
+        display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
+        gap: 0, marginBottom: 4,
+      }}>
+        {VECKONAMN.map((v, i) => (
+          <div key={v} style={{
+            textAlign: 'center', fontSize: 12, fontWeight: 500, padding: '6px 0',
+            color: i >= 5 ? C.red : C.t3,
+            letterSpacing: '0.02em',
+          }}>
             {v}
           </div>
         ))}
       </div>
 
-      {/* Dagceller */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
-        {celler.map((dag, i) => {
-          if (dag === null) return <div key={`e${i}`} />;
+      {/* Calendar grid */}
+      <div key={`${år}-${månad}`} className={animClass}>
+        {rows.map((row, ri) => (
+          <div key={ri} style={{
+            display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)',
+            gap: 0,
+          }}>
+            {row.cells.map((cell, ci) => {
+              if (!cell.inMonth) {
+                return (
+                  <div key={`e${ri}-${ci}`} style={{
+                    aspectRatio: '1', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <span style={{ fontSize: 14, color: C.t4, opacity: 0.5 }}>{cell.day}</span>
+                  </div>
+                );
+              }
 
-          const iso = toISO(new Date(år, månad, dag));
-          const isVald = (valdStart && valdSlut && iso >= valdStart && iso <= valdSlut)
-            || (valdStart && !valdSlut && iso === valdStart);
-          const isStart = iso === valdStart;
-          const isSlut = iso === valdSlut;
-          const isIdag = dag === idagDag;
-          const markningar = dagMap[dag] || [];
-          const harGodkänd = markningar.some(m => m.status === 'godkänd');
-          const harVäntar = markningar.some(m => m.status === 'väntar');
-          const harStillestånd = markningar.some(m => m.typ === 'stillestand' && m.status === 'godkänd');
+              const dag = cell.day;
+              const iso = toISO(new Date(år, månad, dag));
+              const ärHelg = ci >= 5;
+              const isInRange = valdStart && valdSlut
+                ? iso >= valdStart && iso <= valdSlut
+                : valdStart && iso === valdStart;
+              const isStart = iso === valdStart;
+              const isSlut = valdSlut ? iso === valdSlut : iso === valdStart;
+              const isIdag = dag === idagDag;
+              const markningar = dagMap[dag] || [];
+              const harGodkänd = markningar.some(m => m.status === 'godkänd' && m.typ !== 'stillestand');
+              const harVäntar = markningar.some(m => m.status === 'väntar');
+              const harStillestånd = markningar.some(m => m.typ === 'stillestand' && m.status === 'godkänd');
+              const harNekad = markningar.some(m => m.status === 'nekad');
 
-          let bgColor = 'transparent';
-          let borderColor = 'transparent';
-          if (isVald) { bgColor = 'rgba(59,130,246,0.25)'; borderColor = C.blue; }
-          else if (harStillestånd) bgColor = 'rgba(110,110,115,0.15)';
-          else if (harGodkänd) bgColor = 'rgba(34,197,94,0.12)';
-          else if (harVäntar) bgColor = 'rgba(234,179,8,0.08)';
+              // Styling
+              let circleBg = 'transparent';
+              let circleColor = ärHelg ? C.red : C.t1;
+              let fontWeight = 400;
 
-          return (
-            <button
-              key={dag}
-              onClick={() => onVäljDag(iso)}
-              style={{
-                background: bgColor,
-                border: `1.5px solid ${borderColor}`,
-                borderRadius: 8,
-                padding: '6px 0',
-                minHeight: 38,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                position: 'relative',
-                fontFamily: ff,
-              }}
-            >
-              <span style={{
-                fontSize: 13, fontWeight: isIdag ? 700 : 400,
-                color: isVald ? C.t1 : isIdag ? C.blue : C.t2,
-              }}>{dag}</span>
-              {/* Prickar för markerade dagar */}
-              {markningar.length > 0 && !isVald && (
-                <div style={{ display: 'flex', gap: 2, marginTop: 2 }}>
-                  {markningar.slice(0, 3).map((m, mi) => (
-                    <div key={mi} style={{
-                      width: 4, height: 4, borderRadius: 2,
-                      background: m.typ === 'stillestand' ? C.gray
-                        : m.status === 'godkänd' ? C.green
-                          : m.status === 'nekad' ? C.red : C.yellow,
-                    }} />
-                  ))}
+              if (isInRange) {
+                circleBg = '#ea580c';
+                circleColor = '#fff';
+                fontWeight = 600;
+              } else if (isIdag) {
+                circleBg = C.accent;
+                circleColor = '#fff';
+                fontWeight = 600;
+              }
+
+              // Dots
+              const dots: string[] = [];
+              if (harGodkänd) dots.push(C.green);
+              if (harVäntar) dots.push(C.yellow);
+              if (harStillestånd) dots.push(C.gray);
+              if (harNekad) dots.push(C.red);
+
+              return (
+                <div key={dag} style={{ position: 'relative', aspectRatio: '1' }}>
+                  <button
+                    onClick={() => onVäljDag(iso)}
+                    style={{
+                      position: 'relative', width: '100%', height: '100%',
+                      background: 'transparent', border: 'none',
+                      display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', fontFamily: ff, padding: 0,
+                    }}
+                  >
+                    <div style={{
+                      width: 34, height: 34, borderRadius: 17,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: circleBg,
+                      transition: 'all 0.15s ease',
+                    }}>
+                      <span style={{
+                        fontSize: 14, fontWeight,
+                        color: circleColor,
+                      }}>{dag}</span>
+                    </div>
+                    {dots.length > 0 && !isInRange && (
+                      <div style={{
+                        position: 'absolute', bottom: 2,
+                        display: 'flex', gap: 2, justifyContent: 'center',
+                      }}>
+                        {dots.slice(0, 3).map((c, di) => (
+                          <div key={di} style={{
+                            width: 4, height: 4, borderRadius: 2, background: c,
+                          }} />
+                        ))}
+                      </div>
+                    )}
+                  </button>
                 </div>
-              )}
-            </button>
-          );
-        })}
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
 const navBtnStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.06)',
+  background: 'rgba(0,0,0,0.04)',
   border: `1px solid ${C.border}`,
-  borderRadius: 8,
-  width: 36, height: 36,
+  borderRadius: 10, width: 36, height: 36,
   display: 'flex', alignItems: 'center', justifyContent: 'center',
-  cursor: 'pointer', color: C.t2, fontSize: 16, fontFamily: ff,
+  cursor: 'pointer',
 };
 
-// === HUVUDKOMPONENT ===
-export default function LedighetPage() {
-  const [vy, setVy] = useState<'anställd' | 'chef'>('anställd');
-  const [valdAnvändare, setValdAnvändare] = useState(ANSTÄLLDA[0]);
-  const [ansökningar, setAnsökningar] = useState<Ansökan[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Kalenderstate
-  const nu = new Date();
-  const [år, setÅr] = useState(nu.getFullYear());
-  const [månad, setMånad] = useState(nu.getMonth());
-  const [valdStart, setValdStart] = useState<string | null>(null);
-  const [valdSlut, setValdSlut] = useState<string | null>(null);
-
-  // Ansökningsmodal
-  const [showModal, setShowModal] = useState(false);
-  const [modalTyp, setModalTyp] = useState<'semester' | 'atk' | 'stillestand'>('semester');
-  const [modalKommentar, setModalKommentar] = useState('');
-  const [modalAnvändare, setModalAnvändare] = useState(''); // för stillestånd
-  const [sparar, setSparar] = useState(false);
-
-  // Chef: stillestånd-modal
-  const [showStillestånd, setShowStillestånd] = useState(false);
-  const [stillKommentar, setStillKommentar] = useState('');
-
-  const hämtaAnsökningar = async () => {
-    const { data } = await supabase
-      .from('ledighet_ansokningar')
-      .select('*')
-      .order('startdatum', { ascending: false });
-    if (data) setAnsökningar(data);
-    setLoading(false);
-  };
-
-  useEffect(() => { hämtaAnsökningar(); }, []);
-
-  const ändraMånad = (delta: number) => {
-    let ny = månad + delta;
-    let å = år;
-    if (ny < 0) { ny = 11; å--; }
-    if (ny > 11) { ny = 0; å++; }
-    setMånad(ny);
-    setÅr(å);
-  };
-
-  const väljDag = (iso: string) => {
-    if (!valdStart || valdSlut) {
-      setValdStart(iso);
-      setValdSlut(null);
-    } else {
-      if (iso < valdStart) {
-        setValdStart(iso);
-        setValdSlut(valdStart);
-      } else {
-        setValdSlut(iso);
-      }
-    }
-  };
-
-  const skickaAnsökan = async (typ: 'semester' | 'atk') => {
-    if (!valdStart) return;
-    setSparar(true);
-    const slut = valdSlut || valdStart;
-    await supabase.from('ledighet_ansokningar').insert({
-      anvandare_id: valdAnvändare,
-      typ,
-      startdatum: valdStart,
-      slutdatum: slut,
-      status: 'väntar',
-      kommentar: modalKommentar || null,
-      skapad_av: valdAnvändare,
-    });
-    setShowModal(false);
-    setModalKommentar('');
-    setValdStart(null);
-    setValdSlut(null);
-    setSparar(false);
-    hämtaAnsökningar();
-  };
-
-  const skickaStillestånd = async () => {
-    if (!valdStart) return;
-    setSparar(true);
-    const slut = valdSlut || valdStart;
-    await supabase.from('ledighet_ansokningar').insert({
-      anvandare_id: 'alla',
-      typ: 'stillestand',
-      startdatum: valdStart,
-      slutdatum: slut,
-      status: 'godkänd',
-      kommentar: stillKommentar || null,
-      skapad_av: 'Chef',
-    });
-    setShowStillestånd(false);
-    setStillKommentar('');
-    setValdStart(null);
-    setValdSlut(null);
-    setSparar(false);
-    hämtaAnsökningar();
-  };
-
-  const hanteraAnsökan = async (id: string, nystatus: 'godkänd' | 'nekad') => {
-    await supabase.from('ledighet_ansokningar')
-      .update({ status: nystatus })
-      .eq('id', id);
-    hämtaAnsökningar();
-  };
-
-  const taBortAnsökan = async (id: string) => {
-    await supabase.from('ledighet_ansokningar').delete().eq('id', id);
-    hämtaAnsökningar();
-  };
-
-  // Filtrera ansökningar beroende på vy
-  const minaAnsökningar = ansökningar.filter(a => a.anvandare_id === valdAnvändare);
-  const väntandeAntal = ansökningar.filter(a => a.status === 'väntar').length;
-
-  // Kalenderns ansökningar — visa alla godkända + egna väntande
-  const kalenderAnsökningar = useMemo(() => {
-    if (vy === 'chef') return ansökningar.filter(a => a.status !== 'nekad');
-    return ansökningar.filter(a =>
-      (a.anvandare_id === valdAnvändare) ||
-      (a.typ === 'stillestand' && a.status === 'godkänd')
-    );
-  }, [vy, ansökningar, valdAnvändare]);
-
-  const valdDagar = valdStart
-    ? dagMellan(valdStart, valdSlut || valdStart)
-    : 0;
-
-  return (
-    <div style={{
-      height: 'calc(100vh - 56px)', width: '100vw', fontFamily: ff,
-      background: C.bg, color: C.t1, overflow: 'hidden',
-      display: 'flex', flexDirection: 'column',
-      WebkitFontSmoothing: 'antialiased',
-    }}>
-      <style>{`
-        @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-        *::-webkit-scrollbar{width:0}
-      `}</style>
-
-      {/* === TAB-BAR === */}
-      <div style={{
-        display: 'flex', gap: 0, background: C.surface,
-        borderBottom: `1px solid ${C.border}`, flexShrink: 0,
-      }}>
-        {(['anställd', 'chef'] as const).map(tab => {
-          const active = vy === tab;
-          return (
-            <button key={tab} onClick={() => setVy(tab)} style={{
-              flex: 1, padding: '14px 0', background: active ? C.surface3 : 'transparent',
-              border: 'none', borderBottom: active ? `2px solid ${C.t1}` : '2px solid transparent',
-              color: active ? C.t1 : C.t3, fontSize: 13, fontWeight: 600,
-              fontFamily: ff, cursor: 'pointer', letterSpacing: '0.02em',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-            }}>
-              {tab === 'anställd' ? '👤 Min ledighet' : '👔 Hantera'}
-              {tab === 'chef' && väntandeAntal > 0 && (
-                <span style={{
-                  background: C.yellow, color: '#000', fontSize: 10, fontWeight: 700,
-                  borderRadius: 10, minWidth: 18, height: 18, display: 'inline-flex',
-                  alignItems: 'center', justifyContent: 'center', padding: '0 5px',
-                }}>{väntandeAntal}</span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* === INNEHÅLL === */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '16px 16px 100px' }}>
-
-        {/* Anställdväljare (anställdvy) */}
-        {vy === 'anställd' && (
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, color: C.t3, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 8 }}>
-              Välj person
-            </div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {ANSTÄLLDA.map(n => (
-                <button key={n} onClick={() => setValdAnvändare(n)} style={{
-                  padding: '6px 14px', borderRadius: 8,
-                  background: valdAnvändare === n ? 'rgba(59,130,246,0.2)' : C.surface3,
-                  border: `1px solid ${valdAnvändare === n ? C.blue : C.border}`,
-                  color: valdAnvändare === n ? C.t1 : C.t2,
-                  fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-                }}>{n}</button>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* === KALENDER === */}
-        <div style={{
-          background: `linear-gradient(to bottom, ${C.surface3}, ${C.surface})`,
-          border: `1px solid ${C.border}`, borderRadius: 16, padding: 16,
-          marginBottom: 16,
-        }}>
-          <Kalender
-            år={år} månad={månad} onÄndraMånad={ändraMånad}
-            valdStart={valdStart} valdSlut={valdSlut}
-            onVäljDag={väljDag}
-            ansökningar={kalenderAnsökningar}
-          />
-
-          {/* Valt intervall info + knappar */}
-          {valdStart && (
-            <div style={{
-              marginTop: 16, padding: '12px 16px', borderRadius: 12,
-              background: 'rgba(59,130,246,0.08)', border: `1px solid rgba(59,130,246,0.2)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              animation: 'fadeUp 0.2s ease',
-            }}>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 600, color: C.t1 }}>
-                  {fmtDate(valdStart)}{valdSlut && valdSlut !== valdStart ? ` → ${fmtDate(valdSlut)}` : ''}
-                </div>
-                <div style={{ fontSize: 11, color: C.t3, marginTop: 2 }}>
-                  {valdDagar} dag{valdDagar !== 1 ? 'ar' : ''}
-                </div>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {vy === 'anställd' ? (
-                  <>
-                    <button onClick={() => { setModalTyp('semester'); setShowModal(true); }} style={actionBtnStyle(C.green)}>
-                      Semester
-                    </button>
-                    <button onClick={() => { setModalTyp('atk'); setShowModal(true); }} style={actionBtnStyle(C.blue)}>
-                      ATK
-                    </button>
-                  </>
-                ) : (
-                  <button onClick={() => setShowStillestånd(true)} style={actionBtnStyle(C.gray)}>
-                    Stillestånd
-                  </button>
-                )}
-                <button onClick={() => { setValdStart(null); setValdSlut(null); }} style={{
-                  background: 'none', border: 'none', color: C.t3, fontSize: 18,
-                  cursor: 'pointer', padding: '0 4px', fontFamily: ff,
-                }}>✕</button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* === ANSTÄLLDVY: MINA ANSÖKNINGAR === */}
-        {vy === 'anställd' && (
-          <div>
-            <SectionHeader text="Mina ansökningar" />
-            {loading ? (
-              <div style={{ color: C.t3, padding: 20, textAlign: 'center' }}>Laddar...</div>
-            ) : minaAnsökningar.length === 0 ? (
-              <div style={{ color: C.t3, padding: 20, textAlign: 'center', fontSize: 13 }}>
-                Inga ansökningar ännu
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {minaAnsökningar.map(a => (
-                  <AnsökningsKort key={a.id} a={a} showNamn={false} onTaBort={() => taBortAnsökan(a.id)} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* === CHEFVY: VÄNTANDE ANSÖKNINGAR === */}
-        {vy === 'chef' && (
-          <div>
-            {/* Väntande */}
-            <SectionHeader text={`Väntande ansökningar (${väntandeAntal})`} />
-            {ansökningar.filter(a => a.status === 'väntar').length === 0 ? (
-              <div style={{ color: C.t3, padding: 20, textAlign: 'center', fontSize: 13 }}>
-                Inga väntande ansökningar
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
-                {ansökningar.filter(a => a.status === 'väntar').map(a => (
-                  <AnsökningsKort key={a.id} a={a} showNamn onHantera={hanteraAnsökan} />
-                ))}
-              </div>
-            )}
-
-            {/* Alla hanterade */}
-            <SectionHeader text="Hanterade" />
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {ansökningar.filter(a => a.status !== 'väntar').map(a => (
-                <AnsökningsKort key={a.id} a={a} showNamn onTaBort={() => taBortAnsökan(a.id)} />
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Teckenförklaring */}
-        <div style={{ marginTop: 24, padding: 16, borderRadius: 12, background: C.surface, border: `1px solid ${C.border}` }}>
-          <div style={{ fontSize: 11, color: C.t3, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 10 }}>
-            Teckenförklaring
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-            {[
-              { label: 'Semester', color: C.green },
-              { label: 'ATK', color: C.blue },
-              { label: 'Stillestånd', color: C.gray },
-              { label: 'Väntar', color: C.yellow },
-              { label: 'Nekad', color: C.red },
-            ].map(({ label, color }) => (
-              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div style={{ width: 8, height: 8, borderRadius: 4, background: color }} />
-                <span style={{ fontSize: 12, color: C.t2 }}>{label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* === MODAL: Bekräfta ansökan === */}
-      {showModal && (
-        <ModalOverlay onClose={() => setShowModal(false)}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: C.t1, marginBottom: 16 }}>
-            {modalTyp === 'semester' ? '🌴 Ansök semester' : '⏰ Ta ut ATK'}
-          </div>
-          <div style={{ fontSize: 13, color: C.t2, marginBottom: 4 }}>
-            {valdAnvändare} • {fmtDate(valdStart!)}{valdSlut ? ` → ${fmtDate(valdSlut)}` : ''} • {valdDagar} dag{valdDagar !== 1 ? 'ar' : ''}
-          </div>
-          <textarea
-            placeholder="Kommentar (valfritt)"
-            value={modalKommentar}
-            onChange={e => setModalKommentar(e.target.value)}
-            style={textareaStyle}
-            rows={2}
-          />
-          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            <button onClick={() => setShowModal(false)} style={cancelBtnStyle}>Avbryt</button>
-            <button
-              onClick={() => skickaAnsökan(modalTyp)}
-              disabled={sparar}
-              style={{
-                ...confirmBtnStyle,
-                background: modalTyp === 'semester' ? C.green : C.blue,
-                opacity: sparar ? 0.6 : 1,
-              }}
-            >
-              {sparar ? 'Skickar...' : 'Skicka ansökan'}
-            </button>
-          </div>
-        </ModalOverlay>
-      )}
-
-      {/* === MODAL: Stillestånd === */}
-      {showStillestånd && (
-        <ModalOverlay onClose={() => setShowStillestånd(false)}>
-          <div style={{ fontSize: 16, fontWeight: 600, color: C.t1, marginBottom: 16 }}>
-            🏭 Lägg in stillestånd
-          </div>
-          <div style={{ fontSize: 13, color: C.t2, marginBottom: 4 }}>
-            Hela företaget • {fmtDate(valdStart!)}{valdSlut ? ` → ${fmtDate(valdSlut)}` : ''} • {valdDagar} dag{valdDagar !== 1 ? 'ar' : ''}
-          </div>
-          <textarea
-            placeholder="Anledning (valfritt)"
-            value={stillKommentar}
-            onChange={e => setStillKommentar(e.target.value)}
-            style={textareaStyle}
-            rows={2}
-          />
-          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            <button onClick={() => setShowStillestånd(false)} style={cancelBtnStyle}>Avbryt</button>
-            <button
-              onClick={skickaStillestånd}
-              disabled={sparar}
-              style={{ ...confirmBtnStyle, background: C.gray, opacity: sparar ? 0.6 : 1 }}
-            >
-              {sparar ? 'Sparar...' : 'Lägg in stillestånd'}
-            </button>
-          </div>
-        </ModalOverlay>
-      )}
-    </div>
-  );
-}
-
-// === DELKOMPONENTER ===
-
-function SectionHeader({ text }: { text: string }) {
-  return (
-    <div style={{
-      fontSize: 11, fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase',
-      color: C.t3, marginBottom: 12, display: 'flex', alignItems: 'center', gap: 10,
-    }}>
-      {text}
-      <div style={{ flex: 1, height: 1, background: C.border }} />
-    </div>
-  );
-}
+// === Ansökningskort ===
 
 function AnsökningsKort({
   a, showNamn, onHantera, onTaBort,
@@ -638,117 +386,569 @@ function AnsökningsKort({
 
   return (
     <div style={{
-      background: `linear-gradient(to bottom, ${C.surface3}, ${C.surface})`,
-      border: `1px solid ${C.border}`, borderRadius: 14, padding: '14px 16px',
-      animation: 'fadeUp 0.25s ease',
+      background: C.surface2,
+      border: `1px solid ${C.border}`, borderRadius: 12, padding: '14px 16px',
+      animation: 'fadeUp 0.3s cubic-bezier(0.4,0,0.2,1)',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {showNamn && (
-            <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{a.anvandare_id}</span>
-          )}
-          <Badge text={ti.label} color={ti.color} bg={ti.bg} />
-          <Badge text={si.label} color={si.color} bg={si.bg} />
+          <span style={{
+            display: 'inline-block', width: 8, height: 8, borderRadius: 4,
+            background: ti.color,
+          }} />
+          <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>
+            {showNamn && `${a.anvandare_id} · `}{ti.label}
+          </span>
         </div>
-        {onTaBort && a.status !== 'väntar' && (
-          <button onClick={onTaBort} style={{
-            background: 'none', border: 'none', color: C.t3, cursor: 'pointer',
-            fontSize: 14, padding: '2px 6px', fontFamily: ff,
-          }}>✕</button>
-        )}
+        <span style={{
+          fontSize: 11, fontWeight: 600, padding: '3px 10px',
+          borderRadius: 20, color: si.color, background: si.bg,
+        }}>
+          {si.label}
+        </span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ fontSize: 13, color: C.t2 }}>
-          {fmtDate(a.startdatum)} → {fmtDate(a.slutdatum)}
-        </div>
-        <div style={{ fontSize: 12, color: C.t3 }}>
-          {dagar} dag{dagar !== 1 ? 'ar' : ''}
-        </div>
+      <div style={{ fontSize: 13, color: C.t2 }}>
+        {fmtDate(a.startdatum)} – {fmtDate(a.slutdatum)} · {dagar} dag{dagar !== 1 ? 'ar' : ''}
       </div>
       {a.kommentar && (
         <div style={{ fontSize: 12, color: C.t3, marginTop: 6, fontStyle: 'italic' }}>
-          "{a.kommentar}"
+          &quot;{a.kommentar}&quot;
         </div>
       )}
-      {/* Chef: godkänn/neka knappar */}
       {onHantera && a.status === 'väntar' && (
-        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button
-            onClick={() => onHantera(a.id, 'godkänd')}
-            style={{
-              flex: 1, padding: '10px 0', borderRadius: 10, border: 'none',
-              background: C.green, color: '#fff', fontSize: 13, fontWeight: 600,
-              cursor: 'pointer', fontFamily: ff,
-            }}
-          >
-            ✓ Godkänn
+        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+          <button onClick={() => onHantera(a.id, 'godkänd')} style={{
+            flex: 1, padding: '10px 0', borderRadius: 10, border: 'none',
+            background: C.green, color: '#fff', fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', fontFamily: ff,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+            <IconCheck size={14} /> Godkänn
           </button>
-          <button
-            onClick={() => onHantera(a.id, 'nekad')}
-            style={{
-              flex: 1, padding: '10px 0', borderRadius: 10, border: 'none',
-              background: C.red, color: '#fff', fontSize: 13, fontWeight: 600,
-              cursor: 'pointer', fontFamily: ff,
-            }}
-          >
-            ✕ Neka
+          <button onClick={() => onHantera(a.id, 'nekad')} style={{
+            flex: 1, padding: '10px 0', borderRadius: 10, border: 'none',
+            background: C.redDim, color: C.red, fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', fontFamily: ff,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+            <IconX size={14} /> Neka
           </button>
         </div>
+      )}
+      {onTaBort && a.status !== 'väntar' && (
+        <button onClick={onTaBort} style={{
+          marginTop: 8, background: 'none', border: 'none',
+          color: C.t3, fontSize: 12, cursor: 'pointer', fontFamily: ff,
+        }}>
+          Ta bort
+        </button>
       )}
     </div>
   );
 }
 
-function ModalOverlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+// === Main ===
+
+export default function LedighetPage() {
+  const [vy, setVy] = useState<'anställd' | 'chef'>('anställd');
+  const [valdAnvändare, setValdAnvändare] = useState(ANSTÄLLDA[0]);
+  const [ansökningar, setAnsökningar] = useState<Ansökan[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const nu = new Date();
+  const [år, setÅr] = useState(nu.getFullYear());
+  const [månad, setMånad] = useState(nu.getMonth());
+  const [valdStart, setValdStart] = useState<string | null>(null);
+  const [valdSlut, setValdSlut] = useState<string | null>(null);
+  const [slideDir, setSlideDir] = useState<'left' | 'right' | null>(null);
+  const [klickFas, setKlickFas] = useState(0);
+
+  const [showForm, setShowForm] = useState(false);
+  const [formTyp, setFormTyp] = useState('');
+  const [formStart, setFormStart] = useState('');
+  const [formSlut, setFormSlut] = useState('');
+  const [formKommentar, setFormKommentar] = useState('');
+  const [sparar, setSparar] = useState(false);
+
+  const hämtaAnsökningar = useCallback(async () => {
+    const { data } = await supabase
+      .from('ledighet_ansokningar')
+      .select('*')
+      .order('startdatum', { ascending: false });
+    if (data) setAnsökningar(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { hämtaAnsökningar(); }, [hämtaAnsökningar]);
+
+  const ändraMånad = (delta: number) => {
+    setSlideDir(delta > 0 ? 'left' : 'right');
+    setTimeout(() => setSlideDir(null), 350);
+    let ny = månad + delta;
+    let å = år;
+    if (ny < 0) { ny = 11; å--; }
+    if (ny > 11) { ny = 0; å++; }
+    setMånad(ny);
+    setÅr(å);
+  };
+
+  const väljDag = (iso: string) => {
+    if (klickFas === 0) {
+      setValdStart(iso);
+      setValdSlut(null);
+      setKlickFas(1);
+    } else if (klickFas === 1) {
+      if (iso === valdStart) {
+        setValdSlut(iso);
+        setKlickFas(2);
+      } else if (iso < valdStart!) {
+        setValdSlut(valdStart);
+        setValdStart(iso);
+        setKlickFas(2);
+      } else {
+        setValdSlut(iso);
+        setKlickFas(2);
+      }
+    } else {
+      setValdStart(null);
+      setValdSlut(null);
+      setKlickFas(0);
+    }
+  };
+
+  const openForm = () => {
+    setFormTyp('');
+    setFormStart(valdStart || '');
+    setFormSlut(valdSlut || valdStart || '');
+    setFormKommentar('');
+    setShowForm(true);
+  };
+
+  const skickaAnsökan = async () => {
+    if (!formStart || !formTyp) return;
+    setSparar(true);
+    const slut = formSlut || formStart;
+    const typ = formTyp as 'semester' | 'atk' | 'stillestand';
+    await supabase.from('ledighet_ansokningar').insert({
+      anvandare_id: typ === 'stillestand' ? 'alla' : valdAnvändare,
+      typ,
+      startdatum: formStart,
+      slutdatum: slut,
+      status: typ === 'stillestand' ? 'godkänd' : 'väntar',
+      kommentar: formKommentar || null,
+      skapad_av: typ === 'stillestand' ? 'Chef' : valdAnvändare,
+    });
+    setShowForm(false);
+    setFormKommentar('');
+    setValdStart(null);
+    setValdSlut(null);
+    setKlickFas(0);
+    setSparar(false);
+    hämtaAnsökningar();
+  };
+
+  const hanteraAnsökan = async (id: string, nystatus: 'godkänd' | 'nekad') => {
+    await supabase.from('ledighet_ansokningar').update({ status: nystatus }).eq('id', id);
+    hämtaAnsökningar();
+  };
+
+  const taBortAnsökan = async (id: string) => {
+    await supabase.from('ledighet_ansokningar').delete().eq('id', id);
+    hämtaAnsökningar();
+  };
+
+  const minaAnsökningar = ansökningar.filter(a => a.anvandare_id === valdAnvändare);
+  const väntandeAntal = ansökningar.filter(a => a.status === 'väntar').length;
+  const kalenderAnsökningar = useMemo(() => {
+    if (vy === 'chef') return ansökningar.filter(a => a.status !== 'nekad');
+    return ansökningar.filter(a =>
+      a.anvandare_id === valdAnvändare || (a.typ === 'stillestand' && a.status === 'godkänd')
+    );
+  }, [vy, ansökningar, valdAnvändare]);
+
+  const idagISO = toISO(new Date());
+  const kommande = useMemo(() => {
+    const src = vy === 'anställd' ? minaAnsökningar : ansökningar;
+    return src.filter(a => a.slutdatum >= idagISO && a.status !== 'nekad')
+      .sort((a, b) => a.startdatum.localeCompare(b.startdatum));
+  }, [vy, minaAnsökningar, ansökningar, idagISO]);
+
+  const tidigare = useMemo(() => {
+    const src = vy === 'anställd' ? minaAnsökningar : ansökningar;
+    return src.filter(a => a.slutdatum < idagISO || a.status === 'nekad');
+  }, [vy, minaAnsökningar, ansökningar, idagISO]);
+
+  const väntande = ansökningar.filter(a => a.status === 'väntar');
+
+  // Collision check for form
+  const kollision = useMemo(() => {
+    if (!formStart || !formSlut) return [];
+    const names: string[] = [];
+    for (const a of ansökningar) {
+      if (a.status !== 'godkänd') continue;
+      if (a.anvandare_id === valdAnvändare || a.anvandare_id === 'alla') continue;
+      if (a.startdatum <= formSlut && a.slutdatum >= formStart) {
+        if (!names.includes(a.anvandare_id)) names.push(a.anvandare_id);
+      }
+    }
+    return names;
+  }, [formStart, formSlut, ansökningar, valdAnvändare]);
+
+  // KPI data
+  const atkAnvända = useMemo(() => {
+    return minaAnsökningar
+      .filter(a => a.typ === 'atk' && a.status !== 'nekad')
+      .reduce((sum, a) => sum + dagMellan(a.startdatum, a.slutdatum) * 8, 0);
+  }, [minaAnsökningar]);
+  const atkTotal = 96; // 12 days * 8h
+  const atkKvar = Math.max(0, atkTotal - atkAnvända);
+
+  const semesterAnvända = useMemo(() => {
+    return minaAnsökningar
+      .filter(a => a.typ === 'semester' && a.status !== 'nekad')
+      .reduce((sum, a) => sum + dagMellan(a.startdatum, a.slutdatum), 0);
+  }, [minaAnsökningar]);
+  const semesterTotal = 25;
+  const semesterKvar = Math.max(0, semesterTotal - semesterAnvända);
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
+    textTransform: 'uppercase', color: C.t3, marginBottom: 4,
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '12px 14px', borderRadius: 10,
+    background: C.bg, border: `1px solid ${C.border}`,
+    color: C.t1, fontSize: 14, fontFamily: ff,
+    outline: 'none', boxSizing: 'border-box',
+  };
+
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 100,
-        background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
-        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          background: C.surface3, borderRadius: '20px 20px 0 0',
-          padding: '24px 20px max(20px, env(safe-area-inset-bottom))',
-          width: '100%', maxWidth: 480,
-          border: `1px solid ${C.borderStrong}`, borderBottom: 'none',
-          animation: 'fadeUp 0.25s ease',
-        }}
-      >
-        {children}
+    <div style={{
+      minHeight: 'calc(100vh - 56px)', width: '100%', fontFamily: ff,
+      background: C.bg, color: C.t1,
+      WebkitFontSmoothing: 'antialiased',
+    }}>
+      <style>{`
+        @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes cal-slide-left-anim { from{opacity:0;transform:translateX(30px)} to{opacity:1;transform:translateX(0)} }
+        @keyframes cal-slide-right-anim { from{opacity:0;transform:translateX(-30px)} to{opacity:1;transform:translateX(0)} }
+        .cal-slide-left { animation: cal-slide-left-anim 0.3s cubic-bezier(0.4,0,0.2,1); }
+        .cal-slide-right { animation: cal-slide-right-anim 0.3s cubic-bezier(0.4,0,0.2,1); }
+        *::-webkit-scrollbar{width:0;height:0}
+      `}</style>
+
+      {/* === 1. TABS === */}
+      <div style={{
+        display: 'flex', background: C.surface,
+        borderBottom: `1px solid ${C.border}`, padding: '0 16px',
+      }}>
+        {(['anställd', 'chef'] as const).map(tab => {
+          const active = vy === tab;
+          return (
+            <button key={tab} onClick={() => setVy(tab)} style={{
+              flex: 1, padding: '14px 0 12px', background: 'none', border: 'none',
+              borderBottom: active ? `2.5px solid ${C.t1}` : '2.5px solid transparent',
+              color: active ? C.t1 : C.t3,
+              fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            }}>
+              {tab === 'anställd' ? 'Min ledighet' : 'Hantera'}
+              {tab === 'chef' && väntandeAntal > 0 && (
+                <span style={{
+                  background: C.red, color: '#fff', fontSize: 11, fontWeight: 700,
+                  borderRadius: 10, minWidth: 20, height: 20, display: 'inline-flex',
+                  alignItems: 'center', justifyContent: 'center', padding: '0 6px',
+                }}>{väntandeAntal}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Content */}
+      <div style={{ padding: '20px 16px 100px', maxWidth: 480, margin: '0 auto' }}>
+
+        {/* === 2. KPI KORT === */}
+        {vy === 'anställd' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
+            {/* ATK-saldo */}
+            <div style={{
+              background: C.surface, borderRadius: 14, padding: '16px 18px',
+              border: `1px solid ${C.border}`,
+            }}>
+              <div style={labelStyle}>ATK-SALDO</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: C.t1, lineHeight: 1.1 }}>
+                {Math.round(atkKvar / 8 * 10) / 10}
+              </div>
+              <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>timmar kvar</div>
+              <ProgressBar value={atkKvar} max={atkTotal} color={C.blue} />
+            </div>
+            {/* Semesterdagar */}
+            <div style={{
+              background: C.surface, borderRadius: 14, padding: '16px 18px',
+              border: `1px solid ${C.border}`,
+            }}>
+              <div style={labelStyle}>SEMESTERDAGAR</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: C.t1, lineHeight: 1.1 }}>
+                {semesterKvar}
+                <span style={{ fontSize: 14, fontWeight: 400, color: C.t3 }}> av {semesterTotal}</span>
+              </div>
+              <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>kvar</div>
+              <ProgressBar value={semesterKvar} max={semesterTotal} color={C.green} />
+            </div>
+          </div>
+        )}
+
+        {/* === 3. VÄLJ PERSONAL === */}
+        {vy === 'anställd' && (
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ ...labelStyle, marginBottom: 10 }}>VÄLJ PERSONAL</div>
+            <div style={{
+              display: 'flex', gap: 8, flexWrap: 'wrap',
+            }}>
+              {ANSTÄLLDA.map(n => {
+                const active = valdAnvändare === n;
+                return (
+                  <button key={n} onClick={() => setValdAnvändare(n)} style={{
+                    padding: '8px 16px', borderRadius: 20,
+                    background: active ? C.blue : C.surface,
+                    border: `1px solid ${active ? C.blue : C.border}`,
+                    color: active ? '#fff' : C.t2,
+                    fontSize: 13, fontWeight: 500, fontFamily: ff,
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}>
+                    {n}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* === 4. KALENDER === */}
+        <div style={{
+          background: C.surface, border: `1px solid ${C.border}`,
+          borderRadius: 16, padding: '20px 14px 16px',
+          marginBottom: 16,
+        }}>
+          <Kalender
+            år={år} månad={månad} onÄndraMånad={ändraMånad}
+            valdStart={valdStart} valdSlut={valdSlut}
+            onVäljDag={väljDag}
+            ansökningar={kalenderAnsökningar}
+            slideDir={slideDir}
+          />
+        </div>
+
+        {/* === 5. TECKENFÖRKLARING === */}
+        <div style={{
+          display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 28,
+          padding: '0 4px',
+        }}>
+          {[
+            { label: 'Semester', color: C.green },
+            { label: 'ATK', color: C.blue },
+            { label: 'Stillestånd', color: C.gray },
+            { label: 'Väntar', color: C.yellow },
+            { label: 'Nekad', color: C.red },
+            { label: 'Helgdag', color: C.orange },
+          ].map(({ label, color }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 8, height: 8, borderRadius: 4, background: color }} />
+              <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>{label}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* === 6. MINA ANSÖKNINGAR + KNAPP === */}
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: 16,
+        }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: C.t1 }}>
+            Mina Ansökningar
+          </span>
+          <button onClick={openForm} style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px', borderRadius: 10, border: 'none',
+            background: C.blue, color: '#fff',
+            fontSize: 13, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
+          }}>
+            <IconPlus size={14} />
+            Ansök om ledighet
+          </button>
+        </div>
+
+        {/* === 7. ANSÖKNINGSFORMULÄR === */}
+        {showForm && (
+          <div style={{
+            background: C.surface, border: `1px solid ${C.border}`,
+            borderRadius: 14, padding: 20, marginBottom: 24,
+            animation: 'fadeUp 0.25s ease',
+          }}>
+            {/* Collision warning */}
+            {kollision.length > 0 && (
+              <div style={{
+                display: 'flex', gap: 10, alignItems: 'flex-start',
+                padding: '12px 14px', borderRadius: 10,
+                background: '#fff7ed', border: '1px solid #fed7aa',
+                marginBottom: 16,
+              }}>
+                <IconWarning />
+                <div style={{ fontSize: 13, color: '#9a3412', lineHeight: 1.4 }}>
+                  <strong>Krock i planeringen</strong> — {kollision.join(' och ')} har redan beviljad ledighet under de valda datumen
+                </div>
+              </div>
+            )}
+
+            {/* Typ */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={labelStyle}>TYP AV LEDIGHET</div>
+              <select
+                value={formTyp}
+                onChange={e => setFormTyp(e.target.value)}
+                style={{ ...inputStyle, appearance: 'auto' }}
+              >
+                <option value="">Välj typ...</option>
+                <option value="semester">Semester</option>
+                <option value="atk">ATK</option>
+                <option value="stillestand">Stillestånd</option>
+              </select>
+            </div>
+
+            {/* Datum */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+              <div>
+                <div style={labelStyle}>STARTDATUM</div>
+                <input
+                  type="date"
+                  value={formStart}
+                  onChange={e => setFormStart(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <div style={labelStyle}>SLUTDATUM</div>
+                <input
+                  type="date"
+                  value={formSlut}
+                  onChange={e => setFormSlut(e.target.value)}
+                  style={inputStyle}
+                />
+              </div>
+            </div>
+
+            {/* Kommentar */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={labelStyle}>KOMMENTAR</div>
+              <textarea
+                placeholder="Beskriv anledningen till din ledighet..."
+                value={formKommentar}
+                onChange={e => setFormKommentar(e.target.value)}
+                rows={3}
+                style={{ ...inputStyle, resize: 'none' }}
+              />
+            </div>
+
+            {/* Buttons */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+              <button onClick={() => setShowForm(false)} style={{
+                background: 'none', border: 'none',
+                color: C.t2, fontSize: 14, fontWeight: 500,
+                cursor: 'pointer', fontFamily: ff, padding: '10px 16px',
+              }}>
+                Avbryt
+              </button>
+              <button onClick={skickaAnsökan} disabled={sparar || !formTyp || !formStart} style={{
+                padding: '10px 24px', borderRadius: 10, border: 'none',
+                background: '#2d2d2d', color: '#fff',
+                fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
+                opacity: (sparar || !formTyp || !formStart) ? 0.5 : 1,
+              }}>
+                {sparar ? 'Skickar...' : 'Skicka ansökan'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Ansökningslistor */}
+        {vy === 'anställd' && (
+          <>
+            {loading ? (
+              <div style={{ color: C.t3, padding: 40, textAlign: 'center', fontSize: 13 }}>Laddar...</div>
+            ) : (
+              <>
+                {kommande.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+                    {kommande.map(a => (
+                      <AnsökningsKort key={a.id} a={a} showNamn={false} onTaBort={() => taBortAnsökan(a.id)} />
+                    ))}
+                  </div>
+                )}
+                {tidigare.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ ...labelStyle, marginTop: 8 }}>TIDIGARE</div>
+                    {tidigare.map(a => (
+                      <AnsökningsKort key={a.id} a={a} showNamn={false} onTaBort={() => taBortAnsökan(a.id)} />
+                    ))}
+                  </div>
+                )}
+                {kommande.length === 0 && tidigare.length === 0 && !showForm && (
+                  <div style={{
+                    color: C.t3, padding: 30, textAlign: 'center', fontSize: 13,
+                    background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
+                  }}>
+                    Inga ansökningar ännu. Välj datum i kalendern eller klicka &quot;Ansök om ledighet&quot;.
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {/* Manager view */}
+        {vy === 'chef' && (
+          <>
+            <div style={{ ...labelStyle, marginBottom: 12 }}>VÄNTANDE ({väntandeAntal})</div>
+            {väntande.length === 0 ? (
+              <div style={{
+                color: C.t3, padding: 30, textAlign: 'center', fontSize: 13,
+                background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
+                marginBottom: 24,
+              }}>
+                Inga väntande ansökningar
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+                {väntande.map(a => (
+                  <AnsökningsKort key={a.id} a={a} showNamn onHantera={hanteraAnsökan} />
+                ))}
+              </div>
+            )}
+            {kommande.filter(a => a.status === 'godkänd').length > 0 && (
+              <>
+                <div style={{ ...labelStyle, marginBottom: 12 }}>KOMMANDE</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+                  {kommande.filter(a => a.status === 'godkänd').map(a => (
+                    <AnsökningsKort key={a.id} a={a} showNamn onTaBort={() => taBortAnsökan(a.id)} />
+                  ))}
+                </div>
+              </>
+            )}
+            {tidigare.length > 0 && (
+              <>
+                <div style={{ ...labelStyle, marginBottom: 12 }}>HISTORIK</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {tidigare.map(a => (
+                    <AnsökningsKort key={a.id} a={a} showNamn onTaBort={() => taBortAnsökan(a.id)} />
+                  ))}
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
 }
-
-// === STYLES ===
-
-function actionBtnStyle(color: string): React.CSSProperties {
-  return {
-    padding: '8px 16px', borderRadius: 10, border: 'none',
-    background: color, color: '#fff', fontSize: 12, fontWeight: 600,
-    cursor: 'pointer', fontFamily: ff, whiteSpace: 'nowrap',
-  };
-}
-
-const textareaStyle: React.CSSProperties = {
-  width: '100%', marginTop: 12, padding: '10px 12px', borderRadius: 10,
-  background: C.surface, border: `1px solid ${C.border}`,
-  color: C.t1, fontSize: 13, fontFamily: ff, resize: 'none',
-  outline: 'none',
-};
-
-const cancelBtnStyle: React.CSSProperties = {
-  flex: 1, padding: '12px 0', borderRadius: 10,
-  background: C.surface, border: `1px solid ${C.border}`,
-  color: C.t2, fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-};
-
-const confirmBtnStyle: React.CSSProperties = {
-  flex: 2, padding: '12px 0', borderRadius: 10, border: 'none',
-  color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: ff,
-};
