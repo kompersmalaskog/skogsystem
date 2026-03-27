@@ -27,6 +27,37 @@ interface ServiceEntry {
 const KATEGORIER = ['Service', 'Hydraulik', 'Slang', 'Punktering', 'Motor', 'Kran', 'Aggregat', 'Elektrisk', 'Övrigt'];
 const kategoriValue = (label: string) => label.toLowerCase().replace('ö', 'o');
 
+const HJUL = [
+  { id: 'VF', label: 'VF', cx: 30, cy: 45 },
+  { id: 'HF', label: 'HF', cx: 130, cy: 45 },
+  { id: 'VB', label: 'VB', cx: 30, cy: 195 },
+  { id: 'HB', label: 'HB', cx: 130, cy: 195 },
+];
+
+function HjulValjare({ selected, onSelect }: { selected: string; onSelect: (id: string) => void }) {
+  return (
+    <div className="p-hjul-wrap">
+      <svg viewBox="0 0 160 240" className="p-hjul-svg">
+        {/* Chassi */}
+        <rect x="45" y="20" width="70" height="200" rx="6" fill="none" stroke="#222" strokeWidth="1" />
+        {/* Led */}
+        <line x1="45" y1="120" x2="115" y2="120" stroke="#1a1a1a" strokeWidth="1" />
+        {/* FRAM / BAK */}
+        <text x="80" y="38" textAnchor="middle" fill="#333" fontSize="9" fontWeight="500">FRAM</text>
+        <text x="80" y="212" textAnchor="middle" fill="#333" fontSize="9" fontWeight="500">BAK</text>
+
+        {HJUL.map(h => (
+          <g key={h.id} onClick={() => onSelect(h.id)} style={{ cursor: 'pointer' }}>
+            <circle cx={h.cx} cy={h.cy} r="18" fill={selected === h.id ? '#1a1a1a' : 'none'} stroke={selected === h.id ? '#555' : '#222'} strokeWidth="1.5" />
+            <text x={h.cx} y={h.cy + 4} textAnchor="middle" fill={selected === h.id ? '#e5e5e5' : '#444'} fontSize="11" fontWeight="500">{h.label}</text>
+          </g>
+        ))}
+      </svg>
+      <div className="p-hjul-note">Vänster/höger = förarens perspektiv i hytten</div>
+    </div>
+  );
+}
+
 export default function MaskinServicePage() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [selectedMaskin, setSelectedMaskin] = useState<Maskin | null>(null);
@@ -41,6 +72,7 @@ export default function MaskinServicePage() {
   const [datum, setDatum] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedWheel, setSelectedWheel] = useState('');
 
   const fetchData = useCallback(async () => {
     setError(null);
@@ -78,6 +110,7 @@ export default function MaskinServicePage() {
     setBeskrivning('');
     setTimmar(selectedMaskin ? getTimmar(selectedMaskin).toString() : '');
     setDatum(new Date().toISOString().split('T')[0]);
+    setSelectedWheel('');
   };
 
   useEffect(() => {
@@ -177,6 +210,13 @@ export default function MaskinServicePage() {
                 ))}
               </div>
 
+              {kategori === 'punktering' && (
+                <HjulValjare selected={selectedWheel} onSelect={(id) => {
+                  setSelectedWheel(id);
+                  setBeskrivning(`Punktering ${id}`);
+                }} />
+              )}
+
               <textarea
                 className="p-textarea"
                 value={beskrivning}
@@ -260,6 +300,11 @@ const styles = `
   .p-pills{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
   .p-pill{padding:5px 14px;border-radius:980px;font-size:12px;font-weight:450;color:#555;background:none;border:1px solid #222;cursor:pointer;transition:all 0.15s}
   .p-pill.active{color:#e5e5e5;background:#1a1a1a;border-color:#333}
+
+  /* Wheel picker */
+  .p-hjul-wrap{display:flex;flex-direction:column;align-items:center;padding:16px 0 8px}
+  .p-hjul-svg{width:120px;height:auto}
+  .p-hjul-note{font-size:10px;color:#333;margin-top:8px}
 
   .p-textarea{width:100%;padding:12px 0;background:none;border:none;border-bottom:1px solid #1a1a1a;font-size:15px;color:#e5e5e5;outline:none;resize:none;font-family:inherit;line-height:1.5;margin-bottom:12px}
   .p-textarea::placeholder{color:#333}
