@@ -21,8 +21,6 @@ interface ServiceEntry {
   kategori: string;
   beskrivning: string;
   timmar: number | null;
-  kostnad: number | null;
-  utford_av: string | null;
   datum: string;
   skapad_at: string;
 }
@@ -183,7 +181,7 @@ export default function MaskinServicePage() {
   const [serviceEntries, setServiceEntries] = useState<ServiceEntry[]>([]);
   const [paminnelser, setPaminnelser] = useState<Paminnelse[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentTimmar, setCurrentTimmar] = useState(5000);
+  const [maskinTimmar, setMaskinTimmar] = useState<Record<string, number>>({});
 
   // Form state
   const [formOpen, setFormOpen] = useState(false);
@@ -191,8 +189,6 @@ export default function MaskinServicePage() {
   const [formKategori, setFormKategori] = useState('service');
   const [formBeskrivning, setFormBeskrivning] = useState('');
   const [formTimmar, setFormTimmar] = useState('');
-  const [formKostnad, setFormKostnad] = useState('');
-  const [formUtfordAv, setFormUtfordAv] = useState('');
   const [formDatum, setFormDatum] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
   const [editingEntry, setEditingEntry] = useState<ServiceEntry | null>(null);
@@ -215,10 +211,25 @@ export default function MaskinServicePage() {
     if (pamError) { setFetchError('Kunde inte ladda påminnelser: ' + pamError.message); setLoading(false); return; }
     setPaminnelser(pRows || []);
 
+    // Fetch accumulated engine hours per machine from fakt_skift
+    const { data: skiftRows } = await supabase.from('fakt_skift').select('maskin_id, langd_sek');
+    if (skiftRows) {
+      const timmarMap: Record<string, number> = {};
+      for (const s of skiftRows) {
+        timmarMap[s.maskin_id] = (timmarMap[s.maskin_id] || 0) + (s.langd_sek || 0);
+      }
+      // Convert seconds to hours
+      for (const key in timmarMap) { timmarMap[key] = Math.round(timmarMap[key] / 3600); }
+      setMaskinTimmar(timmarMap);
+    }
+
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const getTimmarForMaskin = (m: Maskin) => maskinTimmar[m.maskin_id] || 0;
+  const currentTimmar = selectedMaskin ? getTimmarForMaskin(selectedMaskin) : 0;
 
   const selectMaskin = (m: Maskin) => {
     setSelectedMaskin(m);
@@ -232,8 +243,6 @@ export default function MaskinServicePage() {
     setFormKategori(zone?.defaultKategori || 'ovrigt');
     setFormBeskrivning('');
     setFormTimmar(currentTimmar.toString());
-    setFormKostnad('');
-    setFormUtfordAv('');
     setFormDatum(new Date().toISOString().split('T')[0]);
     setFormOpen(true);
   };
@@ -244,8 +253,6 @@ export default function MaskinServicePage() {
     setFormKategori(entry.kategori);
     setFormBeskrivning(entry.beskrivning || '');
     setFormTimmar(entry.timmar?.toString() || '');
-    setFormKostnad(entry.kostnad?.toString() || '');
-    setFormUtfordAv(entry.utford_av || '');
     setFormDatum(entry.datum);
     setFormOpen(true);
   };
@@ -269,8 +276,6 @@ export default function MaskinServicePage() {
       kategori: formKategori,
       beskrivning: formBeskrivning.trim(),
       timmar: parseFloat(formTimmar) || null,
-      kostnad: parseFloat(formKostnad) || null,
-      utford_av: formUtfordAv || null,
       datum: formDatum,
     };
     const { error } = editingEntry
@@ -287,14 +292,15 @@ export default function MaskinServicePage() {
   };
 
   // Count overdue reminders per maskin
-  const overdueCount = (maskinId: string) => {
+  const overdueCount = (maskin: Maskin) => {
+    const timmar = getTimmarForMaskin(maskin);
     return paminnelser.filter(p =>
-      p.maskin_id === maskinId && p.aktiv && (currentTimmar - p.senast_utford_timmar >= p.intervall_timmar)
+      p.maskin_id === maskin.id && p.aktiv && (timmar - p.senast_utford_timmar >= p.intervall_timmar)
     ).length;
   };
 
   // Total overdue across all machines
-  const totalOverdue = paminnelser.filter(p => p.aktiv && (currentTimmar - p.senast_utford_timmar >= p.intervall_timmar)).length;
+  const totalOverdue = maskiner.reduce((total, m) => total + overdueCount(m), 0);
 
   // Cached entries for selected machine (avoids repeated .filter() calls)
   const selectedMaskinEntries = useMemo(() =>
@@ -319,7 +325,6 @@ export default function MaskinServicePage() {
     selectedMaskinEntries.filter(e => !filterKategori || e.kategori === filterKategori),
     [selectedMaskinEntries, filterKategori]
   );
-  const totalKostnad = maskinHistory.reduce((a, e) => a + (e.kostnad || 0), 0);
 
   if (loading) {
     return (
@@ -367,9 +372,9 @@ export default function MaskinServicePage() {
               <div className="ms-machine-list">
                 {maskiner.map(m => {
                   const latest = latestServicePerMaskin(m.id);
-                  const overdue = overdueCount(m.id);
+                  const overdue = overdueCount(m);
                   const maskinEntries = serviceEntries.filter(e => e.maskin_id === m.id);
-                  const totalCost = maskinEntries.reduce((a, e) => a + (e.kostnad || 0), 0);
+                  const timmar = getTimmarForMaskin(m);
                   return (
                     <div key={m.id} className="ms-machine-card" onClick={() => selectMaskin(m)}>
                       <div className="ms-machine-icon">
@@ -390,8 +395,7 @@ export default function MaskinServicePage() {
                       <div className="ms-machine-info">
                         <div className="ms-machine-name">{m.namn}</div>
                         <div className="ms-machine-meta">
-                          {m.marke} {m.modell} • {maskinEntries.length} åtgärder
-                          {totalCost > 0 && ` • ${Math.round(totalCost).toLocaleString('sv-SE')} kr`}
+                          {m.marke} {m.modell} • {timmar > 0 ? `${timmar.toLocaleString('sv-SE')} h` : '—'} • {maskinEntries.length} åtgärder
                         </div>
                         {latest && (
                           <div className="ms-machine-latest">
@@ -410,11 +414,12 @@ export default function MaskinServicePage() {
               {paminnelser.length > 0 && (
                 <div className="ms-card" style={{ marginTop: 20 }}>
                   <div className="ms-section-title">Servicepåminnelser</div>
-                  <div className="ms-section-sub">Baserat på timräknare ({currentTimmar} h)</div>
+                  <div className="ms-section-sub">Baserat på drifttimmar per maskin</div>
                   <div className="ms-reminder-list">
                     {paminnelser.filter(p => p.aktiv).map(p => {
                       const maskin = maskiner.find(m => m.id === p.maskin_id);
-                      const timmarKvar = p.intervall_timmar - (currentTimmar - p.senast_utford_timmar);
+                      const mTimmar = maskin ? getTimmarForMaskin(maskin) : 0;
+                      const timmarKvar = p.intervall_timmar - (mTimmar - p.senast_utford_timmar);
                       const status = timmarKvar <= 0 ? 'overdue' : timmarKvar <= 50 ? 'soon' : 'ok';
                       return (
                         <div key={p.id} className={`ms-reminder ${status}`}>
@@ -433,15 +438,6 @@ export default function MaskinServicePage() {
                 </div>
               )}
 
-              {/* Timräknare */}
-              <div className="ms-card" style={{ marginTop: 20 }}>
-                <div className="ms-section-title">Timräknare</div>
-                <div className="ms-timmar-input">
-                  <input type="number" value={currentTimmar} onChange={e => setCurrentTimmar(parseInt(e.target.value) || 0)}
-                    className="ms-input" style={{ width: '120px', textAlign: 'center', fontSize: '20px', fontWeight: 600 }} />
-                  <span style={{ color: '#888', fontSize: 14 }}>drifttimmar</span>
-                </div>
-              </div>
             </>
           )}
 
@@ -451,7 +447,7 @@ export default function MaskinServicePage() {
               <header className="ms-header">
                 <div className="ms-eyebrow">{selectedMaskin.marke} {selectedMaskin.modell}</div>
                 <h1 className="ms-title">{selectedMaskin.namn}</h1>
-                <p className="ms-subtitle">Tryck på en zon för att registrera åtgärd</p>
+                <p className="ms-subtitle">{currentTimmar > 0 ? `${currentTimmar.toLocaleString('sv-SE')} drifttimmar • ` : ''}Tryck på en zon för att registrera åtgärd</p>
               </header>
               <div className="ms-card ms-schematic-card">
                 <MaskinSchematic onZoneClick={openForm} zoneColors={zoneColors} />
@@ -474,7 +470,7 @@ export default function MaskinServicePage() {
                         <div className="ms-entry-info">
                           <div className="ms-entry-title">{e.del.replace(/_/g, ' ')} — {KATEGORIER.find(k => k.value === e.kategori)?.label}</div>
                           <div className="ms-entry-desc">{e.beskrivning}</div>
-                          <div className="ms-entry-meta">{new Date(e.datum).toLocaleDateString('sv-SE')}{e.timmar ? ` • ${e.timmar} h` : ''}{e.kostnad ? ` • ${e.kostnad.toLocaleString('sv-SE')} kr` : ''}</div>
+                          <div className="ms-entry-meta">{new Date(e.datum).toLocaleDateString('sv-SE')}{e.timmar ? ` • ${e.timmar} h` : ''}</div>
                         </div>
                         <div className="ms-entry-actions">
                           <button className="ms-action-btn" onClick={() => editEntry(e)} title="Redigera">✏️</button>
@@ -495,7 +491,7 @@ export default function MaskinServicePage() {
               <header className="ms-header">
                 <div className="ms-eyebrow">Historik</div>
                 <h1 className="ms-title">{selectedMaskin.namn}</h1>
-                <p className="ms-subtitle">{maskinHistory.length} åtgärder • {totalKostnad > 0 ? `${Math.round(totalKostnad).toLocaleString('sv-SE')} kr totalt` : 'Inga kostnader'}</p>
+                <p className="ms-subtitle">{maskinHistory.length} åtgärder{currentTimmar > 0 ? ` • ${currentTimmar.toLocaleString('sv-SE')} h` : ''}</p>
               </header>
 
               {/* Filter */}
@@ -508,19 +504,14 @@ export default function MaskinServicePage() {
                 ))}
               </div>
 
-              {/* Kostnadskort */}
-              <div className="ms-stats-row">
+              <div className="ms-stats-row" style={{ gridTemplateColumns: '1fr 1fr' }}>
                 <div className="ms-stat">
                   <div className="ms-stat-value">{maskinHistory.length}</div>
                   <div className="ms-stat-label">Åtgärder</div>
                 </div>
                 <div className="ms-stat">
-                  <div className="ms-stat-value">{Math.round(totalKostnad).toLocaleString('sv-SE')}</div>
-                  <div className="ms-stat-label">kr totalt</div>
-                </div>
-                <div className="ms-stat">
-                  <div className="ms-stat-value">{maskinHistory.length > 0 ? Math.round(totalKostnad / maskinHistory.length).toLocaleString('sv-SE') : 0}</div>
-                  <div className="ms-stat-label">kr/åtgärd</div>
+                  <div className="ms-stat-value">{currentTimmar > 0 ? currentTimmar.toLocaleString('sv-SE') : '—'}</div>
+                  <div className="ms-stat-label">Drifttimmar</div>
                 </div>
               </div>
 
@@ -539,8 +530,6 @@ export default function MaskinServicePage() {
                           <div className="ms-entry-meta">
                             {new Date(e.datum).toLocaleDateString('sv-SE')}
                             {e.timmar ? ` • ${e.timmar} h` : ''}
-                            {e.kostnad ? ` • ${e.kostnad.toLocaleString('sv-SE')} kr` : ''}
-                            {e.utford_av ? ` • ${e.utford_av}` : ''}
                           </div>
                         </div>
                         <div className="ms-entry-actions">
@@ -575,27 +564,16 @@ export default function MaskinServicePage() {
                 ))}
               </div>
 
-              <label className="ms-form-label">Beskrivning</label>
-              <textarea className="ms-textarea" value={formBeskrivning} onChange={e => setFormBeskrivning(e.target.value)} placeholder="Vad gjordes?" rows={3} />
+              <label className="ms-form-label">Beskrivning *</label>
+              <textarea className="ms-textarea" value={formBeskrivning} onChange={e => setFormBeskrivning(e.target.value)} placeholder="Vad gjordes?" rows={2} />
 
               <div className="ms-form-row">
                 <div className="ms-form-field">
-                  <label className="ms-form-label">Timräknare</label>
+                  <label className="ms-form-label">Timräknare *</label>
                   <input type="number" className="ms-input" value={formTimmar} onChange={e => setFormTimmar(e.target.value)} placeholder="h" />
                 </div>
                 <div className="ms-form-field">
-                  <label className="ms-form-label">Kostnad (kr)</label>
-                  <input type="number" className="ms-input" value={formKostnad} onChange={e => setFormKostnad(e.target.value)} placeholder="0" />
-                </div>
-              </div>
-
-              <div className="ms-form-row">
-                <div className="ms-form-field">
-                  <label className="ms-form-label">Utförd av</label>
-                  <input type="text" className="ms-input" value={formUtfordAv} onChange={e => setFormUtfordAv(e.target.value)} placeholder="Namn" />
-                </div>
-                <div className="ms-form-field">
-                  <label className="ms-form-label">Datum</label>
+                  <label className="ms-form-label">Datum *</label>
                   <input type="date" className="ms-input" value={formDatum} onChange={e => setFormDatum(e.target.value)} />
                 </div>
               </div>
@@ -682,33 +660,31 @@ const styles = `
   .ms-reminder-type{font-size:14px;font-weight:500}
   .ms-reminder-meta{font-size:12px;color:var(--text3);margin-top:2px}
 
-  .ms-timmar-input{display:flex;align-items:center;gap:12px;justify-content:center;padding:12px 0}
-
   /* Modal */
   .ms-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);z-index:200;display:flex;align-items:flex-end;justify-content:center;opacity:0;pointer-events:none;transition:opacity 0.25s}
   .ms-modal-overlay.open{opacity:1;pointer-events:auto}
-  .ms-modal{background:var(--card);width:100%;max-width:500px;max-height:90vh;border-radius:20px 20px 0 0;padding:16px 20px 34px;transform:translateY(100%);transition:transform 0.3s ease-out;overflow-y:auto}
+  .ms-modal{background:var(--card);width:100%;max-width:420px;max-height:90vh;border-radius:20px 20px 0 0;padding:12px 16px 28px;transform:translateY(100%);transition:transform 0.3s ease-out;overflow-y:auto}
   .ms-modal-overlay.open .ms-modal{transform:translateY(0)}
-  .ms-modal-handle{width:36px;height:4px;background:#444;border-radius:2px;margin:0 auto 12px}
-  .ms-modal-header{text-align:center;margin-bottom:20px}
-  .ms-modal-title{font-size:20px;font-weight:700}
-  .ms-modal-sub{font-size:13px;color:var(--text2);margin-top:4px}
+  .ms-modal-handle{width:36px;height:4px;background:#444;border-radius:2px;margin:0 auto 8px}
+  .ms-modal-header{text-align:center;margin-bottom:12px}
+  .ms-modal-title{font-size:18px;font-weight:700}
+  .ms-modal-sub{font-size:12px;color:var(--text2);margin-top:2px}
 
-  .ms-form{display:flex;flex-direction:column;gap:12px}
-  .ms-form-label{font-size:12px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:4px}
-  .ms-kategori-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
-  .ms-kategori-btn{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 6px;background:var(--card2);border:2px solid transparent;border-radius:12px;font-size:11px;color:var(--text2);cursor:pointer;transition:all 0.15s}
+  .ms-form{display:flex;flex-direction:column;gap:8px}
+  .ms-form-label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px}
+  .ms-kategori-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+  .ms-kategori-btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px;background:var(--card2);border:2px solid transparent;border-radius:10px;font-size:10px;color:var(--text2);cursor:pointer;transition:all 0.15s}
   .ms-kategori-btn.active{border-color:var(--blue);background:rgba(10,132,255,0.15);color:#fff}
-  .ms-kategori-btn span:first-child{font-size:20px}
-  .ms-input{width:100%;padding:12px;background:var(--card2);border:1px solid var(--border);border-radius:10px;font-size:15px;color:#fff;outline:none}
+  .ms-kategori-btn span:first-child{font-size:16px}
+  .ms-input{width:100%;padding:9px 10px;background:var(--card2);border:1px solid var(--border);border-radius:8px;font-size:14px;color:#fff;outline:none}
   .ms-input:focus{border-color:var(--blue)}
-  .ms-textarea{width:100%;padding:12px;background:var(--card2);border:1px solid var(--border);border-radius:10px;font-size:15px;color:#fff;outline:none;resize:vertical;font-family:inherit}
+  .ms-textarea{width:100%;padding:9px 10px;background:var(--card2);border:1px solid var(--border);border-radius:8px;font-size:14px;color:#fff;outline:none;resize:vertical;font-family:inherit}
   .ms-textarea:focus{border-color:var(--blue)}
-  .ms-form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .ms-form-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .ms-form-field{display:flex;flex-direction:column}
-  .ms-btn-save{padding:14px;background:var(--blue);color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:600;cursor:pointer;margin-top:8px}
+  .ms-btn-save{padding:11px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px}
   .ms-btn-save:disabled{opacity:0.5;cursor:default}
-  .ms-modal-close{display:block;width:100%;padding:14px;margin-top:12px;background:var(--card2);border:none;border-radius:12px;font-size:15px;color:var(--text2);cursor:pointer}
+  .ms-modal-close{display:block;width:100%;padding:11px;margin-top:8px;background:var(--card2);border:none;border-radius:10px;font-size:14px;color:var(--text2);cursor:pointer}
 
   @media(max-width:480px){.ms-title{font-size:28px}.ms-kategori-grid{grid-template-columns:repeat(3,1fr)}}
 `;
