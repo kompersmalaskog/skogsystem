@@ -555,35 +555,34 @@ export default function MaskinServicePage() {
             </div>
 
             <div className="ms-form">
-              <label className="ms-form-label">Kategori</label>
-              <div className="ms-kategori-grid">
+              <div className="ms-kategori-row">
                 {KATEGORIER.map(k => (
-                  <button key={k.value} className={`ms-kategori-btn ${formKategori === k.value ? 'active' : ''}`} onClick={() => setFormKategori(k.value)}>
-                    <span>{k.emoji}</span><span>{k.label}</span>
+                  <button key={k.value} className={`ms-kategori-pill ${formKategori === k.value ? 'active' : ''}`} onClick={() => setFormKategori(k.value)}>
+                    {k.label}
                   </button>
                 ))}
               </div>
 
-              <label className="ms-form-label">Beskrivning *</label>
-              <textarea className="ms-textarea" value={formBeskrivning} onChange={e => setFormBeskrivning(e.target.value)} placeholder="Vad gjordes?" rows={2} />
+              <textarea className="ms-textarea" value={formBeskrivning} onChange={e => setFormBeskrivning(e.target.value)} placeholder="Beskrivning..." rows={2} />
 
               <div className="ms-form-row">
                 <div className="ms-form-field">
-                  <label className="ms-form-label">Timräknare *</label>
+                  <label className="ms-form-label">Timräknare</label>
                   <input type="number" className="ms-input" value={formTimmar} onChange={e => setFormTimmar(e.target.value)} placeholder="h" />
                 </div>
                 <div className="ms-form-field">
-                  <label className="ms-form-label">Datum *</label>
+                  <label className="ms-form-label">Datum</label>
                   <input type="date" className="ms-input" value={formDatum} onChange={e => setFormDatum(e.target.value)} />
                 </div>
               </div>
 
-              <button className="ms-btn-save" onClick={saveService} disabled={saving}>
-                {saving ? 'Sparar…' : editingEntry ? 'Uppdatera åtgärd' : 'Spara åtgärd'}
-              </button>
+              <div className="ms-form-actions">
+                <button className="ms-btn-cancel" onClick={() => setFormOpen(false)}>Avbryt</button>
+                <button className="ms-btn-save" onClick={saveService} disabled={saving}>
+                  {saving ? 'Sparar...' : 'Spara'}
+                </button>
+              </div>
             </div>
-
-            <button className="ms-modal-close" onClick={() => setFormOpen(false)}>Avbryt</button>
           </div>
         </div>
       </div>
@@ -670,21 +669,22 @@ const styles = `
   .ms-modal-title{font-size:18px;font-weight:700}
   .ms-modal-sub{font-size:12px;color:var(--text2);margin-top:2px}
 
-  .ms-form{display:flex;flex-direction:column;gap:8px}
-  .ms-form-label{font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px}
-  .ms-kategori-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
-  .ms-kategori-btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 4px;background:var(--card2);border:2px solid transparent;border-radius:10px;font-size:10px;color:var(--text2);cursor:pointer;transition:all 0.15s}
-  .ms-kategori-btn.active{border-color:var(--blue);background:rgba(10,132,255,0.15);color:#fff}
-  .ms-kategori-btn span:first-child{font-size:16px}
-  .ms-input{width:100%;padding:9px 10px;background:var(--card2);border:1px solid var(--border);border-radius:8px;font-size:14px;color:#fff;outline:none}
-  .ms-input:focus{border-color:var(--blue)}
-  .ms-textarea{width:100%;padding:9px 10px;background:var(--card2);border:1px solid var(--border);border-radius:8px;font-size:14px;color:#fff;outline:none;resize:vertical;font-family:inherit}
-  .ms-textarea:focus{border-color:var(--blue)}
+  .ms-form{display:flex;flex-direction:column;gap:10px}
+  .ms-form-label{font-size:11px;font-weight:500;color:var(--text3);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:2px}
+  .ms-kategori-row{display:flex;gap:4px;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+  .ms-kategori-pill{padding:5px 12px;border-radius:980px;font-size:12px;font-weight:500;color:var(--text3);background:transparent;border:1px solid var(--border);cursor:pointer;white-space:nowrap;transition:all 0.15s}
+  .ms-kategori-pill.active{color:#fff;background:var(--card2);border-color:var(--text3)}
+  .ms-input{width:100%;padding:9px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;color:#fff;outline:none}
+  .ms-input:focus{border-color:var(--text3)}
+  .ms-textarea{width:100%;padding:9px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:14px;color:#fff;outline:none;resize:vertical;font-family:inherit}
+  .ms-textarea:focus{border-color:var(--text3)}
   .ms-form-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .ms-form-field{display:flex;flex-direction:column}
-  .ms-btn-save{padding:11px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;margin-top:4px}
-  .ms-btn-save:disabled{opacity:0.5;cursor:default}
-  .ms-modal-close{display:block;width:100%;padding:11px;margin-top:8px;background:var(--card2);border:none;border-radius:10px;font-size:14px;color:var(--text2);cursor:pointer}
+  .ms-form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+  .ms-btn-save{padding:7px 20px;background:var(--card2);color:var(--text2);border:1px solid var(--border);border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;transition:all 0.15s}
+  .ms-btn-save:hover{color:#fff;border-color:var(--text3)}
+  .ms-btn-save:disabled{opacity:0.4;cursor:default}
+  .ms-btn-cancel{padding:7px 16px;background:transparent;color:var(--text3);border:none;border-radius:8px;font-size:13px;cursor:pointer}
 
-  @media(max-width:480px){.ms-title{font-size:28px}.ms-kategori-grid{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:480px){.ms-title{font-size:28px}}
 `;
