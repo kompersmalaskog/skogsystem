@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // === TYPES ===
@@ -195,18 +195,24 @@ export default function MaskinServicePage() {
   const [formUtfordAv, setFormUtfordAv] = useState('');
   const [formDatum, setFormDatum] = useState(new Date().toISOString().split('T')[0]);
   const [saving, setSaving] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<ServiceEntry | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Filter state for history
   const [filterKategori, setFilterKategori] = useState<string>('');
 
   const fetchData = useCallback(async () => {
-    const { data: maskinRows } = await supabase.from('maskiner').select('*').eq('aktiv', true).order('namn');
+    setFetchError(null);
+    const { data: maskinRows, error: maskinError } = await supabase.from('maskiner').select('*').eq('aktiv', true).order('namn');
+    if (maskinError) { setFetchError('Kunde inte ladda maskiner: ' + maskinError.message); setLoading(false); return; }
     setMaskiner(maskinRows || []);
 
-    const { data: sRows } = await supabase.from('maskin_service').select('*').order('datum', { ascending: false });
+    const { data: sRows, error: serviceError } = await supabase.from('maskin_service').select('*').order('datum', { ascending: false });
+    if (serviceError) { setFetchError('Kunde inte ladda serviceåtgärder: ' + serviceError.message); setLoading(false); return; }
     setServiceEntries(sRows || []);
 
-    const { data: pRows } = await supabase.from('service_paminnelser').select('*').eq('aktiv', true);
+    const { data: pRows, error: pamError } = await supabase.from('service_paminnelser').select('*').eq('aktiv', true);
+    if (pamError) { setFetchError('Kunde inte ladda påminnelser: ' + pamError.message); setLoading(false); return; }
     setPaminnelser(pRows || []);
 
     setLoading(false);
@@ -221,6 +227,7 @@ export default function MaskinServicePage() {
 
   const openForm = (zoneId: string) => {
     const zone = ZONES.find(z => z.id === zoneId);
+    setEditingEntry(null);
     setFormZone(zoneId);
     setFormKategori(zone?.defaultKategori || 'ovrigt');
     setFormBeskrivning('');
@@ -231,21 +238,46 @@ export default function MaskinServicePage() {
     setFormOpen(true);
   };
 
+  const editEntry = (entry: ServiceEntry) => {
+    setEditingEntry(entry);
+    setFormZone(entry.del);
+    setFormKategori(entry.kategori);
+    setFormBeskrivning(entry.beskrivning || '');
+    setFormTimmar(entry.timmar?.toString() || '');
+    setFormKostnad(entry.kostnad?.toString() || '');
+    setFormUtfordAv(entry.utford_av || '');
+    setFormDatum(entry.datum);
+    setFormOpen(true);
+  };
+
+  const deleteEntry = async (entry: ServiceEntry) => {
+    if (!confirm(`Ta bort åtgärd "${entry.del.replace(/_/g, ' ')} — ${entry.beskrivning || entry.kategori}" från ${new Date(entry.datum).toLocaleDateString('sv-SE')}?`)) return;
+    const { error } = await supabase.from('maskin_service').delete().eq('id', entry.id);
+    if (error) { alert('Kunde inte ta bort: ' + error.message); return; }
+    await fetchData();
+  };
+
   const saveService = async () => {
     if (!selectedMaskin || !formZone) return;
+    if (!formBeskrivning.trim()) { alert('Beskrivning krävs'); return; }
+    if (!formDatum) { alert('Datum krävs'); return; }
+    if (!formTimmar || !parseFloat(formTimmar)) { alert('Timräknare krävs'); return; }
     setSaving(true);
-    const { error } = await supabase.from('maskin_service').insert({
+    const payload = {
       maskin_id: selectedMaskin.id,
       del: formZone,
       kategori: formKategori,
-      beskrivning: formBeskrivning,
+      beskrivning: formBeskrivning.trim(),
       timmar: parseFloat(formTimmar) || null,
-      kostnad: parseFloat(formKostnad) || 0,
+      kostnad: parseFloat(formKostnad) || null,
       utford_av: formUtfordAv || null,
       datum: formDatum,
-    });
+    };
+    const { error } = editingEntry
+      ? await supabase.from('maskin_service').update(payload).eq('id', editingEntry.id)
+      : await supabase.from('maskin_service').insert(payload);
     if (error) { console.error('Save error:', error); alert('Fel vid sparning: ' + error.message); }
-    else { setFormOpen(false); await fetchData(); }
+    else { setFormOpen(false); setEditingEntry(null); await fetchData(); }
     setSaving(false);
   };
 
@@ -264,20 +296,29 @@ export default function MaskinServicePage() {
   // Total overdue across all machines
   const totalOverdue = paminnelser.filter(p => p.aktiv && (currentTimmar - p.senast_utford_timmar >= p.intervall_timmar)).length;
 
+  // Cached entries for selected machine (avoids repeated .filter() calls)
+  const selectedMaskinEntries = useMemo(() =>
+    selectedMaskin ? serviceEntries.filter(e => e.maskin_id === selectedMaskin.id) : [],
+    [selectedMaskin, serviceEntries]
+  );
+  const selectedMaskinPam = useMemo(() =>
+    selectedMaskin ? paminnelser.filter(p => p.maskin_id === selectedMaskin.id) : [],
+    [selectedMaskin, paminnelser]
+  );
+
   // Zone colors for selected machine
   const zoneColors: Record<string, string> = {};
   if (selectedMaskin) {
-    const maskinEntries = serviceEntries.filter(e => e.maskin_id === selectedMaskin.id);
-    const maskinPam = paminnelser.filter(p => p.maskin_id === selectedMaskin.id);
     ZONES.forEach(z => {
-      zoneColors[z.id] = getZoneColor(z.id, maskinEntries, maskinPam, currentTimmar);
+      zoneColors[z.id] = getZoneColor(z.id, selectedMaskinEntries, selectedMaskinPam, currentTimmar);
     });
   }
 
   // Filtered history
-  const maskinHistory = selectedMaskin
-    ? serviceEntries.filter(e => e.maskin_id === selectedMaskin.id && (!filterKategori || e.kategori === filterKategori))
-    : [];
+  const maskinHistory = useMemo(() =>
+    selectedMaskinEntries.filter(e => !filterKategori || e.kategori === filterKategori),
+    [selectedMaskinEntries, filterKategori]
+  );
   const totalKostnad = maskinHistory.reduce((a, e) => a + (e.kostnad || 0), 0);
 
   if (loading) {
@@ -285,6 +326,19 @@ export default function MaskinServicePage() {
       <>
         <style jsx global>{styles}</style>
         <div className="ms-loading"><div className="ms-spinner" /><div>Laddar maskiner…</div></div>
+      </>
+    );
+  }
+
+  if (fetchError) {
+    return (
+      <>
+        <style jsx global>{styles}</style>
+        <div className="ms-loading">
+          <div style={{ color: '#ff453a', fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Fel vid laddning</div>
+          <div style={{ color: '#ababab', fontSize: 14, marginBottom: 20, textAlign: 'center', maxWidth: 400 }}>{fetchError}</div>
+          <button className="ms-btn-save" style={{ width: 'auto', padding: '12px 32px' }} onClick={() => { setLoading(true); fetchData(); }}>Försök igen</button>
+        </div>
       </>
     );
   }
@@ -410,17 +464,21 @@ export default function MaskinServicePage() {
               </div>
 
               {/* Senaste åtgärder för denna maskin */}
-              {serviceEntries.filter(e => e.maskin_id === selectedMaskin.id).length > 0 && (
+              {selectedMaskinEntries.length > 0 && (
                 <div className="ms-card">
                   <div className="ms-section-title">Senaste åtgärder</div>
                   <div className="ms-entry-list">
-                    {serviceEntries.filter(e => e.maskin_id === selectedMaskin.id).slice(0, 5).map(e => (
+                    {selectedMaskinEntries.slice(0, 5).map(e => (
                       <div key={e.id} className="ms-entry">
                         <div className="ms-entry-emoji">{KATEGORIER.find(k => k.value === e.kategori)?.emoji || '📋'}</div>
                         <div className="ms-entry-info">
                           <div className="ms-entry-title">{e.del.replace(/_/g, ' ')} — {KATEGORIER.find(k => k.value === e.kategori)?.label}</div>
                           <div className="ms-entry-desc">{e.beskrivning}</div>
                           <div className="ms-entry-meta">{new Date(e.datum).toLocaleDateString('sv-SE')}{e.timmar ? ` • ${e.timmar} h` : ''}{e.kostnad ? ` • ${e.kostnad.toLocaleString('sv-SE')} kr` : ''}</div>
+                        </div>
+                        <div className="ms-entry-actions">
+                          <button className="ms-action-btn" onClick={() => editEntry(e)} title="Redigera">✏️</button>
+                          <button className="ms-action-btn ms-action-delete" onClick={() => deleteEntry(e)} title="Ta bort">🗑️</button>
                         </div>
                       </div>
                     ))}
@@ -485,6 +543,10 @@ export default function MaskinServicePage() {
                             {e.utford_av ? ` • ${e.utford_av}` : ''}
                           </div>
                         </div>
+                        <div className="ms-entry-actions">
+                          <button className="ms-action-btn" onClick={() => editEntry(e)} title="Redigera">✏️</button>
+                          <button className="ms-action-btn ms-action-delete" onClick={() => deleteEntry(e)} title="Ta bort">🗑️</button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -499,7 +561,7 @@ export default function MaskinServicePage() {
           <div className="ms-modal" onClick={e => e.stopPropagation()}>
             <div className="ms-modal-handle" />
             <div className="ms-modal-header">
-              <div className="ms-modal-title">Ny åtgärd</div>
+              <div className="ms-modal-title">{editingEntry ? 'Redigera åtgärd' : 'Ny åtgärd'}</div>
               <div className="ms-modal-sub">{selectedMaskin?.namn} — {ZONES.find(z => z.id === formZone)?.label || formZone}</div>
             </div>
 
@@ -539,7 +601,7 @@ export default function MaskinServicePage() {
               </div>
 
               <button className="ms-btn-save" onClick={saveService} disabled={saving}>
-                {saving ? 'Sparar…' : 'Spara åtgärd'}
+                {saving ? 'Sparar…' : editingEntry ? 'Uppdatera åtgärd' : 'Spara åtgärd'}
               </button>
             </div>
 
@@ -596,6 +658,10 @@ const styles = `
   .ms-entry-desc{font-size:13px;color:var(--text2);margin-top:2px}
   .ms-entry-meta{font-size:12px;color:var(--text3);margin-top:4px}
   .ms-btn-text{background:none;border:none;color:var(--blue);font-size:14px;cursor:pointer;padding:12px 0 0;font-weight:500}
+  .ms-entry-actions{display:flex;flex-direction:column;gap:6px;flex-shrink:0;align-self:center}
+  .ms-action-btn{background:var(--card2);border:1px solid var(--border);border-radius:8px;width:32px;height:32px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;transition:background 0.15s}
+  .ms-action-btn:active{background:var(--card)}
+  .ms-action-delete:active{background:rgba(255,69,58,0.2)}
 
   .ms-filter-row{display:flex;gap:6px;overflow-x:auto;padding-bottom:16px;margin-bottom:8px;-webkit-overflow-scrolling:touch}
   .ms-filter-pill{padding:6px 14px;border-radius:20px;font-size:12px;color:var(--text2);background:var(--card);border:1px solid var(--border);cursor:pointer;white-space:nowrap;transition:all 0.15s}
