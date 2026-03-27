@@ -32,10 +32,10 @@ interface KPIData {
   idlePct: number
 }
 
-type NavItem = 'oversikt' | 'produktion' | 'tradslag' | 'objekt'
-
-// Fallback demo data when Supabase returns nothing
+// Fallback demo data
 const FALLBACK_DAILY: DailyData[] = [
+  { datum: '2026-03-18', volym: 155.2, stammar: 640, g15h: 6.5, bransle: 70 },
+  { datum: '2026-03-19', volym: 178.0, stammar: 730, g15h: 7.3, bransle: 76 },
   { datum: '2026-03-20', volym: 142.8, stammar: 620, g15h: 6.2, bransle: 68 },
   { datum: '2026-03-21', volym: 168.3, stammar: 710, g15h: 7.1, bransle: 74 },
   { datum: '2026-03-24', volym: 188.1, stammar: 780, g15h: 7.8, bransle: 82 },
@@ -43,36 +43,53 @@ const FALLBACK_DAILY: DailyData[] = [
   { datum: '2026-03-26', volym: 172.0, stammar: 700, g15h: 7.0, bransle: 75 },
 ]
 const FALLBACK_KPI: KPIData = {
-  totalVolym: 866.6, totalStammar: 3630, prodPerG15h: 24.0, medelstam: 0.239,
+  totalVolym: 1199.8, totalStammar: 5000, prodPerG15h: 23.5, medelstam: 0.240,
   branslePerM3: 0.44, effektivitet: 72, processingPct: 55, terrainPct: 18,
   otherPct: 12, idlePct: 15,
 }
 
+const TOPBAR_H = 56 // pixels, from layout.tsx TopBar
+
+const SUPABASE_TIMEOUT = 10_000
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Timeout efter ${ms / 1000}s — ingen respons från databasen.`)), ms)
+    ),
+  ])
+}
+
+const NAV_SECTIONS = [
+  { icon: 'dashboard', label: 'Översikt', target: 'section-kpi' },
+  { icon: 'bar_chart', label: 'Produktion', target: 'section-chart' },
+  { icon: 'schedule', label: 'Tidsfördelning', target: 'section-time' },
+  { icon: 'table_chart', label: 'Dagsdata', target: 'section-table' },
+]
+
 export default function MaskinvyNyPage() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([])
   const [valdMaskin, setValdMaskin] = useState<string>('')
-  const [activeNav, setActiveNav] = useState<NavItem>('oversikt')
   const [daily, setDaily] = useState<DailyData[]>([])
-  const [kpi, setKpi] = useState<KPIData>({
-    totalVolym: 0, totalStammar: 0, prodPerG15h: 0, medelstam: 0,
-    branslePerM3: 0, effektivitet: 0, processingPct: 0, terrainPct: 0,
-    otherPct: 0, idlePct: 0
-  })
+  const [kpi, setKpi] = useState<KPIData>(FALLBACK_KPI)
   const [loading, setLoading] = useState(true)
   const [usingFallback, setUsingFallback] = useState(false)
-  const [dbError, setDbError] = useState<string | null>(null)
-  const sidebarOpen = true // Always show sidebar with labels
+  const [timeoutError, setTimeoutError] = useState(false)
+  const [activeNav, setActiveNav] = useState('section-kpi')
   const dailyChartRef = useRef<any>(null)
   const dailyCanvasRef = useRef<HTMLCanvasElement>(null)
+  const [chartError, setChartError] = useState(false)
 
   // Load machines
   useEffect(() => {
-    supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ')
+    withTimeout(
+      supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ'),
+      SUPABASE_TIMEOUT
+    )
       .then(({ data, error }) => {
         if (error) {
           console.error('dim_maskin error:', error)
-          setDbError(`dim_maskin: ${error.message}`)
-          // Use fallback — show demo data without a machine selector
           setUsingFallback(true)
           setDaily(FALLBACK_DAILY)
           setKpi(FALLBACK_KPI)
@@ -84,35 +101,44 @@ export default function MaskinvyNyPage() {
           const skordare = data.find(m => m.typ === 'Skördare') || data[0]
           setValdMaskin(skordare.maskin_id.toString())
         } else {
-          // No machines in DB — show fallback
           setUsingFallback(true)
           setDaily(FALLBACK_DAILY)
           setKpi(FALLBACK_KPI)
           setLoading(false)
         }
       })
+      .catch((err) => {
+        console.error('dim_maskin timeout/error:', err)
+        setTimeoutError(true)
+        setUsingFallback(true)
+        setDaily(FALLBACK_DAILY)
+        setKpi(FALLBACK_KPI)
+        setLoading(false)
+      })
   }, [])
 
-  // Load production data when machine changes
+  // Load production data
   const loadData = useCallback(async (maskinId: string) => {
     if (!maskinId) return
     setLoading(true)
-    setDbError(null)
 
+    setTimeoutError(false)
     try {
-      // First try without date filter to get ALL data
-      const [prodRes, tidRes] = await Promise.all([
-        supabase.from('fakt_produktion')
-          .select('datum,volym_m3sub,stammar')
-          .eq('maskin_id', maskinId)
-          .order('datum', { ascending: false })
-          .limit(500),
-        supabase.from('fakt_tid')
-          .select('datum,processing_sek,terrain_sek,other_work_sek,bransle_liter')
-          .eq('maskin_id', maskinId)
-          .order('datum', { ascending: false })
-          .limit(500)
-      ])
+      const [prodRes, tidRes] = await withTimeout(
+        Promise.all([
+          supabase.from('fakt_produktion')
+            .select('datum,volym_m3sub,stammar')
+            .eq('maskin_id', maskinId)
+            .order('datum', { ascending: false })
+            .limit(500),
+          supabase.from('fakt_tid')
+            .select('datum,processing_sek,terrain_sek,other_work_sek,bransle_liter')
+            .eq('maskin_id', maskinId)
+            .order('datum', { ascending: false })
+            .limit(500)
+        ]),
+        SUPABASE_TIMEOUT
+      )
 
       if (prodRes.error) console.error('fakt_produktion error:', prodRes.error)
       if (tidRes.error) console.error('fakt_tid error:', tidRes.error)
@@ -120,7 +146,6 @@ export default function MaskinvyNyPage() {
       const hasData = (prodRes.data && prodRes.data.length > 0) || (tidRes.data && tidRes.data.length > 0)
 
       if (!hasData) {
-        console.warn('No production data found for maskin_id:', maskinId)
         setUsingFallback(true)
         setDaily(FALLBACK_DAILY)
         setKpi(FALLBACK_KPI)
@@ -156,13 +181,11 @@ export default function MaskinvyNyPage() {
         const p = prodByDay[d] || { volym: 0, stammar: 0 }
         const t = tidByDay[d] || { proc: 0, terr: 0, other: 0, bransle: 0 }
         const totalSek = t.proc + t.terr + t.other
-        const g15h = totalSek / 3600
-        return { datum: d, volym: p.volym, stammar: p.stammar, g15h, bransle: t.bransle }
+        return { datum: d, volym: p.volym, stammar: p.stammar, g15h: totalSek / 3600, bransle: t.bransle }
       })
 
       setDaily(dailyArr)
 
-      // Calculate KPIs
       const totVol = dailyArr.reduce((s, d) => s + d.volym, 0)
       const totSt = dailyArr.reduce((s, d) => s + d.stammar, 0)
       const totG15h = dailyArr.reduce((s, d) => s + d.g15h, 0)
@@ -191,8 +214,9 @@ export default function MaskinvyNyPage() {
         otherPct: totTime > 0 ? (totOther / estTotal) * 100 : 0,
         idlePct: 15,
       })
-    } catch (err) {
+    } catch (err: any) {
       console.error('loadData error:', err)
+      if (err?.message?.includes('Timeout')) setTimeoutError(true)
       setUsingFallback(true)
       setDaily(FALLBACK_DAILY)
       setKpi(FALLBACK_KPI)
@@ -205,72 +229,76 @@ export default function MaskinvyNyPage() {
     if (valdMaskin) loadData(valdMaskin)
   }, [valdMaskin, loadData])
 
-  // Chart.js daily production chart
+  // Chart.js
   useEffect(() => {
     if (!dailyCanvasRef.current || daily.length === 0) return
     const loadChart = async () => {
-      if (!(window as any).Chart) {
-        const script = document.createElement('script')
-        script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'
-        document.head.appendChild(script)
-        await new Promise(r => script.onload = r)
+      try {
+        if (!(window as any).Chart) {
+          const script = document.createElement('script')
+          script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js'
+          document.head.appendChild(script)
+          await new Promise<void>((resolve, reject) => {
+            script.onload = () => resolve()
+            script.onerror = () => reject(new Error('Chart.js CDN failed'))
+          })
+        }
+        const Chart = (window as any).Chart
+        if (!Chart) throw new Error('Chart.js not available')
+        if (dailyChartRef.current) dailyChartRef.current.destroy()
+
+        const labels = daily.map(d => {
+          const dt = new Date(d.datum)
+          return `${dt.getDate()}/${dt.getMonth() + 1}`
+        })
+
+        dailyChartRef.current = new Chart(dailyCanvasRef.current, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [
+              {
+                label: 'm\u00B3fub/dag',
+                data: daily.map(d => d.volym),
+                backgroundColor: daily.map(d => d.volym === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(0,196,140,0.5)'),
+                borderRadius: 4,
+                yAxisID: 'y',
+                order: 1,
+              },
+              {
+                label: 'Stammar',
+                data: daily.map(d => d.stammar),
+                type: 'line' as const,
+                borderColor: 'rgba(63,223,165,0.6)',
+                backgroundColor: 'rgba(63,223,165,0.05)',
+                pointBackgroundColor: daily.map(d => d.stammar > 0 ? '#3fdfa5' : 'transparent'),
+                pointRadius: daily.map(d => d.stammar > 0 ? 3 : 0),
+                tension: 0.3,
+                yAxisID: 'y2',
+                order: 0,
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: 'index' as const, intersect: false },
+            plugins: {
+              legend: { display: false },
+              tooltip: { backgroundColor: '#1a1a18', titleColor: '#e5e2e1', bodyColor: '#85948b', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1 },
+            },
+            scales: {
+              x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#85948b', font: { size: 10 } } },
+              y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#85948b' }, title: { display: true, text: 'm\u00B3', color: '#85948b', font: { size: 10 } } },
+              y2: { position: 'right' as const, grid: { drawOnChartArea: false }, ticks: { color: '#3fdfa5' }, title: { display: true, text: 'Stammar', color: '#3fdfa5', font: { size: 10 } } },
+            },
+          },
+        })
+        setChartError(false)
+      } catch (err) {
+        console.error('Chart.js load error:', err)
+        setChartError(true)
       }
-      const Chart = (window as any).Chart
-      if (dailyChartRef.current) dailyChartRef.current.destroy()
-
-      const labels = daily.map(d => {
-        const dt = new Date(d.datum)
-        return `${dt.getDate()}/${dt.getMonth() + 1}`
-      })
-
-      dailyChartRef.current = new Chart(dailyCanvasRef.current, {
-        type: 'bar',
-        data: {
-          labels,
-          datasets: [
-            {
-              label: 'm\u00B3fub/dag',
-              data: daily.map(d => d.volym),
-              backgroundColor: daily.map(d => d.volym === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(0,196,140,0.5)'),
-              borderRadius: 4,
-              yAxisID: 'y',
-              order: 1,
-            },
-            {
-              label: 'Stammar',
-              data: daily.map(d => d.stammar),
-              type: 'line' as const,
-              borderColor: 'rgba(63,223,165,0.6)',
-              backgroundColor: 'rgba(63,223,165,0.05)',
-              pointBackgroundColor: daily.map(d => d.stammar > 0 ? '#3fdfa5' : 'transparent'),
-              pointRadius: daily.map(d => d.stammar > 0 ? 3 : 0),
-              tension: 0.3,
-              yAxisID: 'y2',
-              order: 0,
-            }
-          ]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: { mode: 'index' as const, intersect: false },
-          plugins: {
-            legend: { display: false },
-            tooltip: {
-              backgroundColor: '#1a1a18',
-              titleColor: '#e5e2e1',
-              bodyColor: '#85948b',
-              borderColor: 'rgba(255,255,255,0.1)',
-              borderWidth: 1,
-            },
-          },
-          scales: {
-            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#85948b', font: { size: 10 } } },
-            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#85948b' }, title: { display: true, text: 'm\u00B3', color: '#85948b', font: { size: 10 } } },
-            y2: { position: 'right' as const, grid: { drawOnChartArea: false }, ticks: { color: '#3fdfa5' }, title: { display: true, text: 'Stammar', color: '#3fdfa5', font: { size: 10 } } },
-          },
-        },
-      })
     }
     loadChart()
     return () => { if (dailyChartRef.current) dailyChartRef.current.destroy() }
@@ -279,217 +307,209 @@ export default function MaskinvyNyPage() {
   const currentMaskin = maskiner.find(m => m.maskin_id.toString() === valdMaskin)
   const fmt = (n: number, d = 1) => n.toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
 
+  const SIDEBAR_W = 240
+
   return (
-    <div className="dark" style={{ fontFamily: "'Inter', sans-serif" }}>
+    <>
+      {/* Google Fonts for Manrope + Material Symbols */}
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
       <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
 
       <style>{`
-        .sf-body { background: #111110; color: #e5e2e1; min-height: 100vh; }
-        .sf-card { background: #161614; border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; }
-        .sf-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: #85948b; font-weight: 600; font-family: 'Inter', sans-serif; }
-        .sf-value { font-size: 32px; font-weight: 800; color: #e5e2e1; font-family: 'Manrope', sans-serif; line-height: 1.2; }
-        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
-        @media (max-width: 1024px) {
-          .sf-sidebar-desktop { display: none !important; }
-          .sf-main { margin-left: 0 !important; }
-          .sf-header { width: 100% !important; }
-        }
+        .msym { font-family: 'Material Symbols Outlined'; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; font-size: 24px; }
+        @keyframes sfSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes sfPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
 
-      <div className="sf-body">
-        {/* Desktop Sidebar — always expanded with labels */}
-        <aside className="sf-sidebar sf-sidebar-desktop h-full fixed left-0 top-0 z-40 flex flex-col py-6 overflow-hidden"
-          style={{
-            width: 240,
-            background: '#0e0e0e',
-            boxShadow: '1px 0 0 0 rgba(255,255,255,0.05)',
-            fontFamily: "'Manrope', sans-serif",
-          }}
-        >
-          <div className="mb-10 flex items-center gap-3 px-5 w-full" style={{ minHeight: 32 }}>
-            <span style={{ color: '#00c48c', fontWeight: 900, letterSpacing: '-0.05em', fontSize: 20, textTransform: 'uppercase' }}>Synthetic Forest</span>
+      <div style={{ background: '#111110', color: '#e5e2e1', minHeight: '100vh', fontFamily: "'Inter', sans-serif" }}>
+
+        {/* ===== SIDEBAR ===== */}
+        <aside style={{
+          position: 'fixed', left: 0, top: TOPBAR_H, bottom: 0,
+          width: SIDEBAR_W, background: '#0e0e0e',
+          boxShadow: '1px 0 0 0 rgba(255,255,255,0.05)',
+          fontFamily: "'Manrope', sans-serif",
+          display: 'flex', flexDirection: 'column',
+          padding: '24px 0', zIndex: 40, overflowY: 'auto',
+        }}>
+          {/* Brand */}
+          <div style={{ padding: '0 20px', marginBottom: 32 }}>
+            <span style={{ color: '#00c48c', fontWeight: 900, letterSpacing: '-0.05em', fontSize: 18, textTransform: 'uppercase' }}>
+              Synthetic Forest
+            </span>
           </div>
 
-          <nav className="flex flex-col w-full gap-1">
-            {([
-              { id: 'oversikt' as NavItem, icon: 'dashboard', label: 'Översikt' },
-              { id: 'produktion' as NavItem, icon: 'bar_chart', label: 'Produktion' },
-              { id: 'tradslag' as NavItem, icon: 'forest', label: 'Trädslag' },
-              { id: 'objekt' as NavItem, icon: 'location_on', label: 'Objekt' },
-            ]).map(item => (
-              <button
-                key={item.id}
-                onClick={() => setActiveNav(item.id)}
-                className="flex items-center gap-4 py-3 w-full text-left"
-                style={{
-                  paddingLeft: 20,
-                  paddingRight: 16,
-                  background: activeNav === item.id ? 'rgba(0,196,140,0.1)' : 'transparent',
-                  color: activeNav === item.id ? '#00c48c' : '#6b7280',
-                  borderRight: activeNav === item.id ? '4px solid #00c48c' : '4px solid transparent',
-                  fontWeight: activeNav === item.id ? 700 : 400,
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: 14,
-                  transition: 'all 0.2s',
-                }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 24 }}>{item.icon}</span>
-                <span style={{ whiteSpace: 'nowrap' }}>{item.label}</span>
-              </button>
-            ))}
+          {/* Nav items */}
+          <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {NAV_SECTIONS.map(item => {
+              const isActive = activeNav === item.target
+              return (
+                <div key={item.label} onClick={() => {
+                  setActiveNav(item.target)
+                  document.getElementById(item.target)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }} style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  padding: '12px 20px',
+                  background: isActive ? 'rgba(0,196,140,0.1)' : 'transparent',
+                  color: isActive ? '#00c48c' : '#6b7280',
+                  borderRight: isActive ? '3px solid #00c48c' : '3px solid transparent',
+                  fontWeight: isActive ? 700 : 400,
+                  fontSize: 14, cursor: 'pointer',
+                }}>
+                  <span className="msym">{item.icon}</span>
+                  <span>{item.label}</span>
+                </div>
+              )
+            })}
           </nav>
 
-          {/* Machine selector at bottom */}
-          <div className="mt-auto w-full px-4">
-            <div className="sf-card p-3">
-              <p className="sf-label mb-1">Maskin</p>
+          {/* Machine selector */}
+          <div style={{ marginTop: 'auto', padding: '0 16px' }}>
+            <div style={{ background: '#161614', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 12 }}>
+              <p style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: '#85948b', fontWeight: 600, marginBottom: 6 }}>Maskin</p>
               <select
                 value={valdMaskin}
                 onChange={e => setValdMaskin(e.target.value)}
                 style={{
-                  width: '100%',
-                  background: '#201f1f',
-                  border: 'none',
-                  borderRadius: 8,
-                  color: '#e5e2e1',
-                  padding: '6px 8px',
-                  fontSize: 13,
-                  fontFamily: "'Inter', sans-serif",
+                  width: '100%', background: '#201f1f', border: 'none', borderRadius: 8,
+                  color: '#e5e2e1', padding: '8px 10px', fontSize: 13, fontFamily: "'Inter', sans-serif",
+                  outline: 'none',
                 }}
               >
-                {maskiner.map(m => (
-                  <option key={m.maskin_id} value={m.maskin_id}>{m.modell}</option>
-                ))}
+                {maskiner.length > 0
+                  ? maskiner.map(m => <option key={m.maskin_id} value={m.maskin_id}>{m.modell} ({m.typ})</option>)
+                  : <option value="">Demodata</option>
+                }
               </select>
             </div>
-            <div className="mt-3 flex items-center gap-2 px-1">
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#00c48c', animation: 'pulse 2s infinite' }} />
-              <span style={{ fontSize: 12, fontWeight: 600, color: '#e5e2e1' }}>ONLINE</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 4px' }}>
+              <div style={{
+                width: 8, height: 8, borderRadius: '50%',
+                background: loading ? '#ffb340' : timeoutError ? '#ff5555' : usingFallback ? '#ffb340' : '#00c48c',
+                animation: 'sfPulse 2s infinite',
+              }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#e5e2e1', letterSpacing: '0.05em' }}>
+                {loading ? 'LADDAR...' : timeoutError ? 'TIMEOUT' : usingFallback ? 'DEMO' : 'ONLINE'}
+              </span>
             </div>
           </div>
         </aside>
 
-        {/* Top Header */}
-        <header className="sf-header fixed top-0 right-0 z-30 flex items-center justify-between px-6 md:px-8"
-          style={{
-            width: 'calc(100% - 240px)',
-            height: 76,
-            background: 'rgba(19,19,19,0.8)',
-            backdropFilter: 'blur(20px)',
-            borderBottom: '1px solid rgba(255,255,255,0.05)',
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <h1 style={{
-              fontFamily: "'Manrope', sans-serif",
-              textTransform: 'uppercase',
-              letterSpacing: '0.15em',
-              fontSize: 11,
-              fontWeight: 700,
-              color: '#00c48c',
-            }}>
-              {activeNav === 'oversikt' ? 'Skördare' : activeNav === 'produktion' ? 'Produktion' : activeNav === 'tradslag' ? 'Trädslag' : 'Objekt'}
-            </h1>
+        {/* ===== HEADER ===== */}
+        <header style={{
+          position: 'fixed', top: TOPBAR_H, right: 0,
+          width: `calc(100% - ${SIDEBAR_W}px)`,
+          height: 64, background: 'rgba(19,19,19,0.85)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          borderBottom: '1px solid rgba(255,255,255,0.05)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '0 28px', zIndex: 30,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontFamily: "'Manrope', sans-serif", textTransform: 'uppercase', letterSpacing: '0.15em', fontSize: 11, fontWeight: 700, color: '#00c48c' }}>
+              Skördare
+            </span>
             <span style={{ color: 'rgba(255,255,255,0.2)' }}>/</span>
             <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 16, color: '#e5e2e1' }}>
-              {currentMaskin?.modell || 'Laddar...'}
+              {currentMaskin?.modell || (usingFallback ? 'Demomaskin' : 'Laddar...')}
             </span>
           </div>
-
-          <div className="flex items-center gap-4">
-            <div style={{
-              background: 'rgba(0,196,140,0.1)',
-              color: '#00c48c',
-              padding: '6px 16px',
-              borderRadius: 9999,
-              fontSize: 10,
-              fontWeight: 700,
-              textTransform: 'uppercase',
-              letterSpacing: '0.1em',
-              fontFamily: "'Manrope', sans-serif",
-            }}>
-              Maskinstatus: Live
-            </div>
+          <div style={{
+            background: loading ? 'rgba(255,179,64,0.1)' : usingFallback ? 'rgba(255,179,64,0.1)' : 'rgba(0,196,140,0.1)',
+            color: loading ? '#ffb340' : usingFallback ? '#ffb340' : '#00c48c',
+            padding: '6px 16px', borderRadius: 9999,
+            fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em',
+            fontFamily: "'Manrope', sans-serif",
+          }}>
+            {loading ? 'Laddar...' : timeoutError ? 'Timeout' : usingFallback ? 'Demodata' : 'Live'}
           </div>
         </header>
 
-        {/* Main Content */}
-        <main className="sf-main" style={{ marginLeft: 240, paddingTop: 76, minHeight: '100vh' }}>
-          <div style={{ padding: '24px 32px', maxWidth: 1600, margin: '0 auto' }}>
+        {/* ===== MAIN CONTENT ===== */}
+        <main style={{ marginLeft: SIDEBAR_W, paddingTop: TOPBAR_H + 64, minHeight: '100vh' }}>
+          <div style={{ padding: '24px 28px', maxWidth: 1400, margin: '0 auto' }}>
+
             {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 400, color: '#85948b' }}>
-                <span className="material-symbols-outlined" style={{ fontSize: 32, animation: 'spin 1s linear infinite', marginRight: 12 }}>progress_activity</span>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 400, color: '#85948b', gap: 12 }}>
+                <span className="msym" style={{ animation: 'sfSpin 1s linear infinite' }}>progress_activity</span>
                 Laddar data...
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                {/* Fallback / error banner */}
-                {usingFallback && (
+              <>
+                {/* Timeout banner */}
+                {timeoutError && (
                   <div style={{
-                    background: 'rgba(255,179,64,0.1)',
-                    border: '1px solid rgba(255,179,64,0.3)',
-                    borderRadius: 12,
-                    padding: '12px 20px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 12,
-                    fontSize: 13,
-                    color: '#ffb340',
+                    background: 'rgba(255,85,85,0.1)', border: '1px solid rgba(255,85,85,0.3)',
+                    borderRadius: 12, padding: '12px 20px', marginBottom: 20,
+                    display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, color: '#ff5555',
                   }}>
-                    <span className="material-symbols-outlined" style={{ fontSize: 20 }}>info</span>
-                    <span>Visar demodata{dbError ? ` (${dbError})` : ' — ingen produktionsdata hittades i databasen'}.</span>
+                    <span className="msym" style={{ fontSize: 20 }}>error</span>
+                    Databasanslutningen tog för lång tid (10s timeout). Visar demodata istället.
+                  </div>
+                )}
+
+                {/* Fallback banner */}
+                {usingFallback && !timeoutError && (
+                  <div style={{
+                    background: 'rgba(255,179,64,0.1)', border: '1px solid rgba(255,179,64,0.3)',
+                    borderRadius: 12, padding: '12px 20px', marginBottom: 20,
+                    display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, color: '#ffb340',
+                  }}>
+                    <span className="msym" style={{ fontSize: 20 }}>info</span>
+                    Visar demodata — ingen produktionsdata hittades i databasen.
                   </div>
                 )}
 
                 {/* KPI Cards */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
-                  <KPICard label="Dagsvolym (30d)" value={fmt(kpi.totalVolym)} unit="m\u00B3fub" accent={false} />
-                  <KPICard label="Effektivitet" value={fmt(kpi.effektivitet, 0)} unit="%" accent={true} />
-                  <KPICard label="Snittvolym" value={fmt(kpi.medelstam, 2)} unit="m\u00B3/stam" accent={false} />
-                  <KPICard label="Bränsle" value={fmt(kpi.branslePerM3)} unit="l/m\u00B3" accent={false} border />
+                <div id="section-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20, scrollMarginTop: TOPBAR_H + 64 + 16 }}>
+                  <KPICard label="Total volym" value={fmt(kpi.totalVolym)} unit="m³fub" />
+                  <KPICard label="Effektivitet" value={fmt(kpi.effektivitet, 0)} unit="%" accent />
+                  <KPICard label="Medelstam" value={fmt(kpi.medelstam, 3)} unit="m³/st" />
+                  <KPICard label="Bränsle" value={fmt(kpi.branslePerM3, 2)} unit="l/m³" border />
                 </div>
 
-                {/* Main Charts Row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 20 }}>
-                  {/* Daily Production Chart */}
-                  <div className="sf-card" style={{ padding: 24, position: 'relative', overflow: 'hidden' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
-                      <div>
-                        <p className="sf-label">Daglig produktion</p>
-                        <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Senaste 30 dagarna</p>
-                      </div>
-                      <div style={{ display: 'flex', gap: 16 }}>
-                        <LegendDot color="#00c48c" label="m\u00B3fub" />
-                        <LegendDot color="#3fdfa5" label="Stammar" />
-                      </div>
+                {/* Chart */}
+                <div id="section-chart" style={{ ...cardStyle, padding: 24, marginBottom: 20, scrollMarginTop: TOPBAR_H + 64 + 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                    <div>
+                      <p style={labelStyle}>Daglig produktion</p>
+                      <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                        {daily.length} dagar | {daily.filter(d => d.volym > 0).length} med produktion
+                      </p>
                     </div>
-                    <div style={{ height: 280 }}>
+                    <div style={{ display: 'flex', gap: 16 }}>
+                      <LegendDot color="#00c48c" label="m³fub" />
+                      <LegendDot color="#3fdfa5" label="Stammar" />
+                    </div>
+                  </div>
+                  <div style={{ height: 280 }}>
+                    {chartError ? (
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#85948b', gap: 8 }}>
+                        <span className="msym" style={{ fontSize: 20 }}>cloud_off</span>
+                        Kunde inte ladda diagram — Chart.js ej tillgänglig.
+                      </div>
+                    ) : (
                       <canvas ref={dailyCanvasRef} />
-                    </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Time Distribution + Production Stats */}
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: 20 }}>
+                {/* Time + Stats row */}
+                <div id="section-time" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20, scrollMarginTop: TOPBAR_H + 64 + 16 }}>
                   {/* Time Distribution */}
-                  <div className="sf-card" style={{ padding: 24 }}>
-                    <div style={{ marginBottom: 24 }}>
-                      <p className="sf-label">Tidsfördelning</p>
-                      <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Driftstatus senaste 30 dagarna</p>
-                    </div>
+                  <div style={{ ...cardStyle, padding: 24 }}>
+                    <p style={labelStyle}>Tidsfördelning</p>
+                    <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4, marginBottom: 20 }}>Driftstatus</p>
 
                     {/* Stacked bar */}
-                    <div style={{ height: 48, width: '100%', display: 'flex', borderRadius: 12, overflow: 'hidden', marginBottom: 24 }}>
+                    <div style={{ height: 40, width: '100%', display: 'flex', borderRadius: 10, overflow: 'hidden', marginBottom: 20 }}>
                       <div style={{ width: `${kpi.processingPct}%`, background: '#00c48c', transition: 'width 0.5s' }} />
                       <div style={{ width: `${kpi.terrainPct}%`, background: 'rgba(0,196,140,0.4)', transition: 'width 0.5s' }} />
                       <div style={{ width: `${kpi.otherPct}%`, background: '#353534', transition: 'width 0.5s' }} />
                       <div style={{ width: `${kpi.idlePct}%`, background: 'rgba(255,180,171,0.4)', transition: 'width 0.5s' }} />
                     </div>
 
-                    {/* Legend */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <TimeLegend color="#00c48c" label="Processing" pct={kpi.processingPct} />
                       <TimeLegend color="rgba(0,196,140,0.4)" label="Terrängkörning" pct={kpi.terrainPct} />
                       <TimeLegend color="#353534" label="Övrigt arbete" pct={kpi.otherPct} />
@@ -498,39 +518,32 @@ export default function MaskinvyNyPage() {
                   </div>
 
                   {/* Production Summary */}
-                  <div className="sf-card" style={{ padding: 24 }}>
-                    <div style={{ marginBottom: 24 }}>
-                      <p className="sf-label">Produktionssammanfattning</p>
-                      <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>Period: 30 dagar</p>
-                    </div>
+                  <div style={{ ...cardStyle, padding: 24 }}>
+                    <p style={labelStyle}>Produktionssammanfattning</p>
+                    <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4, marginBottom: 20 }}>Alla dagar</p>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-                      <StatRow label="Total volym" value={`${fmt(kpi.totalVolym)} m\u00B3fub`} />
-                      <StatRow label="Totalt stammar" value={fmt(kpi.totalStammar, 0)} />
-                      <StatRow label="Produktivitet" value={`${fmt(kpi.prodPerG15h)} m\u00B3/G15h`} highlight />
-                      <StatRow label="Medelstam" value={`${fmt(kpi.medelstam, 3)} m\u00B3`} />
-                      <StatRow label="Bränsleförbrukning" value={`${fmt(kpi.branslePerM3)} l/m\u00B3`} />
-                      <StatRow label="Antal dagar med data" value={`${daily.filter(d => d.volym > 0).length}`} />
-                    </div>
+                    <StatRow label="Total volym" value={`${fmt(kpi.totalVolym)} m³fub`} />
+                    <StatRow label="Totalt stammar" value={fmt(kpi.totalStammar, 0)} />
+                    <StatRow label="Produktivitet" value={`${fmt(kpi.prodPerG15h)} m³/G15h`} highlight />
+                    <StatRow label="Medelstam" value={`${fmt(kpi.medelstam, 3)} m³`} />
+                    <StatRow label="Bränsleförbrukning" value={`${fmt(kpi.branslePerM3, 2)} l/m³`} />
+                    <StatRow label="Dagar med data" value={`${daily.filter(d => d.volym > 0).length}`} />
                   </div>
                 </div>
 
-                {/* Daily Production Table */}
-                <div className="sf-card" style={{ overflow: 'hidden' }}>
-                  <div style={{ padding: '20px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <p style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, color: '#e5e2e1' }}>Dagsdata</p>
-                    <p style={{ fontSize: 11, color: '#85948b' }}>{daily.length} dagar</p>
+                {/* Table */}
+                <div id="section-table" style={{ ...cardStyle, overflow: 'hidden', marginBottom: 20, scrollMarginTop: TOPBAR_H + 64 + 16 }}>
+                  <div style={{ padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700 }}>Dagsdata</span>
+                    <span style={{ fontSize: 11, color: '#85948b' }}>{daily.filter(d => d.volym > 0).length} produktionsdagar</span>
                   </div>
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                       <thead>
                         <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                          <th style={thStyle}>Datum</th>
-                          <th style={thStyle}>Volym m\u00B3</th>
-                          <th style={thStyle}>Stammar</th>
-                          <th style={thStyle}>G15h</th>
-                          <th style={thStyle}>m\u00B3/G15h</th>
-                          <th style={thStyle}>Bränsle (l)</th>
+                          {['Datum', 'Volym m³', 'Stammar', 'G15h', 'm³/G15h', 'Bränsle (l)'].map(h => (
+                            <th key={h} style={thStyle}>{h}</th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody>
@@ -553,36 +566,57 @@ export default function MaskinvyNyPage() {
                 </div>
 
                 {/* Back link */}
-                <div style={{ textAlign: 'center', padding: '16px 0' }}>
+                <div style={{ textAlign: 'center', padding: '12px 0' }}>
                   <Link href="/maskinvy" style={{ color: '#85948b', fontSize: 13, textDecoration: 'none' }}>
                     &larr; Tillbaka till klassisk maskinvy
                   </Link>
                 </div>
-              </div>
+              </>
             )}
           </div>
         </main>
       </div>
-    </div>
+    </>
   )
 }
 
-// --- Sub-components ---
+// ── Shared styles ──
 
-function KPICard({ label, value, unit, accent, border }: { label: string; value: string; unit: string; accent: boolean; border?: boolean }) {
+const cardStyle: React.CSSProperties = {
+  background: '#161614',
+  border: '1px solid rgba(255,255,255,0.07)',
+  borderRadius: 16,
+}
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em',
+  color: '#85948b', fontWeight: 600,
+}
+
+const thStyle: React.CSSProperties = {
+  padding: '12px 16px', textAlign: 'left' as const, fontSize: 11,
+  textTransform: 'uppercase' as const, letterSpacing: '0.05em', color: '#85948b', fontWeight: 600,
+}
+
+const tdStyle: React.CSSProperties = {
+  padding: '10px 16px', color: '#e5e2e1',
+}
+
+// ── Sub-components ──
+
+function KPICard({ label, value, unit, accent, border }: { label: string; value: string; unit: string; accent?: boolean; border?: boolean }) {
   return (
-    <div className="sf-card" style={{
-      padding: 24,
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'space-between',
-      height: 128,
+    <div style={{
+      ...cardStyle, padding: 24, display: 'flex', flexDirection: 'column',
+      justifyContent: 'space-between', height: 120,
       borderLeft: border ? '4px solid #00c48c' : undefined,
     }}>
-      <p className="sf-label">{label}</p>
+      <p style={labelStyle}>{label}</p>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span className="sf-value" style={{ color: accent ? '#00c48c' : '#e5e2e1' }}>{value}</span>
-        <span style={{ fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.3)' }}>{unit}</span>
+        <span style={{ fontSize: 30, fontWeight: 800, color: accent ? '#00c48c' : '#e5e2e1', fontFamily: "'Manrope', sans-serif", lineHeight: 1.2 }}>
+          {value}
+        </span>
+        <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.3)' }}>{unit}</span>
       </div>
     </div>
   )
@@ -602,8 +636,8 @@ function TimeLegend({ color, label, pct }: { color: string; label: string; pct: 
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <div style={{ width: 12, height: 12, borderRadius: 4, background: color, flexShrink: 0 }} />
       <div>
-        <p style={{ fontSize: 12, color: '#e5e2e1', fontWeight: 500 }}>{label}</p>
-        <p style={{ fontSize: 11, color: '#85948b' }}>{pct.toFixed(0)}%</p>
+        <p style={{ fontSize: 12, color: '#e5e2e1', fontWeight: 500, margin: 0 }}>{label}</p>
+        <p style={{ fontSize: 11, color: '#85948b', margin: 0 }}>{pct.toFixed(0)}%</p>
       </div>
     </div>
   )
@@ -611,24 +645,9 @@ function TimeLegend({ color, label, pct }: { color: string; label: string; pct: 
 
 function StatRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
       <span style={{ fontSize: 13, color: '#85948b' }}>{label}</span>
       <span style={{ fontSize: 14, fontWeight: 700, color: highlight ? '#00c48c' : '#e5e2e1', fontFamily: "'Manrope', sans-serif" }}>{value}</span>
     </div>
   )
-}
-
-const thStyle: React.CSSProperties = {
-  padding: '12px 16px',
-  textAlign: 'left',
-  fontSize: 11,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-  color: '#85948b',
-  fontWeight: 600,
-}
-
-const tdStyle: React.CSSProperties = {
-  padding: '10px 16px',
-  color: '#e5e2e1',
 }
