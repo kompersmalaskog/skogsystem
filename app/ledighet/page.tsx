@@ -237,10 +237,10 @@ function Kalender({
           </span>
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
-          <button onClick={() => onÄndraMånad(-1)} style={navBtnStyle}>
+          <button className="nav-cal-btn" onClick={() => onÄndraMånad(-1)} style={navBtnStyle}>
             <IconChevron dir="left" />
           </button>
-          <button onClick={() => onÄndraMånad(1)} style={navBtnStyle}>
+          <button className="nav-cal-btn" onClick={() => onÄndraMånad(1)} style={navBtnStyle}>
             <IconChevron dir="right" />
           </button>
         </div>
@@ -340,6 +340,13 @@ function Kalender({
                         color: circleColor,
                       }}>{dag}</span>
                     </div>
+                    {isIdag && !isInRange && (
+                      <span style={{
+                        position: 'absolute', bottom: dots.length > 0 ? -2 : 2,
+                        fontSize: 8, fontWeight: 700, color: C.accent,
+                        letterSpacing: '0.04em',
+                      }}>idag</span>
+                    )}
                     {dots.length > 0 && !isInRange && (
                       <div style={{
                         position: 'absolute', bottom: 2,
@@ -368,7 +375,7 @@ const navBtnStyle: React.CSSProperties = {
   border: `1px solid ${C.border}`,
   borderRadius: 10, width: 36, height: 36,
   display: 'flex', alignItems: 'center', justifyContent: 'center',
-  cursor: 'pointer',
+  cursor: 'pointer', transition: 'all 0.15s ease',
 };
 
 // === Ansökningskort ===
@@ -469,17 +476,29 @@ export default function LedighetPage() {
   const [formSlut, setFormSlut] = useState('');
   const [formKommentar, setFormKommentar] = useState('');
   const [sparar, setSparar] = useState(false);
+  const [felmeddelande, setFelmeddelande] = useState<string | null>(null);
 
   const hämtaAnsökningar = useCallback(async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('ledighet_ansokningar')
       .select('*')
       .order('startdatum', { ascending: false });
-    if (data) setAnsökningar(data);
+    if (error) {
+      setFelmeddelande('Kunde inte hämta ansökningar: ' + error.message);
+    } else if (data) {
+      setAnsökningar(data);
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => { hämtaAnsökningar(); }, [hämtaAnsökningar]);
+
+  useEffect(() => {
+    if (felmeddelande) {
+      const t = setTimeout(() => setFelmeddelande(null), 5000);
+      return () => clearTimeout(t);
+    }
+  }, [felmeddelande]);
 
   const ändraMånad = (delta: number) => {
     setSlideDir(delta > 0 ? 'left' : 'right');
@@ -525,11 +544,11 @@ export default function LedighetPage() {
   };
 
   const skickaAnsökan = async () => {
-    if (!formStart || !formTyp) return;
+    if (!formStart || !formTyp || (formSlut && formSlut < formStart)) return;
     setSparar(true);
     const slut = formSlut || formStart;
     const typ = formTyp as 'semester' | 'atk' | 'stillestand';
-    await supabase.from('ledighet_ansokningar').insert({
+    const { error } = await supabase.from('ledighet_ansokningar').insert({
       anvandare_id: typ === 'stillestand' ? 'alla' : valdAnvändare,
       typ,
       startdatum: formStart,
@@ -538,6 +557,11 @@ export default function LedighetPage() {
       kommentar: formKommentar || null,
       skapad_av: typ === 'stillestand' ? 'Chef' : valdAnvändare,
     });
+    if (error) {
+      setFelmeddelande('Kunde inte skicka ansökan: ' + error.message);
+      setSparar(false);
+      return;
+    }
     setShowForm(false);
     setFormKommentar('');
     setValdStart(null);
@@ -548,12 +572,21 @@ export default function LedighetPage() {
   };
 
   const hanteraAnsökan = async (id: string, nystatus: 'godkänd' | 'nekad') => {
-    await supabase.from('ledighet_ansokningar').update({ status: nystatus }).eq('id', id);
+    const { error } = await supabase.from('ledighet_ansokningar').update({ status: nystatus }).eq('id', id);
+    if (error) {
+      setFelmeddelande('Kunde inte uppdatera ansökan: ' + error.message);
+      return;
+    }
     hämtaAnsökningar();
   };
 
   const taBortAnsökan = async (id: string) => {
-    await supabase.from('ledighet_ansokningar').delete().eq('id', id);
+    if (!window.confirm('Är du säker på att du vill ta bort denna ansökan?')) return;
+    const { error } = await supabase.from('ledighet_ansokningar').delete().eq('id', id);
+    if (error) {
+      setFelmeddelande('Kunde inte ta bort ansökan: ' + error.message);
+      return;
+    }
     hämtaAnsökningar();
   };
 
@@ -636,7 +669,24 @@ export default function LedighetPage() {
         .cal-slide-left { animation: cal-slide-left-anim 0.3s cubic-bezier(0.4,0,0.2,1); }
         .cal-slide-right { animation: cal-slide-right-anim 0.3s cubic-bezier(0.4,0,0.2,1); }
         *::-webkit-scrollbar{width:0;height:0}
+        .nav-cal-btn:hover { background: rgba(0,0,0,0.10) !important; transform: scale(1.05); }
+        .nav-cal-btn:active { transform: scale(0.95); }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
       `}</style>
+
+      {/* Error toast */}
+      {felmeddelande && (
+        <div style={{
+          position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)',
+          background: '#991b1b', color: '#fff', padding: '12px 20px',
+          borderRadius: 12, fontSize: 13, fontWeight: 500, fontFamily: ff,
+          zIndex: 9999, maxWidth: 400, textAlign: 'center',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+          animation: 'fadeIn 0.25s ease',
+        }}>
+          {felmeddelande}
+        </div>
+      )}
 
       {/* === 1. TABS === */}
       <div style={{
@@ -679,7 +729,7 @@ export default function LedighetPage() {
             }}>
               <div style={labelStyle}>ATK-SALDO</div>
               <div style={{ fontSize: 26, fontWeight: 700, color: C.t1, lineHeight: 1.1 }}>
-                {Math.round(atkKvar / 8 * 10) / 10}
+                {atkKvar}
               </div>
               <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>timmar kvar</div>
               <ProgressBar value={atkKvar} max={atkTotal} color={C.blue} />
@@ -752,7 +802,7 @@ export default function LedighetPage() {
             { label: 'Stillestånd', color: C.gray },
             { label: 'Väntar', color: C.yellow },
             { label: 'Nekad', color: C.red },
-            { label: 'Helgdag', color: C.orange },
+            { label: 'Helg', color: C.red },
           ].map(({ label, color }) => (
             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <div style={{ width: 8, height: 8, borderRadius: 4, background: color }} />
@@ -838,6 +888,13 @@ export default function LedighetPage() {
                 />
               </div>
             </div>
+            {formStart && formSlut && formSlut < formStart && (
+              <div style={{
+                fontSize: 13, color: C.red, marginBottom: 14, fontWeight: 500,
+              }}>
+                Slutdatum kan inte vara före startdatum
+              </div>
+            )}
 
             {/* Kommentar */}
             <div style={{ marginBottom: 16 }}>
@@ -860,11 +917,11 @@ export default function LedighetPage() {
               }}>
                 Avbryt
               </button>
-              <button onClick={skickaAnsökan} disabled={sparar || !formTyp || !formStart} style={{
+              <button onClick={skickaAnsökan} disabled={sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart)} style={{
                 padding: '10px 24px', borderRadius: 10, border: 'none',
                 background: '#2d2d2d', color: '#fff',
                 fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-                opacity: (sparar || !formTyp || !formStart) ? 0.5 : 1,
+                opacity: (sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart)) ? 0.5 : 1,
               }}>
                 {sparar ? 'Skickar...' : 'Skicka ansökan'}
               </button>
