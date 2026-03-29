@@ -175,11 +175,68 @@ export default function MaskinDetailPage() {
         </div>
       </div>
 
-      {/* Formulär (slide-down) */}
+      {/* Historik — visas alltid först */}
+      {entries.length > 0 ? (
+        <>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: fonts, display: 'block', marginBottom: 12 }}>
+            Historik
+          </span>
+          <div style={{ backgroundColor: '#2C2C2E', borderRadius: 14, overflow: 'hidden', marginBottom: 28 }}>
+            {entries.map((e, i) => (
+              <div key={e.id}>
+                {i > 0 && (
+                  <div style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.08)', margin: '0 20px' }} />
+                )}
+                <div style={{ padding: '14px 20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
+                        <span style={{ fontSize: 15, fontWeight: 500, color: '#fff', fontFamily: fonts }}>
+                          {kategoriLabel(e.kategori)}
+                        </span>
+                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', fontFamily: fonts }}>
+                          {new Date(e.datum).toLocaleDateString('sv-SE')}
+                        </span>
+                      </div>
+                      <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', fontFamily: fonts, margin: '2px 0 0' }}>
+                        {e.beskrivning || '—'}
+                      </p>
+                      {e.timmar && (
+                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)', fontFamily: fonts }}>
+                          {e.timmar} h
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleDelete(e)}
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        fontSize: 12, color: 'rgba(255,255,255,0.2)', fontFamily: fonts,
+                        padding: '4px 0 4px 12px',
+                      }}
+                    >
+                      Ta bort
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : !showForm && (
+        <div style={{ textAlign: 'center', padding: '48px 0' }}>
+          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.3)', fontFamily: fonts }}>Ingen servicehistorik</p>
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.2)', fontFamily: fonts, marginTop: 4 }}>
+            Tryck + för att lägga till
+          </p>
+        </div>
+      )}
+
+      {/* Formulär — dolt tills + trycks */}
       {showForm && (
         <div style={{
           backgroundColor: '#2C2C2E', borderRadius: 14,
-          padding: 20, marginBottom: 28,
+          padding: 20,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <span style={{ fontSize: 17, fontWeight: 600, color: '#fff', fontFamily: fonts }}>Ny åtgärd</span>
@@ -191,8 +248,8 @@ export default function MaskinDetailPage() {
             </button>
           </div>
 
-          {/* Kategorier */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+          {/* Kategorier — horisontell scroll */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 16, overflowX: 'auto', marginLeft: -20, marginRight: -20, paddingLeft: 20, paddingRight: 20, WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
             {KATEGORIER.map(k => {
               const val = kategoriValue(k);
               const active = kategori === val;
@@ -207,6 +264,7 @@ export default function MaskinDetailPage() {
                     fontSize: 13, fontWeight: active ? 600 : 400,
                     color: active ? '#fff' : 'rgba(255,255,255,0.45)',
                     fontFamily: fonts,
+                    whiteSpace: 'nowrap', flexShrink: 0,
                   }}
                 >
                   {k}
@@ -298,76 +356,21 @@ export default function MaskinDetailPage() {
           </div>
 
           {/* Spara */}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{
-              width: '100%', marginTop: 16, padding: '12px 0',
-              backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 10,
-              border: 'none', cursor: 'pointer',
-              fontSize: 15, fontWeight: 600, color: '#fff', fontFamily: fonts,
-              opacity: saving ? 0.5 : 1,
-            }}
-          >
-            {saving ? 'Sparar...' : 'Spara'}
-          </button>
-        </div>
-      )}
-
-      {/* Historik */}
-      {entries.length > 0 ? (
-        <>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: fonts, display: 'block', marginBottom: 12 }}>
-            Historik
-          </span>
-          <div style={{ backgroundColor: '#2C2C2E', borderRadius: 14, overflow: 'hidden' }}>
-            {entries.map((e, i) => (
-              <div key={e.id}>
-                {i > 0 && (
-                  <div style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.08)', margin: '0 20px' }} />
-                )}
-                <div style={{ padding: '14px 20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
-                        <span style={{ fontSize: 15, fontWeight: 500, color: '#fff', fontFamily: fonts }}>
-                          {kategoriLabel(e.kategori)}
-                        </span>
-                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', fontFamily: fonts }}>
-                          {new Date(e.datum).toLocaleDateString('sv-SE')}
-                        </span>
-                      </div>
-                      <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', fontFamily: fonts, margin: '2px 0 0' }}>
-                        {e.beskrivning || '—'}
-                      </p>
-                      {e.timmar && (
-                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)', fontFamily: fonts }}>
-                          {e.timmar} h
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => handleDelete(e)}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        fontSize: 12, color: 'rgba(255,255,255,0.2)', fontFamily: fonts,
-                        padding: '4px 0 4px 12px',
-                      }}
-                    >
-                      Ta bort
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                padding: '9px 24px',
+                backgroundColor: '#00c48c', borderRadius: 10,
+                border: 'none', cursor: 'pointer',
+                fontSize: 14, fontWeight: 600, color: '#fff', fontFamily: fonts,
+                opacity: saving ? 0.5 : 1,
+              }}
+            >
+              {saving ? 'Sparar...' : 'Spara'}
+            </button>
           </div>
-        </>
-      ) : !showForm && (
-        <div style={{ textAlign: 'center', padding: '48px 0' }}>
-          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.3)', fontFamily: fonts }}>Ingen servicehistorik</p>
-          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.2)', fontFamily: fonts, marginTop: 4 }}>
-            Tryck + för att lägga till
-          </p>
         </div>
       )}
     </div>
