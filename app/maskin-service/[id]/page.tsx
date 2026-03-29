@@ -4,7 +4,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
-const fonts = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
+const f = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
+const card = { backgroundColor: '#1C1C1E', borderRadius: 16 } as const;
+const labelStyle = { fontSize: 13, color: 'rgba(255,255,255,0.45)', fontFamily: f, fontWeight: 400 as const, letterSpacing: 0.2, margin: 0 };
+const bigNum = { fontSize: 28, fontWeight: 700 as const, color: '#fff', fontFamily: f, letterSpacing: -0.5, margin: '6px 0 0' };
 
 interface Maskin {
   id: string;
@@ -49,7 +52,6 @@ export default function MaskinDetailPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Form state
   const [kategori, setKategori] = useState('service');
   const [beskrivning, setBeskrivning] = useState('');
   const [timmar, setTimmar] = useState('');
@@ -114,96 +116,96 @@ export default function MaskinDetailPage() {
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
-      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, fontFamily: fonts }}>Laddar...</p>
+      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 15, fontFamily: f }}>Laddar...</p>
     </div>
   );
 
   if (!maskin) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
-      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, fontFamily: fonts }}>Maskin hittades inte</p>
+      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 15, fontFamily: f }}>Maskin hittades inte</p>
     </div>
   );
 
+  const lastService = entries.length > 0 ? new Date(entries[0].datum).toLocaleDateString('sv-SE') : '—';
+
   return (
-    <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 24px', paddingBottom: 40 }}>
+    <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 20px', paddingBottom: 48 }}>
+
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '28px 0 8px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '24px 0 24px' }}>
         <div>
           <button
             onClick={() => router.push('/maskin-service')}
             style={{
               background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-              color: 'rgba(255,255,255,0.4)', fontSize: 14, fontFamily: fonts,
-              marginBottom: 4, display: 'block',
+              color: 'rgba(255,255,255,0.4)', fontSize: 15, fontFamily: f,
+              marginBottom: 8, display: 'block',
             }}
           >
-            ‹ Tillbaka
+            ‹ Service
           </button>
-          <h1 style={{ fontSize: 34, fontWeight: 700, color: '#fff', letterSpacing: -0.4, fontFamily: fonts, margin: 0 }}>
+          <h1 style={{ fontSize: 34, fontWeight: 700, color: '#fff', letterSpacing: -0.5, fontFamily: f, margin: 0 }}>
             {maskin.namn}
           </h1>
         </div>
         <button
-          onClick={() => { setTimmar(drifttimmar.toString()); setShowForm(true); }}
+          onClick={() => { setTimmar(drifttimmar.toString()); setShowForm(!showForm); }}
           style={{
-            width: 36, height: 36, borderRadius: '50%',
-            backgroundColor: 'rgba(255,255,255,0.1)',
+            width: 34, height: 34, borderRadius: '50%', marginTop: 28,
+            backgroundColor: showForm ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)',
             border: 'none', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, color: 'rgba(255,255,255,0.7)', lineHeight: 1,
+            fontSize: 22, color: 'rgba(255,255,255,0.6)', lineHeight: 1,
+            transition: 'background-color 0.2s',
           }}
         >
-          +
+          {showForm ? '×' : '+'}
         </button>
       </div>
 
-      {/* Maskininfo */}
-      <div style={{
-        display: 'flex', gap: 24, padding: '16px 0 28px',
-      }}>
-        <div>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: fonts }}>Typ</span>
-          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', fontFamily: fonts, margin: '2px 0 0' }}>{maskin.typ}</p>
+      {/* Stat cards — grid som designinspirations-bilden */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 24 }}>
+        <div style={{ ...card, padding: '18px 20px' }}>
+          <p style={labelStyle}>{maskin.typ}</p>
+          <p style={bigNum}>{drifttimmar.toLocaleString('sv-SE')} h</p>
+          <p style={{ ...labelStyle, fontSize: 12, marginTop: 6 }}>Drifttimmar</p>
         </div>
-        <div>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: fonts }}>Drifttimmar</span>
-          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', fontFamily: fonts, margin: '2px 0 0' }}>{drifttimmar.toLocaleString('sv-SE')} h</p>
-        </div>
-        <div>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: fonts }}>Servicelogg</span>
-          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', fontFamily: fonts, margin: '2px 0 0' }}>{entries.length} poster</p>
+        <div style={{ ...card, padding: '18px 20px' }}>
+          <p style={labelStyle}>Senaste service</p>
+          <p style={bigNum}>{entries.length}</p>
+          <p style={{ ...labelStyle, fontSize: 12, marginTop: 6 }}>{lastService}</p>
         </div>
       </div>
 
-      {/* Historik — visas alltid först */}
-      {entries.length > 0 ? (
+      {/* Historik — visas alltid direkt */}
+      {entries.length > 0 && (
         <>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: fonts, display: 'block', marginBottom: 12 }}>
+          <h2 style={{ fontSize: 20, fontWeight: 600, color: '#fff', fontFamily: f, letterSpacing: -0.3, margin: '0 0 12px' }}>
             Historik
-          </span>
-          <div style={{ backgroundColor: '#2C2C2E', borderRadius: 14, overflow: 'hidden', marginBottom: 28 }}>
+          </h2>
+          <div style={{ ...card, overflow: 'hidden', marginBottom: 24 }}>
             {entries.map((e, i) => (
               <div key={e.id}>
                 {i > 0 && (
-                  <div style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.08)', margin: '0 20px' }} />
+                  <div style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', margin: '0 20px' }} />
                 )}
-                <div style={{ padding: '14px 20px' }}>
+                <div style={{ padding: '16px 20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
-                        <span style={{ fontSize: 15, fontWeight: 500, color: '#fff', fontFamily: fonts }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 3 }}>
+                        <span style={{ fontSize: 16, fontWeight: 600, color: '#fff', fontFamily: f }}>
                           {kategoriLabel(e.kategori)}
                         </span>
-                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.35)', fontFamily: fonts }}>
+                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)', fontFamily: f }}>
                           {new Date(e.datum).toLocaleDateString('sv-SE')}
                         </span>
                       </div>
-                      <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', fontFamily: fonts, margin: '2px 0 0' }}>
+                      <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)', fontFamily: f, margin: '2px 0 0', lineHeight: 1.4 }}>
                         {e.beskrivning || '—'}
                       </p>
                       {e.timmar && (
-                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)', fontFamily: fonts }}>
-                          {e.timmar} h
+                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', fontFamily: f }}>
+                          {e.timmar.toLocaleString('sv-SE')} h
                         </span>
                       )}
                     </div>
@@ -211,8 +213,8 @@ export default function MaskinDetailPage() {
                       onClick={() => handleDelete(e)}
                       style={{
                         background: 'none', border: 'none', cursor: 'pointer',
-                        fontSize: 12, color: 'rgba(255,255,255,0.2)', fontFamily: fonts,
-                        padding: '4px 0 4px 12px',
+                        fontSize: 12, color: 'rgba(255,255,255,0.15)', fontFamily: f,
+                        padding: '4px 0 4px 16px', flexShrink: 0,
                       }}
                     >
                       Ta bort
@@ -223,10 +225,12 @@ export default function MaskinDetailPage() {
             ))}
           </div>
         </>
-      ) : !showForm && (
-        <div style={{ textAlign: 'center', padding: '48px 0' }}>
-          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.3)', fontFamily: fonts }}>Ingen servicehistorik</p>
-          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.2)', fontFamily: fonts, marginTop: 4 }}>
+      )}
+
+      {!entries.length && !showForm && (
+        <div style={{ textAlign: 'center', padding: '56px 0' }}>
+          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.25)', fontFamily: f }}>Ingen servicehistorik</p>
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.15)', fontFamily: f, marginTop: 6 }}>
             Tryck + för att lägga till
           </p>
         </div>
@@ -234,22 +238,19 @@ export default function MaskinDetailPage() {
 
       {/* Formulär — dolt tills + trycks */}
       {showForm && (
-        <div style={{
-          backgroundColor: '#2C2C2E', borderRadius: 14,
-          padding: 20,
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-            <span style={{ fontSize: 17, fontWeight: 600, color: '#fff', fontFamily: fonts }}>Ny åtgärd</span>
-            <button
-              onClick={resetForm}
-              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', fontSize: 14, cursor: 'pointer', fontFamily: fonts }}
-            >
-              Avbryt
-            </button>
-          </div>
+        <div style={{ ...card, padding: '20px 20px 24px' }}>
+          <h2 style={{ fontSize: 20, fontWeight: 600, color: '#fff', fontFamily: f, letterSpacing: -0.3, margin: '0 0 18px' }}>
+            Ny åtgärd
+          </h2>
 
-          {/* Kategorier — horisontell scroll */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 16, overflowX: 'auto', marginLeft: -20, marginRight: -20, paddingLeft: 20, paddingRight: 20, WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
+          {/* Kategorier — horisontell scroll, en rad */}
+          <div style={{
+            display: 'flex', gap: 8, marginBottom: 20,
+            overflowX: 'auto', flexWrap: 'nowrap',
+            marginLeft: -20, marginRight: -20, paddingLeft: 20, paddingRight: 20,
+            WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none',
+            msOverflowStyle: 'none' as any,
+          }}>
             {KATEGORIER.map(k => {
               const val = kategoriValue(k);
               const active = kategori === val;
@@ -258,13 +259,15 @@ export default function MaskinDetailPage() {
                   key={k}
                   onClick={() => setKategori(val)}
                   style={{
-                    padding: '7px 14px', borderRadius: 20,
-                    backgroundColor: active ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.05)',
-                    border: 'none', cursor: 'pointer',
-                    fontSize: 13, fontWeight: active ? 600 : 400,
-                    color: active ? '#fff' : 'rgba(255,255,255,0.45)',
-                    fontFamily: fonts,
+                    padding: '8px 16px', borderRadius: 20,
+                    backgroundColor: active ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
+                    border: active ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(255,255,255,0.06)',
+                    cursor: 'pointer',
+                    fontSize: 14, fontWeight: active ? 600 : 400,
+                    color: active ? '#fff' : 'rgba(255,255,255,0.4)',
+                    fontFamily: f,
                     whiteSpace: 'nowrap', flexShrink: 0,
+                    transition: 'all 0.15s',
                   }}
                 >
                   {k}
@@ -275,27 +278,27 @@ export default function MaskinDetailPage() {
 
           {/* Hjulväljare vid punktering */}
           {kategori === 'punktering' && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 0 16px' }}>
-              <svg viewBox="0 0 160 240" style={{ width: 120, height: 'auto' }}>
-                <rect x="45" y="20" width="70" height="200" rx="6" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
-                <line x1="45" y1="120" x2="115" y2="120" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
-                <text x="80" y="38" textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="9" fontWeight="500">FRAM</text>
-                <text x="80" y="212" textAnchor="middle" fill="rgba(255,255,255,0.3)" fontSize="9" fontWeight="500">BAK</text>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0 20px' }}>
+              <svg viewBox="0 0 160 240" style={{ width: 110, height: 'auto' }}>
+                <rect x="45" y="20" width="70" height="200" rx="6" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+                <line x1="45" y1="120" x2="115" y2="120" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+                <text x="80" y="38" textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="9" fontWeight="500">FRAM</text>
+                <text x="80" y="212" textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="9" fontWeight="500">BAK</text>
                 {HJUL.map(h => (
                   <g key={h.id} onClick={() => { setSelectedWheel(h.id); setBeskrivning(`Punktering ${h.id}`); }} style={{ cursor: 'pointer' }}>
                     <circle cx={h.cx} cy={h.cy} r="18"
-                      fill={selectedWheel === h.id ? 'rgba(255,255,255,0.15)' : 'none'}
-                      stroke={selectedWheel === h.id ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.15)'}
+                      fill={selectedWheel === h.id ? 'rgba(0,196,140,0.15)' : 'none'}
+                      stroke={selectedWheel === h.id ? '#00c48c' : 'rgba(255,255,255,0.12)'}
                       strokeWidth="1.5"
                     />
                     <text x={h.cx} y={h.cy + 4} textAnchor="middle"
-                      fill={selectedWheel === h.id ? '#fff' : 'rgba(255,255,255,0.4)'}
+                      fill={selectedWheel === h.id ? '#00c48c' : 'rgba(255,255,255,0.35)'}
                       fontSize="11" fontWeight="500"
                     >{h.label}</text>
                   </g>
                 ))}
               </svg>
-              <p style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 8, fontFamily: fonts }}>
+              <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 8, fontFamily: f }}>
                 Vänster/höger = förarens perspektiv
               </p>
             </div>
@@ -308,46 +311,45 @@ export default function MaskinDetailPage() {
             placeholder="Vad gjordes?"
             rows={3}
             style={{
-              width: '100%', padding: '10px 14px',
-              backgroundColor: 'rgba(118,118,128,0.24)', borderRadius: 10,
-              border: 'none', outline: 'none', resize: 'none',
-              color: '#fff', fontSize: 15, fontFamily: fonts,
+              width: '100%', padding: '12px 16px',
+              backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
+              border: '1px solid rgba(255,255,255,0.04)',
+              outline: 'none', resize: 'none',
+              color: '#fff', fontSize: 15, fontFamily: f, lineHeight: 1.5,
               boxSizing: 'border-box',
             }}
           />
 
           {/* Timmar + Datum */}
-          <div style={{ display: 'flex', gap: 12, marginTop: 12 }}>
+          <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: fonts, display: 'block', marginBottom: 6 }}>
-                Timmar
-              </label>
+              <label style={{ ...labelStyle, fontSize: 12, display: 'block', marginBottom: 8 }}>Timmar</label>
               <input
                 type="number"
                 value={timmar}
                 onChange={e => setTimmar(e.target.value)}
                 style={{
-                  width: '100%', padding: '10px 14px',
-                  backgroundColor: 'rgba(118,118,128,0.24)', borderRadius: 10,
-                  border: 'none', outline: 'none',
-                  color: '#fff', fontSize: 15, fontFamily: fonts,
+                  width: '100%', padding: '12px 16px',
+                  backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  outline: 'none',
+                  color: '#fff', fontSize: 15, fontFamily: f,
                   boxSizing: 'border-box',
                 }}
               />
             </div>
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5, fontFamily: fonts, display: 'block', marginBottom: 6 }}>
-                Datum
-              </label>
+              <label style={{ ...labelStyle, fontSize: 12, display: 'block', marginBottom: 8 }}>Datum</label>
               <input
                 type="date"
                 value={datum}
                 onChange={e => setDatum(e.target.value)}
                 style={{
-                  width: '100%', padding: '10px 14px',
-                  backgroundColor: 'rgba(118,118,128,0.24)', borderRadius: 10,
-                  border: 'none', outline: 'none',
-                  color: '#fff', fontSize: 15, fontFamily: fonts,
+                  width: '100%', padding: '12px 16px',
+                  backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
+                  border: '1px solid rgba(255,255,255,0.04)',
+                  outline: 'none',
+                  color: '#fff', fontSize: 15, fontFamily: f,
                   boxSizing: 'border-box',
                   colorScheme: 'dark',
                 }}
@@ -355,17 +357,29 @@ export default function MaskinDetailPage() {
             </div>
           </div>
 
-          {/* Spara */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+          {/* Spara — liten, grön, högerställd */}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
+            <button
+              onClick={resetForm}
+              style={{
+                padding: '9px 20px', marginRight: 8,
+                backgroundColor: 'transparent', borderRadius: 10,
+                border: 'none', cursor: 'pointer',
+                fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.4)', fontFamily: f,
+              }}
+            >
+              Avbryt
+            </button>
             <button
               onClick={handleSave}
               disabled={saving}
               style={{
-                padding: '9px 24px',
+                padding: '9px 22px',
                 backgroundColor: '#00c48c', borderRadius: 10,
                 border: 'none', cursor: 'pointer',
-                fontSize: 14, fontWeight: 600, color: '#fff', fontFamily: fonts,
+                fontSize: 14, fontWeight: 600, color: '#fff', fontFamily: f,
                 opacity: saving ? 0.5 : 1,
+                transition: 'opacity 0.15s',
               }}
             >
               {saving ? 'Sparar...' : 'Spara'}
