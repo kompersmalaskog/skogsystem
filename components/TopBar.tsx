@@ -26,7 +26,7 @@ const pageNames: Record<string, string> = {
 export default function TopBar() {
   const pathname = usePathname()
   const isHome = pathname === '/'
-  const pageName = pageNames[pathname] || pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2)
+  const pageName = pageNames[pathname] || (pathname.startsWith('/maskin-service/') ? 'Maskinservice' : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
 
   if (isHome) return null
 
