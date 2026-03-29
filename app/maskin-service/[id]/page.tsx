@@ -29,9 +29,10 @@ interface ServiceEntry {
   skapad_at: string;
 }
 
-const KATEGORIER = ['Service', 'Hydraulik', 'Slang', 'Punktering', 'Motor', 'Kran', 'Aggregat', 'Elektrisk', 'Övrigt'];
-const kategoriValue = (label: string) => label.toLowerCase().replace('ö', 'o');
+const KATEGORIER = ['Service', 'Reparation', 'Däck'];
+const kategoriValue = (label: string) => label.toLowerCase().replace('ä', 'a');
 const kategoriLabel = (val: string) => KATEGORIER.find(k => kategoriValue(k) === val) || val;
+const FILTER_TABS = ['Alla', ...KATEGORIER];
 
 const HJUL = [
   { id: 'VF', label: 'VF', cx: 30, cy: 45 },
@@ -57,6 +58,7 @@ export default function MaskinDetailPage() {
   const [timmar, setTimmar] = useState('');
   const [datum, setDatum] = useState(new Date().toISOString().split('T')[0]);
   const [selectedWheel, setSelectedWheel] = useState('');
+  const [historyFilter, setHistoryFilter] = useState('Alla');
 
   const fetchData = useCallback(async () => {
     const [{ data: m }, { data: s }, { data: skift }] = await Promise.all([
@@ -178,13 +180,49 @@ export default function MaskinDetailPage() {
       </div>
 
       {/* Historik — visas alltid direkt */}
-      {entries.length > 0 && (
+      {entries.length > 0 && (() => {
+        const filteredEntries = historyFilter === 'Alla'
+          ? entries
+          : entries.filter(e => e.kategori === kategoriValue(historyFilter));
+        return (
         <>
-          <h2 style={{ fontSize: 20, fontWeight: 600, color: '#fff', fontFamily: f, letterSpacing: -0.3, margin: '0 0 12px' }}>
-            Historik
-          </h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h2 style={{ fontSize: 20, fontWeight: 600, color: '#fff', fontFamily: f, letterSpacing: -0.3, margin: 0 }}>
+              Historik
+            </h2>
+          </div>
+
+          {/* Filterflikar */}
+          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+            {FILTER_TABS.map(tab => {
+              const active = historyFilter === tab;
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setHistoryFilter(tab)}
+                  style={{
+                    padding: '6px 14px', borderRadius: 18,
+                    backgroundColor: active ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
+                    border: active ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
+                    cursor: 'pointer',
+                    fontSize: 13, fontWeight: active ? 600 : 400,
+                    color: active ? '#fff' : 'rgba(255,255,255,0.4)',
+                    fontFamily: f,
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  {tab}
+                </button>
+              );
+            })}
+          </div>
+
           <div style={{ ...card, overflow: 'hidden', marginBottom: 24 }}>
-            {entries.map((e, i) => (
+            {filteredEntries.length === 0 ? (
+              <div style={{ padding: '24px 20px', textAlign: 'center' }}>
+                <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.25)', fontFamily: f }}>Inga poster i denna kategori</p>
+              </div>
+            ) : filteredEntries.map((e, i) => (
               <div key={e.id}>
                 {i > 0 && (
                   <div style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', margin: '0 20px' }} />
@@ -225,7 +263,8 @@ export default function MaskinDetailPage() {
             ))}
           </div>
         </>
-      )}
+        );
+      })()}
 
       {!entries.length && !showForm && (
         <div style={{ textAlign: 'center', padding: '56px 0' }}>
@@ -277,7 +316,7 @@ export default function MaskinDetailPage() {
           </div>
 
           {/* Hjulväljare vid punktering */}
-          {kategori === 'punktering' && (
+          {kategori === 'dack' && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0 20px' }}>
               <svg viewBox="0 0 160 240" style={{ width: 110, height: 'auto' }}>
                 <rect x="45" y="20" width="70" height="200" rx="6" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />

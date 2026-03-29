@@ -103,38 +103,52 @@ export default function MaskinServicePage() {
         />
       </div>
 
-      {/* Maskinkort */}
-      <div style={{ backgroundColor: '#2C2C2E', borderRadius: 14, overflow: 'hidden' }}>
-        {filtered.map((m, i) => (
-          <div key={m.id}>
-            {i > 0 && (
-              <div style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.08)', margin: '0 20px' }} />
-            )}
-            <Link href={`/maskin-service/${m.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-              <div style={{
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                padding: '18px 20px',
-                cursor: 'pointer',
-              }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontSize: 17, fontWeight: 600, color: '#fff', letterSpacing: -0.2, fontFamily: fonts }}>
-                    {m.namn}
-                  </span>
-                  <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', fontFamily: fonts }}>
-                    {m.typ} · {getServiceStatus(m)}
-                  </span>
+      {/* Maskiner grupperade efter typ */}
+      {filtered.length === 0 ? (
+        <div style={{ padding: '32px 20px', textAlign: 'center' }}>
+          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.3)', fontFamily: fonts }}>Inga maskiner hittades</p>
+        </div>
+      ) : (
+        Object.entries(
+          filtered.reduce<Record<string, Maskin[]>>((groups, m) => {
+            const typ = m.typ || 'Övrigt';
+            (groups[typ] = groups[typ] || []).push(m);
+            return groups;
+          }, {})
+        ).map(([typ, machines]) => (
+          <div key={typ} style={{ marginBottom: 24 }}>
+            <h2 style={{ fontSize: 20, fontWeight: 600, color: '#fff', letterSpacing: -0.3, fontFamily: fonts, margin: '0 0 10px' }}>
+              {typ}
+            </h2>
+            <div style={{ backgroundColor: '#1C1C1E', borderRadius: 16, overflow: 'hidden' }}>
+              {machines.map((m, i) => (
+                <div key={m.id}>
+                  {i > 0 && (
+                    <div style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', margin: '0 20px' }} />
+                  )}
+                  <Link href={`/maskin-service/${m.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '16px 20px',
+                      cursor: 'pointer',
+                    }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span style={{ fontSize: 17, fontWeight: 600, color: '#fff', letterSpacing: -0.2, fontFamily: fonts }}>
+                          {m.namn}
+                        </span>
+                        <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', fontFamily: fonts }}>
+                          {getServiceStatus(m)}
+                        </span>
+                      </div>
+                      <span style={{ fontSize: 17, color: 'rgba(255,255,255,0.25)', fontFamily: fonts }}>›</span>
+                    </div>
+                  </Link>
                 </div>
-                <span style={{ fontSize: 17, color: 'rgba(255,255,255,0.25)', fontFamily: fonts }}>›</span>
-              </div>
-            </Link>
+              ))}
+            </div>
           </div>
-        ))}
-        {filtered.length === 0 && (
-          <div style={{ padding: '32px 20px', textAlign: 'center' }}>
-            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.3)', fontFamily: fonts }}>Inga maskiner hittades</p>
-          </div>
-        )}
-      </div>
+        ))
+      )}
     </div>
   );
 }
