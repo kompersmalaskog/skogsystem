@@ -23,30 +23,30 @@ interface Ansökan {
 const ff = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text',system-ui,sans-serif";
 
 const C = {
-  bg: '#f5f5f0',
-  surface: '#ffffff',
-  surface2: '#ffffff',
-  surface3: '#ffffff',
-  border: 'rgba(0,0,0,0.08)',
-  borderStrong: 'rgba(0,0,0,0.15)',
-  t1: '#1a1a1a',
-  t2: '#4a4a4a',
-  t3: '#8a8a8a',
-  t4: '#b0b0b0',
+  bg: '#111110',
+  surface: '#1C1C1E',
+  surface2: '#1C1C1E',
+  surface3: '#2C2C2E',
+  border: 'rgba(255,255,255,0.08)',
+  borderStrong: 'rgba(255,255,255,0.15)',
+  t1: '#ffffff',
+  t2: 'rgba(255,255,255,0.7)',
+  t3: 'rgba(255,255,255,0.4)',
+  t4: 'rgba(255,255,255,0.2)',
   green: '#22c55e',
-  greenDim: 'rgba(34,197,94,0.12)',
+  greenDim: 'rgba(34,197,94,0.15)',
   red: '#ef4444',
-  redDim: 'rgba(239,68,68,0.12)',
+  redDim: 'rgba(239,68,68,0.15)',
   yellow: '#eab308',
-  yellowDim: 'rgba(234,179,8,0.12)',
+  yellowDim: 'rgba(234,179,8,0.15)',
   blue: '#3b82f6',
-  blueDim: 'rgba(59,130,246,0.12)',
+  blueDim: 'rgba(59,130,246,0.15)',
   gray: '#9ca3af',
-  grayDim: 'rgba(156,163,175,0.10)',
+  grayDim: 'rgba(156,163,175,0.12)',
   orange: '#f97316',
-  orangeDim: 'rgba(249,115,22,0.12)',
+  orangeDim: 'rgba(249,115,22,0.15)',
   accent: '#3b82f6',
-  accentDim: 'rgba(59,130,246,0.10)',
+  accentDim: 'rgba(59,130,246,0.12)',
 };
 
 const TYPINFO: Record<string, { label: string; color: string; bg: string }> = {
@@ -152,7 +152,7 @@ function ProgressBar({ value, max, color }: { value: number; max: number; color:
   return (
     <div style={{
       width: '100%', height: 6, borderRadius: 3,
-      background: 'rgba(0,0,0,0.06)', marginTop: 8,
+      background: 'rgba(255,255,255,0.08)', marginTop: 8,
     }}>
       <div style={{
         width: `${pct}%`, height: '100%', borderRadius: 3,
@@ -371,7 +371,7 @@ function Kalender({
 }
 
 const navBtnStyle: React.CSSProperties = {
-  background: 'rgba(0,0,0,0.04)',
+  background: 'rgba(255,255,255,0.06)',
   border: `1px solid ${C.border}`,
   borderRadius: 10, width: 36, height: 36,
   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -457,7 +457,9 @@ function AnsökningsKort({
 // === Main ===
 
 export default function LedighetPage() {
-  const [vy, setVy] = useState<'anställd' | 'chef'>('anställd');
+  const [vy, setVy] = useState<'anställd' | 'chef' | 'historik'>('anställd');
+  const [historikPerson, setHistorikPerson] = useState('Alla');
+  const [historikStatus, setHistorikStatus] = useState('Alla');
   const [valdAnvändare, setValdAnvändare] = useState(ANSTÄLLDA[0]);
   const [ansökningar, setAnsökningar] = useState<Ansökan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -651,9 +653,10 @@ export default function LedighetPage() {
 
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '12px 14px', borderRadius: 10,
-    background: C.bg, border: `1px solid ${C.border}`,
+    background: 'rgba(118,118,128,0.18)', border: `1px solid ${C.border}`,
     color: C.t1, fontSize: 14, fontFamily: ff,
     outline: 'none', boxSizing: 'border-box',
+    colorScheme: 'dark',
   };
 
   return (
@@ -669,7 +672,7 @@ export default function LedighetPage() {
         .cal-slide-left { animation: cal-slide-left-anim 0.3s cubic-bezier(0.4,0,0.2,1); }
         .cal-slide-right { animation: cal-slide-right-anim 0.3s cubic-bezier(0.4,0,0.2,1); }
         *::-webkit-scrollbar{width:0;height:0}
-        .nav-cal-btn:hover { background: rgba(0,0,0,0.10) !important; transform: scale(1.05); }
+        .nav-cal-btn:hover { background: rgba(255,255,255,0.12) !important; transform: scale(1.05); }
         .nav-cal-btn:active { transform: scale(0.95); }
         @keyframes fadeIn { from{opacity:0;transform:translateY(-8px)} to{opacity:1;transform:translateY(0)} }
       `}</style>
@@ -693,7 +696,7 @@ export default function LedighetPage() {
         display: 'flex', background: C.surface,
         borderBottom: `1px solid ${C.border}`, padding: '0 16px',
       }}>
-        {(['anställd', 'chef'] as const).map(tab => {
+        {([['anställd', 'Min ledighet'], ['chef', 'Hantera'], ['historik', 'Historik']] as const).map(([tab, label]) => {
           const active = vy === tab;
           return (
             <button key={tab} onClick={() => setVy(tab)} style={{
@@ -703,7 +706,7 @@ export default function LedighetPage() {
               fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             }}>
-              {tab === 'anställd' ? 'Min ledighet' : 'Hantera'}
+              {label}
               {tab === 'chef' && väntandeAntal > 0 && (
                 <span style={{
                   background: C.red, color: '#fff', fontSize: 11, fontWeight: 700,
@@ -842,11 +845,11 @@ export default function LedighetPage() {
               <div style={{
                 display: 'flex', gap: 10, alignItems: 'flex-start',
                 padding: '12px 14px', borderRadius: 10,
-                background: '#fff7ed', border: '1px solid #fed7aa',
+                background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.2)',
                 marginBottom: 16,
               }}>
                 <IconWarning />
-                <div style={{ fontSize: 13, color: '#9a3412', lineHeight: 1.4 }}>
+                <div style={{ fontSize: 13, color: '#fb923c', lineHeight: 1.4 }}>
                   <strong>Krock i planeringen</strong> — {kollision.join(' och ')} har redan beviljad ledighet under de valda datumen
                 </div>
               </div>
@@ -919,7 +922,7 @@ export default function LedighetPage() {
               </button>
               <button onClick={skickaAnsökan} disabled={sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart)} style={{
                 padding: '10px 24px', borderRadius: 10, border: 'none',
-                background: '#2d2d2d', color: '#fff',
+                background: C.blue, color: '#fff',
                 fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
                 opacity: (sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart)) ? 0.5 : 1,
               }}>
@@ -1003,6 +1006,120 @@ export default function LedighetPage() {
                 </div>
               </>
             )}
+          </>
+        )}
+
+        {/* === HISTORIK-VY === */}
+        {vy === 'historik' && (
+          <>
+            {/* Personfilter */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ ...labelStyle, marginBottom: 10 }}>PERSON</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {['Alla', ...ANSTÄLLDA].map(n => {
+                  const active = historikPerson === n;
+                  return (
+                    <button key={n} onClick={() => setHistorikPerson(n)} style={{
+                      padding: '7px 14px', borderRadius: 18,
+                      background: active ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
+                      border: active ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
+                      color: active ? '#fff' : C.t3,
+                      fontSize: 13, fontWeight: active ? 600 : 400, fontFamily: ff,
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    }}>
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Statusfilter */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ ...labelStyle, marginBottom: 10 }}>STATUS</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {['Alla', 'Godkänd', 'Nekad', 'Väntar'].map(s => {
+                  const active = historikStatus === s;
+                  const statusColors: Record<string, string> = { 'Godkänd': C.green, 'Nekad': C.red, 'Väntar': C.yellow };
+                  return (
+                    <button key={s} onClick={() => setHistorikStatus(s)} style={{
+                      padding: '7px 14px', borderRadius: 18,
+                      background: active ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
+                      border: active ? `1px solid ${statusColors[s] || 'rgba(255,255,255,0.12)'}` : '1px solid transparent',
+                      color: active ? (statusColors[s] || '#fff') : C.t3,
+                      fontSize: 13, fontWeight: active ? 600 : 400, fontFamily: ff,
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    }}>
+                      {s}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Historiklista */}
+            {(() => {
+              const filtered = ansökningar
+                .filter(a => historikPerson === 'Alla' || a.anvandare_id === historikPerson)
+                .filter(a => {
+                  if (historikStatus === 'Alla') return true;
+                  const map: Record<string, string> = { 'Godkänd': 'godkänd', 'Nekad': 'nekad', 'Väntar': 'väntar' };
+                  return a.status === map[historikStatus];
+                })
+                .sort((a, b) => b.startdatum.localeCompare(a.startdatum));
+
+              if (loading) return (
+                <div style={{ color: C.t3, padding: 40, textAlign: 'center', fontSize: 13 }}>Laddar...</div>
+              );
+
+              if (filtered.length === 0) return (
+                <div style={{
+                  color: C.t3, padding: 30, textAlign: 'center', fontSize: 13,
+                  background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
+                }}>
+                  Inga ansökningar matchar filtren
+                </div>
+              );
+
+              return (
+                <div style={{ background: C.surface, borderRadius: 16, overflow: 'hidden' }}>
+                  {filtered.map((a, i) => {
+                    const ti = TYPINFO[a.typ] || TYPINFO.semester;
+                    const si = STATUSINFO[a.status] || STATUSINFO['väntar'];
+                    const dagar = dagMellan(a.startdatum, a.slutdatum);
+                    return (
+                      <div key={a.id}>
+                        {i > 0 && (
+                          <div style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.06)', margin: '0 20px' }} />
+                        )}
+                        <div style={{ padding: '14px 20px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: ti.color, display: 'inline-block', flexShrink: 0 }} />
+                              <span style={{ fontSize: 15, fontWeight: 600, color: C.t1, fontFamily: ff }}>
+                                {a.anvandare_id}
+                              </span>
+                              <span style={{ fontSize: 13, color: C.t3, fontFamily: ff }}>
+                                {ti.label}
+                              </span>
+                            </div>
+                            <span style={{
+                              fontSize: 11, fontWeight: 600, padding: '3px 10px',
+                              borderRadius: 20, color: si.color, background: si.bg,
+                            }}>
+                              {si.label}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 13, color: C.t2, fontFamily: ff }}>
+                            {fmtDate(a.startdatum)} – {fmtDate(a.slutdatum)} · {dagar} dag{dagar !== 1 ? 'ar' : ''}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </>
         )}
       </div>
