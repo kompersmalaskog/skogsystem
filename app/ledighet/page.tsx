@@ -527,6 +527,7 @@ export default function LedighetPage() {
   const [stoppTypForm, setStoppTypForm] = useState('skordarstopp');
   const [sparasStopp, setSparasStopp] = useState(false);
   const [editingStoppId, setEditingStoppId] = useState<string | null>(null);
+  const [visaTeam, setVisaTeam] = useState(false);
 
   const hämtaAnsökningar = useCallback(async () => {
     const { data, error } = await supabase
@@ -849,7 +850,29 @@ export default function LedighetPage() {
           </div>
         )}
 
+        {/* === 3.5 VY-TOGGLE === */}
+        <div style={{
+          display: 'flex', background: C.surface, borderRadius: 10,
+          border: `1px solid ${C.border}`, padding: 3, marginBottom: 16,
+        }}>
+          {(['kalender', 'team'] as const).map(v => {
+            const active = v === 'kalender' ? !visaTeam : visaTeam;
+            return (
+              <button key={v} onClick={() => setVisaTeam(v === 'team')} style={{
+                flex: 1, padding: '8px 0', borderRadius: 8, border: 'none',
+                background: active ? 'rgba(255,255,255,0.1)' : 'transparent',
+                color: active ? C.t1 : C.t3,
+                fontSize: 13, fontWeight: active ? 600 : 400, fontFamily: ff,
+                cursor: 'pointer', transition: 'all 0.15s',
+              }}>
+                {v === 'kalender' ? 'Kalender' : 'Team'}
+              </button>
+            );
+          })}
+        </div>
+
         {/* === 4. KALENDER === */}
+        {!visaTeam && (
         <div style={{
           background: C.surface, border: `1px solid ${C.border}`,
           borderRadius: 16, padding: '20px 14px 16px',
@@ -863,6 +886,159 @@ export default function LedighetPage() {
             slideDir={slideDir}
           />
         </div>
+        )}
+
+        {/* === 4B. TEAMVY === */}
+        {visaTeam && (
+        <div style={{
+          background: C.surface, border: `1px solid ${C.border}`,
+          borderRadius: 16, padding: '16px 14px', marginBottom: 16,
+        }}>
+          {/* Månad-nav */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            marginBottom: 16, padding: '0 4px',
+          }}>
+            <div>
+              <span style={{ fontSize: 18, fontWeight: 700, color: C.t1 }}>{MÅNADNAMN[månad]}</span>
+              <span style={{ fontSize: 18, fontWeight: 400, color: C.t3, marginLeft: 8 }}>{år}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button className="nav-cal-btn" onClick={() => ändraMånad(-1)} style={navBtnStyle}>
+                <IconChevron dir="left" />
+              </button>
+              <button className="nav-cal-btn" onClick={() => ändraMånad(1)} style={navBtnStyle}>
+                <IconChevron dir="right" />
+              </button>
+            </div>
+          </div>
+
+          {/* Dag-headers */}
+          {(() => {
+            const dagar = new Date(år, månad + 1, 0).getDate();
+            const dagBredd = `${100 / dagar}%`;
+
+            // Samla maskinstopp
+            const stoppBlock = ansökningar.filter(a =>
+              (a.typ === 'skordarstopp' || a.typ === 'skotarstopp') &&
+              a.status === 'godkänd' &&
+              a.slutdatum >= toISO(new Date(år, månad, 1)) &&
+              a.startdatum <= toISO(new Date(år, månad, dagar))
+            );
+
+            const renderBlock = (a: Ansökan, color: string) => {
+              const mStart = new Date(år, månad, 1);
+              const mEnd = new Date(år, månad, dagar);
+              const aStart = new Date(a.startdatum);
+              const aEnd = new Date(a.slutdatum);
+              const s = Math.max(1, aStart <= mStart ? 1 : aStart.getDate());
+              const e = Math.min(dagar, aEnd >= mEnd ? dagar : aEnd.getDate());
+              const left = ((s - 1) / dagar) * 100;
+              const width = ((e - s + 1) / dagar) * 100;
+              return (
+                <div key={a.id} style={{
+                  position: 'absolute', top: 0, bottom: 0,
+                  left: `${left}%`, width: `${width}%`,
+                  background: color, borderRadius: 3,
+                }} />
+              );
+            };
+
+            return (
+              <div>
+                {/* Dag-nummers */}
+                <div style={{ display: 'flex', paddingLeft: 90, marginBottom: 4 }}>
+                  {Array.from({ length: dagar }, (_, i) => i + 1).map(d => (
+                    <div key={d} style={{
+                      width: dagBredd, textAlign: 'center',
+                      fontSize: 9, color: d % 5 === 0 || d === 1 ? C.t3 : 'transparent',
+                      fontFamily: ff,
+                    }}>
+                      {d}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Maskinstopp-rad */}
+                {stoppBlock.length > 0 && (
+                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+                    <div style={{
+                      width: 86, flexShrink: 0, fontSize: 11, fontWeight: 600,
+                      color: C.t3, fontFamily: ff, paddingRight: 4,
+                    }}>
+                      Maskinstopp
+                    </div>
+                    <div style={{
+                      flex: 1, position: 'relative', height: 10,
+                      background: 'rgba(255,255,255,0.03)', borderRadius: 3,
+                    }}>
+                      {stoppBlock.map(a => renderBlock(a, a.typ === 'skordarstopp' ? '#B45309' : '#7C3AED'))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Separator */}
+                {stoppBlock.length > 0 && (
+                  <div style={{ height: 1, background: C.border, margin: '6px 0 8px 86px' }} />
+                )}
+
+                {/* Person-rader */}
+                {ANSTÄLLDA.map(person => {
+                  const personAnsökningar = ansökningar.filter(a =>
+                    (a.anvandare_id === person || (a.typ === 'stillestand' && a.anvandare_id === 'alla')) &&
+                    a.status !== 'nekad' &&
+                    !stoppTyper.includes(a.typ) &&
+                    a.slutdatum >= toISO(new Date(år, månad, 1)) &&
+                    a.startdatum <= toISO(new Date(år, månad, dagar))
+                  );
+
+                  const typFärg: Record<string, string> = {
+                    semester: C.green,
+                    atk: C.blue,
+                    stillestand: C.gray,
+                  };
+
+                  return (
+                    <div key={person} style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+                      <div style={{
+                        width: 86, flexShrink: 0, fontSize: 12, fontWeight: 500,
+                        color: person === valdAnvändare ? C.t1 : C.t2,
+                        fontFamily: ff, paddingRight: 4,
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>
+                        {person}
+                      </div>
+                      <div style={{
+                        flex: 1, position: 'relative', height: 18,
+                        background: 'rgba(255,255,255,0.03)', borderRadius: 4,
+                      }}>
+                        {personAnsökningar.map(a => {
+                          const mStart = new Date(år, månad, 1);
+                          const mEnd = new Date(år, månad, dagar);
+                          const aStart = new Date(a.startdatum);
+                          const aEnd = new Date(a.slutdatum);
+                          const s = Math.max(1, aStart <= mStart ? 1 : aStart.getDate());
+                          const e = Math.min(dagar, aEnd >= mEnd ? dagar : aEnd.getDate());
+                          const left = ((s - 1) / dagar) * 100;
+                          const width = ((e - s + 1) / dagar) * 100;
+                          const color = typFärg[a.typ] || C.gray;
+                          return (
+                            <div key={a.id} title={`${TYPINFO[a.typ]?.label || a.typ}: ${a.startdatum} – ${a.slutdatum}`} style={{
+                              position: 'absolute', top: 2, bottom: 2,
+                              left: `${left}%`, width: `${width}%`,
+                              background: color, borderRadius: 3, opacity: a.status === 'väntar' ? 0.5 : 0.85,
+                            }} />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+        )}
 
         {/* === 5. TECKENFÖRKLARING === */}
         <div style={{
