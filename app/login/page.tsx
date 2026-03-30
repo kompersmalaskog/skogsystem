@@ -16,12 +16,16 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
-    const { data, error: err } = await supabase.auth.signInWithPassword({ email, password });
-    console.log('Auth svar:', JSON.stringify(data));
-    console.log('Fel:', JSON.stringify(err));
-    setError(JSON.stringify(err || data));
-    setLoading(false);
-    // window.location.href = '/'; // DISABLED FOR DEBUGGING
+    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (err) {
+      setError('Fel e-post eller lösenord');
+      setLoading(false);
+      return;
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+    window.location.replace('/');
   };
 
   return (
