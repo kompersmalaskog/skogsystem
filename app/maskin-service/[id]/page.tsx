@@ -38,10 +38,14 @@ const kategoriLabel = (val: string) => KATEGORIER.find(k => kategoriValue(k) ===
 const FILTER_TABS = ['Alla', ...KATEGORIER];
 
 const HJUL = [
-  { id: 'VF', label: 'VF', cx: 30, cy: 45 },
-  { id: 'HF', label: 'HF', cx: 130, cy: 45 },
-  { id: 'VB', label: 'VB', cx: 30, cy: 195 },
-  { id: 'HB', label: 'HB', cx: 130, cy: 195 },
+  { id: 'V1', label: 'V1', cx: 28, cy: 38 },
+  { id: 'H1', label: 'H1', cx: 132, cy: 38 },
+  { id: 'V2', label: 'V2', cx: 28, cy: 88 },
+  { id: 'H2', label: 'H2', cx: 132, cy: 88 },
+  { id: 'V3', label: 'V3', cx: 28, cy: 152 },
+  { id: 'H3', label: 'H3', cx: 132, cy: 152 },
+  { id: 'V4', label: 'V4', cx: 28, cy: 202 },
+  { id: 'H4', label: 'H4', cx: 132, cy: 202 },
 ];
 
 export default function MaskinDetailPage() {
@@ -331,20 +335,22 @@ export default function MaskinDetailPage() {
           {kategori === 'punktering' && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0 20px' }}>
               <svg viewBox="0 0 160 240" style={{ width: 110, height: 'auto' }}>
-                <rect x="45" y="20" width="70" height="200" rx="6" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-                <line x1="45" y1="120" x2="115" y2="120" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-                <text x="80" y="38" textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="9" fontWeight="500">FRAM</text>
-                <text x="80" y="212" textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="9" fontWeight="500">BAK</text>
+                <rect x="48" y="18" width="64" height="204" rx="6" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+                <line x1="48" y1="63" x2="112" y2="63" stroke="rgba(255,255,255,0.07)" strokeWidth="1" strokeDasharray="3 3" />
+                <line x1="48" y1="177" x2="112" y2="177" stroke="rgba(255,255,255,0.07)" strokeWidth="1" strokeDasharray="3 3" />
+                <line x1="80" y1="63" x2="80" y2="177" stroke="rgba(255,255,255,0.07)" strokeWidth="1" strokeDasharray="3 3" />
+                <text x="80" y="32" textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="8" fontWeight="500">FRAM</text>
+                <text x="80" y="232" textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="8" fontWeight="500">BAK</text>
                 {HJUL.map(h => (
                   <g key={h.id} onClick={() => { setSelectedWheel(h.id); setBeskrivning(`Punktering ${h.id}`); }} style={{ cursor: 'pointer' }}>
-                    <circle cx={h.cx} cy={h.cy} r="18"
+                    <circle cx={h.cx} cy={h.cy} r="17"
                       fill={selectedWheel === h.id ? 'rgba(0,196,140,0.15)' : 'none'}
                       stroke={selectedWheel === h.id ? '#00c48c' : 'rgba(255,255,255,0.12)'}
                       strokeWidth="1.5"
                     />
                     <text x={h.cx} y={h.cy + 4} textAnchor="middle"
                       fill={selectedWheel === h.id ? '#00c48c' : 'rgba(255,255,255,0.35)'}
-                      fontSize="11" fontWeight="500"
+                      fontSize="10" fontWeight="500"
                     >{h.label}</text>
                   </g>
                 ))}
