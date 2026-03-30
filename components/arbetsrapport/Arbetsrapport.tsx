@@ -321,7 +321,11 @@ export default function Arbetsrapport() {
 
   useEffect(() => {
     Promise.all([
-      supabase.from("medarbetare").select("*").eq("maskin_id","PONS20SDJAA270231").single(),
+      supabase.auth.getUser().then(({ data: { user } }) =>
+        user?.email
+          ? supabase.from("medarbetare").select("*").eq("email", user.email).single()
+          : supabase.from("medarbetare").select("*").limit(1).single()
+      ),
       supabase.from("gs_avtal").select("*").order("giltigt_fran",{ascending:false}).limit(1).single(),
       supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare").order("object_name"),
     ]).then(([med, avt, obj]) => {
@@ -875,6 +879,14 @@ export default function Arbetsrapport() {
         <div style={{ background:"rgba(52,199,89,0.07)",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8 }}>
           <div style={{ width:8,height:8,borderRadius:"50%",background:C.green,flexShrink:0 }}/>
           <p style={{ margin:0,fontSize:13,color:C.green,fontWeight:500 }}>{btBil} ansluten</p>
+        </div>
+        <div style={{ marginTop:40, paddingTop:20, borderTop:`1px solid ${C.line}` }}>
+          <button
+            onClick={async ()=>{ await supabase.auth.signOut(); window.location.href='/login'; }}
+            style={{ width:"100%",padding:"14px 0",borderRadius:12,border:"none",background:"rgba(239,68,68,0.12)",color:"#ef4444",fontSize:16,fontWeight:600,fontFamily:"inherit",cursor:"pointer" }}
+          >
+            Logga ut
+          </button>
         </div>
       </div>
       <div style={bottom}>
