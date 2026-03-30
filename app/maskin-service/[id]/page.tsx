@@ -39,11 +39,24 @@ const formatTyp = (typ: string) => {
 };
 
 const KATEGORIER = ['Service', 'Reparation', 'Däck'];
-const kategoriValue = (label: string): string => {
-  const map: Record<string, string> = { 'Däck': 'punktering', 'Reparation': 'ovrigt' };
-  return map[label] || label.toLowerCase();
+const KATEGORI_MAP: Record<string, string> = {
+  'Service': 'service',
+  'Reparation': 'ovrigt',
+  'Däck': 'punktering',
 };
-const kategoriLabel = (val: string) => KATEGORIER.find(k => kategoriValue(k) === val) || val;
+const kategoriValue = (label: string) => KATEGORI_MAP[label] ?? label.toLowerCase();
+const KATEGORI_LABEL_MAP: Record<string, string> = {
+  'service': 'Service',
+  'ovrigt': 'Reparation',
+  'punktering': 'Däck',
+  'hydraulik': 'Reparation',
+  'slang': 'Reparation',
+  'motor': 'Reparation',
+  'kran': 'Reparation',
+  'aggregat': 'Reparation',
+  'elektrisk': 'Reparation',
+};
+const kategoriLabel = (val: string) => KATEGORI_LABEL_MAP[val] ?? val;
 const FILTER_TABS = ['Alla', ...KATEGORIER];
 
 const HJUL = [

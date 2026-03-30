@@ -27,11 +27,24 @@ interface ServiceEntry {
 }
 
 const KATEGORIER = ['Service', 'Reparation', 'Däck'];
-const kategoriValue = (label: string): string => {
-  const map: Record<string, string> = { 'Däck': 'punktering', 'Reparation': 'ovrigt' };
-  return map[label] || label.toLowerCase();
+const KATEGORI_MAP: Record<string, string> = {
+  'Service': 'service',
+  'Reparation': 'ovrigt',
+  'Däck': 'punktering',
 };
-const kategoriLabel = (val: string) => KATEGORIER.find(k => kategoriValue(k) === val) || val;
+const kategoriValue = (label: string) => KATEGORI_MAP[label] ?? label.toLowerCase();
+const KATEGORI_LABEL_MAP: Record<string, string> = {
+  'service': 'Service',
+  'ovrigt': 'Reparation',
+  'punktering': 'Däck',
+  'hydraulik': 'Reparation',
+  'slang': 'Reparation',
+  'motor': 'Reparation',
+  'kran': 'Reparation',
+  'aggregat': 'Reparation',
+  'elektrisk': 'Reparation',
+};
+const kategoriLabel = (val: string) => KATEGORI_LABEL_MAP[val] ?? val;
 const FILTER_TABS = ['Alla', ...KATEGORIER];
 
 export default function HistorikPage() {
@@ -66,7 +79,11 @@ export default function HistorikPage() {
   const filtered = useMemo(() => {
     let result = entries;
     if (filter !== 'Alla') {
-      result = result.filter(e => e.kategori === kategoriValue(filter));
+      if (filter === 'Reparation') {
+        result = result.filter(e => ['ovrigt','hydraulik','slang','motor','kran','aggregat','elektrisk'].includes(e.kategori));
+      } else {
+        result = result.filter(e => e.kategori === KATEGORI_MAP[filter]);
+      }
     }
     if (search.trim()) {
       const q = search.toLowerCase();
