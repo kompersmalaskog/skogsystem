@@ -326,8 +326,6 @@ function Kalender({
                 circleBg = C.accent;
                 circleColor = '#fff';
                 fontWeight = 600;
-              } else if (ärHelgdag) {
-                circleBg = 'rgba(239,68,68,0.12)';
               }
 
               // Dots
@@ -501,6 +499,10 @@ export default function LedighetPage() {
   const [formKommentar, setFormKommentar] = useState('');
   const [sparar, setSparar] = useState(false);
   const [felmeddelande, setFelmeddelande] = useState<string | null>(null);
+  const [stoppTypForm, setStoppTypForm] = useState('skordarstopp');
+  const [stoppStart, setStoppStart] = useState('');
+  const [stoppSlut, setStoppSlut] = useState('');
+  const [sparasStopp, setSparasStopp] = useState(false);
 
   const hämtaAnsökningar = useCallback(async () => {
     const { data, error } = await supabase
@@ -912,9 +914,6 @@ export default function LedighetPage() {
                 <option value="">Välj typ...</option>
                 <option value="semester">Semester</option>
                 <option value="atk">ATK</option>
-                <option value="stillestand">Stillestånd</option>
-                <option value="skordarstopp">Skördarstopp</option>
-                <option value="skotarstopp">Skotarstopp</option>
               </select>
             </div>
 
@@ -1032,42 +1031,110 @@ export default function LedighetPage() {
         {/* Manager view */}
         {vy === 'chef' && (
           <>
-            <div style={{ ...labelStyle, marginBottom: 12 }}>VÄNTANDE ({väntandeAntal})</div>
+            {/* ANSÖKNINGAR */}
+            <div style={{ ...labelStyle, marginBottom: 12 }}>ANSÖKNINGAR ({väntandeAntal})</div>
             {väntande.length === 0 ? (
               <div style={{
                 color: C.t3, padding: 30, textAlign: 'center', fontSize: 13,
                 background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-                marginBottom: 24,
+                marginBottom: 32,
               }}>
                 Inga väntande ansökningar
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 32 }}>
                 {väntande.map(a => (
                   <AnsökningsKort key={a.id} a={a} showNamn onHantera={hanteraAnsökan} />
                 ))}
               </div>
             )}
-            {kommande.filter(a => a.status === 'godkänd').length > 0 && (
-              <>
-                <div style={{ ...labelStyle, marginBottom: 12 }}>KOMMANDE</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-                  {kommande.filter(a => a.status === 'godkänd').map(a => (
-                    <AnsökningsKort key={a.id} a={a} showNamn onTaBort={() => taBortAnsökan(a.id)} />
-                  ))}
+
+            {/* MASKINSTOPP */}
+            <div style={{ ...labelStyle, marginBottom: 12 }}>MASKINSTOPP</div>
+            <div style={{
+              background: C.surface, border: `1px solid ${C.border}`,
+              borderRadius: 14, padding: 20, marginBottom: 24,
+            }}>
+              <div style={{ marginBottom: 14 }}>
+                <div style={labelStyle}>TYP AV STOPP</div>
+                <select
+                  value={stoppTypForm}
+                  onChange={e => setStoppTypForm(e.target.value)}
+                  style={{ ...inputStyle, appearance: 'auto' }}
+                >
+                  <option value="skordarstopp">Skördarstopp</option>
+                  <option value="skotarstopp">Skotarstopp</option>
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+                <div>
+                  <div style={labelStyle}>STARTDATUM</div>
+                  <input type="date" value={stoppStart} onChange={e => setStoppStart(e.target.value)} style={inputStyle} />
                 </div>
-              </>
-            )}
-            {tidigare.length > 0 && (
-              <>
-                <div style={{ ...labelStyle, marginBottom: 12 }}>HISTORIK</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {tidigare.map(a => (
-                    <AnsökningsKort key={a.id} a={a} showNamn onTaBort={() => taBortAnsökan(a.id)} />
-                  ))}
+                <div>
+                  <div style={labelStyle}>SLUTDATUM</div>
+                  <input type="date" value={stoppSlut} onChange={e => setStoppSlut(e.target.value)} style={inputStyle} />
                 </div>
-              </>
-            )}
+              </div>
+              {stoppSlut && stoppStart && stoppSlut < stoppStart && (
+                <div style={{ fontSize: 13, color: C.red, marginBottom: 14, fontWeight: 500 }}>
+                  Slutdatum kan inte vara före startdatum
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={async () => {
+                    if (!stoppStart) return;
+                    const slut = stoppSlut || stoppStart;
+                    if (slut < stoppStart) return;
+                    setSparasStopp(true);
+                    const { error } = await supabase.from('ledighet_ansokningar').insert({
+                      anvandare_id: 'alla',
+                      typ: stoppTypForm,
+                      startdatum: stoppStart,
+                      slutdatum: slut,
+                      status: 'godkänd',
+                      kommentar: null,
+                      skapad_av: 'Chef',
+                    });
+                    if (error) setFelmeddelande('Kunde inte skapa stopp: ' + error.message);
+                    else {
+                      setStoppStart('');
+                      setStoppSlut('');
+                      hämtaAnsökningar();
+                    }
+                    setSparasStopp(false);
+                  }}
+                  disabled={sparasStopp || !stoppStart || (!!stoppSlut && stoppSlut < stoppStart)}
+                  style={{
+                    padding: '10px 24px', borderRadius: 10, border: 'none',
+                    background: C.orange, color: '#fff',
+                    fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
+                    opacity: (sparasStopp || !stoppStart) ? 0.5 : 1,
+                  }}
+                >
+                  {sparasStopp ? 'Sparar...' : 'Lägg till stopp'}
+                </button>
+              </div>
+            </div>
+
+            {/* Aktiva stopp */}
+            {(() => {
+              const aktivaStopp = ansökningar.filter(a =>
+                stoppTyper.includes(a.typ) && a.status === 'godkänd' && a.slutdatum >= toISO(new Date())
+              ).sort((a, b) => a.startdatum.localeCompare(b.startdatum));
+              if (aktivaStopp.length === 0) return null;
+              return (
+                <>
+                  <div style={{ ...labelStyle, marginBottom: 12 }}>AKTIVA STOPP</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
+                    {aktivaStopp.map(a => (
+                      <AnsökningsKort key={a.id} a={a} showNamn={false} onTaBort={() => taBortAnsökan(a.id)} />
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
           </>
         )}
 
