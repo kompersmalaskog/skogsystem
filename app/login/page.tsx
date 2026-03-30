@@ -16,20 +16,12 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
-    console.log('1. Försöker logga in med:', email);
     const { data, error: err } = await supabase.auth.signInWithPassword({ email, password });
-    console.log('2. Auth svar:', { data, error: err });
-
-    if (err) {
-      console.log('2b. Auth fel:', err.message);
-      setError('Fel e-post eller lösenord');
-      setLoading(false);
-      return;
-    }
-
-    console.log('3. Inloggad! Session:', data.session ? 'finns' : 'saknas');
-    console.log('4. Redirectar till /...');
-    window.location.href = '/';
+    console.log('Auth svar:', JSON.stringify(data));
+    console.log('Fel:', JSON.stringify(err));
+    setError(JSON.stringify(err || data));
+    setLoading(false);
+    // window.location.href = '/'; // DISABLED FOR DEBUGGING
   };
 
   return (
