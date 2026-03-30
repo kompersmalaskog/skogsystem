@@ -30,7 +30,10 @@ interface ServiceEntry {
 }
 
 const KATEGORIER = ['Service', 'Reparation', 'Däck'];
-const kategoriValue = (label: string) => label.toLowerCase().replace('ä', 'a');
+const kategoriValue = (label: string): string => {
+  const map: Record<string, string> = { 'Däck': 'punktering', 'Reparation': 'ovrigt' };
+  return map[label] || label.toLowerCase();
+};
 const kategoriLabel = (val: string) => KATEGORIER.find(k => kategoriValue(k) === val) || val;
 const FILTER_TABS = ['Alla', ...KATEGORIER];
 
@@ -105,8 +108,17 @@ export default function MaskinDetailPage() {
       datum,
     });
 
-    if (error) alert('Fel: ' + error.message);
-    else { resetForm(); await fetchData(); }
+    if (error) { alert('Fel: ' + error.message); }
+    else {
+      if (kategori === 'service' && parseFloat(timmar)) {
+        await supabase
+          .from('service_paminnelser')
+          .update({ senast_utford_timmar: parseFloat(timmar) })
+          .eq('maskin_id', maskinId);
+      }
+      resetForm();
+      await fetchData();
+    }
     setSaving(false);
   };
 
@@ -316,7 +328,7 @@ export default function MaskinDetailPage() {
           </div>
 
           {/* Hjulväljare vid punktering */}
-          {kategori === 'dack' && (
+          {kategori === 'punktering' && (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0 20px' }}>
               <svg viewBox="0 0 160 240" style={{ width: 110, height: 'auto' }}>
                 <rect x="45" y="20" width="70" height="200" rx="6" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />

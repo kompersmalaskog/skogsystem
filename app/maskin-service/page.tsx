@@ -22,6 +22,8 @@ interface ServicePaminnelse {
   senast_utford_timmar: number;
 }
 
+const fonts = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
+
 export default function MaskinServicePage() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [maskinTimmar, setMaskinTimmar] = useState<Record<string, number>>({});
@@ -152,5 +154,3 @@ export default function MaskinServicePage() {
     </div>
   );
 }
-
-const fonts = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
