@@ -323,7 +323,7 @@ export default function Arbetsrapport() {
     Promise.all([
       supabase.auth.getUser().then(({ data: { user } }) =>
         user?.email
-          ? supabase.from("medarbetare").select("*").eq("email", user.email).single()
+          ? supabase.from("medarbetare").select("*").eq("epost", user.email).single()
           : supabase.from("medarbetare").select("*").limit(1).single()
       ),
       supabase.from("gs_avtal").select("*").order("giltigt_fran",{ascending:false}).limit(1).single(),
