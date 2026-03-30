@@ -30,6 +30,14 @@ interface ServiceEntry {
   skapad_at: string;
 }
 
+const formatTyp = (typ: string) => {
+  const map: Record<string, string> = {
+    skordare: 'Skördare',
+    skotare: 'Skotare',
+  };
+  return map[typ?.toLowerCase()] ?? typ?.charAt(0).toUpperCase() + typ?.slice(1) ?? '';
+};
+
 const KATEGORIER = ['Service', 'Reparation', 'Däck'];
 const kategoriValue = (label: string): string => {
   const map: Record<string, string> = { 'Däck': 'punktering', 'Reparation': 'ovrigt' };
@@ -163,14 +171,14 @@ export default function MaskinDetailPage() {
       {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 24 }}>
         <div style={{ ...card, padding: '18px 20px' }}>
-          <p style={labelStyle}>{maskin.typ}</p>
+          <p style={labelStyle}>{formatTyp(maskin.typ)}</p>
           <p style={bigNum}>{drifttimmar.toLocaleString('sv-SE')} h</p>
           <p style={{ ...labelStyle, fontSize: 12, marginTop: 6 }}>Drifttimmar</p>
         </div>
         <div style={{ ...card, padding: '18px 20px' }}>
-          <p style={labelStyle}>Senaste service</p>
-          <p style={bigNum}>{entries.length}</p>
-          <p style={{ ...labelStyle, fontSize: 12, marginTop: 6 }}>{lastService}</p>
+          <p style={labelStyle}>Senaste åtgärd</p>
+          <p style={bigNum}>{lastService}</p>
+          <p style={{ ...labelStyle, fontSize: 12, marginTop: 6 }}>{entries.length} poster</p>
         </div>
       </div>
 
@@ -215,13 +223,15 @@ export default function MaskinDetailPage() {
             ))}
           </div>
 
-          <Link href={`/maskin-service/${maskinId}/historik`} style={{
-            display: 'block', textAlign: 'center', padding: '14px',
-            color: 'rgba(255,255,255,0.4)', fontSize: 14, fontFamily: f,
-            textDecoration: 'none', marginBottom: 24,
-          }}>
-            Visa all historik ({entries.length} poster) ›
-          </Link>
+          {entries.length > 5 && (
+            <Link href={`/maskin-service/${maskinId}/historik`} style={{
+              display: 'block', textAlign: 'center', padding: '14px',
+              color: 'rgba(255,255,255,0.4)', fontSize: 14, fontFamily: f,
+              textDecoration: 'none', marginBottom: 24,
+            }}>
+              Visa all historik ({entries.length} poster) ›
+            </Link>
+          )}
         </>
       )}
 
