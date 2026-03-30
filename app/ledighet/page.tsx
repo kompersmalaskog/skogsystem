@@ -68,6 +68,16 @@ const MÅNADNAMN = [
   'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December',
 ];
 
+const RÖDA_DAGAR = new Set([
+  '2026-01-01', '2026-01-06', '2026-04-03', '2026-04-05', '2026-04-06',
+  '2026-05-01', '2026-05-14', '2026-06-06', '2026-06-20',
+  '2026-10-31', '2026-12-25', '2026-12-26',
+]);
+
+function ärRödDag(iso: string): boolean {
+  return RÖDA_DAGAR.has(iso);
+}
+
 // === Helpers ===
 
 function toISO(d: Date) {
@@ -283,6 +293,7 @@ function Kalender({
               const dag = cell.day;
               const iso = toISO(new Date(år, månad, dag));
               const ärHelg = ci >= 5;
+              const ärHelgdag = ärRödDag(iso);
               const isInRange = valdStart && valdSlut
                 ? iso >= valdStart && iso <= valdSlut
                 : valdStart && iso === valdStart;
@@ -297,7 +308,7 @@ function Kalender({
 
               // Styling
               let circleBg = 'transparent';
-              let circleColor = ärHelg ? C.red : C.t1;
+              let circleColor = (ärHelg || ärHelgdag) ? C.red : C.t1;
               let fontWeight = 400;
 
               if (isInRange) {
@@ -308,6 +319,8 @@ function Kalender({
                 circleBg = C.accent;
                 circleColor = '#fff';
                 fontWeight = 600;
+              } else if (ärHelgdag) {
+                circleBg = 'rgba(239,68,68,0.12)';
               }
 
               // Dots
@@ -545,8 +558,27 @@ export default function LedighetPage() {
     setShowForm(true);
   };
 
+  const dubbelbokning = useMemo(() => {
+    if (!formStart) return null;
+    const slut = formSlut || formStart;
+    const person = formTyp === 'stillestand' ? 'alla' : valdAnvändare;
+    const overlap = ansökningar.find(a =>
+      a.status === 'godkänd' &&
+      a.anvandare_id === person &&
+      a.startdatum <= slut &&
+      a.slutdatum >= formStart
+    );
+    if (!overlap) return null;
+    const ti = TYPINFO[overlap.typ] || TYPINFO.semester;
+    return `${overlap.anvandare_id} har redan ${ti.label.toLowerCase()} ${fmtDate(overlap.startdatum)} – ${fmtDate(overlap.slutdatum)} under denna period`;
+  }, [formStart, formSlut, formTyp, ansökningar, valdAnvändare]);
+
   const skickaAnsökan = async () => {
     if (!formStart || !formTyp || (formSlut && formSlut < formStart)) return;
+    if (dubbelbokning) {
+      setFelmeddelande(dubbelbokning);
+      return;
+    }
     setSparar(true);
     const slut = formSlut || formStart;
     const typ = formTyp as 'semester' | 'atk' | 'stillestand';
@@ -911,6 +943,20 @@ export default function LedighetPage() {
               />
             </div>
 
+            {/* Dubbelbokning-varning */}
+            {dubbelbokning && (
+              <div style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px',
+                background: C.redDim, border: `1px solid rgba(239,68,68,0.25)`,
+                borderRadius: 10, marginBottom: 4,
+              }}>
+                <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>⚠️</span>
+                <span style={{ fontSize: 13, color: C.red, lineHeight: 1.5, fontFamily: ff }}>
+                  {dubbelbokning}
+                </span>
+              </div>
+            )}
+
             {/* Buttons */}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
               <button onClick={() => setShowForm(false)} style={{
@@ -920,11 +966,11 @@ export default function LedighetPage() {
               }}>
                 Avbryt
               </button>
-              <button onClick={skickaAnsökan} disabled={sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart)} style={{
+              <button onClick={skickaAnsökan} disabled={sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart) || !!dubbelbokning} style={{
                 padding: '10px 24px', borderRadius: 10, border: 'none',
-                background: C.blue, color: '#fff',
+                background: dubbelbokning ? C.t4 : C.blue, color: '#fff',
                 fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-                opacity: (sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart)) ? 0.5 : 1,
+                opacity: (sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart) || !!dubbelbokning) ? 0.5 : 1,
               }}>
                 {sparar ? 'Skickar...' : 'Skicka ansökan'}
               </button>
