@@ -1,18 +1,58 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { useEffect, useState, useCallback } from 'react';
+import { supabase } from '@/lib/supabase';
 
 type Maskin = { maskin_id: number; modell: string; tillverkare: string; typ: string };
+
+// ── Types for DB data ──
+type DbData = {
+  dailyVol: number[];
+  dailySt: number[];
+  days: string[];
+  totalVolym: number;
+  totalStammar: number;
+  g15Timmar: number;
+  produktivitet: number;
+  medelstam: number;
+  // Time distribution
+  processingSek: number;
+  terrainSek: number;
+  kortStoppSek: number;
+  avbrottSek: number;
+  rastSek: number;
+  engineTimeSek: number;
+  // Operators
+  operatorer: Array<{
+    id: string;
+    key: string;
+    namn: string;
+    initialer: string;
+    timmar: number;
+    volym: number;
+    prod: number;
+    medelstam: number;
+    stammar: number;
+    dagar: number;
+  }>;
+  // Objekt
+  objekt: Array<{
+    objekt_id: string;
+    namn: string;
+    vo_nummer: string;
+    volym: number;
+    stammar: number;
+    g15h: number;
+    prod: number;
+  }>;
+};
 
 const MASKINVY_SCRIPT = `(function(){
 Chart.defaults.font.family = 'Geist';
 Chart.defaults.color = '#7a7a72';
+
+// Read DB data from window if available
+var _db = window.__maskinvyData || {};
 
 var classes = ['0.0–0.1','0.1–0.2','0.2–0.3','0.3–0.4','0.4–0.5','0.5–0.7','0.7+'];
 var m3g15   = [7.7,10.3,10.5,11.1,12.0,12.7,15.0];
@@ -36,8 +76,23 @@ function countUp(el, target, dec=0, duration=1200){
   requestAnimationFrame(step);
 }
 
+// KPI values from DB or fallback
+var _kpiVolym = (_db.totalVolym && _db.totalVolym > 0) ? _db.totalVolym : 1847;
+var _kpiStammar = (_db.totalStammar && _db.totalStammar > 0) ? _db.totalStammar : 9240;
+var _kpiG15 = (_db.g15Timmar && _db.g15Timmar > 0) ? _db.g15Timmar : 163;
+var _kpiProd = (_db.produktivitet && _db.produktivitet > 0) ? _db.produktivitet : 11.3;
+var _kpiMedel = (_db.medelstam && _db.medelstam > 0) ? _db.medelstam : 0.26;
+
+// Update KPI data-count attributes so count-up uses DB values
+var _stamEl = document.querySelector('.k-val[data-count="9240"]');
+if (_stamEl) _stamEl.setAttribute('data-count', String(_kpiStammar));
+var _prodEl = document.querySelector('.k-val[data-count="11.3"]');
+if (_prodEl) _prodEl.setAttribute('data-count', String(_kpiProd));
+var _medelEl = document.querySelector('.k-val[data-count="0.26"]');
+if (_medelEl) _medelEl.setAttribute('data-count', String(_kpiMedel));
+
 setTimeout(()=>{
-  countUp(document.getElementById('hv'), 1847, 0, 1400);
+  countUp(document.getElementById('hv'), _kpiVolym, 0, 1400);
   document.querySelectorAll('.k-val[data-count]').forEach(el=>{
     const v = parseFloat(el.dataset.count);
     const d = parseInt(el.dataset.dec||0);
@@ -46,9 +101,11 @@ setTimeout(()=>{
 }, 300);
 
 // Daily chart
-const dailyVol = [0,0,142,168,0,0,188,195,172,0,0,155,0,178,192,0,0,168,145,188,0,0,175,162,144,0,0,130];
-const dailySt  = [0,0,620,710,0,0,780,820,700,0,0,640,0,730,800,0,0,710,620,790,0,0,730,680,600,0,0,540];
-const days = Array.from({length:28},(_,i)=>\`\${i+1}/2\`);
+const _fallbackDailyVol = [0,0,142,168,0,0,188,195,172,0,0,155,0,178,192,0,0,168,145,188,0,0,175,162,144,0,0,130];
+const _fallbackDailySt  = [0,0,620,710,0,0,780,820,700,0,0,640,0,730,800,0,0,710,620,790,0,0,730,680,600,0,0,540];
+const dailyVol = (_db.dailyVol && _db.dailyVol.length > 0) ? _db.dailyVol : _fallbackDailyVol;
+const dailySt  = (_db.dailySt && _db.dailySt.length > 0) ? _db.dailySt : _fallbackDailySt;
+const days = (_db.days && _db.days.length > 0) ? _db.days : Array.from({length:28},(_,i)=>\`\${i+1}/2\`);
 
 new Chart(document.getElementById('dailyChart'),{
   type:'bar',
@@ -205,7 +262,7 @@ function closeAllPanels() {
 }
 
 // ── FÖRARE ──
-const forare = {
+const _fallbackForare = {
   stefan: { av:'SK', name:'Stefan Karlsson', timmar:68, volym:820, prod:12.1, medelstam:0.28, mth:18, stammar:2930,
     klasser:[{k:'0.0–0.1',prod:8.2,st:98,vol:42},{k:'0.1–0.2',prod:11.1,st:72,vol:110},{k:'0.2–0.3',prod:12.0,st:44,vol:242},{k:'0.3–0.4',prod:12.8,st:34,vol:198},{k:'0.4–0.5',prod:13.5,st:28,vol:148},{k:'0.5–0.7',prod:14.0,st:22,vol:68},{k:'0.7+',prod:16.2,st:18,vol:12}],
     dagar:14, objekt:'Ålshult AU 2025', gran:62, tall:26, bjork:12 },
@@ -216,6 +273,31 @@ const forare = {
     klasser:[{k:'0.0–0.1',prod:6.8,st:112,vol:58},{k:'0.1–0.2',prod:9.2,st:78,vol:90},{k:'0.2–0.3',prod:9.8,st:45,vol:115},{k:'0.3–0.4',prod:10.1,st:30,vol:102},{k:'0.4–0.5',prod:10.8,st:25,vol:42},{k:'0.5–0.7',prod:11.2,st:19,vol:18},{k:'0.7+',prod:12.0,st:12,vol:4}],
     dagar:10, objekt:'Karamåla 19 A-S', gran:55, tall:28, bjork:17 }
 };
+
+// Build forare from DB operatorer if available, else use fallback
+var forare = _fallbackForare;
+if (_db.operatorer && _db.operatorer.length > 0) {
+  forare = {};
+  _db.operatorer.forEach(function(op) {
+    var key = op.key || op.namn.split(' ')[0].toLowerCase();
+    forare[key] = {
+      av: op.initialer,
+      name: op.namn,
+      timmar: Math.round(op.timmar),
+      volym: Math.round(op.volym),
+      prod: parseFloat(op.prod.toFixed(1)),
+      medelstam: op.stammar > 0 ? parseFloat((op.volym / op.stammar).toFixed(2)) : 0,
+      mth: 0,
+      stammar: Math.round(op.stammar),
+      klasser: _fallbackForare.stefan.klasser, // fallback klasser
+      dagar: op.dagar,
+      objekt: '–',
+      gran: 60, tall: 28, bjork: 12
+    };
+  });
+  // If DB returned empty operators object, revert to fallback
+  if (Object.keys(forare).length === 0) forare = _fallbackForare;
+}
 
 let fpChart = null;
 
@@ -641,6 +723,76 @@ function openObjJmf() {
 }
 function closeObjJmf() { closeAllPanels(); }
 
+// ── UPDATE DOM WITH DB DATA ──
+if (_db.operatorer && _db.operatorer.length > 0) {
+  // Update operator rows in the card
+  var opRows = document.querySelectorAll('.op-row.op-clickable');
+  var opKeys = Object.keys(forare);
+  opRows.forEach(function(row, i) {
+    if (i >= opKeys.length) return;
+    var f = forare[opKeys[i]];
+    if (!f) return;
+    var avEl = row.querySelector('.op-av');
+    if (avEl) avEl.textContent = f.av;
+    var nameEl = row.querySelector('.op-name');
+    if (nameEl) nameEl.textContent = f.name;
+    var subEl = row.querySelector('.op-sub');
+    if (subEl) subEl.textContent = Math.round(f.timmar) + ' timmar';
+    var svEls = row.querySelectorAll('.op-sv');
+    if (svEls[0]) svEls[0].textContent = Math.round(f.volym) + ' m³';
+    if (svEls[1]) svEls[1].textContent = parseFloat(f.prod).toFixed(1);
+    // Update onclick to use the new key
+    row.setAttribute('onclick', "openForare('" + opKeys[i] + "')");
+  });
+
+  // Update badge count
+  var opBadge = document.querySelector('#sec-operatorer .badge');
+  if (opBadge) opBadge.textContent = _db.operatorer.length + ' aktiva';
+}
+
+// Update time distribution bar & legend if DB data is available
+if (_db.processingSek && _db.processingSek > 0) {
+  var totalSek = _db.processingSek + _db.terrainSek + _db.kortStoppSek + _db.avbrottSek + _db.rastSek;
+  if (totalSek > 0) {
+    var pProc = Math.round((_db.processingSek / totalSek) * 100);
+    var pTerr = Math.round((_db.terrainSek / totalSek) * 100);
+    var pKort = Math.round((_db.kortStoppSek / totalSek) * 100);
+    var pAvbr = Math.round((_db.avbrottSek / totalSek) * 100);
+    var pRast = 100 - pProc - pTerr - pKort - pAvbr;
+
+    var tbarSegs = document.querySelectorAll('.tbar .tseg');
+    if (tbarSegs.length >= 5) {
+      tbarSegs[0].style.flex = String(pProc);
+      tbarSegs[1].style.flex = String(pTerr);
+      tbarSegs[2].style.flex = String(pKort);
+      tbarSegs[3].style.flex = String(pAvbr);
+      tbarSegs[4].style.flex = String(pRast);
+    }
+
+    var tlegItems = document.querySelectorAll('.tleg .tli');
+    if (tlegItems.length >= 5) {
+      tlegItems[0].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.3)"></div>Processar ' + pProc + '%';
+      tlegItems[1].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.2)"></div>Kör ' + pTerr + '%';
+      tlegItems[2].innerHTML = '<div class="tld" style="background:rgba(91,143,255,0.35)"></div>Korta stopp ' + pKort + '%';
+      tlegItems[3].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.1)"></div>Avbrott ' + pAvbr + '%';
+      tlegItems[4].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.1)"></div>Rast ' + pRast + '%';
+    }
+
+    // Update G15 and avbrott summary
+    var snumEls = document.querySelectorAll('.snum .snum-v');
+    var g15h = Math.round((_db.processingSek + _db.terrainSek) / 3600);
+    var avbrH = Math.round(_db.avbrottSek / 3600);
+    // Find the ones labeled "Effektiv G15" and "Avbrott"
+    document.querySelectorAll('.snum').forEach(function(el) {
+      var label = el.querySelector('.snum-l');
+      var val = el.querySelector('.snum-v');
+      if (!label || !val) return;
+      if (label.textContent === 'Effektiv G15') val.textContent = g15h + 'h';
+      if (label.textContent === 'Avbrott') val.textContent = avbrH + 'h';
+    });
+  }
+}
+
 // Expose to global scope for onclick handlers
 Object.assign(window, {
   toggleMMenu, pickM, openForare, closeForare, openBolag, closeBolag,
@@ -654,14 +806,213 @@ export default function Maskinvy() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [vald, setVald] = useState('');
   const [activeView, setActiveView] = useState('oversikt');
+  const [dataLoaded, setDataLoaded] = useState(false);
 
+  // ── Fetch machines ──
   useEffect(() => {
     supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ').then(({ data }) => {
       if (data) { setMaskiner(data); setVald(data[0]?.modell ?? ''); }
     });
   }, []);
 
+  // ── Fetch production data from Supabase ──
+  const fetchDbData = useCallback(async (maskinId?: number) => {
+    try {
+      // Build date range for current month (default feb 2026 for fallback)
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = now.getMonth(); // 0-indexed
+      const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+
+      const queries: Promise<any>[] = [
+        // 0: fakt_produktion for daily + KPIs
+        supabase.from('fakt_produktion')
+          .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
+          .gte('datum', startDate).lte('datum', endDate),
+        // 1: fakt_tid for time distribution
+        supabase.from('fakt_tid')
+          .select('datum, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
+          .gte('datum', startDate).lte('datum', endDate),
+        // 2: dim_operator
+        supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
+        // 3: dim_objekt
+        supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer'),
+      ];
+
+      // Filter by maskin_id if available
+      if (maskinId) {
+        queries[0] = supabase.from('fakt_produktion')
+          .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
+          .eq('maskin_id', maskinId)
+          .gte('datum', startDate).lte('datum', endDate);
+        queries[1] = supabase.from('fakt_tid')
+          .select('datum, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
+          .eq('maskin_id', maskinId)
+          .gte('datum', startDate).lte('datum', endDate);
+      }
+
+      const [prodRes, tidRes, opRes, objRes] = await Promise.all(queries);
+
+      const prodRows = prodRes.data || [];
+      const tidRows = tidRes.data || [];
+      const operators = opRes.data || [];
+      const objekter = objRes.data || [];
+
+      if (prodRows.length === 0 && tidRows.length === 0) {
+        // No data — use fallbacks
+        (window as any).__maskinvyData = {};
+        setDataLoaded(true);
+        return;
+      }
+
+      // ── Daily production arrays ──
+      const dailyMap: Record<string, { vol: number; st: number }> = {};
+      for (const r of prodRows) {
+        if (!dailyMap[r.datum]) dailyMap[r.datum] = { vol: 0, st: 0 };
+        dailyMap[r.datum].vol += r.volym_m3sub || 0;
+        dailyMap[r.datum].st += r.stammar || 0;
+      }
+
+      const dailyVol: number[] = [];
+      const dailySt: number[] = [];
+      const dayLabels: string[] = [];
+      for (let d = 1; d <= lastDay; d++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const entry = dailyMap[dateStr];
+        dailyVol.push(entry ? Math.round(entry.vol) : 0);
+        dailySt.push(entry ? Math.round(entry.st) : 0);
+        dayLabels.push(`${d}/${month + 1}`);
+      }
+
+      // ── KPI totals ──
+      const totalVolym = prodRows.reduce((s: number, r: any) => s + (r.volym_m3sub || 0), 0);
+      const totalStammar = prodRows.reduce((s: number, r: any) => s + (r.stammar || 0), 0);
+
+      // ── Time distribution ──
+      let processingSek = 0, terrainSek = 0, kortStoppSek = 0, avbrottSek = 0, rastSek = 0, engineTimeSek = 0;
+      for (const r of tidRows) {
+        processingSek += r.processing_sek || 0;
+        terrainSek += r.terrain_sek || 0;
+        kortStoppSek += r.kort_stopp_sek || 0;
+        avbrottSek += (r.avbrott_sek || 0) + (r.disturbance_sek || 0) + (r.maintenance_sek || 0);
+        rastSek += r.rast_sek || 0;
+        engineTimeSek += r.engine_time_sek || 0;
+      }
+
+      const g15Sek = processingSek + terrainSek;
+      const g15Timmar = g15Sek / 3600;
+      const produktivitet = g15Timmar > 0 ? totalVolym / g15Timmar : 0;
+      const medelstam = totalStammar > 0 ? totalVolym / totalStammar : 0;
+
+      // ── Operators ──
+      const opMap: Record<string, { volym: number; stammar: number; g15sek: number; dagar: Set<string> }> = {};
+      for (const r of prodRows) {
+        const opId = r.operator_id;
+        if (!opId) continue;
+        if (!opMap[opId]) opMap[opId] = { volym: 0, stammar: 0, g15sek: 0, dagar: new Set() };
+        opMap[opId].volym += r.volym_m3sub || 0;
+        opMap[opId].stammar += r.stammar || 0;
+        opMap[opId].dagar.add(r.datum);
+      }
+      for (const r of tidRows) {
+        const opId = r.operator_id;
+        if (!opId) continue;
+        if (!opMap[opId]) opMap[opId] = { volym: 0, stammar: 0, g15sek: 0, dagar: new Set() };
+        opMap[opId].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
+      }
+
+      const operatorer = Object.entries(opMap).map(([opId, stats]) => {
+        const opInfo = operators.find((o: any) => String(o.operator_id) === String(opId));
+        const namn = opInfo?.operator_namn || `Operatör ${opId}`;
+        const nameParts = namn.split(' ');
+        const initialer = nameParts.length >= 2
+          ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
+          : namn.substring(0, 2).toUpperCase();
+        const timmar = stats.g15sek / 3600;
+        const prod = timmar > 0 ? stats.volym / timmar : 0;
+        return {
+          id: opId,
+          key: opInfo?.operator_key || nameParts[0].toLowerCase(),
+          namn,
+          initialer,
+          timmar,
+          volym: stats.volym,
+          prod,
+          medelstam: stats.stammar > 0 ? stats.volym / stats.stammar : 0,
+          stammar: stats.stammar,
+          dagar: stats.dagar.size,
+        };
+      }).sort((a, b) => b.volym - a.volym);
+
+      // ── Objekt ──
+      const objMap: Record<string, { volym: number; stammar: number; g15sek: number }> = {};
+      for (const r of prodRows) {
+        const oid = r.objekt_id;
+        if (!oid) continue;
+        if (!objMap[oid]) objMap[oid] = { volym: 0, stammar: 0, g15sek: 0 };
+        objMap[oid].volym += r.volym_m3sub || 0;
+        objMap[oid].stammar += r.stammar || 0;
+      }
+      for (const r of tidRows) {
+        const oid = r.objekt_id;
+        if (!oid || !objMap[oid]) continue;
+        objMap[oid].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
+      }
+
+      const objekt = Object.entries(objMap).map(([oid, stats]) => {
+        const objInfo = objekter.find((o: any) => String(o.objekt_id) === String(oid));
+        const g15h = stats.g15sek / 3600;
+        return {
+          objekt_id: oid,
+          namn: objInfo?.objekt_namn || `Objekt ${oid}`,
+          vo_nummer: objInfo?.vo_nummer || '',
+          volym: stats.volym,
+          stammar: stats.stammar,
+          g15h,
+          prod: g15h > 0 ? stats.volym / g15h : 0,
+        };
+      }).sort((a, b) => b.volym - a.volym);
+
+      const dbData: DbData = {
+        dailyVol,
+        dailySt,
+        days: dayLabels,
+        totalVolym: Math.round(totalVolym),
+        totalStammar: Math.round(totalStammar),
+        g15Timmar: Math.round(g15Timmar),
+        produktivitet: parseFloat(produktivitet.toFixed(1)),
+        medelstam: parseFloat(medelstam.toFixed(2)),
+        processingSek,
+        terrainSek,
+        kortStoppSek,
+        avbrottSek,
+        rastSek,
+        engineTimeSek,
+        operatorer,
+        objekt,
+      };
+
+      (window as any).__maskinvyData = dbData;
+      setDataLoaded(true);
+    } catch (err) {
+      console.error('Maskinvy: failed to fetch DB data', err);
+      (window as any).__maskinvyData = {};
+      setDataLoaded(true);
+    }
+  }, []);
+
+  // Fetch data when machine selection changes
   useEffect(() => {
+    const valdMaskinObj = maskiner.find(m => m.modell === vald);
+    fetchDbData(valdMaskinObj?.maskin_id);
+  }, [vald, maskiner, fetchDbData]);
+
+  // ── Initialize charts after data is loaded ──
+  useEffect(() => {
+    if (!dataLoaded) return;
+
     let scriptEl: HTMLScriptElement | null = null;
 
     function initCharts() {
@@ -691,7 +1042,7 @@ export default function Maskinvy() {
         });
       }
     };
-  }, []);
+  }, [dataLoaded]);
 
   useEffect(() => {
     const page = document.getElementById('page');

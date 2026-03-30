@@ -1,23 +1,19 @@
 'use client';
 
 import { useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { supabase } from '@/lib/supabase';
 
 const SKOTARE_SCRIPT = `
 Chart.defaults.font.family = 'Geist';
 Chart.defaults.color = '#7a7a72';
 
 const s_classes = ['0–100','100–200','200–300','300–400','400–500','500–700','700+'];
-const s_lassG15h = [3.2, 2.8, 2.3, 2.0, 1.7, 1.4, 1.0];
-const s_medellast = [8.2, 7.8, 7.5, 7.2, 6.8, 6.5, 6.0];
-const s_volym = [420, 580, 520, 380, 240, 130, 70];
-const s_lass = [51, 74, 69, 53, 35, 20, 12];
-const s_dieselPerM3 = [1.2, 1.4, 1.6, 1.9, 2.2, 2.6, 3.1];
+const _dc = window.__s_distClassData;
+const s_lassG15h = (_dc && _dc.lassG15h) || [3.2, 2.8, 2.3, 2.0, 1.7, 1.4, 1.0];
+const s_medellast = (_dc && _dc.medellast) || [8.2, 7.8, 7.5, 7.2, 6.8, 6.5, 6.0];
+const s_volym = (_dc && _dc.volym) || [420, 580, 520, 380, 240, 130, 70];
+const s_lass = (_dc && _dc.lass) || [51, 74, 69, 53, 35, 20, 12];
+const s_dieselPerM3 = (_dc && _dc.dieselPerM3) || [1.2, 1.4, 1.6, 1.9, 2.2, 2.6, 3.1];
 
 const s_grid = {color:'rgba(255,255,255,0.05)'};
 const s_ticks = {color:'#7a7a72',font:{size:11}};
@@ -34,9 +30,28 @@ function s_countUp(el, target, dec=0, duration=1200){
   requestAnimationFrame(step);
 }
 
+// Compute KPIs from loaded data
+const _kpiForare = window.__s_forareData;
+let _kpiTotalVolym = 2340, _kpiTotalLass = 312, _kpiTotalG15 = 148, _kpiMedelavst = 285, _kpiMedellast = 7.5;
+if (_kpiForare) {
+  const vals = Object.values(_kpiForare);
+  _kpiTotalVolym = vals.reduce((s,f) => s + (f.volym || 0), 0);
+  _kpiTotalLass = vals.reduce((s,f) => s + (f.lass || 0), 0);
+  _kpiTotalG15 = vals.reduce((s,f) => s + (f.timmar || 0), 0);
+  const totalDist = vals.reduce((s,f) => s + (f.medelavst || 0) * (f.dagar || 1), 0);
+  const totalDagar = vals.reduce((s,f) => s + (f.dagar || 1), 0);
+  _kpiMedelavst = totalDagar > 0 ? Math.round(totalDist / totalDagar) : 285;
+  _kpiMedellast = _kpiTotalLass > 0 ? +(_kpiTotalVolym / _kpiTotalLass).toFixed(1) : 7.5;
+}
+
 setTimeout(()=>{
-  s_countUp(document.getElementById('s_hv'), 2340, 0, 1400);
-  document.querySelectorAll('.sk-val[data-count]').forEach(el=>{
+  s_countUp(document.getElementById('s_hv'), _kpiTotalVolym, 0, 1400);
+  // Update data-count attributes to use DB values
+  const kpiEls = document.querySelectorAll('.sk-val[data-count]');
+  const kpiMap = {'312': _kpiTotalLass, '148': _kpiTotalG15, '285': _kpiMedelavst, '7.5': _kpiMedellast};
+  kpiEls.forEach(el=>{
+    const orig = el.dataset.count;
+    if (kpiMap[orig] !== undefined) el.dataset.count = String(kpiMap[orig]);
     const v = parseFloat(el.dataset.count);
     const d = parseInt(el.dataset.dec||0);
     s_countUp(el, v, d, 1200);
@@ -44,8 +59,9 @@ setTimeout(()=>{
 }, 300);
 
 // Daily chart
-const s_dailyLass = [0,0,18,22,0,0,24,26,20,0,0,16,0,23,25,0,0,21,19,24,0,0,22,20,18,0,0,15];
-const s_dailyVol = [0,0,135,165,0,0,180,195,150,0,0,120,0,173,188,0,0,158,143,180,0,0,165,150,135,0,0,113];
+const _dd = window.__s_dailyData;
+const s_dailyLass = (_dd && _dd.lass) || [0,0,18,22,0,0,24,26,20,0,0,16,0,23,25,0,0,21,19,24,0,0,22,20,18,0,0,15];
+const s_dailyVol = (_dd && _dd.vol) || [0,0,135,165,0,0,180,195,150,0,0,120,0,173,188,0,0,158,143,180,0,0,165,150,135,0,0,113];
 const s_days = Array.from({length:28},(_,i)=>\`\${i+1}/2\`);
 
 try{
@@ -196,7 +212,7 @@ function s_closeAllPanels() {
 }
 
 // Förare
-const s_forare = {
+const _defaultForare = {
   stefan: { av:'SK', name:'Stefan Karlsson', timmar:62, lass:124, volym:930, medellast:7.5, lassG15h:2.0, medelavst:280, dagar:14, objekt:'Ålshult AU 2025', gran:62, tall:26, bjork:12,
     klasser:[{k:'0–100',lass:3.4,last:8.4,vol:180},{k:'100–200',lass:2.9,last:7.8,vol:220},{k:'200–300',lass:2.4,last:7.5,vol:210},{k:'300–400',lass:2.0,last:7.1,vol:160},{k:'400–500',lass:1.8,last:6.8,vol:90},{k:'500–700',lass:1.5,last:6.5,vol:50},{k:'700+',lass:1.1,last:6.0,vol:20}]},
   marcus: { av:'MN', name:'Marcus Nilsson', timmar:48, lass:108, volym:810, medellast:7.5, lassG15h:2.25, medelavst:290, dagar:12, objekt:'Björsamåla AU 2025', gran:58, tall:30, bjork:12,
@@ -204,6 +220,7 @@ const s_forare = {
   par: { av:'PL', name:'Pär Lindgren', timmar:38, lass:80, volym:600, medellast:7.5, lassG15h:2.1, medelavst:275, dagar:10, objekt:'Karamåla 19 A-S', gran:55, tall:28, bjork:17,
     klasser:[{k:'0–100',lass:2.8,last:7.8,vol:100},{k:'100–200',lass:2.5,last:7.4,vol:160},{k:'200–300',lass:2.1,last:7.2,vol:130},{k:'300–400',lass:1.8,last:6.9,vol:80},{k:'400–500',lass:1.5,last:6.6,vol:70},{k:'500–700',lass:1.2,last:6.2,vol:35},{k:'700+',lass:0.8,last:5.5,vol:25}]}
 };
+const s_forare = window.__s_forareData || _defaultForare;
 
 let s_fpChart = null;
 
@@ -252,7 +269,7 @@ function s_openForare(id) {
 function s_closeForare() { s_closeAllPanels(); }
 
 // Bolag
-const s_bolag = {
+const _defaultBolag = {
   vida: { logo:'VIDA', name:'Vida Skog AB', volym:1260, pct:54,
     inkopare:[
       {namn:'Jan-Erik Svensson',initialer:'JS',volym:760,objekt:[{namn:'Ålshult AU 2025',nr:'VO 11080064',typ:'Slutavverkning',volym:760,filer:8,gran:68,tall:28,bjork:4}]},
@@ -263,6 +280,7 @@ const s_bolag = {
   ata: { logo:'ATA', name:'ATA Timber', volym:520, pct:22,
     inkopare:[{namn:'Kristoffer Holm',initialer:'KH',volym:520,objekt:[{namn:'Karamåla 19 A-S',nr:'VO 11106406',typ:'Gallring',volym:520,filer:5,gran:48,tall:38,bjork:14}]}]}
 };
+const s_bolag = window.__s_bolagData || _defaultBolag;
 
 function s_openBolag(id) {
   const b = s_bolag[id];
@@ -381,7 +399,7 @@ function s_runCmp(){
 }
 
 // Dag data
-const s_dagData = {
+const _defaultDagData = {
   3:  { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:45', slut:'16:20', lass:18, volym:135, g15:8.2, lastSnitt:7.5, avstand:280, avbrott:[{orsak:'Tankning',tid:'22 min'}], diesel:1.5 },
   4:  { typ:1, forare:'Marcus Nilsson',  objekt:'Björsamåla AU 2025', start:'07:00', slut:'17:10', lass:22, volym:165, g15:9.1, lastSnitt:7.5, avstand:290, avbrott:[{orsak:'Väntan - lastbil',tid:'45 min'}], diesel:1.6 },
   7:  { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:50', slut:'16:45', lass:24, volym:180, g15:9.8, lastSnitt:7.5, avstand:275, avbrott:[{orsak:'Tankning',tid:'18 min'}], diesel:1.4 },
@@ -398,6 +416,7 @@ const s_dagData = {
   25: { typ:1, forare:'Pär Lindgren',    objekt:'Karamåla 19 A-S', start:'07:15', slut:'16:30', lass:18, volym:135, g15:7.8, lastSnitt:7.5, avstand:265, avbrott:[{orsak:'Tankning',tid:'18 min'}], diesel:1.5 },
   28: { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:50', slut:'16:20', lass:15, volym:113, g15:7.2, lastSnitt:7.5, avstand:290, avbrott:[{orsak:'Service – filter',tid:'45 min'}], diesel:1.8 },
 };
+const s_dagData = window.__s_dagData || _defaultDagData;
 
 const s_typIcon = { 1:'🏗️', 2:'🚛', 3:'🔧' };
 const s_typNamn = { 1:'Produktion', 2:'Flytt', 3:'Service' };
@@ -496,7 +515,7 @@ function s_toggleForareAvbrott(el, forareNamn) {
 }
 
 // ObjTyp
-const s_objTypData = {
+const _defaultObjTypData = {
   rp: { label:'RP', title:'Röjningsprioriterat', volym:1080, lass:144, g15:71, lassG15h:2.0, medelavst:280, medellast:7.5,
     objekt:[{namn:'Ålshult AU 2025',volym:620,lass:83,lassG15h:2.1},{namn:'Svinhult Au 2025',volym:460,lass:61,lassG15h:1.9}]},
   au: { label:'AU', title:'Avverkning utan krav', volym:920, lass:123, g15:55, lassG15h:2.2, medelavst:290, medellast:7.5,
@@ -504,6 +523,7 @@ const s_objTypData = {
   lrk: { label:'LRK', title:'Lågriskklass', volym:340, lass:45, g15:22, lassG15h:2.0, medelavst:310, medellast:7.6,
     objekt:[{namn:'Karamåla 19 A-S',volym:340,lass:45,lassG15h:2.0}]}
 };
+const s_objTypData = window.__s_objTypData || _defaultObjTypData;
 
 function s_openObjTyp(id) {
   const d = s_objTypData[id];
@@ -578,6 +598,245 @@ function s_openObjJmf() {
 function s_closeObjJmf() { s_closeAllPanels(); }
 `;
 
+async function fetchOperators() {
+  try {
+    const { data: operators } = await supabase.from('dim_operator').select('*');
+    if (!operators?.length) return null;
+
+    const { data: prodData } = await supabase.from('fakt_produktion').select('operator_id, datum, volym_m3sub, stammar, objekt_id');
+    const { data: tidData } = await supabase.from('fakt_tid').select('operator_id, datum, processing_sek, terrain_sek, other_work_sek, terrain_korstracka_m');
+    const { data: objData } = await supabase.from('dim_objekt').select('id, objekt_namn');
+
+    if (!prodData || !tidData) return null;
+
+    const objMap: Record<string, string> = {};
+    if (objData) objData.forEach((o: any) => { objMap[o.id] = o.objekt_namn; });
+
+    const result: Record<string, any> = {};
+    const classEdges = [0, 100, 200, 300, 400, 500, 700, Infinity];
+    const classLabels = ['0–100','100–200','200–300','300–400','400–500','500–700','700+'];
+
+    for (const op of operators) {
+      const opProd = prodData.filter((p: any) => p.operator_id === op.id);
+      const opTid = tidData.filter((t: any) => t.operator_id === op.id);
+
+      if (!opProd.length && !opTid.length) continue;
+
+      const totalVolym = opProd.reduce((s: number, p: any) => s + (p.volym_m3sub || 0), 0);
+      const totalLass = opProd.length;
+      const totalG15sek = opTid.reduce((s: number, t: any) => s + (t.processing_sek || 0) + (t.terrain_sek || 0) + (t.other_work_sek || 0), 0);
+      const totalG15h = totalG15sek / 3600;
+      const totalDist = opTid.reduce((s: number, t: any) => s + (t.terrain_korstracka_m || 0), 0);
+      const distCount = opTid.filter((t: any) => t.terrain_korstracka_m != null).length;
+      const medelavst = distCount > 0 ? Math.round(totalDist / distCount) : 0;
+      const aktivaDagar = new Set(opProd.map((p: any) => p.datum)).size;
+      const medellast = totalLass > 0 ? +(totalVolym / totalLass).toFixed(1) : 0;
+      const lassG15h = totalG15h > 0 ? +(totalLass / totalG15h).toFixed(2) : 0;
+
+      // Most common objekt
+      const objCount: Record<string, number> = {};
+      opProd.forEach((p: any) => { if (p.objekt_id) objCount[p.objekt_id] = (objCount[p.objekt_id] || 0) + 1; });
+      const topObjId = Object.entries(objCount).sort((a, b) => b[1] - a[1])[0]?.[0];
+      const topObjName = topObjId ? (objMap[topObjId] || topObjId) : '';
+
+      // Distance classes
+      const klasser = classLabels.map((k, i) => {
+        const lo = classEdges[i]; const hi = classEdges[i + 1];
+        const inClass = opTid.filter((t: any) => {
+          const d = t.terrain_korstracka_m;
+          return d != null && d >= lo && d < hi;
+        });
+        const classG15 = inClass.reduce((s: number, t: any) => s + (t.processing_sek || 0) + (t.terrain_sek || 0) + (t.other_work_sek || 0), 0) / 3600;
+        const classLassCount = inClass.length;
+        const classVol = opProd.filter((p: any) => {
+          const matchTid = inClass.find((t: any) => t.datum === p.datum);
+          return !!matchTid;
+        }).reduce((s: number, p: any) => s + (p.volym_m3sub || 0), 0);
+        return {
+          k,
+          lass: classG15 > 0 ? +(classLassCount / classG15).toFixed(1) : 0,
+          last: classLassCount > 0 ? +(classVol / classLassCount).toFixed(1) : 0,
+          vol: Math.round(classVol)
+        };
+      });
+
+      const initials = (op.namn || op.name || '').split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2);
+      const key = (op.namn || op.name || '').toLowerCase().split(' ')[0] || op.id;
+
+      result[key] = {
+        av: initials,
+        name: op.namn || op.name || '',
+        timmar: Math.round(totalG15h),
+        lass: totalLass,
+        volym: Math.round(totalVolym),
+        medellast,
+        lassG15h,
+        medelavst,
+        dagar: aktivaDagar,
+        objekt: topObjName,
+        gran: 60, tall: 28, bjork: 12, // Trädslag not in production data, keep defaults
+        klasser
+      };
+    }
+
+    return Object.keys(result).length > 0 ? result : null;
+  } catch (e) { console.error('[SKOTARE] fetchOperators error:', e); return null; }
+}
+
+async function fetchDailyProduction(maskinId?: string) {
+  try {
+    let query = supabase.from('fakt_produktion').select('datum, volym_m3sub, stammar');
+    if (maskinId) query = query.eq('maskin_id', maskinId);
+    const { data } = await query;
+    if (!data?.length) return null;
+
+    // Group by day of month
+    const byDay: Record<number, { vol: number; lass: number }> = {};
+    for (const r of data) {
+      if (!r.datum) continue;
+      const day = new Date(r.datum).getDate();
+      if (!byDay[day]) byDay[day] = { vol: 0, lass: 0 };
+      byDay[day].vol += r.volym_m3sub || 0;
+      byDay[day].lass += 1;
+    }
+
+    // Build 28-element arrays (for February)
+    const daysInMonth = 28;
+    const lass = new Array(daysInMonth).fill(0);
+    const vol = new Array(daysInMonth).fill(0);
+    for (let i = 0; i < daysInMonth; i++) {
+      if (byDay[i + 1]) {
+        lass[i] = byDay[i + 1].lass;
+        vol[i] = Math.round(byDay[i + 1].vol);
+      }
+    }
+    return { lass, vol };
+  } catch (e) { console.error('[SKOTARE] fetchDailyProduction error:', e); return null; }
+}
+
+async function fetchDagData(maskinId?: string) {
+  try {
+    let prodQuery = supabase.from('fakt_produktion').select('datum, volym_m3sub, stammar, operator_id, objekt_id');
+    let tidQuery = supabase.from('fakt_tid').select('datum, processing_sek, terrain_sek, other_work_sek, terrain_korstracka_m, operator_id');
+    if (maskinId) {
+      prodQuery = prodQuery.eq('maskin_id', maskinId);
+      tidQuery = tidQuery.eq('maskin_id', maskinId);
+    }
+
+    const [{ data: prodData }, { data: tidData }, { data: operators }, { data: objData }] = await Promise.all([
+      prodQuery, tidQuery,
+      supabase.from('dim_operator').select('id, namn, name'),
+      supabase.from('dim_objekt').select('id, objekt_namn')
+    ]);
+
+    if (!prodData?.length) return null;
+
+    const opMap: Record<string, string> = {};
+    if (operators) operators.forEach((o: any) => { opMap[o.id] = o.namn || o.name || ''; });
+    const objMap: Record<string, string> = {};
+    if (objData) objData.forEach((o: any) => { objMap[o.id] = o.objekt_namn || ''; });
+
+    const result: Record<number, any> = {};
+
+    // Group production by day
+    const prodByDay: Record<string, any[]> = {};
+    prodData.forEach((r: any) => { if (r.datum) { (prodByDay[r.datum] = prodByDay[r.datum] || []).push(r); } });
+
+    const tidByDay: Record<string, any[]> = {};
+    if (tidData) tidData.forEach((r: any) => { if (r.datum) { (tidByDay[r.datum] = tidByDay[r.datum] || []).push(r); } });
+
+    for (const [datum, prods] of Object.entries(prodByDay)) {
+      const day = new Date(datum).getDate();
+      const dayTid = tidByDay[datum] || [];
+
+      const totalVolym = prods.reduce((s: number, p: any) => s + (p.volym_m3sub || 0), 0);
+      const totalLass = prods.length;
+      const totalG15sek = dayTid.reduce((s: number, t: any) => s + (t.processing_sek || 0) + (t.terrain_sek || 0) + (t.other_work_sek || 0), 0);
+      const totalG15h = +(totalG15sek / 3600).toFixed(1);
+      const avgDist = dayTid.length > 0
+        ? Math.round(dayTid.reduce((s: number, t: any) => s + (t.terrain_korstracka_m || 0), 0) / dayTid.length)
+        : 0;
+      const medellast = totalLass > 0 ? +(totalVolym / totalLass).toFixed(1) : 0;
+
+      const firstProd = prods[0];
+      const forarNamn = firstProd.operator_id ? (opMap[firstProd.operator_id] || '–') : '–';
+      const objektNamn = firstProd.objekt_id ? (objMap[firstProd.objekt_id] || '–') : '–';
+
+      result[day] = {
+        typ: 1,
+        forare: forarNamn,
+        objekt: objektNamn,
+        start: '–',
+        slut: '–',
+        lass: totalLass,
+        volym: Math.round(totalVolym),
+        g15: totalG15h,
+        lastSnitt: medellast,
+        avstand: avgDist,
+        avbrott: [],
+        diesel: 0
+      };
+    }
+
+    return Object.keys(result).length > 0 ? result : null;
+  } catch (e) { console.error('[SKOTARE] fetchDagData error:', e); return null; }
+}
+
+async function fetchObjekt() {
+  try {
+    const { data } = await supabase.from('dim_objekt').select('*');
+    if (!data?.length) return null;
+    return data;
+  } catch (e) { console.error('[SKOTARE] fetchObjekt error:', e); return null; }
+}
+
+async function fetchBolag() {
+  try {
+    const { data } = await supabase.from('bolag').select('*');
+    if (!data?.length) return null;
+    return data;
+  } catch (e) { return null; }
+}
+
+async function fetchDistClassData(maskinId?: string) {
+  try {
+    let tidQuery = supabase.from('fakt_tid').select('terrain_korstracka_m, processing_sek, terrain_sek, other_work_sek, datum');
+    let prodQuery = supabase.from('fakt_produktion').select('datum, volym_m3sub');
+    if (maskinId) {
+      tidQuery = tidQuery.eq('maskin_id', maskinId);
+      prodQuery = prodQuery.eq('maskin_id', maskinId);
+    }
+
+    const [{ data: tidData }, { data: prodData }] = await Promise.all([tidQuery, prodQuery]);
+    if (!tidData?.length || !prodData?.length) return null;
+
+    const classEdges = [0, 100, 200, 300, 400, 500, 700, Infinity];
+    const classLabels = ['0–100','100–200','200–300','300–400','400–500','500–700','700+'];
+
+    // Group tid by distance class
+    const classData = classLabels.map((_, i) => {
+      const lo = classEdges[i]; const hi = classEdges[i + 1];
+      const inClass = tidData.filter((t: any) => {
+        const d = t.terrain_korstracka_m;
+        return d != null && d >= lo && d < hi;
+      });
+      const g15h = inClass.reduce((s: number, t: any) => s + (t.processing_sek || 0) + (t.terrain_sek || 0) + (t.other_work_sek || 0), 0) / 3600;
+      const dates = new Set(inClass.map((t: any) => t.datum));
+      const vol = prodData.filter((p: any) => dates.has(p.datum)).reduce((s: number, p: any) => s + (p.volym_m3sub || 0), 0);
+      const lassCount = prodData.filter((p: any) => dates.has(p.datum)).length;
+      return { g15h, vol, lass: lassCount };
+    });
+
+    return {
+      lassG15h: classData.map(c => c.g15h > 0 ? +(c.lass / c.g15h).toFixed(1) : 0),
+      medellast: classData.map(c => c.lass > 0 ? +(c.vol / c.lass).toFixed(1) : 0),
+      volym: classData.map(c => Math.round(c.vol)),
+      lass: classData.map(c => c.lass),
+      dieselPerM3: [1.2, 1.4, 1.6, 1.9, 2.2, 2.6, 3.1] // Diesel not in DB, keep defaults
+    };
+  } catch (e) { console.error('[SKOTARE] fetchDistClassData error:', e); return null; }
+}
+
 async function fetchM3fubG15h() {
   const classEdges = [0, 100, 200, 300, 400, Infinity];
   const classLabels = ['0–100', '100–200', '200–300', '300–400', '400+'];
@@ -636,12 +895,25 @@ export default function SkotareVy() {
     let cancelled = false;
 
     async function init() {
-      // Fetch real data before injecting script
-      const m3fubData = await fetchM3fubG15h();
+      // Fetch all real data from Supabase before injecting script
+      const [m3fubData, forareData, dailyData, dagData, distClassData] = await Promise.all([
+        fetchM3fubG15h(),
+        fetchOperators(),
+        fetchDailyProduction(),
+        fetchDagData(),
+        fetchDistClassData(),
+      ]);
       if (cancelled) return;
-      if (m3fubData) {
-        (window as any).__s_m3fubData = m3fubData;
-      }
+      if (m3fubData) (window as any).__s_m3fubData = m3fubData;
+      if (forareData) (window as any).__s_forareData = forareData;
+      if (dailyData) (window as any).__s_dailyData = dailyData;
+      if (dagData) (window as any).__s_dagData = dagData;
+      if (distClassData) (window as any).__s_distClassData = distClassData;
+
+      // Also try to fetch bolag (may not exist as table)
+      const bolagData = await fetchBolag();
+      if (cancelled) return;
+      if (bolagData) (window as any).__s_bolagData = bolagData;
 
       function initCharts() {
         scriptEl = document.createElement('script');
@@ -664,6 +936,11 @@ export default function SkotareVy() {
     return () => {
       cancelled = true;
       delete (window as any).__s_m3fubData;
+      delete (window as any).__s_forareData;
+      delete (window as any).__s_dailyData;
+      delete (window as any).__s_dagData;
+      delete (window as any).__s_distClassData;
+      delete (window as any).__s_bolagData;
       if (scriptEl) scriptEl.remove();
       // @ts-ignore
       if (typeof window !== 'undefined' && (window as any).Chart) {
