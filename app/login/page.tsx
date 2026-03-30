@@ -38,11 +38,8 @@ export default function LoginPage() {
       <div style={{ width: '100%', maxWidth: 380 }}>
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>🌲</div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', margin: 0, letterSpacing: -0.5 }}>
-            Kompersmåla Skog
-          </h1>
-          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 6 }}>
+          <img src="/logo.png" alt="Kompersmåla Skog" style={{ width: 120, marginBottom: 16 }} />
+          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginTop: 0 }}>
             Logga in för att fortsätta
           </p>
         </div>
