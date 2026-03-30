@@ -11,7 +11,7 @@ const supabase = createClient(
 interface Ansökan {
   id: string;
   anvandare_id: string;
-  typ: 'semester' | 'atk' | 'stillestand';
+  typ: 'semester' | 'atk' | 'stillestand' | 'skordarstopp' | 'skotarstopp';
   startdatum: string;
   slutdatum: string;
   status: 'väntar' | 'godkänd' | 'nekad';
@@ -45,6 +45,8 @@ const C = {
   grayDim: 'rgba(156,163,175,0.12)',
   orange: '#f97316',
   orangeDim: 'rgba(249,115,22,0.15)',
+  purple: '#a855f7',
+  purpleDim: 'rgba(168,85,247,0.15)',
   accent: '#3b82f6',
   accentDim: 'rgba(59,130,246,0.12)',
 };
@@ -53,6 +55,8 @@ const TYPINFO: Record<string, { label: string; color: string; bg: string }> = {
   semester: { label: 'Semester', color: C.green, bg: C.greenDim },
   atk: { label: 'ATK', color: C.blue, bg: C.blueDim },
   stillestand: { label: 'Stillestånd', color: C.gray, bg: C.grayDim },
+  skordarstopp: { label: 'Skördarstopp', color: C.orange, bg: C.orangeDim },
+  skotarstopp: { label: 'Skotarstopp', color: C.purple, bg: C.purpleDim },
 };
 
 const STATUSINFO: Record<string, { label: string; color: string; bg: string }> = {
@@ -301,9 +305,12 @@ function Kalender({
               const isSlut = valdSlut ? iso === valdSlut : iso === valdStart;
               const isIdag = dag === idagDag;
               const markningar = dagMap[dag] || [];
-              const harGodkänd = markningar.some(m => m.status === 'godkänd' && m.typ !== 'stillestand');
+              const stoppTyper = ['stillestand', 'skordarstopp', 'skotarstopp'];
+              const harGodkänd = markningar.some(m => m.status === 'godkänd' && !stoppTyper.includes(m.typ));
               const harVäntar = markningar.some(m => m.status === 'väntar');
               const harStillestånd = markningar.some(m => m.typ === 'stillestand' && m.status === 'godkänd');
+              const harSkördarStopp = markningar.some(m => m.typ === 'skordarstopp' && m.status === 'godkänd');
+              const harSkotarStopp = markningar.some(m => m.typ === 'skotarstopp' && m.status === 'godkänd');
               const harNekad = markningar.some(m => m.status === 'nekad');
 
               // Styling
@@ -328,6 +335,8 @@ function Kalender({
               if (harGodkänd) dots.push(C.green);
               if (harVäntar) dots.push(C.yellow);
               if (harStillestånd) dots.push(C.gray);
+              if (harSkördarStopp) dots.push(C.orange);
+              if (harSkotarStopp) dots.push(C.purple);
               if (harNekad) dots.push(C.red);
 
               return (
@@ -561,7 +570,7 @@ export default function LedighetPage() {
   const dubbelbokning = useMemo(() => {
     if (!formStart) return null;
     const slut = formSlut || formStart;
-    const person = formTyp === 'stillestand' ? 'alla' : valdAnvändare;
+    const person = stoppTyper.includes(formTyp) ? 'alla' : valdAnvändare;
     const overlap = ansökningar.find(a =>
       a.status === 'godkänd' &&
       a.anvandare_id === person &&
@@ -581,15 +590,16 @@ export default function LedighetPage() {
     }
     setSparar(true);
     const slut = formSlut || formStart;
-    const typ = formTyp as 'semester' | 'atk' | 'stillestand';
+    const typ = formTyp as Ansökan['typ'];
+    const ärStopp = stoppTyper.includes(typ);
     const { error } = await supabase.from('ledighet_ansokningar').insert({
-      anvandare_id: typ === 'stillestand' ? 'alla' : valdAnvändare,
+      anvandare_id: ärStopp ? 'alla' : valdAnvändare,
       typ,
       startdatum: formStart,
       slutdatum: slut,
-      status: typ === 'stillestand' ? 'godkänd' : 'väntar',
+      status: ärStopp ? 'godkänd' : 'väntar',
       kommentar: formKommentar || null,
-      skapad_av: typ === 'stillestand' ? 'Chef' : valdAnvändare,
+      skapad_av: ärStopp ? 'Chef' : valdAnvändare,
     });
     if (error) {
       setFelmeddelande('Kunde inte skicka ansökan: ' + error.message);
@@ -626,10 +636,11 @@ export default function LedighetPage() {
 
   const minaAnsökningar = ansökningar.filter(a => a.anvandare_id === valdAnvändare);
   const väntandeAntal = ansökningar.filter(a => a.status === 'väntar').length;
+  const stoppTyper = ['stillestand', 'skordarstopp', 'skotarstopp'];
   const kalenderAnsökningar = useMemo(() => {
     if (vy === 'chef') return ansökningar.filter(a => a.status !== 'nekad');
     return ansökningar.filter(a =>
-      a.anvandare_id === valdAnvändare || (a.typ === 'stillestand' && a.status === 'godkänd')
+      a.anvandare_id === valdAnvändare || (stoppTyper.includes(a.typ) && a.status === 'godkänd')
     );
   }, [vy, ansökningar, valdAnvändare]);
 
@@ -835,6 +846,8 @@ export default function LedighetPage() {
             { label: 'Semester', color: C.green },
             { label: 'ATK', color: C.blue },
             { label: 'Stillestånd', color: C.gray },
+            { label: 'Skördarstopp', color: C.orange },
+            { label: 'Skotarstopp', color: C.purple },
             { label: 'Väntar', color: C.yellow },
             { label: 'Nekad', color: C.red },
             { label: 'Helg', color: C.red },
@@ -899,6 +912,8 @@ export default function LedighetPage() {
                 <option value="semester">Semester</option>
                 <option value="atk">ATK</option>
                 <option value="stillestand">Stillestånd</option>
+                <option value="skordarstopp">Skördarstopp</option>
+                <option value="skotarstopp">Skotarstopp</option>
               </select>
             </div>
 
