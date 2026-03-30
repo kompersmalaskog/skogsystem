@@ -147,41 +147,26 @@ export default function MaskinDetailPage() {
   const lastService = entries.length > 0 ? new Date(entries[0].datum).toLocaleDateString('sv-SE') : '—';
 
   return (
-    <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 20px', paddingBottom: 48 }}>
+    <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 20px', paddingBottom: 100 }}>
 
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '24px 0 24px' }}>
-        <div>
-          <button
-            onClick={() => router.push('/maskin-service')}
-            style={{
-              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-              color: 'rgba(255,255,255,0.4)', fontSize: 15, fontFamily: f,
-              marginBottom: 8, display: 'block',
-            }}
-          >
-            ‹ Service
-          </button>
-          <h1 style={{ fontSize: 34, fontWeight: 700, color: '#fff', letterSpacing: -0.5, fontFamily: f, margin: 0 }}>
-            {maskin.namn}
-          </h1>
-        </div>
+      <div style={{ padding: '24px 0 24px' }}>
         <button
-          onClick={() => { setTimmar(drifttimmar.toString()); setShowForm(!showForm); }}
+          onClick={() => router.push('/maskin-service')}
           style={{
-            width: 34, height: 34, borderRadius: '50%', marginTop: 28,
-            backgroundColor: showForm ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)',
-            border: 'none', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, color: 'rgba(255,255,255,0.6)', lineHeight: 1,
-            transition: 'background-color 0.2s',
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            color: 'rgba(255,255,255,0.4)', fontSize: 15, fontFamily: f,
+            marginBottom: 8, display: 'block',
           }}
         >
-          {showForm ? '×' : '+'}
+          ‹ Service
         </button>
+        <h1 style={{ fontSize: 34, fontWeight: 700, color: '#fff', letterSpacing: -0.5, fontFamily: f, margin: 0 }}>
+          {maskin.namn}
+        </h1>
       </div>
 
-      {/* Stat cards — grid som designinspirations-bilden */}
+      {/* Stat cards */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 24 }}>
         <div style={{ ...card, padding: '18px 20px' }}>
           <p style={labelStyle}>{maskin.typ}</p>
@@ -195,7 +180,7 @@ export default function MaskinDetailPage() {
         </div>
       </div>
 
-      {/* Historik — visas alltid direkt */}
+      {/* Historik */}
       {entries.length > 0 && (() => {
         const filteredEntries = historyFilter === 'Alla'
           ? entries
@@ -282,167 +267,219 @@ export default function MaskinDetailPage() {
         );
       })()}
 
-      {!entries.length && !showForm && (
+      {!entries.length && (
         <div style={{ textAlign: 'center', padding: '56px 0' }}>
           <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.25)', fontFamily: f }}>Ingen servicehistorik</p>
           <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.15)', fontFamily: f, marginTop: 6 }}>
-            Tryck + för att lägga till
+            Tryck knappen nedan för att lägga till
           </p>
         </div>
       )}
 
-      {/* Formulär — dolt tills + trycks */}
+      {/* Fixed bottom button */}
+      {!showForm && (
+        <button
+          onClick={() => { setTimmar(drifttimmar.toString()); setShowForm(true); }}
+          style={{
+            position: 'fixed', bottom: 24, left: 20, right: 20,
+            maxWidth: 440, margin: '0 auto',
+            height: 52, borderRadius: 14,
+            backgroundColor: '#00c48c', border: 'none', cursor: 'pointer',
+            fontSize: 16, fontWeight: 600, color: '#fff', fontFamily: f,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            zIndex: 50,
+          }}
+        >
+          + Ny åtgärd
+        </button>
+      )}
+
+      {/* Bottom sheet overlay */}
       {showForm && (
-        <div style={{ ...card, padding: '20px 20px 24px' }}>
-          <h2 style={{ fontSize: 20, fontWeight: 600, color: '#fff', fontFamily: f, letterSpacing: -0.3, margin: '0 0 18px' }}>
-            Ny åtgärd
-          </h2>
-
-          {/* Kategorier — horisontell scroll, en rad */}
-          <div style={{
-            display: 'flex', gap: 8, marginBottom: 20,
-            overflowX: 'auto', flexWrap: 'nowrap',
-            marginLeft: -20, marginRight: -20, paddingLeft: 20, paddingRight: 20,
-            WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none',
-            msOverflowStyle: 'none' as any,
-          }}>
-            {KATEGORIER.map(k => {
-              const val = kategoriValue(k);
-              const active = kategori === val;
-              return (
-                <button
-                  key={k}
-                  onClick={() => setKategori(val)}
-                  style={{
-                    padding: '8px 16px', borderRadius: 20,
-                    backgroundColor: active ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
-                    border: active ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(255,255,255,0.06)',
-                    cursor: 'pointer',
-                    fontSize: 14, fontWeight: active ? 600 : 400,
-                    color: active ? '#fff' : 'rgba(255,255,255,0.4)',
-                    fontFamily: f,
-                    whiteSpace: 'nowrap', flexShrink: 0,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {k}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Hjulväljare vid punktering */}
-          {kategori === 'punktering' && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '4px 0 20px' }}>
-              <svg viewBox="0 0 160 240" style={{ width: 110, height: 'auto' }}>
-                <rect x="48" y="18" width="64" height="204" rx="6" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-                <line x1="48" y1="63" x2="112" y2="63" stroke="rgba(255,255,255,0.07)" strokeWidth="1" strokeDasharray="3 3" />
-                <line x1="48" y1="177" x2="112" y2="177" stroke="rgba(255,255,255,0.07)" strokeWidth="1" strokeDasharray="3 3" />
-                <line x1="80" y1="63" x2="80" y2="177" stroke="rgba(255,255,255,0.07)" strokeWidth="1" strokeDasharray="3 3" />
-                <text x="80" y="32" textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="8" fontWeight="500">FRAM</text>
-                <text x="80" y="232" textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="8" fontWeight="500">BAK</text>
-                {HJUL.map(h => (
-                  <g key={h.id} onClick={() => { setSelectedWheel(h.id); setBeskrivning(`Punktering ${h.id}`); }} style={{ cursor: 'pointer' }}>
-                    <circle cx={h.cx} cy={h.cy} r="17"
-                      fill={selectedWheel === h.id ? 'rgba(0,196,140,0.15)' : 'none'}
-                      stroke={selectedWheel === h.id ? '#00c48c' : 'rgba(255,255,255,0.12)'}
-                      strokeWidth="1.5"
-                    />
-                    <text x={h.cx} y={h.cy + 4} textAnchor="middle"
-                      fill={selectedWheel === h.id ? '#00c48c' : 'rgba(255,255,255,0.35)'}
-                      fontSize="10" fontWeight="500"
-                    >{h.label}</text>
-                  </g>
-                ))}
-              </svg>
-              <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 8, fontFamily: f }}>
-                Vänster/höger = förarens perspektiv
-              </p>
-            </div>
-          )}
-
-          {/* Beskrivning */}
-          <textarea
-            value={beskrivning}
-            onChange={e => setBeskrivning(e.target.value)}
-            placeholder="Vad gjordes?"
-            rows={3}
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={resetForm}
             style={{
-              width: '100%', padding: '12px 16px',
-              backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
-              border: '1px solid rgba(255,255,255,0.04)',
-              outline: 'none', resize: 'none',
-              color: '#fff', fontSize: 15, fontFamily: f, lineHeight: 1.5,
-              boxSizing: 'border-box',
+              position: 'fixed', inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.6)',
+              zIndex: 99,
             }}
           />
 
-          {/* Timmar + Datum */}
-          <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ ...labelStyle, fontSize: 12, display: 'block', marginBottom: 8 }}>Timmar</label>
-              <input
-                type="number"
-                value={timmar}
-                onChange={e => setTimmar(e.target.value)}
+          {/* Sheet */}
+          <div style={{
+            position: 'fixed', bottom: 0, left: 0, right: 0,
+            backgroundColor: '#1C1C1E',
+            borderRadius: '20px 20px 0 0',
+            padding: '24px 20px 40px',
+            zIndex: 100,
+            maxHeight: '85vh', overflowY: 'auto',
+          }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ fontSize: 20, fontWeight: 600, color: '#fff', fontFamily: f, letterSpacing: -0.3, margin: 0 }}>
+                Ny åtgärd
+              </h2>
+              <button
+                onClick={resetForm}
                 style={{
-                  width: '100%', padding: '12px 16px',
-                  backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
-                  border: '1px solid rgba(255,255,255,0.04)',
-                  outline: 'none',
-                  color: '#fff', fontSize: 15, fontFamily: f,
-                  boxSizing: 'border-box',
+                  width: 30, height: 30, borderRadius: '50%',
+                  backgroundColor: 'rgba(255,255,255,0.1)',
+                  border: 'none', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 16, color: 'rgba(255,255,255,0.5)', lineHeight: 1,
                 }}
-              />
+              >
+                ×
+              </button>
             </div>
-            <div style={{ flex: 1 }}>
-              <label style={{ ...labelStyle, fontSize: 12, display: 'block', marginBottom: 8 }}>Datum</label>
-              <input
-                type="date"
-                value={datum}
-                onChange={e => setDatum(e.target.value)}
-                style={{
-                  width: '100%', padding: '12px 16px',
-                  backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
-                  border: '1px solid rgba(255,255,255,0.04)',
-                  outline: 'none',
-                  color: '#fff', fontSize: 15, fontFamily: f,
-                  boxSizing: 'border-box',
-                  colorScheme: 'dark',
-                }}
-              />
-            </div>
-          </div>
 
-          {/* Spara — liten, grön, högerställd */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
-            <button
-              onClick={resetForm}
+            {/* Kategorier — segmenterad pill-rad */}
+            <div style={{
+              display: 'flex', backgroundColor: 'rgba(255,255,255,0.06)',
+              borderRadius: 10, padding: 3, marginBottom: 20,
+            }}>
+              {KATEGORIER.map(k => {
+                const val = kategoriValue(k);
+                const active = kategori === val;
+                return (
+                  <button
+                    key={k}
+                    onClick={() => setKategori(val)}
+                    style={{
+                      flex: 1, padding: '9px 0', borderRadius: 8,
+                      backgroundColor: active ? 'rgba(255,255,255,0.18)' : 'transparent',
+                      border: 'none', cursor: 'pointer',
+                      fontSize: 14, fontWeight: active ? 600 : 400,
+                      color: active ? '#fff' : 'rgba(255,255,255,0.4)',
+                      fontFamily: f,
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {k}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Hjulväljare vid punktering */}
+            {kategori === 'punktering' && (
+              <div style={{
+                backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 12,
+                padding: 16, marginBottom: 20,
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+              }}>
+                <svg viewBox="0 0 160 240" style={{ width: 140, height: 'auto' }}>
+                  <rect x="48" y="18" width="64" height="204" rx="6" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+                  <line x1="48" y1="63" x2="112" y2="63" stroke="rgba(255,255,255,0.07)" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1="48" y1="177" x2="112" y2="177" stroke="rgba(255,255,255,0.07)" strokeWidth="1" strokeDasharray="3 3" />
+                  <line x1="80" y1="63" x2="80" y2="177" stroke="rgba(255,255,255,0.07)" strokeWidth="1" strokeDasharray="3 3" />
+                  <text x="80" y="32" textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="8" fontWeight="500">FRAM</text>
+                  <text x="80" y="232" textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="8" fontWeight="500">BAK</text>
+                  {HJUL.map(h => (
+                    <g key={h.id} onClick={() => { setSelectedWheel(h.id); setBeskrivning(`Punktering ${h.id}`); }} style={{ cursor: 'pointer' }}>
+                      <circle cx={h.cx} cy={h.cy} r="17"
+                        fill={selectedWheel === h.id ? 'rgba(0,196,140,0.15)' : 'none'}
+                        stroke={selectedWheel === h.id ? '#00c48c' : 'rgba(255,255,255,0.12)'}
+                        strokeWidth="1.5"
+                      />
+                      <text x={h.cx} y={h.cy + 4} textAnchor="middle"
+                        fill={selectedWheel === h.id ? '#00c48c' : 'rgba(255,255,255,0.35)'}
+                        fontSize="10" fontWeight="500"
+                      >{h.label}</text>
+                    </g>
+                  ))}
+                </svg>
+                <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 8, fontFamily: f }}>
+                  Vänster/höger = förarens perspektiv
+                </p>
+              </div>
+            )}
+
+            {/* Beskrivning */}
+            <textarea
+              value={beskrivning}
+              onChange={e => setBeskrivning(e.target.value)}
+              placeholder="Vad gjordes?"
+              rows={3}
               style={{
-                padding: '9px 20px', marginRight: 8,
-                backgroundColor: 'transparent', borderRadius: 10,
-                border: 'none', cursor: 'pointer',
-                fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.4)', fontFamily: f,
+                width: '100%', padding: '12px 16px',
+                backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
+                border: '1px solid rgba(255,255,255,0.04)',
+                outline: 'none', resize: 'none',
+                color: '#fff', fontSize: 15, fontFamily: f, lineHeight: 1.5,
+                boxSizing: 'border-box',
               }}
-            >
-              Avbryt
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              style={{
-                padding: '9px 22px',
-                backgroundColor: '#00c48c', borderRadius: 10,
-                border: 'none', cursor: 'pointer',
-                fontSize: 14, fontWeight: 600, color: '#fff', fontFamily: f,
-                opacity: saving ? 0.5 : 1,
-                transition: 'opacity 0.15s',
-              }}
-            >
-              {saving ? 'Sparar...' : 'Spara'}
-            </button>
+            />
+
+            {/* Timmar + Datum */}
+            <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ ...labelStyle, fontSize: 12, display: 'block', marginBottom: 8 }}>Timmar</label>
+                <input
+                  type="number"
+                  value={timmar}
+                  onChange={e => setTimmar(e.target.value)}
+                  style={{
+                    width: '100%', padding: '12px 16px',
+                    backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
+                    border: '1px solid rgba(255,255,255,0.04)',
+                    outline: 'none',
+                    color: '#fff', fontSize: 15, fontFamily: f,
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={{ ...labelStyle, fontSize: 12, display: 'block', marginBottom: 8 }}>Datum</label>
+                <input
+                  type="date"
+                  value={datum}
+                  onChange={e => setDatum(e.target.value)}
+                  style={{
+                    width: '100%', padding: '12px 16px',
+                    backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
+                    border: '1px solid rgba(255,255,255,0.04)',
+                    outline: 'none',
+                    color: '#fff', fontSize: 15, fontFamily: f,
+                    boxSizing: 'border-box',
+                    colorScheme: 'dark',
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Spara */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
+              <button
+                onClick={resetForm}
+                style={{
+                  padding: '9px 20px', marginRight: 8,
+                  backgroundColor: 'transparent', borderRadius: 10,
+                  border: 'none', cursor: 'pointer',
+                  fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.4)', fontFamily: f,
+                }}
+              >
+                Avbryt
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                style={{
+                  padding: '9px 22px',
+                  backgroundColor: '#00c48c', borderRadius: 10,
+                  border: 'none', cursor: 'pointer',
+                  fontSize: 14, fontWeight: 600, color: '#fff', fontFamily: f,
+                  opacity: saving ? 0.5 : 1,
+                  transition: 'opacity 0.15s',
+                }}
+              >
+                {saving ? 'Sparar...' : 'Spara'}
+              </button>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
