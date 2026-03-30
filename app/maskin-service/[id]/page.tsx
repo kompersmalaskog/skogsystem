@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
+import Link from 'next/link';
 
 const f = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
 const card = { backgroundColor: '#1C1C1E', borderRadius: 16 } as const;
@@ -65,7 +66,6 @@ export default function MaskinDetailPage() {
   const [timmar, setTimmar] = useState('');
   const [datum, setDatum] = useState(new Date().toISOString().split('T')[0]);
   const [selectedWheel, setSelectedWheel] = useState('');
-  const [historyFilter, setHistoryFilter] = useState('Alla');
 
   const fetchData = useCallback(async () => {
     const [{ data: m }, { data: s }, { data: skift }] = await Promise.all([
@@ -126,12 +126,6 @@ export default function MaskinDetailPage() {
     setSaving(false);
   };
 
-  const handleDelete = async (entry: ServiceEntry) => {
-    if (!confirm(`Ta bort "${entry.beskrivning || entry.kategori}"?`)) return;
-    await supabase.from('maskin_service').delete().eq('id', entry.id);
-    await fetchData();
-  };
-
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
       <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 15, fontFamily: f }}>Laddar...</p>
@@ -180,12 +174,8 @@ export default function MaskinDetailPage() {
         </div>
       </div>
 
-      {/* Historik */}
-      {entries.length > 0 && (() => {
-        const filteredEntries = historyFilter === 'Alla'
-          ? entries
-          : entries.filter(e => e.kategori === kategoriValue(historyFilter));
-        return (
+      {/* Historik — senaste 5 */}
+      {entries.length > 0 && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <h2 style={{ fontSize: 20, fontWeight: 600, color: '#fff', fontFamily: f, letterSpacing: -0.3, margin: 0 }}>
@@ -193,37 +183,8 @@ export default function MaskinDetailPage() {
             </h2>
           </div>
 
-          {/* Filterflikar */}
-          <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-            {FILTER_TABS.map(tab => {
-              const active = historyFilter === tab;
-              return (
-                <button
-                  key={tab}
-                  onClick={() => setHistoryFilter(tab)}
-                  style={{
-                    padding: '6px 14px', borderRadius: 18,
-                    backgroundColor: active ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
-                    border: active ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
-                    cursor: 'pointer',
-                    fontSize: 13, fontWeight: active ? 600 : 400,
-                    color: active ? '#fff' : 'rgba(255,255,255,0.4)',
-                    fontFamily: f,
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  {tab}
-                </button>
-              );
-            })}
-          </div>
-
-          <div style={{ ...card, overflow: 'hidden', marginBottom: 24 }}>
-            {filteredEntries.length === 0 ? (
-              <div style={{ padding: '24px 20px', textAlign: 'center' }}>
-                <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.25)', fontFamily: f }}>Inga poster i denna kategori</p>
-              </div>
-            ) : filteredEntries.map((e, i) => (
+          <div style={{ ...card, overflow: 'hidden', marginBottom: 4 }}>
+            {entries.slice(0, 5).map((e, i) => (
               <div key={e.id}>
                 {i > 0 && (
                   <div style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', margin: '0 20px' }} />
@@ -248,24 +209,21 @@ export default function MaskinDetailPage() {
                         </span>
                       )}
                     </div>
-                    <button
-                      onClick={() => handleDelete(e)}
-                      style={{
-                        background: 'none', border: 'none', cursor: 'pointer',
-                        fontSize: 12, color: 'rgba(255,255,255,0.15)', fontFamily: f,
-                        padding: '4px 0 4px 16px', flexShrink: 0,
-                      }}
-                    >
-                      Ta bort
-                    </button>
                   </div>
                 </div>
               </div>
             ))}
           </div>
+
+          <Link href={`/maskin-service/${maskinId}/historik`} style={{
+            display: 'block', textAlign: 'center', padding: '14px',
+            color: 'rgba(255,255,255,0.4)', fontSize: 14, fontFamily: f,
+            textDecoration: 'none', marginBottom: 24,
+          }}>
+            Visa all historik ({entries.length} poster) ›
+          </Link>
         </>
-        );
-      })()}
+      )}
 
       {!entries.length && (
         <div style={{ textAlign: 'center', padding: '56px 0' }}>
