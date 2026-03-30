@@ -1348,8 +1348,8 @@ export default function LedighetPage() {
             }}>
               <span style={{ fontSize: 14, color: C.t2, fontFamily: ff }}>
                 <strong style={{ color: C.t1 }}>{historikÅr}</strong> — {personerMedLedighet.size} person{personerMedLedighet.size !== 1 ? 'er' : ''} har tagit{' '}
-                <strong style={{ color: C.green }}>{totalSemester} d semester</strong>,{' '}
-                <strong style={{ color: C.blue }}>{totalATK} d ATK</strong>
+                <strong style={{ color: C.t1 }}>{totalSemester} d semester</strong>,{' '}
+                <strong style={{ color: C.t1 }}>{totalATK} d ATK</strong>
               </span>
             </div>
 
@@ -1381,12 +1381,12 @@ export default function LedighetPage() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ width: 6, height: 6, borderRadius: 3, background: C.green, display: 'inline-block', flexShrink: 0 }} />
                         <span style={{ fontSize: 12, color: C.t3, flex: 1 }}>Semester: {saldo.semAnvända}/{saldo.semTotal} använda</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: saldoFärg(saldo.semKvar) }}>{saldo.semKvar} kvar</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: C.t1 }}>{saldo.semKvar} kvar</span>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ width: 6, height: 6, borderRadius: 3, background: C.blue, display: 'inline-block', flexShrink: 0 }} />
                         <span style={{ fontSize: 12, color: C.t3, flex: 1 }}>ATK: {saldo.atkAnvända}/{saldo.atkTotal} använda</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: saldoFärg(saldo.atkKvar) }}>{saldo.atkKvar} kvar</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: C.t1 }}>{saldo.atkKvar} kvar</span>
                       </div>
                     </div>
                   </button>
