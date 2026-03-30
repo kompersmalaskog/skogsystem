@@ -526,6 +526,7 @@ export default function LedighetPage() {
   const [felmeddelande, setFelmeddelande] = useState<string | null>(null);
   const [stoppTypForm, setStoppTypForm] = useState('skordarstopp');
   const [sparasStopp, setSparasStopp] = useState(false);
+  const [editingStoppId, setEditingStoppId] = useState<string | null>(null);
 
   const hämtaAnsökningar = useCallback(async () => {
     const { data, error } = await supabase
@@ -1133,25 +1134,44 @@ export default function LedighetPage() {
                     Rensa
                   </button>
                 )}
+                {editingStoppId && (
+                  <button onClick={() => { setEditingStoppId(null); setValdStart(null); setValdSlut(null); setKlickFas(0); }} style={{
+                    padding: '10px 16px', borderRadius: 10, border: 'none',
+                    background: 'transparent', color: C.t3,
+                    fontSize: 13, fontWeight: 500, fontFamily: ff, cursor: 'pointer',
+                  }}>
+                    Avbryt redigering
+                  </button>
+                )}
                 <button
                   onClick={async () => {
                     if (!valdStart) return;
                     const slut = valdSlut || valdStart;
                     setSparasStopp(true);
-                    const { error } = await supabase.from('ledighet_ansokningar').insert({
-                      anvandare_id: 'alla',
-                      typ: stoppTypForm,
-                      startdatum: valdStart,
-                      slutdatum: slut,
-                      status: 'godkänd',
-                      kommentar: null,
-                      skapad_av: 'Chef',
-                    });
-                    if (error) setFelmeddelande('Kunde inte skapa stopp: ' + error.message);
+                    let error;
+                    if (editingStoppId) {
+                      ({ error } = await supabase.from('ledighet_ansokningar').update({
+                        typ: stoppTypForm,
+                        startdatum: valdStart,
+                        slutdatum: slut,
+                      }).eq('id', editingStoppId));
+                    } else {
+                      ({ error } = await supabase.from('ledighet_ansokningar').insert({
+                        anvandare_id: 'alla',
+                        typ: stoppTypForm,
+                        startdatum: valdStart,
+                        slutdatum: slut,
+                        status: 'godkänd',
+                        kommentar: null,
+                        skapad_av: 'Chef',
+                      }));
+                    }
+                    if (error) setFelmeddelande('Kunde inte spara stopp: ' + error.message);
                     else {
                       setValdStart(null);
                       setValdSlut(null);
                       setKlickFas(0);
+                      setEditingStoppId(null);
                       hämtaAnsökningar();
                     }
                     setSparasStopp(false);
@@ -1166,7 +1186,7 @@ export default function LedighetPage() {
                     transition: 'all 0.15s',
                   }}
                 >
-                  {sparasStopp ? 'Sparar...' : 'Spara stopp'}
+                  {sparasStopp ? 'Sparar...' : editingStoppId ? 'Uppdatera stopp' : 'Spara stopp'}
                 </button>
               </div>
             </div>
@@ -1181,9 +1201,52 @@ export default function LedighetPage() {
                 <>
                   <div style={{ ...labelStyle, marginBottom: 12 }}>AKTIVA STOPP</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-                    {aktivaStopp.map(a => (
-                      <AnsökningsKort key={a.id} a={a} showNamn={false} onTaBort={() => taBortAnsökan(a.id)} />
-                    ))}
+                    {aktivaStopp.map(a => {
+                      const ti = TYPINFO[a.typ] || TYPINFO.stillestand;
+                      const dagar = dagMellan(a.startdatum, a.slutdatum);
+                      const isEditing = editingStoppId === a.id;
+                      return (
+                        <div key={a.id} style={{
+                          background: C.surface2,
+                          border: `1px solid ${isEditing ? ti.color : C.border}`,
+                          borderRadius: 12, padding: '14px 16px',
+                        }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                            <div style={{ width: 18, height: 5, borderRadius: 2, background: ti.color, flexShrink: 0 }} />
+                            <span style={{ fontSize: 14, fontWeight: 600, color: C.t1 }}>{ti.label}</span>
+                          </div>
+                          <div style={{ fontSize: 13, color: C.t2 }}>
+                            {fmtDate(a.startdatum)} – {fmtDate(a.slutdatum)} · {dagar} dag{dagar !== 1 ? 'ar' : ''}
+                          </div>
+                          <div style={{ display: 'flex', gap: 12, marginTop: 10 }}>
+                            <button onClick={() => {
+                              setEditingStoppId(a.id);
+                              setStoppTypForm(a.typ);
+                              setValdStart(a.startdatum);
+                              setValdSlut(a.slutdatum);
+                              setKlickFas(2);
+                            }} style={{
+                              background: 'none', border: 'none', padding: 0,
+                              color: C.accent, fontSize: 13, fontWeight: 500,
+                              cursor: 'pointer', fontFamily: ff,
+                            }}>
+                              Redigera
+                            </button>
+                            <button onClick={() => {
+                              if (window.confirm('Är du säker? Detta tar bort stoppet för alla.')) {
+                                taBortAnsökan(a.id);
+                              }
+                            }} style={{
+                              background: 'none', border: 'none', padding: 0,
+                              color: C.t3, fontSize: 13, fontWeight: 500,
+                              cursor: 'pointer', fontFamily: ff,
+                            }}>
+                              Ta bort
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </>
               );
