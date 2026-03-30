@@ -23,26 +23,38 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  // IMPORTANT: getUser() refreshes the session and updates cookies
   const { data: { user } } = await supabase.auth.getUser();
 
-  const isLoginPage = request.nextUrl.pathname === '/login';
-  const isApiRoute = request.nextUrl.pathname.startsWith('/api/');
+  const pathname = request.nextUrl.pathname;
+  const isLoginPage = pathname === '/login';
+  const isAuthCallback = pathname.startsWith('/api/auth/');
+  const isApiRoute = pathname.startsWith('/api/');
 
-  // Allow API routes through
-  if (isApiRoute) return supabaseResponse;
+  // Always allow API routes and auth callbacks through
+  if (isApiRoute || isAuthCallback) return supabaseResponse;
 
   // Not logged in and not on login page → redirect to login
   if (!user && !isLoginPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
-    return NextResponse.redirect(url);
+    const redirectResponse = NextResponse.redirect(url);
+    // Copy cookies from supabaseResponse to redirect
+    supabaseResponse.cookies.getAll().forEach(cookie => {
+      redirectResponse.cookies.set(cookie.name, cookie.value);
+    });
+    return redirectResponse;
   }
 
   // Logged in and on login page → redirect to home
   if (user && isLoginPage) {
     const url = request.nextUrl.clone();
     url.pathname = '/';
-    return NextResponse.redirect(url);
+    const redirectResponse = NextResponse.redirect(url);
+    supabaseResponse.cookies.getAll().forEach(cookie => {
+      redirectResponse.cookies.set(cookie.name, cookie.value);
+    });
+    return redirectResponse;
   }
 
   return supabaseResponse;
