@@ -567,6 +567,8 @@ export default function LedighetPage() {
     setShowForm(true);
   };
 
+  const stoppTyper = ['stillestand', 'skordarstopp', 'skotarstopp'];
+
   const dubbelbokning = useMemo(() => {
     if (!formStart) return null;
     const slut = formSlut || formStart;
@@ -636,7 +638,6 @@ export default function LedighetPage() {
 
   const minaAnsökningar = ansökningar.filter(a => a.anvandare_id === valdAnvändare);
   const väntandeAntal = ansökningar.filter(a => a.status === 'väntar').length;
-  const stoppTyper = ['stillestand', 'skordarstopp', 'skotarstopp'];
   const kalenderAnsökningar = useMemo(() => {
     if (vy === 'chef') return ansökningar.filter(a => a.status !== 'nekad');
     return ansökningar.filter(a =>
