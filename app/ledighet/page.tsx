@@ -11,7 +11,7 @@ const supabase = createClient(
 interface Ansökan {
   id: string;
   anvandare_id: string;
-  typ: 'semester' | 'atk' | 'stillestand' | 'skordarstopp' | 'skotarstopp';
+  typ: 'semester' | 'atk' | 'skordarstopp' | 'skotarstopp';
   startdatum: string;
   slutdatum: string;
   status: 'väntar' | 'godkänd' | 'nekad';
@@ -47,6 +47,8 @@ const C = {
   orangeDim: 'rgba(249,115,22,0.15)',
   purple: '#a855f7',
   purpleDim: 'rgba(168,85,247,0.15)',
+  nekad: '#BE185D',
+  nekadDim: 'rgba(190,24,93,0.15)',
   accent: '#3b82f6',
   accentDim: 'rgba(59,130,246,0.12)',
 };
@@ -54,7 +56,6 @@ const C = {
 const TYPINFO: Record<string, { label: string; color: string; bg: string }> = {
   semester: { label: 'Semester', color: C.green, bg: C.greenDim },
   atk: { label: 'ATK', color: C.blue, bg: C.blueDim },
-  stillestand: { label: 'Stillestånd', color: C.gray, bg: C.grayDim },
   skordarstopp: { label: 'Skördarstopp', color: C.orange, bg: C.orangeDim },
   skotarstopp: { label: 'Skotarstopp', color: C.purple, bg: C.purpleDim },
 };
@@ -62,7 +63,7 @@ const TYPINFO: Record<string, { label: string; color: string; bg: string }> = {
 const STATUSINFO: Record<string, { label: string; color: string; bg: string }> = {
   'väntar': { label: 'Väntar', color: C.yellow, bg: C.yellowDim },
   'godkänd': { label: 'Godkänd', color: C.green, bg: C.greenDim },
-  'nekad': { label: 'Nekad', color: C.red, bg: C.redDim },
+  'nekad': { label: 'Nekad', color: C.nekad, bg: C.nekadDim },
 };
 
 const ANSTÄLLDA = ['Martin', 'Oskar', 'Stefan', 'Peter', 'Erik', 'Jonas'];
@@ -306,10 +307,9 @@ function Kalender({
               const isSlut = valdSlut ? iso === valdSlut : iso === valdStart;
               const isIdag = dag === idagDag;
               const markningar = dagMap[dag] || [];
-              const stoppTyper = ['stillestand', 'skordarstopp', 'skotarstopp'];
+              const stoppTyper = ['skordarstopp', 'skotarstopp'];
               const harGodkänd = markningar.some(m => m.status === 'godkänd' && !stoppTyper.includes(m.typ));
               const harVäntar = markningar.some(m => m.status === 'väntar');
-              const harStillestånd = markningar.some(m => m.typ === 'stillestand' && m.status === 'godkänd');
               const harSkördarStopp = markningar.some(m => m.typ === 'skordarstopp' && m.status === 'godkänd');
               const harSkotarStopp = markningar.some(m => m.typ === 'skotarstopp' && m.status === 'godkänd');
               const harNekad = markningar.some(m => m.status === 'nekad');
@@ -335,8 +335,7 @@ function Kalender({
               const dots: string[] = [];
               if (harGodkänd) dots.push(C.green);
               if (harVäntar) dots.push(C.yellow);
-              if (harStillestånd) dots.push(C.gray);
-              if (harNekad) dots.push(C.red);
+              if (harNekad) dots.push(C.nekad);
 
               // Bottom stopp bar
               const SKÖRDAR_CLR = '#B45309';
@@ -594,7 +593,7 @@ export default function LedighetPage() {
     setShowForm(true);
   };
 
-  const stoppTyper = ['stillestand', 'skordarstopp', 'skotarstopp'];
+  const stoppTyper = ['skordarstopp', 'skotarstopp'];
 
   const dubbelbokning = useMemo(() => {
     if (!formStart) return null;
@@ -985,7 +984,7 @@ export default function LedighetPage() {
                 {/* Person-rader */}
                 {ANSTÄLLDA.map(person => {
                   const personAnsökningar = ansökningar.filter(a =>
-                    (a.anvandare_id === person || (a.typ === 'stillestand' && a.anvandare_id === 'alla')) &&
+                    a.anvandare_id === person &&
                     a.status !== 'nekad' &&
                     !stoppTyper.includes(a.typ) &&
                     a.slutdatum >= toISO(new Date(år, månad, 1)) &&
@@ -995,7 +994,6 @@ export default function LedighetPage() {
                   const typFärg: Record<string, string> = {
                     semester: C.green,
                     atk: C.blue,
-                    stillestand: C.gray,
                   };
 
                   return (
@@ -1048,9 +1046,8 @@ export default function LedighetPage() {
           {[
             { label: 'Semester', color: C.green },
             { label: 'ATK', color: C.blue },
-            { label: 'Stillestånd', color: C.gray },
             { label: 'Väntar', color: C.yellow },
-            { label: 'Nekad', color: C.red },
+            { label: 'Nekad', color: C.nekad },
             { label: 'Helg', color: C.red },
           ].map(({ label, color }) => (
             <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1378,7 +1375,7 @@ export default function LedighetPage() {
                   <div style={{ ...labelStyle, marginBottom: 12 }}>AKTIVA STOPP</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
                     {aktivaStopp.map(a => {
-                      const ti = TYPINFO[a.typ] || TYPINFO.stillestand;
+                      const ti = TYPINFO[a.typ] || TYPINFO.skordarstopp;
                       const dagar = dagMellan(a.startdatum, a.slutdatum);
                       const isEditing = editingStoppId === a.id;
                       return (
@@ -1461,7 +1458,7 @@ export default function LedighetPage() {
               <div style={{ display: 'flex', gap: 6 }}>
                 {['Alla', 'Godkänd', 'Nekad', 'Väntar'].map(s => {
                   const active = historikStatus === s;
-                  const statusColors: Record<string, string> = { 'Godkänd': C.green, 'Nekad': C.red, 'Väntar': C.yellow };
+                  const statusColors: Record<string, string> = { 'Godkänd': C.green, 'Nekad': C.nekad, 'Väntar': C.yellow };
                   return (
                     <button key={s} onClick={() => setHistorikStatus(s)} style={{
                       padding: '7px 14px', borderRadius: 18,
