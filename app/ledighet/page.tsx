@@ -231,30 +231,6 @@ function Kalender({
     return map;
   }, [ansökningar, år, månad, antalDagar]);
 
-  // Stopp range positions per day: is this day start/end/middle of a stopp?
-  const stoppRangeMap = useMemo(() => {
-    const map: Record<number, { skordare: 'start' | 'mid' | 'end' | 'single' | null; skotare: 'start' | 'mid' | 'end' | 'single' | null }> = {};
-    const stoppAnsökningar = ansökningar.filter(a =>
-      (a.typ === 'skordarstopp' || a.typ === 'skotarstopp') && a.status === 'godkänd'
-    );
-    for (let d = 1; d <= antalDagar; d++) {
-      const iso = toISO(new Date(år, månad, d));
-      const prevISO = d > 1 ? toISO(new Date(år, månad, d - 1)) : null;
-      const nextISO = d < antalDagar ? toISO(new Date(år, månad, d + 1)) : null;
-      let skordare: 'start' | 'mid' | 'end' | 'single' | null = null;
-      let skotare: 'start' | 'mid' | 'end' | 'single' | null = null;
-      for (const a of stoppAnsökningar) {
-        if (iso < a.startdatum || iso > a.slutdatum) continue;
-        const prevIn = prevISO ? prevISO >= a.startdatum && prevISO <= a.slutdatum : false;
-        const nextIn = nextISO ? nextISO >= a.startdatum && nextISO <= a.slutdatum : false;
-        const pos = !prevIn && !nextIn ? 'single' : !prevIn ? 'start' : !nextIn ? 'end' : 'mid';
-        if (a.typ === 'skordarstopp') skordare = pos;
-        if (a.typ === 'skotarstopp') skotare = pos;
-      }
-      if (skordare || skotare) map[d] = { skordare, skotare };
-    }
-    return map;
-  }, [ansökningar, år, månad, antalDagar]);
 
   const idag = new Date();
   const idagDag = idag.getFullYear() === år && idag.getMonth() === månad ? idag.getDate() : -1;
@@ -338,69 +314,55 @@ function Kalender({
               const harSkotarStopp = markningar.some(m => m.typ === 'skotarstopp' && m.status === 'godkänd');
               const harNekad = markningar.some(m => m.status === 'nekad');
 
-              // Stopp range info
-              const stoppInfo = stoppRangeMap[dag];
               const harStopp = harSkördarStopp || harSkotarStopp;
-
-              // Cell background for stopp
-              let cellBg = 'transparent';
-              let cellRadius = '0px';
-              const SKÖRDAR_CLR = '#B45309';
-              const SKOTAR_CLR = '#7C3AED';
-              if (harSkördarStopp && harSkotarStopp) {
-                cellBg = `linear-gradient(135deg, ${SKÖRDAR_CLR} 50%, ${SKOTAR_CLR} 50%)`;
-              } else if (harSkördarStopp) {
-                cellBg = SKÖRDAR_CLR;
-              } else if (harSkotarStopp) {
-                cellBg = SKOTAR_CLR;
-              }
-
-              // Rounded corners based on position
-              if (harStopp && stoppInfo) {
-                const pos = harSkördarStopp ? stoppInfo.skordare : stoppInfo.skotare;
-                // For dual stopp, use combined position
-                const posA = stoppInfo.skordare;
-                const posB = stoppInfo.skotare;
-                const isStart_ = (posA === 'start' || posA === 'single') && (posB === 'start' || posB === 'single' || !posB);
-                const isEnd_ = (posA === 'end' || posA === 'single') && (posB === 'end' || posB === 'single' || !posB);
-                if (isStart_ && isEnd_) cellRadius = '6px';
-                else if (isStart_) cellRadius = '6px 0 0 6px';
-                else if (isEnd_) cellRadius = '0 6px 6px 0';
-              }
 
               // Text/circle styling
               let circleBg = 'transparent';
-              let circleColor = harStopp ? '#fff' : (ärHelg || ärHelgdag) ? C.red : C.t1;
+              let circleColor = (ärHelg || ärHelgdag) ? C.red : C.t1;
               let fontWeight = 400;
 
               if (isInRange) {
                 circleBg = '#ea580c';
                 circleColor = '#fff';
                 fontWeight = 600;
-              } else if (isIdag && !harStopp) {
+              } else if (isIdag) {
                 circleBg = C.accent;
                 circleColor = '#fff';
                 fontWeight = 600;
-              } else if (isIdag && harStopp) {
-                fontWeight = 700;
-              } else if (harStopp) {
-                fontWeight = 500;
               }
 
-              // Dots (exclude stopp types — they have full bg now)
+              // Dots for leave types (not stopp)
               const dots: string[] = [];
               if (harGodkänd) dots.push(C.green);
               if (harVäntar) dots.push(C.yellow);
               if (harStillestånd) dots.push(C.gray);
               if (harNekad) dots.push(C.red);
 
+              // Bottom stopp bar
+              const SKÖRDAR_CLR = '#B45309';
+              const SKOTAR_CLR = '#7C3AED';
+              let stoppBar: React.ReactNode = null;
+              if (harStopp) {
+                const barStyle: React.CSSProperties = {
+                  position: 'absolute', bottom: 1, left: 2, right: 2, height: 5,
+                  borderRadius: 2,
+                };
+                if (harSkördarStopp && harSkotarStopp) {
+                  stoppBar = (
+                    <div style={barStyle}>
+                      <div style={{ display: 'flex', height: '100%', borderRadius: 2, overflow: 'hidden' }}>
+                        <div style={{ flex: 1, background: SKÖRDAR_CLR }} />
+                        <div style={{ flex: 1, background: SKOTAR_CLR }} />
+                      </div>
+                    </div>
+                  );
+                } else {
+                  stoppBar = <div style={{ ...barStyle, background: harSkördarStopp ? SKÖRDAR_CLR : SKOTAR_CLR }} />;
+                }
+              }
+
               return (
-                <div key={dag} style={{
-                  position: 'relative', aspectRatio: '1',
-                  background: cellBg,
-                  borderRadius: cellRadius,
-                  transition: 'background 0.15s',
-                }}>
+                <div key={dag} style={{ position: 'relative', aspectRatio: '1' }}>
                   <button
                     onClick={() => onVäljDag(iso)}
                     style={{
@@ -422,16 +384,16 @@ function Kalender({
                         color: circleColor,
                       }}>{dag}</span>
                     </div>
-                    {isIdag && !isInRange && !harStopp && (
+                    {isIdag && !isInRange && (
                       <span style={{
-                        position: 'absolute', bottom: dots.length > 0 ? -2 : 2,
+                        position: 'absolute', bottom: harStopp ? 7 : dots.length > 0 ? -2 : 2,
                         fontSize: 8, fontWeight: 700, color: C.accent,
                         letterSpacing: '0.04em',
                       }}>idag</span>
                     )}
-                    {dots.length > 0 && !isInRange && !harStopp && (
+                    {dots.length > 0 && !isInRange && (
                       <div style={{
-                        position: 'absolute', bottom: 2,
+                        position: 'absolute', bottom: harStopp ? 8 : 2,
                         display: 'flex', gap: 2, justifyContent: 'center',
                       }}>
                         {dots.slice(0, 3).map((c, di) => (
@@ -441,6 +403,7 @@ function Kalender({
                         ))}
                       </div>
                     )}
+                    {stoppBar}
                   </button>
                 </div>
               );
@@ -918,17 +881,20 @@ export default function LedighetPage() {
               <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>{label}</span>
             </div>
           ))}
-          {/* Stopp legends with rectangles */}
+          {/* Stopp legends — horisontella bars */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 14, height: 8, borderRadius: 2, background: '#B45309' }} />
+            <div style={{ width: 18, height: 5, borderRadius: 2, background: '#B45309' }} />
             <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>Skördarstopp</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 14, height: 8, borderRadius: 2, background: '#7C3AED' }} />
+            <div style={{ width: 18, height: 5, borderRadius: 2, background: '#7C3AED' }} />
             <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>Skotarstopp</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 14, height: 8, borderRadius: 2, background: 'linear-gradient(135deg, #B45309 50%, #7C3AED 50%)' }} />
+            <div style={{ width: 18, height: 5, borderRadius: 2, overflow: 'hidden', display: 'flex' }}>
+              <div style={{ flex: 1, background: '#B45309' }} />
+              <div style={{ flex: 1, background: '#7C3AED' }} />
+            </div>
             <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>Båda stopp</span>
           </div>
         </div>
