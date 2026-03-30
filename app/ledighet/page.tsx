@@ -717,6 +717,27 @@ export default function LedighetPage() {
   const semesterTotal = 25;
   const semesterKvar = Math.max(0, semesterTotal - semesterAnvända);
 
+  // Saldo per person for a given year
+  const getSaldo = useCallback((person: string, årFilter?: number) => {
+    const y = årFilter || new Date().getFullYear();
+    const yStr = String(y);
+    const pa = ansökningar.filter(a =>
+      a.anvandare_id === person && a.status === 'godkänd' &&
+      (a.startdatum.startsWith(yStr) || a.slutdatum.startsWith(yStr))
+    );
+    const semAnvända = pa.filter(a => a.typ === 'semester').reduce((s, a) => s + dagMellan(a.startdatum, a.slutdatum), 0);
+    const atkAnvändaDagar = pa.filter(a => a.typ === 'atk').reduce((s, a) => s + dagMellan(a.startdatum, a.slutdatum), 0);
+    const semTotal = 25;
+    const atkTotalDagar = 5;
+    return {
+      semAnvända, semTotal, semKvar: Math.max(0, semTotal - semAnvända),
+      atkAnvända: atkAnvändaDagar, atkTotal: atkTotalDagar, atkKvar: Math.max(0, atkTotalDagar - atkAnvändaDagar),
+      totalUttaget: semAnvända + atkAnvändaDagar,
+    };
+  }, [ansökningar]);
+
+  const saldoFärg = (kvar: number) => kvar > 5 ? C.green : kvar > 0 ? C.yellow : C.red;
+
   const labelStyle: React.CSSProperties = {
     fontSize: 10, fontWeight: 700, letterSpacing: '0.08em',
     textTransform: 'uppercase', color: C.t3, marginBottom: 4,
@@ -1054,6 +1075,32 @@ export default function LedighetPage() {
               </div>
             </div>
 
+            {/* SALDO-TABELL */}
+            <div style={{ ...labelStyle, marginBottom: 12 }}>SALDO {år}</div>
+            <div style={{ background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`, overflow: 'hidden', marginBottom: 28 }}>
+              {/* Header */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 65px 75px', padding: '10px 16px', borderBottom: `1px solid ${C.border}` }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Namn</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'right' }}>Semester</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'right' }}>ATK</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'right' }}>Uttaget</span>
+              </div>
+              {ANSTÄLLDA.map((person, i) => {
+                const s = getSaldo(person, år);
+                return (
+                  <div key={person}>
+                    {i > 0 && <div style={{ height: 0.5, background: C.border, margin: '0 16px' }} />}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 65px 75px', padding: '10px 16px', alignItems: 'center' }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: C.t1 }}>{person}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: saldoFärg(s.semKvar), textAlign: 'right' }}>{s.semKvar} kvar</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: saldoFärg(s.atkKvar), textAlign: 'right' }}>{s.atkKvar} kvar</span>
+                      <span style={{ fontSize: 13, color: C.t2, textAlign: 'right' }}>{s.totalUttaget} d</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
             {/* ANSÖKNINGAR */}
             <div style={{ ...labelStyle, marginBottom: 12 }}>ANSÖKNINGAR ({väntandeAntal})</div>
             {väntande.length === 0 ? (
@@ -1312,32 +1359,38 @@ export default function LedighetPage() {
                 .filter(a => a.anvandare_id === person)
                 .sort((a, b) => b.startdatum.localeCompare(a.startdatum));
               if (pAnsökningar.length === 0) return null;
-              const totalDagar = pAnsökningar
-                .filter(a => a.status !== 'nekad')
-                .reduce((s, a) => s + dagMellan(a.startdatum, a.slutdatum), 0);
-              const isOpen = expanderad[person] !== false; // default open
+              const saldo = getSaldo(person, historikÅr);
+              const isOpen = expanderad[person] !== false;
 
               return (
                 <div key={person} style={{ marginBottom: 10 }}>
-                  {/* Header — klickbar */}
                   <button
                     onClick={() => setExpanderad(prev => ({ ...prev, [person]: !isOpen }))}
                     style={{
                       width: '100%', background: C.surface, border: `1px solid ${C.border}`,
                       borderRadius: isOpen ? '12px 12px 0 0' : 12,
-                      padding: '14px 18px', cursor: 'pointer',
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '14px 18px', cursor: 'pointer', textAlign: 'left',
                       fontFamily: ff,
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                       <span style={{ fontSize: 15, fontWeight: 600, color: C.t1 }}>{person}</span>
-                      <span style={{ fontSize: 13, color: C.t3 }}>{totalDagar} dag{totalDagar !== 1 ? 'ar' : ''}</span>
+                      <span style={{ fontSize: 14, color: C.t3, transition: 'transform 0.2s', transform: isOpen ? 'rotate(90deg)' : 'rotate(0)' }}>›</span>
                     </div>
-                    <span style={{ fontSize: 14, color: C.t3, transition: 'transform 0.2s', transform: isOpen ? 'rotate(90deg)' : 'rotate(0)' }}>›</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: 3, background: C.green, display: 'inline-block', flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, color: C.t3, flex: 1 }}>Semester: {saldo.semAnvända}/{saldo.semTotal} använda</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: saldoFärg(saldo.semKvar) }}>{saldo.semKvar} kvar</span>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: 3, background: C.blue, display: 'inline-block', flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, color: C.t3, flex: 1 }}>ATK: {saldo.atkAnvända}/{saldo.atkTotal} använda</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: saldoFärg(saldo.atkKvar) }}>{saldo.atkKvar} kvar</span>
+                      </div>
+                    </div>
                   </button>
 
-                  {/* Expanderat innehåll */}
                   {isOpen && (
                     <div style={{
                       background: C.surface, border: `1px solid ${C.border}`, borderTop: 'none',
