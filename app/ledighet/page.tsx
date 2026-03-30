@@ -394,35 +394,6 @@ function Kalender({
               if (harStillestånd) dots.push(C.gray);
               if (harNekad) dots.push(C.red);
 
-              // Top connecting bar for stopp ranges
-              let topBar: React.ReactNode = null;
-              if (harStopp && stoppInfo) {
-                const bars: React.ReactNode[] = [];
-                if (stoppInfo.skordare) {
-                  const p = stoppInfo.skordare;
-                  bars.push(
-                    <div key="sk" style={{
-                      position: 'absolute', top: 1, height: 3,
-                      left: p === 'start' || p === 'single' ? '50%' : 0,
-                      right: p === 'end' || p === 'single' ? '50%' : 0,
-                      background: SKÖRDAR_CLR, borderRadius: p === 'single' ? 2 : 0,
-                    }} />
-                  );
-                }
-                if (stoppInfo.skotare) {
-                  const p = stoppInfo.skotare;
-                  bars.push(
-                    <div key="st" style={{
-                      position: 'absolute', top: stoppInfo.skordare ? 5 : 1, height: 3,
-                      left: p === 'start' || p === 'single' ? '50%' : 0,
-                      right: p === 'end' || p === 'single' ? '50%' : 0,
-                      background: SKOTAR_CLR, borderRadius: p === 'single' ? 2 : 0,
-                    }} />
-                  );
-                }
-                topBar = <>{bars}</>;
-              }
-
               return (
                 <div key={dag} style={{
                   position: 'relative', aspectRatio: '1',
@@ -430,7 +401,6 @@ function Kalender({
                   borderRadius: cellRadius,
                   transition: 'background 0.15s',
                 }}>
-                  {topBar}
                   <button
                     onClick={() => onVäljDag(iso)}
                     style={{
@@ -592,8 +562,6 @@ export default function LedighetPage() {
   const [sparar, setSparar] = useState(false);
   const [felmeddelande, setFelmeddelande] = useState<string | null>(null);
   const [stoppTypForm, setStoppTypForm] = useState('skordarstopp');
-  const [stoppStart, setStoppStart] = useState('');
-  const [stoppSlut, setStoppSlut] = useState('');
   const [sparasStopp, setSparasStopp] = useState(false);
 
   const hämtaAnsökningar = useCallback(async () => {
@@ -966,6 +934,7 @@ export default function LedighetPage() {
         </div>
 
         {/* === 6. MINA ANSÖKNINGAR + KNAPP === */}
+        {vy === 'anställd' && (
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           marginBottom: 16,
@@ -983,9 +952,10 @@ export default function LedighetPage() {
             Ansök om ledighet
           </button>
         </div>
+        )}
 
         {/* === 7. ANSÖKNINGSFORMULÄR === */}
-        {showForm && (
+        {showForm && vy === 'anställd' && (
           <div style={{
             background: C.surface, border: `1px solid ${C.border}`,
             borderRadius: 14, padding: 20, marginBottom: 24,
@@ -1152,49 +1122,60 @@ export default function LedighetPage() {
               </div>
             )}
 
-            {/* MASKINSTOPP */}
+            {/* MASKINSTOPP — välj datum i kalendern */}
             <div style={{ ...labelStyle, marginBottom: 12 }}>MASKINSTOPP</div>
             <div style={{
               background: C.surface, border: `1px solid ${C.border}`,
               borderRadius: 14, padding: 20, marginBottom: 24,
             }}>
-              <div style={{ marginBottom: 14 }}>
+              <div style={{ marginBottom: 16 }}>
                 <div style={labelStyle}>TYP AV STOPP</div>
-                <select
-                  value={stoppTypForm}
-                  onChange={e => setStoppTypForm(e.target.value)}
-                  style={{ ...inputStyle, appearance: 'auto' }}
-                >
-                  <option value="skordarstopp">Skördarstopp</option>
-                  <option value="skotarstopp">Skotarstopp</option>
-                </select>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-                <div>
-                  <div style={labelStyle}>STARTDATUM</div>
-                  <input type="date" value={stoppStart} onChange={e => setStoppStart(e.target.value)} style={inputStyle} />
-                </div>
-                <div>
-                  <div style={labelStyle}>SLUTDATUM</div>
-                  <input type="date" value={stoppSlut} onChange={e => setStoppSlut(e.target.value)} style={inputStyle} />
+                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+                  {([['skordarstopp', 'Skördarstopp', '#B45309'], ['skotarstopp', 'Skotarstopp', '#7C3AED']] as const).map(([val, label, clr]) => {
+                    const active = stoppTypForm === val;
+                    return (
+                      <button key={val} onClick={() => setStoppTypForm(val)} style={{
+                        flex: 1, padding: '10px 0', borderRadius: 10, border: 'none',
+                        background: active ? clr : 'rgba(255,255,255,0.06)',
+                        color: active ? '#fff' : C.t3,
+                        fontSize: 13, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
+                        transition: 'all 0.15s',
+                      }}>
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
-              {stoppSlut && stoppStart && stoppSlut < stoppStart && (
-                <div style={{ fontSize: 13, color: C.red, marginBottom: 14, fontWeight: 500 }}>
-                  Slutdatum kan inte vara före startdatum
-                </div>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+
+              <div style={{ fontSize: 13, color: C.t2, marginBottom: 12, lineHeight: 1.5 }}>
+                {!valdStart
+                  ? 'Välj startdatum i kalendern ovan'
+                  : !valdSlut
+                  ? `Start: ${fmtDate(valdStart)} — välj slutdatum`
+                  : `${fmtDate(valdStart)} – ${fmtDate(valdSlut)}`
+                }
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                {valdStart && (
+                  <button onClick={() => { setValdStart(null); setValdSlut(null); setKlickFas(0); }} style={{
+                    padding: '10px 16px', borderRadius: 10, border: 'none',
+                    background: 'transparent', color: C.t3,
+                    fontSize: 13, fontWeight: 500, fontFamily: ff, cursor: 'pointer',
+                  }}>
+                    Rensa
+                  </button>
+                )}
                 <button
                   onClick={async () => {
-                    if (!stoppStart) return;
-                    const slut = stoppSlut || stoppStart;
-                    if (slut < stoppStart) return;
+                    if (!valdStart) return;
+                    const slut = valdSlut || valdStart;
                     setSparasStopp(true);
                     const { error } = await supabase.from('ledighet_ansokningar').insert({
                       anvandare_id: 'alla',
                       typ: stoppTypForm,
-                      startdatum: stoppStart,
+                      startdatum: valdStart,
                       slutdatum: slut,
                       status: 'godkänd',
                       kommentar: null,
@@ -1202,21 +1183,24 @@ export default function LedighetPage() {
                     });
                     if (error) setFelmeddelande('Kunde inte skapa stopp: ' + error.message);
                     else {
-                      setStoppStart('');
-                      setStoppSlut('');
+                      setValdStart(null);
+                      setValdSlut(null);
+                      setKlickFas(0);
                       hämtaAnsökningar();
                     }
                     setSparasStopp(false);
                   }}
-                  disabled={sparasStopp || !stoppStart || (!!stoppSlut && stoppSlut < stoppStart)}
+                  disabled={sparasStopp || !valdStart}
                   style={{
                     padding: '10px 24px', borderRadius: 10, border: 'none',
-                    background: C.orange, color: '#fff',
+                    background: stoppTypForm === 'skordarstopp' ? '#B45309' : '#7C3AED',
+                    color: '#fff',
                     fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-                    opacity: (sparasStopp || !stoppStart) ? 0.5 : 1,
+                    opacity: (sparasStopp || !valdStart) ? 0.5 : 1,
+                    transition: 'all 0.15s',
                   }}
                 >
-                  {sparasStopp ? 'Sparar...' : 'Lägg till stopp'}
+                  {sparasStopp ? 'Sparar...' : 'Spara stopp'}
                 </button>
               </div>
             </div>
