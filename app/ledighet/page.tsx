@@ -793,458 +793,267 @@ export default function LedighetPage() {
       {/* Content */}
       <div style={{ padding: '20px 16px 100px', maxWidth: 480, margin: '0 auto' }}>
 
-        {/* === 2. KPI KORT === */}
-        {vy === 'anställd' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 24 }}>
-            {/* ATK-saldo */}
-            <div style={{
-              background: C.surface, borderRadius: 14, padding: '16px 18px',
-              border: `1px solid ${C.border}`,
-            }}>
-              <div style={labelStyle}>ATK-SALDO</div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: C.t1, lineHeight: 1.1 }}>
-                {atkKvar}
-              </div>
-              <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>timmar kvar</div>
-              <ProgressBar value={atkKvar} max={atkTotal} color={C.blue} />
-            </div>
-            {/* Semesterdagar */}
-            <div style={{
-              background: C.surface, borderRadius: 14, padding: '16px 18px',
-              border: `1px solid ${C.border}`,
-            }}>
-              <div style={labelStyle}>SEMESTERDAGAR</div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: C.t1, lineHeight: 1.1 }}>
-                {semesterKvar}
-                <span style={{ fontSize: 14, fontWeight: 400, color: C.t3 }}> av {semesterTotal}</span>
-              </div>
-              <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>kvar</div>
-              <ProgressBar value={semesterKvar} max={semesterTotal} color={C.green} />
-            </div>
-          </div>
-        )}
-
-        {/* === 3. VÄLJ PERSONAL === */}
-        {vy === 'anställd' && (
-          <div style={{ marginBottom: 24 }}>
-            <div style={{ ...labelStyle, marginBottom: 10 }}>VÄLJ PERSONAL</div>
-            <div style={{
-              display: 'flex', gap: 8, flexWrap: 'wrap',
-            }}>
-              {ANSTÄLLDA.map(n => {
-                const active = valdAnvändare === n;
-                return (
-                  <button key={n} onClick={() => setValdAnvändare(n)} style={{
-                    padding: '8px 16px', borderRadius: 20,
-                    background: active ? C.blue : C.surface,
-                    border: `1px solid ${active ? C.blue : C.border}`,
-                    color: active ? '#fff' : C.t2,
-                    fontSize: 13, fontWeight: 500, fontFamily: ff,
-                    cursor: 'pointer', transition: 'all 0.15s',
-                  }}>
-                    {n}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* === 3.5 VY-TOGGLE === */}
-        <div style={{
-          display: 'flex', background: C.surface, borderRadius: 10,
-          border: `1px solid ${C.border}`, padding: 3, marginBottom: 16,
-        }}>
-          {(['kalender', 'team'] as const).map(v => {
-            const active = v === 'kalender' ? !visaTeam : visaTeam;
-            return (
-              <button key={v} onClick={() => setVisaTeam(v === 'team')} style={{
-                flex: 1, padding: '8px 0', borderRadius: 8, border: 'none',
-                background: active ? 'rgba(255,255,255,0.1)' : 'transparent',
-                color: active ? C.t1 : C.t3,
-                fontSize: 13, fontWeight: active ? 600 : 400, fontFamily: ff,
-                cursor: 'pointer', transition: 'all 0.15s',
-              }}>
-                {v === 'kalender' ? 'Kalender' : 'Team'}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* === 4. KALENDER === */}
-        {!visaTeam && (
-        <div style={{
-          background: C.surface, border: `1px solid ${C.border}`,
-          borderRadius: 16, padding: '20px 14px 16px',
-          marginBottom: 16,
-        }}>
-          <Kalender
-            år={år} månad={månad} onÄndraMånad={ändraMånad}
-            valdStart={valdStart} valdSlut={valdSlut}
-            onVäljDag={väljDag}
-            ansökningar={kalenderAnsökningar}
-            slideDir={slideDir}
-          />
-        </div>
-        )}
-
-        {/* === 4B. TEAMVY === */}
-        {visaTeam && (
-        <div style={{
-          background: C.surface, border: `1px solid ${C.border}`,
-          borderRadius: 16, padding: '16px 14px', marginBottom: 16,
-        }}>
-          {/* Månad-nav */}
-          <div style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            marginBottom: 16, padding: '0 4px',
-          }}>
-            <div>
-              <span style={{ fontSize: 18, fontWeight: 700, color: C.t1 }}>{MÅNADNAMN[månad]}</span>
-              <span style={{ fontSize: 18, fontWeight: 400, color: C.t3, marginLeft: 8 }}>{år}</span>
-            </div>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <button className="nav-cal-btn" onClick={() => ändraMånad(-1)} style={navBtnStyle}>
-                <IconChevron dir="left" />
-              </button>
-              <button className="nav-cal-btn" onClick={() => ändraMånad(1)} style={navBtnStyle}>
-                <IconChevron dir="right" />
-              </button>
-            </div>
-          </div>
-
-          {/* Dag-headers */}
-          {(() => {
-            const dagar = new Date(år, månad + 1, 0).getDate();
-            const dagBredd = `${100 / dagar}%`;
-
-            // Samla maskinstopp
-            const stoppBlock = ansökningar.filter(a =>
-              (a.typ === 'skordarstopp' || a.typ === 'skotarstopp') &&
-              a.status === 'godkänd' &&
-              a.slutdatum >= toISO(new Date(år, månad, 1)) &&
-              a.startdatum <= toISO(new Date(år, månad, dagar))
-            );
-
-            const renderBlock = (a: Ansökan, color: string) => {
-              const mStart = new Date(år, månad, 1);
-              const mEnd = new Date(år, månad, dagar);
-              const aStart = new Date(a.startdatum);
-              const aEnd = new Date(a.slutdatum);
-              const s = Math.max(1, aStart <= mStart ? 1 : aStart.getDate());
-              const e = Math.min(dagar, aEnd >= mEnd ? dagar : aEnd.getDate());
-              const left = ((s - 1) / dagar) * 100;
-              const width = ((e - s + 1) / dagar) * 100;
-              return (
-                <div key={a.id} style={{
-                  position: 'absolute', top: 0, bottom: 0,
-                  left: `${left}%`, width: `${width}%`,
-                  background: color, borderRadius: 3,
-                }} />
-              );
-            };
-
-            return (
-              <div>
-                {/* Dag-nummers */}
-                <div style={{ display: 'flex', paddingLeft: 90, marginBottom: 4 }}>
-                  {Array.from({ length: dagar }, (_, i) => i + 1).map(d => (
-                    <div key={d} style={{
-                      width: dagBredd, textAlign: 'center',
-                      fontSize: 9, color: d % 5 === 0 || d === 1 ? C.t3 : 'transparent',
-                      fontFamily: ff,
-                    }}>
-                      {d}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Maskinstopp-rad */}
-                {stoppBlock.length > 0 && (
-                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
-                    <div style={{
-                      width: 86, flexShrink: 0, fontSize: 11, fontWeight: 600,
-                      color: C.t3, fontFamily: ff, paddingRight: 4,
-                    }}>
-                      Maskinstopp
-                    </div>
-                    <div style={{
-                      flex: 1, position: 'relative', height: 10,
-                      background: 'rgba(255,255,255,0.03)', borderRadius: 3,
-                    }}>
-                      {stoppBlock.map(a => renderBlock(a, a.typ === 'skordarstopp' ? '#B45309' : '#7C3AED'))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Separator */}
-                {stoppBlock.length > 0 && (
-                  <div style={{ height: 1, background: C.border, margin: '6px 0 8px 86px' }} />
-                )}
-
-                {/* Person-rader */}
-                {ANSTÄLLDA.map(person => {
-                  const personAnsökningar = ansökningar.filter(a =>
-                    a.anvandare_id === person &&
-                    a.status !== 'nekad' &&
-                    !stoppTyper.includes(a.typ) &&
-                    a.slutdatum >= toISO(new Date(år, månad, 1)) &&
-                    a.startdatum <= toISO(new Date(år, månad, dagar))
-                  );
-
-                  const typFärg: Record<string, string> = {
-                    semester: C.green,
-                    atk: C.blue,
-                  };
-
-                  return (
-                    <div key={person} style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-                      <div style={{
-                        width: 86, flexShrink: 0, fontSize: 12, fontWeight: 500,
-                        color: person === valdAnvändare ? C.t1 : C.t2,
-                        fontFamily: ff, paddingRight: 4,
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      }}>
-                        {person}
-                      </div>
-                      <div style={{
-                        flex: 1, position: 'relative', height: 18,
-                        background: 'rgba(255,255,255,0.03)', borderRadius: 4,
-                      }}>
-                        {personAnsökningar.map(a => {
-                          const mStart = new Date(år, månad, 1);
-                          const mEnd = new Date(år, månad, dagar);
-                          const aStart = new Date(a.startdatum);
-                          const aEnd = new Date(a.slutdatum);
-                          const s = Math.max(1, aStart <= mStart ? 1 : aStart.getDate());
-                          const e = Math.min(dagar, aEnd >= mEnd ? dagar : aEnd.getDate());
-                          const left = ((s - 1) / dagar) * 100;
-                          const width = ((e - s + 1) / dagar) * 100;
-                          const color = typFärg[a.typ] || C.gray;
-                          return (
-                            <div key={a.id} title={`${TYPINFO[a.typ]?.label || a.typ}: ${a.startdatum} – ${a.slutdatum}`} style={{
-                              position: 'absolute', top: 2, bottom: 2,
-                              left: `${left}%`, width: `${width}%`,
-                              background: color, borderRadius: 3, opacity: a.status === 'väntar' ? 0.5 : 0.85,
-                            }} />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })()}
-        </div>
-        )}
-
-        {/* === 5. TECKENFÖRKLARING === */}
-        <div style={{
-          display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 28,
-          padding: '0 4px',
-        }}>
-          {[
-            { label: 'Semester', color: C.green },
-            { label: 'ATK', color: C.blue },
-            { label: 'Väntar', color: C.yellow },
-            { label: 'Nekad', color: C.nekad },
-            { label: 'Helg', color: C.red },
-          ].map(({ label, color }) => (
-            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 4, background: color }} />
-              <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>{label}</span>
-            </div>
-          ))}
-          {/* Stopp legends — horisontella bars */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 18, height: 5, borderRadius: 2, background: '#B45309' }} />
-            <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>Skördarstopp</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 18, height: 5, borderRadius: 2, background: '#7C3AED' }} />
-            <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>Skotarstopp</span>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 18, height: 5, borderRadius: 2, overflow: 'hidden', display: 'flex' }}>
-              <div style={{ flex: 1, background: '#B45309' }} />
-              <div style={{ flex: 1, background: '#7C3AED' }} />
-            </div>
-            <span style={{ fontSize: 11, color: C.t3, fontWeight: 500 }}>Båda stopp</span>
-          </div>
-        </div>
-
-        {/* === 6. MINA ANSÖKNINGAR + KNAPP === */}
-        {vy === 'anställd' && (
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginBottom: 16,
-        }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: C.t1 }}>
-            Mina Ansökningar
-          </span>
-          <button onClick={openForm} style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '8px 16px', borderRadius: 10, border: 'none',
-            background: C.blue, color: '#fff',
-            fontSize: 13, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-          }}>
-            <IconPlus size={14} />
-            Ansök om ledighet
-          </button>
-        </div>
-        )}
-
-        {/* === 7. ANSÖKNINGSFORMULÄR === */}
-        {showForm && vy === 'anställd' && (
-          <div style={{
-            background: C.surface, border: `1px solid ${C.border}`,
-            borderRadius: 14, padding: 20, marginBottom: 24,
-            animation: 'fadeUp 0.25s ease',
-          }}>
-            {/* Collision warning */}
-            {kollision.length > 0 && (
-              <div style={{
-                display: 'flex', gap: 10, alignItems: 'flex-start',
-                padding: '12px 14px', borderRadius: 10,
-                background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.2)',
-                marginBottom: 16,
-              }}>
-                <IconWarning />
-                <div style={{ fontSize: 13, color: '#fb923c', lineHeight: 1.4 }}>
-                  <strong>Krock i planeringen</strong> — {kollision.join(' och ')} har redan beviljad ledighet under de valda datumen
-                </div>
-              </div>
-            )}
-
-            {/* Typ */}
-            <div style={{ marginBottom: 14 }}>
-              <div style={labelStyle}>TYP AV LEDIGHET</div>
-              <select
-                value={formTyp}
-                onChange={e => setFormTyp(e.target.value)}
-                style={{ ...inputStyle, appearance: 'auto' }}
-              >
-                <option value="">Välj typ...</option>
-                <option value="semester">Semester</option>
-                <option value="atk">ATK</option>
-              </select>
-            </div>
-
-            {/* Datum */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-              <div>
-                <div style={labelStyle}>STARTDATUM</div>
-                <input
-                  type="date"
-                  value={formStart}
-                  onChange={e => setFormStart(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <div style={labelStyle}>SLUTDATUM</div>
-                <input
-                  type="date"
-                  value={formSlut}
-                  onChange={e => setFormSlut(e.target.value)}
-                  style={inputStyle}
-                />
-              </div>
-            </div>
-            {formStart && formSlut && formSlut < formStart && (
-              <div style={{
-                fontSize: 13, color: C.red, marginBottom: 14, fontWeight: 500,
-              }}>
-                Slutdatum kan inte vara före startdatum
-              </div>
-            )}
-
-            {/* Kommentar */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={labelStyle}>KOMMENTAR</div>
-              <textarea
-                placeholder="Beskriv anledningen till din ledighet..."
-                value={formKommentar}
-                onChange={e => setFormKommentar(e.target.value)}
-                rows={3}
-                style={{ ...inputStyle, resize: 'none' }}
-              />
-            </div>
-
-            {/* Dubbelbokning-varning */}
-            {dubbelbokning && (
-              <div style={{
-                display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px',
-                background: C.redDim, border: `1px solid rgba(239,68,68,0.25)`,
-                borderRadius: 10, marginBottom: 4,
-              }}>
-                <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>⚠️</span>
-                <span style={{ fontSize: 13, color: C.red, lineHeight: 1.5, fontFamily: ff }}>
-                  {dubbelbokning}
-                </span>
-              </div>
-            )}
-
-            {/* Buttons */}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
-              <button onClick={() => setShowForm(false)} style={{
-                background: 'none', border: 'none',
-                color: C.t2, fontSize: 14, fontWeight: 500,
-                cursor: 'pointer', fontFamily: ff, padding: '10px 16px',
-              }}>
-                Avbryt
-              </button>
-              <button onClick={skickaAnsökan} disabled={sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart) || !!dubbelbokning} style={{
-                padding: '10px 24px', borderRadius: 10, border: 'none',
-                background: dubbelbokning ? C.t4 : C.blue, color: '#fff',
-                fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
-                opacity: (sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart) || !!dubbelbokning) ? 0.5 : 1,
-              }}>
-                {sparar ? 'Skickar...' : 'Skicka ansökan'}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Ansökningslistor */}
+        {/* =============================================
+            FLIK 1: MIN LEDIGHET
+            ============================================= */}
         {vy === 'anställd' && (
           <>
+            {/* KPI kort */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+              <div style={{ background: C.surface, borderRadius: 14, padding: '16px 18px', border: `1px solid ${C.border}` }}>
+                <div style={labelStyle}>ATK-SALDO</div>
+                <div style={{ fontSize: 26, fontWeight: 700, color: C.t1, lineHeight: 1.1 }}>{atkKvar}</div>
+                <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>timmar kvar</div>
+                <ProgressBar value={atkKvar} max={atkTotal} color={C.blue} />
+              </div>
+              <div style={{ background: C.surface, borderRadius: 14, padding: '16px 18px', border: `1px solid ${C.border}` }}>
+                <div style={labelStyle}>SEMESTERDAGAR</div>
+                <div style={{ fontSize: 26, fontWeight: 700, color: C.t1, lineHeight: 1.1 }}>
+                  {semesterKvar}<span style={{ fontSize: 14, fontWeight: 400, color: C.t3 }}> av {semesterTotal}</span>
+                </div>
+                <div style={{ fontSize: 12, color: C.t3, marginTop: 2 }}>kvar</div>
+                <ProgressBar value={semesterKvar} max={semesterTotal} color={C.green} />
+              </div>
+            </div>
+
+            {/* Kalender — bara den inloggades data + stopp */}
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: '20px 14px 16px', marginBottom: 12 }}>
+              <Kalender år={år} månad={månad} onÄndraMånad={ändraMånad} valdStart={valdStart} valdSlut={valdSlut} onVäljDag={väljDag} ansökningar={kalenderAnsökningar} slideDir={slideDir} />
+            </div>
+
+            {/* Teckenförklaring — kompakt en rad */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24, padding: '0 4px' }}>
+              {[{ l: 'Semester', c: C.green }, { l: 'ATK', c: C.blue }, { l: 'Väntar', c: C.yellow }, { l: 'Nekad', c: C.nekad }, { l: 'Helg', c: C.red }].map(({ l, c }) => (
+                <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: 4, background: c }} />
+                  <span style={{ fontSize: 10, color: C.t3, fontWeight: 500 }}>{l}</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ width: 14, height: 4, borderRadius: 2, background: '#B45309' }} />
+                <span style={{ fontSize: 10, color: C.t3, fontWeight: 500 }}>Skördarstopp</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <div style={{ width: 14, height: 4, borderRadius: 2, background: '#7C3AED' }} />
+                <span style={{ fontSize: 10, color: C.t3, fontWeight: 500 }}>Skotarstopp</span>
+              </div>
+            </div>
+
+            {/* Mina Ansökningar header + knapp */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: C.t1 }}>Mina Ansökningar</span>
+              <button onClick={openForm} style={{
+                display: 'flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 10, border: 'none',
+                background: C.blue, color: '#fff', fontSize: 13, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
+              }}>
+                <IconPlus size={14} /> Ansök
+              </button>
+            </div>
+
+            {/* Ansökningslistor */}
             {loading ? (
               <div style={{ color: C.t3, padding: 40, textAlign: 'center', fontSize: 13 }}>Laddar...</div>
             ) : (
               <>
                 {kommande.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 24 }}>
-                    {kommande.map(a => (
-                      <AnsökningsKort key={a.id} a={a} showNamn={false} onTaBort={() => taBortAnsökan(a.id)} />
-                    ))}
+                    {kommande.map(a => <AnsökningsKort key={a.id} a={a} showNamn={false} onTaBort={() => taBortAnsökan(a.id)} />)}
                   </div>
                 )}
                 {tidigare.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     <div style={{ ...labelStyle, marginTop: 8 }}>TIDIGARE</div>
-                    {tidigare.map(a => (
-                      <AnsökningsKort key={a.id} a={a} showNamn={false} onTaBort={() => taBortAnsökan(a.id)} />
-                    ))}
+                    {tidigare.map(a => <AnsökningsKort key={a.id} a={a} showNamn={false} onTaBort={() => taBortAnsökan(a.id)} />)}
                   </div>
                 )}
                 {kommande.length === 0 && tidigare.length === 0 && !showForm && (
-                  <div style={{
-                    color: C.t3, padding: 30, textAlign: 'center', fontSize: 13,
-                    background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-                  }}>
-                    Inga ansökningar ännu. Välj datum i kalendern eller klicka &quot;Ansök om ledighet&quot;.
+                  <div style={{ color: C.t3, padding: 30, textAlign: 'center', fontSize: 13, background: C.surface, borderRadius: 12, border: `1px solid ${C.border}` }}>
+                    Inga ansökningar ännu. Välj datum i kalendern eller tryck &quot;Ansök&quot;.
                   </div>
                 )}
               </>
             )}
+
+            {/* Formulär — modal/sheet overlay */}
+            {showForm && (
+              <div style={{ position: 'fixed', inset: 0, zIndex: 5000, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+                <div onClick={() => setShowForm(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
+                <div style={{
+                  position: 'relative', width: '100%', maxWidth: 480,
+                  background: C.surface, borderRadius: '20px 20px 0 0', padding: '24px 20px 32px',
+                  animation: 'fadeUp 0.25s ease',
+                }}>
+                  <div style={{ width: 40, height: 4, borderRadius: 2, background: C.t4, margin: '0 auto 20px' }} />
+
+                  {kollision.length > 0 && (
+                    <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '12px 14px', borderRadius: 10, background: 'rgba(249,115,22,0.1)', border: '1px solid rgba(249,115,22,0.2)', marginBottom: 16 }}>
+                      <IconWarning />
+                      <div style={{ fontSize: 13, color: '#fb923c', lineHeight: 1.4 }}>
+                        <strong>Krock</strong> — {kollision.join(' och ')} har ledighet under dessa datum
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={labelStyle}>TYP AV LEDIGHET</div>
+                    <select value={formTyp} onChange={e => setFormTyp(e.target.value)} style={{ ...inputStyle, appearance: 'auto' }}>
+                      <option value="">Välj typ...</option>
+                      <option value="semester">Semester</option>
+                      <option value="atk">ATK</option>
+                    </select>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+                    <div>
+                      <div style={labelStyle}>STARTDATUM</div>
+                      <input type="date" value={formStart} onChange={e => setFormStart(e.target.value)} style={inputStyle} />
+                    </div>
+                    <div>
+                      <div style={labelStyle}>SLUTDATUM</div>
+                      <input type="date" value={formSlut} onChange={e => setFormSlut(e.target.value)} style={inputStyle} />
+                    </div>
+                  </div>
+                  {formStart && formSlut && formSlut < formStart && (
+                    <div style={{ fontSize: 13, color: C.red, marginBottom: 14, fontWeight: 500 }}>Slutdatum kan inte vara före startdatum</div>
+                  )}
+
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={labelStyle}>KOMMENTAR</div>
+                    <textarea placeholder="Beskriv anledningen..." value={formKommentar} onChange={e => setFormKommentar(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'none' }} />
+                  </div>
+
+                  {dubbelbokning && (
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', background: C.nekadDim, border: `1px solid rgba(190,24,93,0.25)`, borderRadius: 10, marginBottom: 8 }}>
+                      <span style={{ fontSize: 16, flexShrink: 0 }}>⚠️</span>
+                      <span style={{ fontSize: 13, color: C.nekad, lineHeight: 1.5, fontFamily: ff }}>{dubbelbokning}</span>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
+                    <button onClick={() => setShowForm(false)} style={{ background: 'none', border: 'none', color: C.t2, fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: ff, padding: '10px 16px' }}>Avbryt</button>
+                    <button onClick={skickaAnsökan} disabled={sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart) || !!dubbelbokning} style={{
+                      padding: '10px 24px', borderRadius: 10, border: 'none', background: dubbelbokning ? C.t4 : C.blue, color: '#fff',
+                      fontSize: 14, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
+                      opacity: (sparar || !formTyp || !formStart || (!!formSlut && formSlut < formStart) || !!dubbelbokning) ? 0.5 : 1,
+                    }}>
+                      {sparar ? 'Skickar...' : 'Skicka ansökan'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </>
         )}
+
+        {/* =============================================
+            FLIK 2: HANTERA
+            ============================================= */}
 
         {/* Manager view */}
         {vy === 'chef' && (
           <>
+            {/* Kalender — alla anställda + stopp */}
+            {!visaTeam && (
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: '20px 14px 16px', marginBottom: 12 }}>
+              <Kalender år={år} månad={månad} onÄndraMånad={ändraMånad} valdStart={valdStart} valdSlut={valdSlut} onVäljDag={väljDag} ansökningar={kalenderAnsökningar} slideDir={slideDir} />
+            </div>
+            )}
+
+            {/* Teamvy */}
+            {visaTeam && (
+            <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 16, padding: '16px 14px', marginBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '0 4px' }}>
+                <div>
+                  <span style={{ fontSize: 18, fontWeight: 700, color: C.t1 }}>{MÅNADNAMN[månad]}</span>
+                  <span style={{ fontSize: 18, fontWeight: 400, color: C.t3, marginLeft: 8 }}>{år}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button className="nav-cal-btn" onClick={() => ändraMånad(-1)} style={navBtnStyle}><IconChevron dir="left" /></button>
+                  <button className="nav-cal-btn" onClick={() => ändraMånad(1)} style={navBtnStyle}><IconChevron dir="right" /></button>
+                </div>
+              </div>
+              {(() => {
+                const dagar = new Date(år, månad + 1, 0).getDate();
+                const dagBredd = `${100 / dagar}%`;
+                const stoppBlock = ansökningar.filter(a => (a.typ === 'skordarstopp' || a.typ === 'skotarstopp') && a.status === 'godkänd' && a.slutdatum >= toISO(new Date(år, månad, 1)) && a.startdatum <= toISO(new Date(år, månad, dagar)));
+                const renderBlock = (a: Ansökan, color: string) => {
+                  const s = Math.max(1, new Date(a.startdatum) <= new Date(år, månad, 1) ? 1 : new Date(a.startdatum).getDate());
+                  const e = Math.min(dagar, new Date(a.slutdatum) >= new Date(år, månad, dagar) ? dagar : new Date(a.slutdatum).getDate());
+                  return <div key={a.id} style={{ position: 'absolute', top: 0, bottom: 0, left: `${((s-1)/dagar)*100}%`, width: `${((e-s+1)/dagar)*100}%`, background: color, borderRadius: 3 }} />;
+                };
+                const typFärg: Record<string, string> = { semester: C.green, atk: C.blue };
+                return (
+                  <div>
+                    <div style={{ display: 'flex', paddingLeft: 90, marginBottom: 4 }}>
+                      {Array.from({ length: dagar }, (_, i) => i + 1).map(d => (
+                        <div key={d} style={{ width: dagBredd, textAlign: 'center', fontSize: 9, color: d % 5 === 0 || d === 1 ? C.t3 : 'transparent', fontFamily: ff }}>{d}</div>
+                      ))}
+                    </div>
+                    {stoppBlock.length > 0 && (
+                      <>
+                        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+                          <div style={{ width: 86, flexShrink: 0, fontSize: 11, fontWeight: 600, color: C.t3, fontFamily: ff }}>Maskinstopp</div>
+                          <div style={{ flex: 1, position: 'relative', height: 10, background: 'rgba(255,255,255,0.03)', borderRadius: 3 }}>
+                            {stoppBlock.map(a => renderBlock(a, a.typ === 'skordarstopp' ? '#B45309' : '#7C3AED'))}
+                          </div>
+                        </div>
+                        <div style={{ height: 1, background: C.border, margin: '6px 0 8px 86px' }} />
+                      </>
+                    )}
+                    {ANSTÄLLDA.map(person => {
+                      const pa = ansökningar.filter(a => a.anvandare_id === person && a.status !== 'nekad' && !stoppTyper.includes(a.typ) && a.slutdatum >= toISO(new Date(år, månad, 1)) && a.startdatum <= toISO(new Date(år, månad, dagar)));
+                      return (
+                        <div key={person} style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
+                          <div style={{ width: 86, flexShrink: 0, fontSize: 12, fontWeight: 500, color: C.t2, fontFamily: ff, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{person}</div>
+                          <div style={{ flex: 1, position: 'relative', height: 18, background: 'rgba(255,255,255,0.03)', borderRadius: 4 }}>
+                            {pa.map(a => {
+                              const s = Math.max(1, new Date(a.startdatum) <= new Date(år, månad, 1) ? 1 : new Date(a.startdatum).getDate());
+                              const e = Math.min(dagar, new Date(a.slutdatum) >= new Date(år, månad, dagar) ? dagar : new Date(a.slutdatum).getDate());
+                              return <div key={a.id} title={`${TYPINFO[a.typ]?.label}: ${a.startdatum} – ${a.slutdatum}`} style={{ position: 'absolute', top: 2, bottom: 2, left: `${((s-1)/dagar)*100}%`, width: `${((e-s+1)/dagar)*100}%`, background: typFärg[a.typ] || C.gray, borderRadius: 3, opacity: a.status === 'väntar' ? 0.5 : 0.85 }} />;
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
+            )}
+
+            {/* [Kalender] [Team] toggle */}
+            <div style={{ display: 'flex', background: C.surface, borderRadius: 10, border: `1px solid ${C.border}`, padding: 3, marginBottom: 20 }}>
+              {(['kalender', 'team'] as const).map(v => {
+                const active = v === 'kalender' ? !visaTeam : visaTeam;
+                return (
+                  <button key={v} onClick={() => setVisaTeam(v === 'team')} style={{
+                    flex: 1, padding: '8px 0', borderRadius: 8, border: 'none',
+                    background: active ? 'rgba(255,255,255,0.1)' : 'transparent',
+                    color: active ? C.t1 : C.t3, fontSize: 13, fontWeight: active ? 600 : 400, fontFamily: ff, cursor: 'pointer',
+                  }}>
+                    {v === 'kalender' ? 'Kalender' : 'Team'}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Personväljare */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ ...labelStyle, marginBottom: 10 }}>VÄLJ PERSONAL</div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {ANSTÄLLDA.map(n => {
+                  const active = valdAnvändare === n;
+                  return (
+                    <button key={n} onClick={() => setValdAnvändare(n)} style={{
+                      padding: '8px 16px', borderRadius: 20,
+                      background: active ? C.blue : C.surface, border: `1px solid ${active ? C.blue : C.border}`,
+                      color: active ? '#fff' : C.t2, fontSize: 13, fontWeight: 500, fontFamily: ff, cursor: 'pointer',
+                    }}>{n}</button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* ANSÖKNINGAR */}
             <div style={{ ...labelStyle, marginBottom: 12 }}>ANSÖKNINGAR ({väntandeAntal})</div>
             {väntande.length === 0 ? (
