@@ -502,8 +502,9 @@ function AnsökningsKort({
 
 export default function LedighetPage() {
   const [vy, setVy] = useState<'anställd' | 'chef' | 'historik'>('anställd');
-  const [historikPerson, setHistorikPerson] = useState('Alla');
-  const [historikStatus, setHistorikStatus] = useState('Alla');
+  const [historikÅr, setHistorikÅr] = useState(new Date().getFullYear());
+  const [historikTyp, setHistorikTyp] = useState('Alla');
+  const [expanderad, setExpanderad] = useState<Record<string, boolean>>({});
   const [valdAnvändare, setValdAnvändare] = useState(ANSTÄLLDA[0]);
   const [ansökningar, setAnsökningar] = useState<Ansökan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1428,118 +1429,173 @@ export default function LedighetPage() {
         )}
 
         {/* === HISTORIK-VY === */}
-        {vy === 'historik' && (
+        {vy === 'historik' && (() => {
+          const årStr = String(historikÅr);
+          const årsAnsökningar = ansökningar.filter(a =>
+            a.startdatum.startsWith(årStr) || a.slutdatum.startsWith(årStr)
+          );
+          const personAnsökningar = årsAnsökningar.filter(a =>
+            !stoppTyper.includes(a.typ) &&
+            (historikTyp === 'Alla' || a.typ === historikTyp.toLowerCase())
+          );
+          const stoppAnsökningar = årsAnsökningar.filter(a => stoppTyper.includes(a.typ) && a.status === 'godkänd');
+
+          // Summering
+          const personerMedLedighet = new Set(personAnsökningar.filter(a => a.status !== 'nekad').map(a => a.anvandare_id));
+          const totalSemester = personAnsökningar
+            .filter(a => a.typ === 'semester' && a.status !== 'nekad')
+            .reduce((s, a) => s + dagMellan(a.startdatum, a.slutdatum), 0);
+          const totalATK = personAnsökningar
+            .filter(a => a.typ === 'atk' && a.status !== 'nekad')
+            .reduce((s, a) => s + dagMellan(a.startdatum, a.slutdatum), 0);
+
+          return (
           <>
-            {/* Personfilter */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ ...labelStyle, marginBottom: 10 }}>PERSON</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {['Alla', ...ANSTÄLLDA].map(n => {
-                  const active = historikPerson === n;
-                  return (
-                    <button key={n} onClick={() => setHistorikPerson(n)} style={{
-                      padding: '7px 14px', borderRadius: 18,
-                      background: active ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
-                      border: active ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
-                      color: active ? '#fff' : C.t3,
-                      fontSize: 13, fontWeight: active ? 600 : 400, fontFamily: ff,
-                      cursor: 'pointer', transition: 'all 0.15s',
-                    }}>
-                      {n}
-                    </button>
-                  );
-                })}
+            {/* Filter */}
+            <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+              {/* År */}
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[2024, 2025, 2026].map(y => (
+                  <button key={y} onClick={() => setHistorikÅr(y)} style={{
+                    padding: '7px 14px', borderRadius: 18,
+                    background: historikÅr === y ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
+                    border: historikÅr === y ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
+                    color: historikÅr === y ? '#fff' : C.t3,
+                    fontSize: 13, fontWeight: historikÅr === y ? 600 : 400, fontFamily: ff,
+                    cursor: 'pointer',
+                  }}>
+                    {y}
+                  </button>
+                ))}
+              </div>
+              {/* Typ */}
+              <div style={{ display: 'flex', gap: 4 }}>
+                {['Alla', 'Semester', 'ATK'].map(t => (
+                  <button key={t} onClick={() => setHistorikTyp(t)} style={{
+                    padding: '7px 14px', borderRadius: 18,
+                    background: historikTyp === t ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
+                    border: historikTyp === t ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
+                    color: historikTyp === t ? '#fff' : C.t3,
+                    fontSize: 13, fontWeight: historikTyp === t ? 600 : 400, fontFamily: ff,
+                    cursor: 'pointer',
+                  }}>
+                    {t}
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Statusfilter */}
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ ...labelStyle, marginBottom: 10 }}>STATUS</div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {['Alla', 'Godkänd', 'Nekad', 'Väntar'].map(s => {
-                  const active = historikStatus === s;
-                  const statusColors: Record<string, string> = { 'Godkänd': C.green, 'Nekad': C.nekad, 'Väntar': C.yellow };
-                  return (
-                    <button key={s} onClick={() => setHistorikStatus(s)} style={{
-                      padding: '7px 14px', borderRadius: 18,
-                      background: active ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
-                      border: active ? `1px solid ${statusColors[s] || 'rgba(255,255,255,0.12)'}` : '1px solid transparent',
-                      color: active ? (statusColors[s] || '#fff') : C.t3,
-                      fontSize: 13, fontWeight: active ? 600 : 400, fontFamily: ff,
-                      cursor: 'pointer', transition: 'all 0.15s',
-                    }}>
-                      {s}
-                    </button>
-                  );
-                })}
-              </div>
+            {/* Sammanfattning */}
+            <div style={{
+              background: C.surface, borderRadius: 12, padding: '14px 18px',
+              border: `1px solid ${C.border}`, marginBottom: 20,
+            }}>
+              <span style={{ fontSize: 14, color: C.t2, fontFamily: ff }}>
+                <strong style={{ color: C.t1 }}>{historikÅr}</strong> — {personerMedLedighet.size} person{personerMedLedighet.size !== 1 ? 'er' : ''} har tagit{' '}
+                <strong style={{ color: C.green }}>{totalSemester} d semester</strong>,{' '}
+                <strong style={{ color: C.blue }}>{totalATK} d ATK</strong>
+              </span>
             </div>
 
-            {/* Historiklista */}
-            {(() => {
-              const filtered = ansökningar
-                .filter(a => historikPerson === 'Alla' || a.anvandare_id === historikPerson)
-                .filter(a => {
-                  if (historikStatus === 'Alla') return true;
-                  const map: Record<string, string> = { 'Godkänd': 'godkänd', 'Nekad': 'nekad', 'Väntar': 'väntar' };
-                  return a.status === map[historikStatus];
-                })
+            {/* Personkort */}
+            {ANSTÄLLDA.map(person => {
+              const pAnsökningar = personAnsökningar
+                .filter(a => a.anvandare_id === person)
                 .sort((a, b) => b.startdatum.localeCompare(a.startdatum));
-
-              if (loading) return (
-                <div style={{ color: C.t3, padding: 40, textAlign: 'center', fontSize: 13 }}>Laddar...</div>
-              );
-
-              if (filtered.length === 0) return (
-                <div style={{
-                  color: C.t3, padding: 30, textAlign: 'center', fontSize: 13,
-                  background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
-                }}>
-                  Inga ansökningar matchar filtren
-                </div>
-              );
+              if (pAnsökningar.length === 0) return null;
+              const totalDagar = pAnsökningar
+                .filter(a => a.status !== 'nekad')
+                .reduce((s, a) => s + dagMellan(a.startdatum, a.slutdatum), 0);
+              const isOpen = expanderad[person] !== false; // default open
 
               return (
-                <div style={{ background: C.surface, borderRadius: 16, overflow: 'hidden' }}>
-                  {filtered.map((a, i) => {
-                    const ti = TYPINFO[a.typ] || TYPINFO.semester;
-                    const si = STATUSINFO[a.status] || STATUSINFO['väntar'];
-                    const dagar = dagMellan(a.startdatum, a.slutdatum);
-                    return (
-                      <div key={a.id}>
-                        {i > 0 && (
-                          <div style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.06)', margin: '0 20px' }} />
-                        )}
-                        <div style={{ padding: '14px 20px' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ width: 7, height: 7, borderRadius: '50%', background: ti.color, display: 'inline-block', flexShrink: 0 }} />
-                              <span style={{ fontSize: 15, fontWeight: 600, color: C.t1, fontFamily: ff }}>
-                                {a.anvandare_id}
-                              </span>
-                              <span style={{ fontSize: 13, color: C.t3, fontFamily: ff }}>
-                                {ti.label}
+                <div key={person} style={{ marginBottom: 10 }}>
+                  {/* Header — klickbar */}
+                  <button
+                    onClick={() => setExpanderad(prev => ({ ...prev, [person]: !isOpen }))}
+                    style={{
+                      width: '100%', background: C.surface, border: `1px solid ${C.border}`,
+                      borderRadius: isOpen ? '12px 12px 0 0' : 12,
+                      padding: '14px 18px', cursor: 'pointer',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      fontFamily: ff,
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <span style={{ fontSize: 15, fontWeight: 600, color: C.t1 }}>{person}</span>
+                      <span style={{ fontSize: 13, color: C.t3 }}>{totalDagar} dag{totalDagar !== 1 ? 'ar' : ''}</span>
+                    </div>
+                    <span style={{ fontSize: 14, color: C.t3, transition: 'transform 0.2s', transform: isOpen ? 'rotate(90deg)' : 'rotate(0)' }}>›</span>
+                  </button>
+
+                  {/* Expanderat innehåll */}
+                  {isOpen && (
+                    <div style={{
+                      background: C.surface, border: `1px solid ${C.border}`, borderTop: 'none',
+                      borderRadius: '0 0 12px 12px', overflow: 'hidden',
+                    }}>
+                      {pAnsökningar.map((a, i) => {
+                        const ti = TYPINFO[a.typ] || TYPINFO.semester;
+                        const si = STATUSINFO[a.status] || STATUSINFO['väntar'];
+                        const d = dagMellan(a.startdatum, a.slutdatum);
+                        return (
+                          <div key={a.id}>
+                            {i > 0 && <div style={{ height: 0.5, background: C.border, margin: '0 18px' }} />}
+                            <div style={{ padding: '12px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: 3, background: ti.color, display: 'inline-block' }} />
+                                  <span style={{ fontSize: 13, fontWeight: 500, color: C.t1, fontFamily: ff }}>{ti.label}</span>
+                                </div>
+                                <span style={{ fontSize: 12, color: C.t3, fontFamily: ff }}>
+                                  {fmtDate(a.startdatum)} – {fmtDate(a.slutdatum)} · {d} dag{d !== 1 ? 'ar' : ''}
+                                </span>
+                              </div>
+                              <span style={{
+                                fontSize: 10, fontWeight: 600, padding: '3px 8px',
+                                borderRadius: 20, color: si.color, background: si.bg,
+                              }}>
+                                {si.label}
                               </span>
                             </div>
-                            <span style={{
-                              fontSize: 11, fontWeight: 600, padding: '3px 10px',
-                              borderRadius: 20, color: si.color, background: si.bg,
-                            }}>
-                              {si.label}
-                            </span>
                           </div>
-                          <div style={{ fontSize: 13, color: C.t2, fontFamily: ff }}>
-                            {fmtDate(a.startdatum)} – {fmtDate(a.slutdatum)} · {dagar} dag{dagar !== 1 ? 'ar' : ''}
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Maskinstopp */}
+            {stoppAnsökningar.length > 0 && (
+              <div style={{ marginTop: 20 }}>
+                <div style={{ ...labelStyle, marginBottom: 12 }}>MASKINSTOPP {historikÅr}</div>
+                <div style={{ background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`, overflow: 'hidden' }}>
+                  {stoppAnsökningar.sort((a, b) => a.startdatum.localeCompare(b.startdatum)).map((a, i) => {
+                    const ti = TYPINFO[a.typ] || TYPINFO.skordarstopp;
+                    const d = dagMellan(a.startdatum, a.slutdatum);
+                    return (
+                      <div key={a.id}>
+                        {i > 0 && <div style={{ height: 0.5, background: C.border, margin: '0 18px' }} />}
+                        <div style={{ padding: '12px 18px', display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 18, height: 5, borderRadius: 2, background: ti.color, flexShrink: 0 }} />
+                          <div style={{ flex: 1 }}>
+                            <span style={{ fontSize: 13, fontWeight: 500, color: C.t1, fontFamily: ff }}>{ti.label}</span>
+                            <span style={{ fontSize: 12, color: C.t3, fontFamily: ff, marginLeft: 8 }}>
+                              {fmtDate(a.startdatum)} – {fmtDate(a.slutdatum)} · {d} dag{d !== 1 ? 'ar' : ''}
+                            </span>
                           </div>
                         </div>
                       </div>
                     );
                   })}
                 </div>
-              );
-            })()}
+              </div>
+            )}
           </>
-        )}
+          );
+        })()}
       </div>
     </div>
   );
