@@ -915,13 +915,22 @@ export default function LedighetPage() {
                     </div>
                   )}
 
-                  <div style={{ marginBottom: 14 }}>
-                    <div style={labelStyle}>TYP AV LEDIGHET</div>
-                    <select value={formTyp} onChange={e => setFormTyp(e.target.value)} style={{ ...inputStyle, appearance: 'auto' }}>
-                      <option value="">Välj typ...</option>
-                      <option value="semester">Semester</option>
-                      <option value="atk">ATK</option>
-                    </select>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                    {([['semester', 'Semester'], ['atk', 'ATK']] as const).map(([val, label]) => {
+                      const active = formTyp === val;
+                      return (
+                        <button key={val} onClick={() => setFormTyp(val)} style={{
+                          flex: 1, height: 48, borderRadius: 12,
+                          background: active ? '#fff' : 'rgba(255,255,255,0.06)',
+                          border: active ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                          color: active ? '#111' : '#fff',
+                          fontSize: 15, fontWeight: 600, fontFamily: ff, cursor: 'pointer',
+                          transition: 'all 0.15s',
+                        }}>
+                          {label}
+                        </button>
+                      );
+                    })}
                   </div>
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
