@@ -117,6 +117,10 @@ export default function UtbildningPage() {
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [pdfDragging, setPdfDragging] = useState(false);
   const pdfInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRefHantera = useRef<HTMLInputElement>(null);
+
+  // Avancerat-toggle (CSV)
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Översikt filter
   const [filter, setFilter] = useState<'alla' | 'utgångna' | 'snart'>('alla');
@@ -284,6 +288,44 @@ export default function UtbildningPage() {
     setPdfResult(null);
   };
 
+  const handlePdfForForm = async (file: File) => {
+    setPdfError(null);
+    setPdfParsing(true);
+    try {
+      const buffer = await file.arrayBuffer();
+      const base64 = btoa(
+        new Uint8Array(buffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      );
+      const res = await fetch('/api/parse-pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64, mediaType: 'application/pdf' }),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Kunde inte läsa PDF');
+      }
+      const data = await res.json();
+      // Auto-fill form fields
+      const matchedPerson = ANSTÄLLDA.find(n => n.toLowerCase() === data.namn?.toLowerCase());
+      if (matchedPerson) setFormPerson(matchedPerson);
+      if (data.kurs) {
+        const matchedUtb = PREDEFINED_UTBILDNINGAR.find(u => u.namn.toLowerCase().includes(data.kurs.toLowerCase()));
+        if (matchedUtb) {
+          setFormUtbildning(matchedUtb.namn);
+        } else {
+          setFormUtbildning('Annan');
+          setFormAnnanNamn(data.kurs);
+        }
+      }
+      if (data.datum) setFormDatum(data.datum);
+    } catch (err: any) {
+      setPdfError(err.message || 'Fel vid avläsning');
+    }
+    setPdfParsing(false);
+    if (pdfInputRefHantera.current) pdfInputRefHantera.current.value = '';
+  };
+
   const handleApprove = async (id: string) => {
     await supabase.from('utbildningar').update({ status: 'approved', godkand_av: 'Chef' }).eq('id', id);
     await fetchUtbildningar();
@@ -298,8 +340,8 @@ export default function UtbildningPage() {
   const minaUtbildningar = utbildningar.filter(u => u.user_id === valdAnvändare && u.status !== 'rejected');
   const pendingUtbildningar = utbildningar.filter(u => u.status === 'pending');
 
-  const allUtbildningsNamn = [...new Set(approvedUtbildningar.map(u => u.namn))];
   const approvedUtbildningar = utbildningar.filter(u => u.status === 'approved');
+  const allUtbildningsNamn = [...new Set(approvedUtbildningar.map(u => u.namn))];
   const utgångna = approvedUtbildningar.filter(u => u.giltig_till && daysUntil(u.giltig_till)! < 0);
   const snartUtgående = approvedUtbildningar.filter(u => {
     if (!u.giltig_till) return false;
@@ -759,7 +801,55 @@ export default function UtbildningPage() {
               </div>
             )}
 
-            {/* Section: Add */}
+            {/* Section: PDF upload — primary */}
+            <div style={{
+              background: C.surface,
+              border: `1px solid ${C.border}`,
+              borderRadius: 12,
+              padding: '20px 18px',
+              marginBottom: 16,
+            }}>
+              <h3 style={{ fontSize: 13, fontWeight: 700, color: C.t3, letterSpacing: 1, marginTop: 0, marginBottom: 16 }}>
+                LADDA UPP UTBILDNINGSBEVIS (PDF)
+              </h3>
+
+              {pdfParsing ? (
+                <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                  <div style={{ fontSize: 32, marginBottom: 12, animation: 'spin 1s linear infinite' }}>🔄</div>
+                  <div style={{ fontSize: 14, color: C.t2 }}>Läser av bevis...</div>
+                  <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+                </div>
+              ) : (
+                <div
+                  onClick={() => pdfInputRefHantera.current?.click()}
+                  style={{
+                    border: `2px dashed ${C.borderStrong}`,
+                    borderRadius: 14, padding: '28px 20px', textAlign: 'center',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
+                  <div style={{ fontSize: 14, color: C.t2, fontWeight: 500 }}>Klicka för att välja PDF</div>
+                  <div style={{ fontSize: 12, color: C.t3, marginTop: 4 }}>Formuläret nedan fylls i automatiskt</div>
+                  <input
+                    ref={pdfInputRefHantera}
+                    type="file"
+                    accept=".pdf"
+                    style={{ display: 'none' }}
+                    onChange={e => { const f = e.target.files?.[0]; if (f) handlePdfForForm(f); }}
+                  />
+                </div>
+              )}
+
+              {pdfError && (
+                <div style={{ background: C.redDim, border: '1px solid rgba(239,68,68,0.25)', borderRadius: 10, padding: '12px 16px', marginTop: 12 }}>
+                  <span style={{ fontSize: 13, color: C.red }}>{pdfError}</span>
+                  <button onClick={() => setPdfError(null)} style={{ display: 'block', marginTop: 6, background: 'none', border: 'none', color: C.t2, fontSize: 13, cursor: 'pointer', fontFamily: ff }}>Försök igen</button>
+                </div>
+              )}
+            </div>
+
+            {/* Section: Add (manual / prefilled from PDF) */}
             <div style={{
               background: C.surface,
               border: `1px solid ${C.border}`,
@@ -862,7 +952,21 @@ export default function UtbildningPage() {
               </button>
             </div>
 
-            {/* Section: CSV Import */}
+            {/* Avancerat toggle */}
+            <button
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 8,
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: C.t3, fontSize: 14, fontWeight: 500, fontFamily: ff,
+                padding: '8px 0', marginBottom: showAdvanced ? 12 : 0,
+              }}
+            >
+              <span style={{ transform: showAdvanced ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s', display: 'inline-block' }}>›</span>
+              Avancerat
+            </button>
+
+            {showAdvanced && (
             <div style={{
               background: C.surface,
               border: `1px solid ${C.border}`,
@@ -939,6 +1043,7 @@ export default function UtbildningPage() {
                 </>
               )}
             </div>
+            )}
           </>
         )}
       </div>
