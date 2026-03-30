@@ -153,7 +153,7 @@ export default function MaskinDetailPage() {
             marginBottom: 8, display: 'block',
           }}
         >
-          ‹ Service
+          ‹ Servicelogg
         </button>
         <h1 style={{ fontSize: 34, fontWeight: 700, color: '#fff', letterSpacing: -0.5, fontFamily: f, margin: 0 }}>
           {maskin.namn}

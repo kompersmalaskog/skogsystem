@@ -14,54 +14,28 @@ interface Maskin {
   aktiv: boolean;
 }
 
-interface ServicePaminnelse {
-  id: string;
-  maskin_id: string;
-  typ: string;
-  intervall_timmar: number;
-  senast_utford_timmar: number;
-}
-
 const fonts = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
+
+const formatTyp = (typ: string) => {
+  const map: Record<string, string> = {
+    skordare: 'Skördare',
+    skotare: 'Skotare',
+  };
+  return map[typ.toLowerCase()] ?? typ.charAt(0).toUpperCase() + typ.slice(1);
+};
 
 export default function MaskinServicePage() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
-  const [maskinTimmar, setMaskinTimmar] = useState<Record<string, number>>({});
-  const [paminnelser, setPaminnelser] = useState<ServicePaminnelse[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
-    const [{ data: m }, { data: skift }, { data: pam }] = await Promise.all([
-      supabase.from('maskiner').select('*').eq('aktiv', true).order('namn'),
-      supabase.from('fakt_skift').select('maskin_id, langd_sek'),
-      supabase.from('service_paminnelser').select('*').eq('aktiv', true),
-    ]);
-
+    const { data: m } = await supabase.from('maskiner').select('*').eq('aktiv', true).order('namn');
     setMaskiner(m || []);
-    setPaminnelser(pam || []);
-
-    if (skift) {
-      const map: Record<string, number> = {};
-      for (const r of skift) map[r.maskin_id] = (map[r.maskin_id] || 0) + (r.langd_sek || 0);
-      for (const k in map) map[k] = Math.round(map[k] / 3600);
-      setMaskinTimmar(map);
-    }
-
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-
-  const getServiceStatus = (m: Maskin) => {
-    const timmar = maskinTimmar[m.maskin_id] || 0;
-    const pam = paminnelser.find(p => p.maskin_id === m.id);
-    if (!pam) return `${timmar.toLocaleString('sv-SE')} drifttimmar`;
-    const nastaService = pam.senast_utford_timmar + pam.intervall_timmar;
-    const kvar = nastaService - timmar;
-    if (kvar <= 0) return `Service försenad ${Math.abs(kvar)} h`;
-    return `Service om ${kvar} h`;
-  };
 
   const filtered = maskiner.filter(m =>
     !search || m.namn.toLowerCase().includes(search.toLowerCase()) ||
@@ -79,7 +53,7 @@ export default function MaskinServicePage() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '28px 0 20px' }}>
         <h1 style={{ fontSize: 34, fontWeight: 700, color: '#fff', letterSpacing: -0.4, fontFamily: fonts, margin: 0 }}>
-          Service
+          Servicelogg
         </h1>
       </div>
 
@@ -120,7 +94,7 @@ export default function MaskinServicePage() {
         ).map(([typ, machines]) => (
           <div key={typ} style={{ marginBottom: 24 }}>
             <h2 style={{ fontSize: 20, fontWeight: 600, color: '#fff', letterSpacing: -0.3, fontFamily: fonts, margin: '0 0 10px' }}>
-              {typ}
+              {formatTyp(typ)}
             </h2>
             <div style={{ backgroundColor: '#1C1C1E', borderRadius: 16, overflow: 'hidden' }}>
               {machines.map((m, i) => (
@@ -134,14 +108,9 @@ export default function MaskinServicePage() {
                       padding: '16px 20px',
                       cursor: 'pointer',
                     }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span style={{ fontSize: 17, fontWeight: 600, color: '#fff', letterSpacing: -0.2, fontFamily: fonts }}>
-                          {m.namn}
-                        </span>
-                        <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', fontFamily: fonts }}>
-                          {getServiceStatus(m)}
-                        </span>
-                      </div>
+                      <span style={{ fontSize: 17, fontWeight: 600, color: '#fff', letterSpacing: -0.2, fontFamily: fonts }}>
+                        {m.namn}
+                      </span>
                       <span style={{ fontSize: 17, color: 'rgba(255,255,255,0.25)', fontFamily: fonts }}>›</span>
                     </div>
                   </Link>
