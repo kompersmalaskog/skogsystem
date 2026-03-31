@@ -832,7 +832,7 @@ export default function Maskinvy() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [vald, setVald] = useState('');
   const [activeView, setActiveView] = useState('oversikt');
-  const [dataLoaded, setDataLoaded] = useState(false);
+  const [dataVersion, setDataVersion] = useState(0); // increments on each data load
   const [period, setPeriod] = useState<'V' | 'M' | 'K' | 'Å'>('M');
   const [loading, setLoading] = useState(false);
 
@@ -887,8 +887,8 @@ export default function Maskinvy() {
         supabase.from('fakt_tid')
           .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
           .gte('datum', startDate).lte('datum', endDate),
-        // 2: dim_operator
-        supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
+        // 2: dim_operator (select * to discover all fields)
+        supabase.from('dim_operator').select('*'),
         // 3: dim_objekt
         supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer'),
       ];
@@ -913,6 +913,7 @@ export default function Maskinvy() {
       const objekter = objRes.data || [];
 
       console.log('[Maskinvy] Query results:', {
+        maskinId,
         prodRows: prodRows.length,
         tidRows: tidRows.length,
         operators: operators.length,
@@ -922,12 +923,13 @@ export default function Maskinvy() {
         opError: opRes.error,
         sample_prod: prodRows[0],
         sample_tid: tidRows[0],
-        sample_op: operators[0],
+        all_operators: operators, // show ALL fields to discover schema
+        unique_operator_ids_in_prod: [...new Set(prodRows.map((r: any) => r.operator_id))],
       });
 
       if (prodRows.length === 0 && tidRows.length === 0) {
         (window as any).__maskinvyData = {};
-        setDataLoaded(true);
+        setDataVersion(v => v + 1);
         setLoading(false);
         return;
       }
@@ -1118,12 +1120,12 @@ export default function Maskinvy() {
       };
 
       (window as any).__maskinvyData = dbData;
-      setDataLoaded(true);
+      setDataVersion(v => v + 1);
       setLoading(false);
     } catch (err) {
       console.error('Maskinvy: failed to fetch DB data', err);
       (window as any).__maskinvyData = {};
-      setDataLoaded(true);
+      setDataVersion(v => v + 1);
       setLoading(false);
     }
   }, []);
@@ -1131,61 +1133,58 @@ export default function Maskinvy() {
   // Fetch data when machine or period changes
   useEffect(() => {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
-    console.log('[Maskinvy] Machine/period changed:', { vald, maskin_id: valdMaskinObj?.maskin_id, period });
-    // Destroy existing charts before refetch
-    if (typeof window !== 'undefined' && (window as any).Chart) {
-      document.querySelectorAll('canvas').forEach((c) => {
-        const chart = (window as any).Chart.getChart(c as HTMLCanvasElement);
-        if (chart) chart.destroy();
-      });
-    }
-    setDataLoaded(false);
+    console.log('[Maskinvy] Fetching:', { vald, maskin_id: valdMaskinObj?.maskin_id, period });
     fetchDbData(valdMaskinObj?.maskin_id, period);
   }, [vald, maskiner, period, fetchDbData]);
 
-  // ── Initialize charts after data is loaded ──
+  // ── Re-initialize charts every time data updates ──
   useEffect(() => {
-    if (!dataLoaded) return;
+    if (dataVersion === 0) return;
 
     let scriptEl: HTMLScriptElement | null = null;
     let timer: ReturnType<typeof setTimeout>;
 
-    function initCharts() {
-      // Delay to ensure DOM is rendered (prevents React #418/#423)
-      timer = setTimeout(() => {
-        if (!document.getElementById('dailyChart')) {
-          console.warn('[Maskinvy] DOM not ready, skipping chart init');
-          return;
-        }
-        scriptEl = document.createElement('script');
-        scriptEl.textContent = MASKINVY_SCRIPT;
-        document.body.appendChild(scriptEl);
-      }, 100);
-    }
-
-    // @ts-ignore
-    if (typeof window !== 'undefined' && !(window as any).Chart) {
-      const chartJs = document.createElement('script');
-      chartJs.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
-      chartJs.onload = initCharts;
-      document.head.appendChild(chartJs);
-    } else {
-      initCharts();
-    }
-
-    return () => {
-      if (timer) clearTimeout(timer);
-      if (scriptEl) scriptEl.remove();
-      // @ts-ignore
+    function destroyCharts() {
       if (typeof window !== 'undefined' && (window as any).Chart) {
         document.querySelectorAll('canvas').forEach((c) => {
-          // @ts-ignore
           const chart = (window as any).Chart.getChart(c as HTMLCanvasElement);
           if (chart) chart.destroy();
         });
       }
+      // Remove old script elements
+      document.querySelectorAll('script[data-maskinvy]').forEach(el => el.remove());
+    }
+
+    function runScript() {
+      timer = setTimeout(() => {
+        if (!document.getElementById('dailyChart')) {
+          console.warn('[Maskinvy] DOM not ready, retrying in 200ms');
+          timer = setTimeout(runScript, 200);
+          return;
+        }
+        destroyCharts();
+        scriptEl = document.createElement('script');
+        scriptEl.setAttribute('data-maskinvy', 'true');
+        scriptEl.textContent = MASKINVY_SCRIPT;
+        document.body.appendChild(scriptEl);
+        console.log('[Maskinvy] Charts initialized (v' + dataVersion + ')');
+      }, 150);
+    }
+
+    if (typeof window !== 'undefined' && !(window as any).Chart) {
+      const chartJs = document.createElement('script');
+      chartJs.src = 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js';
+      chartJs.onload = runScript;
+      document.head.appendChild(chartJs);
+    } else {
+      runScript();
+    }
+
+    return () => {
+      if (timer) clearTimeout(timer);
+      destroyCharts();
     };
-  }, [dataLoaded]);
+  }, [dataVersion]);
 
   useEffect(() => {
     const page = document.getElementById('page');
