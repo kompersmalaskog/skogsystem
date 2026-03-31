@@ -839,7 +839,11 @@ export default function Maskinvy() {
   // ── Fetch machines ──
   useEffect(() => {
     supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ').then(({ data }) => {
-      if (data) { setMaskiner(data); setVald(data[0]?.modell ?? ''); }
+      console.log('[Maskinvy] dim_maskin:', data);
+      if (data && data.length > 0) {
+        setMaskiner(data);
+        setVald(data[0].modell);
+      }
     });
   }, []);
 
@@ -870,8 +874,10 @@ export default function Maskinvy() {
   }
 
   // ── Fetch production data from Supabase ──
-  const fetchDbData = useCallback(async (maskinId?: number, p: 'V' | 'M' | 'K' | 'Å' = 'M') => {
+  const fetchDbData = useCallback(async (maskinId: string, p: 'V' | 'M' | 'K' | 'Å' = 'M') => {
+    if (!maskinId) { console.log('[Maskinvy] No maskinId, skipping fetch'); return; }
     setLoading(true);
+    console.log('[Maskinvy] fetchDbData called:', { maskinId, period: p });
     try {
       const { startDate, endDate } = getPeriodDates(p);
       const sDate = new Date(startDate);
@@ -879,31 +885,21 @@ export default function Maskinvy() {
       const totalDays = Math.round((eDate.getTime() - sDate.getTime()) / 86400000) + 1;
 
       const queries: Promise<any>[] = [
-        // 0: fakt_produktion for daily + KPIs
+        // 0: fakt_produktion — ALWAYS filtered on maskin_id
         supabase.from('fakt_produktion')
           .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
+          .eq('maskin_id', maskinId)
           .gte('datum', startDate).lte('datum', endDate),
-        // 1: fakt_tid for time distribution
+        // 1: fakt_tid — ALWAYS filtered on maskin_id
         supabase.from('fakt_tid')
           .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
+          .eq('maskin_id', maskinId)
           .gte('datum', startDate).lte('datum', endDate),
-        // 2: dim_operator (select * to discover all fields)
+        // 2: dim_operator (all — we filter by operator_ids found in production)
         supabase.from('dim_operator').select('*'),
         // 3: dim_objekt
         supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer'),
       ];
-
-      // Filter by maskin_id if available
-      if (maskinId) {
-        queries[0] = supabase.from('fakt_produktion')
-          .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
-          .eq('maskin_id', maskinId)
-          .gte('datum', startDate).lte('datum', endDate);
-        queries[1] = supabase.from('fakt_tid')
-          .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
-          .eq('maskin_id', maskinId)
-          .gte('datum', startDate).lte('datum', endDate);
-      }
 
       const [prodRes, tidRes, opRes, objRes] = await Promise.all(queries);
 
@@ -912,19 +908,18 @@ export default function Maskinvy() {
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
 
+      const uniqueOpIds = [...new Set(prodRows.map((r: any) => r.operator_id).filter(Boolean))];
       console.log('[Maskinvy] Query results:', {
         maskinId,
+        startDate, endDate,
         prodRows: prodRows.length,
         tidRows: tidRows.length,
         operators: operators.length,
-        objekter: objekter.length,
         prodError: prodRes.error,
         tidError: tidRes.error,
-        opError: opRes.error,
         sample_prod: prodRows[0],
-        sample_tid: tidRows[0],
-        all_operators: operators, // show ALL fields to discover schema
-        unique_operator_ids_in_prod: [...new Set(prodRows.map((r: any) => r.operator_id))],
+        operator_fields: operators[0] ? Object.keys(operators[0]) : [],
+        uniqueOpIds,
       });
 
       if (prodRows.length === 0 && tidRows.length === 0) {
@@ -1091,11 +1086,14 @@ export default function Maskinvy() {
         }
       }
 
-      console.log('[Maskinvy] Fetched data:', {
-        maskinId, period: p, startDate, endDate,
-        prodRows: prodRows.length, tidRows: tidRows.length,
-        operators: operatorer.length, objekt: objekt.length,
-        totalVolym: Math.round(totalVolym), totalStammar: Math.round(totalStammar),
+      console.log('[Maskinvy] Computed data:', {
+        maskinId, period: p,
+        totalVolym: Math.round(totalVolym),
+        totalStammar: Math.round(totalStammar),
+        g15Timmar: Math.round(g15Timmar),
+        produktivitet: produktivitet.toFixed(1),
+        operatorer: operatorer.map(o => ({ namn: o.namn, volym: Math.round(o.volym), prod: o.prod.toFixed(1) })),
+        dagDataKeys: Object.keys(dagData),
       });
 
       const dbData: DbData = {
@@ -1133,8 +1131,9 @@ export default function Maskinvy() {
   // Fetch data when machine or period changes
   useEffect(() => {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
-    console.log('[Maskinvy] Fetching:', { vald, maskin_id: valdMaskinObj?.maskin_id, period });
-    fetchDbData(valdMaskinObj?.maskin_id, period);
+    const mid = valdMaskinObj?.maskin_id || '';
+    console.log('[Maskinvy] Machine/period trigger:', { vald, maskin_id: mid, period, maskinCount: maskiner.length });
+    if (mid) fetchDbData(mid, period);
   }, [vald, maskiner, period, fetchDbData]);
 
   // ── Re-initialize charts every time data updates ──
