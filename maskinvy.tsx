@@ -732,28 +732,48 @@ function closeObjJmf() { closeAllPanels(); }
 // ── UPDATE DOM WITH DB DATA ──
 if (_db.operatorer && _db.operatorer.length > 0) {
   // Update operator rows in the card
-  var opRows = document.querySelectorAll('.op-row.op-clickable');
-  var opKeys = Object.keys(forare);
-  opRows.forEach(function(row, i) {
-    if (i >= opKeys.length) return;
-    var f = forare[opKeys[i]];
-    if (!f) return;
-    var avEl = row.querySelector('.op-av');
-    if (avEl) avEl.textContent = f.av;
-    var nameEl = row.querySelector('.op-name');
-    if (nameEl) nameEl.textContent = f.name;
-    var subEl = row.querySelector('.op-sub');
-    if (subEl) subEl.textContent = Math.round(f.timmar) + ' timmar';
-    var svEls = row.querySelectorAll('.op-sv');
-    if (svEls[0]) svEls[0].textContent = Math.round(f.volym) + ' m³';
-    if (svEls[1]) svEls[1].textContent = parseFloat(f.prod).toFixed(1);
-    // Update onclick to use the new key
-    row.setAttribute('onclick', "openForare('" + opKeys[i] + "')");
-  });
+  // Rebuild operator container from DB data
+  var opContainer = document.getElementById('opContainer');
+  if (opContainer) {
+    opContainer.innerHTML = '';
+    var opKeys = Object.keys(forare);
+    opKeys.forEach(function(key) {
+      var f = forare[key];
+      var row = document.createElement('div');
+      row.className = 'op-row op-clickable';
+      row.setAttribute('onclick', "openForare('" + key + "')");
+      row.title = 'Visa förarvy';
+      row.innerHTML = '<div class="op-av" style="background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6)">' + f.av + '</div>'
+        + '<div class="op-info"><div class="op-name">' + f.name + '</div><div class="op-sub">' + Math.round(f.timmar) + ' timmar</div></div>'
+        + '<div class="op-stats"><div><div class="op-sv" style="color:var(--text)">' + Math.round(f.volym) + ' m³</div><div class="op-sl">volym</div></div>'
+        + '<div><div class="op-sv">' + parseFloat(f.prod).toFixed(1) + '</div><div class="op-sl">m³/G15h</div></div></div>';
+      opContainer.appendChild(row);
+    });
+  }
 
   // Update badge count
-  var opBadge = document.querySelector('#sec-operatorer .badge');
-  if (opBadge) opBadge.textContent = _db.operatorer.length + ' aktiva';
+  var opBadge = document.getElementById('opBadge');
+  if (opBadge) opBadge.textContent = Object.keys(forare).length + ' aktiva';
+
+  // Populate avbrott per förare
+  var avbrottContainer = document.getElementById('avbrottForareContainer');
+  if (avbrottContainer) {
+    avbrottContainer.innerHTML = '';
+    var opKeys2 = Object.keys(forare);
+    opKeys2.forEach(function(key, i) {
+      var f = forare[key];
+      var row = document.createElement('div');
+      row.className = 'frow';
+      row.style.cursor = 'pointer';
+      if (i === opKeys2.length - 1) row.style.borderBottom = 'none';
+      row.setAttribute('onclick', "toggleForareAvbrott(this,'" + f.name + "')");
+      row.innerHTML = '<div style="display:flex;align-items:center;gap:8px;flex:1;">'
+        + '<div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">' + f.av + '</div>'
+        + '<span class="frow-l">' + f.name + '</span></div>'
+        + '<span class="frow-v">– <span style="font-size:10px;color:var(--muted);margin-left:4px;">›</span></span>';
+      avbrottContainer.appendChild(row);
+    });
+  }
 }
 
 // Update time distribution bar & legend if DB data is available
@@ -1742,32 +1762,9 @@ body {
   <!-- ROW 1: Operatörer + Tidsfördelning -->
   <div class="g2 view-section vs-oversikt vs-operatorer" id="sec-operatorer">
     <div class="card anim" style="animation-delay:0.3s">
-      <div class="card-h"><div class="card-t">Operatörer</div><span class="badge bg">3 aktiva</span></div>
-      <div class="card-b">
-        <div class="op-row op-clickable" onclick="openForare('stefan')" title="Visa förarvy">
-          <div class="op-av" style="background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6)">SK</div>
-          <div class="op-info"><div class="op-name">Stefan Karlsson</div><div class="op-sub">68 timmar</div></div>
-          <div class="op-stats">
-            <div><div class="op-sv" style="color:var(--text)">820 m³</div><div class="op-sl">volym</div></div>
-            <div><div class="op-sv">12.1</div><div class="op-sl">m³/G15h</div></div>
-          </div>
-        </div>
-        <div class="op-row op-clickable" onclick="openForare('marcus')" title="Visa förarvy">
-          <div class="op-av" style="background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6)">MN</div>
-          <div class="op-info"><div class="op-name">Marcus Nilsson</div><div class="op-sub">54 timmar</div></div>
-          <div class="op-stats">
-            <div><div class="op-sv" style="color:var(--text)">598 m³</div><div class="op-sl">volym</div></div>
-            <div><div class="op-sv">11.1</div><div class="op-sl">m³/G15h</div></div>
-          </div>
-        </div>
-        <div class="op-row op-clickable" onclick="openForare('par')" title="Visa förarvy">
-          <div class="op-av" style="background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6)">PL</div>
-          <div class="op-info"><div class="op-name">Pär Lindgren</div><div class="op-sub">41 timmar</div></div>
-          <div class="op-stats">
-            <div><div class="op-sv" style="color:var(--text)">429 m³</div><div class="op-sl">volym</div></div>
-            <div><div class="op-sv">10.5</div><div class="op-sl">m³/G15h</div></div>
-          </div>
-        </div>
+      <div class="card-h"><div class="card-t">Operatörer</div><span class="badge bg" id="opBadge">–</span></div>
+      <div class="card-b" id="opContainer">
+        <!-- Populated dynamically from DB -->
       </div>
     </div>
 
@@ -2168,30 +2165,10 @@ body {
       </div>
     </div>
 
-    <!-- Avbrott per förare -->
+    <!-- Avbrott per förare (dynamiskt) -->
     <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Avbrott per förare</div>
-    <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">
-      <div class="frow" style="cursor:pointer;" onclick="toggleForareAvbrott(this,'Stefan Karlsson')">
-        <div style="display:flex;align-items:center;gap:8px;flex:1;">
-          <div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">SK</div>
-          <span class="frow-l">Stefan Karlsson</span>
-        </div>
-        <span class="frow-v">7h 20min <span style="font-size:10px;color:var(--muted);margin-left:4px;">›</span></span>
-      </div>
-      <div class="frow" style="cursor:pointer;" onclick="toggleForareAvbrott(this,'Marcus Nilsson')">
-        <div style="display:flex;align-items:center;gap:8px;flex:1;">
-          <div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">MN</div>
-          <span class="frow-l">Marcus Nilsson</span>
-        </div>
-        <span class="frow-v">6h 10min <span style="font-size:10px;color:var(--muted);margin-left:4px;">›</span></span>
-      </div>
-      <div class="frow" style="border-bottom:none;cursor:pointer;" onclick="toggleForareAvbrott(this,'Pär Lindgren')">
-        <div style="display:flex;align-items:center;gap:8px;flex:1;">
-          <div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">PL</div>
-          <span class="frow-l">Pär Lindgren</span>
-        </div>
-        <span class="frow-v">4h 30min <span style="font-size:10px;color:var(--muted);margin-left:4px;">›</span></span>
-      </div>
+    <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;" id="avbrottForareContainer">
+      <!-- Populated dynamically -->
     </div>
 
   </div>
