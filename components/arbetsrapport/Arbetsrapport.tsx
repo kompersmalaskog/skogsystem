@@ -364,16 +364,29 @@ export default function Arbetsrapport() {
       if(avt.data) setGsAvtal(avt.data);
       if(obj.data) setObjektLista(obj.data.map(o => ({id:o.objekt_id, namn:o.object_name||o.objekt_id, ägare:o.skogsagare||''})));
     });
-    // Hämta väder från SMHI
-    fetch('/api/smhi-nederb?lat=56.85&lon=15.75')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if(data?.prognos?.dagar?.[0]) {
-          const d = data.prognos.dagar[0];
-          setVader({ temp: Math.round((d.tempMin + d.tempMax) / 2), symbol: d.symbol, beskrivning: '' });
-        }
-      })
-      .catch(() => {});
+    // Hämta väder från SMHI via GPS
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const { latitude, longitude } = pos.coords;
+          fetch(`/api/smhi-nederb?lat=${latitude}&lon=${longitude}`)
+            .then(r => r.json())
+            .then(json => {
+              if (json.prognos?.dagar?.[0]) {
+                const dag = json.prognos.dagar[0];
+                setVader({
+                  temp: dag.tempMax,
+                  symbol: dag.symbol,
+                  beskrivning: symbolText(dag.symbol),
+                });
+              }
+            })
+            .catch(e => console.error('Väder fel:', e));
+        },
+        (err) => console.error('GPS fel:', err),
+        { timeout: 10000 }
+      );
+    }
     // Hämta dagens objekt
     const idagISO = new Date().toISOString().split('T')[0];
     supabase.from("arbetsdag").select("objekt_id").eq("datum", idagISO).limit(1).single()
