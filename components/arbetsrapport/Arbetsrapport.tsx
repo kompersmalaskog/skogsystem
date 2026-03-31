@@ -370,6 +370,7 @@ export default function Arbetsrapport() {
   const [objektLista, setObjektLista] = useState<any[]>([]);
   const [historik, setHistorik] = useState<any[]>([]);
   const [dagensObjekt, setDagensObjekt] = useState<string | null>(null);
+  const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -384,7 +385,12 @@ export default function Arbetsrapport() {
       if(med.data) {
         setMedarbetare(med.data);
         setHemadress(med.data.hemadress || "");
-        setBtBil(med.data.bil_namn || "");
+        setBtBil(med.data.bt_bil || "");
+        // Fetch maskin namn
+        if(med.data.maskin_id) {
+          supabase.from("maskiner").select("namn").eq("maskin_id", med.data.maskin_id).single()
+            .then(r => { if(r.data?.namn) setMaskinNamn(r.data.namn); });
+        }
         // Fetch historik for this medarbetare
         supabase.from("arbetsdag").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(10)
           .then(res => { if(res.data) setHistorik(res.data); });
@@ -415,15 +421,8 @@ export default function Arbetsrapport() {
         { timeout: 10000 }
       );
     }
-    // Hämta dagens objekt
-    const idagISO = new Date().toISOString().split('T')[0];
-    supabase.from("arbetsdag").select("objekt_id").eq("datum", idagISO).limit(1).single()
-      .then(res => {
-        if(res.data?.objekt_id) {
-          supabase.from("dim_objekt").select("object_name").eq("objekt_id", res.data.objekt_id).single()
-            .then(r => { if(r.data?.object_name) setDagensObjekt(r.data.object_name); });
-        }
-      });
+    // Hämta dagens objekt via dim_objekt (senaste aktiva objekt för maskin)
+    // arbetsdag har ingen objekt_id — dagensObjekt hämtas separat om det behövs
   }, []);
 
   // Hämta dagdata för kalendern när månad/år ändras
@@ -441,10 +440,12 @@ export default function Arbetsrapport() {
           for (const r of res.data) {
             map[r.datum] = {
               status: r.bekraftad ? 'ok' : 'saknas',
-              arbMin: r.arb_min || 0,
+              arbMin: r.arbetad_min || 0,
               km: r.km_totalt || 0,
-              extra: r.extra_min || 0,
-              trak: r.traktamente || false,
+              km_morgon: r.km_morgon || 0,
+              km_kvall: r.km_kvall || 0,
+              km_totalt: r.km_totalt || 0,
+              trak: !!r.traktamente,
               start: r.start_tid || '06:00',
               slut: r.slut_tid || '16:00',
               rast: r.rast_min || 30,
@@ -547,7 +548,7 @@ export default function Arbetsrapport() {
         <Card style={{ background:C.dark,color:"#fff",animation:"fadeUp 0.5s ease 0.1s both" }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
             <div>
-              <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.4)",fontWeight:500 }}>{dagensObjekt || medarbetare?.maskin_namn || 'Aktuellt objekt'}</p>
+              <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.4)",fontWeight:500 }}>{dagensObjekt || maskinNamn || 'Aktuellt objekt'}</p>
               <p style={{ margin:0,fontSize:42,fontWeight:600,letterSpacing:"-1px" }}>{vader?.temp !== undefined ? `${vader.temp}°` : '...'}</p>
               <p style={{ margin:"4px 0 0",fontSize:15,color:"rgba(255,255,255,0.55)" }}>{vader ? symbolText(vader.symbol) : 'Hämtar väder...'}</p>
             </div>
@@ -755,7 +756,7 @@ export default function Arbetsrapport() {
 
     // Beräkna från faktiska dagar i historik
     const arbetsdagar = historik.length || 21;
-    const jobbadMin2 = historik.reduce((a,d) => a + (d.arb_min || 0), 0);
+    const jobbadMin2 = historik.reduce((a,d) => a + (d.arbetad_min || 0), 0);
     const jobbadH = historik.length > 0 ? Math.round(jobbadMin2/60*10)/10 : 0;
     const målH = arbetsdagar * 8;
     const övH = Math.max(0, jobbadH - målH);
@@ -777,7 +778,7 @@ export default function Arbetsrapport() {
           medarbetare_id: medarbetare.id,
           namn: medarbetare.namn,
           maskin_id: medarbetare.maskin_id,
-          maskin: medarbetare.maskin_namn,
+          maskin: maskinNamn || '',
           period: lönePeriod,
           arbetsdagar,
           mal_timmar: målH,
@@ -868,28 +869,25 @@ export default function Arbetsrapport() {
           <Label>Objekt</Label>
           <Card style={{ padding:"4px 20px",marginBottom:20 }}>
             {(() => {
-              const objektMap: Record<string,number> = {};
-              historik.forEach(d => { if(d.objekt_id) objektMap[d.objekt_id] = (objektMap[d.objekt_id]||0)+1; });
-              const objektEntries = Object.entries(objektMap).sort((a,b) => b[1]-a[1]);
-              if(objektEntries.length === 0) return (
+              // arbetsdag har ingen objekt_id — visa maskin istället
+              const maskinMap: Record<string,number> = {};
+              historik.forEach(d => { if(d.maskin_id) maskinMap[d.maskin_id] = (maskinMap[d.maskin_id]||0)+1; });
+              const maskinEntries = Object.entries(maskinMap).sort((a,b) => b[1]-a[1]);
+              if(maskinEntries.length === 0) return (
                 <div style={{ padding:"12px 0" }}>
                   <p style={{ margin:0,fontSize:14,color:C.label }}>Inga objekt denna period</p>
                 </div>
               );
-              return objektEntries.map(([objId, dagarCount], i) => {
-                const obj = objektLista.find(o => o.id === objId);
-                return (
-                  <div key={objId} style={{ padding:"12px 0",borderBottom:i<objektEntries.length-1?`1px solid ${C.line}`:"none" }}>
+              return maskinEntries.map(([mid, dagarCount], i) => (
+                  <div key={mid} style={{ padding:"12px 0",borderBottom:i<maskinEntries.length-1?`1px solid ${C.line}`:"none" }}>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
                       <div>
-                        <p style={{ margin:0,fontSize:15,fontWeight:600 }}>{obj?.namn || objId}</p>
-                        <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{obj?.ägare || ''}</p>
+                        <p style={{ margin:0,fontSize:15,fontWeight:600 }}>{mid === medarbetare?.maskin_id && maskinNamn ? maskinNamn : mid}</p>
                       </div>
                       <span style={{ fontSize:14,fontWeight:600,color:C.label,whiteSpace:"nowrap",marginLeft:8 }}>{dagarCount} dagar</span>
                     </div>
                   </div>
-                );
-              });
+              ));
             })()}
           </Card>
 
@@ -981,7 +979,7 @@ export default function Arbetsrapport() {
         <Label>Maskin</Label>
         <Card style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
           <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:600 }}>{medarbetare?.maskin_namn || 'Okänd maskin'}</p>
+            <p style={{ margin:0,fontSize:16,fontWeight:600 }}>{maskinNamn || 'Okänd maskin'}</p>
             <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{medarbetare?.maskin_id || ''} · hämtas från MOM</p>
           </div>
           <div style={{ width:8,height:8,borderRadius:"50%",background:C.green }}/>
@@ -1079,7 +1077,7 @@ export default function Arbetsrapport() {
         <p style={{ fontSize:72,fontWeight:600,margin:0,letterSpacing:"-3px" }}>{start}</p>
         <p style={{ fontSize:16,color:C.label,margin:"10px 0 28px" }}>Inloggad på maskin</p>
         <div style={{ background:"rgba(52,199,89,0.1)",borderRadius:12,padding:"12px 24px",marginBottom:24 }}>
-          <p style={{ margin:0,fontSize:15,fontWeight:600,color:C.green }}>{medarbetare?.maskin_namn || 'Aktuellt objekt'}</p>
+          <p style={{ margin:0,fontSize:15,fontWeight:600,color:C.green }}>{maskinNamn || 'Aktuellt objekt'}</p>
         </div>
 
       </div>
@@ -1782,7 +1780,7 @@ export default function Arbetsrapport() {
     const målH = arbetsdagar*8;
 
     // Total jobbad tid denna månad
-    const jobbadMin = Object.values(dagData).reduce((a: number, d: any) => a + (d.arb_min || d.arbMin || 0), 0);
+    const jobbadMin = Object.values(dagData).reduce((a: number, d: any) => a + (d.arbMin || 0), 0);
     const jobbadH = Math.round(jobbadMin / 60 * 10) / 10;
     const totalKm = Object.values(dagData).reduce((a: number, d: any) => a + (d.km_morgon || 0) + (d.km_kvall || 0) + (d.km_totalt || d.km || 0), 0);
     const övH = Math.max(0, jobbadH-målH);
