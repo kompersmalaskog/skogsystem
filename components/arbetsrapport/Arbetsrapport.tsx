@@ -55,6 +55,36 @@ const månadsNamn = (offset = 0) => {
   return d.toLocaleString('sv-SE', { month: 'long', year: 'numeric' });
 };
 
+const getRödaDagar = (år: number): Record<string, string> => {
+  const a = år % 19, b = Math.floor(år/100), c = år % 100;
+  const d = Math.floor(b/4), e = b % 4;
+  const f = Math.floor((b+8)/25), g = Math.floor((b-f+1)/3);
+  const h = (19*a+b-d-g+15) % 30;
+  const i = Math.floor(c/4), k = c % 4;
+  const l = (32+2*e+2*i-h-k) % 7;
+  const m = Math.floor((a+11*h+22*l)/451);
+  const månad = Math.floor((h+l-7*m+114)/31);
+  const dag = ((h+l-7*m+114) % 31) + 1;
+  const påsk = new Date(år, månad-1, dag);
+  const addD = (dt: Date, n: number) => { const r = new Date(dt); r.setDate(r.getDate()+n); return r; };
+  const fm = (dt: Date) => dt.toISOString().slice(0,10);
+  return {
+    [`${år}-01-01`]: 'Nyårsdagen',
+    [`${år}-01-06`]: 'Trettondedag jul',
+    [fm(addD(påsk,-2))]: 'Långfredag',
+    [fm(påsk)]: 'Påskdagen',
+    [fm(addD(påsk,1))]: 'Annandag påsk',
+    [`${år}-05-01`]: 'Första maj',
+    [fm(addD(påsk,39))]: 'Kristi himmelsfärd',
+    [`${år}-06-06`]: 'Nationaldagen',
+    [fm(addD(påsk,49))]: 'Pingstdagen',
+    [`${år}-12-24`]: 'Julafton',
+    [`${år}-12-25`]: 'Juldagen',
+    [`${år}-12-26`]: 'Annandag jul',
+    [`${år}-12-31`]: 'Nyårsafton',
+  };
+};
+
 const symbolText = (s: number) => {
   if (s <= 2) return 'Klart';
   if (s <= 4) return 'Halvklart';
@@ -311,8 +341,10 @@ export default function Arbetsrapport() {
   const [lönSkickat, setLönSkickat] = useState(false);
   const [lönSparar, setLönSparar] = useState(false);
   const [lönFel, setLönFel] = useState("");
-  const [månadsKlar, setMånadsKlar] = useState(false); // {datum: true}
-  const [kalMånad, setKalMånad] = useState(0);
+  const [månadsKlar, setMånadsKlar] = useState(false);
+  const [kalÅr, setKalÅr] = useState(new Date().getFullYear());
+  const [kalMånad, setKalMånad] = useState(new Date().getMonth());
+  const [dagData, setDagData] = useState<Record<string, any>>({});
 
   // temp states för ändra tid/km
   const [tS,setTS]=useState("06:12"),[tE,setTE]=useState("16:45"),[tR,setTR]=useState(30);
@@ -324,10 +356,6 @@ export default function Arbetsrapport() {
 
   // historik redigering
   const [redDag,setRedDag]=useState(null);
-
-  // GPS/MOM tider
-  const [gpsHem,setGpsHem]=useState(null),[momIn,setMomIn]=useState(null);
-  const [momUt,setMomUt]=useState(null),[gpsK,setGpsK]=useState(null);
 
   // Väder
   const [vader, setVader] = useState<{
@@ -398,6 +426,35 @@ export default function Arbetsrapport() {
       });
   }, []);
 
+  // Hämta dagdata för kalendern när månad/år ändras
+  useEffect(() => {
+    if (!medarbetare) return;
+    const mStr = String(kalMånad + 1).padStart(2, '0');
+    supabase.from('arbetsdag')
+      .select('*')
+      .eq('medarbetare_id', medarbetare.id)
+      .gte('datum', `${kalÅr}-${mStr}-01`)
+      .lte('datum', `${kalÅr}-${mStr}-31`)
+      .then(res => {
+        if (res.data) {
+          const map: Record<string, any> = {};
+          for (const r of res.data) {
+            map[r.datum] = {
+              status: r.bekraftad ? 'ok' : 'saknas',
+              arbMin: r.arb_min || 0,
+              km: r.km_totalt || 0,
+              extra: r.extra_min || 0,
+              trak: r.traktamente || false,
+              start: r.start_tid || '06:00',
+              slut: r.slut_tid || '16:00',
+              rast: r.rast_min || 30,
+            };
+          }
+          setDagData(map);
+        }
+      });
+  }, [medarbetare, kalÅr, kalMånad]);
+
   const idag=new Date();
   const datumStr=`${["Sön","Mån","Tis","Ons","Tor","Fre","Lör"][idag.getDay()]} ${idag.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][idag.getMonth()]}`;
 
@@ -409,7 +466,8 @@ export default function Arbetsrapport() {
   const ersKr  = ersKm*kmErs;
   const totEx  = extra.reduce((a,e)=>a+e.min,0);
   const totMin = arbMin+totEx;
-  const saknadK = ()=>{ if(!momUt||!gpsK)return 0; return Math.max(0,tim(momUt,gpsK)-45); };
+  const idagKey = new Date().toISOString().split('T')[0];
+  const isWorking = !!dagData[idagKey];
   const förnamn = medarbetare?.namn?.split(' ')[0] || '';
 
   const input = { width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"0 1px 3px rgba(0,0,0,0.08)",fontFamily:"inherit" };
@@ -624,7 +682,7 @@ export default function Arbetsrapport() {
       <style>{css}</style>
       <div style={topBar}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <BackBtn onClick={()=>setSteg(momIn?"dag":"morgon")}/>
+          <BackBtn onClick={()=>setSteg(isWorking?"dag":"morgon")}/>
           <div>
             <p style={{ margin:0,fontSize:13,color:C.label }}>{datumStr}</p>
             <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>Välj dagtyp</h1>
@@ -1347,7 +1405,7 @@ export default function Arbetsrapport() {
   /* ─── TRAKTAMENTE ─── */
   if(steg==="traktamente") return (
     <div style={shell}><style>{css}</style>
-      <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg(momIn?"kväll":"meny")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Traktamente</h1></div></div>
+      <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg(isWorking?"kväll":"meny")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Traktamente</h1></div></div>
       <div style={mid}>
         <p style={{ margin:"0 0 4px",fontSize:72,fontWeight:700,letterSpacing:"-3px" }}>{gsAvtal?.traktamente_hel_kr ?? 300}</p>
         <p style={{ margin:"0 0 6px",fontSize:22,color:C.label,fontWeight:300 }}>kr per dag</p>
@@ -1358,8 +1416,8 @@ export default function Arbetsrapport() {
       </div>
       <div style={bottom}>
         {!trak
-          ?<button style={btn.primary} onClick={()=>{setTrak({summa:gsAvtal?.traktamente_hel_kr ?? 300});setSteg(momIn?"kväll":"meny");}}>Lägg till</button>
-          :<button style={btn.danger}  onClick={()=>{setTrak(null);      setSteg(momIn?"kväll":"meny");}}>Ta bort</button>
+          ?<button style={btn.primary} onClick={()=>{setTrak({summa:gsAvtal?.traktamente_hel_kr ?? 300});setSteg(isWorking?"kväll":"meny");}}>Lägg till</button>
+          :<button style={btn.danger}  onClick={()=>{setTrak(null);      setSteg(isWorking?"kväll":"meny");}}>Ta bort</button>
         }
       </div>
     </div>
@@ -1688,59 +1746,27 @@ export default function Arbetsrapport() {
 
   /* ─── KALENDER ─── */
   if(steg==="kalender"){
-    const nu2=new Date();
-    const månader=[månadsNamn(-1),månadsNamn(0),månadsNamn(1)];
-    const basÅr=nu2.getFullYear();
-    const basMån=nu2.getMonth()-1+kalMånad;
-    const bas=new Date(basÅr,basMån,1);
-    const dagar=new Date(basÅr,basMån+1,0).getDate();
+    const bas=new Date(kalÅr,kalMånad,1);
+    const dagar=new Date(kalÅr,kalMånad+1,0).getDate();
     const startDag=(bas.getDay()+6)%7;
+    const rödaDagar=getRödaDagar(kalÅr);
+    const kalMånadLabel=bas.toLocaleString('sv-SE',{month:'long',year:'numeric'});
 
-    // Svenska röda dagar 2025
-    const rödaDagar={
-      "2025-01-01":"Nyårsdagen",
-      "2025-01-06":"Trettondedag jul",
-      "2025-02-28":"Sista februari",
-      "2025-04-18":"Långfredag",
-      "2025-04-20":"Påskdagen",
-      "2025-04-21":"Annandag påsk",
-      "2025-05-01":"Första maj",
-      "2025-05-29":"Kristi himmelsfärd",
-      "2025-06-06":"Nationaldagen",
-      "2025-06-08":"Pingstdagen",
-      "2025-06-20":"Midsommarafton",
-      "2025-06-21":"Midsommardagen",
-      "2025-10-31":"Allhelgonadag",
-      "2025-11-01":"Alla helgons dag",
-      "2025-12-24":"Julafton",
-      "2025-12-25":"Juldagen",
-      "2025-12-26":"Annandag jul",
-      "2025-12-31":"Nyårsafton",
+    // Navigation limits: 12 months back, 1 month forward
+    const nuDat=new Date();
+    const minDat=new Date(nuDat.getFullYear(),nuDat.getMonth()-12,1);
+    const maxDat=new Date(nuDat.getFullYear(),nuDat.getMonth()+1,1);
+    const kanBakåt=bas>minDat;
+    const kanFramåt=new Date(kalÅr,kalMånad+1,1)<=maxDat;
+
+    const navigera=(dir: number)=>{
+      let ny=kalMånad+dir, å=kalÅr;
+      if(ny<0){ny=11;å--;}
+      if(ny>11){ny=0;å++;}
+      setKalMånad(ny);setKalÅr(å);
     };
 
-    const dagData={
-      "2025-01-07":{status:"ok",  arbMin:555,km:144},
-      "2025-01-08":{status:"ok",  arbMin:520,km:138},
-      "2025-01-09":{status:"ok",  arbMin:602,km:138,extra:45},
-      "2025-01-10":{status:"saknas",arbMin:0,km:0},
-      "2025-01-13":{status:"ok",  arbMin:540,km:150,trak:true},
-      "2025-01-14":{status:"ok",  arbMin:480,km:144},
-      "2025-01-15":{status:"ok",  arbMin:510,km:156},
-      "2025-01-16":{status:"ok",  arbMin:602,km:138,extra:45},
-      "2025-01-17":{status:"ok",  arbMin:555,km:144},
-      "2025-01-20":{status:"ok",  arbMin:500,km:140},
-      "2025-01-21":{status:"ok",  arbMin:530,km:146},
-      "2025-01-22":{status:"ok",  arbMin:545,km:142},
-      "2025-01-23":{status:"ok",  arbMin:560,km:148},
-      "2025-01-24":{status:"ok",  arbMin:510,km:144},
-      "2025-01-27":{status:"ok",  arbMin:540,km:150,trak:true},
-      "2025-01-28":{status:"ok",  arbMin:480,km:138},
-      "2025-01-29":{status:"ok",  arbMin:510,km:144},
-      "2025-01-30":{status:"ok",  arbMin:555,km:150},
-      "2025-01-31":{status:"ok",  arbMin:530,km:146},
-    };
-
-    const dagKey=(d)=>`2025-${String(kalMånad+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    const dagKey=(d)=>`${kalÅr}-${String(kalMånad+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
     const veckar=["Mån","Tis","Ons","Tor","Fre","Lör","Sön"];
     const cells=[...Array(startDag).fill(null),...Array(dagar).fill(0).map((_,i)=>i+1)];
     while(cells.length%7!==0)cells.push(null);
@@ -1749,7 +1775,7 @@ export default function Arbetsrapport() {
     let arbetsdagar=0;
     for(let d=1;d<=dagar;d++){
       const k=dagKey(d);
-      const date=new Date(2025,kalMånad,d);
+      const date=new Date(kalÅr,kalMånad,d);
       const dow=date.getDay();
       if(dow!==0&&dow!==6&&!rödaDagar[k]) arbetsdagar++;
     }
@@ -1765,7 +1791,7 @@ export default function Arbetsrapport() {
       const k=dagKey(d);
       if(rödaDagar[k]) return "röd";
       const dag=dagData[k];
-      const date=new Date(2025,kalMånad,d);
+      const date=new Date(kalÅr,kalMånad,d);
       const dow=date.getDay();
       if(dow===0||dow===6) return "weekend";
       if(!dag) return "tom";
@@ -1790,11 +1816,11 @@ export default function Arbetsrapport() {
         <div style={topBar}>
           <div style={{ display:"flex",alignItems:"center",gap:14,marginBottom:20 }}>
             <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-              <button onClick={()=>setKalMånad(m=>Math.max(0,m-1))} style={{ width:36,height:36,borderRadius:10,background:"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:kalMånad===0?0.3:1 }}>
+              <button onClick={()=>kanBakåt&&navigera(-1)} style={{ width:36,height:36,borderRadius:10,background:"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:kanBakåt?1:0.3 }}>
                 <svg width="8" height="14" viewBox="0 0 9 16" fill="none"><path d="M8 1L1 8L8 15" stroke={C.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </button>
-              <h1 style={{ margin:0,fontSize:22,fontWeight:700 }}>{månader[kalMånad]}</h1>
-              <button onClick={()=>setKalMånad(m=>Math.min(2,m+1))} style={{ width:36,height:36,borderRadius:10,background:"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:kalMånad===2?0.3:1 }}>
+              <h1 style={{ margin:0,fontSize:22,fontWeight:700 }}>{kalMånadLabel}</h1>
+              <button onClick={()=>kanFramåt&&navigera(1)} style={{ width:36,height:36,borderRadius:10,background:"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:kanFramåt?1:0.3 }}>
                 <svg width="8" height="14" viewBox="0 0 9 16" fill="none"><path d="M1 1L8 8L1 15" stroke={C.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </button>
             </div>
@@ -1814,10 +1840,10 @@ export default function Arbetsrapport() {
             {cells.map((d,i)=>{
               if(!d) return <div key={i}/>;
               const s=statusFärg(d);
-              const isToday=d===17&&kalMånad===0;
+              const isToday=d===nuDat.getDate()&&kalMånad===nuDat.getMonth()&&kalÅr===nuDat.getFullYear();
               const k=dagKey(d);
               const klickbar=s==="ok"||s==="saknas";
-              const datum=`${d} ${["jan","feb","mar"][kalMånad]}`;
+              const datum=`${d} ${new Date(kalÅr,kalMånad,1).toLocaleString('sv-SE',{month:'short'})}`;
               const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
               return (
                 <div key={i}
