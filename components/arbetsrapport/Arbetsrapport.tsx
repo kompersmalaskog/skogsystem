@@ -55,6 +55,17 @@ const månadsNamn = (offset = 0) => {
   return d.toLocaleString('sv-SE', { month: 'long', year: 'numeric' });
 };
 
+const symbolText = (s: number) => {
+  if (s <= 2) return 'Klart';
+  if (s <= 4) return 'Halvklart';
+  if (s <= 6) return 'Mulet';
+  if (s <= 10) return 'Regn';
+  if (s <= 14) return 'Snöblandat regn';
+  if (s <= 18) return 'Snö';
+  if (s <= 22) return 'Åska';
+  return 'Varierat';
+};
+
 const tim = (a,b) => {
   if(!a||!b) return 0;
   const [sh,sm]=a.split(":").map(Number),[eh,em]=b.split(":").map(Number); 
@@ -318,11 +329,19 @@ export default function Arbetsrapport() {
   const [gpsHem,setGpsHem]=useState(null),[momIn,setMomIn]=useState(null);
   const [momUt,setMomUt]=useState(null),[gpsK,setGpsK]=useState(null);
 
+  // Väder
+  const [vader, setVader] = useState<{
+    temp: number;
+    symbol: number;
+    beskrivning: string;
+  } | null>(null);
+
   // Supabase data
   const [medarbetare, setMedarbetare] = useState<any>(null);
   const [gsAvtal, setGsAvtal] = useState<any>(null);
   const [objektLista, setObjektLista] = useState<any[]>([]);
   const [historik, setHistorik] = useState<any[]>([]);
+  const [dagensObjekt, setDagensObjekt] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -345,6 +364,25 @@ export default function Arbetsrapport() {
       if(avt.data) setGsAvtal(avt.data);
       if(obj.data) setObjektLista(obj.data.map(o => ({id:o.objekt_id, namn:o.object_name||o.objekt_id, ägare:o.skogsagare||''})));
     });
+    // Hämta väder från SMHI
+    fetch('/api/smhi-nederb?lat=56.85&lon=15.75')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if(data?.prognos?.dagar?.[0]) {
+          const d = data.prognos.dagar[0];
+          setVader({ temp: Math.round((d.tempMin + d.tempMax) / 2), symbol: d.symbol, beskrivning: '' });
+        }
+      })
+      .catch(() => {});
+    // Hämta dagens objekt
+    const idagISO = new Date().toISOString().split('T')[0];
+    supabase.from("arbetsdag").select("objekt_id").eq("datum", idagISO).limit(1).single()
+      .then(res => {
+        if(res.data?.objekt_id) {
+          supabase.from("dim_objekt").select("object_name").eq("objekt_id", res.data.objekt_id).single()
+            .then(r => { if(r.data?.object_name) setDagensObjekt(r.data.object_name); });
+        }
+      });
   }, []);
 
   const idag=new Date();
@@ -438,9 +476,9 @@ export default function Arbetsrapport() {
         <Card style={{ background:C.dark,color:"#fff",animation:"fadeUp 0.5s ease 0.1s both" }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
             <div>
-              <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.4)",fontWeight:500 }}>{medarbetare?.maskin_namn || 'Aktuellt objekt'}</p>
-              <p style={{ margin:0,fontSize:42,fontWeight:600,letterSpacing:"-1px" }}>−3°</p>
-              <p style={{ margin:"4px 0 0",fontSize:15,color:"rgba(255,255,255,0.55)" }}>Lätt snö · Gryning · Viltrisk</p>
+              <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.4)",fontWeight:500 }}>{dagensObjekt || medarbetare?.maskin_namn || 'Aktuellt objekt'}</p>
+              <p style={{ margin:0,fontSize:42,fontWeight:600,letterSpacing:"-1px" }}>{vader?.temp !== undefined ? `${vader.temp}°` : '...'}</p>
+              <p style={{ margin:"4px 0 0",fontSize:15,color:"rgba(255,255,255,0.55)" }}>{vader ? symbolText(vader.symbol) : 'Hämtar väder...'}</p>
             </div>
           </div>
         </Card>
