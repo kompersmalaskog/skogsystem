@@ -835,6 +835,7 @@ export default function Maskinvy() {
   const [dataVersion, setDataVersion] = useState(0); // increments on each data load
   const [period, setPeriod] = useState<'V' | 'M' | 'K' | 'Å'>('M');
   const [loading, setLoading] = useState(false);
+  const [maskinOpen, setMaskinOpen] = useState(false);
 
   // ── Fetch machines ──
   useEffect(() => {
@@ -1242,9 +1243,57 @@ export default function Maskinvy() {
             );
           })}
         </nav>
-        {/* Period + Maskin at bottom */}
+        {/* Maskin + Period at bottom */}
         <div style={{ padding: '12px 12px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginBottom: 2 }}>Period</div>
+          {/* Maskin — custom dropdown that opens UPWARD */}
+          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginBottom: 2 }}>Maskin</div>
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setMaskinOpen(!maskinOpen)}
+              style={{
+                width: '100%', background: '#1a1a18', color: '#e8e8e4',
+                border: maskinOpen ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.1)',
+                borderRadius: 8, padding: '8px 10px', fontSize: 12,
+                fontFamily: "'Geist', system-ui, sans-serif",
+                outline: 'none', cursor: 'pointer', textAlign: 'left',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+              }}
+            >
+              <span>{maskiner.find(m => m.modell === vald)
+                ? `${maskiner.find(m => m.modell === vald)!.tillverkare} ${vald}`
+                : 'Välj maskin...'}</span>
+              <span style={{ fontSize: 10, color: '#555', transform: maskinOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▲</span>
+            </button>
+            {maskinOpen && (
+              <div style={{
+                position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, right: 0,
+                background: '#1a1a18', border: '1px solid rgba(255,255,255,0.15)',
+                borderRadius: 8, overflow: 'hidden', zIndex: 50,
+                boxShadow: '0 -8px 24px rgba(0,0,0,0.5)',
+                maxHeight: 200, overflowY: 'auto',
+              }}>
+                {maskiner.map((m, i) => (
+                  <button
+                    key={m.maskin_id}
+                    onClick={() => { setVald(m.modell); setMaskinOpen(false); }}
+                    style={{
+                      width: '100%', padding: '9px 12px', border: 'none',
+                      borderBottom: i < maskiner.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                      background: m.modell === vald ? 'rgba(255,255,255,0.08)' : 'transparent',
+                      color: m.modell === vald ? '#e8e8e4' : '#999',
+                      fontSize: 12, fontFamily: "'Geist', system-ui, sans-serif",
+                      cursor: 'pointer', textAlign: 'left',
+                    }}
+                  >
+                    {m.tillverkare} {m.modell}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Period */}
+          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginTop: 8, marginBottom: 2 }}>Period</div>
           <div style={{ display: 'flex', gap: 4 }}>
             {(['V', 'M', 'K', 'Å'] as const).map((p) => (
               <button key={p} onClick={() => setPeriod(p)} style={{
@@ -1256,20 +1305,6 @@ export default function Maskinvy() {
               }}>{p}</button>
             ))}
           </div>
-          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginTop: 8, marginBottom: 2 }}>Maskin</div>
-          <select
-            value={vald}
-            onChange={e => setVald(e.target.value)}
-            style={{
-              width: '100%', background: '#1a1a18', color: '#e8e8e4', border: '1px solid rgba(255,255,255,0.1)',
-              borderRadius: 8, padding: '8px 10px', fontSize: 12, fontFamily: "'Geist', system-ui, sans-serif",
-              outline: 'none', cursor: 'pointer',
-            }}
-          >
-            {maskiner.map(m => (
-              <option key={m.maskin_id} value={m.modell}>{m.tillverkare} {m.modell}</option>
-            ))}
-          </select>
         </div>
       </aside>
       {/* ── MAIN CONTENT ── */}
