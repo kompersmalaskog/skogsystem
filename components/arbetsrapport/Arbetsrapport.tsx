@@ -1782,9 +1782,9 @@ export default function Arbetsrapport() {
     const målH = arbetsdagar*8;
 
     // Total jobbad tid denna månad
-    const jobbadMin = Object.values(dagData).reduce((a,d)=>a+(d.arbMin||0),0);
-    const jobbadH = Math.round(jobbadMin/60*10)/10;
-    const totalKm = Object.values(dagData).reduce((a,d)=>a+(d.km||0),0);
+    const jobbadMin = Object.values(dagData).reduce((a: number, d: any) => a + (d.arb_min || d.arbMin || 0), 0);
+    const jobbadH = Math.round(jobbadMin / 60 * 10) / 10;
+    const totalKm = Object.values(dagData).reduce((a: number, d: any) => a + (d.km_morgon || 0) + (d.km_kvall || 0) + (d.km_totalt || d.km || 0), 0);
     const övH = Math.max(0, jobbadH-målH);
 
     const statusFärg=(d)=>{
