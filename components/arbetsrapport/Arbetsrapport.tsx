@@ -49,7 +49,13 @@ const btn = {
   danger:    { width:"100%", padding:"17px 24px", background:"transparent", color:C.red, border:`1.5px solid ${C.red}`, borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer" },
 };
 
-const tim = (a,b) => { 
+const månadsNamn = (offset = 0) => {
+  const d = new Date();
+  d.setMonth(d.getMonth() + offset);
+  return d.toLocaleString('sv-SE', { month: 'long', year: 'numeric' });
+};
+
+const tim = (a,b) => {
   if(!a||!b) return 0;
   const [sh,sm]=a.split(":").map(Number),[eh,em]=b.split(":").map(Number); 
   return Math.max(0,eh*60+em-sh*60-sm); 
@@ -266,8 +272,7 @@ export default function Arbetsrapport() {
   const [slut,  setSlut]   = useState("16:45");
   const [rast,  setRast]   = useState(30);
   const [ändring,setÄ]     = useState(null);
-  const ska=176,har=184,öt=Math.max(0,har-ska);
-  const [betald,setBetald] = useState(öt);
+  const [betald,setBetald] = useState(0);
   const [trak,  setTrak]   = useState(null);
   const [dagTyp,setDagTyp] = useState("normal");
   const [avvikelseKm,  setAvvikelseKm]  = useState(0);
@@ -422,7 +427,7 @@ export default function Arbetsrapport() {
               <div style={{ width:8,height:8,borderRadius:"50%",background:C.orange,flexShrink:0 }}/>
               <p style={{ margin:0,fontSize:13,fontWeight:700,color:C.orange,textTransform:"uppercase",letterSpacing:"0.5px" }}>Månaden är slut</p>
             </div>
-            <p style={{ margin:"0 0 10px",fontSize:15,fontWeight:600,color:C.ink }}>Granska och godkänn löneunderlaget för januari</p>
+            <p style={{ margin:"0 0 10px",fontSize:15,fontWeight:600,color:C.ink }}>Granska och godkänn löneunderlaget för {månadsNamn()}</p>
             <div style={{ display:"flex",alignItems:"center",gap:6 }}>
               <span style={{ fontSize:14,color:C.orange,fontWeight:500 }}>Öppna löneunderlag</span>
               <svg width="6" height="10" viewBox="0 0 9 16" fill="none"><path d="M1 1L8 8L1 15" stroke={C.orange} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -433,7 +438,7 @@ export default function Arbetsrapport() {
         <Card style={{ background:C.dark,color:"#fff",animation:"fadeUp 0.5s ease 0.1s both" }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
             <div>
-              <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.4)",fontWeight:500 }}>Karatorp</p>
+              <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.4)",fontWeight:500 }}>{medarbetare?.maskin_namn || 'Aktuellt objekt'}</p>
               <p style={{ margin:0,fontSize:42,fontWeight:600,letterSpacing:"-1px" }}>−3°</p>
               <p style={{ margin:"4px 0 0",fontSize:15,color:"rgba(255,255,255,0.55)" }}>Lätt snö · Gryning · Viltrisk</p>
             </div>
@@ -599,7 +604,7 @@ export default function Arbetsrapport() {
         <div style={{ marginTop:24 }}><Label>Kalender</Label></div>
         <Card onClick={()=>setSteg("kalender")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
           <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:500 }}>Januari 2025</p>
+            <p style={{ margin:0,fontSize:16,fontWeight:500 }}>{månadsNamn()}</p>
             <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>1 dag saknas · 18 bekräftade</p>
           </div>
           <ChevronRight/>
@@ -607,7 +612,7 @@ export default function Arbetsrapport() {
         <div style={{ marginTop:24 }}><Label>Löneunderlag</Label></div>
         <Card onClick={()=>setSteg("lön")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:lönSkickat?"rgba(52,199,89,0.06)":månadsKlar?"rgba(255,149,0,0.08)":C.card,border:lönSkickat?"1px solid rgba(52,199,89,0.2)":månadsKlar?"1px solid rgba(255,149,0,0.25)":"none",animation:månadsKlar&&!lönSkickat?"menuPulse 1.5s ease-in-out infinite":"none" }}>
           <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:500,color:månadsKlar&&!lönSkickat?C.orange:C.ink }}>Januari 2025</p>
+            <p style={{ margin:0,fontSize:16,fontWeight:500,color:månadsKlar&&!lönSkickat?C.orange:C.ink }}>{månadsNamn()}</p>
             <p style={{ margin:"2px 0 0",fontSize:13,color:lönSkickat?C.green:månadsKlar?C.orange:C.label }}>{lönSkickat?"Skickat till chef":månadsKlar?"Väntar på godkännande":"Ej skickat"}</p>
           </div>
           <ChevronRight/>
@@ -642,14 +647,14 @@ export default function Arbetsrapport() {
     // Beräkna från faktiska dagar i historik
     const arbetsdagar = historik.length || 21;
     const jobbadMin2 = historik.reduce((a,d) => a + (d.arb_min || 0), 0);
-    const jobbadH = historik.length > 0 ? Math.round(jobbadMin2/60*10)/10 : 184;
+    const jobbadH = historik.length > 0 ? Math.round(jobbadMin2/60*10)/10 : 0;
     const målH = arbetsdagar * 8;
     const övH = Math.max(0, jobbadH - målH);
     const övKr = Math.round(övH * timlon * otFaktor);
-    const totalKm = historik.reduce((a,d) => a + (d.km_totalt || d.km_morgon || 0) + (d.km_kvall || 0), 0) || 2952;
+    const totalKm = historik.reduce((a,d) => a + (d.km_totalt || d.km_morgon || 0) + (d.km_kvall || 0), 0);
     const löneErsKm = Math.max(0, totalKm - frikm2*arbetsdagar);
     const löneErsKr = Math.round(löneErsKm * kmErs2);
-    const trakDagar = historik.filter(d => d.traktamente).length || 4;
+    const trakDagar = historik.filter(d => d.traktamente).length;
     const trakKr = trakDagar * trakHel;
     const redigeringar = Object.entries(redDagar);
     const nu = new Date();
@@ -697,7 +702,7 @@ export default function Arbetsrapport() {
             <BackBtn onClick={()=>setSteg("meny")}/>
             <div>
               <p style={{ margin:0,fontSize:13,color:C.label }}>Löneunderlag</p>
-              <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>Januari 2025</h1>
+              <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>{månadsNamn()}</h1>
             </div>
           </div>
         </div>
@@ -753,21 +758,30 @@ export default function Arbetsrapport() {
           {/* Objekt */}
           <Label>Objekt</Label>
           <Card style={{ padding:"4px 20px",marginBottom:20 }}>
-            {[
-              {namn:"Karatorp RP 2025", ägare:"Lindströms Gård AB", dagar:14},
-              {namn:"Bäckadalen 1:4",   ägare:"Sveaskog",           dagar:5},
-              {namn:"Norra Skogen 2:1", ägare:"Holmen",             dagar:2},
-            ].map(({namn,ägare,dagar},i,arr)=>(
-              <div key={namn} style={{ padding:"12px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
-                  <div>
-                    <p style={{ margin:0,fontSize:15,fontWeight:600 }}>{namn}</p>
-                    <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{ägare}</p>
-                  </div>
-                  <span style={{ fontSize:14,fontWeight:600,color:C.label,whiteSpace:"nowrap",marginLeft:8 }}>{dagar} dagar</span>
+            {(() => {
+              const objektMap: Record<string,number> = {};
+              historik.forEach(d => { if(d.objekt_id) objektMap[d.objekt_id] = (objektMap[d.objekt_id]||0)+1; });
+              const objektEntries = Object.entries(objektMap).sort((a,b) => b[1]-a[1]);
+              if(objektEntries.length === 0) return (
+                <div style={{ padding:"12px 0" }}>
+                  <p style={{ margin:0,fontSize:14,color:C.label }}>Inga objekt denna period</p>
                 </div>
-              </div>
-            ))}
+              );
+              return objektEntries.map(([objId, dagarCount], i) => {
+                const obj = objektLista.find(o => o.id === objId);
+                return (
+                  <div key={objId} style={{ padding:"12px 0",borderBottom:i<objektEntries.length-1?`1px solid ${C.line}`:"none" }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
+                      <div>
+                        <p style={{ margin:0,fontSize:15,fontWeight:600 }}>{obj?.namn || objId}</p>
+                        <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{obj?.ägare || ''}</p>
+                      </div>
+                      <span style={{ fontSize:14,fontWeight:600,color:C.label,whiteSpace:"nowrap",marginLeft:8 }}>{dagarCount} dagar</span>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </Card>
 
           {/* Frånvaro */}
@@ -956,7 +970,7 @@ export default function Arbetsrapport() {
         <p style={{ fontSize:72,fontWeight:600,margin:0,letterSpacing:"-3px" }}>{start}</p>
         <p style={{ fontSize:16,color:C.label,margin:"10px 0 28px" }}>Inloggad på maskin</p>
         <div style={{ background:"rgba(52,199,89,0.1)",borderRadius:12,padding:"12px 24px",marginBottom:24 }}>
-          <p style={{ margin:0,fontSize:15,fontWeight:600,color:C.green }}>Karatorp RP 2025</p>
+          <p style={{ margin:0,fontSize:15,fontWeight:600,color:C.green }}>{medarbetare?.maskin_namn || 'Aktuellt objekt'}</p>
         </div>
 
       </div>
@@ -1542,7 +1556,7 @@ export default function Arbetsrapport() {
           <div style={{ display:"flex",alignItems:"center",gap:14 }}>
             <BackBtn onClick={()=>setSteg("kalender")}/>
             <div>
-              <p style={{ margin:0,fontSize:13,color:C.label }}>Januari 2025</p>
+              <p style={{ margin:0,fontSize:13,color:C.label }}>{månadsNamn()}</p>
               <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>{redDag.datum}</h1>
             </div>
           </div>
@@ -1623,9 +1637,12 @@ export default function Arbetsrapport() {
 
   /* ─── KALENDER ─── */
   if(steg==="kalender"){
-    const månader=["Januari 2025","Februari 2025","Mars 2025"];
-    const bas=new Date(2025,kalMånad,1);
-    const dagar=new Date(2025,kalMånad+1,0).getDate();
+    const nu2=new Date();
+    const månader=[månadsNamn(-1),månadsNamn(0),månadsNamn(1)];
+    const basÅr=nu2.getFullYear();
+    const basMån=nu2.getMonth()-1+kalMånad;
+    const bas=new Date(basÅr,basMån,1);
+    const dagar=new Date(basÅr,basMån+1,0).getDate();
     const startDag=(bas.getDay()+6)%7;
 
     // Svenska röda dagar 2025
