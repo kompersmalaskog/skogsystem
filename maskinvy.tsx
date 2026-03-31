@@ -58,11 +58,14 @@ type DbData = {
 };
 
 const MASKINVY_SCRIPT = `(function(){
+if (typeof Chart === 'undefined') { console.error('[Maskinvy] Chart.js not loaded'); return; }
 Chart.defaults.font.family = 'Geist';
 Chart.defaults.color = '#7a7a72';
 
 // Read DB data from window if available
 var _db = window.__maskinvyData || {};
+console.log('[Maskinvy Script] _db keys:', Object.keys(_db));
+console.log('[Maskinvy Script] _db.totalVolym:', _db.totalVolym, '_db.operatorer:', _db.operatorer?.length);
 
 var classes = ['0.0–0.1','0.1–0.2','0.2–0.3','0.3–0.4','0.4–0.5','0.5–0.7','0.7+'];
 var m3g15   = [7.7,10.3,10.5,11.1,12.0,12.7,15.0];
@@ -117,6 +120,7 @@ const dailyVol = (_db.dailyVol && _db.dailyVol.length > 0) ? _db.dailyVol : _fal
 const dailySt  = (_db.dailySt && _db.dailySt.length > 0) ? _db.dailySt : _fallbackDailySt;
 const days = (_db.days && _db.days.length > 0) ? _db.days : Array.from({length:28},(_,i)=>\`\${i+1}/2\`);
 
+if(!document.getElementById('dailyChart')){console.warn('[Maskinvy] dailyChart not found');return;}
 new Chart(document.getElementById('dailyChart'),{
   type:'bar',
   data:{labels:days,datasets:[
@@ -156,6 +160,7 @@ dt.forEach((t,i)=>{
 });
 
 // Sortiment
+if(!document.getElementById('sortChart')){console.warn('[Maskinvy] Missing chart elements');return;}
 new Chart(document.getElementById('sortChart'),{
   type:'bar',
   data:{labels:['Gran','Tall','Björk'],datasets:[
@@ -887,6 +892,19 @@ export default function Maskinvy() {
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
 
+      console.log('[Maskinvy] Query results:', {
+        prodRows: prodRows.length,
+        tidRows: tidRows.length,
+        operators: operators.length,
+        objekter: objekter.length,
+        prodError: prodRes.error,
+        tidError: tidRes.error,
+        opError: opRes.error,
+        sample_prod: prodRows[0],
+        sample_tid: tidRows[0],
+        sample_op: operators[0],
+      });
+
       if (prodRows.length === 0 && tidRows.length === 0) {
         (window as any).__maskinvyData = {};
         setDataLoaded(true);
@@ -1110,11 +1128,19 @@ export default function Maskinvy() {
     if (!dataLoaded) return;
 
     let scriptEl: HTMLScriptElement | null = null;
+    let timer: ReturnType<typeof setTimeout>;
 
     function initCharts() {
-      scriptEl = document.createElement('script');
-      scriptEl.textContent = MASKINVY_SCRIPT;
-      document.body.appendChild(scriptEl);
+      // Delay to ensure DOM is rendered (prevents React #418/#423)
+      timer = setTimeout(() => {
+        if (!document.getElementById('dailyChart')) {
+          console.warn('[Maskinvy] DOM not ready, skipping chart init');
+          return;
+        }
+        scriptEl = document.createElement('script');
+        scriptEl.textContent = MASKINVY_SCRIPT;
+        document.body.appendChild(scriptEl);
+      }, 100);
     }
 
     // @ts-ignore
@@ -1128,6 +1154,7 @@ export default function Maskinvy() {
     }
 
     return () => {
+      if (timer) clearTimeout(timer);
       if (scriptEl) scriptEl.remove();
       // @ts-ignore
       if (typeof window !== 'undefined' && (window as any).Chart) {
