@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
-type Maskin = { maskin_id: number; modell: string; tillverkare: string; typ: string };
+type Maskin = { maskin_id: string; modell: string; tillverkare: string; typ: string };
 
 // ── Types for DB data ──
 type DbData = {
@@ -45,6 +45,16 @@ type DbData = {
     g15h: number;
     prod: number;
   }>;
+  // Day data
+  dagData: Record<number, {
+    typ: number; forare: string; objekt: string;
+    start: string; slut: string; vol: number; stammar: number;
+    g15: number; snitt: number; stg15: number; medelstam: number;
+    diesel: number; avbrott: Array<{ orsak: string; tid: string }>;
+    flytt?: boolean;
+  }>;
+  // Calendar day types
+  calendarDt: number[];
 };
 
 const MASKINVY_SCRIPT = `(function(){
@@ -132,7 +142,8 @@ new Chart(document.getElementById('dailyChart'),{
 // Calendar
 const cal = document.getElementById('calGrid');
 for(let i=0;i<6;i++){const d=document.createElement('div');d.className='cal-cell';cal.appendChild(d);}
-const dt=[0,0,1,1,0,0,1,1,1,0,0,2,0,1,1,0,0,1,1,3,0,0,2,1,1,0,0,1];
+const _fallbackDt=[0,0,1,1,0,0,1,1,1,0,0,2,0,1,1,0,0,1,1,3,0,0,2,1,1,0,0,1];
+const dt=(_db.calendarDt && _db.calendarDt.length > 0) ? _db.calendarDt : _fallbackDt;
 const dc={0:'c-off',1:'c-prod',2:'c-flytt',3:'c-service'};
 const dlbl={0:'Ej aktiv',1:'Produktion',2:'Flytt',3:'Service'};
 dt.forEach((t,i)=>{
@@ -485,24 +496,14 @@ function runCmp(){
   document.getElementById('page').insertBefore(div, document.getElementById('page').firstChild);
 }
 
-// ── DAG DATA ──
-const dagData = {
+// ── DAG DATA (from DB or fallback) ──
+const _fallbackDagData = {
   3:  { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:45', slut:'16:20', vol:142, stammar:620,  g15:8.2,  snitt:11.8, stg15:75, medelstam:0.23, avbrott:[{orsak:'Tankning',tid:'22 min'},{orsak:'Rast',tid:'35 min'}], diesel:3.8 },
   4:  { typ:1, forare:'Marcus Nilsson',  objekt:'Björsamåla AU 2025', start:'07:00', slut:'17:10', vol:168, stammar:710,  g15:9.1,  snitt:12.1, stg15:78, medelstam:0.24, avbrott:[{orsak:'Maskinfel – kranstyrning',tid:'48 min'},{orsak:'Rast',tid:'30 min'}], diesel:4.1 },
   7:  { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:50', slut:'16:45', vol:188, stammar:780,  g15:9.8,  snitt:12.4, stg15:80, medelstam:0.24, avbrott:[{orsak:'Tankning',tid:'18 min'},{orsak:'Rast',tid:'30 min'}], diesel:3.6 },
-  8:  { typ:1, forare:'Pär Lindgren',    objekt:'Karamåla 19 A-S',   start:'07:15', slut:'17:30', vol:195, stammar:820,  g15:10.2, snitt:12.7, stg15:80, medelstam:0.24, avbrott:[{orsak:'Rast',tid:'30 min'}], diesel:3.5 },
-  9:  { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:45', slut:'16:15', vol:172, stammar:700,  g15:8.9,  snitt:11.9, stg15:79, medelstam:0.25, avbrott:[{orsak:'Service – oljebyte',tid:'55 min'},{orsak:'Rast',tid:'30 min'}], diesel:3.9 },
-  12: { typ:1, forare:'Marcus Nilsson',  objekt:'Björsamåla AU 2025', start:'07:00', slut:'16:50', vol:155, stammar:640,  g15:8.4,  snitt:11.5, stg15:76, medelstam:0.24, avbrott:[{orsak:'Tankning',tid:'20 min'},{orsak:'Rast',tid:'35 min'}], diesel:4.0 },
-  14: { typ:1, forare:'Pär Lindgren',    objekt:'Karamåla 19 A-S',   start:'07:20', slut:'17:40', vol:178, stammar:730,  g15:9.3,  snitt:12.0, stg15:78, medelstam:0.24, avbrott:[{orsak:'Rast',tid:'30 min'}], diesel:3.7 },
-  15: { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:50', slut:'17:00', vol:192, stammar:800,  g15:10.0, snitt:12.5, stg15:80, medelstam:0.24, avbrott:[{orsak:'Tankning',tid:'22 min'},{orsak:'Rast',tid:'30 min'}], diesel:3.6 },
-  18: { typ:1, forare:'Marcus Nilsson',  objekt:'Björsamåla AU 2025', start:'07:05', slut:'16:55', vol:168, stammar:710,  g15:8.8,  snitt:11.8, stg15:81, medelstam:0.24, avbrott:[{orsak:'Väntan – körbesked',tid:'40 min'},{orsak:'Rast',tid:'30 min'}], diesel:4.2 },
-  19: { typ:1, forare:'Pär Lindgren',    objekt:'Karamåla 19 A-S',   start:'07:10', slut:'16:40', vol:145, stammar:620,  g15:7.9,  snitt:11.1, stg15:78, medelstam:0.23, avbrott:[{orsak:'Maskinfel – aggregat',tid:'1h 12 min'},{orsak:'Rast',tid:'30 min'}], diesel:4.4 },
-  20: { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:45', slut:'17:10', vol:188, stammar:790,  g15:9.9,  snitt:12.6, stg15:80, medelstam:0.24, avbrott:[{orsak:'Tankning',tid:'20 min'},{orsak:'Rast',tid:'35 min'}], diesel:3.5 },
-  23: { typ:2, forare:'–', objekt:'Ålshult → Björsamåla', start:'07:00', slut:'14:30', vol:0, stammar:0, g15:0, snitt:0, stg15:0, medelstam:0, avbrott:[], diesel:0, flytt:true },
-  24: { typ:1, forare:'Marcus Nilsson',  objekt:'Björsamåla AU 2025', start:'07:00', slut:'16:50', vol:162, stammar:680,  g15:8.5,  snitt:11.8, stg15:80, medelstam:0.24, avbrott:[{orsak:'Rast',tid:'30 min'}], diesel:3.8 },
-  25: { typ:1, forare:'Pär Lindgren',    objekt:'Karamåla 19 A-S',   start:'07:15', slut:'16:30', vol:144, stammar:600,  g15:7.8,  snitt:11.1, stg15:77, medelstam:0.24, avbrott:[{orsak:'Tankning',tid:'18 min'},{orsak:'Rast',tid:'30 min'}], diesel:3.9 },
   28: { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:50', slut:'16:20', vol:130, stammar:540,  g15:7.2,  snitt:10.8, stg15:75, medelstam:0.24, avbrott:[{orsak:'Service – filter',tid:'45 min'},{orsak:'Rast',tid:'35 min'}], diesel:4.1 },
 };
+const dagData = (_db.dagData && Object.keys(_db.dagData).length > 0) ? _db.dagData : _fallbackDagData;
 
 const typIcon = { 1:'🌲', 2:'🚛', 3:'🔧' };
 const typNamn = { 1:'Produktion', 2:'Flytt', 3:'Service' };
@@ -859,7 +860,7 @@ export default function Maskinvy() {
           .gte('datum', startDate).lte('datum', endDate),
         // 1: fakt_tid for time distribution
         supabase.from('fakt_tid')
-          .select('datum, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
+          .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
           .gte('datum', startDate).lte('datum', endDate),
         // 2: dim_operator
         supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
@@ -874,7 +875,7 @@ export default function Maskinvy() {
           .eq('maskin_id', maskinId)
           .gte('datum', startDate).lte('datum', endDate);
         queries[1] = supabase.from('fakt_tid')
-          .select('datum, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
+          .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
           .eq('maskin_id', maskinId)
           .gte('datum', startDate).lte('datum', endDate);
       }
@@ -1004,6 +1005,59 @@ export default function Maskinvy() {
         };
       }).sort((a, b) => b.volym - a.volym);
 
+      // ── Build dagData from daily aggregation ──
+      const dagData: DbData['dagData'] = {};
+      const calendarDt: number[] = new Array(totalDays).fill(0);
+
+      // Group prod+tid per day
+      const dayDetail: Record<string, { vol: number; st: number; g15sek: number; opId: string; objId: string; diesel: number }> = {};
+      for (const r of prodRows) {
+        if (!dayDetail[r.datum]) dayDetail[r.datum] = { vol: 0, st: 0, g15sek: 0, opId: '', objId: '', diesel: 0 };
+        dayDetail[r.datum].vol += r.volym_m3sub || 0;
+        dayDetail[r.datum].st += r.stammar || 0;
+        if (r.operator_id) dayDetail[r.datum].opId = r.operator_id;
+        if (r.objekt_id) dayDetail[r.datum].objId = r.objekt_id;
+      }
+      for (const r of tidRows) {
+        if (!dayDetail[r.datum]) dayDetail[r.datum] = { vol: 0, st: 0, g15sek: 0, opId: '', objId: '', diesel: 0 };
+        dayDetail[r.datum].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
+        dayDetail[r.datum].diesel += r.bransle_liter || 0;
+        if (r.operator_id) dayDetail[r.datum].opId = r.operator_id;
+      }
+
+      for (let i = 0; i < totalDays; i++) {
+        const d = new Date(sDate);
+        d.setDate(d.getDate() + i);
+        const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        const dd = dayDetail[dateStr];
+        if (dd && dd.vol > 0) {
+          const dayNum = i + 1;
+          const g15h = dd.g15sek / 3600;
+          const opInfo = operators.find((o: any) => String(o.operator_id) === String(dd.opId));
+          const objInfo = objekter.find((o: any) => String(o.objekt_id) === String(dd.objId));
+          dagData[dayNum] = {
+            typ: 1, forare: opInfo?.operator_namn || '–',
+            objekt: objInfo?.objekt_namn || '–',
+            start: '07:00', slut: '16:30',
+            vol: Math.round(dd.vol), stammar: Math.round(dd.st),
+            g15: parseFloat(g15h.toFixed(1)),
+            snitt: g15h > 0 ? parseFloat((dd.vol / g15h).toFixed(1)) : 0,
+            stg15: g15h > 0 ? Math.round(dd.st / g15h) : 0,
+            medelstam: dd.st > 0 ? parseFloat((dd.vol / dd.st).toFixed(2)) : 0,
+            diesel: dd.vol > 0 ? parseFloat((dd.diesel / dd.vol).toFixed(1)) : 0,
+            avbrott: [],
+          };
+          calendarDt[i] = 1;
+        }
+      }
+
+      console.log('[Maskinvy] Fetched data:', {
+        maskinId, period: p, startDate, endDate,
+        prodRows: prodRows.length, tidRows: tidRows.length,
+        operators: operatorer.length, objekt: objekt.length,
+        totalVolym: Math.round(totalVolym), totalStammar: Math.round(totalStammar),
+      });
+
       const dbData: DbData = {
         dailyVol,
         dailySt,
@@ -1021,6 +1075,8 @@ export default function Maskinvy() {
         engineTimeSek,
         operatorer,
         objekt,
+        dagData,
+        calendarDt,
       };
 
       (window as any).__maskinvyData = dbData;
@@ -1037,6 +1093,7 @@ export default function Maskinvy() {
   // Fetch data when machine or period changes
   useEffect(() => {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
+    console.log('[Maskinvy] Machine/period changed:', { vald, maskin_id: valdMaskinObj?.maskin_id, period });
     // Destroy existing charts before refetch
     if (typeof window !== 'undefined' && (window as any).Chart) {
       document.querySelectorAll('canvas').forEach((c) => {
