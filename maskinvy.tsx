@@ -837,15 +837,30 @@ export default function Maskinvy() {
   const [loading, setLoading] = useState(false);
   const [maskinOpen, setMaskinOpen] = useState(false);
 
-  // ── Fetch machines ──
+  // ── Fetch machines — try multiple table names ──
   useEffect(() => {
-    supabase.from('dim_maskin').select('maskin_id,modell,tillverkare,typ').then(({ data }) => {
-      console.log('[Maskinvy] dim_maskin:', data);
-      if (data && data.length > 0) {
-        setMaskiner(data);
-        setVald(data[0].modell);
+    async function loadMachines() {
+      const tables = ['dim_maskin', 'maskiner', 'dim_maskiner', 'machines'];
+      for (const table of tables) {
+        const { data, error } = await supabase.from(table).select('*').limit(10);
+        console.log(`[Maskinvy] ${table}:`, { data, error: error?.message });
+        if (data && data.length > 0) {
+          // Map to expected shape regardless of column names
+          const mapped: Maskin[] = data.map((r: any) => ({
+            maskin_id: r.maskin_id || r.id || '',
+            modell: r.modell || r.model || r.namn || '',
+            tillverkare: r.tillverkare || r.marke || r.manufacturer || '',
+            typ: r.typ || r.type || '',
+          }));
+          console.log('[Maskinvy] Loaded from', table, ':', mapped);
+          setMaskiner(mapped);
+          setVald(mapped[0].modell);
+          return;
+        }
       }
-    });
+      console.warn('[Maskinvy] No machine table found');
+    }
+    loadMachines();
   }, []);
 
   // ── Compute date range from period ──
