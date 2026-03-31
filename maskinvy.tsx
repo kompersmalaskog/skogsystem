@@ -807,6 +807,8 @@ export default function Maskinvy() {
   const [vald, setVald] = useState('');
   const [activeView, setActiveView] = useState('oversikt');
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [period, setPeriod] = useState<'V' | 'M' | 'K' | 'Å'>('M');
+  const [loading, setLoading] = useState(false);
 
   // ── Fetch machines ──
   useEffect(() => {
@@ -815,16 +817,40 @@ export default function Maskinvy() {
     });
   }, []);
 
+  // ── Compute date range from period ──
+  function getPeriodDates(p: 'V' | 'M' | 'K' | 'Å'): { startDate: string; endDate: string } {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    if (p === 'V') {
+      const day = now.getDay() || 7;
+      const mon = new Date(now); mon.setDate(now.getDate() - day + 1);
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+      return { startDate: fmt(mon), endDate: fmt(sun) };
+    }
+    if (p === 'K') {
+      const q = Math.floor(now.getMonth() / 3);
+      const qs = new Date(now.getFullYear(), q * 3, 1);
+      const qe = new Date(now.getFullYear(), q * 3 + 3, 0);
+      return { startDate: fmt(qs), endDate: fmt(qe) };
+    }
+    if (p === 'Å') {
+      return { startDate: `${now.getFullYear()}-01-01`, endDate: `${now.getFullYear()}-12-31` };
+    }
+    // M (default)
+    const ms = new Date(now.getFullYear(), now.getMonth(), 1);
+    const me = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return { startDate: fmt(ms), endDate: fmt(me) };
+  }
+
   // ── Fetch production data from Supabase ──
-  const fetchDbData = useCallback(async (maskinId?: number) => {
+  const fetchDbData = useCallback(async (maskinId?: number, p: 'V' | 'M' | 'K' | 'Å' = 'M') => {
+    setLoading(true);
     try {
-      // Build date range for current month (default feb 2026 for fallback)
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = now.getMonth(); // 0-indexed
-      const startDate = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-      const lastDay = new Date(year, month + 1, 0).getDate();
-      const endDate = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+      const { startDate, endDate } = getPeriodDates(p);
+      const sDate = new Date(startDate);
+      const eDate = new Date(endDate);
+      const totalDays = Math.round((eDate.getTime() - sDate.getTime()) / 86400000) + 1;
 
       const queries: Promise<any>[] = [
         // 0: fakt_produktion for daily + KPIs
@@ -861,9 +887,9 @@ export default function Maskinvy() {
       const objekter = objRes.data || [];
 
       if (prodRows.length === 0 && tidRows.length === 0) {
-        // No data — use fallbacks
         (window as any).__maskinvyData = {};
         setDataLoaded(true);
+        setLoading(false);
         return;
       }
 
@@ -878,12 +904,15 @@ export default function Maskinvy() {
       const dailyVol: number[] = [];
       const dailySt: number[] = [];
       const dayLabels: string[] = [];
-      for (let d = 1; d <= lastDay; d++) {
-        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      for (let i = 0; i < totalDays; i++) {
+        const d = new Date(sDate);
+        d.setDate(d.getDate() + i);
+        const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
         const entry = dailyMap[dateStr];
         dailyVol.push(entry ? Math.round(entry.vol) : 0);
         dailySt.push(entry ? Math.round(entry.st) : 0);
-        dayLabels.push(`${d}/${month + 1}`);
+        dayLabels.push(`${d.getDate()}/${d.getMonth() + 1}`);
       }
 
       // ── KPI totals ──
@@ -996,18 +1025,28 @@ export default function Maskinvy() {
 
       (window as any).__maskinvyData = dbData;
       setDataLoaded(true);
+      setLoading(false);
     } catch (err) {
       console.error('Maskinvy: failed to fetch DB data', err);
       (window as any).__maskinvyData = {};
       setDataLoaded(true);
+      setLoading(false);
     }
   }, []);
 
-  // Fetch data when machine selection changes
+  // Fetch data when machine or period changes
   useEffect(() => {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
-    fetchDbData(valdMaskinObj?.maskin_id);
-  }, [vald, maskiner, fetchDbData]);
+    // Destroy existing charts before refetch
+    if (typeof window !== 'undefined' && (window as any).Chart) {
+      document.querySelectorAll('canvas').forEach((c) => {
+        const chart = (window as any).Chart.getChart(c as HTMLCanvasElement);
+        if (chart) chart.destroy();
+      });
+    }
+    setDataLoaded(false);
+    fetchDbData(valdMaskinObj?.maskin_id, period);
+  }, [vald, maskiner, period, fetchDbData]);
 
   // ── Initialize charts after data is loaded ──
   useEffect(() => {
@@ -1053,6 +1092,16 @@ export default function Maskinvy() {
 
   return (
     <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, display: 'flex', zIndex: 1 }}>
+      {/* Loading overlay */}
+      {loading && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 100,
+          background: 'rgba(15,15,14,0.7)', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+        }}>
+          <div style={{ color: '#7a7a72', fontSize: 14, fontFamily: "'Geist', system-ui, sans-serif" }}>Laddar data...</div>
+        </div>
+      )}
       {/* ── SIDEBAR ── */}
       <aside style={{
         width: 220, flexShrink: 0, background: '#0f0f0e', borderRight: '1px solid rgba(255,255,255,0.07)',
@@ -1095,11 +1144,11 @@ export default function Maskinvy() {
         <div style={{ padding: '12px 12px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginBottom: 2 }}>Period</div>
           <div style={{ display: 'flex', gap: 4 }}>
-            {['V', 'M', 'K', 'Å'].map((p, i) => (
-              <button key={p} style={{
+            {(['V', 'M', 'K', 'Å'] as const).map((p) => (
+              <button key={p} onClick={() => setPeriod(p)} style={{
                 flex: 1, padding: '5px 0', border: 'none', borderRadius: 6,
-                background: i === 1 ? '#1e1e1c' : 'transparent',
-                color: i === 1 ? '#e8e8e4' : '#555',
+                background: period === p ? '#1e1e1c' : 'transparent',
+                color: period === p ? '#e8e8e4' : '#555',
                 fontSize: 11, fontWeight: 600, cursor: 'pointer',
                 fontFamily: "'Geist', system-ui, sans-serif",
               }}>{p}</button>
