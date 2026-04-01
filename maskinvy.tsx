@@ -854,6 +854,7 @@ export default function Maskinvy() {
   const [activeView, setActiveView] = useState('oversikt');
   const [dataVersion, setDataVersion] = useState(0); // increments on each data load
   const [period, setPeriod] = useState<'V' | 'M' | 'K' | 'Å'>('M');
+  const [periodOffset, setPeriodOffset] = useState(0); // 0=current, -1=previous, etc.
   const [loading, setLoading] = useState(false);
   const [maskinOpen, setMaskinOpen] = useState(false);
 
@@ -875,41 +876,61 @@ export default function Maskinvy() {
     setVald(skordare[0].modell); // Auto-select Ponsse (mest data)
   }, []);
 
-  // ── Compute date range from period ──
-  function getPeriodDates(p: 'V' | 'M' | 'K' | 'Å'): { startDate: string; endDate: string } {
+  // ── Compute date range from period + offset ──
+  function getPeriodDates(p: 'V' | 'M' | 'K' | 'Å', offset = 0): { startDate: string; endDate: string } {
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
     if (p === 'V') {
       const day = now.getDay() || 7;
-      const mon = new Date(now); mon.setDate(now.getDate() - day + 1);
+      const mon = new Date(now); mon.setDate(now.getDate() - day + 1 + offset * 7);
       const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
       return { startDate: fmt(mon), endDate: fmt(sun) };
     }
     if (p === 'K') {
-      const q = Math.floor(now.getMonth() / 3);
-      const qs = new Date(now.getFullYear(), q * 3, 1);
-      const qe = new Date(now.getFullYear(), q * 3 + 3, 0);
+      const q = Math.floor(now.getMonth() / 3) + offset;
+      const baseYear = now.getFullYear() + Math.floor(q / 4) * (q < 0 ? -1 : 0);
+      const adjQ = ((q % 4) + 4) % 4;
+      const year = now.getFullYear() + Math.floor((Math.floor(now.getMonth() / 3) + offset) / 4);
+      const qIdx = (((Math.floor(now.getMonth() / 3) + offset) % 4) + 4) % 4;
+      const qs = new Date(year, qIdx * 3, 1);
+      const qe = new Date(year, qIdx * 3 + 3, 0);
       return { startDate: fmt(qs), endDate: fmt(qe) };
     }
     if (p === 'Å') {
-      return { startDate: `${now.getFullYear()}-01-01`, endDate: `${now.getFullYear()}-12-31` };
+      const y = now.getFullYear() + offset;
+      return { startDate: `${y}-01-01`, endDate: `${y}-12-31` };
     }
     // M (default)
-    const ms = new Date(now.getFullYear(), now.getMonth(), 1);
-    const me = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const ms = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+    const me = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
     return { startDate: fmt(ms), endDate: fmt(me) };
   }
 
+  // ── Human-readable period label ──
+  const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Maj', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
+  function getPeriodLabel(p: 'V' | 'M' | 'K' | 'Å', offset: number): string {
+    const { startDate } = getPeriodDates(p, offset);
+    const d = new Date(startDate);
+    if (p === 'V') {
+      const onejan = new Date(d.getFullYear(), 0, 1);
+      const weekNum = Math.ceil(((d.getTime() - onejan.getTime()) / 86400000 + onejan.getDay() + 1) / 7);
+      return `V${weekNum} ${d.getFullYear()}`;
+    }
+    if (p === 'M') return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
+    if (p === 'K') return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`;
+    return `${d.getFullYear()}`;
+  }
+
   // ── Fetch production data from Supabase ──
-  const fetchDbData = useCallback(async (maskinId: any, p: 'V' | 'M' | 'K' | 'Å' = 'M') => {
+  const fetchDbData = useCallback(async (maskinId: any, p: 'V' | 'M' | 'K' | 'Å' = 'M', pOffset = 0) => {
     if (!maskinId) return;
     setLoading(true);
     try {
-      let { startDate, endDate } = getPeriodDates(p);
+      let { startDate, endDate } = getPeriodDates(p, pOffset);
 
-      // For period M: find the most recent month with data (not current calendar month)
-      if (p === 'M') {
+      // For period M with offset 0: find the most recent month with data (not current calendar month)
+      if (p === 'M' && pOffset === 0) {
         const latestRes = await supabase.from('fakt_produktion')
           .select('datum')
           .eq('maskin_id', maskinId)
@@ -1284,9 +1305,9 @@ export default function Maskinvy() {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
     if (valdMaskinObj) {
       console.log('[Maskinvy] Trigger fetch:', { modell: vald, maskin_id: valdMaskinObj.maskin_id, period });
-      fetchDbData(valdMaskinObj.maskin_id, period);
+      fetchDbData(valdMaskinObj.maskin_id, period, periodOffset);
     }
-  }, [vald, maskiner, period, fetchDbData]);
+  }, [vald, maskiner, period, periodOffset, fetchDbData]);
 
   // ── Re-initialize charts every time data updates or view changes ──
   useEffect(() => {
@@ -1415,10 +1436,44 @@ export default function Maskinvy() {
             );
           })}
         </nav>
-        {/* Maskin + Period at bottom */}
+        {/* Maskin + Period */}
         <div style={{ padding: '12px 12px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {/* Period type + navigation */}
+          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginBottom: 2 }}>Period</div>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
+            {(['V', 'M', 'K', 'Å'] as const).map((p) => (
+              <button key={p} onClick={() => { setPeriod(p); setPeriodOffset(0); }} style={{
+                flex: 1, padding: '5px 0', border: 'none', borderRadius: 6,
+                background: period === p ? '#1e1e1c' : 'transparent',
+                color: period === p ? '#e8e8e4' : '#555',
+                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                fontFamily: "'Geist', system-ui, sans-serif",
+              }}>{p}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+            <button onClick={() => setPeriodOffset(o => o - 1)} style={{
+              width: 28, height: 28, border: 'none', borderRadius: 6, background: 'transparent',
+              color: '#7a7a72', fontSize: 14, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>‹</button>
+            <div style={{
+              flex: 1, textAlign: 'center', fontSize: 12, fontWeight: 600,
+              color: periodOffset === 0 ? '#e8e8e4' : '#00c48c', letterSpacing: '-0.2px',
+            }}>
+              {getPeriodLabel(period, periodOffset)}
+            </div>
+            <button onClick={() => setPeriodOffset(o => Math.min(o + 1, 0))} style={{
+              width: 28, height: 28, border: 'none', borderRadius: 6, background: 'transparent',
+              color: periodOffset >= 0 ? '#333' : '#7a7a72', fontSize: 14,
+              cursor: periodOffset >= 0 ? 'default' : 'pointer',
+              fontFamily: "'Geist', system-ui, sans-serif",
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>›</button>
+          </div>
+
           {/* Maskin — custom dropdown that opens UPWARD */}
-          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginBottom: 2 }}>Maskin</div>
+          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginTop: 8, marginBottom: 2 }}>Maskin</div>
           <div style={{ position: 'relative' }}>
             <button
               onClick={() => setMaskinOpen(!maskinOpen)}
@@ -1464,19 +1519,6 @@ export default function Maskinvy() {
             )}
           </div>
 
-          {/* Period */}
-          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginTop: 8, marginBottom: 2 }}>Period</div>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {(['V', 'M', 'K', 'Å'] as const).map((p) => (
-              <button key={p} onClick={() => setPeriod(p)} style={{
-                flex: 1, padding: '5px 0', border: 'none', borderRadius: 6,
-                background: period === p ? '#1e1e1c' : 'transparent',
-                color: period === p ? '#e8e8e4' : '#555',
-                fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                fontFamily: "'Geist', system-ui, sans-serif",
-              }}>{p}</button>
-            ))}
-          </div>
         </div>
       </aside>
       {/* ── MAIN CONTENT ── */}
