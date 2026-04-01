@@ -598,13 +598,18 @@ function s_openObjJmf() {
 function s_closeObjJmf() { s_closeAllPanels(); }
 `;
 
-async function fetchOperators() {
+async function fetchOperators(maskinId?: string) {
   try {
-    const { data: operators } = await supabase.from('dim_operator').select('*');
+    let opQuery = supabase.from('dim_operator').select('*');
+    if (maskinId) opQuery = opQuery.eq('maskin_id', maskinId);
+    const { data: operators } = await opQuery;
     if (!operators?.length) return null;
 
-    const { data: prodData } = await supabase.from('fakt_produktion').select('operator_id, datum, volym_m3sub, stammar, objekt_id');
-    const { data: tidData } = await supabase.from('fakt_tid').select('operator_id, datum, processing_sek, terrain_sek, other_work_sek, terrain_korstracka_m');
+    let prodQuery = supabase.from('fakt_produktion').select('operator_id, datum, volym_m3sub, stammar, objekt_id');
+    let tidQuery = supabase.from('fakt_tid').select('operator_id, datum, processing_sek, terrain_sek, other_work_sek, terrain_korstracka_m');
+    if (maskinId) { prodQuery = prodQuery.eq('maskin_id', maskinId); tidQuery = tidQuery.eq('maskin_id', maskinId); }
+    const { data: prodData } = await prodQuery;
+    const { data: tidData } = await tidQuery;
     const { data: objData } = await supabase.from('dim_objekt').select('id, objekt_namn');
 
     if (!prodData || !tidData) return null;
@@ -837,14 +842,14 @@ async function fetchDistClassData(maskinId?: string) {
   } catch (e) { console.error('[SKOTARE] fetchDistClassData error:', e); return null; }
 }
 
-async function fetchM3fubG15h() {
+async function fetchM3fubG15h(maskinId?: string) {
   const classEdges = [0, 100, 200, 300, 400, Infinity];
   const classLabels = ['0–100', '100–200', '200–300', '300–400', '400+'];
 
-  const [tidRes, prodRes] = await Promise.all([
-    supabase.from('fakt_tid').select('objekt_id, terrain_korstracka_m, processing_sek, terrain_sek, other_work_sek'),
-    supabase.from('fakt_produktion').select('objekt_id, volym_m3sub'),
-  ]);
+  let tidQuery = supabase.from('fakt_tid').select('objekt_id, terrain_korstracka_m, processing_sek, terrain_sek, other_work_sek');
+  let prodQuery = supabase.from('fakt_produktion').select('objekt_id, volym_m3sub');
+  if (maskinId) { tidQuery = tidQuery.eq('maskin_id', maskinId); prodQuery = prodQuery.eq('maskin_id', maskinId); }
+  const [tidRes, prodRes] = await Promise.all([tidQuery, prodQuery]);
 
   if (!tidRes.data || !prodRes.data) return null;
 
@@ -896,12 +901,13 @@ export default function SkotareVy() {
 
     async function init() {
       // Fetch all real data from Supabase before injecting script
+      const defaultMaskinId = 'A110148'; // Ponsse Elephant King AF
       const [m3fubData, forareData, dailyData, dagData, distClassData] = await Promise.all([
-        fetchM3fubG15h(),
-        fetchOperators(),
-        fetchDailyProduction(),
-        fetchDagData(),
-        fetchDistClassData(),
+        fetchM3fubG15h(defaultMaskinId),
+        fetchOperators(defaultMaskinId),
+        fetchDailyProduction(defaultMaskinId),
+        fetchDagData(defaultMaskinId),
+        fetchDistClassData(defaultMaskinId),
       ]);
       if (cancelled) return;
       if (m3fubData) (window as any).__s_m3fubData = m3fubData;

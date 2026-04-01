@@ -808,6 +808,11 @@ Object.assign(window, {
 });
 })();`;
 
+type PeriodKpi = {
+  volym: number; stammar: number; g15Timmar: number;
+  produktivitet: number; medelstam: number; label: string;
+};
+
 export default function Maskinvy() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [vald, setVald] = useState('');
@@ -816,6 +821,14 @@ export default function Maskinvy() {
   const [period, setPeriod] = useState<'V' | 'M' | 'K' | 'Å'>('M');
   const [loading, setLoading] = useState(false);
   const [maskinOpen, setMaskinOpen] = useState(false);
+
+  // ── Period comparison state ──
+  const [showCmp, setShowCmp] = useState(false);
+  const [cmpDateA, setCmpDateA] = useState({ start: '2026-01-01', end: '2026-01-31' });
+  const [cmpDateB, setCmpDateB] = useState({ start: '2026-02-01', end: '2026-02-28' });
+  const [cmpDataA, setCmpDataA] = useState<PeriodKpi | null>(null);
+  const [cmpDataB, setCmpDataB] = useState<PeriodKpi | null>(null);
+  const [cmpLoading, setCmpLoading] = useState(false);
 
   // ── Hardcoded machines (from database inspection) ──
   useEffect(() => {
@@ -1111,6 +1124,46 @@ export default function Maskinvy() {
     }
   }, []);
 
+  // ── Fetch KPIs for a specific date range (for comparison) ──
+  const fetchPeriodKpi = useCallback(async (maskinId: string, startDate: string, endDate: string, label: string): Promise<PeriodKpi> => {
+    const [prodRes, tidRes] = await Promise.all([
+      supabase.from('fakt_produktion')
+        .select('volym_m3sub, stammar')
+        .eq('maskin_id', maskinId)
+        .gte('datum', startDate).lte('datum', endDate),
+      supabase.from('fakt_tid')
+        .select('processing_sek, terrain_sek')
+        .eq('maskin_id', maskinId)
+        .gte('datum', startDate).lte('datum', endDate),
+    ]);
+    const prodRows = prodRes.data || [];
+    const tidRows = tidRes.data || [];
+    const volym = prodRows.reduce((s: number, r: any) => s + (r.volym_m3sub || 0), 0);
+    const stammar = prodRows.reduce((s: number, r: any) => s + (r.stammar || 0), 0);
+    const g15Sek = tidRows.reduce((s: number, r: any) => s + (r.processing_sek || 0) + (r.terrain_sek || 0), 0);
+    const g15Timmar = g15Sek / 3600;
+    return {
+      volym: Math.round(volym), stammar: Math.round(stammar),
+      g15Timmar: Math.round(g15Timmar),
+      produktivitet: g15Timmar > 0 ? parseFloat((volym / g15Timmar).toFixed(1)) : 0,
+      medelstam: stammar > 0 ? parseFloat((volym / stammar).toFixed(2)) : 0,
+      label,
+    };
+  }, []);
+
+  const runComparison = useCallback(async () => {
+    const valdMaskinObj = maskiner.find(m => m.modell === vald);
+    if (!valdMaskinObj) return;
+    setCmpLoading(true);
+    const [a, b] = await Promise.all([
+      fetchPeriodKpi(valdMaskinObj.maskin_id, cmpDateA.start, cmpDateA.end, `${cmpDateA.start} – ${cmpDateA.end}`),
+      fetchPeriodKpi(valdMaskinObj.maskin_id, cmpDateB.start, cmpDateB.end, `${cmpDateB.start} – ${cmpDateB.end}`),
+    ]);
+    setCmpDataA(a);
+    setCmpDataB(b);
+    setCmpLoading(false);
+  }, [maskiner, vald, cmpDateA, cmpDateB, fetchPeriodKpi]);
+
   // Fetch data when machine or period changes
   useEffect(() => {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
@@ -1228,10 +1281,11 @@ export default function Maskinvy() {
             { icon: '⬡', label: 'Trädslag', view: 'tradslag' },
             { icon: '▣', label: 'Objekt', view: 'objekt' },
             { icon: '⊘', label: 'Kalibrering', view: 'kalibrering' },
+            { icon: '⇄', label: 'Jämför perioder', view: 'jamfor' },
           ].map(item => {
             const isActive = activeView === item.view;
             return (
-            <div key={item.label} onClick={() => setActiveView(item.view)} style={{
+            <div key={item.label} onClick={() => { setActiveView(item.view); if (item.view === 'jamfor') setShowCmp(true); }} style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
               background: isActive ? '#1e1e1c' : 'transparent',
@@ -1312,6 +1366,93 @@ export default function Maskinvy() {
       </aside>
       {/* ── MAIN CONTENT ── */}
       <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch', background: '#111110' }}>
+
+      {/* ── PERIOD COMPARISON PANEL ── */}
+      {activeView === 'jamfor' && (
+        <div style={{ padding: '24px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 900 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 4 }}>
+            Jämför perioder
+          </div>
+          <div style={{ fontSize: 13, color: '#7a7a72', marginBottom: 24 }}>
+            {valdMaskin ? `${valdMaskin.tillverkare} ${valdMaskin.modell}` : ''} — sida vid sida
+          </div>
+
+          {/* Date pickers */}
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 24, flexWrap: 'wrap' }}>
+            <div style={{ background: '#1a1a18', border: '1px solid rgba(90,255,140,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#00c48c', letterSpacing: '0.08em' }}>A</span>
+              <input type="date" value={cmpDateA.start} onChange={e => setCmpDateA(p => ({ ...p, start: e.target.value }))}
+                style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+              <span style={{ color: '#3a3a36' }}>–</span>
+              <input type="date" value={cmpDateA.end} onChange={e => setCmpDateA(p => ({ ...p, end: e.target.value }))}
+                style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+            </div>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#3a3a36' }}>VS</span>
+            <div style={{ background: '#1a1a18', border: '1px solid rgba(255,179,64,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#ffb340', letterSpacing: '0.08em' }}>B</span>
+              <input type="date" value={cmpDateB.start} onChange={e => setCmpDateB(p => ({ ...p, start: e.target.value }))}
+                style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+              <span style={{ color: '#3a3a36' }}>–</span>
+              <input type="date" value={cmpDateB.end} onChange={e => setCmpDateB(p => ({ ...p, end: e.target.value }))}
+                style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+            </div>
+            <button onClick={runComparison} style={{
+              padding: '10px 20px', border: 'none', borderRadius: 8,
+              background: '#1a4a2e', color: '#00c48c', fontFamily: "'Geist', system-ui, sans-serif",
+              fontSize: 13, fontWeight: 600, cursor: 'pointer', letterSpacing: -0.2,
+            }}>
+              {cmpLoading ? 'Laddar...' : 'Visa →'}
+            </button>
+          </div>
+
+          {/* Comparison results */}
+          {cmpDataA && cmpDataB && (
+            <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 22 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 32px 1fr', gap: 7, alignItems: 'center', marginBottom: 12 }}>
+                <div />
+                <div style={{ background: 'rgba(90,255,140,0.08)', color: '#00c48c', borderRadius: 7, padding: '9px 14px', fontSize: 11, fontWeight: 600, border: '1px solid rgba(90,255,140,0.15)' }}>Period A</div>
+                <div style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#3a3a36' }}>VS</div>
+                <div style={{ background: 'rgba(255,179,64,0.08)', color: '#ffb340', borderRadius: 7, padding: '9px 14px', fontSize: 11, fontWeight: 600, border: '1px solid rgba(255,179,64,0.15)' }}>Period B</div>
+              </div>
+              {[
+                { lbl: 'Volym', a: cmpDataA.volym, b: cmpDataB.volym, unit: 'm³' },
+                { lbl: 'Stammar', a: cmpDataA.stammar, b: cmpDataB.stammar, unit: 'st' },
+                { lbl: 'G15-timmar', a: cmpDataA.g15Timmar, b: cmpDataB.g15Timmar, unit: 'h' },
+                { lbl: 'Produktivitet', a: cmpDataA.produktivitet, b: cmpDataB.produktivitet, unit: 'm³/G15h' },
+                { lbl: 'Medelstam', a: cmpDataA.medelstam, b: cmpDataB.medelstam, unit: 'm³/st' },
+              ].map(m => {
+                const diff = m.a > 0 ? ((m.b - m.a) / m.a * 100) : 0;
+                const pos = m.b >= m.a;
+                const fmt = (v: number) => v > 100 ? v.toLocaleString('sv-SE') : v;
+                return (
+                  <div key={m.lbl} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 32px 1fr', gap: 7, alignItems: 'center', marginBottom: 7 }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#7a7a72' }}>{m.lbl}</div>
+                    <div style={{ background: '#222220', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                      <span style={{ fontFamily: "'Fraunces', serif", fontSize: 26, color: '#00c48c' }}>{fmt(m.a)}</span>
+                      <span style={{ fontSize: 11, color: '#7a7a72' }}>{m.unit}</span>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{
+                        borderRadius: 5, padding: '3px 1px', fontSize: 10, fontWeight: 700,
+                        background: pos ? 'rgba(90,255,140,0.1)' : 'rgba(255,95,87,0.1)',
+                        color: pos ? '#00c48c' : '#ff5f57',
+                      }}>
+                        {diff !== 0 ? `${pos ? '+' : ''}${diff.toFixed(1)}%` : '—'}
+                      </div>
+                    </div>
+                    <div style={{ background: '#222220', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                      <span style={{ fontFamily: "'Fraunces', serif", fontSize: 26, color: '#ffb340' }}>{fmt(m.b)}</span>
+                      <span style={{ fontSize: 11, color: '#7a7a72' }}>{m.unit}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: activeView === 'jamfor' ? 'none' : 'block' }}>
       <style dangerouslySetInnerHTML={{ __html: `.mach-wrap { display: none !important; }
 .hdr { display: none !important; }
 .cmp-bar { display: none !important; }
@@ -2359,6 +2500,7 @@ body {
   </div>
   <div class="forar-body" id="fpBody"></div>
 </div>` }} />
+      </div>
       </div>
     </div>
   );
