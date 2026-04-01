@@ -447,6 +447,7 @@ export default function Arbetsrapport() {
               km_kvall: r.km_kvall || 0,
               km_totalt: r.km_totalt || 0,
               trak: !!r.traktamente,
+              start_tid: r.start_tid || '06:00',
               start: r.start_tid || '06:00',
               slut: r.slut_tid || '16:00',
               rast: r.rast_min || 30,

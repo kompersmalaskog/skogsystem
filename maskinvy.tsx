@@ -55,6 +55,15 @@ type DbData = {
   }>;
   // Calendar day types
   calendarDt: number[];
+  // MTH flag + sortiment per dag
+  hasMth: boolean;
+  sortimentPerDag: {
+    days: string[];
+    timmer: number[];
+    kubb: number[];
+    massa: number[];
+    energi: number[];
+  } | null;
 };
 
 const MASKINVY_SCRIPT = `(function(){
@@ -172,16 +181,42 @@ new Chart(document.getElementById('sortChart'),{
   options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top',labels:{font:{family:'Geist',size:11},boxWidth:8,borderRadius:2,padding:12,color:'#7a7a72'}},tooltip},scales:{x:{stacked:true,grid,ticks},y:{stacked:true,grid,ticks}}}
 });
 
-// MTH
-new Chart(document.getElementById('mthChart'),{
-  type:'bar',
-  data:{labels:classes,datasets:[
-    {label:'Gran', data:[820,640,180,28,8,3,0], backgroundColor:'rgba(90,255,140,0.5)',borderRadius:3,stack:'m'},
-    {label:'Tall', data:[190,120,50,10,2,1,0],  backgroundColor:'rgba(122,122,114,0.4)',borderRadius:3,stack:'m'},
-    {label:'Björk',data:[112,52,32,4,1,0,0],   backgroundColor:'rgba(91,143,255,0.5)',borderRadius:3,stack:'m'}
-  ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip},scales:{x:{stacked:true,grid,ticks},y:{stacked:true,grid,ticks}}}
-});
+// MTH — only if machine has MTH data
+var mthSection = document.getElementById('sec-mth');
+var sortDagSection = document.getElementById('sec-sortiment-dag');
+if (_db.hasMth === false) {
+  if (mthSection) mthSection.style.display = 'none';
+  if (sortDagSection) sortDagSection.style.removeProperty('display');
+  var spd = _db.sortimentPerDag;
+  var spdEl = document.getElementById('sortDagChart');
+  if (spd && spdEl) {
+    new Chart(spdEl, {
+      type: 'bar',
+      data: { labels: spd.days, datasets: [
+        { label: 'Timmer', data: spd.timmer, backgroundColor: 'rgba(90,255,140,0.5)', borderRadius: 3, stack: 'sd' },
+        { label: 'Kubb', data: spd.kubb, backgroundColor: 'rgba(91,143,255,0.5)', borderRadius: 3, stack: 'sd' },
+        { label: 'Massa', data: spd.massa, backgroundColor: 'rgba(255,179,64,0.4)', borderRadius: 3, stack: 'sd' },
+        { label: 'Energi', data: spd.energi, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, stack: 'sd' },
+      ]},
+      options: { responsive: true, interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { position: 'top', labels: { font: { family: 'Geist', size: 11 }, boxWidth: 8, borderRadius: 2, padding: 12, color: '#7a7a72' } }, tooltip },
+        scales: { x: { stacked: true, grid, ticks: { ...ticks, font: { size: 10 } } }, y: { stacked: true, grid, ticks, title: { display: true, text: 'm\\u00b3', color: '#7a7a72', font: { size: 10 } } } }
+      }
+    });
+  }
+} else {
+  if (mthSection) mthSection.style.removeProperty('display');
+  if (sortDagSection) sortDagSection.style.display = 'none';
+  new Chart(document.getElementById('mthChart'),{
+    type:'bar',
+    data:{labels:classes,datasets:[
+      {label:'Gran', data:[820,640,180,28,8,3,0], backgroundColor:'rgba(90,255,140,0.5)',borderRadius:3,stack:'m'},
+      {label:'Tall', data:[190,120,50,10,2,1,0],  backgroundColor:'rgba(122,122,114,0.4)',borderRadius:3,stack:'m'},
+      {label:'Björk',data:[112,52,32,4,1,0,0],   backgroundColor:'rgba(91,143,255,0.5)',borderRadius:3,stack:'m'}
+    ]},
+    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip},scales:{x:{stacked:true,grid,ticks},y:{stacked:true,grid,ticks}}}
+  });
+}
 
 // Total
 new Chart(document.getElementById('totalChart'),{
@@ -1082,8 +1117,86 @@ export default function Maskinvy() {
         }
       }
 
+      // ── Check MTH data + fetch sortiment per dag ──
+      const mthCheck = await supabase.from('fakt_produktion')
+        .select('processtyp')
+        .eq('maskin_id', maskinId)
+        .eq('processtyp', 'MTH')
+        .limit(1);
+      const hasMth = (mthCheck.data?.length || 0) > 0;
+
+      let sortimentPerDag: DbData['sortimentPerDag'] = null;
+      if (!hasMth) {
+        // Fetch sortiment data grouped per dag for this machine's objects
+        const objIds = [...new Set(prodRows.map((r: any) => r.objekt_id).filter(Boolean))];
+        if (objIds.length > 0) {
+          const [sortRes, dimSortRes] = await Promise.all([
+            supabase.from('fakt_sortiment')
+              .select('objekt_id, sortiment_id, volym_m3sub')
+              .in('objekt_id', objIds),
+            supabase.from('dim_sortiment')
+              .select('sortiment_id, namn'),
+          ]);
+          const dimSort = dimSortRes.data || [];
+          const sortRows = sortRes.data || [];
+
+          // Classify sortiment names into categories
+          const catMap: Record<string, 'timmer' | 'kubb' | 'massa' | 'energi'> = {};
+          for (const s of dimSort) {
+            const n = (s.namn || '').toLowerCase();
+            if (n.includes('timmer') || n.includes('såg') || n.includes('stock')) catMap[s.sortiment_id] = 'timmer';
+            else if (n.includes('kubb')) catMap[s.sortiment_id] = 'kubb';
+            else if (n.includes('massa') || n.includes('flis')) catMap[s.sortiment_id] = 'massa';
+            else catMap[s.sortiment_id] = 'energi';
+          }
+
+          // Sum sortiment volym per objekt
+          const objSortiment: Record<string, { timmer: number; kubb: number; massa: number; energi: number }> = {};
+          for (const r of sortRows) {
+            if (!objSortiment[r.objekt_id]) objSortiment[r.objekt_id] = { timmer: 0, kubb: 0, massa: 0, energi: 0 };
+            const cat = catMap[r.sortiment_id] || 'energi';
+            objSortiment[r.objekt_id][cat] += r.volym_m3sub || 0;
+          }
+
+          // Map back to daily arrays using prodRows dates → objekt_id
+          const daySortiment: Record<string, { timmer: number; kubb: number; massa: number; energi: number }> = {};
+          for (const r of prodRows) {
+            if (!r.datum || !r.objekt_id) continue;
+            if (!daySortiment[r.datum]) daySortiment[r.datum] = { timmer: 0, kubb: 0, massa: 0, energi: 0 };
+            const objSort = objSortiment[r.objekt_id];
+            if (!objSort) continue;
+            const objTotal = objSort.timmer + objSort.kubb + objSort.massa + objSort.energi;
+            if (objTotal <= 0) continue;
+            // Distribute this day's volume by the object's sortiment proportions
+            const dayVol = r.volym_m3sub || 0;
+            daySortiment[r.datum].timmer += dayVol * (objSort.timmer / objTotal);
+            daySortiment[r.datum].kubb += dayVol * (objSort.kubb / objTotal);
+            daySortiment[r.datum].massa += dayVol * (objSort.massa / objTotal);
+            daySortiment[r.datum].energi += dayVol * (objSort.energi / objTotal);
+          }
+
+          const sDays: string[] = [];
+          const timmer: number[] = [];
+          const kubb: number[] = [];
+          const massa: number[] = [];
+          const energi: number[] = [];
+          for (let i = 0; i < totalDays; i++) {
+            const d = new Date(sDate);
+            d.setDate(d.getDate() + i);
+            const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+            sDays.push(`${d.getDate()}/${d.getMonth() + 1}`);
+            const ds = daySortiment[dateStr];
+            timmer.push(ds ? Math.round(ds.timmer) : 0);
+            kubb.push(ds ? Math.round(ds.kubb) : 0);
+            massa.push(ds ? Math.round(ds.massa) : 0);
+            energi.push(ds ? Math.round(ds.energi) : 0);
+          }
+          sortimentPerDag = { days: sDays, timmer, kubb, massa, energi };
+        }
+      }
+
       console.log('[Maskinvy] Computed data:', {
-        maskinId, period: p,
+        maskinId, period: p, hasMth,
         totalVolym: Math.round(totalVolym),
         totalStammar: Math.round(totalStammar),
         g15Timmar: Math.round(g15Timmar),
@@ -1111,6 +1224,8 @@ export default function Maskinvy() {
         objekt,
         dagData,
         calendarDt,
+        hasMth,
+        sortimentPerDag,
       };
 
       (window as any).__maskinvyData = dbData;
@@ -2137,8 +2252,8 @@ body {
     </div>
   </div>
 
-  <!-- MTH -->
-  <div class="gf view-section vs-produktion vs-tradslag">
+  <!-- MTH (hidden for slutavverkningsskördare without MTH data) -->
+  <div class="gf view-section vs-produktion vs-tradslag" id="sec-mth">
     <div class="card anim" style="animation-delay:0.75s">
       <div class="card-h">
         <div class="card-t">Flerträd (MTH) per trädslag & medelstamsklass</div>
@@ -2159,6 +2274,24 @@ body {
           <div class="sc best"><div class="sc-k">0.5–0.7</div><div class="sc-p" style="color:var(--text)">1%</div><div class="sc-u">MTH</div></div>
           <div class="sc best"><div class="sc-k">0.7+</div><div class="sc-p" style="color:var(--text)">0%</div><div class="sc-u">MTH</div></div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SORTIMENT PER DAG (shown instead of MTH for slutavverkningsskördare) -->
+  <div class="gf view-section vs-produktion vs-tradslag" id="sec-sortiment-dag" style="display:none">
+    <div class="card anim" style="animation-delay:0.75s">
+      <div class="card-h">
+        <div class="card-t">Sortiment per dag</div>
+        <div style="display:flex;gap:12px;">
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(90,255,140,0.5)"></div>Timmer</div>
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(91,143,255,0.5)"></div>Kubb</div>
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(255,179,64,0.4)"></div>Massa</div>
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(255,255,255,0.1)"></div>Energi</div>
+        </div>
+      </div>
+      <div class="card-b">
+        <canvas id="sortDagChart" style="max-height:190px"></canvas>
       </div>
     </div>
   </div>
