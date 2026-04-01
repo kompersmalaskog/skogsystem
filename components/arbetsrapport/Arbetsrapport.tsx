@@ -382,7 +382,6 @@ export default function Arbetsrapport() {
       supabase.from("gs_avtal").select("*").order("giltigt_fran",{ascending:false}).limit(1).single(),
       supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare").order("object_name"),
     ]).then(([med, avt, obj]) => {
-      console.log('[auth] Medarbetare laddad:', { id: med.data?.id, namn: med.data?.namn, epost: med.data?.epost });
       if(med.data) {
         setMedarbetare(med.data);
         setHemadress(med.data.hemadress || "");
@@ -431,14 +430,12 @@ export default function Arbetsrapport() {
     if (!medarbetare) return;
     const förstadag = new Date(kalÅr, kalMånad, 1).toISOString().slice(0, 10);
     const sistadag = new Date(kalÅr, kalMånad + 1, 0).toISOString().slice(0, 10);
-    console.log('[dagData] Hämtar arbetsdag för:', { medarbetare_id: medarbetare.id, namn: medarbetare.namn, förstadag, sistadag });
     supabase.from('arbetsdag')
       .select('*')
       .eq('medarbetare_id', medarbetare.id)
       .gte('datum', förstadag)
       .lte('datum', sistadag)
       .then(res => {
-        console.log('[dagData] Supabase svar:', { data: res.data, error: res.error, antal: res.data?.length });
         if (res.data) {
           const map: Record<string, any> = {};
           for (const r of res.data) {
@@ -455,8 +452,6 @@ export default function Arbetsrapport() {
               rast: r.rast_min || 30,
             };
           }
-          console.log('[dagData] Mappat dagData:', map);
-          console.log('[dagData] dagKey(8) =', `${kalÅr}-${String(kalMånad+1).padStart(2,'0')}-08`);
           setDagData(map);
         }
       });
@@ -1798,8 +1793,9 @@ export default function Arbetsrapport() {
       const date=new Date(kalÅr,kalMånad,d);
       const dow=date.getDay();
       if(dow===0||dow===6) return "weekend";
-      if(!dag) return "tom";
-      return dag.status;
+      if(dag?.start) return "ok";
+      if(!dag && dow!==0 && dow!==6 && date<idag) return "saknas";
+      return "tom";
     };
 
     const dagBg={
