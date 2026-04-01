@@ -1802,121 +1802,9 @@ export default function Maskinvy() {
         </div>
       )}
 
-      {/* ── OPERATOR COMPARISON PANEL ── */}
-      {activeView === 'operatorer' && (
-        <div style={{ padding: '24px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 960 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 4 }}>
-            Jämför operatörer
-          </div>
-          <div style={{ fontSize: 13, color: '#7a7a72', marginBottom: 20 }}>
-            Välj 2–4 operatörer och en period
-          </div>
 
-          {/* Operator selector */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
-            {opCmpAllOps.map(op => {
-              const sel = opCmpIds.includes(op.id);
-              return (
-                <button key={op.id} onClick={() => {
-                  setOpCmpIds(prev => sel ? prev.filter(x => x !== op.id) : prev.length < 4 ? [...prev, op.id] : prev);
-                }} style={{
-                  padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer',
-                  background: sel ? '#1a4a2e' : '#1a1a18',
-                  color: sel ? '#00c48c' : '#7a7a72',
-                  fontSize: 12, fontWeight: 600, fontFamily: "'Geist', system-ui, sans-serif",
-                  transition: 'all 0.15s',
-                }}>
-                  {op.namn}
-                </button>
-              );
-            })}
-          </div>
 
-          {/* Date range */}
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
-            <input type="date" value={opCmpFrom} onChange={e => setOpCmpFrom(e.target.value)}
-              style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
-            <span style={{ color: '#3a3a36' }}>–</span>
-            <input type="date" value={opCmpTo} onChange={e => setOpCmpTo(e.target.value)}
-              style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
-            <button onClick={runOpCmp} disabled={opCmpIds.length < 2} style={{
-              padding: '8px 18px', border: 'none', borderRadius: 8,
-              background: opCmpIds.length >= 2 ? '#1a4a2e' : '#1a1a18',
-              color: opCmpIds.length >= 2 ? '#00c48c' : '#555',
-              fontFamily: "'Geist', system-ui, sans-serif", fontSize: 13, fontWeight: 600,
-              cursor: opCmpIds.length >= 2 ? 'pointer' : 'default',
-            }}>
-              {opCmpLoading ? 'Laddar...' : 'Jämför →'}
-            </button>
-          </div>
-
-          {/* Results table */}
-          {opCmpRows.length > 0 && (
-            <>
-              <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden', marginBottom: 16 }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                      <th style={{ padding: '12px 16px', textAlign: 'left', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Operatör</th>
-                      <th style={{ padding: '12px 12px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Stammar</th>
-                      <th style={{ padding: '12px 12px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Volym m³</th>
-                      <th style={{ padding: '12px 12px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>m³/G15h</th>
-                      <th style={{ padding: '12px 12px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Motortid h</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Bränsle L/h</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {opCmpRows.map((r, i) => {
-                      const colors = ['#00c48c', '#5b8fff', '#ffb340', '#ff5f57'];
-                      const best = (field: keyof OpCmpRow, higher = true) => {
-                        const vals = opCmpRows.map(x => x[field] as number);
-                        const target = higher ? Math.max(...vals) : Math.min(...vals);
-                        return r[field] === target;
-                      };
-                      return (
-                        <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                          <td style={{ padding: '12px 16px', fontWeight: 600, color: colors[i % colors.length] }}>
-                            {r.namn}
-                          </td>
-                          <td style={{ padding: '12px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('stammar') ? '#e8e8e4' : '#7a7a72', fontWeight: best('stammar') ? 700 : 400 }}>
-                            {r.stammar.toLocaleString('sv-SE')}
-                          </td>
-                          <td style={{ padding: '12px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('volym') ? '#e8e8e4' : '#7a7a72', fontWeight: best('volym') ? 700 : 400 }}>
-                            {r.volym.toLocaleString('sv-SE')}
-                          </td>
-                          <td style={{ padding: '12px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('prod') ? '#e8e8e4' : '#7a7a72', fontWeight: best('prod') ? 700 : 400 }}>
-                            {r.prod}
-                          </td>
-                          <td style={{ padding: '12px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>
-                            {r.motorH}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('bransleH', false) ? '#e8e8e4' : '#7a7a72', fontWeight: best('bransleH', false) ? 700 : 400 }}>
-                            {r.bransleH}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Monthly volume chart */}
-              {opCmpMonths.length > 0 && (
-                <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '18px 18px 14px' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#3a3a36', marginBottom: 14 }}>
-                    Volym per månad
-                  </div>
-                  <div style={{ height: 260, position: 'relative' }}>
-                    <canvas ref={opCmpChartRef} />
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-        </div>
-      )}
-
-      <div style={{ display: activeView === 'jamfor' || activeView === 'operatorer' ? 'none' : 'block' }}>
+      <div style={{ display: activeView === 'jamfor' ? 'none' : 'block' }}>
       <style dangerouslySetInnerHTML={{ __html: `.mach-wrap { display: none !important; }
 .hdr { display: none !important; }
 .cmp-bar { display: none !important; }
@@ -2983,6 +2871,111 @@ body {
   <div class="forar-body" id="fpBody"></div>
 </div>` }} />
       </div>
+
+      {/* ── OPERATOR COMPARISON — below the operator cards ── */}
+      {activeView === 'operatorer' && (
+        <div style={{ padding: '0 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 960 }}>
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 24, marginTop: 8 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.3, marginBottom: 4 }}>
+              Jämför operatörer
+            </div>
+            <div style={{ fontSize: 12, color: '#7a7a72', marginBottom: 16 }}>
+              Välj 2–4 operatörer och en period
+            </div>
+
+            {/* Operator selector */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+              {opCmpAllOps.map(op => {
+                const sel = opCmpIds.includes(op.id);
+                return (
+                  <button key={op.id} onClick={() => {
+                    setOpCmpIds(prev => sel ? prev.filter(x => x !== op.id) : prev.length < 4 ? [...prev, op.id] : prev);
+                  }} style={{
+                    padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
+                    background: sel ? '#1a4a2e' : '#1a1a18',
+                    color: sel ? '#00c48c' : '#7a7a72',
+                    fontSize: 11, fontWeight: 600, fontFamily: "'Geist', system-ui, sans-serif",
+                    transition: 'all 0.15s',
+                  }}>
+                    {op.namn}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Date range */}
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 18 }}>
+              <input type="date" value={opCmpFrom} onChange={e => setOpCmpFrom(e.target.value)}
+                style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+              <span style={{ color: '#3a3a36', fontSize: 12 }}>–</span>
+              <input type="date" value={opCmpTo} onChange={e => setOpCmpTo(e.target.value)}
+                style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+              <button onClick={runOpCmp} disabled={opCmpIds.length < 2} style={{
+                padding: '7px 16px', border: 'none', borderRadius: 8,
+                background: opCmpIds.length >= 2 ? '#1a4a2e' : '#1a1a18',
+                color: opCmpIds.length >= 2 ? '#00c48c' : '#555',
+                fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, fontWeight: 600,
+                cursor: opCmpIds.length >= 2 ? 'pointer' : 'default',
+              }}>
+                {opCmpLoading ? 'Laddar...' : 'Jämför →'}
+              </button>
+            </div>
+
+            {/* Results table */}
+            {opCmpRows.length > 0 && (
+              <>
+                <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                        <th style={{ padding: '10px 14px', textAlign: 'left', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Operatör</th>
+                        <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Stammar</th>
+                        <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Volym m³</th>
+                        <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>m³/G15h</th>
+                        <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Motortid h</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Bränsle L/h</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {opCmpRows.map((r, i) => {
+                        const colors = ['#00c48c', '#5b8fff', '#ffb340', '#ff5f57'];
+                        const best = (field: keyof OpCmpRow, higher = true) => {
+                          const vals = opCmpRows.map(x => x[field] as number);
+                          const target = higher ? Math.max(...vals) : Math.min(...vals);
+                          return r[field] === target;
+                        };
+                        return (
+                          <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '10px 14px', fontWeight: 600, color: colors[i % colors.length] }}>{r.namn}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('stammar') ? '#e8e8e4' : '#7a7a72', fontWeight: best('stammar') ? 700 : 400 }}>{r.stammar.toLocaleString('sv-SE')}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('volym') ? '#e8e8e4' : '#7a7a72', fontWeight: best('volym') ? 700 : 400 }}>{r.volym.toLocaleString('sv-SE')}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('prod') ? '#e8e8e4' : '#7a7a72', fontWeight: best('prod') ? 700 : 400 }}>{r.prod}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.motorH}</td>
+                            <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('bransleH', false) ? '#e8e8e4' : '#7a7a72', fontWeight: best('bransleH', false) ? 700 : 400 }}>{r.bransleH}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Monthly volume chart */}
+                {opCmpMonths.length > 0 && (
+                  <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '16px 16px 12px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#3a3a36', marginBottom: 12 }}>
+                      Volym per månad
+                    </div>
+                    <div style={{ height: 240, position: 'relative' }}>
+                      <canvas ref={opCmpChartRef} />
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       </div>
     </div>
   );
