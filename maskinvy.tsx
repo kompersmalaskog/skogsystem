@@ -61,6 +61,10 @@ type DbData = {
   }>;
   // Calendar day types
   calendarDt: number[];
+  // Extra KPIs
+  bransleTotalt: number;
+  branslePerM3: number;
+  stammarPerG15h: number;
   // MTH flag + sortiment per dag
   hasMth: boolean;
   sortimentPerDag: {
@@ -109,6 +113,9 @@ var _kpiStammar = _db.totalStammar || 0;
 var _kpiG15 = _db.g15Timmar || 0;
 var _kpiProd = _db.produktivitet || 0;
 var _kpiMedel = _db.medelstam || 0;
+var _kpiBransle = _db.bransleTotalt || 0;
+var _kpiBransleM3 = _db.branslePerM3 || 0;
+var _kpiStG15 = _db.stammarPerG15h || 0;
 
 // Update ALL KPI data-count attributes from DB
 document.querySelectorAll('.k-val[data-count]').forEach(function(el) {
@@ -118,6 +125,9 @@ document.querySelectorAll('.k-val[data-count]').forEach(function(el) {
   if (t === 'Stammar') el.setAttribute('data-count', String(_kpiStammar));
   if (t === 'Produktivitet') el.setAttribute('data-count', String(_kpiProd));
   if (t === 'Medelstam') el.setAttribute('data-count', String(_kpiMedel));
+  if (t === 'Br\\u00e4nsle totalt') el.setAttribute('data-count', String(_kpiBransle));
+  if (t === 'Br\\u00e4nsle/m\\u00b3') el.setAttribute('data-count', String(_kpiBransleM3));
+  if (t === 'Stammar/G15h') el.setAttribute('data-count', String(_kpiStG15));
 });
 
 setTimeout(()=>{
@@ -1064,6 +1074,7 @@ export default function Maskinvy() {
           avbrottSek: 0, rastSek: 0, engineTimeSek: 0,
           operatorer: [], objekt: [], dagData: {},
           calendarDt: new Array(totalDays).fill(0),
+          bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0,
           hasMth: false, sortimentPerDag: null,
         };
         (window as any).__maskinvyData = emptyData;
@@ -1099,7 +1110,7 @@ export default function Maskinvy() {
       const totalStammar = prodRows.reduce((s: number, r: any) => s + (r.stammar || 0), 0);
 
       // ── Time distribution ──
-      let processingSek = 0, terrainSek = 0, kortStoppSek = 0, avbrottSek = 0, rastSek = 0, engineTimeSek = 0;
+      let processingSek = 0, terrainSek = 0, kortStoppSek = 0, avbrottSek = 0, rastSek = 0, engineTimeSek = 0, bransleTotalt = 0;
       for (const r of tidRows) {
         processingSek += r.processing_sek || 0;
         terrainSek += r.terrain_sek || 0;
@@ -1107,12 +1118,15 @@ export default function Maskinvy() {
         avbrottSek += (r.disturbance_sek || 0) + (r.maintenance_sek || 0);
         rastSek += r.rast_sek || 0;
         engineTimeSek += r.engine_time_sek || 0;
+        bransleTotalt += r.bransle_liter || 0;
       }
 
       const g15Sek = processingSek + terrainSek;
       const g15Timmar = g15Sek / 3600;
       const produktivitet = g15Timmar > 0 ? totalVolym / g15Timmar : 0;
       const medelstam = totalStammar > 0 ? totalVolym / totalStammar : 0;
+      const branslePerM3 = totalVolym > 0 ? bransleTotalt / totalVolym : 0;
+      const stammarPerG15h = g15Timmar > 0 ? totalStammar / g15Timmar : 0;
 
       // ── Operators (with detailed time/fuel + daily production) ──
       const opMap: Record<string, {
@@ -1362,6 +1376,9 @@ export default function Maskinvy() {
         objekt,
         dagData,
         calendarDt,
+        bransleTotalt: Math.round(bransleTotalt),
+        branslePerM3: parseFloat(branslePerM3.toFixed(2)),
+        stammarPerG15h: parseFloat(stammarPerG15h.toFixed(1)),
         hasMth,
         sortimentPerDag,
       };
@@ -2285,6 +2302,25 @@ body {
       <div class="k-val" data-count="0" data-dec="2">0</div>
       <div class="k-unit">m³/stam</div>
       <div class="k-delta"></div>
+    </div>
+  </div>
+
+  <!-- KPI ROW 2 — Bränsle + Stammar/G15h -->
+  <div class="hero view-section vs-oversikt" id="sec-kpi2" style="grid-template-columns:repeat(3,1fr);margin-top:-8px;">
+    <div class="kpi anim" style="animation-delay:0.15s">
+      <div class="k-label">Bränsle totalt</div>
+      <div class="k-val" data-count="0">0</div>
+      <div class="k-unit">liter</div>
+    </div>
+    <div class="kpi anim" style="animation-delay:0.18s">
+      <div class="k-label">Bränsle/m³</div>
+      <div class="k-val" data-count="0" data-dec="2">0</div>
+      <div class="k-unit">L/m³</div>
+    </div>
+    <div class="kpi anim" style="animation-delay:0.21s">
+      <div class="k-label">Stammar/G15h</div>
+      <div class="k-val" data-count="0" data-dec="1">0</div>
+      <div class="k-unit">st/G15h</div>
     </div>
   </div>
 
