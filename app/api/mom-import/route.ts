@@ -139,9 +139,11 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Skapa arbetsdag-rader
-    const svTid = (iso: string) => {
-      const d = new Date(iso);
-      return d.toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit', hour12: false });
+    // DB lagrar lokal svensk tid märkt som UTC (parse_datetime strippar timezone)
+    // Extrahera HH:MM direkt utan konvertering
+    const hhmm = (iso: string) => {
+      const m = iso.match(/(\d{2}):(\d{2})/);
+      return m ? `${m[1]}:${m[2]}` : '00:00';
     };
 
     const rows = Object.values(dagMap).map(agg => {
@@ -152,8 +154,8 @@ export async function POST(req: NextRequest) {
         medarbetare_id: agg.medarbetare_id,
         datum: agg.datum,
         dagtyp: 'normal',
-        start_tid: svTid(agg.earliestStart),
-        slut_tid: svTid(agg.latestEnd),
+        start_tid: hhmm(agg.earliestStart),
+        slut_tid: hhmm(agg.latestEnd),
         rast_min: rastMin,
         maskin_id: agg.maskin_id,
         bekraftad: false,
