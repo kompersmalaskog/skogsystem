@@ -456,7 +456,7 @@ export default function Arbetsrapport() {
             };
           }
           console.log('[dagData] Mappat dagData:', map);
-          console.log('[dagData] dagKey(8) för mars 2026 =', `${kalÅr}-${mStr}-08`);
+          console.log('[dagData] dagKey(8) =', `${kalÅr}-${String(kalMånad+1).padStart(2,'0')}-08`);
           setDagData(map);
         }
       });
