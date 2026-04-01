@@ -1050,15 +1050,14 @@ export default function Maskinvy() {
         supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer'),
       ]);
 
-      const prodRows = prodRes.data || [];
-      const tidRows = tidRes.data || [];
+      const rawProdRows = prodRes.data || [];
+      const rawTidRows = tidRes.data || [];
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
 
-      console.log('[Maskinvy] Data loaded:', { maskinId, prodRows: prodRows.length, tidRows: tidRows.length, operators: operators.length, sample: prodRows[0] });
+      console.log('[Maskinvy] Data loaded:', { maskinId, rawProd: rawProdRows.length, rawTid: rawTidRows.length, operators: operators.length });
 
-      if (prodRows.length === 0 && tidRows.length === 0) {
-        const pad0 = (n: number) => String(n).padStart(2, '0');
+      if (rawProdRows.length === 0 && rawTidRows.length === 0) {
         const emptyDays: string[] = [];
         for (let i = 0; i < totalDays; i++) {
           const d = new Date(sDate); d.setDate(d.getDate() + i);
@@ -1083,43 +1082,106 @@ export default function Maskinvy() {
         return;
       }
 
-      // ── Daily production arrays ──
-      const dailyMap: Record<string, { vol: number; st: number }> = {};
-      for (const r of prodRows) {
-        if (!dailyMap[r.datum]) dailyMap[r.datum] = { vol: 0, st: 0 };
-        dailyMap[r.datum].vol += r.volym_m3sub || 0;
-        dailyMap[r.datum].st += r.stammar || 0;
+      const pad = (n: number) => String(n).padStart(2, '0');
+
+      // ════════════════════════════════════════════════════════════
+      // PRE-AGGREGATE: sum each table separately per (datum, operator_id, objekt_id)
+      // to avoid any cross-multiplication between the 23 prod rows and 2 tid rows per day.
+      // ════════════════════════════════════════════════════════════
+
+      // ── Aggregate fakt_produktion per (datum, operator_id, objekt_id) ──
+      type ProdAgg = { vol: number; st: number };
+      const prodByDay: Record<string, ProdAgg> = {};                        // per datum
+      const prodByDayOp: Record<string, ProdAgg> = {};                      // per datum|operator_id
+      const prodByObjekt: Record<string, ProdAgg> = {};                     // per objekt_id
+      const prodObjIds = new Set<string>();
+
+      for (const r of rawProdRows) {
+        const d = r.datum;
+        // Per day totals
+        if (!prodByDay[d]) prodByDay[d] = { vol: 0, st: 0 };
+        prodByDay[d].vol += r.volym_m3sub || 0;
+        prodByDay[d].st += r.stammar || 0;
+        // Per day+operator
+        const opKey = `${d}|${r.operator_id || ''}`;
+        if (!prodByDayOp[opKey]) prodByDayOp[opKey] = { vol: 0, st: 0 };
+        prodByDayOp[opKey].vol += r.volym_m3sub || 0;
+        prodByDayOp[opKey].st += r.stammar || 0;
+        // Per objekt
+        if (r.objekt_id) {
+          prodObjIds.add(r.objekt_id);
+          if (!prodByObjekt[r.objekt_id]) prodByObjekt[r.objekt_id] = { vol: 0, st: 0 };
+          prodByObjekt[r.objekt_id].vol += r.volym_m3sub || 0;
+          prodByObjekt[r.objekt_id].st += r.stammar || 0;
+        }
       }
 
+      // ── Aggregate fakt_tid per (datum, operator_id, objekt_id) ──
+      type TidAgg = { processingSek: number; terrainSek: number; otherWorkSek: number; disturbanceSek: number; maintenanceSek: number; avbrottSek: number; rastSek: number; engineTimeSek: number; bransleLiter: number };
+      const emptyTid = (): TidAgg => ({ processingSek: 0, terrainSek: 0, otherWorkSek: 0, disturbanceSek: 0, maintenanceSek: 0, avbrottSek: 0, rastSek: 0, engineTimeSek: 0, bransleLiter: 0 });
+      const addTid = (agg: TidAgg, r: any) => {
+        agg.processingSek += r.processing_sek || 0;
+        agg.terrainSek += r.terrain_sek || 0;
+        agg.otherWorkSek += r.other_work_sek || 0;
+        agg.disturbanceSek += r.disturbance_sek || 0;
+        agg.maintenanceSek += r.maintenance_sek || 0;
+        agg.avbrottSek += r.avbrott_sek || 0;
+        agg.rastSek += r.rast_sek || 0;
+        agg.engineTimeSek += r.engine_time_sek || 0;
+        agg.bransleLiter += r.bransle_liter || 0;
+      };
+
+      const tidTotal: TidAgg = emptyTid();                                  // grand total
+      const tidByDay: Record<string, TidAgg> = {};                          // per datum
+      const tidByDayOp: Record<string, TidAgg> = {};                        // per datum|operator_id
+      const tidByObjekt: Record<string, TidAgg> = {};                       // per objekt_id
+
+      for (const r of rawTidRows) {
+        const d = r.datum;
+        addTid(tidTotal, r);
+        // Per day
+        if (!tidByDay[d]) tidByDay[d] = emptyTid();
+        addTid(tidByDay[d], r);
+        // Per day+operator
+        const opKey = `${d}|${r.operator_id || ''}`;
+        if (!tidByDayOp[opKey]) tidByDayOp[opKey] = emptyTid();
+        addTid(tidByDayOp[opKey], r);
+        // Per objekt
+        if (r.objekt_id) {
+          if (!tidByObjekt[r.objekt_id]) tidByObjekt[r.objekt_id] = emptyTid();
+          addTid(tidByObjekt[r.objekt_id], r);
+        }
+      }
+
+      // ════════════════════════════════════════════════════════════
+      // BUILD RESULTS from pre-aggregated data (no raw row mixing)
+      // ════════════════════════════════════════════════════════════
+
+      // ── Daily production arrays ──
       const dailyVol: number[] = [];
       const dailySt: number[] = [];
       const dayLabels: string[] = [];
-      const pad = (n: number) => String(n).padStart(2, '0');
       for (let i = 0; i < totalDays; i++) {
-        const d = new Date(sDate);
-        d.setDate(d.getDate() + i);
+        const d = new Date(sDate); d.setDate(d.getDate() + i);
         const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        const entry = dailyMap[dateStr];
-        dailyVol.push(entry ? Math.round(entry.vol) : 0);
-        dailySt.push(entry ? Math.round(entry.st) : 0);
+        const p = prodByDay[dateStr];
+        dailyVol.push(p ? Math.round(p.vol) : 0);
+        dailySt.push(p ? Math.round(p.st) : 0);
         dayLabels.push(`${d.getDate()}/${d.getMonth() + 1}`);
       }
 
-      // ── KPI totals ──
-      const totalVolym = prodRows.reduce((s: number, r: any) => s + (r.volym_m3sub || 0), 0);
-      const totalStammar = prodRows.reduce((s: number, r: any) => s + (r.stammar || 0), 0);
+      // ── KPI totals (from pre-aggregated data) ──
+      const totalVolym = Object.values(prodByDay).reduce((s, d) => s + d.vol, 0);
+      const totalStammar = Object.values(prodByDay).reduce((s, d) => s + d.st, 0);
 
-      // ── Time distribution ──
-      let processingSek = 0, terrainSek = 0, kortStoppSek = 0, avbrottSek = 0, rastSek = 0, engineTimeSek = 0, bransleTotalt = 0;
-      for (const r of tidRows) {
-        processingSek += r.processing_sek || 0;
-        terrainSek += r.terrain_sek || 0;
-        kortStoppSek += r.other_work_sek || 0;
-        avbrottSek += (r.disturbance_sek || 0) + (r.maintenance_sek || 0);
-        rastSek += r.rast_sek || 0;
-        engineTimeSek += r.engine_time_sek || 0;
-        bransleTotalt += r.bransle_liter || 0;
-      }
+      // ── Time distribution (from tid grand total — never mixed with prod) ──
+      const processingSek = tidTotal.processingSek;
+      const terrainSek = tidTotal.terrainSek;
+      const kortStoppSek = tidTotal.otherWorkSek;
+      const avbrottSek = tidTotal.disturbanceSek + tidTotal.maintenanceSek;
+      const rastSek = tidTotal.rastSek;
+      const engineTimeSek = tidTotal.engineTimeSek;
+      const bransleTotalt = tidTotal.bransleLiter;
 
       const g15Sek = processingSek + terrainSek;
       const g15Timmar = g15Sek / 3600;
@@ -1128,141 +1190,101 @@ export default function Maskinvy() {
       const branslePerM3 = totalVolym > 0 ? bransleTotalt / totalVolym : 0;
       const stammarPerG15h = g15Timmar > 0 ? totalStammar / g15Timmar : 0;
 
-      // ── Operators (with detailed time/fuel + daily production) ──
-      const opMap: Record<string, {
-        volym: number; stammar: number; g15sek: number; dagar: Set<string>;
-        processingSek: number; terrainSek: number; disturbanceSek: number;
-        engineTimeSek: number; bransleLiter: number;
-        dailyVol: Record<string, number>;
-      }> = {};
-      const emptyOp = () => ({
-        volym: 0, stammar: 0, g15sek: 0, dagar: new Set<string>(),
-        processingSek: 0, terrainSek: 0, disturbanceSek: 0,
-        engineTimeSek: 0, bransleLiter: 0, dailyVol: {} as Record<string, number>,
-      });
-      for (const r of prodRows) {
-        const opId = r.operator_id;
-        if (!opId) continue;
-        if (!opMap[opId]) opMap[opId] = emptyOp();
-        opMap[opId].volym += r.volym_m3sub || 0;
-        opMap[opId].stammar += r.stammar || 0;
-        opMap[opId].dagar.add(r.datum);
-        opMap[opId].dailyVol[r.datum] = (opMap[opId].dailyVol[r.datum] || 0) + (r.volym_m3sub || 0);
-      }
-      for (const r of tidRows) {
-        const opId = r.operator_id;
-        if (!opId) continue;
-        if (!opMap[opId]) opMap[opId] = emptyOp();
-        opMap[opId].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
-        opMap[opId].processingSek += r.processing_sek || 0;
-        opMap[opId].terrainSek += r.terrain_sek || 0;
-        opMap[opId].disturbanceSek += (r.disturbance_sek || 0) + (r.maintenance_sek || 0);
-        opMap[opId].engineTimeSek += r.engine_time_sek || 0;
-        opMap[opId].bransleLiter += r.bransle_liter || 0;
-      }
+      // ── Operators (prod and tid aggregated separately per operator) ──
+      const opIds = new Set<string>();
+      for (const r of rawProdRows) if (r.operator_id) opIds.add(r.operator_id);
+      for (const r of rawTidRows) if (r.operator_id) opIds.add(r.operator_id);
 
-      const operatorer = Object.entries(opMap).map(([opId, stats]) => {
+      const operatorer = [...opIds].map(opId => {
+        // Sum prod per this operator across all days
+        let volym = 0, stammar = 0;
+        const dagar = new Set<string>();
+        const opDailyVol: number[] = [];
+        for (let i = 0; i < totalDays; i++) {
+          const d = new Date(sDate); d.setDate(d.getDate() + i);
+          const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+          const pk = `${dateStr}|${opId}`;
+          const pAgg = prodByDayOp[pk];
+          if (pAgg) { volym += pAgg.vol; stammar += pAgg.st; dagar.add(dateStr); }
+          opDailyVol.push(pAgg ? Math.round(pAgg.vol) : 0);
+        }
+        // Sum tid per this operator across all days
+        let opTid: TidAgg = emptyTid();
+        for (let i = 0; i < totalDays; i++) {
+          const d = new Date(sDate); d.setDate(d.getDate() + i);
+          const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+          const tk = `${dateStr}|${opId}`;
+          const tAgg = tidByDayOp[tk];
+          if (tAgg) { addTid(opTid, { processing_sek: tAgg.processingSek, terrain_sek: tAgg.terrainSek, other_work_sek: tAgg.otherWorkSek, disturbance_sek: tAgg.disturbanceSek, maintenance_sek: tAgg.maintenanceSek, avbrott_sek: tAgg.avbrottSek, rast_sek: tAgg.rastSek, engine_time_sek: tAgg.engineTimeSek, bransle_liter: tAgg.bransleLiter }); }
+        }
         const opInfo = operators.find((o: any) => String(o.operator_id) === String(opId));
         const namn = opInfo?.operator_namn || `Operatör ${opId}`;
         const nameParts = namn.split(' ');
         const initialer = nameParts.length >= 2
           ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
           : namn.substring(0, 2).toUpperCase();
-        const timmar = stats.g15sek / 3600;
-        const prod = timmar > 0 ? stats.volym / timmar : 0;
-        // Build daily vol array aligned to period days
-        const opDailyVol: number[] = [];
-        for (let i = 0; i < totalDays; i++) {
-          const d = new Date(sDate); d.setDate(d.getDate() + i);
-          const ds = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-          opDailyVol.push(Math.round(stats.dailyVol[ds] || 0));
-        }
+        const g15sek = opTid.processingSek + opTid.terrainSek;
+        const timmar = g15sek / 3600;
+        const prod = timmar > 0 ? volym / timmar : 0;
         return {
           id: opId,
           key: opInfo?.operator_key || nameParts[0].toLowerCase(),
-          namn, initialer, timmar,
-          volym: stats.volym, prod,
-          medelstam: stats.stammar > 0 ? stats.volym / stats.stammar : 0,
-          stammar: stats.stammar,
-          dagar: stats.dagar.size,
-          processingSek: stats.processingSek,
-          terrainSek: stats.terrainSek,
-          disturbanceSek: stats.disturbanceSek,
-          engineTimeSek: stats.engineTimeSek,
-          bransleLiter: stats.bransleLiter,
+          namn, initialer, timmar, volym, prod,
+          medelstam: stammar > 0 ? volym / stammar : 0,
+          stammar, dagar: dagar.size,
+          processingSek: opTid.processingSek,
+          terrainSek: opTid.terrainSek,
+          disturbanceSek: opTid.disturbanceSek + opTid.maintenanceSek,
+          engineTimeSek: opTid.engineTimeSek,
+          bransleLiter: opTid.bransleLiter,
           dailyVol: opDailyVol,
         };
-      }).sort((a, b) => b.volym - a.volym);
+      }).filter(o => o.volym > 0 || o.timmar > 0).sort((a, b) => b.volym - a.volym);
 
-      // ── Objekt ──
-      const objMap: Record<string, { volym: number; stammar: number; g15sek: number }> = {};
-      for (const r of prodRows) {
-        const oid = r.objekt_id;
-        if (!oid) continue;
-        if (!objMap[oid]) objMap[oid] = { volym: 0, stammar: 0, g15sek: 0 };
-        objMap[oid].volym += r.volym_m3sub || 0;
-        objMap[oid].stammar += r.stammar || 0;
-      }
-      for (const r of tidRows) {
-        const oid = r.objekt_id;
-        if (!oid || !objMap[oid]) continue;
-        objMap[oid].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
-      }
-
-      const objekt = Object.entries(objMap).map(([oid, stats]) => {
+      // ── Objekt (prod and tid aggregated separately per objekt) ──
+      const objekt = [...prodObjIds].map(oid => {
+        const pAgg = prodByObjekt[oid] || { vol: 0, st: 0 };
+        const tAgg = tidByObjekt[oid];
+        const g15sek = tAgg ? tAgg.processingSek + tAgg.terrainSek : 0;
+        const g15h = g15sek / 3600;
         const objInfo = objekter.find((o: any) => String(o.objekt_id) === String(oid));
-        const g15h = stats.g15sek / 3600;
         return {
           objekt_id: oid,
           namn: objInfo?.objekt_namn || `Objekt ${oid}`,
           vo_nummer: objInfo?.vo_nummer || '',
-          volym: stats.volym,
-          stammar: stats.stammar,
-          g15h,
-          prod: g15h > 0 ? stats.volym / g15h : 0,
+          volym: pAgg.vol, stammar: pAgg.st, g15h,
+          prod: g15h > 0 ? pAgg.vol / g15h : 0,
         };
       }).sort((a, b) => b.volym - a.volym);
 
-      // ── Build dagData from daily aggregation ──
+      // ── Build dagData from pre-aggregated daily data ──
       const dagData: DbData['dagData'] = {};
       const calendarDt: number[] = new Array(totalDays).fill(0);
 
-      // Group prod+tid per day
-      const dayDetail: Record<string, { vol: number; st: number; g15sek: number; opId: string; objId: string; diesel: number }> = {};
-      for (const r of prodRows) {
-        if (!dayDetail[r.datum]) dayDetail[r.datum] = { vol: 0, st: 0, g15sek: 0, opId: '', objId: '', diesel: 0 };
-        dayDetail[r.datum].vol += r.volym_m3sub || 0;
-        dayDetail[r.datum].st += r.stammar || 0;
-        if (r.operator_id) dayDetail[r.datum].opId = r.operator_id;
-        if (r.objekt_id) dayDetail[r.datum].objId = r.objekt_id;
-      }
-      for (const r of tidRows) {
-        if (!dayDetail[r.datum]) dayDetail[r.datum] = { vol: 0, st: 0, g15sek: 0, opId: '', objId: '', diesel: 0 };
-        dayDetail[r.datum].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
-        dayDetail[r.datum].diesel += r.bransle_liter || 0;
-        if (r.operator_id) dayDetail[r.datum].opId = r.operator_id;
-      }
-
       for (let i = 0; i < totalDays; i++) {
-        const d = new Date(sDate);
-        d.setDate(d.getDate() + i);
+        const d = new Date(sDate); d.setDate(d.getDate() + i);
         const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        const dd = dayDetail[dateStr];
-        if (dd && dd.vol > 0) {
+        const pDay = prodByDay[dateStr];
+        const tDay = tidByDay[dateStr];
+        if (pDay && pDay.vol > 0) {
           const dayNum = i + 1;
-          const g15h = dd.g15sek / 3600;
-          const opInfo = operators.find((o: any) => String(o.operator_id) === String(dd.opId));
-          const objInfo = objekter.find((o: any) => String(o.objekt_id) === String(dd.objId));
+          const g15sek = tDay ? tDay.processingSek + tDay.terrainSek : 0;
+          const g15h = g15sek / 3600;
+          const diesel = tDay ? tDay.bransleLiter : 0;
+          // Find first operator/objekt for this day from raw rows
+          const dayProdRow = rawProdRows.find((r: any) => r.datum === dateStr);
+          const opInfo = dayProdRow?.operator_id ? operators.find((o: any) => String(o.operator_id) === String(dayProdRow.operator_id)) : null;
+          const objInfo = dayProdRow?.objekt_id ? objekter.find((o: any) => String(o.objekt_id) === String(dayProdRow.objekt_id)) : null;
           dagData[dayNum] = {
             typ: 1, forare: opInfo?.operator_namn || '–',
             objekt: objInfo?.objekt_namn || '–',
             start: '07:00', slut: '16:30',
-            vol: Math.round(dd.vol), stammar: Math.round(dd.st),
+            vol: Math.round(pDay.vol), stammar: Math.round(pDay.st),
             g15: parseFloat(g15h.toFixed(1)),
-            snitt: g15h > 0 ? parseFloat((dd.vol / g15h).toFixed(1)) : 0,
-            stg15: g15h > 0 ? Math.round(dd.st / g15h) : 0,
-            medelstam: dd.st > 0 ? parseFloat((dd.vol / dd.st).toFixed(2)) : 0,
-            diesel: dd.vol > 0 ? parseFloat((dd.diesel / dd.vol).toFixed(1)) : 0,
+            snitt: g15h > 0 ? parseFloat((pDay.vol / g15h).toFixed(1)) : 0,
+            stg15: g15h > 0 ? Math.round(pDay.st / g15h) : 0,
+            medelstam: pDay.st > 0 ? parseFloat((pDay.vol / pDay.st).toFixed(2)) : 0,
+            diesel: pDay.vol > 0 ? parseFloat((diesel / pDay.vol).toFixed(1)) : 0,
             avbrott: [],
           };
           calendarDt[i] = 1;
@@ -1280,7 +1302,7 @@ export default function Maskinvy() {
       let sortimentPerDag: DbData['sortimentPerDag'] = null;
       if (!hasMth) {
         // Fetch sortiment data grouped per dag for this machine's objects
-        const objIds = [...new Set(prodRows.map((r: any) => r.objekt_id).filter(Boolean))];
+        const objIds = [...prodObjIds];
         if (objIds.length > 0) {
           const [sortRes, dimSortRes] = await Promise.all([
             supabase.from('fakt_sortiment')
@@ -1310,9 +1332,9 @@ export default function Maskinvy() {
             objSortiment[r.objekt_id][cat] += r.volym_m3sub || 0;
           }
 
-          // Map back to daily arrays using prodRows dates → objekt_id
+          // Map back to daily arrays using rawProdRows dates → objekt_id
           const daySortiment: Record<string, { timmer: number; kubb: number; massa: number; energi: number }> = {};
-          for (const r of prodRows) {
+          for (const r of rawProdRows) {
             if (!r.datum || !r.objekt_id) continue;
             if (!daySortiment[r.datum]) daySortiment[r.datum] = { timmer: 0, kubb: 0, massa: 0, energi: 0 };
             const objSort = objSortiment[r.objekt_id];
@@ -1454,43 +1476,47 @@ export default function Maskinvy() {
         .select('operator_id, operator_namn')
         .in('operator_id', opCmpIds),
     ]);
-    const prodRows = prodRes.data || [];
-    const tidRows = tidRes.data || [];
+    const rawProd = prodRes.data || [];
+    const rawTid = tidRes.data || [];
     const opNames: Record<string, string> = {};
     (opRes.data || []).forEach((o: any) => { opNames[o.operator_id] = o.operator_namn || o.operator_id; });
 
-    // Aggregate per operator
-    const agg: Record<string, { volym: number; stammar: number; g15sek: number; engineSek: number; bransle: number }> = {};
-    for (const id of opCmpIds) agg[id] = { volym: 0, stammar: 0, g15sek: 0, engineSek: 0, bransle: 0 };
-    for (const r of prodRows) {
-      if (!agg[r.operator_id]) continue;
-      agg[r.operator_id].volym += r.volym_m3sub || 0;
-      agg[r.operator_id].stammar += r.stammar || 0;
+    // Pre-aggregate prod per (operator_id, YYYY-MM) to avoid 23x row multiplication
+    const prodAgg: Record<string, { volym: number; stammar: number }> = {};
+    const monthAgg: Record<string, Record<string, number>> = {};
+    for (const r of rawProd) {
+      const opId = r.operator_id;
+      if (!opId) continue;
+      if (!prodAgg[opId]) prodAgg[opId] = { volym: 0, stammar: 0 };
+      prodAgg[opId].volym += r.volym_m3sub || 0;
+      prodAgg[opId].stammar += r.stammar || 0;
+      const ym = r.datum.substring(0, 7);
+      if (!monthAgg[ym]) monthAgg[ym] = {};
+      monthAgg[ym][opId] = (monthAgg[ym][opId] || 0) + (r.volym_m3sub || 0);
     }
-    for (const r of tidRows) {
-      if (!agg[r.operator_id]) continue;
-      agg[r.operator_id].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
-      agg[r.operator_id].engineSek += r.engine_time_sek || 0;
-      agg[r.operator_id].bransle += r.bransle_liter || 0;
+    // Pre-aggregate tid per operator_id
+    const tidAgg: Record<string, { g15sek: number; engineSek: number; bransle: number }> = {};
+    for (const r of rawTid) {
+      const opId = r.operator_id;
+      if (!opId) continue;
+      if (!tidAgg[opId]) tidAgg[opId] = { g15sek: 0, engineSek: 0, bransle: 0 };
+      tidAgg[opId].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
+      tidAgg[opId].engineSek += r.engine_time_sek || 0;
+      tidAgg[opId].bransle += r.bransle_liter || 0;
     }
+
     const rows: OpCmpRow[] = opCmpIds.map(id => {
-      const a = agg[id];
-      const g15h = a.g15sek / 3600;
-      const motorH = a.engineSek / 3600;
-      return { id, namn: opNames[id] || id, stammar: Math.round(a.stammar), volym: Math.round(a.volym),
-        prod: g15h > 0 ? parseFloat((a.volym / g15h).toFixed(1)) : 0,
+      const p = prodAgg[id] || { volym: 0, stammar: 0 };
+      const t = tidAgg[id] || { g15sek: 0, engineSek: 0, bransle: 0 };
+      const g15h = t.g15sek / 3600;
+      const motorH = t.engineSek / 3600;
+      return { id, namn: opNames[id] || id, stammar: Math.round(p.stammar), volym: Math.round(p.volym),
+        prod: g15h > 0 ? parseFloat((p.volym / g15h).toFixed(1)) : 0,
         motorH: parseFloat(motorH.toFixed(1)),
-        bransleH: motorH > 0 ? parseFloat((a.bransle / motorH).toFixed(1)) : 0 };
+        bransleH: motorH > 0 ? parseFloat((t.bransle / motorH).toFixed(1)) : 0 };
     });
 
-    // Monthly breakdown
-    const monthMap: Record<string, Record<string, number>> = {};
-    for (const r of prodRows) {
-      const ym = r.datum.substring(0, 7); // YYYY-MM
-      if (!monthMap[ym]) monthMap[ym] = {};
-      monthMap[ym][r.operator_id] = (monthMap[ym][r.operator_id] || 0) + (r.volym_m3sub || 0);
-    }
-    const months = Object.keys(monthMap).sort().map(ym => ({ month: ym, byOp: monthMap[ym] }));
+    const months = Object.keys(monthAgg).sort().map(ym => ({ month: ym, byOp: monthAgg[ym] }));
 
     setOpCmpRows(rows);
     setOpCmpMonths(months);
