@@ -891,7 +891,7 @@ export default function Maskinvy() {
 
       const [tidRes, opRes, objRes] = await Promise.all([
         supabase.from('fakt_tid')
-          .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
+          .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, engine_time_sek, bransle_liter')
           .eq('maskin_id', maskinId)
           .gte('datum', startDate).lte('datum', endDate),
         supabase.from('dim_operator').select('operator_id, operator_key, operator_namn, maskin_id').eq('maskin_id', maskinId),
@@ -943,7 +943,7 @@ export default function Maskinvy() {
       for (const r of tidRows) {
         processingSek += r.processing_sek || 0;
         terrainSek += r.terrain_sek || 0;
-        kortStoppSek += r.kort_stopp_sek || 0;
+        kortStoppSek += r.other_work_sek || 0;
         avbrottSek += (r.disturbance_sek || 0) + (r.maintenance_sek || 0);
         rastSek += r.rast_sek || 0;
         engineTimeSek += r.engine_time_sek || 0;
@@ -2142,7 +2142,7 @@ body {
       <div class="frow">
         <div style="flex:1;">
           <div style="font-size:12px;font-weight:500;">Korta stopp</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px;">Stopp ≤ 15 min (kort_stopp_sek)</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px;">Stopp ≤ 15 min (other_work_sek)</div>
         </div>
         <div style="text-align:right;">
           <div style="font-weight:600;font-variant-numeric:tabular-nums;">2h 30min</div>
