@@ -897,6 +897,48 @@ export default function Maskinvy() {
   const [cmpDataB, setCmpDataB] = useState<PeriodKpi | null>(null);
   const [cmpLoading, setCmpLoading] = useState(false);
 
+  // ── Operator comparison state ──
+  type OpCmpRow = { id: string; namn: string; stammar: number; volym: number; prod: number; motorH: number; bransleH: number };
+  type OpCmpMonth = { month: string; byOp: Record<string, number> };
+  const [opCmpIds, setOpCmpIds] = useState<string[]>([]);
+  const [opCmpFrom, setOpCmpFrom] = useState('2026-01-01');
+  const [opCmpTo, setOpCmpTo] = useState('2026-03-31');
+  const [opCmpRows, setOpCmpRows] = useState<OpCmpRow[]>([]);
+  const [opCmpMonths, setOpCmpMonths] = useState<OpCmpMonth[]>([]);
+  const [opCmpLoading, setOpCmpLoading] = useState(false);
+  const [opCmpAllOps, setOpCmpAllOps] = useState<{ id: string; namn: string }[]>([]);
+  const opCmpChartRef = useCallback((canvas: HTMLCanvasElement | null) => {
+    if (!canvas || opCmpMonths.length === 0 || opCmpIds.length === 0) return;
+    const Chart = (window as any).Chart;
+    if (!Chart) return;
+    const existing = Chart.getChart(canvas);
+    if (existing) existing.destroy();
+    const colors = ['rgba(90,255,140,0.8)', 'rgba(91,143,255,0.8)', 'rgba(255,179,64,0.8)', 'rgba(255,95,87,0.8)'];
+    const names = opCmpRows.reduce((m, r) => { m[r.id] = r.namn; return m; }, {} as Record<string, string>);
+    new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: opCmpMonths.map(m => m.month),
+        datasets: opCmpIds.map((id, i) => ({
+          label: names[id] || id,
+          data: opCmpMonths.map(m => Math.round(m.byOp[id] || 0)),
+          borderColor: colors[i % colors.length],
+          backgroundColor: colors[i % colors.length].replace('0.8', '0.1'),
+          pointRadius: 4, pointBackgroundColor: colors[i % colors.length],
+          tension: 0.3, fill: false,
+        })),
+      },
+      options: {
+        responsive: true, interaction: { mode: 'index' as const, intersect: false },
+        plugins: { legend: { labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 11 }, boxWidth: 10, padding: 14 } } },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
+          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'm³', color: '#7a7a72', font: { size: 10 } } },
+        },
+      },
+    });
+  }, [opCmpMonths, opCmpIds, opCmpRows]);
+
   // ── Hardcoded machines (from database inspection) ──
   useEffect(() => {
     const skordare: Maskin[] = [
@@ -1375,6 +1417,82 @@ export default function Maskinvy() {
     setCmpLoading(false);
   }, [maskiner, vald, cmpDateA, cmpDateB, fetchPeriodKpi]);
 
+  // ── Fetch operator comparison data ──
+  const runOpCmp = useCallback(async () => {
+    const valdMaskinObj = maskiner.find(m => m.modell === vald);
+    if (!valdMaskinObj || opCmpIds.length < 2) return;
+    setOpCmpLoading(true);
+    const [prodRes, tidRes, opRes] = await Promise.all([
+      supabase.from('fakt_produktion')
+        .select('datum, volym_m3sub, stammar, operator_id')
+        .eq('maskin_id', valdMaskinObj.maskin_id)
+        .in('operator_id', opCmpIds)
+        .gte('datum', opCmpFrom).lte('datum', opCmpTo),
+      supabase.from('fakt_tid')
+        .select('datum, operator_id, processing_sek, terrain_sek, engine_time_sek, bransle_liter')
+        .eq('maskin_id', valdMaskinObj.maskin_id)
+        .in('operator_id', opCmpIds)
+        .gte('datum', opCmpFrom).lte('datum', opCmpTo),
+      supabase.from('dim_operator')
+        .select('operator_id, operator_namn')
+        .in('operator_id', opCmpIds),
+    ]);
+    const prodRows = prodRes.data || [];
+    const tidRows = tidRes.data || [];
+    const opNames: Record<string, string> = {};
+    (opRes.data || []).forEach((o: any) => { opNames[o.operator_id] = o.operator_namn || o.operator_id; });
+
+    // Aggregate per operator
+    const agg: Record<string, { volym: number; stammar: number; g15sek: number; engineSek: number; bransle: number }> = {};
+    for (const id of opCmpIds) agg[id] = { volym: 0, stammar: 0, g15sek: 0, engineSek: 0, bransle: 0 };
+    for (const r of prodRows) {
+      if (!agg[r.operator_id]) continue;
+      agg[r.operator_id].volym += r.volym_m3sub || 0;
+      agg[r.operator_id].stammar += r.stammar || 0;
+    }
+    for (const r of tidRows) {
+      if (!agg[r.operator_id]) continue;
+      agg[r.operator_id].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
+      agg[r.operator_id].engineSek += r.engine_time_sek || 0;
+      agg[r.operator_id].bransle += r.bransle_liter || 0;
+    }
+    const rows: OpCmpRow[] = opCmpIds.map(id => {
+      const a = agg[id];
+      const g15h = a.g15sek / 3600;
+      const motorH = a.engineSek / 3600;
+      return { id, namn: opNames[id] || id, stammar: Math.round(a.stammar), volym: Math.round(a.volym),
+        prod: g15h > 0 ? parseFloat((a.volym / g15h).toFixed(1)) : 0,
+        motorH: parseFloat(motorH.toFixed(1)),
+        bransleH: motorH > 0 ? parseFloat((a.bransle / motorH).toFixed(1)) : 0 };
+    });
+
+    // Monthly breakdown
+    const monthMap: Record<string, Record<string, number>> = {};
+    for (const r of prodRows) {
+      const ym = r.datum.substring(0, 7); // YYYY-MM
+      if (!monthMap[ym]) monthMap[ym] = {};
+      monthMap[ym][r.operator_id] = (monthMap[ym][r.operator_id] || 0) + (r.volym_m3sub || 0);
+    }
+    const months = Object.keys(monthMap).sort().map(ym => ({ month: ym, byOp: monthMap[ym] }));
+
+    setOpCmpRows(rows);
+    setOpCmpMonths(months);
+    setOpCmpLoading(false);
+  }, [maskiner, vald, opCmpIds, opCmpFrom, opCmpTo]);
+
+  // Load available operators when switching to operatorer view
+  useEffect(() => {
+    if (activeView !== 'operatorer') return;
+    const valdMaskinObj = maskiner.find(m => m.modell === vald);
+    if (!valdMaskinObj) return;
+    (async () => {
+      const { data } = await supabase.from('dim_operator')
+        .select('operator_id, operator_namn')
+        .eq('maskin_id', valdMaskinObj.maskin_id);
+      if (data) setOpCmpAllOps(data.map((o: any) => ({ id: o.operator_id, namn: o.operator_namn || o.operator_id })));
+    })();
+  }, [activeView, maskiner, vald]);
+
   // Fetch data when machine or period changes
   useEffect(() => {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
@@ -1684,7 +1802,121 @@ export default function Maskinvy() {
         </div>
       )}
 
-      <div style={{ display: activeView === 'jamfor' ? 'none' : 'block' }}>
+      {/* ── OPERATOR COMPARISON PANEL ── */}
+      {activeView === 'operatorer' && (
+        <div style={{ padding: '24px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 960 }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 4 }}>
+            Jämför operatörer
+          </div>
+          <div style={{ fontSize: 13, color: '#7a7a72', marginBottom: 20 }}>
+            Välj 2–4 operatörer och en period
+          </div>
+
+          {/* Operator selector */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+            {opCmpAllOps.map(op => {
+              const sel = opCmpIds.includes(op.id);
+              return (
+                <button key={op.id} onClick={() => {
+                  setOpCmpIds(prev => sel ? prev.filter(x => x !== op.id) : prev.length < 4 ? [...prev, op.id] : prev);
+                }} style={{
+                  padding: '6px 14px', borderRadius: 7, border: 'none', cursor: 'pointer',
+                  background: sel ? '#1a4a2e' : '#1a1a18',
+                  color: sel ? '#00c48c' : '#7a7a72',
+                  fontSize: 12, fontWeight: 600, fontFamily: "'Geist', system-ui, sans-serif",
+                  transition: 'all 0.15s',
+                }}>
+                  {op.namn}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Date range */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
+            <input type="date" value={opCmpFrom} onChange={e => setOpCmpFrom(e.target.value)}
+              style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+            <span style={{ color: '#3a3a36' }}>–</span>
+            <input type="date" value={opCmpTo} onChange={e => setOpCmpTo(e.target.value)}
+              style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+            <button onClick={runOpCmp} disabled={opCmpIds.length < 2} style={{
+              padding: '8px 18px', border: 'none', borderRadius: 8,
+              background: opCmpIds.length >= 2 ? '#1a4a2e' : '#1a1a18',
+              color: opCmpIds.length >= 2 ? '#00c48c' : '#555',
+              fontFamily: "'Geist', system-ui, sans-serif", fontSize: 13, fontWeight: 600,
+              cursor: opCmpIds.length >= 2 ? 'pointer' : 'default',
+            }}>
+              {opCmpLoading ? 'Laddar...' : 'Jämför →'}
+            </button>
+          </div>
+
+          {/* Results table */}
+          {opCmpRows.length > 0 && (
+            <>
+              <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden', marginBottom: 16 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                      <th style={{ padding: '12px 16px', textAlign: 'left', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Operatör</th>
+                      <th style={{ padding: '12px 12px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Stammar</th>
+                      <th style={{ padding: '12px 12px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Volym m³</th>
+                      <th style={{ padding: '12px 12px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>m³/G15h</th>
+                      <th style={{ padding: '12px 12px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Motortid h</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Bränsle L/h</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {opCmpRows.map((r, i) => {
+                      const colors = ['#00c48c', '#5b8fff', '#ffb340', '#ff5f57'];
+                      const best = (field: keyof OpCmpRow, higher = true) => {
+                        const vals = opCmpRows.map(x => x[field] as number);
+                        const target = higher ? Math.max(...vals) : Math.min(...vals);
+                        return r[field] === target;
+                      };
+                      return (
+                        <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                          <td style={{ padding: '12px 16px', fontWeight: 600, color: colors[i % colors.length] }}>
+                            {r.namn}
+                          </td>
+                          <td style={{ padding: '12px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('stammar') ? '#e8e8e4' : '#7a7a72', fontWeight: best('stammar') ? 700 : 400 }}>
+                            {r.stammar.toLocaleString('sv-SE')}
+                          </td>
+                          <td style={{ padding: '12px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('volym') ? '#e8e8e4' : '#7a7a72', fontWeight: best('volym') ? 700 : 400 }}>
+                            {r.volym.toLocaleString('sv-SE')}
+                          </td>
+                          <td style={{ padding: '12px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('prod') ? '#e8e8e4' : '#7a7a72', fontWeight: best('prod') ? 700 : 400 }}>
+                            {r.prod}
+                          </td>
+                          <td style={{ padding: '12px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>
+                            {r.motorH}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('bransleH', false) ? '#e8e8e4' : '#7a7a72', fontWeight: best('bransleH', false) ? 700 : 400 }}>
+                            {r.bransleH}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Monthly volume chart */}
+              {opCmpMonths.length > 0 && (
+                <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '18px 18px 14px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#3a3a36', marginBottom: 14 }}>
+                    Volym per månad
+                  </div>
+                  <div style={{ height: 260, position: 'relative' }}>
+                    <canvas ref={opCmpChartRef} />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      <div style={{ display: activeView === 'jamfor' || activeView === 'operatorer' ? 'none' : 'block' }}>
       <style dangerouslySetInnerHTML={{ __html: `.mach-wrap { display: none !important; }
 .hdr { display: none !important; }
 .cmp-bar { display: none !important; }
