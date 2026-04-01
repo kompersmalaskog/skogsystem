@@ -1332,8 +1332,8 @@ export default function Maskinvy() {
       }
 
       // ── Medelstamsklass-aggregering (per objekt → klass) ──
-      // Medelstam beräknas per objekt: SUM(volym)/SUM(stammar).
-      // Objekt med < 50 m³ exkluderas (specialjobb).
+      // Medelstam = SUM(volym)/SUM(stammar) per objekt.
+      // Alla KPI beräknas som viktat snitt: SUM/SUM per klass.
       // Klasser anpassas efter maskintyp.
       const isGallring = maskinId === 'R64101';
       const classEdges = isGallring
@@ -1346,7 +1346,7 @@ export default function Maskinvy() {
       const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, g15sek: 0, bransle: 0 }));
       for (const oid of prodObjIds) {
         const pObj = prodByObjekt[oid];
-        if (!pObj || pObj.vol < 50 || pObj.st <= 0) continue;
+        if (!pObj || pObj.st <= 0) continue;
         const medelstamObj = pObj.vol / pObj.st;
         let ci = nClasses - 1;
         for (let c = 0; c < nClasses; c++) {
