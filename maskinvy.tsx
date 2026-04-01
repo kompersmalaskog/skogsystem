@@ -34,6 +34,12 @@ type DbData = {
     medelstam: number;
     stammar: number;
     dagar: number;
+    processingSek: number;
+    terrainSek: number;
+    disturbanceSek: number;
+    engineTimeSek: number;
+    bransleLiter: number;
+    dailyVol: number[];
   }>;
   // Objekt
   objekt: Array<{
@@ -327,12 +333,14 @@ if (_db.operatorer && _db.operatorer.length > 0) {
       volym: Math.round(op.volym),
       prod: parseFloat(op.prod.toFixed(1)),
       medelstam: op.stammar > 0 ? parseFloat((op.volym / op.stammar).toFixed(2)) : 0,
-      mth: 0,
       stammar: Math.round(op.stammar),
-      klasser: [],
       dagar: op.dagar,
-      objekt: '–',
-      gran: 0, tall: 0, bjork: 0
+      processingSek: op.processingSek || 0,
+      terrainSek: op.terrainSek || 0,
+      disturbanceSek: op.disturbanceSek || 0,
+      engineTimeSek: op.engineTimeSek || 0,
+      bransleLiter: op.bransleLiter || 0,
+      dailyVol: op.dailyVol || [],
     };
   });
 }
@@ -341,41 +349,63 @@ let fpChart = null;
 
 function openForare(id) {
   const f = forare[id];
+  if (!f) return;
+  var motorH = (f.engineTimeSek / 3600).toFixed(1);
+  var prodH = (f.processingSek / 3600).toFixed(1);
+  var korH = (f.terrainSek / 3600).toFixed(1);
+  var storH = (f.disturbanceSek / 3600).toFixed(1);
+  var totalTidSek = f.processingSek + f.terrainSek + f.disturbanceSek;
+  var pProd = totalTidSek > 0 ? Math.round(f.processingSek / totalTidSek * 100) : 0;
+  var pKor = totalTidSek > 0 ? Math.round(f.terrainSek / totalTidSek * 100) : 0;
+  var pStor = totalTidSek > 0 ? (100 - pProd - pKor) : 0;
+
   document.getElementById('fpAv').textContent  = f.av;
   document.getElementById('fpName').textContent = f.name;
-  document.getElementById('fpSub').textContent  = 'Ponsse Scorpion Giant 8W · februari 2026';
+  document.getElementById('fpSub').textContent  = 'Vald period';
   document.getElementById('fpBody').innerHTML = \`
-    <div class="forar-kpis">
-      <div class="fkpi"><div class="fkpi-v">\${f.volym}</div><div class="fkpi-l">m³fub</div></div>
-      <div class="fkpi"><div class="fkpi-v">\${f.prod}</div><div class="fkpi-l">m³/G15h</div></div>
-      <div class="fkpi"><div class="fkpi-v">\${f.timmar}h</div><div class="fkpi-l">G15-timmar</div></div>
-      <div class="fkpi"><div class="fkpi-v">\${f.medelstam}</div><div class="fkpi-l">Medelstam</div></div>
-      <div class="fkpi"><div class="fkpi-v">\${f.mth}%</div><div class="fkpi-l">MTH-andel</div></div>
-      <div class="fkpi"><div class="fkpi-v">\${f.dagar}</div><div class="fkpi-l">Aktiva dagar</div></div>
-    </div>
-    <div class="fsec"><div class="fsec-title">Produktivitet per medelstamsklass</div><canvas id="fpChart" style="max-height:180px;margin-bottom:12px;"></canvas></div>
     <div class="fsec">
-      <div class="fsec-title">Trädslag</div>
-      <div class="frow"><span class="frow-l">Gran</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:\${f.gran}%;background:rgba(90,255,140,0.5)"></div></div></div><span class="frow-v">\${f.gran}%</span></div>
-      <div class="frow"><span class="frow-l">Tall</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:\${f.tall}%;background:rgba(255,255,255,0.2)"></div></div></div><span class="frow-v">\${f.tall}%</span></div>
-      <div class="frow"><span class="frow-l">Björk</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:\${f.bjork}%;background:rgba(91,143,255,0.4)"></div></div></div><span class="frow-v">\${f.bjork}%</span></div>
+      <div class="fsec-title">Totalt</div>
+      <div class="forar-kpis">
+        <div class="fkpi"><div class="fkpi-v">\${f.stammar.toLocaleString('sv')}</div><div class="fkpi-l">Stammar</div></div>
+        <div class="fkpi"><div class="fkpi-v">\${f.volym}</div><div class="fkpi-l">m³sub</div></div>
+        <div class="fkpi"><div class="fkpi-v">\${motorH}</div><div class="fkpi-l">Motortid h</div></div>
+        <div class="fkpi"><div class="fkpi-v">\${Math.round(f.bransleLiter)}</div><div class="fkpi-l">Bränsle L</div></div>
+      </div>
     </div>
     <div class="fsec">
-      <div class="fsec-title">Övrigt</div>
-      <div class="frow"><span class="frow-l">Stammar totalt</span><span class="frow-v">\${f.stammar.toLocaleString('sv')}</span></div>
-      <div class="frow"><span class="frow-l">Aktivt objekt</span><span class="frow-v">\${f.objekt}</span></div>
+      <div class="fsec-title">Produktivitet</div>
+      <div class="forar-kpis">
+        <div class="fkpi"><div class="fkpi-v">\${f.prod}</div><div class="fkpi-l">m³/G15h</div></div>
+        <div class="fkpi"><div class="fkpi-v">\${f.medelstam}</div><div class="fkpi-l">m³/stam</div></div>
+        <div class="fkpi"><div class="fkpi-v">\${f.dagar}</div><div class="fkpi-l">Aktiva dagar</div></div>
+      </div>
+    </div>
+    <div class="fsec">
+      <div class="fsec-title">Tidsfördelning</div>
+      <div style="display:flex;height:14px;border-radius:4px;overflow:hidden;gap:2px;margin-bottom:12px;">
+        <div style="flex:\${pProd};background:rgba(90,255,140,0.4);"></div>
+        <div style="flex:\${pKor};background:rgba(91,143,255,0.35);"></div>
+        <div style="flex:\${pStor};background:rgba(255,179,64,0.3);"></div>
+      </div>
+      <div class="frow"><span class="frow-l" style="display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:2px;background:rgba(90,255,140,0.4);display:inline-block;"></span>Produktion</span><span class="frow-v">\${prodH}h · \${pProd}%</span></div>
+      <div class="frow"><span class="frow-l" style="display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:2px;background:rgba(91,143,255,0.35);display:inline-block;"></span>Körning</span><span class="frow-v">\${korH}h · \${pKor}%</span></div>
+      <div class="frow"><span class="frow-l" style="display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:2px;background:rgba(255,179,64,0.3);display:inline-block;"></span>Störning</span><span class="frow-v">\${storH}h · \${pStor}%</span></div>
+    </div>
+    <div class="fsec">
+      <div class="fsec-title">Daglig produktion</div>
+      <canvas id="fpChart" style="max-height:180px;"></canvas>
     </div>\`;
   setTimeout(() => {
     if (fpChart) fpChart.destroy();
     const ctx = document.getElementById('fpChart');
     if (!ctx) return;
+    var dLabels = _db.days || [];
     fpChart = new Chart(ctx, {
       type:'bar',
-      data:{labels:f.klasser.map(k=>k.k),datasets:[
-        {label:'m³/G15h',data:f.klasser.map(k=>k.prod),backgroundColor:'rgba(90,255,140,0.5)',borderRadius:3,yAxisID:'y',order:1},
-        {label:'st/G15h',data:f.klasser.map(k=>k.st),type:'line',borderColor:'rgba(91,143,255,0.6)',pointBackgroundColor:'#5b8fff',pointRadius:3,tension:0.3,yAxisID:'y2',order:0}
+      data:{labels:dLabels,datasets:[
+        {label:'m³/dag',data:f.dailyVol,backgroundColor:f.dailyVol.map(v=>v===0?'rgba(255,255,255,0.04)':'rgba(90,255,140,0.5)'),borderRadius:3}
       ]},
-      options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks:{...ticks,font:{size:10}}},y:{grid,ticks,title:{display:true,text:'m³/G15h',color:'#7a7a72',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5b8fff'},title:{display:true,text:'st/G15h',color:'#5b8fff',font:{size:10}}}}}
+      options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks:{...ticks,font:{size:9}}},y:{grid,ticks,title:{display:true,text:'m³',color:'#7a7a72',font:{size:10}}}}}
     });
   }, 50);
   openOverlay();
@@ -1042,21 +1072,37 @@ export default function Maskinvy() {
       const produktivitet = g15Timmar > 0 ? totalVolym / g15Timmar : 0;
       const medelstam = totalStammar > 0 ? totalVolym / totalStammar : 0;
 
-      // ── Operators ──
-      const opMap: Record<string, { volym: number; stammar: number; g15sek: number; dagar: Set<string> }> = {};
+      // ── Operators (with detailed time/fuel + daily production) ──
+      const opMap: Record<string, {
+        volym: number; stammar: number; g15sek: number; dagar: Set<string>;
+        processingSek: number; terrainSek: number; disturbanceSek: number;
+        engineTimeSek: number; bransleLiter: number;
+        dailyVol: Record<string, number>;
+      }> = {};
+      const emptyOp = () => ({
+        volym: 0, stammar: 0, g15sek: 0, dagar: new Set<string>(),
+        processingSek: 0, terrainSek: 0, disturbanceSek: 0,
+        engineTimeSek: 0, bransleLiter: 0, dailyVol: {} as Record<string, number>,
+      });
       for (const r of prodRows) {
         const opId = r.operator_id;
         if (!opId) continue;
-        if (!opMap[opId]) opMap[opId] = { volym: 0, stammar: 0, g15sek: 0, dagar: new Set() };
+        if (!opMap[opId]) opMap[opId] = emptyOp();
         opMap[opId].volym += r.volym_m3sub || 0;
         opMap[opId].stammar += r.stammar || 0;
         opMap[opId].dagar.add(r.datum);
+        opMap[opId].dailyVol[r.datum] = (opMap[opId].dailyVol[r.datum] || 0) + (r.volym_m3sub || 0);
       }
       for (const r of tidRows) {
         const opId = r.operator_id;
         if (!opId) continue;
-        if (!opMap[opId]) opMap[opId] = { volym: 0, stammar: 0, g15sek: 0, dagar: new Set() };
+        if (!opMap[opId]) opMap[opId] = emptyOp();
         opMap[opId].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
+        opMap[opId].processingSek += r.processing_sek || 0;
+        opMap[opId].terrainSek += r.terrain_sek || 0;
+        opMap[opId].disturbanceSek += (r.disturbance_sek || 0) + (r.maintenance_sek || 0);
+        opMap[opId].engineTimeSek += r.engine_time_sek || 0;
+        opMap[opId].bransleLiter += r.bransle_liter || 0;
       }
 
       const operatorer = Object.entries(opMap).map(([opId, stats]) => {
@@ -1068,17 +1114,27 @@ export default function Maskinvy() {
           : namn.substring(0, 2).toUpperCase();
         const timmar = stats.g15sek / 3600;
         const prod = timmar > 0 ? stats.volym / timmar : 0;
+        // Build daily vol array aligned to period days
+        const opDailyVol: number[] = [];
+        for (let i = 0; i < totalDays; i++) {
+          const d = new Date(sDate); d.setDate(d.getDate() + i);
+          const ds = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+          opDailyVol.push(Math.round(stats.dailyVol[ds] || 0));
+        }
         return {
           id: opId,
           key: opInfo?.operator_key || nameParts[0].toLowerCase(),
-          namn,
-          initialer,
-          timmar,
-          volym: stats.volym,
-          prod,
+          namn, initialer, timmar,
+          volym: stats.volym, prod,
           medelstam: stats.stammar > 0 ? stats.volym / stats.stammar : 0,
           stammar: stats.stammar,
           dagar: stats.dagar.size,
+          processingSek: stats.processingSek,
+          terrainSek: stats.terrainSek,
+          disturbanceSek: stats.disturbanceSek,
+          engineTimeSek: stats.engineTimeSek,
+          bransleLiter: stats.bransleLiter,
+          dailyVol: opDailyVol,
         };
       }).sort((a, b) => b.volym - a.volym);
 
