@@ -429,15 +429,14 @@ export default function Arbetsrapport() {
   // Hämta dagdata för kalendern när månad/år ändras
   useEffect(() => {
     if (!medarbetare) return;
-    const mStr = String(kalMånad + 1).padStart(2, '0');
-    const frånDatum = `${kalÅr}-${mStr}-01`;
-    const tillDatum = `${kalÅr}-${mStr}-31`;
-    console.log('[dagData] Hämtar arbetsdag för:', { medarbetare_id: medarbetare.id, namn: medarbetare.namn, frånDatum, tillDatum });
+    const förstadag = new Date(kalÅr, kalMånad, 1).toISOString().slice(0, 10);
+    const sistadag = new Date(kalÅr, kalMånad + 1, 0).toISOString().slice(0, 10);
+    console.log('[dagData] Hämtar arbetsdag för:', { medarbetare_id: medarbetare.id, namn: medarbetare.namn, förstadag, sistadag });
     supabase.from('arbetsdag')
       .select('*')
       .eq('medarbetare_id', medarbetare.id)
-      .gte('datum', frånDatum)
-      .lte('datum', tillDatum)
+      .gte('datum', förstadag)
+      .lte('datum', sistadag)
       .then(res => {
         console.log('[dagData] Supabase svar:', { data: res.data, error: res.error, antal: res.data?.length });
         if (res.data) {
