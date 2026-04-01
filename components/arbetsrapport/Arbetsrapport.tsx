@@ -1670,55 +1670,57 @@ export default function Arbetsrapport() {
             </div>
           </div>
         </div>
+        {(()=>{
+          const harData = !!(redDag?.start_tid);
+          return (<>
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
-          {redDag.status==="saknas"&&(
-            <div style={{ background:"rgba(255,149,0,0.08)",borderRadius:12,padding:"14px 16px",marginBottom:16,border:"1px solid rgba(255,149,0,0.2)" }}>
-              <p style={{ margin:0,fontSize:14,fontWeight:600,color:C.orange }}>Rapport saknas — fyll i och bekräfta</p>
-            </div>
+          {!harData?(
+            <Card style={{ padding:"24px 20px",textAlign:"center" as const }}>
+              <p style={{ margin:0,fontSize:15,color:C.label }}>Ingen data från MOM</p>
+            </Card>
+          ):(
+            <Card style={{ padding:"4px 20px" }}>
+              <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
+                <span style={{ fontSize:16,color:C.label }}>Arbetstid</span>
+                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                  <span style={{ fontSize:16,fontWeight:600,color:(redStart!==(redDag.start||"06:00")||redSlut!==(redDag.slut||"16:00")||redRast!==(redDag.rast||30))?C.orange:C.ink }}>{fmt(redArbMin)}</span>
+                  <ChevronRight/>
+                </div>
+              </div>
+              {[
+                ["Start", redDag.start_tid || "—"],
+                ["Slut", redDag.slut_tid || "—"],
+                ["Rast", `${redDag.rast_min || 30} min`],
+              ].map(([l,v])=>(
+                <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
+                  <span style={{ fontSize:16,color:C.label }}>{l}</span>
+                  <span style={{ fontSize:16,fontWeight:500 }}>{v}</span>
+                </div>
+              ))}
+              <div onClick={()=>setRedVy("km")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.extra>0?`1px solid ${C.line}`:"none",cursor:"pointer" }}>
+                <span style={{ fontSize:16,color:C.label }}>Körning</span>
+                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                  <span style={{ fontSize:16,fontWeight:600,color:redKm!==redDag.km?C.orange:C.ink }}>{redKm} km</span>
+                  <ChevronRight/>
+                </div>
+              </div>
+              {redDag.extra>0&&(
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.trak?`1px solid ${C.line}`:"none" }}>
+                  <span style={{ fontSize:16,color:C.label }}>Extra tid</span>
+                  <span style={{ fontSize:16,fontWeight:600 }}>{redDag.extra} min</span>
+                </div>
+              )}
+              {redDag.trak&&(
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
+                  <span style={{ fontSize:16,color:C.label }}>Traktamente</span>
+                  <span style={{ fontSize:16,fontWeight:600 }}>{gsAvtal?.traktamente_hel_kr ?? 300} kr</span>
+                </div>
+              )}
+            </Card>
           )}
 
-          {/* Klickbara rader */}
-          <Card style={{ padding:"4px 20px" }}>
-            <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-              <span style={{ fontSize:16,color:C.label }}>Arbetstid</span>
-              <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                <span style={{ fontSize:16,fontWeight:600,color:(redStart!==(redDag.start||"06:00")||redSlut!==(redDag.slut||"16:00")||redRast!==(redDag.rast||30))?C.orange:C.ink }}>{fmt(redArbMin)}</span>
-                <ChevronRight/>
-              </div>
-            </div>
-            {[
-              ["Start", redDag.start_tid || redStart || "—"],
-              ["Slut", redDag.slut_tid || redSlut || "—"],
-              ["Rast", `${redDag.rast_min || redRast || 30} min`],
-            ].map(([l,v])=>(
-              <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
-                <span style={{ fontSize:16,color:C.label }}>{l}</span>
-                <span style={{ fontSize:16,fontWeight:500 }}>{v}</span>
-              </div>
-            ))}
-            <div onClick={()=>setRedVy("km")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.extra>0?`1px solid ${C.line}`:"none",cursor:"pointer" }}>
-              <span style={{ fontSize:16,color:C.label }}>Körning</span>
-              <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                <span style={{ fontSize:16,fontWeight:600,color:redKm!==redDag.km?C.orange:C.ink }}>{redKm} km</span>
-                <ChevronRight/>
-              </div>
-            </div>
-            {redDag.extra>0&&(
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.trak?`1px solid ${C.line}`:"none" }}>
-                <span style={{ fontSize:16,color:C.label }}>Extra tid</span>
-                <span style={{ fontSize:16,fontWeight:600 }}>{redDag.extra} min</span>
-              </div>
-            )}
-            {redDag.trak&&(
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
-                <span style={{ fontSize:16,color:C.label }}>Traktamente</span>
-                <span style={{ fontSize:16,fontWeight:600 }}>{gsAvtal?.traktamente_hel_kr ?? 300} kr</span>
-              </div>
-            )}
-          </Card>
-
-          {/* Anledning — visas bara om något ändrats */}
-          {harÄndrat&&(
+          {/* Anledning — visas bara om data finns och något ändrats */}
+          {harData&&harÄndrat&&(
             <div style={{ marginTop:16 }}>
               <Label>Anledning till ändring <span style={{ color:C.red }}>*</span></Label>
               <input
@@ -1732,8 +1734,8 @@ export default function Arbetsrapport() {
         </div>
         <div style={bottom}>
           <button
-            style={{ ...btn.primary,opacity:harÄndrat&&!redAnl?0.35:1 }}
-            disabled={harÄndrat&&!redAnl}
+            style={{ ...btn.primary,opacity:harData&&harÄndrat&&!redAnl?0.35:1 }}
+            disabled={harData&&harÄndrat&&!redAnl}
             onClick={async ()=>{
               if(harÄndrat) {
                 setRedDagar(r=>({...r,[redDag.datum]:{start:redStart,slut:redSlut,rast:redRast,km:redKm,anl:redAnl}}));
@@ -1747,9 +1749,11 @@ export default function Arbetsrapport() {
               }
               setSteg("kalender");
             }}>
-            {redDag.status==="saknas"?"Bekräfta dag":harÄndrat?"Spara ändring":"Tillbaka"}
+            {!harData?"Lägg till manuellt":harÄndrat?"Spara ändring":"Tillbaka"}
           </button>
         </div>
+          </>);
+        })()}
       </div>
     );
   }
