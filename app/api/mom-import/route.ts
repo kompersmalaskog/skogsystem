@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
           .delete()
           .eq('datum', datum)
           .in('medarbetare_id', medIds)
-          .neq('redigerad', true);
+          .or('redigerad.is.null,redigerad.eq.false');
       }
     }
 
