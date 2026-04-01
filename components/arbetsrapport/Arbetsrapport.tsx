@@ -382,6 +382,7 @@ export default function Arbetsrapport() {
       supabase.from("gs_avtal").select("*").order("giltigt_fran",{ascending:false}).limit(1).single(),
       supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare").order("object_name"),
     ]).then(([med, avt, obj]) => {
+      console.log('[auth] Medarbetare laddad:', { id: med.data?.id, namn: med.data?.namn, epost: med.data?.epost });
       if(med.data) {
         setMedarbetare(med.data);
         setHemadress(med.data.hemadress || "");
@@ -429,12 +430,16 @@ export default function Arbetsrapport() {
   useEffect(() => {
     if (!medarbetare) return;
     const mStr = String(kalMånad + 1).padStart(2, '0');
+    const frånDatum = `${kalÅr}-${mStr}-01`;
+    const tillDatum = `${kalÅr}-${mStr}-31`;
+    console.log('[dagData] Hämtar arbetsdag för:', { medarbetare_id: medarbetare.id, namn: medarbetare.namn, frånDatum, tillDatum });
     supabase.from('arbetsdag')
       .select('*')
       .eq('medarbetare_id', medarbetare.id)
-      .gte('datum', `${kalÅr}-${mStr}-01`)
-      .lte('datum', `${kalÅr}-${mStr}-31`)
+      .gte('datum', frånDatum)
+      .lte('datum', tillDatum)
       .then(res => {
+        console.log('[dagData] Supabase svar:', { data: res.data, error: res.error, antal: res.data?.length });
         if (res.data) {
           const map: Record<string, any> = {};
           for (const r of res.data) {
@@ -451,6 +456,8 @@ export default function Arbetsrapport() {
               rast: r.rast_min || 30,
             };
           }
+          console.log('[dagData] Mappat dagData:', map);
+          console.log('[dagData] dagKey(8) för mars 2026 =', `${kalÅr}-${mStr}-08`);
           setDagData(map);
         }
       });
