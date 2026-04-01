@@ -64,8 +64,7 @@ Chart.defaults.color = '#7a7a72';
 
 // Read DB data from window if available
 var _db = window.__maskinvyData || {};
-console.log('[Maskinvy Script] _db keys:', Object.keys(_db));
-console.log('[Maskinvy Script] _db.totalVolym:', _db.totalVolym, '_db.operatorer:', _db.operatorer?.length);
+console.log('[Maskinvy Script] _db:', { keys: Object.keys(_db), totalVolym: _db.totalVolym, dailyVol: _db.dailyVol?.length, operatorer: _db.operatorer?.length });
 
 var classes = ['0.0–0.1','0.1–0.2','0.2–0.3','0.3–0.4','0.4–0.5','0.5–0.7','0.7+'];
 var m3g15   = [7.7,10.3,10.5,11.1,12.0,12.7,15.0];
@@ -89,20 +88,22 @@ function countUp(el, target, dec=0, duration=1200){
   requestAnimationFrame(step);
 }
 
-// KPI values from DB or fallback
-var _kpiVolym = (_db.totalVolym && _db.totalVolym > 0) ? _db.totalVolym : 1847;
-var _kpiStammar = (_db.totalStammar && _db.totalStammar > 0) ? _db.totalStammar : 9240;
-var _kpiG15 = (_db.g15Timmar && _db.g15Timmar > 0) ? _db.g15Timmar : 163;
-var _kpiProd = (_db.produktivitet && _db.produktivitet > 0) ? _db.produktivitet : 11.3;
-var _kpiMedel = (_db.medelstam && _db.medelstam > 0) ? _db.medelstam : 0.26;
+// KPI values from DB only — no fallback
+var _kpiVolym = _db.totalVolym || 0;
+var _kpiStammar = _db.totalStammar || 0;
+var _kpiG15 = _db.g15Timmar || 0;
+var _kpiProd = _db.produktivitet || 0;
+var _kpiMedel = _db.medelstam || 0;
 
-// Update KPI data-count attributes so count-up uses DB values
-var _stamEl = document.querySelector('.k-val[data-count="9240"]');
-if (_stamEl) _stamEl.setAttribute('data-count', String(_kpiStammar));
-var _prodEl = document.querySelector('.k-val[data-count="11.3"]');
-if (_prodEl) _prodEl.setAttribute('data-count', String(_kpiProd));
-var _medelEl = document.querySelector('.k-val[data-count="0.26"]');
-if (_medelEl) _medelEl.setAttribute('data-count', String(_kpiMedel));
+// Update ALL KPI data-count attributes from DB
+document.querySelectorAll('.k-val[data-count]').forEach(function(el) {
+  var label = el.parentElement && el.parentElement.querySelector('.k-label');
+  if (!label) return;
+  var t = label.textContent;
+  if (t === 'Stammar') el.setAttribute('data-count', String(_kpiStammar));
+  if (t === 'Produktivitet') el.setAttribute('data-count', String(_kpiProd));
+  if (t === 'Medelstam') el.setAttribute('data-count', String(_kpiMedel));
+});
 
 setTimeout(()=>{
   countUp(document.getElementById('hv'), _kpiVolym, 0, 1400);
@@ -113,15 +114,15 @@ setTimeout(()=>{
   });
 }, 300);
 
-// Daily chart
-const _fallbackDailyVol = [0,0,142,168,0,0,188,195,172,0,0,155,0,178,192,0,0,168,145,188,0,0,175,162,144,0,0,130];
-const _fallbackDailySt  = [0,0,620,710,0,0,780,820,700,0,0,640,0,730,800,0,0,710,620,790,0,0,730,680,600,0,0,540];
-const dailyVol = (_db.dailyVol && _db.dailyVol.length > 0) ? _db.dailyVol : _fallbackDailyVol;
-const dailySt  = (_db.dailySt && _db.dailySt.length > 0) ? _db.dailySt : _fallbackDailySt;
-const days = (_db.days && _db.days.length > 0) ? _db.days : Array.from({length:28},(_,i)=>\`\${i+1}/2\`);
+// Daily chart — DB only
+const dailyVol = _db.dailyVol || [];
+const dailySt  = _db.dailySt || [];
+const days = _db.days || [];
 
-if(!document.getElementById('dailyChart')){console.warn('[Maskinvy] dailyChart not found');return;}
-new Chart(document.getElementById('dailyChart'),{
+var dailyEl = document.getElementById('dailyChart');
+console.log('[Maskinvy Script] dailyChart element:', !!dailyEl, 'dailyVol:', dailyVol?.slice(0,5));
+if(!dailyEl){console.warn('[Maskinvy] dailyChart canvas not found');return;}
+new Chart(dailyEl,{
   type:'bar',
   data:{labels:days,datasets:[
     {label:'m³/dag',data:dailyVol,backgroundColor:dailyVol.map(v=>v===0?'rgba(255,255,255,0.04)':'rgba(90,255,140,0.5)'),borderRadius:3,yAxisID:'y',order:1},
@@ -146,8 +147,7 @@ new Chart(document.getElementById('dailyChart'),{
 // Calendar
 const cal = document.getElementById('calGrid');
 for(let i=0;i<6;i++){const d=document.createElement('div');d.className='cal-cell';cal.appendChild(d);}
-const _fallbackDt=[0,0,1,1,0,0,1,1,1,0,0,2,0,1,1,0,0,1,1,3,0,0,2,1,1,0,0,1];
-const dt=(_db.calendarDt && _db.calendarDt.length > 0) ? _db.calendarDt : _fallbackDt;
+const dt = _db.calendarDt || [];
 const dc={0:'c-off',1:'c-prod',2:'c-flytt',3:'c-service'};
 const dlbl={0:'Ej aktiv',1:'Produktion',2:'Flytt',3:'Service'};
 dt.forEach((t,i)=>{
@@ -160,7 +160,8 @@ dt.forEach((t,i)=>{
 });
 
 // Sortiment
-if(!document.getElementById('sortChart')){console.warn('[Maskinvy] Missing chart elements');return;}
+if(!document.getElementById('sortChart')){console.warn('[Maskinvy] sortChart not found, skipping remaining charts');}
+else {
 new Chart(document.getElementById('sortChart'),{
   type:'bar',
   data:{labels:['Gran','Tall','Björk'],datasets:[
@@ -243,6 +244,7 @@ new Chart(document.getElementById('dieselChart'),{
     }
   }
 });
+} // end if(sortChart) else block
 
 // Tabs
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
@@ -278,22 +280,9 @@ function closeAllPanels() {
 }
 
 // ── FÖRARE ──
-const _fallbackForare = {
-  stefan: { av:'SK', name:'Stefan Karlsson', timmar:68, volym:820, prod:12.1, medelstam:0.28, mth:18, stammar:2930,
-    klasser:[{k:'0.0–0.1',prod:8.2,st:98,vol:42},{k:'0.1–0.2',prod:11.1,st:72,vol:110},{k:'0.2–0.3',prod:12.0,st:44,vol:242},{k:'0.3–0.4',prod:12.8,st:34,vol:198},{k:'0.4–0.5',prod:13.5,st:28,vol:148},{k:'0.5–0.7',prod:14.0,st:22,vol:68},{k:'0.7+',prod:16.2,st:18,vol:12}],
-    dagar:14, objekt:'Ålshult AU 2025', gran:62, tall:26, bjork:12 },
-  marcus: { av:'MN', name:'Marcus Nilsson', timmar:54, volym:598, prod:11.1, medelstam:0.25, mth:22, stammar:2390,
-    klasser:[{k:'0.0–0.1',prod:7.4,st:105,vol:38},{k:'0.1–0.2',prod:9.8,st:75,vol:98},{k:'0.2–0.3',prod:10.2,st:43,vol:188},{k:'0.3–0.4',prod:10.9,st:31,vol:182},{k:'0.4–0.5',prod:11.4,st:26,vol:62},{k:'0.5–0.7',prod:11.8,st:20,vol:22},{k:'0.7+',prod:13.0,st:14,vol:8}],
-    dagar:12, objekt:'Björsamåla AU 2025', gran:58, tall:30, bjork:12 },
-  par: { av:'PL', name:'Pär Lindgren', timmar:41, volym:429, prod:10.5, medelstam:0.22, mth:28, stammar:1950,
-    klasser:[{k:'0.0–0.1',prod:6.8,st:112,vol:58},{k:'0.1–0.2',prod:9.2,st:78,vol:90},{k:'0.2–0.3',prod:9.8,st:45,vol:115},{k:'0.3–0.4',prod:10.1,st:30,vol:102},{k:'0.4–0.5',prod:10.8,st:25,vol:42},{k:'0.5–0.7',prod:11.2,st:19,vol:18},{k:'0.7+',prod:12.0,st:12,vol:4}],
-    dagar:10, objekt:'Karamåla 19 A-S', gran:55, tall:28, bjork:17 }
-};
-
-// Build forare from DB operatorer if available, else use fallback
-var forare = _fallbackForare;
+// Build forare from DB operatorer — no fallback
+var forare = {};
 if (_db.operatorer && _db.operatorer.length > 0) {
-  forare = {};
   _db.operatorer.forEach(function(op) {
     var key = op.key || op.namn.split(' ')[0].toLowerCase();
     forare[key] = {
@@ -305,14 +294,12 @@ if (_db.operatorer && _db.operatorer.length > 0) {
       medelstam: op.stammar > 0 ? parseFloat((op.volym / op.stammar).toFixed(2)) : 0,
       mth: 0,
       stammar: Math.round(op.stammar),
-      klasser: _fallbackForare.stefan.klasser, // fallback klasser
+      klasser: [],
       dagar: op.dagar,
       objekt: '–',
-      gran: 60, tall: 28, bjork: 12
+      gran: 0, tall: 0, bjork: 0
     };
   });
-  // If DB returned empty operators object, revert to fallback
-  if (Object.keys(forare).length === 0) forare = _fallbackForare;
 }
 
 let fpChart = null;
@@ -501,14 +488,8 @@ function runCmp(){
   document.getElementById('page').insertBefore(div, document.getElementById('page').firstChild);
 }
 
-// ── DAG DATA (from DB or fallback) ──
-const _fallbackDagData = {
-  3:  { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:45', slut:'16:20', vol:142, stammar:620,  g15:8.2,  snitt:11.8, stg15:75, medelstam:0.23, avbrott:[{orsak:'Tankning',tid:'22 min'},{orsak:'Rast',tid:'35 min'}], diesel:3.8 },
-  4:  { typ:1, forare:'Marcus Nilsson',  objekt:'Björsamåla AU 2025', start:'07:00', slut:'17:10', vol:168, stammar:710,  g15:9.1,  snitt:12.1, stg15:78, medelstam:0.24, avbrott:[{orsak:'Maskinfel – kranstyrning',tid:'48 min'},{orsak:'Rast',tid:'30 min'}], diesel:4.1 },
-  7:  { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:50', slut:'16:45', vol:188, stammar:780,  g15:9.8,  snitt:12.4, stg15:80, medelstam:0.24, avbrott:[{orsak:'Tankning',tid:'18 min'},{orsak:'Rast',tid:'30 min'}], diesel:3.6 },
-  28: { typ:1, forare:'Stefan Karlsson', objekt:'Ålshult AU 2025', start:'06:50', slut:'16:20', vol:130, stammar:540,  g15:7.2,  snitt:10.8, stg15:75, medelstam:0.24, avbrott:[{orsak:'Service – filter',tid:'45 min'},{orsak:'Rast',tid:'35 min'}], diesel:4.1 },
-};
-const dagData = (_db.dagData && Object.keys(_db.dagData).length > 0) ? _db.dagData : _fallbackDagData;
+// ── DAG DATA — DB only ──
+const dagData = _db.dagData || {};
 
 const typIcon = { 1:'🌲', 2:'🚛', 3:'🔧' };
 const typNamn = { 1:'Produktion', 2:'Flytt', 3:'Service' };
@@ -777,8 +758,8 @@ if (_db.operatorer && _db.operatorer.length > 0) {
 }
 
 // Update time distribution bar & legend if DB data is available
-if (_db.processingSek && _db.processingSek > 0) {
-  var totalSek = _db.processingSek + _db.terrainSek + _db.kortStoppSek + _db.avbrottSek + _db.rastSek;
+if (_db.engineTimeSek && _db.engineTimeSek > 0) {
+  var totalSek = _db.engineTimeSek;
   if (totalSek > 0) {
     var pProc = Math.round((_db.processingSek / totalSek) * 100);
     var pTerr = Math.round((_db.terrainSek / totalSek) * 100);
@@ -805,7 +786,6 @@ if (_db.processingSek && _db.processingSek > 0) {
     }
 
     // Update G15 and avbrott summary
-    var snumEls = document.querySelectorAll('.snum .snum-v');
     var g15h = Math.round((_db.processingSek + _db.terrainSek) / 3600);
     var avbrH = Math.round(_db.avbrottSek / 3600);
     // Find the ones labeled "Effektiv G15" and "Avbrott"
@@ -837,22 +817,14 @@ export default function Maskinvy() {
   const [loading, setLoading] = useState(false);
   const [maskinOpen, setMaskinOpen] = useState(false);
 
-  // ── Fetch machines from dim_maskin ──
+  // ── Hardcoded machines (from database inspection) ──
   useEffect(() => {
-    supabase.from('dim_maskin').select('*').then(({ data, error }) => {
-      console.log('[Maskinvy] dim_maskin:', data, 'error:', error?.message);
-      if (data && data.length > 0) {
-        const mapped: Maskin[] = data.map((r: any) => ({
-          maskin_id: r.maskin_id,  // keep original type
-          modell: r.modell || '',
-          tillverkare: r.tillverkare || '',
-          typ: r.typ || '',
-        }));
-        console.log('[Maskinvy] Machines loaded:', mapped.map(m => `${m.tillverkare} ${m.modell} (${m.maskin_id})`));
-        setMaskiner(mapped);
-        setVald(mapped[0].modell);
-      }
-    });
+    const skordare: Maskin[] = [
+      { maskin_id: 'PONS20SDJAA270231', modell: 'Scorpion Giant 8W', tillverkare: 'Ponsse', typ: 'Skördare' },
+      { maskin_id: 'R64101', modell: 'H8E', tillverkare: 'Rottne', typ: 'Skördare' },
+    ];
+    setMaskiner(skordare);
+    setVald(skordare[0].modell); // Auto-select Ponsse (mest data)
   }, []);
 
   // ── Compute date range from period ──
@@ -888,29 +860,30 @@ export default function Maskinvy() {
     try {
       let { startDate, endDate } = getPeriodDates(p);
 
-      // Try current period first
+      // For period M: find the most recent month with data (not current calendar month)
+      if (p === 'M') {
+        const latestRes = await supabase.from('fakt_produktion')
+          .select('datum')
+          .eq('maskin_id', maskinId)
+          .order('datum', { ascending: false })
+          .limit(1);
+        if (latestRes.data && latestRes.data.length > 0) {
+          const latestDate = new Date(latestRes.data[0].datum);
+          const pad2 = (n: number) => String(n).padStart(2, '0');
+          const monthStart = new Date(latestDate.getFullYear(), latestDate.getMonth(), 1);
+          const monthEnd = new Date(latestDate.getFullYear(), latestDate.getMonth() + 1, 0);
+          startDate = `${monthStart.getFullYear()}-${pad2(monthStart.getMonth() + 1)}-01`;
+          endDate = `${monthEnd.getFullYear()}-${pad2(monthEnd.getMonth() + 1)}-${pad2(monthEnd.getDate())}`;
+          console.log('[Maskinvy] Latest month with data:', { startDate, endDate });
+        }
+      }
+
       let prodRes = await supabase.from('fakt_produktion')
         .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
         .eq('maskin_id', maskinId)
         .gte('datum', startDate).lte('datum', endDate);
 
       console.log('[Maskinvy] Query:', { maskinId, startDate, endDate, rows: prodRes.data?.length, error: prodRes.error?.message });
-
-      // If no data in current period, try previous month
-      if ((!prodRes.data || prodRes.data.length === 0) && p === 'M') {
-        const now = new Date();
-        const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        const prevEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-        const pad = (n: number) => String(n).padStart(2, '0');
-        startDate = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
-        endDate = `${prevEnd.getFullYear()}-${pad(prevEnd.getMonth() + 1)}-${pad(prevEnd.getDate())}`;
-        console.log('[Maskinvy] No data this month, trying previous:', { startDate, endDate });
-        prodRes = await supabase.from('fakt_produktion')
-          .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
-          .eq('maskin_id', maskinId)
-          .gte('datum', startDate).lte('datum', endDate);
-        console.log('[Maskinvy] Previous month rows:', prodRes.data?.length);
-      }
 
       const sDate = new Date(startDate);
       const eDate = new Date(endDate);
@@ -921,7 +894,7 @@ export default function Maskinvy() {
           .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
           .eq('maskin_id', maskinId)
           .gte('datum', startDate).lte('datum', endDate),
-        supabase.from('dim_operator').select('operator_id, operator_namn'),
+        supabase.from('dim_operator').select('operator_id, operator_key, operator_namn, maskin_id').eq('maskin_id', maskinId),
         supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer'),
       ]);
 
@@ -971,7 +944,7 @@ export default function Maskinvy() {
         processingSek += r.processing_sek || 0;
         terrainSek += r.terrain_sek || 0;
         kortStoppSek += r.kort_stopp_sek || 0;
-        avbrottSek += (r.avbrott_sek || 0) + (r.disturbance_sek || 0) + (r.maintenance_sek || 0);
+        avbrottSek += (r.disturbance_sek || 0) + (r.maintenance_sek || 0);
         rastSek += r.rast_sek || 0;
         engineTimeSek += r.engine_time_sek || 0;
       }
@@ -1178,7 +1151,7 @@ export default function Maskinvy() {
         scriptEl.textContent = MASKINVY_SCRIPT;
         document.body.appendChild(scriptEl);
         console.log('[Maskinvy] Charts initialized (v' + dataVersion + ')');
-      }, 150);
+      }, 500);
     }
 
     if (typeof window !== 'undefined' && !(window as any).Chart) {
@@ -1779,26 +1752,26 @@ body {
     <div class="hero-main anim" style="animation-delay:0.05s">
       <div class="hero-label">Volym</div>
       <div class="hero-val" id="hv">0</div>
-      <div class="hero-unit">m³fub</div>
-      <div class="hero-delta">↑ 12% mot jan</div>
+      <div class="hero-unit">m³sub</div>
+      <div class="hero-delta" id="hvDelta"></div>
     </div>
     <div class="kpi anim">
       <div class="k-label">Stammar</div>
-      <div class="k-val" data-count="9240">0</div>
+      <div class="k-val" data-count="0">0</div>
       <div class="k-unit">stammar</div>
-      <div class="k-delta up">↑ 8%</div>
+      <div class="k-delta"></div>
     </div>
     <div class="kpi anim">
       <div class="k-label">Produktivitet</div>
-      <div class="k-val" data-count="11.3" data-dec="1">0</div>
+      <div class="k-val" data-count="0" data-dec="1">0</div>
       <div class="k-unit">m³/G15h</div>
-      <div class="k-delta up">↑ 5%</div>
+      <div class="k-delta"></div>
     </div>
     <div class="kpi anim">
       <div class="k-label">Medelstam</div>
-      <div class="k-val" data-count="0.26" data-dec="2">0</div>
+      <div class="k-val" data-count="0" data-dec="2">0</div>
       <div class="k-unit">m³/stam</div>
-      <div class="k-delta up">↑ 0.02</div>
+      <div class="k-delta"></div>
     </div>
   </div>
 
