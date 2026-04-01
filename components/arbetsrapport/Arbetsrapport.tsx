@@ -1686,6 +1686,16 @@ export default function Arbetsrapport() {
                 <ChevronRight/>
               </div>
             </div>
+            {[
+              ["Start", redDag.start_tid || redStart || "—"],
+              ["Slut", redDag.slut_tid || redSlut || "—"],
+              ["Rast", `${redDag.rast_min || redRast || 30} min`],
+            ].map(([l,v])=>(
+              <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
+                <span style={{ fontSize:16,color:C.label }}>{l}</span>
+                <span style={{ fontSize:16,fontWeight:500 }}>{v}</span>
+              </div>
+            ))}
             <div onClick={()=>setRedVy("km")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.extra>0?`1px solid ${C.line}`:"none",cursor:"pointer" }}>
               <span style={{ fontSize:16,color:C.label }}>Körning</span>
               <div style={{ display:"flex",alignItems:"center",gap:10 }}>
