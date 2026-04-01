@@ -118,11 +118,14 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Skapa arbetsdag-rader
+    const svTid = (iso: string) => {
+      const d = new Date(iso);
+      const s = d.toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit', hour12: false });
+      return s;
+    };
     const rows = Object.values(dagMap).map(agg => {
-      const startDate = new Date(agg.earliestStart);
-      const endDate = new Date(agg.latestEnd);
-      const startTid = `${String(startDate.getHours()).padStart(2, '0')}:${String(startDate.getMinutes()).padStart(2, '0')}`;
-      const slutTid = `${String(endDate.getHours()).padStart(2, '0')}:${String(endDate.getMinutes()).padStart(2, '0')}`;
+      const startTid = svTid(agg.earliestStart);
+      const slutTid = svTid(agg.latestEnd);
       const arbetadMin = Math.round(agg.totalSek / 60);
 
       return {
