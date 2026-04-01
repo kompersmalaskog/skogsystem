@@ -121,8 +121,8 @@ const days = _db.days || [];
 
 var dailyEl = document.getElementById('dailyChart');
 console.log('[Maskinvy Script] dailyChart element:', !!dailyEl, 'dailyVol:', dailyVol?.slice(0,5));
-if(!dailyEl){console.warn('[Maskinvy] dailyChart canvas not found');return;}
-new Chart(dailyEl,{
+if(!dailyEl){console.warn('[Maskinvy] dailyChart canvas not found');}
+else { new Chart(dailyEl,{
   type:'bar',
   data:{labels:days,datasets:[
     {label:'m³/dag',data:dailyVol,backgroundColor:dailyVol.map(v=>v===0?'rgba(255,255,255,0.04)':'rgba(90,255,140,0.5)'),borderRadius:3,yAxisID:'y',order:1},
@@ -142,7 +142,7 @@ new Chart(dailyEl,{
       e.native.target.style.cursor = els.length && dagData[els[0].index+1] ? 'pointer' : 'default';
     }
   }
-});
+}); }
 
 // Calendar
 const cal = document.getElementById('calGrid');
@@ -1120,10 +1120,13 @@ export default function Maskinvy() {
     }
   }, [vald, maskiner, period, fetchDbData]);
 
-  // ── Re-initialize charts every time data updates ──
+  // ── Re-initialize charts every time data updates or view changes ──
   useEffect(() => {
+    if (dataVersion === 0) return;
+
     let scriptEl: HTMLScriptElement | null = null;
     let timer: ReturnType<typeof setTimeout>;
+    let retries = 0;
 
     function destroyCharts() {
       if (typeof window !== 'undefined' && (window as any).Chart) {
@@ -1138,17 +1141,36 @@ export default function Maskinvy() {
 
     function runScript() {
       timer = setTimeout(() => {
-        if (!document.getElementById('dailyChart')) {
+        const dailyEl = document.getElementById('dailyChart');
+        if (!dailyEl) {
           console.warn('[Maskinvy] DOM not ready, retrying in 200ms');
-          timer = setTimeout(runScript, 200);
+          if (retries++ < 20) timer = setTimeout(runScript, 200);
           return;
         }
+        // Chart.js needs visible canvas with dimensions > 0.
+        // Temporarily show all hidden view-sections so canvases get size.
+        const hiddenSections = document.querySelectorAll<HTMLElement>('.view-section');
+        const origDisplay: string[] = [];
+        hiddenSections.forEach((el, i) => {
+          origDisplay[i] = el.style.display;
+          if (getComputedStyle(el).display === 'none') {
+            el.style.setProperty('display', 'block', 'important');
+          }
+        });
+
         destroyCharts();
         scriptEl = document.createElement('script');
         scriptEl.setAttribute('data-maskinvy', 'true');
         scriptEl.textContent = MASKINVY_SCRIPT;
         document.body.appendChild(scriptEl);
         console.log('[Maskinvy] Charts initialized (v' + dataVersion + ')');
+
+        // Restore original display after Chart.js has read dimensions
+        requestAnimationFrame(() => {
+          hiddenSections.forEach((el, i) => {
+            el.style.display = origDisplay[i];
+          });
+        });
       }, 500);
     }
 
@@ -1165,7 +1187,7 @@ export default function Maskinvy() {
       if (timer) clearTimeout(timer);
       destroyCharts();
     };
-  }, [dataVersion]);
+  }, [dataVersion, activeView]);
 
   useEffect(() => {
     const page = document.getElementById('page');
