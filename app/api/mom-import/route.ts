@@ -80,7 +80,29 @@ export async function POST(req: NextRequest) {
       (redigerade || []).map(r => `${r.medarbetare_id}_${r.datum}`)
     );
 
-    // 4. Aggregera skift per (medarbetare_id, datum)
+    // 4. Hämta rast_sek från fakt_tid per operator+datum
+    const operatorIds = [...new Set(skift.map(s => s.operator_id).filter(Boolean))];
+    let rastMap: Record<string, number> = {}; // key: medarbetare_id_datum → rast_min
+
+    if (operatorIds.length && datumSet.length) {
+      const { data: rastData } = await supabase
+        .from('fakt_tid')
+        .select('operator_id, datum, rast_sek')
+        .in('operator_id', operatorIds)
+        .in('datum', datumSet);
+
+      if (rastData) {
+        // Aggregera rast_sek per medarbetare+datum
+        for (const r of rastData) {
+          const medId = opMap[r.operator_id];
+          if (!medId) continue;
+          const key = `${medId}_${r.datum}`;
+          rastMap[key] = (rastMap[key] || 0) + (r.rast_sek || 0);
+        }
+      }
+    }
+
+    // 5. Aggregera skift per (medarbetare_id, datum)
     type DagAgg = {
       medarbetare_id: string;
       datum: string;
@@ -122,16 +144,21 @@ export async function POST(req: NextRequest) {
       return d.toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit', hour12: false });
     };
 
-    const rows = Object.values(dagMap).map(agg => ({
-      medarbetare_id: agg.medarbetare_id,
-      datum: agg.datum,
-      dagtyp: 'normal',
-      start_tid: svTid(agg.earliestStart),
-      slut_tid: svTid(agg.latestEnd),
-      rast_min: 30,
-      maskin_id: agg.maskin_id,
-      bekraftad: false,
-    }));
+    const rows = Object.values(dagMap).map(agg => {
+      const rastKey = `${agg.medarbetare_id}_${agg.datum}`;
+      const rastSek = rastMap[rastKey] || 0;
+      const rastMin = Math.round(rastSek / 60);
+      return {
+        medarbetare_id: agg.medarbetare_id,
+        datum: agg.datum,
+        dagtyp: 'normal',
+        start_tid: svTid(agg.earliestStart),
+        slut_tid: svTid(agg.latestEnd),
+        rast_min: rastMin,
+        maskin_id: agg.maskin_id,
+        bekraftad: false,
+      };
+    });
 
     if (!rows.length) {
       return NextResponse.json({ created: 0, message: 'Inga dagar att uppdatera' });
