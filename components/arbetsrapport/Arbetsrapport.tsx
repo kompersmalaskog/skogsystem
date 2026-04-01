@@ -1789,12 +1789,12 @@ export default function Arbetsrapport() {
     const statusFärg=(d)=>{
       const k=dagKey(d);
       if(rödaDagar[k]) return "röd";
-      const dag=dagData[k];
       const date=new Date(kalÅr,kalMånad,d);
       const dow=date.getDay();
       if(dow===0||dow===6) return "weekend";
-      if(dag?.start) return "ok";
-      if(!dag && dow!==0 && dow!==6 && date<idag) return "saknas";
+      const dag=dagData[k];
+      if(dag) return dag.start ? "ok" : "saknas";
+      if(date<idag) return "saknas";
       return "tom";
     };
 
