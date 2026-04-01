@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
-type Maskin = { maskin_id: string; modell: string; tillverkare: string; typ: string };
+type Maskin = { maskin_id: any; modell: string; tillverkare: string; typ: string };
 
 // ── Types for DB data ──
 type DbData = {
@@ -839,15 +839,16 @@ export default function Maskinvy() {
 
   // ── Fetch machines from dim_maskin ──
   useEffect(() => {
-    supabase.from('dim_maskin').select('maskin_id, modell, tillverkare, typ').then(({ data, error }) => {
-      console.log('[Maskinvy] dim_maskin:', { count: data?.length, error: error?.message });
+    supabase.from('dim_maskin').select('*').then(({ data, error }) => {
+      console.log('[Maskinvy] dim_maskin:', data, 'error:', error?.message);
       if (data && data.length > 0) {
         const mapped: Maskin[] = data.map((r: any) => ({
-          maskin_id: String(r.maskin_id),
+          maskin_id: r.maskin_id,  // keep original type
           modell: r.modell || '',
           tillverkare: r.tillverkare || '',
           typ: r.typ || '',
         }));
+        console.log('[Maskinvy] Machines loaded:', mapped.map(m => `${m.tillverkare} ${m.modell} (${m.maskin_id})`));
         setMaskiner(mapped);
         setVald(mapped[0].modell);
       }
@@ -881,20 +882,41 @@ export default function Maskinvy() {
   }
 
   // ── Fetch production data from Supabase ──
-  const fetchDbData = useCallback(async (maskinId: string, p: 'V' | 'M' | 'K' | 'Å' = 'M') => {
+  const fetchDbData = useCallback(async (maskinId: any, p: 'V' | 'M' | 'K' | 'Å' = 'M') => {
     if (!maskinId) return;
     setLoading(true);
     try {
-      const { startDate, endDate } = getPeriodDates(p);
+      let { startDate, endDate } = getPeriodDates(p);
+
+      // Try current period first
+      let prodRes = await supabase.from('fakt_produktion')
+        .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
+        .eq('maskin_id', maskinId)
+        .gte('datum', startDate).lte('datum', endDate);
+
+      console.log('[Maskinvy] Query:', { maskinId, startDate, endDate, rows: prodRes.data?.length, error: prodRes.error?.message });
+
+      // If no data in current period, try previous month
+      if ((!prodRes.data || prodRes.data.length === 0) && p === 'M') {
+        const now = new Date();
+        const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        const prevEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        startDate = `${prevMonth.getFullYear()}-${pad(prevMonth.getMonth() + 1)}-01`;
+        endDate = `${prevEnd.getFullYear()}-${pad(prevEnd.getMonth() + 1)}-${pad(prevEnd.getDate())}`;
+        console.log('[Maskinvy] No data this month, trying previous:', { startDate, endDate });
+        prodRes = await supabase.from('fakt_produktion')
+          .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
+          .eq('maskin_id', maskinId)
+          .gte('datum', startDate).lte('datum', endDate);
+        console.log('[Maskinvy] Previous month rows:', prodRes.data?.length);
+      }
+
       const sDate = new Date(startDate);
       const eDate = new Date(endDate);
       const totalDays = Math.round((eDate.getTime() - sDate.getTime()) / 86400000) + 1;
 
-      const [prodRes, tidRes, opRes, objRes] = await Promise.all([
-        supabase.from('fakt_produktion')
-          .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
-          .eq('maskin_id', maskinId)
-          .gte('datum', startDate).lte('datum', endDate),
+      const [tidRes, opRes, objRes] = await Promise.all([
         supabase.from('fakt_tid')
           .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
           .eq('maskin_id', maskinId)
@@ -908,7 +930,7 @@ export default function Maskinvy() {
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
 
-      console.log('[Maskinvy] Data for', maskinId, ':', prodRows.length, 'prod rows,', tidRows.length, 'tid rows,', operators.length, 'operators');
+      console.log('[Maskinvy] Data loaded:', { maskinId, prodRows: prodRows.length, tidRows: tidRows.length, operators: operators.length, sample: prodRows[0] });
 
       if (prodRows.length === 0 && tidRows.length === 0) {
         (window as any).__maskinvyData = {};
@@ -1119,9 +1141,10 @@ export default function Maskinvy() {
   // Fetch data when machine or period changes
   useEffect(() => {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
-    const mid = valdMaskinObj?.maskin_id || '';
-    console.log('[Maskinvy] Machine/period trigger:', { vald, maskin_id: mid, period, maskinCount: maskiner.length });
-    if (mid) fetchDbData(mid, period);
+    if (valdMaskinObj) {
+      console.log('[Maskinvy] Trigger fetch:', { modell: vald, maskin_id: valdMaskinObj.maskin_id, period });
+      fetchDbData(valdMaskinObj.maskin_id, period);
+    }
   }, [vald, maskiner, period, fetchDbData]);
 
   // ── Re-initialize charts every time data updates ──
