@@ -132,7 +132,6 @@ export async function POST(req: NextRequest) {
         start_tid: startTid,
         slut_tid: slutTid,
         rast_min: 30,
-        arbetad_min: Math.max(0, arbetadMin - 30), // Dra av standardrast
         maskin_id: agg.maskin_id,
         bekraftad: false,
       };
@@ -142,10 +141,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ created: 0, message: 'Alla dagar finns redan' });
     }
 
-    // 6. Insert med ON CONFLICT DO NOTHING via upsert + ignoreDuplicates
+    // 6. Insert — duplicat-filtrering sker redan ovan via finnsRedan
     const { data: inserted, error: insertErr } = await supabase
       .from('arbetsdag')
-      .upsert(rows, { onConflict: 'medarbetare_id,datum', ignoreDuplicates: true })
+      .insert(rows)
       .select('id');
 
     if (insertErr) {
