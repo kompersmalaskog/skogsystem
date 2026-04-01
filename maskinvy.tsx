@@ -65,6 +65,12 @@ type DbData = {
   bransleTotalt: number;
   branslePerM3: number;
   stammarPerG15h: number;
+  // Per-medelstamsklass arrays (7 classes: 0.0–0.1, 0.1–0.2, ..., 0.7+)
+  klassVolym: number[];
+  klassStammar: number[];
+  klassM3g15: number[];
+  klassStg15: number[];
+  klassDieselM3: number[];
   // MTH flag + sortiment per dag
   hasMth: boolean;
   sortimentPerDag: {
@@ -86,10 +92,10 @@ var _db = window.__maskinvyData || {};
 console.log('[Maskinvy Script] _db:', { keys: Object.keys(_db), totalVolym: _db.totalVolym, dailyVol: _db.dailyVol?.length, operatorer: _db.operatorer?.length });
 
 var classes = ['0.0–0.1','0.1–0.2','0.2–0.3','0.3–0.4','0.4–0.5','0.5–0.7','0.7+'];
-var m3g15   = [7.7,10.3,10.5,11.1,12.0,12.7,15.0];
-var stg15   = [102,73,42,32,27,21,36];
-var volym   = [138,298,545,311,252,228,75];
-var stammar = [1840,2130,2180,890,560,380,180];
+var m3g15   = _db.klassM3g15 || [0,0,0,0,0,0,0];
+var stg15   = _db.klassStg15 || [0,0,0,0,0,0,0];
+var volym   = _db.klassVolym || [0,0,0,0,0,0,0];
+var stammar = _db.klassStammar || [0,0,0,0,0,0,0];
 
 var grid    = {color:'rgba(255,255,255,0.05)'};
 var ticks   = {color:'#7a7a72',font:{size:11}};
@@ -256,7 +262,7 @@ new Chart(document.getElementById('prodChart'),{
 });
 
 // Diesel per medelstamsklass
-const dieselPerM3 = [6.8, 5.2, 4.4, 3.9, 3.6, 3.3, 3.1];
+const dieselPerM3 = _db.klassDieselM3 || [0,0,0,0,0,0,0];
 new Chart(document.getElementById('dieselChart'),{
   type:'bar',
   data:{labels:classes,datasets:[
@@ -1074,6 +1080,8 @@ export default function Maskinvy() {
           operatorer: [], objekt: [], dagData: {},
           calendarDt: new Array(totalDays).fill(0),
           bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0,
+          klassVolym: Array(7).fill(0), klassStammar: Array(7).fill(0),
+          klassM3g15: Array(7).fill(0), klassStg15: Array(7).fill(0), klassDieselM3: Array(7).fill(0),
           hasMth: false, sortimentPerDag: null,
         };
         (window as any).__maskinvyData = emptyData;
@@ -1291,6 +1299,34 @@ export default function Maskinvy() {
         }
       }
 
+      // ── Medelstamsklass-aggregering (per dag → klass) ──
+      const classEdges = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, Infinity];
+      const nClasses = 7;
+      const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, g15sek: 0, bransle: 0 }));
+      for (let i = 0; i < totalDays; i++) {
+        const d = new Date(sDate); d.setDate(d.getDate() + i);
+        const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        const pDay = prodByDay[dateStr];
+        const tDay = tidByDay[dateStr];
+        if (!pDay || pDay.st <= 0) continue;
+        const medelstamDag = pDay.vol / pDay.st;
+        let ci = nClasses - 1;
+        for (let c = 0; c < nClasses; c++) {
+          if (medelstamDag < classEdges[c + 1]) { ci = c; break; }
+        }
+        klassAgg[ci].vol += pDay.vol;
+        klassAgg[ci].st += pDay.st;
+        if (tDay) {
+          klassAgg[ci].g15sek += tDay.processingSek + tDay.terrainSek;
+          klassAgg[ci].bransle += tDay.bransleLiter;
+        }
+      }
+      const klassVolym = klassAgg.map(k => Math.round(k.vol));
+      const klassStammar = klassAgg.map(k => Math.round(k.st));
+      const klassM3g15 = klassAgg.map(k => { const h = k.g15sek / 3600; return h > 0 ? parseFloat((k.vol / h).toFixed(1)) : 0; });
+      const klassStg15 = klassAgg.map(k => { const h = k.g15sek / 3600; return h > 0 ? Math.round(k.st / h) : 0; });
+      const klassDieselM3 = klassAgg.map(k => k.vol > 0 ? parseFloat((k.bransle / k.vol).toFixed(1)) : 0);
+
       // ── Check MTH data + fetch sortiment per dag ──
       const mthCheck = await supabase.from('fakt_produktion')
         .select('processtyp')
@@ -1401,6 +1437,7 @@ export default function Maskinvy() {
         bransleTotalt: Math.round(bransleTotalt),
         branslePerM3: parseFloat(branslePerM3.toFixed(2)),
         stammarPerG15h: parseFloat(stammarPerG15h.toFixed(1)),
+        klassVolym, klassStammar, klassM3g15, klassStg15, klassDieselM3,
         hasMth,
         sortimentPerDag,
       };
