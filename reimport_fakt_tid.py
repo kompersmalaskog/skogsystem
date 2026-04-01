@@ -287,5 +287,19 @@ def main():
     print(f"\n  TOTALT: arbetstid {total_arb_sek/3600:.1f} tim, diesel {total_diesel:.0f} liter")
     print(f"  FORVANTAT: ~37 tim, ~650 liter")
 
+    # 6. Trigga automatisk arbetsdag-skapning
+    print("\n=== Skapar arbetsdagar från skiftdata ===")
+    try:
+        app_url = os.environ.get("NEXT_PUBLIC_APP_URL", "http://localhost:3000")
+        resp = requests.post(f"{app_url}/api/mom-import", json={}, timeout=30)
+        if resp.status_code == 200:
+            result = resp.json()
+            print(f"  ✓ {result.get('created', 0)} arbetsdagar skapade, {result.get('skipped', 0)} redan fanns")
+        else:
+            print(f"  ⚠ mom-import API svarade {resp.status_code}: {resp.text[:200]}")
+    except Exception as e:
+        print(f"  ⚠ Kunde inte nå mom-import API: {e}")
+        print(f"    (Appen kanske inte körs — kör manuellt: POST {app_url}/api/mom-import)")
+
 if __name__ == "__main__":
     main()
