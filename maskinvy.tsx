@@ -874,7 +874,24 @@ export default function Maskinvy() {
       { maskin_id: 'R64101', modell: 'H8E', tillverkare: 'Rottne', typ: 'Skördare' },
     ];
     setMaskiner(skordare);
-    setVald(skordare[0].modell); // Auto-select Ponsse (mest data)
+    setVald(skordare[0].modell);
+
+    // Auto-detect latest month with data and set periodOffset accordingly
+    (async () => {
+      const latestRes = await supabase.from('fakt_produktion')
+        .select('datum')
+        .eq('maskin_id', skordare[0].maskin_id)
+        .order('datum', { ascending: false })
+        .limit(1);
+      if (latestRes.data && latestRes.data.length > 0) {
+        const latest = new Date(latestRes.data[0].datum);
+        const now = new Date();
+        const monthDiff = (latest.getFullYear() - now.getFullYear()) * 12 + (latest.getMonth() - now.getMonth());
+        if (monthDiff < 0) {
+          setPeriodOffset(monthDiff);
+        }
+      }
+    })();
   }, []);
 
   // ── Compute date range from period + offset ──
@@ -928,25 +945,8 @@ export default function Maskinvy() {
     if (!maskinId) return;
     setLoading(true);
     try {
-      let { startDate, endDate } = getPeriodDates(p, pOffset);
-
-      // For period M with offset 0: find the most recent month with data (not current calendar month)
-      if (p === 'M' && pOffset === 0) {
-        const latestRes = await supabase.from('fakt_produktion')
-          .select('datum')
-          .eq('maskin_id', maskinId)
-          .order('datum', { ascending: false })
-          .limit(1);
-        if (latestRes.data && latestRes.data.length > 0) {
-          const latestDate = new Date(latestRes.data[0].datum);
-          const pad2 = (n: number) => String(n).padStart(2, '0');
-          const monthStart = new Date(latestDate.getFullYear(), latestDate.getMonth(), 1);
-          const monthEnd = new Date(latestDate.getFullYear(), latestDate.getMonth() + 1, 0);
-          startDate = `${monthStart.getFullYear()}-${pad2(monthStart.getMonth() + 1)}-01`;
-          endDate = `${monthEnd.getFullYear()}-${pad2(monthEnd.getMonth() + 1)}-${pad2(monthEnd.getDate())}`;
-          console.log('[Maskinvy] Latest month with data:', { startDate, endDate });
-        }
-      }
+      const { startDate, endDate } = getPeriodDates(p, pOffset);
+      console.log('[Maskinvy] fetchDbData:', { maskinId, period: p, pOffset, startDate, endDate });
 
       let prodRes = await supabase.from('fakt_produktion')
         .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
