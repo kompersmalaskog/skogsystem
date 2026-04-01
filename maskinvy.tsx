@@ -1122,8 +1122,6 @@ export default function Maskinvy() {
 
   // ── Re-initialize charts every time data updates ──
   useEffect(() => {
-    if (dataVersion === 0) return;
-
     let scriptEl: HTMLScriptElement | null = null;
     let timer: ReturnType<typeof setTimeout>;
 
