@@ -1230,32 +1230,50 @@ export default function Maskinvy() {
       const branslePerM3 = totalVolym > 0 ? bransleTotalt / totalVolym : 0;
       const stammarPerG15h = g15Timmar > 0 ? totalStammar / g15Timmar : 0;
 
-      // ── Operators (prod and tid aggregated separately per operator) ──
+      // ── Operators: aggregate prod and tid SEPARATELY per operator_id ──
+      // 1. prodByOp: SUM(volym, stammar) from fakt_produktion per operator
+      // 2. tidByOp: SUM(all tid fields) from fakt_tid per operator
+      // 3. Merge per operator_id in JS — never cross-joined
+      const prodByOp: Record<string, { vol: number; st: number; dagar: Set<string>; dailyVol: Record<string, number> }> = {};
+      for (const r of rawProdRows) {
+        const opId = r.operator_id;
+        if (!opId) continue;
+        if (!prodByOp[opId]) prodByOp[opId] = { vol: 0, st: 0, dagar: new Set(), dailyVol: {} };
+        prodByOp[opId].vol += r.volym_m3sub || 0;
+        prodByOp[opId].st += r.stammar || 0;
+        prodByOp[opId].dagar.add(r.datum);
+        prodByOp[opId].dailyVol[r.datum] = (prodByOp[opId].dailyVol[r.datum] || 0) + (r.volym_m3sub || 0);
+      }
+      const tidByOp: Record<string, TidAgg> = {};
+      for (const r of rawTidRows) {
+        const opId = r.operator_id;
+        if (!opId) continue;
+        if (!tidByOp[opId]) tidByOp[opId] = emptyTid();
+        addTid(tidByOp[opId], r);
+      }
+
       const opIds = new Set<string>();
-      for (const r of rawProdRows) if (r.operator_id) opIds.add(r.operator_id);
-      for (const r of rawTidRows) if (r.operator_id) opIds.add(r.operator_id);
+      for (const id of Object.keys(prodByOp)) opIds.add(id);
+      for (const id of Object.keys(tidByOp)) opIds.add(id);
 
       const operatorer = [...opIds].map(opId => {
-        // Sum prod per this operator across all days
-        let volym = 0, stammar = 0;
-        const dagar = new Set<string>();
+        const pOp = prodByOp[opId];
+        const tOp = tidByOp[opId] || emptyTid();
+        const volym = pOp ? pOp.vol : 0;
+        const stammar = pOp ? pOp.st : 0;
+        const dagarSize = pOp ? pOp.dagar.size : 0;
+        // timmar = engine_time from fakt_tid (never from fakt_produktion)
+        const timmar = tOp.engineTimeSek / 3600;
+        // m³/G15h = volym from fakt_produktion / g15h from fakt_tid
+        const g15sek = tOp.processingSek + tOp.terrainSek;
+        const g15h = g15sek / 3600;
+        const prod = g15h > 0 ? volym / g15h : 0;
+        // Daily vol array aligned to period
         const opDailyVol: number[] = [];
         for (let i = 0; i < totalDays; i++) {
           const d = new Date(sDate); d.setDate(d.getDate() + i);
           const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-          const pk = `${dateStr}|${opId}`;
-          const pAgg = prodByDayOp[pk];
-          if (pAgg) { volym += pAgg.vol; stammar += pAgg.st; dagar.add(dateStr); }
-          opDailyVol.push(pAgg ? Math.round(pAgg.vol) : 0);
-        }
-        // Sum tid per this operator across all days
-        let opTid: TidAgg = emptyTid();
-        for (let i = 0; i < totalDays; i++) {
-          const d = new Date(sDate); d.setDate(d.getDate() + i);
-          const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-          const tk = `${dateStr}|${opId}`;
-          const tAgg = tidByDayOp[tk];
-          if (tAgg) { addTid(opTid, { processing_sek: tAgg.processingSek, terrain_sek: tAgg.terrainSek, other_work_sek: tAgg.otherWorkSek, disturbance_sek: tAgg.disturbanceSek, maintenance_sek: tAgg.maintenanceSek, avbrott_sek: tAgg.avbrottSek, rast_sek: tAgg.rastSek, engine_time_sek: tAgg.engineTimeSek, bransle_liter: tAgg.bransleLiter }); }
+          opDailyVol.push(pOp ? Math.round(pOp.dailyVol[dateStr] || 0) : 0);
         }
         const opInfo = operators.find((o: any) => String(o.operator_id) === String(opId));
         const namn = opInfo?.operator_namn || `Operatör ${opId}`;
@@ -1263,20 +1281,17 @@ export default function Maskinvy() {
         const initialer = nameParts.length >= 2
           ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
           : namn.substring(0, 2).toUpperCase();
-        const g15sek = opTid.processingSek + opTid.terrainSek;
-        const timmar = g15sek / 3600;
-        const prod = timmar > 0 ? volym / timmar : 0;
         return {
           id: opId,
           key: opInfo?.operator_key || nameParts[0].toLowerCase(),
           namn, initialer, timmar, volym, prod,
           medelstam: stammar > 0 ? volym / stammar : 0,
-          stammar, dagar: dagar.size,
-          processingSek: opTid.processingSek,
-          terrainSek: opTid.terrainSek,
-          disturbanceSek: opTid.disturbanceSek + opTid.maintenanceSek,
-          engineTimeSek: opTid.engineTimeSek,
-          bransleLiter: opTid.bransleLiter,
+          stammar, dagar: dagarSize,
+          processingSek: tOp.processingSek,
+          terrainSek: tOp.terrainSek,
+          disturbanceSek: tOp.disturbanceSek + tOp.maintenanceSek,
+          engineTimeSek: tOp.engineTimeSek,
+          bransleLiter: tOp.bransleLiter,
           dailyVol: opDailyVol,
         };
       }).filter(o => o.volym > 0 || o.timmar > 0).sort((a, b) => b.volym - a.volym);
