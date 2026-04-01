@@ -746,10 +746,11 @@ function openObjJmf() {
 function closeObjJmf() { closeAllPanels(); }
 
 // ── UPDATE DOM WITH DB DATA ──
+var opContainer = document.getElementById('opContainer');
+var opBadge = document.getElementById('opBadge');
 if (_db.operatorer && _db.operatorer.length > 0) {
   // Update operator rows in the card
   // Rebuild operator container from DB data
-  var opContainer = document.getElementById('opContainer');
   if (opContainer) {
     opContainer.innerHTML = '';
     var opKeys = Object.keys(forare);
@@ -767,8 +768,6 @@ if (_db.operatorer && _db.operatorer.length > 0) {
     });
   }
 
-  // Update badge count
-  var opBadge = document.getElementById('opBadge');
   if (opBadge) opBadge.textContent = Object.keys(forare).length + ' aktiva';
 
   // Populate avbrott per förare
@@ -790,48 +789,50 @@ if (_db.operatorer && _db.operatorer.length > 0) {
       avbrottContainer.appendChild(row);
     });
   }
+} else {
+  // No operators — clear stale content
+  if (opContainer) opContainer.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px 0;">Ingen data för vald period</div>';
+  if (opBadge) opBadge.textContent = '0';
 }
 
-// Update time distribution bar & legend if DB data is available
-if (_db.engineTimeSek && _db.engineTimeSek > 0) {
-  var totalSek = _db.engineTimeSek;
-  if (totalSek > 0) {
-    var pProc = Math.round((_db.processingSek / totalSek) * 100);
-    var pTerr = Math.round((_db.terrainSek / totalSek) * 100);
-    var pKort = Math.round((_db.kortStoppSek / totalSek) * 100);
-    var pAvbr = Math.round((_db.avbrottSek / totalSek) * 100);
-    var pRast = 100 - pProc - pTerr - pKort - pAvbr;
+// Update time distribution bar & legend — always update (zero when no data)
+{
+  var totalSek = _db.engineTimeSek || 0;
+  var pProc = totalSek > 0 ? Math.round((_db.processingSek / totalSek) * 100) : 0;
+  var pTerr = totalSek > 0 ? Math.round((_db.terrainSek / totalSek) * 100) : 0;
+  var pKort = totalSek > 0 ? Math.round((_db.kortStoppSek / totalSek) * 100) : 0;
+  var pAvbr = totalSek > 0 ? Math.round((_db.avbrottSek / totalSek) * 100) : 0;
+  var pRast = totalSek > 0 ? (100 - pProc - pTerr - pKort - pAvbr) : 0;
 
-    var tbarSegs = document.querySelectorAll('.tbar .tseg');
-    if (tbarSegs.length >= 5) {
-      tbarSegs[0].style.flex = String(pProc);
-      tbarSegs[1].style.flex = String(pTerr);
-      tbarSegs[2].style.flex = String(pKort);
-      tbarSegs[3].style.flex = String(pAvbr);
-      tbarSegs[4].style.flex = String(pRast);
-    }
-
-    var tlegItems = document.querySelectorAll('.tleg .tli');
-    if (tlegItems.length >= 5) {
-      tlegItems[0].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.3)"></div>Processar ' + pProc + '%';
-      tlegItems[1].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.2)"></div>Kör ' + pTerr + '%';
-      tlegItems[2].innerHTML = '<div class="tld" style="background:rgba(91,143,255,0.35)"></div>Korta stopp ' + pKort + '%';
-      tlegItems[3].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.1)"></div>Avbrott ' + pAvbr + '%';
-      tlegItems[4].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.1)"></div>Rast ' + pRast + '%';
-    }
-
-    // Update G15 and avbrott summary
-    var g15h = Math.round((_db.processingSek + _db.terrainSek) / 3600);
-    var avbrH = Math.round(_db.avbrottSek / 3600);
-    // Find the ones labeled "Effektiv G15" and "Avbrott"
-    document.querySelectorAll('.snum').forEach(function(el) {
-      var label = el.querySelector('.snum-l');
-      var val = el.querySelector('.snum-v');
-      if (!label || !val) return;
-      if (label.textContent === 'Effektiv G15') val.textContent = g15h + 'h';
-      if (label.textContent === 'Avbrott') val.textContent = avbrH + 'h';
-    });
+  var tbarSegs = document.querySelectorAll('.tbar .tseg');
+  if (tbarSegs.length >= 5) {
+    tbarSegs[0].style.flex = String(pProc || 1);
+    tbarSegs[1].style.flex = String(pTerr || 0);
+    tbarSegs[2].style.flex = String(pKort || 0);
+    tbarSegs[3].style.flex = String(pAvbr || 0);
+    tbarSegs[4].style.flex = String(pRast || 0);
   }
+
+  var tlegItems = document.querySelectorAll('.tleg .tli');
+  if (tlegItems.length >= 5) {
+    tlegItems[0].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.3)"></div>Processar ' + pProc + '%';
+    tlegItems[1].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.2)"></div>Kör ' + pTerr + '%';
+    tlegItems[2].innerHTML = '<div class="tld" style="background:rgba(91,143,255,0.35)"></div>Korta stopp ' + pKort + '%';
+    tlegItems[3].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.1)"></div>Avbrott ' + pAvbr + '%';
+    tlegItems[4].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.1)"></div>Rast ' + pRast + '%';
+  }
+
+  // Update G15 and avbrott summary
+  var g15h = Math.round(((_db.processingSek || 0) + (_db.terrainSek || 0)) / 3600);
+  var avbrH = Math.round((_db.avbrottSek || 0) / 3600);
+  // Find the ones labeled "Effektiv G15" and "Avbrott"
+  document.querySelectorAll('.snum').forEach(function(el) {
+    var label = el.querySelector('.snum-l');
+    var val = el.querySelector('.snum-v');
+    if (!label || !val) return;
+    if (label.textContent === 'Effektiv G15') val.textContent = g15h + 'h';
+    if (label.textContent === 'Avbrott') val.textContent = avbrH + 'h';
+    });
 }
 
 // Expose to global scope for onclick handlers
@@ -975,7 +976,25 @@ export default function Maskinvy() {
       console.log('[Maskinvy] Data loaded:', { maskinId, prodRows: prodRows.length, tidRows: tidRows.length, operators: operators.length, sample: prodRows[0] });
 
       if (prodRows.length === 0 && tidRows.length === 0) {
-        (window as any).__maskinvyData = {};
+        const pad0 = (n: number) => String(n).padStart(2, '0');
+        const emptyDays: string[] = [];
+        for (let i = 0; i < totalDays; i++) {
+          const d = new Date(sDate); d.setDate(d.getDate() + i);
+          emptyDays.push(`${d.getDate()}/${d.getMonth() + 1}`);
+        }
+        const emptyData: DbData = {
+          dailyVol: new Array(totalDays).fill(0),
+          dailySt: new Array(totalDays).fill(0),
+          days: emptyDays,
+          totalVolym: 0, totalStammar: 0, g15Timmar: 0,
+          produktivitet: 0, medelstam: 0,
+          processingSek: 0, terrainSek: 0, kortStoppSek: 0,
+          avbrottSek: 0, rastSek: 0, engineTimeSek: 0,
+          operatorer: [], objekt: [], dagData: {},
+          calendarDt: new Array(totalDays).fill(0),
+          hasMth: false, sortimentPerDag: null,
+        };
+        (window as any).__maskinvyData = emptyData;
         setDataVersion(v => v + 1);
         setLoading(false);
         return;
