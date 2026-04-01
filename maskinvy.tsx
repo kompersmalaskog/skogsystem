@@ -89,7 +89,7 @@ Chart.defaults.color = '#7a7a72';
 
 // Read DB data from window if available
 var _db = window.__maskinvyData || {};
-console.log('[Maskinvy Script] _db:', { keys: Object.keys(_db), totalVolym: _db.totalVolym, dailyVol: _db.dailyVol?.length, operatorer: _db.operatorer?.length });
+console.log('[Maskinvy Script] _db:', { keys: Object.keys(_db), totalVolym: _db.totalVolym, dailyVol: _db.dailyVol?.length, operatorer: _db.operatorer?.length, klassM3g15: _db.klassM3g15, klassDieselM3: _db.klassDieselM3 });
 
 var classes = ['0.0–0.1','0.1–0.2','0.2–0.3','0.3–0.4','0.4–0.5','0.5–0.7','0.7+'];
 var m3g15   = _db.klassM3g15 || [0,0,0,0,0,0,0];
@@ -301,6 +301,37 @@ new Chart(document.getElementById('dieselChart'),{
     }
   }
 });
+// Populate productivity sc-grid from DB data
+var prodScGrid = document.getElementById('prodScGrid');
+if (prodScGrid) {
+  prodScGrid.innerHTML = classes.map(function(cls, i) {
+    var isBest = m3g15[i] >= 10;
+    return '<div class="sc' + (isBest ? ' best' : '') + '"><div class="sc-k">' + cls + '</div><div class="sc-p" style="color:var(--text)">' + m3g15[i] + '</div><div class="sc-u">m\\u00b3/G15h</div><div class="sc-d"></div><div class="sc-s" style="color:var(--muted)">' + stg15[i] + '</div><div class="sc-sl">st/G15h</div><div class="sc-x">' + volym[i].toLocaleString('sv') + ' m\\u00b3 \\u00b7 ' + stammar[i].toLocaleString('sv') + ' st</div></div>';
+  }).join('');
+}
+
+// Populate diesel sc-grid from DB data
+var dieselScGrid = document.getElementById('dieselScGrid');
+if (dieselScGrid) {
+  dieselScGrid.innerHTML = classes.map(function(cls, i) {
+    var isBest = dieselPerM3[i] > 0 && dieselPerM3[i] <= 4;
+    return '<div class="sc' + (isBest ? ' best' : '') + '"><div class="sc-k">' + cls + '</div><div class="sc-p"' + (dieselPerM3[i] > 5 ? ' style="color:var(--warn)"' : '') + '>' + dieselPerM3[i] + '</div><div class="sc-u">l/m\\u00b3</div></div>';
+  }).join('');
+}
+
+// Populate diesel summary
+var dieselSummary = document.getElementById('dieselSummary');
+if (dieselSummary) {
+  var totalBr = _db.bransleTotalt || 0;
+  var totalVol = _db.totalVolym || 0;
+  var totalSt = _db.totalStammar || 0;
+  var snittLm3 = totalVol > 0 ? (totalBr / totalVol).toFixed(1) : '–';
+  var lPerStam = totalSt > 0 ? (totalBr / totalSt).toFixed(2) : '–';
+  var snums = dieselSummary.querySelectorAll('.snum-v');
+  if (snums[0]) snums[0].textContent = snittLm3;
+  if (snums[1]) snums[1].textContent = lPerStam;
+}
+
 } // end if(sortChart) else block
 
 // Tabs
@@ -2651,14 +2682,8 @@ body {
         </div>
         <canvas id="prodChart" style="max-height:175px"></canvas>
         <div class="sc-grid">
-          <div class="sc"><div class="sc-k">0.0–0.1</div><div class="sc-p" style="color:var(--text)">7.7</div><div class="sc-u">m³/G15h</div><div class="sc-d"></div><div class="sc-s" style="color:var(--muted)">102</div><div class="sc-sl">st/G15h</div><div class="sc-x">138 m³ · 1 840 st</div></div>
-          <div class="sc"><div class="sc-k">0.1–0.2</div><div class="sc-p" style="color:var(--text)">10.3</div><div class="sc-u">m³/G15h</div><div class="sc-d"></div><div class="sc-s" style="color:var(--muted)">73</div><div class="sc-sl">st/G15h</div><div class="sc-x">298 m³ · 2 130 st</div></div>
-          <div class="sc"><div class="sc-k">0.2–0.3</div><div class="sc-p" style="color:var(--text)">10.5</div><div class="sc-u">m³/G15h</div><div class="sc-d"></div><div class="sc-s" style="color:var(--muted)">42</div><div class="sc-sl">st/G15h</div><div class="sc-x">545 m³ · 2 180 st</div></div>
-          <div class="sc best"><div class="sc-k">0.3–0.4</div><div class="sc-p" style="color:var(--text)">11.1</div><div class="sc-u">m³/G15h</div><div class="sc-d"></div><div class="sc-s" style="color:var(--muted)">32</div><div class="sc-sl">st/G15h</div><div class="sc-x">311 m³ · 890 st</div></div>
-          <div class="sc best"><div class="sc-k">0.4–0.5</div><div class="sc-p" style="color:var(--text)">12.0</div><div class="sc-u">m³/G15h</div><div class="sc-d"></div><div class="sc-s" style="color:var(--text)">27</div><div class="sc-sl">st/G15h</div><div class="sc-x">252 m³ · 560 st</div></div>
-          <div class="sc best"><div class="sc-k">0.5–0.7</div><div class="sc-p" style="color:var(--text)">12.7</div><div class="sc-u">m³/G15h</div><div class="sc-d"></div><div class="sc-s" style="color:var(--text)">21</div><div class="sc-sl">st/G15h</div><div class="sc-x">228 m³ · 380 st</div></div>
-          <div class="sc best"><div class="sc-k">0.7+</div><div class="sc-p" style="color:var(--text)">15.0</div><div class="sc-u">m³/G15h</div><div class="sc-d"></div><div class="sc-s" style="color:var(--muted)">36</div><div class="sc-sl">st/G15h</div><div class="sc-x">75 m³ · 180 st</div></div>
         </div>
+        <div class="sc-grid" id="prodScGrid"></div>
       </div>
     </div>
   </div>
@@ -2669,18 +2694,10 @@ body {
       <div class="card-h"><div class="card-t">Dieselförbrukning per medelstamsklass</div></div>
       <div class="card-b">
         <canvas id="dieselChart" style="max-height:200px;margin-bottom:16px;"></canvas>
-        <div class="sc-grid">
-          <div class="sc"><div class="sc-k">0.0–0.1</div><div class="sc-p" style="color:var(--warn)">6.8</div><div class="sc-u">l/m³</div></div>
-          <div class="sc"><div class="sc-k">0.1–0.2</div><div class="sc-p">5.2</div><div class="sc-u">l/m³</div></div>
-          <div class="sc"><div class="sc-k">0.2–0.3</div><div class="sc-p">4.4</div><div class="sc-u">l/m³</div></div>
-          <div class="sc best"><div class="sc-k">0.3–0.4</div><div class="sc-p">3.9</div><div class="sc-u">l/m³</div></div>
-          <div class="sc best"><div class="sc-k">0.4–0.5</div><div class="sc-p">3.6</div><div class="sc-u">l/m³</div></div>
-          <div class="sc best"><div class="sc-k">0.5–0.7</div><div class="sc-p">3.3</div><div class="sc-u">l/m³</div></div>
-          <div class="sc best"><div class="sc-k">0.7+</div><div class="sc-p">3.1</div><div class="sc-u">l/m³</div></div>
-        </div>
-        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:20px;">
-          <div class="snum"><div class="snum-v">4.1</div><div class="snum-l">Snitt l/m³</div></div>
-          <div class="snum"><div class="snum-v">1.08</div><div class="snum-l">l/stam</div></div>
+        <div class="sc-grid" id="dieselScGrid"></div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:20px;" id="dieselSummary">
+          <div class="snum"><div class="snum-v">–</div><div class="snum-l">Snitt l/m³</div></div>
+          <div class="snum"><div class="snum-v">–</div><div class="snum-l">l/stam</div></div>
           <div class="snum"><div class="snum-v">7 570</div><div class="snum-l">Liter totalt</div></div>
         </div>
       </div>
