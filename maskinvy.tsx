@@ -65,7 +65,8 @@ type DbData = {
   bransleTotalt: number;
   branslePerM3: number;
   stammarPerG15h: number;
-  // Per-medelstamsklass arrays (7 classes: 0.0–0.1, 0.1–0.2, ..., 0.7+)
+  // Per-medelstamsklass arrays (dynamic number of classes depending on machine)
+  klassLabels: string[];
   klassVolym: number[];
   klassStammar: number[];
   klassM3g15: number[];
@@ -91,11 +92,11 @@ Chart.defaults.color = '#7a7a72';
 var _db = window.__maskinvyData || {};
 console.log('[Maskinvy Script] _db:', { keys: Object.keys(_db), totalVolym: _db.totalVolym, dailyVol: _db.dailyVol?.length, operatorer: _db.operatorer?.length, klassM3g15: _db.klassM3g15, klassDieselM3: _db.klassDieselM3 });
 
-var classes = ['0.0–0.1','0.1–0.2','0.2–0.3','0.3–0.4','0.4–0.5','0.5–0.7','0.7+'];
-var m3g15   = _db.klassM3g15 || [0,0,0,0,0,0,0];
-var stg15   = _db.klassStg15 || [0,0,0,0,0,0,0];
-var volym   = _db.klassVolym || [0,0,0,0,0,0,0];
-var stammar = _db.klassStammar || [0,0,0,0,0,0,0];
+var classes = _db.klassLabels || [];
+var m3g15   = _db.klassM3g15 || [];
+var stg15   = _db.klassStg15 || [];
+var volym   = _db.klassVolym || [];
+var stammar = _db.klassStammar || [];
 
 var grid    = {color:'rgba(255,255,255,0.05)'};
 var ticks   = {color:'#7a7a72',font:{size:11}};
@@ -262,7 +263,7 @@ new Chart(document.getElementById('prodChart'),{
 });
 
 // Diesel per medelstamsklass
-const dieselPerM3 = _db.klassDieselM3 || [0,0,0,0,0,0,0];
+const dieselPerM3 = _db.klassDieselM3 || [];
 new Chart(document.getElementById('dieselChart'),{
   type:'bar',
   data:{labels:classes,datasets:[
@@ -1111,8 +1112,8 @@ export default function Maskinvy() {
           operatorer: [], objekt: [], dagData: {},
           calendarDt: new Array(totalDays).fill(0),
           bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0,
-          klassVolym: Array(7).fill(0), klassStammar: Array(7).fill(0),
-          klassM3g15: Array(7).fill(0), klassStg15: Array(7).fill(0), klassDieselM3: Array(7).fill(0),
+          klassLabels: [], klassVolym: [], klassStammar: [],
+          klassM3g15: [], klassStg15: [], klassDieselM3: [],
           hasMth: false, sortimentPerDag: null,
         };
         (window as any).__maskinvyData = emptyData;
@@ -1333,8 +1334,15 @@ export default function Maskinvy() {
       // ── Medelstamsklass-aggregering (per objekt → klass) ──
       // Medelstam beräknas per objekt: SUM(volym)/SUM(stammar).
       // Objekt med < 50 m³ exkluderas (specialjobb).
-      const classEdges = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, Infinity];
-      const nClasses = 7;
+      // Klasser anpassas efter maskintyp.
+      const isGallring = maskinId === 'R64101';
+      const classEdges = isGallring
+        ? [0, 0.03, 0.05, 0.07, 0.09, 0.12, Infinity]
+        : [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, Infinity];
+      const klassLabels = isGallring
+        ? ['0.00–0.03', '0.03–0.05', '0.05–0.07', '0.07–0.09', '0.09–0.12', '0.12+']
+        : ['0.0–0.1', '0.1–0.2', '0.2–0.3', '0.3–0.4', '0.4–0.5', '0.5–0.7', '0.7+'];
+      const nClasses = klassLabels.length;
       const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, g15sek: 0, bransle: 0 }));
       for (const oid of prodObjIds) {
         const pObj = prodByObjekt[oid];
@@ -1468,7 +1476,7 @@ export default function Maskinvy() {
         bransleTotalt: Math.round(bransleTotalt),
         branslePerM3: parseFloat(branslePerM3.toFixed(2)),
         stammarPerG15h: parseFloat(stammarPerG15h.toFixed(1)),
-        klassVolym, klassStammar, klassM3g15, klassStg15, klassDieselM3,
+        klassLabels, klassVolym, klassStammar, klassM3g15, klassStg15, klassDieselM3,
         hasMth,
         sortimentPerDag,
       };
