@@ -1864,10 +1864,10 @@ export default function Arbetsrapport() {
                   onClick={()=>{ if(klickbar){
                     const d2=dagData[k];
                     setRedDag({...d2,datum});
-                    setRedStart(d2?.start||"06:00");
-                    setRedSlut(d2?.slut||"16:00");
-                    setRedRast(d2?.rast||30);
-                    setRedKm(d2?.km||0);
+                    setRedStart(d2?.start_tid||"06:00");
+                    setRedSlut(d2?.slut_tid||"16:00");
+                    setRedRast(d2?.rast_min||30);
+                    setRedKm(d2?.km_totalt||0);
                     setRedAnl("");
                     setRedVy("översikt");
                     setSteg("redigera");
