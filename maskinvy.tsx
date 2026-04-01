@@ -1330,26 +1330,26 @@ export default function Maskinvy() {
         }
       }
 
-      // ── Medelstamsklass-aggregering (per dag → klass) ──
+      // ── Medelstamsklass-aggregering (per objekt → klass) ──
+      // Medelstam beräknas per objekt: SUM(volym)/SUM(stammar).
+      // Objekt med < 50 m³ exkluderas (specialjobb).
       const classEdges = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, Infinity];
       const nClasses = 7;
       const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, g15sek: 0, bransle: 0 }));
-      for (let i = 0; i < totalDays; i++) {
-        const d = new Date(sDate); d.setDate(d.getDate() + i);
-        const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        const pDay = prodByDay[dateStr];
-        const tDay = tidByDay[dateStr];
-        if (!pDay || pDay.st <= 0) continue;
-        const medelstamDag = pDay.vol / pDay.st;
+      for (const oid of prodObjIds) {
+        const pObj = prodByObjekt[oid];
+        if (!pObj || pObj.vol < 50 || pObj.st <= 0) continue;
+        const medelstamObj = pObj.vol / pObj.st;
         let ci = nClasses - 1;
         for (let c = 0; c < nClasses; c++) {
-          if (medelstamDag < classEdges[c + 1]) { ci = c; break; }
+          if (medelstamObj < classEdges[c + 1]) { ci = c; break; }
         }
-        klassAgg[ci].vol += pDay.vol;
-        klassAgg[ci].st += pDay.st;
-        if (tDay) {
-          klassAgg[ci].g15sek += tDay.processingSek + tDay.terrainSek;
-          klassAgg[ci].bransle += tDay.bransleLiter;
+        klassAgg[ci].vol += pObj.vol;
+        klassAgg[ci].st += pObj.st;
+        const tObj = tidByObjekt[oid];
+        if (tObj) {
+          klassAgg[ci].g15sek += tObj.processingSek + tObj.terrainSek;
+          klassAgg[ci].bransle += tObj.bransleLiter;
         }
       }
       const klassVolym = klassAgg.map(k => Math.round(k.vol));
