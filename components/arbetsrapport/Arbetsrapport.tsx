@@ -371,6 +371,7 @@ export default function Arbetsrapport() {
   const [historik, setHistorik] = useState<any[]>([]);
   const [dagensObjekt, setDagensObjekt] = useState<string | null>(null);
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
+  const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
 
   useEffect(() => {
     Promise.all([
@@ -397,6 +398,14 @@ export default function Arbetsrapport() {
       }
       if(avt.data) setGsAvtal(avt.data);
       if(obj.data) setObjektLista(obj.data.map(o => ({id:o.objekt_id, namn:o.object_name||o.objekt_id, ägare:o.skogsagare||''})));
+    });
+    // Hämta maskinnamn-lookup
+    supabase.from("dim_maskin").select("maskin_id, tillverkare, modell").then(res => {
+      if(res.data) {
+        const m: Record<string, string> = {};
+        for(const r of res.data) m[r.maskin_id] = r.modell || r.tillverkare || r.maskin_id;
+        setMaskinNamnMap(m);
+      }
     });
     // Hämta väder från SMHI via GPS
     if (navigator.geolocation) {
@@ -453,12 +462,14 @@ export default function Arbetsrapport() {
               start: r.start_tid || '06:00',
               slut: r.slut_tid || '16:00',
               rast: r.rast_min || 30,
+              maskin_id: r.maskin_id,
+              maskin_namn: maskinNamnMap[r.maskin_id] || r.maskin_id || null,
             };
           }
           setDagData(map);
         }
       });
-  }, [medarbetare, kalÅr, kalMånad]);
+  }, [medarbetare, kalÅr, kalMånad, maskinNamnMap]);
 
   const idag=new Date();
   const datumStr=`${["Sön","Mån","Tis","Ons","Tor","Fre","Lör"][idag.getDay()]} ${idag.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][idag.getMonth()]}`;
@@ -1690,6 +1701,7 @@ export default function Arbetsrapport() {
                 </div>
               </div>
               {[
+                ["Maskin", redDag.maskin_namn || redDag.maskin_id || "—"],
                 ["Start", redDag.start_tid || "—"],
                 ["Slut", redDag.slut_tid || "—"],
                 ["Rast", `${redDag.rast_min || 30} min`],
