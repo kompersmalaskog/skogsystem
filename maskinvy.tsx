@@ -837,49 +837,21 @@ export default function Maskinvy() {
   const [loading, setLoading] = useState(false);
   const [maskinOpen, setMaskinOpen] = useState(false);
 
-  // ── Inspect DB schema on mount ──
+  // ── Fetch machines from dim_maskin ──
   useEffect(() => {
-    fetch('/api/db-inspect').then(r => r.json()).then(schema => {
-      console.log('[Maskinvy] === DB SCHEMA INSPECTION ===');
-      Object.entries(schema).forEach(([table, info]: [string, any]) => {
-        if (info.error) {
-          console.log(`  ${table}: ERROR - ${info.error}`);
-        } else {
-          console.log(`  ${table}: ${info.count} rows, columns:`, info.columns);
-          if (info.data.length > 0) console.log(`    sample:`, info.data[0]);
-        }
-      });
-
-      // Find the machine table and load it
-      const machineTable = schema.dim_maskin?.count > 0 ? 'dim_maskin'
-        : schema.maskiner?.count > 0 ? 'maskiner' : null;
-
-      if (machineTable) {
-        const rows = schema[machineTable].data;
-        const mapped: Maskin[] = rows.map((r: any) => ({
-          maskin_id: String(r.maskin_id || r.id || ''),
-          modell: r.modell || r.model || r.namn || '',
-          tillverkare: r.tillverkare || r.marke || '',
-          typ: r.typ || r.type || '',
+    supabase.from('dim_maskin').select('maskin_id, modell, tillverkare, typ').then(({ data, error }) => {
+      console.log('[Maskinvy] dim_maskin:', { count: data?.length, error: error?.message });
+      if (data && data.length > 0) {
+        const mapped: Maskin[] = data.map((r: any) => ({
+          maskin_id: String(r.maskin_id),
+          modell: r.modell || '',
+          tillverkare: r.tillverkare || '',
+          typ: r.typ || '',
         }));
-        // Fetch ALL machines (not just 3)
-        supabase.from(machineTable).select('*').then(({ data }) => {
-          if (data && data.length > 0) {
-            const all: Maskin[] = data.map((r: any) => ({
-              maskin_id: String(r.maskin_id || r.id || ''),
-              modell: r.modell || r.model || r.namn || '',
-              tillverkare: r.tillverkare || r.marke || '',
-              typ: r.typ || r.type || '',
-            }));
-            console.log('[Maskinvy] All machines:', all);
-            setMaskiner(all);
-            setVald(all[0].modell);
-          }
-        });
-      } else {
-        console.error('[Maskinvy] No machine table found in DB');
+        setMaskiner(mapped);
+        setVald(mapped[0].modell);
       }
-    }).catch(err => console.error('[Maskinvy] db-inspect failed:', err));
+    });
   }, []);
 
   // ── Compute date range from period ──
@@ -910,44 +882,33 @@ export default function Maskinvy() {
 
   // ── Fetch production data from Supabase ──
   const fetchDbData = useCallback(async (maskinId: string, p: 'V' | 'M' | 'K' | 'Å' = 'M') => {
-    if (!maskinId) { console.log('[Maskinvy] No maskinId, skipping fetch'); return; }
+    if (!maskinId) return;
     setLoading(true);
-    console.log('[Maskinvy] fetchDbData called:', { maskinId, period: p });
     try {
       const { startDate, endDate } = getPeriodDates(p);
       const sDate = new Date(startDate);
       const eDate = new Date(endDate);
       const totalDays = Math.round((eDate.getTime() - sDate.getTime()) / 86400000) + 1;
 
-      const queries: Promise<any>[] = [
-        // 0: fakt_produktion — select * to discover actual columns
+      const [prodRes, tidRes, opRes, objRes] = await Promise.all([
         supabase.from('fakt_produktion')
-          .select('*')
+          .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
           .eq('maskin_id', maskinId)
           .gte('datum', startDate).lte('datum', endDate),
-        // 1: fakt_tid — select * to discover actual columns
         supabase.from('fakt_tid')
-          .select('*')
+          .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
           .eq('maskin_id', maskinId)
           .gte('datum', startDate).lte('datum', endDate),
-        // 2: dim_operator
-        supabase.from('dim_operator').select('*'),
-        // 3: dim_objekt
-        supabase.from('dim_objekt').select('*'),
-      ];
-
-      const [prodRes, tidRes, opRes, objRes] = await Promise.all(queries);
+        supabase.from('dim_operator').select('operator_id, operator_namn'),
+        supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer'),
+      ]);
 
       const prodRows = prodRes.data || [];
       const tidRows = tidRes.data || [];
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
 
-      console.log('[Maskinvy] === QUERY RESULTS ===');
-      console.log('  fakt_produktion:', { rows: prodRows.length, error: prodRes.error?.message, columns: prodRows[0] ? Object.keys(prodRows[0]) : [], sample: prodRows[0] });
-      console.log('  fakt_tid:', { rows: tidRows.length, error: tidRes.error?.message, columns: tidRows[0] ? Object.keys(tidRows[0]) : [], sample: tidRows[0] });
-      console.log('  dim_operator:', { rows: operators.length, error: opRes.error?.message, columns: operators[0] ? Object.keys(operators[0]) : [], sample: operators[0] });
-      console.log('  dim_objekt:', { rows: objekter.length, error: objRes.error?.message, columns: objekter[0] ? Object.keys(objekter[0]) : [], sample: objekter[0] });
+      console.log('[Maskinvy] Data for', maskinId, ':', prodRows.length, 'prod rows,', tidRows.length, 'tid rows,', operators.length, 'operators');
 
       if (prodRows.length === 0 && tidRows.length === 0) {
         (window as any).__maskinvyData = {};
@@ -956,19 +917,12 @@ export default function Maskinvy() {
         return;
       }
 
-      // ── Helper: get volume/stems from row (flexible column names) ──
-      const getVol = (r: any) => r.volym_m3sub ?? r.volym ?? r.vol ?? r.volume ?? 0;
-      const getSt = (r: any) => r.stammar ?? r.stems ?? r.antal_stammar ?? 0;
-      const getOpId = (r: any) => r.operator_id ?? r.forar_id ?? r.driver_id ?? '';
-      const getObjId = (r: any) => r.objekt_id ?? r.object_id ?? '';
-      const getOpNamn = (r: any) => r.operator_namn ?? r.namn ?? r.name ?? r.forar_namn ?? '';
-
       // ── Daily production arrays ──
       const dailyMap: Record<string, { vol: number; st: number }> = {};
       for (const r of prodRows) {
         if (!dailyMap[r.datum]) dailyMap[r.datum] = { vol: 0, st: 0 };
-        dailyMap[r.datum].vol += getVol(r);
-        dailyMap[r.datum].st += getSt(r);
+        dailyMap[r.datum].vol += r.volym_m3sub || 0;
+        dailyMap[r.datum].st += r.stammar || 0;
       }
 
       const dailyVol: number[] = [];
@@ -986,8 +940,8 @@ export default function Maskinvy() {
       }
 
       // ── KPI totals ──
-      const totalVolym = prodRows.reduce((s: number, r: any) => s + getVol(r), 0);
-      const totalStammar = prodRows.reduce((s: number, r: any) => s + getSt(r), 0);
+      const totalVolym = prodRows.reduce((s: number, r: any) => s + (r.volym_m3sub || 0), 0);
+      const totalStammar = prodRows.reduce((s: number, r: any) => s + (r.stammar || 0), 0);
 
       // ── Time distribution ──
       let processingSek = 0, terrainSek = 0, kortStoppSek = 0, avbrottSek = 0, rastSek = 0, engineTimeSek = 0;
@@ -1008,23 +962,23 @@ export default function Maskinvy() {
       // ── Operators ──
       const opMap: Record<string, { volym: number; stammar: number; g15sek: number; dagar: Set<string> }> = {};
       for (const r of prodRows) {
-        const opId = getOpId(r);
+        const opId = r.operator_id;
         if (!opId) continue;
         if (!opMap[opId]) opMap[opId] = { volym: 0, stammar: 0, g15sek: 0, dagar: new Set() };
-        opMap[opId].volym += getVol(r);
-        opMap[opId].stammar += getSt(r);
+        opMap[opId].volym += r.volym_m3sub || 0;
+        opMap[opId].stammar += r.stammar || 0;
         opMap[opId].dagar.add(r.datum);
       }
       for (const r of tidRows) {
-        const opId = getOpId(r);
+        const opId = r.operator_id;
         if (!opId) continue;
         if (!opMap[opId]) opMap[opId] = { volym: 0, stammar: 0, g15sek: 0, dagar: new Set() };
         opMap[opId].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
       }
 
       const operatorer = Object.entries(opMap).map(([opId, stats]) => {
-        const opInfo = operators.find((o: any) => String(o.operator_id ?? o.id) === String(opId));
-        const namn = getOpNamn(opInfo) || `Operatör ${opId}`;
+        const opInfo = operators.find((o: any) => String(o.operator_id) === String(opId));
+        const namn = opInfo?.operator_namn || `Operatör ${opId}`;
         const nameParts = namn.split(' ');
         const initialer = nameParts.length >= 2
           ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
@@ -1048,24 +1002,24 @@ export default function Maskinvy() {
       // ── Objekt ──
       const objMap: Record<string, { volym: number; stammar: number; g15sek: number }> = {};
       for (const r of prodRows) {
-        const oid = getObjId(r);
+        const oid = r.objekt_id;
         if (!oid) continue;
         if (!objMap[oid]) objMap[oid] = { volym: 0, stammar: 0, g15sek: 0 };
-        objMap[oid].volym += getVol(r);
-        objMap[oid].stammar += getSt(r);
+        objMap[oid].volym += r.volym_m3sub || 0;
+        objMap[oid].stammar += r.stammar || 0;
       }
       for (const r of tidRows) {
-        const oid = getObjId(r);
+        const oid = r.objekt_id;
         if (!oid || !objMap[oid]) continue;
         objMap[oid].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
       }
 
       const objekt = Object.entries(objMap).map(([oid, stats]) => {
-        const objInfo = objekter.find((o: any) => String(o.objekt_id ?? o.id) === String(oid));
+        const objInfo = objekter.find((o: any) => String(o.objekt_id) === String(oid));
         const g15h = stats.g15sek / 3600;
         return {
           objekt_id: oid,
-          namn: objInfo?.objekt_namn || objInfo?.object_name || objInfo?.namn || `Objekt ${oid}`,
+          namn: objInfo?.objekt_namn || `Objekt ${oid}`,
           vo_nummer: objInfo?.vo_nummer || '',
           volym: stats.volym,
           stammar: stats.stammar,
@@ -1082,16 +1036,16 @@ export default function Maskinvy() {
       const dayDetail: Record<string, { vol: number; st: number; g15sek: number; opId: string; objId: string; diesel: number }> = {};
       for (const r of prodRows) {
         if (!dayDetail[r.datum]) dayDetail[r.datum] = { vol: 0, st: 0, g15sek: 0, opId: '', objId: '', diesel: 0 };
-        dayDetail[r.datum].vol += getVol(r);
-        dayDetail[r.datum].st += getSt(r);
-        const opId = getOpId(r); if (opId) dayDetail[r.datum].opId = opId;
-        const objId = getObjId(r); if (objId) dayDetail[r.datum].objId = objId;
+        dayDetail[r.datum].vol += r.volym_m3sub || 0;
+        dayDetail[r.datum].st += r.stammar || 0;
+        if (r.operator_id) dayDetail[r.datum].opId = r.operator_id;
+        if (r.objekt_id) dayDetail[r.datum].objId = r.objekt_id;
       }
       for (const r of tidRows) {
         if (!dayDetail[r.datum]) dayDetail[r.datum] = { vol: 0, st: 0, g15sek: 0, opId: '', objId: '', diesel: 0 };
         dayDetail[r.datum].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
         dayDetail[r.datum].diesel += r.bransle_liter || 0;
-        const opId = getOpId(r); if (opId) dayDetail[r.datum].opId = opId;
+        if (r.operator_id) dayDetail[r.datum].opId = r.operator_id;
       }
 
       for (let i = 0; i < totalDays; i++) {
@@ -1102,11 +1056,11 @@ export default function Maskinvy() {
         if (dd && dd.vol > 0) {
           const dayNum = i + 1;
           const g15h = dd.g15sek / 3600;
-          const opInfo = operators.find((o: any) => String(o.operator_id ?? o.id) === String(dd.opId));
-          const objInfo = objekter.find((o: any) => String(o.objekt_id ?? o.id) === String(dd.objId));
+          const opInfo = operators.find((o: any) => String(o.operator_id) === String(dd.opId));
+          const objInfo = objekter.find((o: any) => String(o.objekt_id) === String(dd.objId));
           dagData[dayNum] = {
-            typ: 1, forare: getOpNamn(opInfo) || '–',
-            objekt: objInfo?.objekt_namn || objInfo?.object_name || objInfo?.namn || '–',
+            typ: 1, forare: opInfo?.operator_namn || '–',
+            objekt: objInfo?.objekt_namn || '–',
             start: '07:00', slut: '16:30',
             vol: Math.round(dd.vol), stammar: Math.round(dd.st),
             g15: parseFloat(g15h.toFixed(1)),
