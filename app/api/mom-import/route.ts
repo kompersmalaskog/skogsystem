@@ -9,12 +9,11 @@ const supabase = createClient(
 /**
  * POST /api/mom-import
  *
- * Skapar arbetsdag-rader baserat på fakt_skift-data.
- * Triggas efter lyckad MOM-import.
+ * Skapar/uppdaterar arbetsdag-rader baserat på fakt_skift-data.
+ * Manuellt redigerade rader (redigerad=true) skrivs aldrig över.
+ * Övriga rader raderas och återskapas med färsk data.
  *
- * Body (optional): { datum?: string } — default: alla datum utan arbetsdag
- * Använder fakt_skift för start/slut-tider och operator_medarbetare för koppling.
- * ON CONFLICT (medarbetare_id, datum) DO NOTHING — skriver aldrig över bekräftade dagar.
+ * Body (optional): { datum?: string }
  */
 export async function POST(req: NextRequest) {
   try {
@@ -38,7 +37,7 @@ export async function POST(req: NextRequest) {
       opMap[m.operator_id] = m.medarbetare_id;
     }
 
-    // 2. Hämta fakt_skift-rader (med operator_id som har koppling)
+    // 2. Hämta fakt_skift-rader
     let query = supabase
       .from('fakt_skift')
       .select('datum, maskin_id, operator_id, inloggning_tid, utloggning_tid, langd_sek')
@@ -47,7 +46,6 @@ export async function POST(req: NextRequest) {
     if (filterDatum) {
       query = query.eq('datum', filterDatum);
     } else {
-      // Senaste 30 dagarna om inget datum anges
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       query = query.gte('datum', thirtyDaysAgo.toISOString().split('T')[0]);
@@ -65,20 +63,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ created: 0, message: 'Inga skift att bearbeta' });
     }
 
-    // 3. Hämta befintliga arbetsdag-rader (för att skippa de som redan finns)
+    // 3. Hämta manuellt redigerade rader (dessa ska inte röras)
     const datumSet = [...new Set(skift.map(s => s.datum))];
     const medarbetareIds = [...new Set(
       skift.map(s => opMap[s.operator_id]).filter(Boolean)
     )];
 
-    const { data: befintliga } = await supabase
+    const { data: redigerade } = await supabase
       .from('arbetsdag')
       .select('medarbetare_id, datum')
       .in('datum', datumSet)
-      .in('medarbetare_id', medarbetareIds);
+      .in('medarbetare_id', medarbetareIds)
+      .eq('redigerad', true);
 
-    const finnsRedan = new Set(
-      (befintliga || []).map(r => `${r.medarbetare_id}_${r.datum}`)
+    const skyddade = new Set(
+      (redigerade || []).map(r => `${r.medarbetare_id}_${r.datum}`)
     );
 
     // 4. Aggregera skift per (medarbetare_id, datum)
@@ -95,10 +94,10 @@ export async function POST(req: NextRequest) {
 
     for (const s of skift) {
       const medId = opMap[s.operator_id];
-      if (!medId) continue; // Ingen koppling (t.ex. Service Service)
+      if (!medId) continue;
 
       const key = `${medId}_${s.datum}`;
-      if (finnsRedan.has(key)) continue; // Redan bekräftad
+      if (skyddade.has(key)) continue;
 
       if (!dagMap[key]) {
         dagMap[key] = {
@@ -120,31 +119,38 @@ export async function POST(req: NextRequest) {
     // 5. Skapa arbetsdag-rader
     const svTid = (iso: string) => {
       const d = new Date(iso);
-      const s = d.toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit', hour12: false });
-      return s;
+      return d.toLocaleString('sv-SE', { timeZone: 'Europe/Stockholm', hour: '2-digit', minute: '2-digit', hour12: false });
     };
-    const rows = Object.values(dagMap).map(agg => {
-      const startTid = svTid(agg.earliestStart);
-      const slutTid = svTid(agg.latestEnd);
-      const arbetadMin = Math.round(agg.totalSek / 60);
 
-      return {
-        medarbetare_id: agg.medarbetare_id,
-        datum: agg.datum,
-        dagtyp: 'normal',
-        start_tid: startTid,
-        slut_tid: slutTid,
-        rast_min: 30,
-        maskin_id: agg.maskin_id,
-        bekraftad: false,
-      };
-    });
+    const rows = Object.values(dagMap).map(agg => ({
+      medarbetare_id: agg.medarbetare_id,
+      datum: agg.datum,
+      dagtyp: 'normal',
+      start_tid: svTid(agg.earliestStart),
+      slut_tid: svTid(agg.latestEnd),
+      rast_min: 30,
+      maskin_id: agg.maskin_id,
+      bekraftad: false,
+    }));
 
     if (!rows.length) {
-      return NextResponse.json({ created: 0, message: 'Alla dagar finns redan' });
+      return NextResponse.json({ created: 0, message: 'Inga dagar att uppdatera' });
     }
 
-    // 6. Insert — duplicat-filtrering sker redan ovan via finnsRedan
+    // 6. Radera befintliga icke-redigerade rader för dessa datum
+    for (const datum of datumSet) {
+      const medIds = rows.filter(r => r.datum === datum).map(r => r.medarbetare_id);
+      if (medIds.length) {
+        await supabase
+          .from('arbetsdag')
+          .delete()
+          .eq('datum', datum)
+          .in('medarbetare_id', medIds)
+          .neq('redigerad', true);
+      }
+    }
+
+    // 7. Insert nya rader
     const { data: inserted, error: insertErr } = await supabase
       .from('arbetsdag')
       .insert(rows)
@@ -159,8 +165,8 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       created: inserted?.length || 0,
-      skipped: rows.length - (inserted?.length || 0),
-      message: `${inserted?.length || 0} arbetsdagar skapade`,
+      skipped: skyddade.size,
+      message: `${inserted?.length || 0} arbetsdagar skapade/uppdaterade`,
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Okänt fel';
