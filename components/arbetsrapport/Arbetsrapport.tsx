@@ -434,41 +434,66 @@ export default function Arbetsrapport() {
     // arbetsdag har ingen objekt_id — dagensObjekt hämtas separat om det behövs
   }, []);
 
-  // === NY ARBETSDAG-NOTIS ===
-  const [arbetsdagToast, setArbetsdagToast] = useState<{maskin: string; objekt: string; start: string} | null>(null);
+  // === ARBETSDAG-NOTIS (start + avslut) ===
+  const [arbetsdagToast, setArbetsdagToast] = useState<{
+    typ: 'start' | 'slut'; maskin: string; objekt: string; start: string; slut?: string; tid?: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!medarbetare?.id) return;
     const today = new Date().toISOString().slice(0, 10);
-    // Check localStorage — only show once per day
-    const storageKey = `arbetsdag_toast_${today}`;
-    if (localStorage.getItem(storageKey)) return;
+    const startKey = `arbetsdag_toast_start_${today}`;
+    const slutKey = `arbetsdag_toast_slut_${today}`;
 
     let knownIds = new Set<string>();
+    let knownSlut: Record<string, string | null> = {}; // id → slut_tid
     let initialDone = false;
 
     const poll = async () => {
       const { data } = await supabase.from('arbetsdag')
-        .select('id, maskin_id, objekt_id, start_tid')
+        .select('id, maskin_id, objekt_id, start_tid, slut_tid, arbetad_min')
         .eq('medarbetare_id', medarbetare.id)
         .eq('datum', today);
       if (!data) return;
+
       if (!initialDone) {
         knownIds = new Set(data.map((r: any) => r.id));
+        for (const r of data) knownSlut[r.id] = r.slut_tid || null;
         initialDone = true;
         return;
       }
+
       for (const row of data) {
-        if (!knownIds.has(row.id)) {
+        const maskin = maskinNamnMap[row.maskin_id] || row.maskin_id || '';
+        const objNamn = objektLista.find((o: any) => o.id === row.objekt_id)?.namn || row.objekt_id || '';
+        const startTid = row.start_tid ? row.start_tid.slice(0, 5) : '';
+
+        // Ny rad → start-notis
+        if (!knownIds.has(row.id) && !localStorage.getItem(startKey)) {
           knownIds.add(row.id);
-          const maskin = maskinNamnMap[row.maskin_id] || row.maskin_id || '';
-          const objNamn = objektLista.find((o: any) => o.id === row.objekt_id)?.namn || row.objekt_id || '';
-          const startTid = row.start_tid ? row.start_tid.slice(0, 5) : '';
-          setArbetsdagToast({ maskin, objekt: objNamn, start: startTid });
-          localStorage.setItem(storageKey, '1');
+          knownSlut[row.id] = row.slut_tid || null;
+          setArbetsdagToast({ typ: 'start', maskin, objekt: objNamn, start: startTid });
+          localStorage.setItem(startKey, '1');
           setTimeout(() => setArbetsdagToast(null), 10000);
           return;
         }
+
+        // slut_tid blev satt → slut-notis
+        const prevSlut = knownSlut[row.id];
+        if (!prevSlut && row.slut_tid && !localStorage.getItem(slutKey)) {
+          knownSlut[row.id] = row.slut_tid;
+          const slutTid = row.slut_tid.slice(0, 5);
+          const h = Math.floor((row.arbetad_min || 0) / 60);
+          const m = (row.arbetad_min || 0) % 60;
+          const tid = `${h}h ${m}min`;
+          setArbetsdagToast({ typ: 'slut', maskin, objekt: objNamn, start: startTid, slut: slutTid, tid });
+          localStorage.setItem(slutKey, '1');
+          setTimeout(() => setArbetsdagToast(null), 10000);
+          return;
+        }
+
+        knownIds.add(row.id);
+        knownSlut[row.id] = row.slut_tid || null;
       }
     };
     poll();
@@ -558,9 +583,14 @@ export default function Arbetsrapport() {
       document.body.appendChild(el);
     }
     el.style.cssText = 'position:fixed;bottom:20px;left:16px;right:16px;z-index:10000;animation:slideIn 0.3s ease;';
+    const isSlut = arbetsdagToast.typ === 'slut';
+    const title = isSlut ? 'Din arbetsdag är avslutad' : 'Din arbetsdag har startat';
+    const detail = isSlut
+      ? `${arbetsdagToast.maskin}${arbetsdagToast.objekt ? ' · ' + arbetsdagToast.objekt : ''}<br>${arbetsdagToast.start} – ${arbetsdagToast.slut || ''} · ${arbetsdagToast.tid || ''}`
+      : `${arbetsdagToast.maskin}${arbetsdagToast.objekt ? ' · ' + arbetsdagToast.objekt : ''}${arbetsdagToast.start ? ' · Starttid: ' + arbetsdagToast.start : ''}`;
     el.innerHTML = `<div style="background:#1c1c1e;border-radius:16px;padding:16px 18px;box-shadow:0 8px 30px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);">
-      <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:4px;">Din arbetsdag har startat</div>
-      <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:12px;">${arbetsdagToast.maskin}${arbetsdagToast.objekt ? ' · ' + arbetsdagToast.objekt : ''}${arbetsdagToast.start ? ' · Starttid: ' + arbetsdagToast.start : ''}</div>
+      <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:4px;">${title}</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:12px;">${detail}</div>
       <div style="display:flex;gap:8px;">
         <button id="toast-ok" style="flex:1;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.6);font-size:14px;font-weight:600;cursor:pointer;">OK</button>
       </div>
