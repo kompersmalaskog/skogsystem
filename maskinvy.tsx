@@ -987,6 +987,55 @@ export default function Maskinvy() {
     });
   }, [opCmpMonths, opCmpIds, opCmpRows]);
 
+  // ── Machine comparison state ──
+  const allMachines: { id: string; namn: string }[] = [
+    { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion Giant 8W' },
+    { id: 'R64101', namn: 'Rottne H8E' },
+    { id: 'A110148', namn: 'Ponsse Elephant King AF' },
+    { id: 'A030353', namn: 'Ponsse Wisent' },
+  ];
+  type MachCmpRow = { id: string; namn: string; stammar: number; volym: number; medelstam: number; prod: number; dieselM3: number; motorH: number };
+  type MachCmpMonth = { month: string; byMach: Record<string, number> };
+  const [machCmpA, setMachCmpA] = useState(allMachines[0].id);
+  const [machCmpB, setMachCmpB] = useState(allMachines[1].id);
+  const [machCmpFrom, setMachCmpFrom] = useState('2026-01-01');
+  const [machCmpTo, setMachCmpTo] = useState('2026-03-31');
+  const [machCmpRows, setMachCmpRows] = useState<MachCmpRow[]>([]);
+  const [machCmpMonths, setMachCmpMonths] = useState<MachCmpMonth[]>([]);
+  const [machCmpLoading, setMachCmpLoading] = useState(false);
+
+  const machCmpChartRef = useCallback((canvas: HTMLCanvasElement | null) => {
+    if (!canvas || machCmpMonths.length === 0) return;
+    const Chart = (window as any).Chart;
+    if (!Chart) return;
+    const existing = Chart.getChart(canvas);
+    if (existing) existing.destroy();
+    const colors = ['#00c48c', '#5b8fff'];
+    new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: machCmpMonths.map(m => m.month),
+        datasets: machCmpRows.map((r, i) => ({
+          label: r.namn,
+          data: machCmpMonths.map(m => {
+            const v = m.byMach[r.id];
+            return v !== undefined ? parseFloat(v.toFixed(1)) : 0;
+          }),
+          borderColor: colors[i], backgroundColor: colors[i].replace(')', ',0.1)').replace('rgb', 'rgba'),
+          pointRadius: 4, pointBackgroundColor: colors[i], tension: 0.3, fill: false,
+        })),
+      },
+      options: {
+        responsive: true, interaction: { mode: 'index' as const, intersect: false },
+        plugins: { legend: { labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 11 }, boxWidth: 10, padding: 14 } } },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
+          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'm³/G15h', color: '#7a7a72', font: { size: 10 } } },
+        },
+      },
+    });
+  }, [machCmpMonths, machCmpRows]);
+
   // ── Hardcoded machines (from database inspection) ──
   useEffect(() => {
     const skordare: Maskin[] = [
@@ -1641,6 +1690,87 @@ export default function Maskinvy() {
     setOpCmpLoading(false);
   }, [maskiner, vald, opCmpIds, opCmpFrom, opCmpTo]);
 
+  // ── Fetch machine comparison data ──
+  const runMachCmp = useCallback(async () => {
+    if (machCmpA === machCmpB) return;
+    setMachCmpLoading(true);
+    const ids = [machCmpA, machCmpB];
+
+    // Fetch prod and tid SEPARATELY for both machines
+    const [prodRes, tidRes] = await Promise.all([
+      supabase.from('fakt_produktion')
+        .select('datum, maskin_id, volym_m3sub, stammar')
+        .in('maskin_id', ids)
+        .gte('datum', machCmpFrom).lte('datum', machCmpTo),
+      supabase.from('fakt_tid')
+        .select('datum, maskin_id, operator_id, objekt_id, processing_sek, terrain_sek, engine_time_sek, bransle_liter')
+        .in('maskin_id', ids)
+        .gte('datum', machCmpFrom).lte('datum', machCmpTo),
+    ]);
+
+    // Pre-aggregate prod per maskin_id
+    const prodAgg: Record<string, { vol: number; st: number }> = {};
+    const monthProd: Record<string, Record<string, { vol: number; g15sek: number }>> = {}; // ym → maskin → {vol, g15sek}
+    for (const r of (prodRes.data || [])) {
+      const mid = r.maskin_id;
+      if (!prodAgg[mid]) prodAgg[mid] = { vol: 0, st: 0 };
+      prodAgg[mid].vol += r.volym_m3sub || 0;
+      prodAgg[mid].st += r.stammar || 0;
+      const ym = r.datum.substring(0, 7);
+      if (!monthProd[ym]) monthProd[ym] = {};
+      if (!monthProd[ym][mid]) monthProd[ym][mid] = { vol: 0, g15sek: 0 };
+      monthProd[ym][mid].vol += r.volym_m3sub || 0;
+    }
+
+    // Deduplicate + pre-aggregate tid per maskin_id
+    const tidDedup: Record<string, any> = {};
+    for (const r of (tidRes.data || [])) {
+      const key = `${r.datum}|${r.maskin_id}|${r.operator_id || ''}|${r.objekt_id || ''}`;
+      if (!tidDedup[key] || (r.engine_time_sek || 0) > (tidDedup[key].engine_time_sek || 0)) tidDedup[key] = r;
+    }
+    const tidAgg: Record<string, { g15sek: number; engineSek: number; bransle: number }> = {};
+    for (const r of Object.values(tidDedup)) {
+      const mid = (r as any).maskin_id;
+      if (!tidAgg[mid]) tidAgg[mid] = { g15sek: 0, engineSek: 0, bransle: 0 };
+      tidAgg[mid].g15sek += ((r as any).processing_sek || 0) + ((r as any).terrain_sek || 0);
+      tidAgg[mid].engineSek += (r as any).engine_time_sek || 0;
+      tidAgg[mid].bransle += (r as any).bransle_liter || 0;
+      // Monthly g15sek
+      const ym = (r as any).datum.substring(0, 7);
+      if (monthProd[ym]?.[mid]) monthProd[ym][mid].g15sek += ((r as any).processing_sek || 0) + ((r as any).terrain_sek || 0);
+    }
+
+    const rows: MachCmpRow[] = ids.map(mid => {
+      const p = prodAgg[mid] || { vol: 0, st: 0 };
+      const t = tidAgg[mid] || { g15sek: 0, engineSek: 0, bransle: 0 };
+      const g15h = t.g15sek / 3600;
+      return {
+        id: mid,
+        namn: allMachines.find(m => m.id === mid)?.namn || mid,
+        stammar: Math.round(p.st), volym: Math.round(p.vol),
+        medelstam: p.st > 0 ? parseFloat((p.vol / p.st).toFixed(3)) : 0,
+        prod: g15h > 0 ? parseFloat((p.vol / g15h).toFixed(1)) : 0,
+        dieselM3: p.vol > 0 ? parseFloat((t.bransle / p.vol).toFixed(2)) : 0,
+        motorH: parseFloat((t.engineSek / 3600).toFixed(1)),
+      };
+    });
+
+    // Monthly m³/G15h per machine
+    const months: MachCmpMonth[] = Object.keys(monthProd).sort().map(ym => {
+      const byMach: Record<string, number> = {};
+      for (const mid of ids) {
+        const d = monthProd[ym]?.[mid];
+        if (d && d.g15sek > 0) byMach[mid] = d.vol / (d.g15sek / 3600);
+        else byMach[mid] = 0;
+      }
+      return { month: ym, byMach };
+    });
+
+    setMachCmpRows(rows);
+    setMachCmpMonths(months);
+    setMachCmpLoading(false);
+  }, [machCmpA, machCmpB, machCmpFrom, machCmpTo]);
+
   // Load available operators when switching to operatorer view
   useEffect(() => {
     if (activeView !== 'operatorer') return;
@@ -1960,10 +2090,101 @@ export default function Maskinvy() {
               })}
             </div>
           )}
+
+          {/* ── MACHINE COMPARISON ── */}
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 28, marginTop: 28 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.4, marginBottom: 4 }}>
+              Jämför maskiner
+            </div>
+            <div style={{ fontSize: 12, color: '#7a7a72', marginBottom: 18 }}>
+              Välj två maskiner och en period
+            </div>
+
+            {/* Machine selectors + date range */}
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+              <select value={machCmpA} onChange={e => setMachCmpA(e.target.value)} style={{
+                background: '#1a1a18', border: '1px solid rgba(90,255,140,0.15)', borderRadius: 8,
+                padding: '7px 10px', color: '#00c48c', fontFamily: "'Geist', system-ui, sans-serif",
+                fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer',
+              }}>
+                {allMachines.map(m => <option key={m.id} value={m.id}>{m.namn}</option>)}
+              </select>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#3a3a36' }}>VS</span>
+              <select value={machCmpB} onChange={e => setMachCmpB(e.target.value)} style={{
+                background: '#1a1a18', border: '1px solid rgba(91,143,255,0.2)', borderRadius: 8,
+                padding: '7px 10px', color: '#5b8fff', fontFamily: "'Geist', system-ui, sans-serif",
+                fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer',
+              }}>
+                {allMachines.map(m => <option key={m.id} value={m.id}>{m.namn}</option>)}
+              </select>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 20 }}>
+              <input type="date" value={machCmpFrom} onChange={e => setMachCmpFrom(e.target.value)}
+                style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+              <span style={{ color: '#3a3a36', fontSize: 12 }}>–</span>
+              <input type="date" value={machCmpTo} onChange={e => setMachCmpTo(e.target.value)}
+                style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+              <button onClick={runMachCmp} disabled={machCmpA === machCmpB} style={{
+                padding: '7px 16px', border: 'none', borderRadius: 8,
+                background: machCmpA !== machCmpB ? '#1a4a2e' : '#1a1a18',
+                color: machCmpA !== machCmpB ? '#00c48c' : '#555',
+                fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, fontWeight: 600,
+                cursor: machCmpA !== machCmpB ? 'pointer' : 'default',
+              }}>
+                {machCmpLoading ? 'Laddar...' : 'Jämför →'}
+              </button>
+            </div>
+
+            {/* Results */}
+            {machCmpRows.length === 2 && (
+              <>
+                <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                        <th style={{ padding: '10px 14px', textAlign: 'left', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Maskin</th>
+                        {['Stammar', 'Volym m³', 'Medelstam', 'm³/G15h', 'L/m³', 'Motortid h'].map(h => (
+                          <th key={h} style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {machCmpRows.map((r, i) => {
+                        const other = machCmpRows[1 - i];
+                        const colors = ['#00c48c', '#5b8fff'];
+                        const better = (a: number, b: number, higher: boolean) => higher ? a >= b : a <= b;
+                        return (
+                          <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <td style={{ padding: '10px 14px', fontWeight: 600, color: colors[i] }}>{r.namn}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.stammar, other.stammar, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.stammar, other.stammar, true) ? 700 : 400 }}>{r.stammar.toLocaleString('sv-SE')}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.volym, other.volym, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.volym, other.volym, true) ? 700 : 400 }}>{r.volym.toLocaleString('sv-SE')}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.medelstam}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.prod, other.prod, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.prod, other.prod, true) ? 700 : 400 }}>{r.prod}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.dieselM3, other.dieselM3, false) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.dieselM3, other.dieselM3, false) ? 700 : 400 }}>{r.dieselM3}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.motorH}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Monthly m³/G15h chart */}
+                {machCmpMonths.length > 0 && (
+                  <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '16px 16px 12px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#3a3a36', marginBottom: 12 }}>
+                      m³/G15h per månad
+                    </div>
+                    <div style={{ height: 240, position: 'relative' }}>
+                      <canvas ref={machCmpChartRef} />
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
       )}
-
-
 
       <div style={{ display: activeView === 'jamfor' ? 'none' : 'block' }}>
       <style dangerouslySetInnerHTML={{ __html: `.mach-wrap { display: none !important; }
