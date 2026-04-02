@@ -7645,12 +7645,13 @@ export default function PlannerPage() {
       {/* === KÖRSPÅRNING BANNER === */}
       {!briefingMode && (
         <div style={{
-          position: 'absolute', top: 90, left: 16, right: 16, zIndex: 99,
+          position: 'absolute', top: 90, left: 16, right: 16, zIndex: 1000,
           background: korspårActive ? 'rgba(220,38,38,0.9)' : 'rgba(34,197,94,0.9)',
           backdropFilter: 'blur(10px)',
           borderRadius: 12, padding: '10px 16px',
           display: 'flex', alignItems: 'center', gap: 10,
           cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          pointerEvents: 'auto', touchAction: 'manipulation',
         }} onClick={korspårActive ? stopKorspårning : startKorspårning}>
           {korspårActive && <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#fff', animation: 'pulse 1s infinite' }} />}
           <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#fff' }}>
