@@ -1540,6 +1540,33 @@ export default function Maskinvy() {
         ]);
         const dimSort = dimSortRes.data || [];
 
+        // Explicit sortiment → trädslag mapping
+        const SORTIMENT_TRADSLAG: Record<string, string> = {
+          'timmer: urshult': 'Gran', 'timmer: stödlängd': 'Gran', 'timmer: tändsticksv': 'Gran',
+          'tall timmer': 'Tall', 'talltimmer': 'Tall', 'timmer: vislanda tall': 'Tall',
+          'kubb: alvesta': 'Gran', 'kubb: bergob': 'Övrigt löv',
+          'massa: bmav': 'Gran', 'massa: hmav': 'Gran', 'massa: hemved': 'Gran',
+          'massa: bokmav': 'Övrigt löv', 'massa: björkmav': 'Björk', 'massa: aspmav': 'Övrigt löv',
+          'energi: engved3mgran': 'Gran', 'energi: engved3mövlöv': 'Övrigt löv',
+          'energi: avkapgran': 'Gran', 'energi: avkaptall': 'Tall',
+        };
+        function matchSpecies(namn: string): 'gran' | 'tall' | 'bjork' | 'ovrigt' {
+          const n = namn.toLowerCase();
+          for (const [pattern, species] of Object.entries(SORTIMENT_TRADSLAG)) {
+            if (n.includes(pattern)) {
+              if (species === 'Gran') return 'gran';
+              if (species === 'Tall') return 'tall';
+              if (species === 'Björk') return 'bjork';
+              return 'ovrigt'; // Övrigt löv → ovrigt
+            }
+          }
+          // Fallback: guess from name
+          if (n.includes('gran')) return 'gran';
+          if (n.includes('tall') || n.includes('furu')) return 'tall';
+          if (n.includes('björk') || n.includes('bjork')) return 'bjork';
+          return 'ovrigt';
+        }
+
         // Classify each sortiment_id → { catIdx, species }
         type SortInfo = { catIdx: number; species: 'gran' | 'tall' | 'bjork' | 'ovrigt' };
         const sortInfo: Record<string, SortInfo> = {};
@@ -1550,11 +1577,8 @@ export default function Maskinvy() {
           if (n.includes('timmer') || n.includes('såg') || n.includes('stock')) catIdx = 0;
           else if (n.includes('kubb')) catIdx = 1;
           else if (n.includes('massa') || n.includes('flis')) catIdx = 2;
-          // Species
-          let species: SortInfo['species'] = 'ovrigt';
-          if (n.includes('gran')) species = 'gran';
-          else if (n.includes('tall') || n.includes('furu')) species = 'tall';
-          else if (n.includes('björk') || n.includes('bjork') || n.includes('löv') || n.includes('lov')) species = 'bjork';
+          // Species from explicit mapping
+          const species = matchSpecies(s.namn || '');
           sortInfo[s.sortiment_id] = { catIdx, species };
         }
 
