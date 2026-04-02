@@ -1734,9 +1734,14 @@ export default function PlannerPage() {
     if (korspårSaveRef.current) { clearInterval(korspårSaveRef.current); korspårSaveRef.current = null; }
     // Release wake lock
     try { korspårWakeLockRef.current?.release(); } catch (_) {}
-    // Final save + complete
-    const tid = korspårTrackIdRef.current;
+    // Immediately add the just-recorded track to completed tracks state
     const pts = korspårPointsRef.current;
+    if (pts.length > 1) {
+      const newTrack = pts.map(p => ({ lat: p.lat, lng: p.lng }));
+      setKorspårTracks(prev => [...prev, newTrack]);
+    }
+    // Final save + complete in DB
+    const tid = korspårTrackIdRef.current;
     if (tid) {
       await supabase.from('gps_tracks').update({
         points: pts, status: 'completed', completed_at: new Date().toISOString(),
