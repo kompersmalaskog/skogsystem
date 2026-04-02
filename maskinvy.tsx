@@ -88,8 +88,15 @@ type DbData = {
   klassM3g15: number[];
   klassStg15: number[];
   klassDieselM3: number[];
-  // Sortiment totals (Sägtimmer+Kubb, Massaved, Energived)
-  sortimentTotalt: { sagtimmer: number; massaved: number; energived: number };
+  // Sortiment: categories × trädslag
+  sortimentData: {
+    categories: string[];        // ['Sägtimmer','Kubb','Massaved','Energived']
+    gran: number[];              // volym per category for Gran
+    tall: number[];              // volym per category for Tall
+    bjork: number[];             // volym per category for Björk
+    ovrigt: number[];            // volym per category for Övrigt
+    totals: number[];            // total volym per category
+  };
   // MTH flag + sortiment per dag
   hasMth: boolean;
   sortimentPerDag: {
@@ -209,21 +216,29 @@ dt.forEach((t,i)=>{
   cal.appendChild(el);
 });
 
-// Sortiment (from fakt_sortiment + dim_sortiment)
-var _sort = _db.sortimentTotalt || { sagtimmer: 0, massaved: 0, energived: 0 };
+// Sortiment (from fakt_sortiment + dim_sortiment — stacked per tr\u00e4dslag)
+var _sd = _db.sortimentData || { categories:[], gran:[], tall:[], bjork:[], ovrigt:[], totals:[] };
 if(!document.getElementById('sortChart')){console.warn('[Maskinvy] sortChart not found, skipping remaining charts');}
 else {
 new Chart(document.getElementById('sortChart'),{
   type:'bar',
-  data:{labels:['S\\u00e4gtimmer/Kubb','Massaved','Energived'],datasets:[
-    {label:'m\\u00b3sub',data:[_sort.sagtimmer,_sort.massaved,_sort.energived],backgroundColor:['rgba(90,255,140,0.5)','rgba(255,179,64,0.4)','rgba(255,255,255,0.15)'],borderRadius:4}
+  data:{labels:_sd.categories,datasets:[
+    {label:'Gran',  data:_sd.gran,  backgroundColor:'rgba(90,255,140,0.5)', borderRadius:3, stack:'s'},
+    {label:'Tall',  data:_sd.tall,  backgroundColor:'rgba(255,179,64,0.4)', borderRadius:3, stack:'s'},
+    {label:'Bj\\u00f6rk',data:_sd.bjork, backgroundColor:'rgba(91,143,255,0.5)',borderRadius:3, stack:'s'},
+    {label:'\\u00d6vrigt',data:_sd.ovrigt,backgroundColor:'rgba(255,255,255,0.12)',borderRadius:3, stack:'s'},
   ]},
-  options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top',labels:{font:{family:'Geist',size:11},boxWidth:8,borderRadius:2,padding:12,color:'#7a7a72'}},tooltip},scales:{x:{stacked:true,grid,ticks},y:{stacked:true,grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
 });
-// Update sortiment summary numbers
-var _ss = document.getElementById('sortSagtimmer'); if (_ss) _ss.textContent = _sort.sagtimmer.toLocaleString('sv');
-var _sm = document.getElementById('sortMassaved'); if (_sm) _sm.textContent = _sort.massaved.toLocaleString('sv');
-var _se = document.getElementById('sortEnergived'); if (_se) _se.textContent = _sort.energived.toLocaleString('sv');
+// Update sortiment summary with totals + percent
+var _stotal = _sd.totals.reduce(function(a,b){return a+b;},0);
+var sortSumEl = document.getElementById('sortSummary');
+if (sortSumEl) {
+  sortSumEl.innerHTML = _sd.categories.map(function(cat,i){
+    var pct = _stotal > 0 ? Math.round(_sd.totals[i] / _stotal * 100) : 0;
+    return '<div class="snum"><div class="snum-v" style="color:var(--text)">' + _sd.totals[i].toLocaleString('sv') + '</div><div class="snum-l">' + cat + ' \\u00b7 ' + pct + '%</div></div>';
+  }).join('');
+}
 
 // MTH — only if machine has MTH data
 var mthSection = document.getElementById('sec-mth');
@@ -1207,7 +1222,7 @@ export default function Maskinvy() {
           bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0,
           klassLabels: [], klassVolym: [], klassStammar: [],
           klassM3g15: [], klassStg15: [], klassDieselM3: [],
-          sortimentTotalt: { sagtimmer: 0, massaved: 0, energived: 0 },
+          sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], gran: [0,0,0,0], tall: [0,0,0,0], bjork: [0,0,0,0], ovrigt: [0,0,0,0], totals: [0,0,0,0] },
           hasMth: false, sortimentPerDag: null,
         };
         (window as any).__maskinvyData = emptyData;
@@ -1484,7 +1499,14 @@ export default function Maskinvy() {
         .limit(1);
       const hasMth = (mthCheck.data?.length || 0) > 0;
 
-      let sortimentTotalt = { sagtimmer: 0, massaved: 0, energived: 0 };
+      // Sortiment: classify each dim_sortiment by category + trädslag
+      const CATS = ['Sägtimmer', 'Kubb', 'Massaved', 'Energived'] as const;
+      const nCats = CATS.length;
+      const emptySortData = (): DbData['sortimentData'] => ({
+        categories: [...CATS], gran: Array(nCats).fill(0), tall: Array(nCats).fill(0),
+        bjork: Array(nCats).fill(0), ovrigt: Array(nCats).fill(0), totals: Array(nCats).fill(0),
+      });
+      let sortimentData = emptySortData();
       let sortimentPerDag: DbData['sortimentPerDag'] = null;
       const objIds = [...prodObjIds];
       if (objIds.length > 0) {
@@ -1498,59 +1520,69 @@ export default function Maskinvy() {
         const dimSort = dimSortRes.data || [];
         const sortRows = sortRes.data || [];
 
-        // Classify sortiment names: timmer+kubb → sägtimmer, massa → massaved, övrigt → energived
-        const catMap: Record<string, 'sagtimmer' | 'massaved' | 'energived'> = {};
+        // Classify each sortiment_id → { catIdx, species }
+        type SortInfo = { catIdx: number; species: 'gran' | 'tall' | 'bjork' | 'ovrigt' };
+        const sortInfo: Record<string, SortInfo> = {};
         for (const s of dimSort) {
           const n = (s.namn || '').toLowerCase();
-          if (n.includes('timmer') || n.includes('såg') || n.includes('stock') || n.includes('kubb')) catMap[s.sortiment_id] = 'sagtimmer';
-          else if (n.includes('massa') || n.includes('flis')) catMap[s.sortiment_id] = 'massaved';
-          else catMap[s.sortiment_id] = 'energived';
+          // Category
+          let catIdx = 3; // default Energived
+          if (n.includes('timmer') || n.includes('såg') || n.includes('stock')) catIdx = 0;
+          else if (n.includes('kubb')) catIdx = 1;
+          else if (n.includes('massa') || n.includes('flis')) catIdx = 2;
+          // Species
+          let species: SortInfo['species'] = 'ovrigt';
+          if (n.includes('gran')) species = 'gran';
+          else if (n.includes('tall') || n.includes('furu')) species = 'tall';
+          else if (n.includes('björk') || n.includes('bjork') || n.includes('löv') || n.includes('lov')) species = 'bjork';
+          sortInfo[s.sortiment_id] = { catIdx, species };
         }
 
-        // Sum totals per category
+        // Aggregate per category × species
+        const sd = emptySortData();
         for (const r of sortRows) {
-          const cat = catMap[r.sortiment_id] || 'energived';
-          sortimentTotalt[cat] += r.volym_m3sub || 0;
+          const info = sortInfo[r.sortiment_id];
+          if (!info) continue;
+          const vol = r.volym_m3sub || 0;
+          sd[info.species][info.catIdx] += vol;
+          sd.totals[info.catIdx] += vol;
         }
-        sortimentTotalt = {
-          sagtimmer: Math.round(sortimentTotalt.sagtimmer),
-          massaved: Math.round(sortimentTotalt.massaved),
-          energived: Math.round(sortimentTotalt.energived),
-        };
+        // Round
+        for (const sp of ['gran', 'tall', 'bjork', 'ovrigt'] as const) sd[sp] = sd[sp].map(v => Math.round(v));
+        sd.totals = sd.totals.map(v => Math.round(v));
+        sortimentData = sd;
 
         // Per-dag breakdown (for alternative chart when no MTH)
         if (!hasMth) {
-          const objSortiment: Record<string, { sagtimmer: number; massaved: number; energived: number }> = {};
+          // Simple category totals per objekt for proportional day distribution
+          const objCat: Record<string, number[]> = {};
           for (const r of sortRows) {
-            if (!objSortiment[r.objekt_id]) objSortiment[r.objekt_id] = { sagtimmer: 0, massaved: 0, energived: 0 };
-            const cat = catMap[r.sortiment_id] || 'energived';
-            objSortiment[r.objekt_id][cat] += r.volym_m3sub || 0;
+            const info = sortInfo[r.sortiment_id];
+            if (!info || !r.objekt_id) continue;
+            if (!objCat[r.objekt_id]) objCat[r.objekt_id] = Array(nCats).fill(0);
+            objCat[r.objekt_id][info.catIdx] += r.volym_m3sub || 0;
           }
-
-          const daySortiment: Record<string, { timmer: number; kubb: number; massa: number; energi: number }> = {};
+          const dayCat: Record<string, number[]> = {};
           for (const r of rawProdRows) {
             if (!r.datum || !r.objekt_id) continue;
-            if (!daySortiment[r.datum]) daySortiment[r.datum] = { timmer: 0, kubb: 0, massa: 0, energi: 0 };
-            const objSort = objSortiment[r.objekt_id];
-            if (!objSort) continue;
-            const objTotal = objSort.sagtimmer + objSort.massaved + objSort.energived;
-            if (objTotal <= 0) continue;
+            if (!dayCat[r.datum]) dayCat[r.datum] = Array(nCats).fill(0);
+            const oc = objCat[r.objekt_id];
+            if (!oc) continue;
+            const ocTotal = oc.reduce((a, b) => a + b, 0);
+            if (ocTotal <= 0) continue;
             const dayVol = r.volym_m3sub || 0;
-            daySortiment[r.datum].timmer += dayVol * (objSort.sagtimmer / objTotal);
-            daySortiment[r.datum].massa += dayVol * (objSort.massaved / objTotal);
-            daySortiment[r.datum].energi += dayVol * (objSort.energived / objTotal);
+            for (let c = 0; c < nCats; c++) dayCat[r.datum][c] += dayVol * (oc[c] / ocTotal);
           }
-
           const sDays: string[] = [], timmer: number[] = [], kubb: number[] = [], massa: number[] = [], energi: number[] = [];
           for (let i = 0; i < totalDays; i++) {
             const d = new Date(sDate); d.setDate(d.getDate() + i);
             const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
             sDays.push(`${d.getDate()}/${d.getMonth() + 1}`);
-            const ds = daySortiment[dateStr];
-            timmer.push(ds ? Math.round(ds.timmer) : 0);
-            kubb.push(0);
-            massa.push(ds ? Math.round(ds.massa) : 0);
-            energi.push(ds ? Math.round(ds.energi) : 0);
+            const dc = dayCat[dateStr];
+            timmer.push(dc ? Math.round(dc[0]) : 0);
+            kubb.push(dc ? Math.round(dc[1]) : 0);
+            massa.push(dc ? Math.round(dc[2]) : 0);
+            energi.push(dc ? Math.round(dc[3]) : 0);
           }
           sortimentPerDag = { days: sDays, timmer, kubb, massa, energi };
         }
@@ -1589,7 +1621,7 @@ export default function Maskinvy() {
         branslePerM3: parseFloat(branslePerM3.toFixed(2)),
         stammarPerG15h: parseFloat(stammarPerG15h.toFixed(1)),
         klassLabels, klassVolym, klassStammar, klassM3g15, klassStg15, klassDieselM3,
-        sortimentTotalt,
+        sortimentData,
         hasMth,
         sortimentPerDag,
       };
@@ -2937,11 +2969,7 @@ body {
       <div class="card-h"><div class="card-t">Sortiment</div></div>
       <div class="card-b">
         <canvas id="sortChart" style="max-height:175px"></canvas>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:12px;">
-          <div class="snum"><div class="snum-v" style="color:var(--text)" id="sortSagtimmer">0</div><div class="snum-l">Sägtimmer/Kubb</div></div>
-          <div class="snum"><div class="snum-v" style="color:var(--text)" id="sortMassaved">0</div><div class="snum-l">Massaved</div></div>
-          <div class="snum"><div class="snum-v" id="sortEnergived">0</div><div class="snum-l">Energived</div></div>
-        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px;" id="sortSummary"></div>
       </div>
     </div>
   </div>
