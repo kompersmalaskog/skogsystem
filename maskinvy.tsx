@@ -88,6 +88,7 @@ type DbData = {
   klassM3g15: number[];
   klassStg15: number[];
   klassDieselM3: number[];
+  klassMthPct: number[];             // MTH% stammar per medelstamsklass
   // Sortiment: totalvolym per kategori
   sortimentData: {
     categories: string[];        // ['Sägtimmer','Kubb','Massaved','Energived']
@@ -259,15 +260,22 @@ if (_db.hasMth === false) {
 } else {
   if (mthSection) mthSection.style.removeProperty('display');
   if (sortDagSection) sortDagSection.style.display = 'none';
+  var mthPct = _db.klassMthPct || [];
   new Chart(document.getElementById('mthChart'),{
     type:'bar',
     data:{labels:classes,datasets:[
-      {label:'Gran', data:[820,640,180,28,8,3,0], backgroundColor:'rgba(90,255,140,0.5)',borderRadius:3,stack:'m'},
-      {label:'Tall', data:[190,120,50,10,2,1,0],  backgroundColor:'rgba(122,122,114,0.4)',borderRadius:3,stack:'m'},
-      {label:'Björk',data:[112,52,32,4,1,0,0],   backgroundColor:'rgba(91,143,255,0.5)',borderRadius:3,stack:'m'}
+      {label:'MTH %',data:mthPct,backgroundColor:mthPct.map(function(v){return v>30?'rgba(90,255,140,0.5)':v>10?'rgba(255,179,64,0.4)':'rgba(255,255,255,0.15)'}),borderRadius:4}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip},scales:{x:{stacked:true,grid,ticks},y:{stacked:true,grid,ticks}}}
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{label:function(c){return ' '+c.parsed.y+'% MTH'}}}},scales:{x:{grid,ticks:{...ticks,font:{size:9}}},y:{grid,ticks,title:{display:true,text:'% MTH',color:'#7a7a72',font:{size:10}},max:100}}}
   });
+  // Populate MTH sc-grid
+  var mthScGrid = document.getElementById('mthScGrid');
+  if (mthScGrid && mthPct.length > 0) {
+    mthScGrid.innerHTML = classes.map(function(cls, i) {
+      var p = mthPct[i] || 0;
+      return '<div class="sc' + (p <= 5 ? ' best' : '') + '"><div class="sc-k">' + cls + '</div><div class="sc-p" style="color:var(--text)">' + p + '%</div><div class="sc-u">MTH</div></div>';
+    }).join('');
+  }
 }
 
 // Total
@@ -1181,7 +1189,7 @@ export default function Maskinvy() {
       const maskinIds = Array.isArray(maskinId) ? maskinId : [maskinId];
       const rawProdData = await fetchAllRows((from, to) =>
         supabase.from('fakt_produktion')
-          .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
+          .select('datum, volym_m3sub, stammar, operator_id, objekt_id, processtyp')
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate)
           .range(from, to)
@@ -1242,7 +1250,7 @@ export default function Maskinvy() {
           calendarDt: new Array(totalDays).fill(0),
           bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0,
           klassLabels: [], klassVolym: [], klassStammar: [],
-          klassM3g15: [], klassStg15: [], klassDieselM3: [],
+          klassM3g15: [], klassStg15: [], klassDieselM3: [], klassMthPct: [],
           sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], totals: [0,0,0,0] },
           hasMth: false, sortimentPerDag: null,
         };
@@ -1260,7 +1268,7 @@ export default function Maskinvy() {
       // ════════════════════════════════════════════════════════════
 
       // ── Aggregate fakt_produktion per (datum, operator_id, objekt_id) ──
-      type ProdAgg = { vol: number; st: number };
+      type ProdAgg = { vol: number; st: number; mthSt: number };
       const prodByDay: Record<string, ProdAgg> = {};                        // per datum
       const prodByDayOp: Record<string, ProdAgg> = {};                      // per datum|operator_id
       const prodByObjekt: Record<string, ProdAgg> = {};                     // per objekt_id
@@ -1268,21 +1276,24 @@ export default function Maskinvy() {
 
       for (const r of rawProdRows) {
         const d = r.datum;
+        const isMth = r.processtyp === 'MTH' ? (r.stammar || 0) : 0;
         // Per day totals
-        if (!prodByDay[d]) prodByDay[d] = { vol: 0, st: 0 };
+        if (!prodByDay[d]) prodByDay[d] = { vol: 0, st: 0, mthSt: 0 };
         prodByDay[d].vol += r.volym_m3sub || 0;
         prodByDay[d].st += r.stammar || 0;
+        prodByDay[d].mthSt += isMth;
         // Per day+operator
         const opKey = `${d}|${r.operator_id || ''}`;
-        if (!prodByDayOp[opKey]) prodByDayOp[opKey] = { vol: 0, st: 0 };
+        if (!prodByDayOp[opKey]) prodByDayOp[opKey] = { vol: 0, st: 0, mthSt: 0 };
         prodByDayOp[opKey].vol += r.volym_m3sub || 0;
         prodByDayOp[opKey].st += r.stammar || 0;
         // Per objekt
         if (r.objekt_id) {
           prodObjIds.add(r.objekt_id);
-          if (!prodByObjekt[r.objekt_id]) prodByObjekt[r.objekt_id] = { vol: 0, st: 0 };
+          if (!prodByObjekt[r.objekt_id]) prodByObjekt[r.objekt_id] = { vol: 0, st: 0, mthSt: 0 };
           prodByObjekt[r.objekt_id].vol += r.volym_m3sub || 0;
           prodByObjekt[r.objekt_id].st += r.stammar || 0;
+          prodByObjekt[r.objekt_id].mthSt += isMth;
         }
       }
 
@@ -1497,7 +1508,7 @@ export default function Maskinvy() {
       // Klasser anpassas efter maskintyp.
       const { edges: classEdges, labels: klassLabels } = getMedelstamKlasser(maskinIds);
       const nClasses = klassLabels.length;
-      const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, g15sek: 0, bransle: 0 }));
+      const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, mthSt: 0, g15sek: 0, bransle: 0 }));
       for (const oid of prodObjIds) {
         const pObj = prodByObjekt[oid];
         if (!pObj || pObj.st <= 0) continue;
@@ -1508,6 +1519,7 @@ export default function Maskinvy() {
         }
         klassAgg[ci].vol += pObj.vol;
         klassAgg[ci].st += pObj.st;
+        klassAgg[ci].mthSt += pObj.mthSt;
         const tObj = tidByObjekt[oid];
         if (tObj) {
           klassAgg[ci].g15sek += tObj.processingSek + tObj.terrainSek;
@@ -1519,6 +1531,7 @@ export default function Maskinvy() {
       const klassM3g15 = klassAgg.map(k => { const h = k.g15sek / 3600; return h > 0 ? parseFloat((k.vol / h).toFixed(1)) : 0; });
       const klassStg15 = klassAgg.map(k => { const h = k.g15sek / 3600; return h > 0 ? Math.round(k.st / h) : 0; });
       const klassDieselM3 = klassAgg.map(k => k.vol > 0 ? parseFloat((k.bransle / k.vol).toFixed(1)) : 0);
+      const klassMthPct = klassAgg.map(k => k.st > 0 ? Math.round(k.mthSt / k.st * 100) : 0);
 
       // ── Fetch sortiment data (always — used for sortChart + sortimentPerDag) ──
       const mthCheck = await supabase.from('fakt_produktion')
@@ -1635,7 +1648,7 @@ export default function Maskinvy() {
         bransleTotalt: Math.round(bransleTotalt),
         branslePerM3: parseFloat(branslePerM3.toFixed(2)),
         stammarPerG15h: parseFloat(stammarPerG15h.toFixed(1)),
-        klassLabels, klassVolym, klassStammar, klassM3g15, klassStg15, klassDieselM3,
+        klassLabels, klassVolym, klassStammar, klassM3g15, klassStg15, klassDieselM3, klassMthPct,
         sortimentData,
         hasMth,
         sortimentPerDag,
@@ -3002,15 +3015,7 @@ body {
       </div>
       <div class="card-b">
         <canvas id="mthChart" style="max-height:170px"></canvas>
-        <div class="sc-grid" style="margin-top:12px;">
-          <div class="sc"><div class="sc-k">0.0–0.1</div><div class="sc-p" style="color:var(--text)">61%</div><div class="sc-u">MTH</div></div>
-          <div class="sc"><div class="sc-k">0.1–0.2</div><div class="sc-p" style="color:var(--text)">38%</div><div class="sc-u">MTH</div></div>
-          <div class="sc"><div class="sc-k">0.2–0.3</div><div class="sc-p" style="color:var(--text)">12%</div><div class="sc-u">MTH</div></div>
-          <div class="sc best"><div class="sc-k">0.3–0.4</div><div class="sc-p" style="color:var(--text)">4%</div><div class="sc-u">MTH</div></div>
-          <div class="sc best"><div class="sc-k">0.4–0.5</div><div class="sc-p" style="color:var(--text)">2%</div><div class="sc-u">MTH</div></div>
-          <div class="sc best"><div class="sc-k">0.5–0.7</div><div class="sc-p" style="color:var(--text)">1%</div><div class="sc-u">MTH</div></div>
-          <div class="sc best"><div class="sc-k">0.7+</div><div class="sc-p" style="color:var(--text)">0%</div><div class="sc-u">MTH</div></div>
-        </div>
+        <div class="sc-grid" id="mthScGrid" style="margin-top:12px;"></div>
       </div>
     </div>
   </div>
