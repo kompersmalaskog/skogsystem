@@ -8344,55 +8344,7 @@ export default function PlannerPage() {
           })()}
         </svg>
       )}
-      {/* === ZOOM-KNAPPAR (behålls) === */}
-      {!briefingMode && <div style={{
-        position: 'absolute',
-        top: '120px',
-        left: '15px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        zIndex: 120,
-      }}>
-        <button
-          onClick={zoomIn}
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '12px',
-            border: 'none',
-            background: 'rgba(28,28,30,0.8)',
-            color: '#fff',
-            fontSize: '20px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(10px)',
-          }}
-        >
-          +
-        </button>
-        <button
-          onClick={zoomOut}
-          style={{
-            width: '40px',
-            height: '40px',
-            borderRadius: '12px',
-            border: 'none',
-            background: 'rgba(28,28,30,0.8)',
-            color: '#fff',
-            fontSize: '20px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backdropFilter: 'blur(10px)',
-          }}
-        >
-          −
-        </button>
-      </div>}
+      {/* Zoom-knappar borttagna */}
 
       {/* === KOMPASS-WIDGET (vänster nere) === */}
       {compassMode && !briefingMode && (
