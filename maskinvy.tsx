@@ -1192,13 +1192,17 @@ export default function Maskinvy() {
       const totalDays = Math.round((eDate.getTime() - sDate.getTime()) / 86400000) + 1;
 
       // Fetch tid for all maskinIds, plus operators from all
-      const [tidRes, opRes, objRes] = await Promise.all([
+      const [tidRes, opRes, objRes, skiftRes] = await Promise.all([
         supabase.from('fakt_tid')
           .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, kort_stopp_sek, avbrott_sek, rast_sek, engine_time_sek, bransle_liter')
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate),
         supabase.from('dim_operator').select('operator_id, operator_key, operator_namn, maskin_id').in('maskin_id', maskinIds),
         supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer'),
+        supabase.from('fakt_skift')
+          .select('datum, inloggning_tid, utloggning_tid')
+          .in('maskin_id', maskinIds)
+          .gte('datum', startDate).lte('datum', endDate),
       ]);
 
       // fakt_produktion: sum all rows (one per diameterklass/trädslag) — no dedup
@@ -1439,6 +1443,20 @@ export default function Maskinvy() {
         };
       }).sort((a, b) => b.volym - a.volym);
 
+      // ── Build shift time lookup from fakt_skift (min login, max logout per datum) ──
+      const skiftByDay: Record<string, { start: string; slut: string }> = {};
+      for (const r of (skiftRes.data || [])) {
+        if (!r.datum || !r.inloggning_tid || !r.utloggning_tid) continue;
+        const login = r.inloggning_tid.substring(11, 16);   // "HH:MM"
+        const logout = r.utloggning_tid.substring(11, 16);
+        if (!skiftByDay[r.datum]) {
+          skiftByDay[r.datum] = { start: login, slut: logout };
+        } else {
+          if (login < skiftByDay[r.datum].start) skiftByDay[r.datum].start = login;
+          if (logout > skiftByDay[r.datum].slut) skiftByDay[r.datum].slut = logout;
+        }
+      }
+
       // ── Build dagData from pre-aggregated daily data ──
       const dagData: DbData['dagData'] = {};
       const calendarDt: number[] = new Array(totalDays).fill(0);
@@ -1460,7 +1478,7 @@ export default function Maskinvy() {
           dagData[dayNum] = {
             typ: 1, forare: opInfo?.operator_namn || '–',
             objekt: objInfo?.objekt_namn || '–',
-            start: '07:00', slut: '16:30',
+            start: skiftByDay[dateStr]?.start || '–', slut: skiftByDay[dateStr]?.slut || '–',
             vol: Math.round(pDay.vol), stammar: Math.round(pDay.st),
             g15: parseFloat(g15h.toFixed(1)),
             snitt: g15h > 0 ? parseFloat((pDay.vol / g15h).toFixed(1)) : 0,
