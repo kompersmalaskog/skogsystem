@@ -88,14 +88,10 @@ type DbData = {
   klassM3g15: number[];
   klassStg15: number[];
   klassDieselM3: number[];
-  // Sortiment: categories × trädslag
+  // Sortiment: totalvolym per kategori
   sortimentData: {
     categories: string[];        // ['Sägtimmer','Kubb','Massaved','Energived']
-    gran: number[];              // volym per category for Gran
-    tall: number[];              // volym per category for Tall
-    bjork: number[];             // volym per category for Björk
-    ovrigt: number[];            // volym per category for Övrigt
-    totals: number[];            // total volym per category
+    totals: number[];            // volym per category
   };
   // MTH flag + sortiment per dag
   hasMth: boolean;
@@ -216,19 +212,16 @@ dt.forEach((t,i)=>{
   cal.appendChild(el);
 });
 
-// Sortiment (from fakt_sortiment + dim_sortiment — stacked per tr\u00e4dslag)
-var _sd = _db.sortimentData || { categories:[], gran:[], tall:[], bjork:[], ovrigt:[], totals:[] };
+// Sortiment (from fakt_sortiment + dim_sortiment)
+var _sd = _db.sortimentData || { categories:[], totals:[] };
 if(!document.getElementById('sortChart')){console.warn('[Maskinvy] sortChart not found, skipping remaining charts');}
 else {
 new Chart(document.getElementById('sortChart'),{
   type:'bar',
   data:{labels:_sd.categories,datasets:[
-    {label:'Gran',  data:_sd.gran,  backgroundColor:'rgba(90,255,140,0.5)', borderRadius:3, stack:'s'},
-    {label:'Tall',  data:_sd.tall,  backgroundColor:'rgba(255,179,64,0.4)', borderRadius:3, stack:'s'},
-    {label:'Bj\\u00f6rk',data:_sd.bjork, backgroundColor:'rgba(91,143,255,0.5)',borderRadius:3, stack:'s'},
-    {label:'\\u00d6vrigt',data:_sd.ovrigt,backgroundColor:'rgba(255,255,255,0.12)',borderRadius:3, stack:'s'},
+    {label:'m\\u00b3sub',data:_sd.totals,backgroundColor:['rgba(90,255,140,0.5)','rgba(91,143,255,0.5)','rgba(255,179,64,0.4)','rgba(255,255,255,0.15)'],borderRadius:4}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top',labels:{font:{family:'Geist',size:11},boxWidth:8,borderRadius:2,padding:12,color:'#7a7a72'}},tooltip},scales:{x:{stacked:true,grid,ticks},y:{stacked:true,grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
+  options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
 });
 // Update sortiment summary with totals + percent
 var _stotal = _sd.totals.reduce(function(a,b){return a+b;},0);
@@ -1246,7 +1239,7 @@ export default function Maskinvy() {
           bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0,
           klassLabels: [], klassVolym: [], klassStammar: [],
           klassM3g15: [], klassStg15: [], klassDieselM3: [],
-          sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], gran: [0,0,0,0], tall: [0,0,0,0], bjork: [0,0,0,0], ovrigt: [0,0,0,0], totals: [0,0,0,0] },
+          sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], totals: [0,0,0,0] },
           hasMth: false, sortimentPerDag: null,
         };
         (window as any).__maskinvyData = emptyData;
@@ -1520,10 +1513,7 @@ export default function Maskinvy() {
       // Sortiment: classify each dim_sortiment by category + trädslag
       const CATS = ['Sägtimmer', 'Kubb', 'Massaved', 'Energived'] as const;
       const nCats = CATS.length;
-      const emptySortData = (): DbData['sortimentData'] => ({
-        categories: [...CATS], gran: Array(nCats).fill(0), tall: Array(nCats).fill(0),
-        bjork: Array(nCats).fill(0), ovrigt: Array(nCats).fill(0), totals: Array(nCats).fill(0),
-      });
+      const emptySortData = (): DbData['sortimentData'] => ({ categories: [...CATS], totals: Array(nCats).fill(0) });
       let sortimentData = emptySortData();
       let sortimentPerDag: DbData['sortimentPerDag'] = null;
       const objIds = [...prodObjIds];
@@ -1540,71 +1530,34 @@ export default function Maskinvy() {
         ]);
         const dimSort = dimSortRes.data || [];
 
-        // Explicit sortiment → trädslag mapping
-        const SORTIMENT_TRADSLAG: Record<string, string> = {
-          'timmer: urshult': 'Gran', 'timmer: stödlängd': 'Gran', 'timmer: tändsticksv': 'Gran',
-          'tall timmer': 'Tall', 'talltimmer': 'Tall', 'timmer: vislanda tall': 'Tall',
-          'kubb: alvesta': 'Gran', 'kubb: bergob': 'Övrigt löv',
-          'massa: bmav': 'Gran', 'massa: hmav': 'Gran', 'massa: hemved': 'Gran',
-          'massa: bokmav': 'Övrigt löv', 'massa: björkmav': 'Björk', 'massa: aspmav': 'Övrigt löv',
-          'energi: engved3mgran': 'Gran', 'energi: engved3mövlöv': 'Övrigt löv',
-          'energi: avkapgran': 'Gran', 'energi: avkaptall': 'Tall',
-        };
-        function matchSpecies(namn: string): 'gran' | 'tall' | 'bjork' | 'ovrigt' {
-          const n = namn.toLowerCase();
-          for (const [pattern, species] of Object.entries(SORTIMENT_TRADSLAG)) {
-            if (n.includes(pattern)) {
-              if (species === 'Gran') return 'gran';
-              if (species === 'Tall') return 'tall';
-              if (species === 'Björk') return 'bjork';
-              return 'ovrigt'; // Övrigt löv → ovrigt
-            }
-          }
-          // Fallback: guess from name
-          if (n.includes('gran')) return 'gran';
-          if (n.includes('tall') || n.includes('furu')) return 'tall';
-          if (n.includes('björk') || n.includes('bjork')) return 'bjork';
-          return 'ovrigt';
-        }
-
-        // Classify each sortiment_id → { catIdx, species }
-        type SortInfo = { catIdx: number; species: 'gran' | 'tall' | 'bjork' | 'ovrigt' };
-        const sortInfo: Record<string, SortInfo> = {};
+        // Classify each sortiment_id → category index
+        const catMap: Record<string, number> = {};
         for (const s of dimSort) {
           const n = (s.namn || '').toLowerCase();
-          // Category
           let catIdx = 3; // default Energived
           if (n.includes('timmer') || n.includes('såg') || n.includes('stock')) catIdx = 0;
           else if (n.includes('kubb')) catIdx = 1;
           else if (n.includes('massa') || n.includes('flis')) catIdx = 2;
-          // Species from explicit mapping
-          const species = matchSpecies(s.namn || '');
-          sortInfo[s.sortiment_id] = { catIdx, species };
+          catMap[s.sortiment_id] = catIdx;
         }
 
-        // Aggregate per category × species
+        // Aggregate total volym per category
         const sd = emptySortData();
         for (const r of sortRows) {
-          const info = sortInfo[r.sortiment_id];
-          if (!info) continue;
-          const vol = r.volym_m3sub || 0;
-          sd[info.species][info.catIdx] += vol;
-          sd.totals[info.catIdx] += vol;
+          const ci = catMap[r.sortiment_id] ?? 3;
+          sd.totals[ci] += r.volym_m3sub || 0;
         }
-        // Round
-        for (const sp of ['gran', 'tall', 'bjork', 'ovrigt'] as const) sd[sp] = sd[sp].map(v => Math.round(v));
         sd.totals = sd.totals.map(v => Math.round(v));
         sortimentData = sd;
 
         // Per-dag breakdown (for alternative chart when no MTH)
         if (!hasMth) {
-          // Simple category totals per objekt for proportional day distribution
           const objCat: Record<string, number[]> = {};
           for (const r of sortRows) {
-            const info = sortInfo[r.sortiment_id];
-            if (!info || !r.objekt_id) continue;
+            const ci = catMap[r.sortiment_id] ?? 3;
+            if (!r.objekt_id) continue;
             if (!objCat[r.objekt_id]) objCat[r.objekt_id] = Array(nCats).fill(0);
-            objCat[r.objekt_id][info.catIdx] += r.volym_m3sub || 0;
+            objCat[r.objekt_id][ci] += r.volym_m3sub || 0;
           }
           const dayCat: Record<string, number[]> = {};
           for (const r of rawProdRows) {
