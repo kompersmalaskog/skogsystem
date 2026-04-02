@@ -5,6 +5,22 @@ import { supabase } from '@/lib/supabase';
 
 type Maskin = { maskin_id: any; modell: string; tillverkare: string; typ: string };
 
+// Paginated Supabase fetch — fetches all rows beyond the 1000-row default limit.
+// queryFn receives a range (from, to) and must return a fresh query with .range() applied.
+async function fetchAllRows(queryFn: (from: number, to: number) => Promise<{ data: any[] | null }>): Promise<any[]> {
+  const PAGE = 1000;
+  let all: any[] = [];
+  let offset = 0;
+  while (true) {
+    const { data } = await queryFn(offset, offset + PAGE - 1);
+    const batch = data || [];
+    all = all.concat(batch);
+    if (batch.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
 // ── Types for DB data ──
 type DbData = {
   dailyVol: number[];
@@ -1126,10 +1142,13 @@ export default function Maskinvy() {
 
       // maskinId may be an array (combo machine) or single string
       const maskinIds = Array.isArray(maskinId) ? maskinId : [maskinId];
-      let prodRes = await supabase.from('fakt_produktion')
-        .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
-        .in('maskin_id', maskinIds)
-        .gte('datum', startDate).lte('datum', endDate);
+      const rawProdData = await fetchAllRows((from, to) =>
+        supabase.from('fakt_produktion')
+          .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
+          .in('maskin_id', maskinIds)
+          .gte('datum', startDate).lte('datum', endDate)
+          .range(from, to)
+      );
 
       const sDate = new Date(startDate);
       const eDate = new Date(endDate);
@@ -1146,7 +1165,7 @@ export default function Maskinvy() {
       ]);
 
       // fakt_produktion: sum all rows (one per diameterklass/trädslag) — no dedup
-      const rawProdRows = prodRes.data || [];
+      const rawProdRows = rawProdData;
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
       console.log('[Maskinvy] Data loaded:', { maskinIds, rawProd: rawProdRows.length, rawTid: (tidRes.data||[]).length });
@@ -1578,17 +1597,19 @@ export default function Maskinvy() {
 
   // ── Fetch KPIs for a specific date range (for comparison) ──
   const fetchPeriodKpi = useCallback(async (maskinId: string, startDate: string, endDate: string, label: string): Promise<PeriodKpi> => {
-    const [prodRes, tidRes] = await Promise.all([
-      supabase.from('fakt_produktion')
-        .select('volym_m3sub, stammar')
-        .eq('maskin_id', maskinId)
-        .gte('datum', startDate).lte('datum', endDate),
+    const [prodRows, tidRes] = await Promise.all([
+      fetchAllRows((from, to) =>
+        supabase.from('fakt_produktion')
+          .select('volym_m3sub, stammar')
+          .eq('maskin_id', maskinId)
+          .gte('datum', startDate).lte('datum', endDate)
+          .range(from, to)
+      ),
       supabase.from('fakt_tid')
         .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, engine_time_sek')
         .eq('maskin_id', maskinId)
         .gte('datum', startDate).lte('datum', endDate),
     ]);
-    const prodRows = prodRes.data || [];
     // Deduplicate fakt_tid per (datum, operator_id, objekt_id)
     const tidDedupKpi: Record<string, any> = {};
     for (const r of (tidRes.data || [])) {
@@ -1627,12 +1648,15 @@ export default function Maskinvy() {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
     if (!valdMaskinObj || opCmpIds.length < 2) return;
     setOpCmpLoading(true);
-    const [prodRes, tidRes, opRes] = await Promise.all([
-      supabase.from('fakt_produktion')
-        .select('datum, volym_m3sub, stammar, operator_id')
-        .eq('maskin_id', valdMaskinObj.maskin_id)
-        .in('operator_id', opCmpIds)
-        .gte('datum', opCmpFrom).lte('datum', opCmpTo),
+    const [rawProd, tidRes, opRes] = await Promise.all([
+      fetchAllRows((from, to) =>
+        supabase.from('fakt_produktion')
+          .select('datum, volym_m3sub, stammar, operator_id')
+          .eq('maskin_id', valdMaskinObj.maskin_id)
+          .in('operator_id', opCmpIds)
+          .gte('datum', opCmpFrom).lte('datum', opCmpTo)
+          .range(from, to)
+      ),
       supabase.from('fakt_tid')
         .select('datum, operator_id, processing_sek, terrain_sek, engine_time_sek, bransle_liter')
         .eq('maskin_id', valdMaskinObj.maskin_id)
@@ -1642,7 +1666,6 @@ export default function Maskinvy() {
         .select('operator_id, operator_namn')
         .in('operator_id', opCmpIds),
     ]);
-    const rawProd = prodRes.data || [];
     const opNames: Record<string, string> = {};
     (opRes.data || []).forEach((o: any) => { opNames[o.operator_id] = o.operator_namn || o.operator_id; });
 
@@ -1709,12 +1732,15 @@ export default function Maskinvy() {
     const dbIdsB = resolveIds(machCmpB);
     const allDbIds = [...new Set([...dbIdsA, ...dbIdsB])];
 
-    // Fetch prod and tid SEPARATELY
-    const [prodRes, tidRes] = await Promise.all([
-      supabase.from('fakt_produktion')
-        .select('datum, maskin_id, volym_m3sub, stammar')
-        .in('maskin_id', allDbIds)
-        .gte('datum', machCmpFrom).lte('datum', machCmpTo),
+    // Fetch prod and tid SEPARATELY (paginate prod — can exceed 1000 rows)
+    const [prodData, tidRes] = await Promise.all([
+      fetchAllRows((from, to) =>
+        supabase.from('fakt_produktion')
+          .select('datum, maskin_id, volym_m3sub, stammar')
+          .in('maskin_id', allDbIds)
+          .gte('datum', machCmpFrom).lte('datum', machCmpTo)
+          .range(from, to)
+      ),
       supabase.from('fakt_tid')
         .select('datum, maskin_id, operator_id, objekt_id, processing_sek, terrain_sek, engine_time_sek, bransle_liter')
         .in('maskin_id', allDbIds)
@@ -1731,7 +1757,7 @@ export default function Maskinvy() {
     // Pre-aggregate prod per logical machine (sum all rows — one per diameterklass/trädslag)
     const prodAgg: Record<string, { vol: number; st: number }> = {};
     const monthProd: Record<string, Record<string, { vol: number; g15sek: number }>> = {};
-    for (const r of (prodRes.data || [])) {
+    for (const r of prodData) {
       const lid = toLogical(r.maskin_id);
       if (!prodAgg[lid]) prodAgg[lid] = { vol: 0, st: 0 };
       prodAgg[lid].vol += r.volym_m3sub || 0;
