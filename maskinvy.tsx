@@ -889,11 +889,13 @@ if (_db.operatorer && _db.operatorer.length > 0) {
       row.className = 'op-row op-clickable';
       row.setAttribute('onclick', "openForare('" + key + "')");
       row.title = 'Visa förarvy';
+      var uVal = (f.utnyttjandePct > 0 && f.utnyttjandePct <= 100) ? f.utnyttjandePct + '%' : '\u2014';
+      var uWarn = (f.utnyttjandePct === 0 || f.utnyttjandePct > 100) ? '<div style="font-size:9px;color:#3a3a36;">data saknas</div>' : '';
       row.innerHTML = '<div class="op-av" style="background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6)">' + f.av + '</div>'
-        + '<div class="op-info"><div class="op-name">' + f.name + '</div><div class="op-sub">' + Math.round(f.timmar) + ' G15h</div></div>'
+        + '<div class="op-info"><div class="op-name">' + f.name + '</div><div class="op-sub">' + Math.round(f.timmar) + ' G15h' + uWarn + '</div></div>'
         + '<div class="op-stats"><div><div class="op-sv" style="color:var(--text)">' + Math.round(f.volym) + ' m\\u00b3</div><div class="op-sl">volym</div></div>'
         + '<div><div class="op-sv">' + parseFloat(f.prod).toFixed(1) + '</div><div class="op-sl">m\\u00b3/G15h</div></div>'
-        + '<div><div class="op-sv">' + f.utnyttjandePct + '%</div><div class="op-sl">utnyttj.</div></div></div>';
+        + '<div><div class="op-sv">' + uVal + '</div><div class="op-sl">utnyttj.</div></div></div>';
       opContainer.appendChild(row);
     });
   }
@@ -932,7 +934,7 @@ if (_db.operatorer && _db.operatorer.length > 0) {
   var pTerr = totalSek > 0 ? Math.round((_db.terrainSek / totalSek) * 100) : 0;
   var pKort = totalSek > 0 ? Math.round((_db.kortStoppSek / totalSek) * 100) : 0;
   var pAvbr = totalSek > 0 ? Math.round((_db.avbrottSek / totalSek) * 100) : 0;
-  var pRast = totalSek > 0 ? (100 - pProc - pTerr - pKort - pAvbr) : 0;
+  var pRast = totalSek > 0 ? Math.max(0, Math.round((_db.rastSek / totalSek) * 100)) : 0;
 
   var tbarSegs = document.querySelectorAll('.tbar .tseg');
   if (tbarSegs.length >= 5) {
@@ -3244,7 +3246,7 @@ body {
           <div style="font-size:10px;color:var(--muted);margin-top:1px;">Oplanerade stopp</div>
         </div>
         <div style="text-align:right;">
-          <div style="font-weight:600;font-variant-numeric:tabular-nums;color:var(--warn);">3h 10min</div>
+          <div style="font-weight:600;font-variant-numeric:tabular-nums;">3h 10min</div>
           <div style="font-size:10px;color:var(--muted);">3 tillfällen · 15%</div>
         </div>
       </div>
