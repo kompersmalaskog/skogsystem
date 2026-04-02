@@ -56,6 +56,7 @@ type DbData = {
     engineTimeSek: number;
     bransleLiter: number;
     dailyVol: number[];
+    utnyttjandePct: number;
   }>;
   // Objekt
   objekt: Array<{
@@ -438,6 +439,7 @@ if (_db.operatorer && _db.operatorer.length > 0) {
       engineTimeSek: op.engineTimeSek || 0,
       bransleLiter: op.bransleLiter || 0,
       dailyVol: op.dailyVol || [],
+      utnyttjandePct: op.utnyttjandePct || 0,
     };
   });
 }
@@ -889,8 +891,9 @@ if (_db.operatorer && _db.operatorer.length > 0) {
       row.title = 'Visa förarvy';
       row.innerHTML = '<div class="op-av" style="background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6)">' + f.av + '</div>'
         + '<div class="op-info"><div class="op-name">' + f.name + '</div><div class="op-sub">' + Math.round(f.timmar) + ' G15h</div></div>'
-        + '<div class="op-stats"><div><div class="op-sv" style="color:var(--text)">' + Math.round(f.volym) + ' m³</div><div class="op-sl">volym</div></div>'
-        + '<div><div class="op-sv">' + parseFloat(f.prod).toFixed(1) + '</div><div class="op-sl">m³/G15h</div></div></div>';
+        + '<div class="op-stats"><div><div class="op-sv" style="color:var(--text)">' + Math.round(f.volym) + ' m\\u00b3</div><div class="op-sl">volym</div></div>'
+        + '<div><div class="op-sv">' + parseFloat(f.prod).toFixed(1) + '</div><div class="op-sl">m\\u00b3/G15h</div></div>'
+        + '<div><div class="op-sv">' + f.utnyttjandePct + '%</div><div class="op-sl">utnyttj.</div></div></div>';
       opContainer.appendChild(row);
     });
   }
@@ -1397,13 +1400,27 @@ export default function Maskinvy() {
 
       // ── Utnyttjandegrad: effektiv G15h / inloggad tid ──
       const effG15h = (tidTotal.processingSek + tidTotal.terrainSek + tidTotal.kortStoppSek) / 3600;
-      const arbetsdagRes = await supabase.from('arbetsdag')
-        .select('arbetad_min')
-        .in('maskin_id', maskinIds)
-        .gte('datum', startDate).lte('datum', endDate);
-      const totalArbetadMin = (arbetsdagRes.data || []).reduce((s: number, r: any) => s + (r.arbetad_min || 0), 0);
+      const [arbetsdagRes, opMedRes] = await Promise.all([
+        supabase.from('arbetsdag')
+          .select('medarbetare_id, arbetad_min')
+          .in('maskin_id', maskinIds)
+          .gte('datum', startDate).lte('datum', endDate),
+        supabase.from('operator_medarbetare')
+          .select('operator_id, medarbetare_id'),
+      ]);
+      const arbetsdagRows = arbetsdagRes.data || [];
+      const totalArbetadMin = arbetsdagRows.reduce((s: number, r: any) => s + (r.arbetad_min || 0), 0);
       const inloggadH = totalArbetadMin / 60;
       const utnyttjandegrad = inloggadH > 0 ? parseFloat((effG15h / inloggadH * 100).toFixed(1)) : 0;
+
+      // Per-operator utnyttjandegrad: map operator_id → medarbetare_id → SUM(arbetad_min)
+      const opToMed: Record<string, string> = {};
+      for (const r of (opMedRes.data || [])) opToMed[r.operator_id] = r.medarbetare_id;
+      const medArbetad: Record<string, number> = {};
+      for (const r of arbetsdagRows) {
+        if (!r.medarbetare_id) continue;
+        medArbetad[r.medarbetare_id] = (medArbetad[r.medarbetare_id] || 0) + (r.arbetad_min || 0);
+      }
 
       // ── Operators: aggregate prod and tid SEPARATELY per operator_id ──
       // 1. prodByOp: SUM(volym, stammar) from fakt_produktion per operator
@@ -1456,6 +1473,13 @@ export default function Maskinvy() {
         const initialer = nameParts.length >= 2
           ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
           : namn.substring(0, 2).toUpperCase();
+        // Utnyttjandegrad per operator: effG15h / inloggad tid from arbetsdag
+        const opEffG15h = (tOp.processingSek + tOp.terrainSek + tOp.kortStoppSek) / 3600;
+        const medId = opToMed[opId];
+        const opArbetadMin = medId ? (medArbetad[medId] || 0) : 0;
+        const opInloggadH = opArbetadMin / 60;
+        const utnyttjandePct = opInloggadH > 0 ? parseFloat((opEffG15h / opInloggadH * 100).toFixed(1)) : 0;
+
         return {
           id: opId,
           key: opInfo?.operator_key || nameParts[0].toLowerCase(),
@@ -1468,6 +1492,7 @@ export default function Maskinvy() {
           engineTimeSek: tOp.engineTimeSek,
           bransleLiter: tOp.bransleLiter,
           dailyVol: opDailyVol,
+          utnyttjandePct,
         };
       }).filter(o => o.volym > 0 || o.timmar > 0).sort((a, b) => b.volym - a.volym);
 
