@@ -83,6 +83,10 @@ type DbData = {
   branslePerM3: number;
   stammarPerG15h: number;
   utnyttjandegrad: number;           // G15h / inloggad tid %
+  // Avbrott
+  avbrottTotal: { timmar: number; antal: number; snittMin: number };
+  avbrottPerKategori: Array<{ kategori: string; timmar: number; antal: number; snittMin: number }>;
+  avbrottPerManad: Array<{ month: string; byKat: Record<string, number> }>;
   // Per-medelstamsklass arrays (dynamic number of classes depending on machine)
   klassLabels: string[];
   klassVolym: number[];
@@ -1266,6 +1270,7 @@ export default function Maskinvy() {
           operatorer: [], objekt: [], dagData: {},
           calendarDt: new Array(totalDays).fill(0),
           bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0, utnyttjandegrad: 0,
+          avbrottTotal: { timmar: 0, antal: 0, snittMin: 0 }, avbrottPerKategori: [], avbrottPerManad: [],
           klassLabels: [], klassVolym: [], klassStammar: [],
           klassM3g15: [], klassStg15: [], klassDieselM3: [], klassMthPct: [],
           mthAndelPct: 0, mthMedelstam: 0, singleMedelstam: 0,
@@ -1402,13 +1407,17 @@ export default function Maskinvy() {
 
       // ── Utnyttjandegrad: effektiv G15h / inloggad tid ──
       const effG15h = (tidTotal.processingSek + tidTotal.terrainSek + tidTotal.kortStoppSek) / 3600;
-      const [arbetsdagRes, opMedRes] = await Promise.all([
+      const [arbetsdagRes, opMedRes, avbrottRes] = await Promise.all([
         supabase.from('arbetsdag')
           .select('medarbetare_id, arbetad_min')
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate),
         supabase.from('operator_medarbetare')
           .select('operator_id, medarbetare_id'),
+        supabase.from('fakt_avbrott')
+          .select('datum, kategori_kod, langd_sek')
+          .in('maskin_id', maskinIds)
+          .gte('datum', startDate).lte('datum', endDate),
       ]);
       const arbetsdagRows = arbetsdagRes.data || [];
       const totalArbetadMin = arbetsdagRows.reduce((s: number, r: any) => s + (r.arbetad_min || 0), 0);
@@ -1423,6 +1432,30 @@ export default function Maskinvy() {
         if (!r.medarbetare_id) continue;
         medArbetad[r.medarbetare_id] = (medArbetad[r.medarbetare_id] || 0) + (r.arbetad_min || 0);
       }
+
+      // ── Avbrott aggregation ──
+      const avbrottRows = avbrottRes.data || [];
+      const katAgg: Record<string, { sek: number; antal: number }> = {};
+      const manadKat: Record<string, Record<string, number>> = {};
+      for (const r of avbrottRows) {
+        const kat = r.kategori_kod || 'Övrigt';
+        if (!katAgg[kat]) katAgg[kat] = { sek: 0, antal: 0 };
+        katAgg[kat].sek += r.langd_sek || 0;
+        katAgg[kat].antal += 1;
+        const ym = r.datum.substring(0, 7);
+        if (!manadKat[ym]) manadKat[ym] = {};
+        manadKat[ym][kat] = (manadKat[ym][kat] || 0) + (r.langd_sek || 0) / 3600;
+      }
+      const totalAvbrottSek = avbrottRows.reduce((s: number, r: any) => s + (r.langd_sek || 0), 0);
+      const avbrottTotal = {
+        timmar: parseFloat((totalAvbrottSek / 3600).toFixed(1)),
+        antal: avbrottRows.length,
+        snittMin: avbrottRows.length > 0 ? Math.round(totalAvbrottSek / avbrottRows.length / 60) : 0,
+      };
+      const avbrottPerKategori = Object.entries(katAgg)
+        .map(([k, v]) => ({ kategori: k, timmar: parseFloat((v.sek / 3600).toFixed(1)), antal: v.antal, snittMin: v.antal > 0 ? Math.round(v.sek / v.antal / 60) : 0 }))
+        .sort((a, b) => b.timmar - a.timmar);
+      const avbrottPerManad = Object.keys(manadKat).sort().map(ym => ({ month: ym, byKat: manadKat[ym] }));
 
       // ── Operators: aggregate prod and tid SEPARATELY per operator_id ──
       // 1. prodByOp: SUM(volym, stammar) from fakt_produktion per operator
@@ -1733,6 +1766,7 @@ export default function Maskinvy() {
         branslePerM3: parseFloat(branslePerM3.toFixed(2)),
         stammarPerG15h: parseFloat(stammarPerG15h.toFixed(1)),
         utnyttjandegrad,
+        avbrottTotal, avbrottPerKategori, avbrottPerManad,
         klassLabels, klassVolym, klassStammar, klassM3g15, klassStg15, klassDieselM3, klassMthPct,
         mthAndelPct, mthMedelstam, singleMedelstam,
         sortimentData,
@@ -2099,6 +2133,7 @@ export default function Maskinvy() {
           {[
             { icon: '◻', label: 'Översikt', view: 'oversikt' },
             { icon: '▤', label: 'Produktion', view: 'produktion' },
+            { icon: '⚠', label: 'Avbrott', view: 'avbrott' },
             { icon: '◉', label: 'Operatörer', view: 'operatorer' },
             { icon: '⬡', label: 'Trädslag', view: 'tradslag' },
             { icon: '▣', label: 'Objekt', view: 'objekt' },
@@ -2388,7 +2423,105 @@ export default function Maskinvy() {
         </div>
       )}
 
-      <div style={{ display: activeView === 'jamfor' ? 'none' : 'block' }}>
+      {/* ── AVBROTT PANEL ── */}
+      {activeView === 'avbrott' && (() => {
+        const db = (window as any).__maskinvyData || {} as DbData;
+        const at = db.avbrottTotal || { timmar: 0, antal: 0, snittMin: 0 };
+        const pk = db.avbrottPerKategori || [];
+        const pm = db.avbrottPerManad || [];
+        const allKats = pk.map((k: any) => k.kategori);
+        const katColors: Record<string, string> = {};
+        const palette = ['#5b8fff','#00c48c','#ffb340','#ff5f57','#a78bfa','#f472b6','#38bdf8','#7a7a72'];
+        allKats.forEach((k: string, i: number) => { katColors[k] = palette[i % palette.length]; });
+        return (
+          <div style={{ padding: '24px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 960 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
+
+            {/* KPI cards */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
+              {[
+                { label: 'Total avbrottstid', value: at.timmar + 'h' },
+                { label: 'Antal avbrott', value: String(at.antal) },
+                { label: 'Snitt per avbrott', value: at.snittMin + ' min' },
+              ].map(c => (
+                <div key={c.label} style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7a7a72', marginBottom: 6 }}>{c.label}</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: '#e8e8e4', letterSpacing: -1 }}>{c.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Chart */}
+            {pm.length > 0 && (
+              <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '18px', marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#3a3a36', marginBottom: 14 }}>Avbrottstid per månad & kategori</div>
+                <div style={{ height: 280, position: 'relative' }}>
+                  <canvas ref={(canvas) => {
+                    if (!canvas) return;
+                    const Chart = (window as any).Chart;
+                    if (!Chart) return;
+                    const existing = Chart.getChart(canvas);
+                    if (existing) existing.destroy();
+                    new Chart(canvas, {
+                      type: 'bar',
+                      data: {
+                        labels: pm.map((m: any) => m.month),
+                        datasets: allKats.map((kat: string) => ({
+                          label: kat,
+                          data: pm.map((m: any) => parseFloat(((m.byKat as any)[kat] || 0).toFixed(1))),
+                          backgroundColor: katColors[kat],
+                          borderRadius: 3,
+                          stack: 'a',
+                        })),
+                      },
+                      options: {
+                        responsive: true, maintainAspectRatio: false,
+                        interaction: { mode: 'index' as const, intersect: false },
+                        plugins: { legend: { position: 'top' as const, labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 10 }, boxWidth: 8, padding: 10 } } },
+                        scales: {
+                          x: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
+                          y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 10 } } },
+                        },
+                      },
+                    });
+                  }} />
+                </div>
+              </div>
+            )}
+
+            {/* Top list */}
+            {pk.length > 0 && (
+              <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
+                      <th style={{ padding: '10px 14px', textAlign: 'left', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Kategori</th>
+                      <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Timmar</th>
+                      <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Antal</th>
+                      <th style={{ padding: '10px 14px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Snitt min</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pk.map((r: any) => (
+                      <tr key={r.kategori} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <td style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 8, height: 8, borderRadius: 2, background: katColors[r.kategori] || '#7a7a72', flexShrink: 0 }} />
+                          {r.kategori}
+                        </td>
+                        <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#e8e8e4' }}>{r.timmar}</td>
+                        <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.antal}</td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.snittMin}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      <div style={{ display: activeView === 'jamfor' || activeView === 'avbrott' ? 'none' : 'block' }}>
       <style dangerouslySetInnerHTML={{ __html: `.mach-wrap { display: none !important; }
 .hdr { display: none !important; }
 .cmp-bar { display: none !important; }
