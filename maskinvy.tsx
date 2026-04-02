@@ -268,21 +268,23 @@ if (_db.hasMth === false) {
 } else {
   if (mthSection) mthSection.style.removeProperty('display');
   if (sortDagSection) sortDagSection.style.display = 'none';
+  // Build horizontal bar rows for MTH% per medelstamsklass
   var mthPct = _db.klassMthPct || [];
-  new Chart(document.getElementById('mthChart'),{
-    type:'bar',
-    data:{labels:classes,datasets:[
-      {label:'MTH %',data:mthPct,backgroundColor:mthPct.map(function(v){return v>30?'rgba(90,255,140,0.5)':v>10?'rgba(255,179,64,0.4)':'rgba(255,255,255,0.15)'}),borderRadius:4}
-    ]},
-    options:{responsive:true,plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{label:function(c){return ' '+c.parsed.y+'% MTH'}}}},scales:{x:{grid,ticks:{...ticks,font:{size:9}}},y:{grid,ticks,title:{display:true,text:'% MTH',color:'#7a7a72',font:{size:10}},max:100}}}
-  });
-  // Populate MTH sc-grid
-  var mthScGrid = document.getElementById('mthScGrid');
-  if (mthScGrid && mthPct.length > 0) {
-    mthScGrid.innerHTML = classes.map(function(cls, i) {
+  var mthBody = document.getElementById('mthBody');
+  if (mthBody && classes.length > 0) {
+    mthBody.innerHTML = classes.map(function(cls, i) {
       var p = mthPct[i] || 0;
-      return '<div class="sc' + (p <= 5 ? ' best' : '') + '"><div class="sc-k">' + cls + '</div><div class="sc-p" style="color:var(--text)">' + p + '%</div><div class="sc-u">MTH</div></div>';
-    }).join('');
+      var st = stammar[i] || 0;
+      if (st === 0) return '';
+      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'
+        + '<div style="width:52px;font-size:10px;color:#7a7a72;text-align:right;flex-shrink:0;">' + cls + '</div>'
+        + '<div style="flex:1;height:16px;background:rgba(255,255,255,0.04);border-radius:3px;overflow:hidden;position:relative;">'
+        + '<div style="height:100%;width:' + Math.max(p, 1) + '%;background:rgba(90,255,140,' + (p > 30 ? '0.5' : p > 10 ? '0.35' : '0.2') + ');border-radius:3px;"></div>'
+        + '</div>'
+        + '<div style="width:36px;font-size:11px;font-weight:600;color:' + (p > 30 ? '#5aff8c' : p > 10 ? '#ffb340' : '#7a7a72') + ';text-align:right;flex-shrink:0;">' + p + '%</div>'
+        + '<div style="width:50px;font-size:10px;color:#3a3a36;text-align:right;flex-shrink:0;">' + st.toLocaleString('sv') + ' st</div>'
+        + '</div>';
+    }).filter(Boolean).join('');
   }
 }
 
@@ -3050,16 +3052,14 @@ body {
   <div class="gf view-section vs-produktion vs-tradslag" id="sec-mth">
     <div class="card anim" style="animation-delay:0.75s">
       <div class="card-h">
-        <div class="card-t">Flerträd (MTH) per trädslag & medelstamsklass</div>
-        <div style="display:flex;gap:12px;">
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:var(--accent)"></div>Gran</div>
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:var(--muted)"></div>Tall</div>
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:var(--blue)"></div>Björk</div>
+        <div class="card-t">Flerträd (MTH) per medelstamsklass</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:10px;height:10px;border-radius:2px;background:rgba(90,255,140,0.4);"></div>
+          <span style="font-size:10px;color:var(--muted);">MTH-andel</span>
         </div>
       </div>
       <div class="card-b">
-        <canvas id="mthChart" style="max-height:170px"></canvas>
-        <div class="sc-grid" id="mthScGrid" style="margin-top:12px;"></div>
+        <div id="mthBody"></div>
       </div>
     </div>
   </div>
