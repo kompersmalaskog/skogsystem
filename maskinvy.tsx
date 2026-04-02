@@ -89,6 +89,9 @@ type DbData = {
   klassStg15: number[];
   klassDieselM3: number[];
   klassMthPct: number[];             // MTH% stammar per medelstamsklass
+  mthAndelPct: number;               // total MTH-andel %
+  mthMedelstam: number;              // snitt medelstam MTH
+  singleMedelstam: number;           // snitt medelstam Single
   // Sortiment: totalvolym per kategori
   sortimentData: {
     categories: string[];        // ['Sägtimmer','Kubb','Massaved','Energived']
@@ -158,6 +161,11 @@ document.querySelectorAll('.k-val[data-count]').forEach(function(el) {
   if (t === 'Br\\u00e4nsle/m\\u00b3') el.setAttribute('data-count', String(_kpiBransleM3));
   if (t === 'Stammar/G15h') el.setAttribute('data-count', String(_kpiStG15));
 });
+
+// Update MTH stats
+var _mthA = document.getElementById('mthAndelVal'); if (_mthA) _mthA.textContent = (_db.mthAndelPct || 0) + '%';
+var _mthS = document.getElementById('mthStamVal'); if (_mthS) _mthS.textContent = (_db.mthMedelstam || 0).toFixed(2);
+var _sinS = document.getElementById('singleStamVal'); if (_sinS) _sinS.textContent = (_db.singleMedelstam || 0).toFixed(2);
 
 setTimeout(()=>{
   countUp(document.getElementById('hv'), _kpiVolym, 0, 1400);
@@ -1251,6 +1259,7 @@ export default function Maskinvy() {
           bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0,
           klassLabels: [], klassVolym: [], klassStammar: [],
           klassM3g15: [], klassStg15: [], klassDieselM3: [], klassMthPct: [],
+          mthAndelPct: 0, mthMedelstam: 0, singleMedelstam: 0,
           sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], totals: [0,0,0,0] },
           hasMth: false, sortimentPerDag: null,
         };
@@ -1371,6 +1380,16 @@ export default function Maskinvy() {
       const medelstam = totalStammar > 0 ? totalVolym / totalStammar : 0;
       const branslePerM3 = totalVolym > 0 ? bransleTotalt / totalVolym : 0;
       const stammarPerG15h = g15Timmar > 0 ? totalStammar / g15Timmar : 0;
+
+      // ── MTH stats from processtyp ──
+      let mthStammar = 0, mthVolym = 0, singleStammar = 0, singleVolym = 0;
+      for (const r of rawProdRows) {
+        if (r.processtyp === 'MTH') { mthStammar += r.stammar || 0; mthVolym += r.volym_m3sub || 0; }
+        else { singleStammar += r.stammar || 0; singleVolym += r.volym_m3sub || 0; }
+      }
+      const mthAndelPct = totalStammar > 0 ? Math.round(mthStammar / totalStammar * 100) : 0;
+      const mthMedelstam = mthStammar > 0 ? parseFloat((mthVolym / mthStammar).toFixed(3)) : 0;
+      const singleMedelstam = singleStammar > 0 ? parseFloat((singleVolym / singleStammar).toFixed(3)) : 0;
 
       // ── Operators: aggregate prod and tid SEPARATELY per operator_id ──
       // 1. prodByOp: SUM(volym, stammar) from fakt_produktion per operator
@@ -1649,6 +1668,7 @@ export default function Maskinvy() {
         branslePerM3: parseFloat(branslePerM3.toFixed(2)),
         stammarPerG15h: parseFloat(stammarPerG15h.toFixed(1)),
         klassLabels, klassVolym, klassStammar, klassM3g15, klassStg15, klassDieselM3, klassMthPct,
+        mthAndelPct, mthMedelstam, singleMedelstam,
         sortimentData,
         hasMth,
         sortimentPerDag,
@@ -2851,9 +2871,9 @@ body {
         <div class="ts"><div class="ts-top"><span class="ts-n">Björk</span><span class="ts-v">185 m³ · 10%</span></div><div class="prog"><div class="pf" style="width:10%;background:rgba(255,255,255,0.15)"></div></div></div>
         <div class="ts"><div class="ts-top"><span class="ts-n">Övrigt</span><span class="ts-v">40 m³ · 2%</span></div><div class="prog"><div class="pf" style="width:2%;background:rgba(255,255,255,0.08)"></div></div></div>
         <div class="snum-grid">
-          <div class="snum"><div class="snum-v">23%</div><div class="snum-l">MTH-andel</div></div>
-          <div class="snum"><div class="snum-v">0.07</div><div class="snum-l">MTH stam</div></div>
-          <div class="snum"><div class="snum-v">0.26</div><div class="snum-l">Single stam</div></div>
+          <div class="snum"><div class="snum-v" id="mthAndelVal">0%</div><div class="snum-l">MTH-andel</div></div>
+          <div class="snum"><div class="snum-v" id="mthStamVal">0</div><div class="snum-l">MTH stam</div></div>
+          <div class="snum"><div class="snum-v" id="singleStamVal">0</div><div class="snum-l">Single stam</div></div>
         </div>
         <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center;letter-spacing:0.3px;">Tryck för sortiment per trädslag →</div>
       </div>
