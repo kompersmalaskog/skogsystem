@@ -2427,12 +2427,13 @@ export default function Maskinvy() {
       {activeView === 'avbrott' && (() => {
         const db = (window as any).__maskinvyData || {} as DbData;
         const at = db.avbrottTotal || { timmar: 0, antal: 0, snittMin: 0 };
-        const pk = db.avbrottPerKategori || [];
-        const pm = db.avbrottPerManad || [];
-        const allKats = pk.map((k: any) => k.kategori);
+        const pk: Array<{ kategori: string; timmar: number; antal: number; snittMin: number }> = db.avbrottPerKategori || [];
+        const pm: Array<{ month: string; byKat: Record<string, number> }> = db.avbrottPerManad || [];
+        const allKats = pk.map(k => k.kategori);
         const katColors: Record<string, string> = {};
         const palette = ['#5b8fff','#00c48c','#ffb340','#ff5f57','#a78bfa','#f472b6','#38bdf8','#7a7a72'];
-        allKats.forEach((k: string, i: number) => { katColors[k] = palette[i % palette.length]; });
+        allKats.forEach((k, i) => { katColors[k] = palette[i % palette.length]; });
+        const isMultiMonth = pm.length > 1;
         return (
           <div style={{ padding: '24px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 960 }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
@@ -2451,39 +2452,61 @@ export default function Maskinvy() {
               ))}
             </div>
 
-            {/* Chart */}
-            {pm.length > 0 && (
+            {/* Chart: stacked bars per month if multi-month, horizontal bars per category if single month */}
+            {pk.length > 0 && (
               <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '18px', marginBottom: 16 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#3a3a36', marginBottom: 14 }}>Avbrottstid per månad & kategori</div>
-                <div style={{ height: 280, position: 'relative' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#3a3a36', marginBottom: 14 }}>
+                  {isMultiMonth ? 'Avbrottstid per månad & kategori' : 'Avbrottstid per kategori'}
+                </div>
+                <div style={{ height: isMultiMonth ? 280 : Math.max(180, pk.length * 36), position: 'relative' }}>
                   <canvas ref={(canvas) => {
                     if (!canvas) return;
-                    const Chart = (window as any).Chart;
-                    if (!Chart) return;
-                    const existing = Chart.getChart(canvas);
-                    if (existing) existing.destroy();
-                    new Chart(canvas, {
-                      type: 'bar',
-                      data: {
-                        labels: pm.map((m: any) => m.month),
-                        datasets: allKats.map((kat: string) => ({
-                          label: kat,
-                          data: pm.map((m: any) => parseFloat(((m.byKat as any)[kat] || 0).toFixed(1))),
-                          backgroundColor: katColors[kat],
-                          borderRadius: 3,
-                          stack: 'a',
-                        })),
-                      },
-                      options: {
-                        responsive: true, maintainAspectRatio: false,
-                        interaction: { mode: 'index' as const, intersect: false },
-                        plugins: { legend: { position: 'top' as const, labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 10 }, boxWidth: 8, padding: 10 } } },
-                        scales: {
-                          x: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
-                          y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 10 } } },
-                        },
-                      },
-                    });
+                    const tryDraw = () => {
+                      const Chart = (window as any).Chart;
+                      if (!Chart) { setTimeout(tryDraw, 200); return; }
+                      const existing = Chart.getChart(canvas);
+                      if (existing) existing.destroy();
+                      if (isMultiMonth) {
+                        new Chart(canvas, {
+                          type: 'bar',
+                          data: {
+                            labels: pm.map(m => m.month),
+                            datasets: allKats.map((kat, ki) => ({
+                              label: kat,
+                              data: pm.map(m => parseFloat((m.byKat[kat] || 0).toFixed(1))),
+                              backgroundColor: katColors[kat],
+                              borderRadius: 3, stack: 'a',
+                            })),
+                          },
+                          options: {
+                            responsive: true, maintainAspectRatio: false,
+                            interaction: { mode: 'index' as const, intersect: false },
+                            plugins: { legend: { position: 'top' as const, labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 10 }, boxWidth: 8, padding: 10 } } },
+                            scales: {
+                              x: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
+                              y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 10 } } },
+                            },
+                          },
+                        });
+                      } else {
+                        new Chart(canvas, {
+                          type: 'bar',
+                          data: {
+                            labels: pk.map(k => k.kategori),
+                            datasets: [{ data: pk.map(k => k.timmar), backgroundColor: pk.map(k => katColors[k.kategori]), borderRadius: 4 }],
+                          },
+                          options: {
+                            indexAxis: 'y' as const, responsive: true, maintainAspectRatio: false,
+                            plugins: { legend: { display: false } },
+                            scales: {
+                              x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 10 } } },
+                              y: { grid: { display: false }, ticks: { color: '#e8e8e4', font: { size: 11 } } },
+                            },
+                          },
+                        });
+                      }
+                    };
+                    tryDraw();
                   }} />
                 </div>
               </div>
@@ -2502,7 +2525,7 @@ export default function Maskinvy() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pk.map((r: any) => (
+                    {pk.map(r => (
                       <tr key={r.kategori} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <td style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div style={{ width: 8, height: 8, borderRadius: 2, background: katColors[r.kategori] || '#7a7a72', flexShrink: 0 }} />
