@@ -88,6 +88,8 @@ type DbData = {
   klassM3g15: number[];
   klassStg15: number[];
   klassDieselM3: number[];
+  // Sortiment totals (Sägtimmer+Kubb, Massaved, Energived)
+  sortimentTotalt: { sagtimmer: number; massaved: number; energived: number };
   // MTH flag + sortiment per dag
   hasMth: boolean;
   sortimentPerDag: {
@@ -207,18 +209,21 @@ dt.forEach((t,i)=>{
   cal.appendChild(el);
 });
 
-// Sortiment
+// Sortiment (from fakt_sortiment + dim_sortiment)
+var _sort = _db.sortimentTotalt || { sagtimmer: 0, massaved: 0, energived: 0 };
 if(!document.getElementById('sortChart')){console.warn('[Maskinvy] sortChart not found, skipping remaining charts');}
 else {
 new Chart(document.getElementById('sortChart'),{
   type:'bar',
-  data:{labels:['Gran','Tall','Björk'],datasets:[
-    {label:'Sågtimmer',data:[820,220,84],backgroundColor:'rgba(90,255,140,0.5)',borderRadius:3,stack:'s'},
-    {label:'Massaved', data:[280,215,80],backgroundColor:'rgba(255,179,64,0.4)',borderRadius:3,stack:'s'},
-    {label:'Energived',data:[24,63,21], backgroundColor:'rgba(255,255,255,0.1)',borderRadius:3,stack:'s'}
+  data:{labels:['S\\u00e4gtimmer/Kubb','Massaved','Energived'],datasets:[
+    {label:'m\\u00b3sub',data:[_sort.sagtimmer,_sort.massaved,_sort.energived],backgroundColor:['rgba(90,255,140,0.5)','rgba(255,179,64,0.4)','rgba(255,255,255,0.15)'],borderRadius:4}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{position:'top',labels:{font:{family:'Geist',size:11},boxWidth:8,borderRadius:2,padding:12,color:'#7a7a72'}},tooltip},scales:{x:{stacked:true,grid,ticks},y:{stacked:true,grid,ticks}}}
+  options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
 });
+// Update sortiment summary numbers
+var _ss = document.getElementById('sortSagtimmer'); if (_ss) _ss.textContent = _sort.sagtimmer.toLocaleString('sv');
+var _sm = document.getElementById('sortMassaved'); if (_sm) _sm.textContent = _sort.massaved.toLocaleString('sv');
+var _se = document.getElementById('sortEnergived'); if (_se) _se.textContent = _sort.energived.toLocaleString('sv');
 
 // MTH — only if machine has MTH data
 var mthSection = document.getElementById('sec-mth');
@@ -1202,6 +1207,7 @@ export default function Maskinvy() {
           bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0,
           klassLabels: [], klassVolym: [], klassStammar: [],
           klassM3g15: [], klassStg15: [], klassDieselM3: [],
+          sortimentTotalt: { sagtimmer: 0, massaved: 0, energived: 0 },
           hasMth: false, sortimentPerDag: null,
         };
         (window as any).__maskinvyData = emptyData;
@@ -1470,7 +1476,7 @@ export default function Maskinvy() {
       const klassStg15 = klassAgg.map(k => { const h = k.g15sek / 3600; return h > 0 ? Math.round(k.st / h) : 0; });
       const klassDieselM3 = klassAgg.map(k => k.vol > 0 ? parseFloat((k.bransle / k.vol).toFixed(1)) : 0);
 
-      // ── Check MTH data + fetch sortiment per dag ──
+      // ── Fetch sortiment data (always — used for sortChart + sortimentPerDag) ──
       const mthCheck = await supabase.from('fakt_produktion')
         .select('processtyp')
         .eq('maskin_id', maskinId)
@@ -1478,69 +1484,71 @@ export default function Maskinvy() {
         .limit(1);
       const hasMth = (mthCheck.data?.length || 0) > 0;
 
+      let sortimentTotalt = { sagtimmer: 0, massaved: 0, energived: 0 };
       let sortimentPerDag: DbData['sortimentPerDag'] = null;
-      if (!hasMth) {
-        // Fetch sortiment data grouped per dag for this machine's objects
-        const objIds = [...prodObjIds];
-        if (objIds.length > 0) {
-          const [sortRes, dimSortRes] = await Promise.all([
-            supabase.from('fakt_sortiment')
-              .select('objekt_id, sortiment_id, volym_m3sub')
-              .in('objekt_id', objIds),
-            supabase.from('dim_sortiment')
-              .select('sortiment_id, namn'),
-          ]);
-          const dimSort = dimSortRes.data || [];
-          const sortRows = sortRes.data || [];
+      const objIds = [...prodObjIds];
+      if (objIds.length > 0) {
+        const [sortRes, dimSortRes] = await Promise.all([
+          supabase.from('fakt_sortiment')
+            .select('objekt_id, sortiment_id, volym_m3sub')
+            .in('objekt_id', objIds),
+          supabase.from('dim_sortiment')
+            .select('sortiment_id, namn'),
+        ]);
+        const dimSort = dimSortRes.data || [];
+        const sortRows = sortRes.data || [];
 
-          // Classify sortiment names into categories
-          const catMap: Record<string, 'timmer' | 'kubb' | 'massa' | 'energi'> = {};
-          for (const s of dimSort) {
-            const n = (s.namn || '').toLowerCase();
-            if (n.includes('timmer') || n.includes('såg') || n.includes('stock')) catMap[s.sortiment_id] = 'timmer';
-            else if (n.includes('kubb')) catMap[s.sortiment_id] = 'kubb';
-            else if (n.includes('massa') || n.includes('flis')) catMap[s.sortiment_id] = 'massa';
-            else catMap[s.sortiment_id] = 'energi';
-          }
+        // Classify sortiment names: timmer+kubb → sägtimmer, massa → massaved, övrigt → energived
+        const catMap: Record<string, 'sagtimmer' | 'massaved' | 'energived'> = {};
+        for (const s of dimSort) {
+          const n = (s.namn || '').toLowerCase();
+          if (n.includes('timmer') || n.includes('såg') || n.includes('stock') || n.includes('kubb')) catMap[s.sortiment_id] = 'sagtimmer';
+          else if (n.includes('massa') || n.includes('flis')) catMap[s.sortiment_id] = 'massaved';
+          else catMap[s.sortiment_id] = 'energived';
+        }
 
-          // Sum sortiment volym per objekt
-          const objSortiment: Record<string, { timmer: number; kubb: number; massa: number; energi: number }> = {};
+        // Sum totals per category
+        for (const r of sortRows) {
+          const cat = catMap[r.sortiment_id] || 'energived';
+          sortimentTotalt[cat] += r.volym_m3sub || 0;
+        }
+        sortimentTotalt = {
+          sagtimmer: Math.round(sortimentTotalt.sagtimmer),
+          massaved: Math.round(sortimentTotalt.massaved),
+          energived: Math.round(sortimentTotalt.energived),
+        };
+
+        // Per-dag breakdown (for alternative chart when no MTH)
+        if (!hasMth) {
+          const objSortiment: Record<string, { sagtimmer: number; massaved: number; energived: number }> = {};
           for (const r of sortRows) {
-            if (!objSortiment[r.objekt_id]) objSortiment[r.objekt_id] = { timmer: 0, kubb: 0, massa: 0, energi: 0 };
-            const cat = catMap[r.sortiment_id] || 'energi';
+            if (!objSortiment[r.objekt_id]) objSortiment[r.objekt_id] = { sagtimmer: 0, massaved: 0, energived: 0 };
+            const cat = catMap[r.sortiment_id] || 'energived';
             objSortiment[r.objekt_id][cat] += r.volym_m3sub || 0;
           }
 
-          // Map back to daily arrays using rawProdRows dates → objekt_id
           const daySortiment: Record<string, { timmer: number; kubb: number; massa: number; energi: number }> = {};
           for (const r of rawProdRows) {
             if (!r.datum || !r.objekt_id) continue;
             if (!daySortiment[r.datum]) daySortiment[r.datum] = { timmer: 0, kubb: 0, massa: 0, energi: 0 };
             const objSort = objSortiment[r.objekt_id];
             if (!objSort) continue;
-            const objTotal = objSort.timmer + objSort.kubb + objSort.massa + objSort.energi;
+            const objTotal = objSort.sagtimmer + objSort.massaved + objSort.energived;
             if (objTotal <= 0) continue;
-            // Distribute this day's volume by the object's sortiment proportions
             const dayVol = r.volym_m3sub || 0;
-            daySortiment[r.datum].timmer += dayVol * (objSort.timmer / objTotal);
-            daySortiment[r.datum].kubb += dayVol * (objSort.kubb / objTotal);
-            daySortiment[r.datum].massa += dayVol * (objSort.massa / objTotal);
-            daySortiment[r.datum].energi += dayVol * (objSort.energi / objTotal);
+            daySortiment[r.datum].timmer += dayVol * (objSort.sagtimmer / objTotal);
+            daySortiment[r.datum].massa += dayVol * (objSort.massaved / objTotal);
+            daySortiment[r.datum].energi += dayVol * (objSort.energived / objTotal);
           }
 
-          const sDays: string[] = [];
-          const timmer: number[] = [];
-          const kubb: number[] = [];
-          const massa: number[] = [];
-          const energi: number[] = [];
+          const sDays: string[] = [], timmer: number[] = [], kubb: number[] = [], massa: number[] = [], energi: number[] = [];
           for (let i = 0; i < totalDays; i++) {
-            const d = new Date(sDate);
-            d.setDate(d.getDate() + i);
+            const d = new Date(sDate); d.setDate(d.getDate() + i);
             const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
             sDays.push(`${d.getDate()}/${d.getMonth() + 1}`);
             const ds = daySortiment[dateStr];
             timmer.push(ds ? Math.round(ds.timmer) : 0);
-            kubb.push(ds ? Math.round(ds.kubb) : 0);
+            kubb.push(0);
             massa.push(ds ? Math.round(ds.massa) : 0);
             energi.push(ds ? Math.round(ds.energi) : 0);
           }
@@ -1581,6 +1589,7 @@ export default function Maskinvy() {
         branslePerM3: parseFloat(branslePerM3.toFixed(2)),
         stammarPerG15h: parseFloat(stammarPerG15h.toFixed(1)),
         klassLabels, klassVolym, klassStammar, klassM3g15, klassStg15, klassDieselM3,
+        sortimentTotalt,
         hasMth,
         sortimentPerDag,
       };
@@ -2929,9 +2938,9 @@ body {
       <div class="card-b">
         <canvas id="sortChart" style="max-height:175px"></canvas>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:12px;">
-          <div class="snum"><div class="snum-v" style="color:var(--text)">1 124</div><div class="snum-l">Sågtimmer</div></div>
-          <div class="snum"><div class="snum-v" style="color:var(--text)">612</div><div class="snum-l">Massaved</div></div>
-          <div class="snum"><div class="snum-v">111</div><div class="snum-l">Energived</div></div>
+          <div class="snum"><div class="snum-v" style="color:var(--text)" id="sortSagtimmer">0</div><div class="snum-l">Sägtimmer/Kubb</div></div>
+          <div class="snum"><div class="snum-v" style="color:var(--text)" id="sortMassaved">0</div><div class="snum-l">Massaved</div></div>
+          <div class="snum"><div class="snum-v" id="sortEnergived">0</div><div class="snum-l">Energived</div></div>
         </div>
       </div>
     </div>
