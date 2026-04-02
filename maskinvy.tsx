@@ -1536,7 +1536,7 @@ export default function Maskinvy() {
       // ── Fetch sortiment data (always — used for sortChart + sortimentPerDag) ──
       const mthCheck = await supabase.from('fakt_produktion')
         .select('processtyp')
-        .eq('maskin_id', maskinId)
+        .in('maskin_id', maskinIds)
         .eq('processtyp', 'MTH')
         .limit(1);
       const hasMth = (mthCheck.data?.length || 0) > 0;
