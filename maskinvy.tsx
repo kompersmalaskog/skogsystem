@@ -2425,6 +2425,22 @@ export default function Maskinvy() {
 
       {/* ── AVBROTT PANEL ── */}
       {activeView === 'avbrott' && (() => {
+        const kategoriNamn: Record<string, string> = {
+          'Planning/follow up': 'Planering & uppföljning',
+          'Refilling and lubrication': 'Påfyllning & smörjning',
+          'Control and calibration': 'Kontroll & kalibrering',
+          'Saw maintenance': 'Sågunderhåll',
+          'Preventive maintenance': 'Förebyggande underhåll',
+          'Periodic maintenance': 'Periodiskt underhåll',
+          'Other maintenance': 'Övrigt underhåll',
+          'Machine wash': 'Maskintvätt',
+          'Machine stuck': 'Maskin fast',
+          'Ordered stop': 'Beordrat stopp',
+          'Miscellaneous / other': 'Övrigt',
+          'Administration, telephone': 'Administration & telefon',
+          'Weather': 'Väder',
+        };
+        const tr = (kod: string) => kategoriNamn[kod] ?? kod;
         const db = (window as any).__maskinvyData || {} as DbData;
         const at = db.avbrottTotal || { timmar: 0, antal: 0, snittMin: 0 };
         const pk: Array<{ kategori: string; timmar: number; antal: number; snittMin: number }> = db.avbrottPerKategori || [];
@@ -2472,7 +2488,7 @@ export default function Maskinvy() {
                           data: {
                             labels: pm.map(m => m.month),
                             datasets: allKats.map((kat, ki) => ({
-                              label: kat,
+                              label: tr(kat),
                               data: pm.map(m => parseFloat((m.byKat[kat] || 0).toFixed(1))),
                               backgroundColor: katColors[kat],
                               borderRadius: 3, stack: 'a',
@@ -2492,7 +2508,7 @@ export default function Maskinvy() {
                         new Chart(canvas, {
                           type: 'bar',
                           data: {
-                            labels: pk.map(k => k.kategori),
+                            labels: pk.map(k => tr(k.kategori)),
                             datasets: [{ data: pk.map(k => k.timmar), backgroundColor: pk.map(k => katColors[k.kategori]), borderRadius: 4 }],
                           },
                           options: {
@@ -2529,7 +2545,7 @@ export default function Maskinvy() {
                       <tr key={r.kategori} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <td style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div style={{ width: 8, height: 8, borderRadius: 2, background: katColors[r.kategori] || '#7a7a72', flexShrink: 0 }} />
-                          {r.kategori}
+                          {tr(r.kategori)}
                         </td>
                         <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#e8e8e4' }}>{r.timmar}</td>
                         <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.antal}</td>
