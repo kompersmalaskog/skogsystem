@@ -1623,6 +1623,15 @@ export default function PlannerPage() {
   // GPS-spår persistens (Supabase)
   const activeGpsTrackIdRef = useRef<string | null>(null);
   const gpsTrackSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // === KÖRSPÅRNING (separat från manuell ritning) ===
+  const [korspårActive, setKorspårActive] = useState(false);
+  const [korspårTracks, setKorspårTracks] = useState<Array<{lat: number, lng: number}[]>>([]);
+  const korspårWatchRef = useRef<number | null>(null);
+  const korspårTrackIdRef = useRef<string | null>(null);
+  const korspårPointsRef = useRef<Array<{lat: number, lng: number, tid: string}>>([]);
+  const korspårSaveRef = useRef<NodeJS.Timeout | null>(null);
+  const korspårWakeLockRef = useRef<any>(null);
   const trackingPathRef = useRef<{lat: number, lon: number, ts: number}[]>([]);
   const lastGpsTrackSaveCountRef = useRef(0);
 
@@ -1643,6 +1652,86 @@ export default function PlannerPage() {
     }, 10000);
     return () => clearInterval(interval);
   }, [isTracking, gpsLineType]);
+
+  // ── Load completed körspår for current object ──
+  useEffect(() => {
+    if (!valtObjekt?.id) { setKorspårTracks([]); return; }
+    (async () => {
+      const { data } = await supabase.from('gps_tracks')
+        .select('points')
+        .eq('objekt_id', valtObjekt.id)
+        .eq('line_type', 'korspår')
+        .eq('status', 'completed');
+      if (data) {
+        setKorspårTracks(data.map((r: any) => (r.points || []).map((p: any) => ({ lat: p.lat, lng: p.lng }))).filter((t: any) => t.length > 1));
+      }
+    })();
+  }, [valtObjekt?.id, korspårActive]);
+
+  // ── Körspårning: start/stop functions ──
+  const startKorspårning = useCallback(async () => {
+    if (!valtObjekt?.id || korspårActive) return;
+    // Request wake lock
+    try { korspårWakeLockRef.current = await (navigator as any).wakeLock?.request('screen'); } catch (_) {}
+    // Create track in Supabase
+    const trackId = `ks-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    korspårTrackIdRef.current = trackId;
+    korspårPointsRef.current = [];
+    await supabase.from('gps_tracks').insert({
+      track_id: trackId, objekt_id: valtObjekt.id, line_type: 'korspår',
+      points: [], status: 'recording', started_at: new Date().toISOString(),
+    });
+    // Start watching position
+    korspårWatchRef.current = navigator.geolocation.watchPosition(
+      (pos) => {
+        if (pos.coords.accuracy > 20) return; // skip inaccurate
+        korspårPointsRef.current = [...korspårPointsRef.current, {
+          lat: pos.coords.latitude, lng: pos.coords.longitude, tid: new Date().toISOString(),
+        }];
+      },
+      (err) => console.error('[Körspår] GPS error:', err),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+    );
+    // Save points every 15 seconds
+    korspårSaveRef.current = setInterval(() => {
+      const pts = korspårPointsRef.current;
+      const tid = korspårTrackIdRef.current;
+      if (tid && pts.length > 0) {
+        supabase.from('gps_tracks').update({ points: pts, updated_at: new Date().toISOString() })
+          .eq('track_id', tid).then(({ error }) => { if (error) console.error('[Körspår] Save error:', error); });
+      }
+    }, 15000);
+    setKorspårActive(true);
+  }, [valtObjekt?.id, korspårActive]);
+
+  const stopKorspårning = useCallback(async () => {
+    // Stop geolocation watch
+    if (korspårWatchRef.current != null) { navigator.geolocation.clearWatch(korspårWatchRef.current); korspårWatchRef.current = null; }
+    // Stop save interval
+    if (korspårSaveRef.current) { clearInterval(korspårSaveRef.current); korspårSaveRef.current = null; }
+    // Release wake lock
+    try { korspårWakeLockRef.current?.release(); } catch (_) {}
+    // Final save + complete
+    const tid = korspårTrackIdRef.current;
+    const pts = korspårPointsRef.current;
+    if (tid) {
+      await supabase.from('gps_tracks').update({
+        points: pts, status: 'completed', completed_at: new Date().toISOString(),
+      }).eq('track_id', tid);
+    }
+    korspårTrackIdRef.current = null;
+    korspårPointsRef.current = [];
+    setKorspårActive(false);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (korspårWatchRef.current != null) navigator.geolocation.clearWatch(korspårWatchRef.current);
+      if (korspårSaveRef.current) clearInterval(korspårSaveRef.current);
+      try { korspårWakeLockRef.current?.release(); } catch (_) {}
+    };
+  }, []);
 
   // Simulerad position (för testning vid dator)
   const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
@@ -7428,6 +7517,26 @@ export default function PlannerPage() {
         </div>
       </div>}
 
+      {/* === KÖRSPÅRNING BANNER === */}
+      {!briefingMode && (
+        <div style={{
+          position: 'absolute', top: 90, left: 16, right: 16, zIndex: 99,
+          background: korspårActive ? 'rgba(220,38,38,0.9)' : 'rgba(34,197,94,0.9)',
+          backdropFilter: 'blur(10px)',
+          borderRadius: 12, padding: '10px 16px',
+          display: 'flex', alignItems: 'center', gap: 10,
+          cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+        }} onClick={korspårActive ? stopKorspårning : startKorspårning}>
+          {korspårActive && <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#fff', animation: 'pulse 1s infinite' }} />}
+          <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#fff' }}>
+            {korspårActive ? 'Stoppa körspårning' : 'Starta körspårning'}
+          </span>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
+            {korspårActive ? `${korspårPointsRef.current.length} punkter` : 'GPS-spår sparas automatiskt'}
+          </span>
+        </div>
+      )}
+
       {/* === MAPLIBRE BAKGRUNDSKARTA === */}
       {showMap && (
         <DynamicMapLibre
@@ -7852,6 +7961,28 @@ export default function PlannerPage() {
               opacity={0.7}
             />
           )}
+
+          {/* Körspår (completed — blå linjer) */}
+          {korspårTracks.map((track, ti) => {
+            const map = mapInstanceRef.current;
+            if (!map || track.length < 2) return null;
+            const d = track.map((p, i) => {
+              const sp = map.project([p.lng, p.lat]);
+              return sp ? `${i === 0 ? 'M' : 'L'} ${sp.x} ${sp.y}` : '';
+            }).join(' ');
+            return <path key={`ks-${ti}`} d={d} fill="none" stroke="#378ADD" strokeWidth={3} strokeLinecap="round" strokeLinejoin="round" opacity={0.8} />;
+          })}
+
+          {/* Körspår live (recording — pulsande blå) */}
+          {korspårActive && korspårPointsRef.current.length > 1 && (() => {
+            const map = mapInstanceRef.current;
+            if (!map) return null;
+            const d = korspårPointsRef.current.map((p, i) => {
+              const sp = map.project([p.lng, p.lat]);
+              return sp ? `${i === 0 ? 'M' : 'L'} ${sp.x} ${sp.y}` : '';
+            }).join(' ');
+            return <path d={d} fill="none" stroke="#378ADD" strokeWidth={3} strokeDasharray="6,6" strokeLinecap="round" style={{ animation: 'pulse 1s infinite' }} />;
+          })()}
 
           {/* GPS-spårad linje (live) */}
           {gpsLineType && gpsPath.length > 1 && (
