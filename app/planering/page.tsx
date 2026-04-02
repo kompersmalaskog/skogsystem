@@ -1733,6 +1733,89 @@ export default function PlannerPage() {
     };
   }, []);
 
+  // === GEOFENCING: fråga vid ankomst till planerat objekt ===
+  const [geofencePrompt, setGeofencePrompt] = useState<{ id: string; namn: string } | null>(null);
+  const geofenceWatchRef = useRef<number | null>(null);
+  const geofenceDismissedRef = useRef<Record<string, number>>({});
+  const planneradeObjektRef = useRef<Array<{ id: string; namn: string; lat: number; lng: number }>>([]);
+
+  // Haversine distance in meters
+  function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6371000;
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  // Load planned objects with coordinates
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.from('objekt')
+        .select('id, namn, lat, lng')
+        .eq('status', 'planerad')
+        .not('lat', 'is', null);
+      planneradeObjektRef.current = (data || []).filter((o: any) => o.lat && o.lng);
+    })();
+    // Load dismissed timestamps from localStorage
+    try {
+      const stored = localStorage.getItem('geofence_dismissed');
+      if (stored) geofenceDismissedRef.current = JSON.parse(stored);
+    } catch (_) {}
+  }, []);
+
+  // Background geolocation check every 60 seconds
+  useEffect(() => {
+    const check = () => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const myLat = pos.coords.latitude;
+          const myLng = pos.coords.longitude;
+          const now = Date.now();
+          const TWO_HOURS = 2 * 60 * 60 * 1000;
+          for (const obj of planneradeObjektRef.current) {
+            // Skip if dismissed within 2 hours
+            if (geofenceDismissedRef.current[obj.id] && (now - geofenceDismissedRef.current[obj.id]) < TWO_HOURS) continue;
+            const dist = haversineM(myLat, myLng, obj.lat, obj.lng);
+            if (dist < 500) {
+              setGeofencePrompt({ id: obj.id, namn: obj.namn });
+              return;
+            }
+          }
+        },
+        () => {}, // ignore errors silently
+        { enableHighAccuracy: false, maximumAge: 30000, timeout: 10000 }
+      );
+    };
+    check(); // initial check
+    const interval = setInterval(check, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleGeofenceStart = useCallback(async () => {
+    if (!geofencePrompt) return;
+    const objId = geofencePrompt.id;
+    // Update status to 'pagaende' + set faktisk_start
+    await supabase.from('objekt').update({
+      status: 'pagaende',
+      faktisk_start: new Date().toISOString().slice(0, 10),
+    }).eq('id', objId);
+    // Remove from planned list
+    planneradeObjektRef.current = planneradeObjektRef.current.filter(o => o.id !== objId);
+    setGeofencePrompt(null);
+    // Auto-start körspårning if we have a selected object matching
+    if (valtObjekt?.id === objId) {
+      startKorspårning();
+    }
+  }, [geofencePrompt, valtObjekt, startKorspårning]);
+
+  const handleGeofenceDismiss = useCallback(() => {
+    if (!geofencePrompt) return;
+    geofenceDismissedRef.current[geofencePrompt.id] = Date.now();
+    try { localStorage.setItem('geofence_dismissed', JSON.stringify(geofenceDismissedRef.current)); } catch (_) {}
+    setGeofencePrompt(null);
+  }, [geofencePrompt]);
+
   // Simulerad position (för testning vid dator)
   const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
   const [showSimPosMenu, setShowSimPosMenu] = useState<{x: number, y: number, lat: number, lng: number} | null>(null);
@@ -7534,6 +7617,35 @@ export default function PlannerPage() {
           <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
             {korspårActive ? `${korspårPointsRef.current.length} punkter` : 'GPS-spår sparas automatiskt'}
           </span>
+        </div>
+      )}
+
+      {/* === GEOFENCING MODAL === */}
+      {geofencePrompt && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 20,
+        }}>
+          <div style={{
+            background: '#1c1c1e', borderRadius: 20, padding: '28px 24px', maxWidth: 340, width: '100%',
+            textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+          }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>📍</div>
+            <div style={{ fontSize: 14, color: '#9ca3af', marginBottom: 6 }}>Du verkar ha kommit fram till</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 20 }}>{geofencePrompt.namn}</div>
+            <div style={{ fontSize: 14, color: '#9ca3af', marginBottom: 24 }}>Vill du starta objektet?</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={handleGeofenceDismiss} style={{
+                flex: 1, padding: '14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)',
+                background: 'transparent', color: '#9ca3af', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+              }}>Inte nu</button>
+              <button onClick={handleGeofenceStart} style={{
+                flex: 1, padding: '14px', borderRadius: 12, border: 'none',
+                background: '#22c55e', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+              }}>Ja, starta</button>
+            </div>
+          </div>
         </div>
       )}
 
