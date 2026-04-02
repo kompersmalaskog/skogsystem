@@ -434,6 +434,48 @@ export default function Arbetsrapport() {
     // arbetsdag har ingen objekt_id — dagensObjekt hämtas separat om det behövs
   }, []);
 
+  // === NY ARBETSDAG-NOTIS ===
+  const [arbetsdagToast, setArbetsdagToast] = useState<{maskin: string; objekt: string; start: string} | null>(null);
+
+  useEffect(() => {
+    if (!medarbetare?.id) return;
+    const today = new Date().toISOString().slice(0, 10);
+    // Check localStorage — only show once per day
+    const storageKey = `arbetsdag_toast_${today}`;
+    if (localStorage.getItem(storageKey)) return;
+
+    let knownIds = new Set<string>();
+    let initialDone = false;
+
+    const poll = async () => {
+      const { data } = await supabase.from('arbetsdag')
+        .select('id, maskin_id, objekt_id, start_tid')
+        .eq('medarbetare_id', medarbetare.id)
+        .eq('datum', today);
+      if (!data) return;
+      if (!initialDone) {
+        knownIds = new Set(data.map((r: any) => r.id));
+        initialDone = true;
+        return;
+      }
+      for (const row of data) {
+        if (!knownIds.has(row.id)) {
+          knownIds.add(row.id);
+          const maskin = maskinNamnMap[row.maskin_id] || row.maskin_id || '';
+          const objNamn = objektLista.find((o: any) => o.id === row.objekt_id)?.namn || row.objekt_id || '';
+          const startTid = row.start_tid ? row.start_tid.slice(0, 5) : '';
+          setArbetsdagToast({ maskin, objekt: objNamn, start: startTid });
+          localStorage.setItem(storageKey, '1');
+          setTimeout(() => setArbetsdagToast(null), 10000);
+          return;
+        }
+      }
+    };
+    poll();
+    const interval = setInterval(poll, 60000);
+    return () => clearInterval(interval);
+  }, [medarbetare?.id, maskinNamnMap, objektLista]);
+
   // Hämta dagdata för kalendern när månad/år ändras
   useEffect(() => {
     if (!medarbetare) return;
@@ -502,6 +544,32 @@ export default function Arbetsrapport() {
   );
 
   // Extra tid – en skärm
+  // === ARBETSDAG TOAST (rendered as DOM element to avoid early return issues) ===
+  useEffect(() => {
+    if (!arbetsdagToast) {
+      const el = document.getElementById('arbetsdag-toast');
+      if (el) el.remove();
+      return;
+    }
+    let el = document.getElementById('arbetsdag-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'arbetsdag-toast';
+      document.body.appendChild(el);
+    }
+    el.style.cssText = 'position:fixed;bottom:20px;left:16px;right:16px;z-index:10000;animation:slideIn 0.3s ease;';
+    el.innerHTML = `<div style="background:#1c1c1e;border-radius:16px;padding:16px 18px;box-shadow:0 8px 30px rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);">
+      <div style="font-size:15px;font-weight:600;color:#fff;margin-bottom:4px;">Din arbetsdag har startat</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.5);margin-bottom:12px;">${arbetsdagToast.maskin}${arbetsdagToast.objekt ? ' · ' + arbetsdagToast.objekt : ''}${arbetsdagToast.start ? ' · Starttid: ' + arbetsdagToast.start : ''}</div>
+      <div style="display:flex;gap:8px;">
+        <button id="toast-ok" style="flex:1;padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.15);background:transparent;color:rgba(255,255,255,0.6);font-size:14px;font-weight:600;cursor:pointer;">OK</button>
+      </div>
+    </div>`;
+    const okBtn = el.querySelector('#toast-ok');
+    if (okBtn) okBtn.addEventListener('click', () => { setArbetsdagToast(null); });
+    return () => { el?.remove(); };
+  }, [arbetsdagToast]);
+
   if(steg==="extraTid") return (
     <ExtraTidSkärm
       initial={extra[0]||null}
