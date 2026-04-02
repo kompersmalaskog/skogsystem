@@ -81,6 +81,7 @@ type DbData = {
   bransleTotalt: number;
   branslePerM3: number;
   stammarPerG15h: number;
+  utnyttjandegrad: number;           // G15h / inloggad tid %
   // Per-medelstamsklass arrays (dynamic number of classes depending on machine)
   klassLabels: string[];
   klassVolym: number[];
@@ -148,6 +149,7 @@ var _kpiMedel = _db.medelstam || 0;
 var _kpiBransle = _db.bransleTotalt || 0;
 var _kpiBransleM3 = _db.branslePerM3 || 0;
 var _kpiStG15 = _db.stammarPerG15h || 0;
+var _kpiUtnytt = _db.utnyttjandegrad || 0;
 
 // Update ALL KPI data-count attributes from DB
 document.querySelectorAll('.k-val[data-count]').forEach(function(el) {
@@ -160,6 +162,7 @@ document.querySelectorAll('.k-val[data-count]').forEach(function(el) {
   if (t === 'Br\\u00e4nsle totalt') el.setAttribute('data-count', String(_kpiBransle));
   if (t === 'Br\\u00e4nsle/m\\u00b3') el.setAttribute('data-count', String(_kpiBransleM3));
   if (t === 'Stammar/G15h') el.setAttribute('data-count', String(_kpiStG15));
+  if (t === 'Utnyttjandegrad') el.setAttribute('data-count', String(_kpiUtnytt));
 });
 
 // Update MTH stats
@@ -1257,7 +1260,7 @@ export default function Maskinvy() {
           avbrottSek: 0, rastSek: 0, engineTimeSek: 0,
           operatorer: [], objekt: [], dagData: {},
           calendarDt: new Array(totalDays).fill(0),
-          bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0,
+          bransleTotalt: 0, branslePerM3: 0, stammarPerG15h: 0, utnyttjandegrad: 0,
           klassLabels: [], klassVolym: [], klassStammar: [],
           klassM3g15: [], klassStg15: [], klassDieselM3: [], klassMthPct: [],
           mthAndelPct: 0, mthMedelstam: 0, singleMedelstam: 0,
@@ -1391,6 +1394,16 @@ export default function Maskinvy() {
       const mthAndelPct = totalStammar > 0 ? Math.round(mthStammar / totalStammar * 100) : 0;
       const mthMedelstam = mthStammar > 0 ? parseFloat((mthVolym / mthStammar).toFixed(3)) : 0;
       const singleMedelstam = singleStammar > 0 ? parseFloat((singleVolym / singleStammar).toFixed(3)) : 0;
+
+      // ── Utnyttjandegrad: effektiv G15h / inloggad tid ──
+      const effG15h = (tidTotal.processingSek + tidTotal.terrainSek + tidTotal.kortStoppSek) / 3600;
+      const arbetsdagRes = await supabase.from('arbetsdag')
+        .select('arbetad_min')
+        .in('maskin_id', maskinIds)
+        .gte('datum', startDate).lte('datum', endDate);
+      const totalArbetadMin = (arbetsdagRes.data || []).reduce((s: number, r: any) => s + (r.arbetad_min || 0), 0);
+      const inloggadH = totalArbetadMin / 60;
+      const utnyttjandegrad = inloggadH > 0 ? parseFloat((effG15h / inloggadH * 100).toFixed(1)) : 0;
 
       // ── Operators: aggregate prod and tid SEPARATELY per operator_id ──
       // 1. prodByOp: SUM(volym, stammar) from fakt_produktion per operator
@@ -1692,6 +1705,7 @@ export default function Maskinvy() {
         bransleTotalt: Math.round(bransleTotalt),
         branslePerM3: parseFloat(branslePerM3.toFixed(2)),
         stammarPerG15h: parseFloat(stammarPerG15h.toFixed(1)),
+        utnyttjandegrad,
         klassLabels, klassVolym, klassStammar, klassM3g15, klassStg15, klassDieselM3, klassMthPct,
         mthAndelPct, mthMedelstam, singleMedelstam,
         sortimentData,
@@ -2832,18 +2846,23 @@ body {
   </div>
 
   <!-- KPI ROW 2 — Bränsle + Stammar/G15h -->
-  <div class="hero view-section vs-oversikt" id="sec-kpi2" style="grid-template-columns:repeat(3,1fr);margin-top:-8px;">
+  <div class="hero view-section vs-oversikt" id="sec-kpi2" style="grid-template-columns:repeat(4,1fr);margin-top:-8px;">
     <div class="kpi anim" style="animation-delay:0.15s">
+      <div class="k-label">Utnyttjandegrad</div>
+      <div class="k-val" data-count="0" data-dec="1">0</div>
+      <div class="k-unit">G15h / inloggad tid</div>
+    </div>
+    <div class="kpi anim" style="animation-delay:0.18s">
       <div class="k-label">Bränsle totalt</div>
       <div class="k-val" data-count="0">0</div>
       <div class="k-unit">liter</div>
     </div>
-    <div class="kpi anim" style="animation-delay:0.18s">
+    <div class="kpi anim" style="animation-delay:0.21s">
       <div class="k-label">Bränsle/m³</div>
       <div class="k-val" data-count="0" data-dec="2">0</div>
       <div class="k-unit">L/m³</div>
     </div>
-    <div class="kpi anim" style="animation-delay:0.21s">
+    <div class="kpi anim" style="animation-delay:0.24s">
       <div class="k-label">Stammar/G15h</div>
       <div class="k-val" data-count="0" data-dec="1">0</div>
       <div class="k-unit">st/G15h</div>
