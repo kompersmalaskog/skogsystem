@@ -432,7 +432,7 @@ function openForare(id) {
       <div class="forar-kpis">
         <div class="fkpi"><div class="fkpi-v">\${f.stammar.toLocaleString('sv')}</div><div class="fkpi-l">Stammar</div></div>
         <div class="fkpi"><div class="fkpi-v">\${f.volym}</div><div class="fkpi-l">m³sub</div></div>
-        <div class="fkpi"><div class="fkpi-v">\${motorH}</div><div class="fkpi-l">Motortid h</div></div>
+        <div class="fkpi"><div class="fkpi-v">\${f.timmar}</div><div class="fkpi-l">G15h</div></div>
         <div class="fkpi"><div class="fkpi-v">\${Math.round(f.bransleLiter)}</div><div class="fkpi-l">Bränsle L</div></div>
       </div>
     </div>
@@ -855,7 +855,7 @@ if (_db.operatorer && _db.operatorer.length > 0) {
       row.setAttribute('onclick', "openForare('" + key + "')");
       row.title = 'Visa förarvy';
       row.innerHTML = '<div class="op-av" style="background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6)">' + f.av + '</div>'
-        + '<div class="op-info"><div class="op-name">' + f.name + '</div><div class="op-sub">' + Math.round(f.timmar) + ' timmar</div></div>'
+        + '<div class="op-info"><div class="op-name">' + f.name + '</div><div class="op-sub">' + Math.round(f.timmar) + ' G15h</div></div>'
         + '<div class="op-stats"><div><div class="op-sv" style="color:var(--text)">' + Math.round(f.volym) + ' m³</div><div class="op-sl">volym</div></div>'
         + '<div><div class="op-sv">' + parseFloat(f.prod).toFixed(1) + '</div><div class="op-sl">m³/G15h</div></div></div>';
       opContainer.appendChild(row);
@@ -1351,8 +1351,8 @@ export default function Maskinvy() {
         const volym = pOp ? pOp.vol : 0;
         const stammar = pOp ? pOp.st : 0;
         const dagarSize = pOp ? pOp.dagar.size : 0;
-        // timmar = engine_time from fakt_tid (never from fakt_produktion)
-        const timmar = tOp.engineTimeSek / 3600;
+        // timmar = G15h from fakt_tid
+        const timmar = g15sek / 3600;
         // m³/G15h = volym from fakt_produktion / g15h from fakt_tid
         const g15sek = tOp.processingSek + tOp.terrainSek + tOp.kortStoppSek + tOp.avbrottSek;
         const g15h = g15sek / 3600;
