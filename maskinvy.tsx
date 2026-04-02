@@ -1027,6 +1027,30 @@ export default function Maskinvy() {
   // Combo ID maps to multiple maskin_ids for machines that were swapped
   const COMBO_IDS: Record<string, string[]> = { 'R64101+R64428': ['R64101', 'R64428'] };
   const resolveIds = (id: string): string[] => COMBO_IDS[id] || [id];
+  const GALLRING_IDS = new Set(['R64101', 'R64428']);
+  function getMedelstamKlasser(mIds: string[]): { edges: number[]; labels: string[] } {
+    const isGallring = mIds.some(id => GALLRING_IDS.has(id)) && !mIds.includes('PONS20SDJAA270231');
+    if (isGallring) {
+      // Gallring: 0.03–0.039, 0.04–0.049, ..., 0.20+
+      const edges = [0, 0.03, 0.04, 0.05, 0.055, 0.06, 0.07, 0.08, 0.09, 0.10, 0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.20, Infinity];
+      const labels = [
+        '<0.03', '0.03', '0.04', '0.05', '0.055', '0.06', '0.07', '0.08', '0.09',
+        '0.10', '0.11', '0.12', '0.13', '0.14', '0.15', '0.16', '0.17', '0.18', '0.19', '0.20+',
+      ];
+      return { edges, labels };
+    }
+    // Slutavverkning: 0.20, 0.25, 0.30, ..., 1.00+ (±0.025)
+    const edges: number[] = [0];
+    const labels: string[] = [];
+    for (let v = 0.20; v <= 0.95; v = parseFloat((v + 0.05).toFixed(2))) {
+      edges.push(v - 0.025);
+      labels.push(v.toFixed(2));
+    }
+    edges.push(0.975);
+    labels.push('1.00+');
+    edges.push(Infinity);
+    return { edges, labels };
+  }
   const allMachines: { id: string; namn: string }[] = [
     { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion Giant 8W' },
     { id: 'R64101', namn: 'Rottne H8E (ny)' },
@@ -1460,13 +1484,7 @@ export default function Maskinvy() {
       // Medelstam = SUM(volym)/SUM(stammar) per objekt.
       // Alla KPI beräknas som viktat snitt: SUM/SUM per klass.
       // Klasser anpassas efter maskintyp.
-      const isGallring = maskinIds.includes('R64101') && !maskinIds.includes('PONS20SDJAA270231');
-      const classEdges = isGallring
-        ? [0, 0.03, 0.05, 0.07, 0.09, 0.12, Infinity]
-        : [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, Infinity];
-      const klassLabels = isGallring
-        ? ['0.00–0.03', '0.03–0.05', '0.05–0.07', '0.07–0.09', '0.09–0.12', '0.12+']
-        : ['0.0–0.1', '0.1–0.2', '0.2–0.3', '0.3–0.4', '0.4–0.5', '0.5–0.7', '0.7+'];
+      const { edges: classEdges, labels: klassLabels } = getMedelstamKlasser(maskinIds);
       const nClasses = klassLabels.length;
       const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, g15sek: 0, bransle: 0 }));
       for (const oid of prodObjIds) {
