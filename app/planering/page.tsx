@@ -7642,27 +7642,24 @@ export default function PlannerPage() {
         </div>
       </div>}
 
-      {/* === KÖRSPÅRNING === */}
+      {/* === KÖRSPÅRNING BANNER === */}
       {!briefingMode && (
-        <button
-          type="button"
-          onClick={korspårActive ? stopKorspårning : startKorspårning}
-          style={{
-            position: 'fixed', top: 100, left: 16, right: 16,
-            zIndex: 200,
-            background: korspårActive ? '#dc2626' : '#22c55e',
-            border: 'none', borderRadius: 12, padding: '12px 16px',
-            display: 'flex', alignItems: 'center', gap: 10,
-            cursor: 'pointer',
-            WebkitAppearance: 'none',
-            touchAction: 'manipulation',
-          }}
-        >
-          {korspårActive && <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#fff', animation: 'pulse 1s infinite', flexShrink: 0 }} />}
-          <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: '#fff', textAlign: 'left' }}>
+        <div style={{
+          position: 'absolute', top: 90, left: 16, right: 16, zIndex: 99,
+          background: korspårActive ? 'rgba(220,38,38,0.9)' : 'rgba(34,197,94,0.9)',
+          backdropFilter: 'blur(10px)',
+          borderRadius: 12, padding: '10px 16px',
+          display: 'flex', alignItems: 'center', gap: 10,
+          cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+        }} onClick={korspårActive ? stopKorspårning : startKorspårning}>
+          {korspårActive && <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#fff', animation: 'pulse 1s infinite' }} />}
+          <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#fff' }}>
             {korspårActive ? 'Stoppa körspårning' : 'Starta körspårning'}
           </span>
-        </button>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
+            {korspårActive ? `${korspårPointsRef.current.length} punkter` : 'GPS-spår sparas automatiskt'}
+          </span>
+        </div>
       )}
 
       {/* === GEOFENCING MODAL === */}
