@@ -276,13 +276,12 @@ if (_db.hasMth === false) {
       var p = mthPct[i] || 0;
       var st = stammar[i] || 0;
       if (st === 0) return '';
-      return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'
-        + '<div style="width:52px;font-size:10px;color:#7a7a72;text-align:right;flex-shrink:0;">' + cls + '</div>'
-        + '<div style="flex:1;height:16px;background:rgba(255,255,255,0.04);border-radius:3px;overflow:hidden;position:relative;">'
-        + '<div style="height:100%;width:' + Math.max(p, 1) + '%;background:rgba(90,255,140,' + (p > 30 ? '0.5' : p > 10 ? '0.35' : '0.2') + ');border-radius:3px;"></div>'
+      return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">'
+        + '<div style="width:48px;font-size:14px;color:#fff;text-align:right;flex-shrink:0;">' + cls + '</div>'
+        + '<div style="flex:1;height:32px;background:rgba(255,255,255,0.04);border-radius:4px;overflow:hidden;">'
+        + '<div style="height:100%;width:' + Math.max(p, 1) + '%;background:rgba(90,255,140,' + (p > 30 ? '0.5' : p > 10 ? '0.35' : '0.2') + ');border-radius:4px;"></div>'
         + '</div>'
-        + '<div style="width:36px;font-size:11px;font-weight:600;color:' + (p > 30 ? '#5aff8c' : p > 10 ? '#ffb340' : '#7a7a72') + ';text-align:right;flex-shrink:0;">' + p + '%</div>'
-        + '<div style="width:50px;font-size:10px;color:#3a3a36;text-align:right;flex-shrink:0;">' + st.toLocaleString('sv') + ' st</div>'
+        + '<div style="width:140px;font-size:16px;font-weight:500;color:#fff;text-align:right;flex-shrink:0;">' + p + '%<span style="font-size:12px;color:#7a7a72;margin-left:6px;">\\u2014 ' + st.toLocaleString('sv') + ' st</span></div>'
         + '</div>';
     }).filter(Boolean).join('');
   }
