@@ -1089,9 +1089,19 @@ export default function Maskinvy() {
       ]);
 
       const rawProdRows = prodRes.data || [];
-      const rawTidRows = tidRes.data || [];
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
+
+      // Deduplicate fakt_tid: keep one row per (datum, operator_id, objekt_id).
+      // If duplicates exist (from reimport), keep the row with highest engine_time_sek.
+      const tidDedup: Record<string, any> = {};
+      for (const r of (tidRes.data || [])) {
+        const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}`;
+        if (!tidDedup[key] || (r.engine_time_sek || 0) > (tidDedup[key].engine_time_sek || 0)) {
+          tidDedup[key] = r;
+        }
+      }
+      const rawTidRows = Object.values(tidDedup);
 
       console.log('[Maskinvy] Data loaded:', { maskinId, rawProd: rawProdRows.length, rawTid: rawTidRows.length, operators: operators.length });
 
@@ -1515,12 +1525,20 @@ export default function Maskinvy() {
         .eq('maskin_id', maskinId)
         .gte('datum', startDate).lte('datum', endDate),
       supabase.from('fakt_tid')
-        .select('processing_sek, terrain_sek')
+        .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, engine_time_sek')
         .eq('maskin_id', maskinId)
         .gte('datum', startDate).lte('datum', endDate),
     ]);
     const prodRows = prodRes.data || [];
-    const tidRows = tidRes.data || [];
+    // Deduplicate fakt_tid per (datum, operator_id, objekt_id)
+    const tidDedupKpi: Record<string, any> = {};
+    for (const r of (tidRes.data || [])) {
+      const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}`;
+      if (!tidDedupKpi[key] || (r.engine_time_sek || 0) > (tidDedupKpi[key].engine_time_sek || 0)) {
+        tidDedupKpi[key] = r;
+      }
+    }
+    const tidRows = Object.values(tidDedupKpi);
     const volym = prodRows.reduce((s: number, r: any) => s + (r.volym_m3sub || 0), 0);
     const stammar = prodRows.reduce((s: number, r: any) => s + (r.stammar || 0), 0);
     const g15Sek = tidRows.reduce((s: number, r: any) => s + (r.processing_sek || 0) + (r.terrain_sek || 0), 0);
@@ -1568,9 +1586,18 @@ export default function Maskinvy() {
         .in('operator_id', opCmpIds),
     ]);
     const rawProd = prodRes.data || [];
-    const rawTid = tidRes.data || [];
     const opNames: Record<string, string> = {};
     (opRes.data || []).forEach((o: any) => { opNames[o.operator_id] = o.operator_namn || o.operator_id; });
+
+    // Deduplicate fakt_tid per (datum, operator_id)
+    const tidDedupCmp: Record<string, any> = {};
+    for (const r of (tidRes.data || [])) {
+      const key = `${r.datum}|${r.operator_id || ''}`;
+      if (!tidDedupCmp[key] || (r.engine_time_sek || 0) > (tidDedupCmp[key].engine_time_sek || 0)) {
+        tidDedupCmp[key] = r;
+      }
+    }
+    const rawTid = Object.values(tidDedupCmp);
 
     // Pre-aggregate prod per (operator_id, YYYY-MM) to avoid 23x row multiplication
     const prodAgg: Record<string, { volym: number; stammar: number }> = {};
