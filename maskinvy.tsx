@@ -1157,7 +1157,7 @@ export default function Maskinvy() {
       // Fetch tid for all maskinIds, plus operators from all
       const [tidRes, opRes, objRes] = await Promise.all([
         supabase.from('fakt_tid')
-          .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, engine_time_sek, bransle_liter')
+          .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, kort_stopp_sek, avbrott_sek, rast_sek, engine_time_sek, bransle_liter')
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate),
         supabase.from('dim_operator').select('operator_id, operator_key, operator_namn, maskin_id').in('maskin_id', maskinIds),
@@ -1245,14 +1245,15 @@ export default function Maskinvy() {
       }
 
       // ── Aggregate fakt_tid per (datum, operator_id, objekt_id) ──
-      type TidAgg = { processingSek: number; terrainSek: number; otherWorkSek: number; disturbanceSek: number; maintenanceSek: number; avbrottSek: number; rastSek: number; engineTimeSek: number; bransleLiter: number };
-      const emptyTid = (): TidAgg => ({ processingSek: 0, terrainSek: 0, otherWorkSek: 0, disturbanceSek: 0, maintenanceSek: 0, avbrottSek: 0, rastSek: 0, engineTimeSek: 0, bransleLiter: 0 });
+      type TidAgg = { processingSek: number; terrainSek: number; otherWorkSek: number; disturbanceSek: number; maintenanceSek: number; kortStoppSek: number; avbrottSek: number; rastSek: number; engineTimeSek: number; bransleLiter: number };
+      const emptyTid = (): TidAgg => ({ processingSek: 0, terrainSek: 0, otherWorkSek: 0, disturbanceSek: 0, maintenanceSek: 0, kortStoppSek: 0, avbrottSek: 0, rastSek: 0, engineTimeSek: 0, bransleLiter: 0 });
       const addTid = (agg: TidAgg, r: any) => {
         agg.processingSek += r.processing_sek || 0;
         agg.terrainSek += r.terrain_sek || 0;
         agg.otherWorkSek += r.other_work_sek || 0;
         agg.disturbanceSek += r.disturbance_sek || 0;
         agg.maintenanceSek += r.maintenance_sek || 0;
+        agg.kortStoppSek += r.kort_stopp_sek || 0;
         agg.avbrottSek += r.avbrott_sek || 0;
         agg.rastSek += r.rast_sek || 0;
         agg.engineTimeSek += r.engine_time_sek || 0;
@@ -1305,8 +1306,8 @@ export default function Maskinvy() {
       // ── Time distribution (from tid grand total — never mixed with prod) ──
       const processingSek = tidTotal.processingSek;
       const terrainSek = tidTotal.terrainSek;
-      const kortStoppSek = tidTotal.otherWorkSek;
-      const avbrottSek = tidTotal.disturbanceSek + tidTotal.maintenanceSek;
+      const kortStoppSek = tidTotal.kortStoppSek;
+      const avbrottSek = tidTotal.avbrottSek;
       const rastSek = tidTotal.rastSek;
       const engineTimeSek = tidTotal.engineTimeSek;
       const bransleTotalt = tidTotal.bransleLiter;
@@ -1353,7 +1354,7 @@ export default function Maskinvy() {
         // timmar = engine_time from fakt_tid (never from fakt_produktion)
         const timmar = tOp.engineTimeSek / 3600;
         // m³/G15h = volym from fakt_produktion / g15h from fakt_tid
-        const g15sek = tOp.processingSek + tOp.terrainSek + tOp.otherWorkSek + tOp.disturbanceSek + tOp.maintenanceSek;
+        const g15sek = tOp.processingSek + tOp.terrainSek + tOp.kortStoppSek + tOp.avbrottSek;
         const g15h = g15sek / 3600;
         const prod = g15h > 0 ? volym / g15h : 0;
         // Daily vol array aligned to period
@@ -1388,7 +1389,7 @@ export default function Maskinvy() {
       const objekt = [...prodObjIds].map(oid => {
         const pAgg = prodByObjekt[oid] || { vol: 0, st: 0 };
         const tAgg = tidByObjekt[oid];
-        const g15sek = tAgg ? tAgg.processingSek + tAgg.terrainSek + tAgg.otherWorkSek + tAgg.disturbanceSek + tAgg.maintenanceSek : 0;
+        const g15sek = tAgg ? tAgg.processingSek + tAgg.terrainSek + tAgg.kortStoppSek + tAgg.avbrottSek : 0;
         const g15h = g15sek / 3600;
         const objInfo = objekter.find((o: any) => String(o.objekt_id) === String(oid));
         return {
@@ -1411,7 +1412,7 @@ export default function Maskinvy() {
         const tDay = tidByDay[dateStr];
         if (pDay && pDay.vol > 0) {
           const dayNum = i + 1;
-          const g15sek = tDay ? tDay.processingSek + tDay.terrainSek + tDay.otherWorkSek + tDay.disturbanceSek + tDay.maintenanceSek : 0;
+          const g15sek = tDay ? tDay.processingSek + tDay.terrainSek + tDay.kortStoppSek + tDay.avbrottSek : 0;
           const g15h = g15sek / 3600;
           const diesel = tDay ? tDay.bransleLiter : 0;
           // Find first operator/objekt for this day from raw rows
@@ -1459,7 +1460,7 @@ export default function Maskinvy() {
         klassAgg[ci].st += pObj.st;
         const tObj = tidByObjekt[oid];
         if (tObj) {
-          klassAgg[ci].g15sek += tObj.processingSek + tObj.terrainSek + tObj.otherWorkSek + tObj.disturbanceSek + tObj.maintenanceSek;
+          klassAgg[ci].g15sek += tObj.processingSek + tObj.terrainSek + tObj.kortStoppSek + tObj.avbrottSek;
           klassAgg[ci].bransle += tObj.bransleLiter;
         }
       }
@@ -1606,7 +1607,7 @@ export default function Maskinvy() {
           .range(from, to)
       ),
       supabase.from('fakt_tid')
-        .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, disturbance_sek, maintenance_sek, engine_time_sek')
+        .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, kort_stopp_sek, avbrott_sek, engine_time_sek')
         .eq('maskin_id', maskinId)
         .gte('datum', startDate).lte('datum', endDate),
     ]);
@@ -1619,7 +1620,7 @@ export default function Maskinvy() {
     const tidRows = Object.values(tidDedupKpi);
     const volym = prodRows.reduce((s: number, r: any) => s + (r.volym_m3sub || 0), 0);
     const stammar = prodRows.reduce((s: number, r: any) => s + (r.stammar || 0), 0);
-    const g15Sek = tidRows.reduce((s: number, r: any) => s + (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0) + (r.disturbance_sek || 0) + (r.maintenance_sek || 0), 0);
+    const g15Sek = tidRows.reduce((s: number, r: any) => s + (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.kort_stopp_sek || 0) + (r.avbrott_sek || 0), 0);
     const g15Timmar = g15Sek / 3600;
     return {
       volym: Math.round(volym), stammar: Math.round(stammar),
@@ -1658,7 +1659,7 @@ export default function Maskinvy() {
           .range(from, to)
       ),
       supabase.from('fakt_tid')
-        .select('datum, operator_id, processing_sek, terrain_sek, other_work_sek, disturbance_sek, maintenance_sek, engine_time_sek, bransle_liter')
+        .select('datum, operator_id, processing_sek, terrain_sek, kort_stopp_sek, avbrott_sek, engine_time_sek, bransle_liter')
         .eq('maskin_id', valdMaskinObj.maskin_id)
         .in('operator_id', opCmpIds)
         .gte('datum', opCmpFrom).lte('datum', opCmpTo),
@@ -1698,7 +1699,7 @@ export default function Maskinvy() {
       const opId = r.operator_id;
       if (!opId) continue;
       if (!tidAgg[opId]) tidAgg[opId] = { g15sek: 0, engineSek: 0, bransle: 0 };
-      tidAgg[opId].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0) + (r.disturbance_sek || 0) + (r.maintenance_sek || 0);
+      tidAgg[opId].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.kort_stopp_sek || 0) + (r.avbrott_sek || 0);
       tidAgg[opId].engineSek += r.engine_time_sek || 0;
       tidAgg[opId].bransle += r.bransle_liter || 0;
     }
@@ -1742,7 +1743,7 @@ export default function Maskinvy() {
           .range(from, to)
       ),
       supabase.from('fakt_tid')
-        .select('datum, maskin_id, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, disturbance_sek, maintenance_sek, engine_time_sek, bransle_liter')
+        .select('datum, maskin_id, operator_id, objekt_id, processing_sek, terrain_sek, kort_stopp_sek, avbrott_sek, engine_time_sek, bransle_liter')
         .in('maskin_id', allDbIds)
         .gte('datum', machCmpFrom).lte('datum', machCmpTo),
     ]);
@@ -1778,11 +1779,11 @@ export default function Maskinvy() {
     for (const r of Object.values(tidDedup)) {
       const lid = toLogical((r as any).maskin_id);
       if (!tidAgg[lid]) tidAgg[lid] = { g15sek: 0, engineSek: 0, bransle: 0 };
-      tidAgg[lid].g15sek += ((r as any).processing_sek || 0) + ((r as any).terrain_sek || 0) + ((r as any).other_work_sek || 0) + ((r as any).disturbance_sek || 0) + ((r as any).maintenance_sek || 0);
+      tidAgg[lid].g15sek += ((r as any).processing_sek || 0) + ((r as any).terrain_sek || 0) + ((r as any).kort_stopp_sek || 0) + ((r as any).avbrott_sek || 0);
       tidAgg[lid].engineSek += (r as any).engine_time_sek || 0;
       tidAgg[lid].bransle += (r as any).bransle_liter || 0;
       const ym = (r as any).datum.substring(0, 7);
-      if (monthProd[ym]?.[lid]) monthProd[ym][lid].g15sek += ((r as any).processing_sek || 0) + ((r as any).terrain_sek || 0) + ((r as any).other_work_sek || 0) + ((r as any).disturbance_sek || 0) + ((r as any).maintenance_sek || 0);
+      if (monthProd[ym]?.[lid]) monthProd[ym][lid].g15sek += ((r as any).processing_sek || 0) + ((r as any).terrain_sek || 0) + ((r as any).kort_stopp_sek || 0) + ((r as any).avbrott_sek || 0);
     }
 
     const rows: MachCmpRow[] = logicalIds.map(lid => {
