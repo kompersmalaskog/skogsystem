@@ -1704,13 +1704,13 @@ export default function PlannerPage() {
     const { data: insertData, error: insertError } = await supabase.from('gps_tracks').insert({
       track_id: trackId, objekt_id: valtObjekt.id, line_type: 'korspår',
       points: [], status: 'recording', started_at: new Date().toISOString(),
-    }).select('track_id').single();
+    }).select('id, track_id').single();
 
     if (insertError) {
       console.error('[Körspår] INSERT failed:', insertError);
-      return; // Don't start tracking if DB insert fails
+      return;
     }
-    console.log('[Körspår] INSERT OK:', insertData.track_id);
+    console.log('[Körspår] INSERT OK, id:', insertData.id, 'track_id:', insertData.track_id);
     korspårTrackIdRef.current = insertData.track_id;
 
     // Start watching position
