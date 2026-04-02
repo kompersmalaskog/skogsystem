@@ -1528,15 +1528,17 @@ export default function Maskinvy() {
       let sortimentPerDag: DbData['sortimentPerDag'] = null;
       const objIds = [...prodObjIds];
       if (objIds.length > 0) {
-        const [sortRes, dimSortRes] = await Promise.all([
-          supabase.from('fakt_sortiment')
-            .select('objekt_id, sortiment_id, volym_m3sub')
-            .in('objekt_id', objIds),
+        const [sortRows, dimSortRes] = await Promise.all([
+          fetchAllRows((from, to) =>
+            supabase.from('fakt_sortiment')
+              .select('objekt_id, sortiment_id, volym_m3sub')
+              .in('objekt_id', objIds)
+              .range(from, to)
+          ),
           supabase.from('dim_sortiment')
             .select('sortiment_id, namn'),
         ]);
         const dimSort = dimSortRes.data || [];
-        const sortRows = sortRes.data || [];
 
         // Classify each sortiment_id → { catIdx, species }
         type SortInfo = { catIdx: number; species: 'gran' | 'tall' | 'bjork' | 'ovrigt' };
