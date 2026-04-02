@@ -988,9 +988,14 @@ export default function Maskinvy() {
   }, [opCmpMonths, opCmpIds, opCmpRows]);
 
   // ── Machine comparison state ──
+  // Combo ID maps to multiple maskin_ids for machines that were swapped
+  const COMBO_IDS: Record<string, string[]> = { 'R64101+R64428': ['R64101', 'R64428'] };
+  const resolveIds = (id: string): string[] => COMBO_IDS[id] || [id];
   const allMachines: { id: string; namn: string }[] = [
     { id: 'PONS20SDJAA270231', namn: 'Ponsse Scorpion Giant 8W' },
-    { id: 'R64101', namn: 'Rottne H8E' },
+    { id: 'R64101', namn: 'Rottne H8E (ny)' },
+    { id: 'R64428', namn: 'Rottne H8E (gammal)' },
+    { id: 'R64101+R64428', namn: 'Rottne H8E (båda)' },
     { id: 'A110148', namn: 'Ponsse Elephant King AF' },
     { id: 'A030353', namn: 'Ponsse Wisent' },
   ];
@@ -1694,35 +1699,47 @@ export default function Maskinvy() {
   const runMachCmp = useCallback(async () => {
     if (machCmpA === machCmpB) return;
     setMachCmpLoading(true);
-    const ids = [machCmpA, machCmpB];
 
-    // Fetch prod and tid SEPARATELY for both machines
+    // Resolve combo IDs (e.g. "R64101+R64428" → ["R64101","R64428"])
+    const logicalIds = [machCmpA, machCmpB]; // what we display
+    const dbIdsA = resolveIds(machCmpA);
+    const dbIdsB = resolveIds(machCmpB);
+    const allDbIds = [...new Set([...dbIdsA, ...dbIdsB])];
+
+    // Fetch prod and tid SEPARATELY
     const [prodRes, tidRes] = await Promise.all([
       supabase.from('fakt_produktion')
         .select('datum, maskin_id, volym_m3sub, stammar')
-        .in('maskin_id', ids)
+        .in('maskin_id', allDbIds)
         .gte('datum', machCmpFrom).lte('datum', machCmpTo),
       supabase.from('fakt_tid')
         .select('datum, maskin_id, operator_id, objekt_id, processing_sek, terrain_sek, engine_time_sek, bransle_liter')
-        .in('maskin_id', ids)
+        .in('maskin_id', allDbIds)
         .gte('datum', machCmpFrom).lte('datum', machCmpTo),
     ]);
 
-    // Pre-aggregate prod per maskin_id
+    // Map raw maskin_id → logical ID
+    const toLogical = (rawMid: string): string => {
+      if (dbIdsA.includes(rawMid)) return machCmpA;
+      if (dbIdsB.includes(rawMid)) return machCmpB;
+      return rawMid;
+    };
+
+    // Pre-aggregate prod per logical machine
     const prodAgg: Record<string, { vol: number; st: number }> = {};
-    const monthProd: Record<string, Record<string, { vol: number; g15sek: number }>> = {}; // ym → maskin → {vol, g15sek}
+    const monthProd: Record<string, Record<string, { vol: number; g15sek: number }>> = {};
     for (const r of (prodRes.data || [])) {
-      const mid = r.maskin_id;
-      if (!prodAgg[mid]) prodAgg[mid] = { vol: 0, st: 0 };
-      prodAgg[mid].vol += r.volym_m3sub || 0;
-      prodAgg[mid].st += r.stammar || 0;
+      const lid = toLogical(r.maskin_id);
+      if (!prodAgg[lid]) prodAgg[lid] = { vol: 0, st: 0 };
+      prodAgg[lid].vol += r.volym_m3sub || 0;
+      prodAgg[lid].st += r.stammar || 0;
       const ym = r.datum.substring(0, 7);
       if (!monthProd[ym]) monthProd[ym] = {};
-      if (!monthProd[ym][mid]) monthProd[ym][mid] = { vol: 0, g15sek: 0 };
-      monthProd[ym][mid].vol += r.volym_m3sub || 0;
+      if (!monthProd[ym][lid]) monthProd[ym][lid] = { vol: 0, g15sek: 0 };
+      monthProd[ym][lid].vol += r.volym_m3sub || 0;
     }
 
-    // Deduplicate + pre-aggregate tid per maskin_id
+    // Deduplicate + pre-aggregate tid per logical machine
     const tidDedup: Record<string, any> = {};
     for (const r of (tidRes.data || [])) {
       const key = `${r.datum}|${r.maskin_id}|${r.operator_id || ''}|${r.objekt_id || ''}`;
@@ -1730,23 +1747,22 @@ export default function Maskinvy() {
     }
     const tidAgg: Record<string, { g15sek: number; engineSek: number; bransle: number }> = {};
     for (const r of Object.values(tidDedup)) {
-      const mid = (r as any).maskin_id;
-      if (!tidAgg[mid]) tidAgg[mid] = { g15sek: 0, engineSek: 0, bransle: 0 };
-      tidAgg[mid].g15sek += ((r as any).processing_sek || 0) + ((r as any).terrain_sek || 0);
-      tidAgg[mid].engineSek += (r as any).engine_time_sek || 0;
-      tidAgg[mid].bransle += (r as any).bransle_liter || 0;
-      // Monthly g15sek
+      const lid = toLogical((r as any).maskin_id);
+      if (!tidAgg[lid]) tidAgg[lid] = { g15sek: 0, engineSek: 0, bransle: 0 };
+      tidAgg[lid].g15sek += ((r as any).processing_sek || 0) + ((r as any).terrain_sek || 0);
+      tidAgg[lid].engineSek += (r as any).engine_time_sek || 0;
+      tidAgg[lid].bransle += (r as any).bransle_liter || 0;
       const ym = (r as any).datum.substring(0, 7);
-      if (monthProd[ym]?.[mid]) monthProd[ym][mid].g15sek += ((r as any).processing_sek || 0) + ((r as any).terrain_sek || 0);
+      if (monthProd[ym]?.[lid]) monthProd[ym][lid].g15sek += ((r as any).processing_sek || 0) + ((r as any).terrain_sek || 0);
     }
 
-    const rows: MachCmpRow[] = ids.map(mid => {
-      const p = prodAgg[mid] || { vol: 0, st: 0 };
-      const t = tidAgg[mid] || { g15sek: 0, engineSek: 0, bransle: 0 };
+    const rows: MachCmpRow[] = logicalIds.map(lid => {
+      const p = prodAgg[lid] || { vol: 0, st: 0 };
+      const t = tidAgg[lid] || { g15sek: 0, engineSek: 0, bransle: 0 };
       const g15h = t.g15sek / 3600;
       return {
-        id: mid,
-        namn: allMachines.find(m => m.id === mid)?.namn || mid,
+        id: lid,
+        namn: allMachines.find(m => m.id === lid)?.namn || lid,
         stammar: Math.round(p.st), volym: Math.round(p.vol),
         medelstam: p.st > 0 ? parseFloat((p.vol / p.st).toFixed(3)) : 0,
         prod: g15h > 0 ? parseFloat((p.vol / g15h).toFixed(1)) : 0,
@@ -1755,13 +1771,13 @@ export default function Maskinvy() {
       };
     });
 
-    // Monthly m³/G15h per machine
+    // Monthly m³/G15h per logical machine
     const months: MachCmpMonth[] = Object.keys(monthProd).sort().map(ym => {
       const byMach: Record<string, number> = {};
-      for (const mid of ids) {
-        const d = monthProd[ym]?.[mid];
-        if (d && d.g15sek > 0) byMach[mid] = d.vol / (d.g15sek / 3600);
-        else byMach[mid] = 0;
+      for (const lid of logicalIds) {
+        const d = monthProd[ym]?.[lid];
+        if (d && d.g15sek > 0) byMach[lid] = d.vol / (d.g15sek / 3600);
+        else byMach[lid] = 0;
       }
       return { month: ym, byMach };
     });
