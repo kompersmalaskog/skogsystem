@@ -72,6 +72,10 @@ logger.addHandler(ch)
 _processed_files: dict[str, float] = {}
 DEDUP_WINDOW = 60  # sekunder — ignorera samma fil inom detta fönster
 
+# UTF-8 environment för subprocess (fixar encoding på Windows)
+_env = os.environ.copy()
+_env['PYTHONUTF8'] = '1'
+
 
 def run_mom_import():
     """Kör skogsmaskin_import_version_6.py icke-interaktivt."""
@@ -84,6 +88,7 @@ def run_mom_import():
             text=True,
             timeout=600,
             input="n\n",  # svara nej på "Starta övervakning?" prompten
+            env=_env,
         )
         if result.returncode == 0:
             logger.info("MOM-import klar (OK)")
@@ -108,6 +113,7 @@ def run_hpr_import():
             capture_output=True,
             text=True,
             timeout=600,
+            env=_env,
         )
         if result.returncode == 0:
             logger.info("HPR-import klar (OK)")
