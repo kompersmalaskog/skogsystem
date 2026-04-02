@@ -166,6 +166,29 @@ export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
 
+  // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
+  const screenWakeLockRef = useRef<any>(null);
+  useEffect(() => {
+    if (!valtObjekt) {
+      screenWakeLockRef.current?.release().catch(() => {});
+      screenWakeLockRef.current = null;
+      return;
+    }
+    let active = true;
+    (async () => {
+      try {
+        const lock = await (navigator as any).wakeLock?.request('screen');
+        if (active) screenWakeLockRef.current = lock;
+        else lock?.release().catch(() => {});
+      } catch (_) {}
+    })();
+    return () => {
+      active = false;
+      screenWakeLockRef.current?.release().catch(() => {});
+      screenWakeLockRef.current = null;
+    };
+  }, [valtObjekt]);
+
   // === STATE ===
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [markersLoaded, setMarkersLoaded] = useState(false);
