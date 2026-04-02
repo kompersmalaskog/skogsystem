@@ -187,18 +187,16 @@ class IncomingFileHandler(FileSystemEventHandler):
         time.sleep(SETTLE_DELAY)
 
         if ext == ".mom":
+            logger.info(f">>> Kör MOM-import för: {basename}")
             run_mom_import()
             notify_vercel()
+            # Kör HPR-import efteråt (MOM-import flyttar filer till Behandlade)
+            logger.info(f">>> Kör HPR-import (efter MOM-flytt)")
+            run_hpr_import()
 
         elif ext == ".hpr":
-            # HPR-import läser från Behandlade, men MOM-import måste köras först
-            # för att flytta .hpr-filen dit. Kör MOM-import först om .mom finns.
-            mom_path = filepath.replace(".hpr", ".mom").replace(".HPR", ".mom")
-            if os.path.exists(mom_path) or os.path.exists(mom_path.upper()):
-                logger.info("Tillhörande .mom-fil finns — MOM-import hanterar flytten")
-            else:
-                # Bara .hpr utan .mom — kör HPR-import direkt
-                run_hpr_import()
+            logger.info(f">>> Kör HPR-import för: {basename}")
+            run_hpr_import()
 
 
 # ============================================================
@@ -230,15 +228,24 @@ def main():
         sys.exit(1)
 
     # Processa befintliga filer först
-    existing = list(Path(WATCH_DIR).glob("*.mom")) + list(Path(WATCH_DIR).glob("*.MOM"))
-    if existing:
-        logger.info(f"Hittade {len(existing)} befintliga .mom-filer — kör import")
+    existing_mom = list(Path(WATCH_DIR).glob("*.mom")) + list(Path(WATCH_DIR).glob("*.MOM"))
+    existing_hpr = list(Path(WATCH_DIR).glob("*.hpr")) + list(Path(WATCH_DIR).glob("*.HPR"))
+
+    logger.info(f"Befintliga filer i Inkommande:")
+    logger.info(f"  .mom: {len(existing_mom)} st")
+    for f in sorted(existing_mom):
+        logger.info(f"    - {f.name}")
+    logger.info(f"  .hpr: {len(existing_hpr)} st")
+    for f in sorted(existing_hpr):
+        logger.info(f"    - {f.name}")
+
+    if existing_mom:
+        logger.info(f"Kör MOM-import för {len(existing_mom)} filer...")
         run_mom_import()
         notify_vercel()
 
-    existing_hpr = list(Path(WATCH_DIR).glob("*.hpr")) + list(Path(WATCH_DIR).glob("*.HPR"))
     if existing_hpr:
-        logger.info(f"Hittade {len(existing_hpr)} befintliga .hpr-filer — kör HPR-import")
+        logger.info(f"Kör HPR-import för {len(existing_hpr)} filer...")
         run_hpr_import()
 
     # Starta watchdog-övervakning
