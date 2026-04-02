@@ -1045,7 +1045,8 @@ export default function Maskinvy() {
   useEffect(() => {
     const skordare: Maskin[] = [
       { maskin_id: 'PONS20SDJAA270231', modell: 'Scorpion Giant 8W', tillverkare: 'Ponsse', typ: 'Skördare' },
-      { maskin_id: 'R64101', modell: 'H8E', tillverkare: 'Rottne', typ: 'Skördare' },
+      { maskin_id: 'R64101', modell: 'H8E (ny)', tillverkare: 'Rottne', typ: 'Skördare' },
+      { maskin_id: 'R64101+R64428', modell: 'H8E (total)', tillverkare: 'Rottne', typ: 'Skördare' },
     ];
     setMaskiner(skordare);
     setVald(skordare[0].modell);
@@ -1123,36 +1124,32 @@ export default function Maskinvy() {
       const { startDate, endDate } = getPeriodDates(p, pOffset);
       console.log('[Maskinvy] fetchDbData:', { maskinId, period: p, pOffset, startDate, endDate });
 
+      // maskinId may be an array (combo machine) or single string
+      const maskinIds = Array.isArray(maskinId) ? maskinId : [maskinId];
       let prodRes = await supabase.from('fakt_produktion')
-        .select('datum, volym_m3sub, stammar, operator_id, objekt_id, tradslag_id')
-        .eq('maskin_id', maskinId)
+        .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
+        .in('maskin_id', maskinIds)
         .gte('datum', startDate).lte('datum', endDate);
 
       const sDate = new Date(startDate);
       const eDate = new Date(endDate);
       const totalDays = Math.round((eDate.getTime() - sDate.getTime()) / 86400000) + 1;
 
+      // Fetch tid for all maskinIds, plus operators from all
       const [tidRes, opRes, objRes] = await Promise.all([
         supabase.from('fakt_tid')
           .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, engine_time_sek, bransle_liter')
-          .eq('maskin_id', maskinId)
+          .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate),
-        supabase.from('dim_operator').select('operator_id, operator_key, operator_namn, maskin_id').eq('maskin_id', maskinId),
+        supabase.from('dim_operator').select('operator_id, operator_key, operator_namn, maskin_id').in('maskin_id', maskinIds),
         supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer'),
       ]);
 
-      // Deduplicate fakt_produktion: one row per (datum, operator_id, objekt_id, tradslag_id)
-      const prodDedup: Record<string, any> = {};
-      for (const r of (prodRes.data || [])) {
-        const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}|${r.tradslag_id || ''}`;
-        if (!prodDedup[key] || (r.volym_m3sub || 0) > (prodDedup[key].volym_m3sub || 0)) {
-          prodDedup[key] = r;
-        }
-      }
-      const rawProdRows = Object.values(prodDedup);
+      // fakt_produktion: sum all rows (one per diameterklass/trädslag) — no dedup
+      const rawProdRows = prodRes.data || [];
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
-      console.log('[Maskinvy] Data loaded:', { maskinId, rawProd: (prodRes.data||[]).length, deduped: rawProdRows.length, rawTid: (tidRes.data||[]).length });
+      console.log('[Maskinvy] Data loaded:', { maskinIds, rawProd: rawProdRows.length, rawTid: (tidRes.data||[]).length });
 
       // Deduplicate fakt_tid: keep one row per (datum, operator_id, objekt_id).
       // If duplicates exist (from reimport), keep the row with highest engine_time_sek.
@@ -1422,7 +1419,7 @@ export default function Maskinvy() {
       // Medelstam = SUM(volym)/SUM(stammar) per objekt.
       // Alla KPI beräknas som viktat snitt: SUM/SUM per klass.
       // Klasser anpassas efter maskintyp.
-      const isGallring = maskinId === 'R64101';
+      const isGallring = maskinIds.includes('R64101') && !maskinIds.includes('PONS20SDJAA270231');
       const classEdges = isGallring
         ? [0, 0.03, 0.05, 0.07, 0.09, 0.12, Infinity]
         : [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.7, Infinity];
@@ -1583,7 +1580,7 @@ export default function Maskinvy() {
   const fetchPeriodKpi = useCallback(async (maskinId: string, startDate: string, endDate: string, label: string): Promise<PeriodKpi> => {
     const [prodRes, tidRes] = await Promise.all([
       supabase.from('fakt_produktion')
-        .select('datum, operator_id, objekt_id, tradslag_id, volym_m3sub, stammar')
+        .select('volym_m3sub, stammar')
         .eq('maskin_id', maskinId)
         .gte('datum', startDate).lte('datum', endDate),
       supabase.from('fakt_tid')
@@ -1591,13 +1588,7 @@ export default function Maskinvy() {
         .eq('maskin_id', maskinId)
         .gte('datum', startDate).lte('datum', endDate),
     ]);
-    // Deduplicate fakt_produktion per (datum, operator_id, objekt_id, tradslag_id)
-    const prodDedupKpi: Record<string, any> = {};
-    for (const r of (prodRes.data || [])) {
-      const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}|${r.tradslag_id || ''}`;
-      if (!prodDedupKpi[key] || (r.volym_m3sub || 0) > (prodDedupKpi[key].volym_m3sub || 0)) prodDedupKpi[key] = r;
-    }
-    const prodRows = Object.values(prodDedupKpi);
+    const prodRows = prodRes.data || [];
     // Deduplicate fakt_tid per (datum, operator_id, objekt_id)
     const tidDedupKpi: Record<string, any> = {};
     for (const r of (tidRes.data || [])) {
@@ -1638,7 +1629,7 @@ export default function Maskinvy() {
     setOpCmpLoading(true);
     const [prodRes, tidRes, opRes] = await Promise.all([
       supabase.from('fakt_produktion')
-        .select('datum, volym_m3sub, stammar, operator_id, objekt_id, tradslag_id')
+        .select('datum, volym_m3sub, stammar, operator_id')
         .eq('maskin_id', valdMaskinObj.maskin_id)
         .in('operator_id', opCmpIds)
         .gte('datum', opCmpFrom).lte('datum', opCmpTo),
@@ -1651,13 +1642,7 @@ export default function Maskinvy() {
         .select('operator_id, operator_namn')
         .in('operator_id', opCmpIds),
     ]);
-    // Deduplicate fakt_produktion per (datum, operator_id, objekt_id, tradslag_id)
-    const prodDedupCmp: Record<string, any> = {};
-    for (const r of (prodRes.data || [])) {
-      const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}|${r.tradslag_id || ''}`;
-      if (!prodDedupCmp[key] || (r.volym_m3sub || 0) > (prodDedupCmp[key].volym_m3sub || 0)) prodDedupCmp[key] = r;
-    }
-    const rawProd = Object.values(prodDedupCmp);
+    const rawProd = prodRes.data || [];
     const opNames: Record<string, string> = {};
     (opRes.data || []).forEach((o: any) => { opNames[o.operator_id] = o.operator_namn || o.operator_id; });
 
@@ -1727,7 +1712,7 @@ export default function Maskinvy() {
     // Fetch prod and tid SEPARATELY
     const [prodRes, tidRes] = await Promise.all([
       supabase.from('fakt_produktion')
-        .select('datum, maskin_id, volym_m3sub, stammar, operator_id, objekt_id, tradslag_id')
+        .select('datum, maskin_id, volym_m3sub, stammar')
         .in('maskin_id', allDbIds)
         .gte('datum', machCmpFrom).lte('datum', machCmpTo),
       supabase.from('fakt_tid')
@@ -1736,14 +1721,6 @@ export default function Maskinvy() {
         .gte('datum', machCmpFrom).lte('datum', machCmpTo),
     ]);
 
-    // Deduplicate fakt_produktion per (datum, maskin_id, operator_id, objekt_id, tradslag_id)
-    const prodDedupMach: Record<string, any> = {};
-    for (const r of (prodRes.data || [])) {
-      const key = `${r.datum}|${r.maskin_id}|${r.operator_id || ''}|${r.objekt_id || ''}|${r.tradslag_id || ''}`;
-      if (!prodDedupMach[key] || (r.volym_m3sub || 0) > (prodDedupMach[key].volym_m3sub || 0)) prodDedupMach[key] = r;
-    }
-    const dedupedProd = Object.values(prodDedupMach);
-
     // Map raw maskin_id → logical ID
     const toLogical = (rawMid: string): string => {
       if (dbIdsA.includes(rawMid)) return machCmpA;
@@ -1751,10 +1728,10 @@ export default function Maskinvy() {
       return rawMid;
     };
 
-    // Pre-aggregate prod per logical machine (from deduplicated rows)
+    // Pre-aggregate prod per logical machine (sum all rows — one per diameterklass/trädslag)
     const prodAgg: Record<string, { vol: number; st: number }> = {};
     const monthProd: Record<string, Record<string, { vol: number; g15sek: number }>> = {};
-    for (const r of dedupedProd) {
+    for (const r of (prodRes.data || [])) {
       const lid = toLogical(r.maskin_id);
       if (!prodAgg[lid]) prodAgg[lid] = { vol: 0, st: 0 };
       prodAgg[lid].vol += r.volym_m3sub || 0;
@@ -1830,8 +1807,9 @@ export default function Maskinvy() {
   useEffect(() => {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
     if (valdMaskinObj) {
-      console.log('[Maskinvy] Trigger fetch:', { modell: vald, maskin_id: valdMaskinObj.maskin_id, period });
-      fetchDbData(valdMaskinObj.maskin_id, period, periodOffset);
+      const dbIds = resolveIds(valdMaskinObj.maskin_id);
+      console.log('[Maskinvy] Trigger fetch:', { modell: vald, maskin_id: valdMaskinObj.maskin_id, dbIds, period });
+      fetchDbData(dbIds.length === 1 ? dbIds[0] : dbIds, period, periodOffset);
     }
   }, [vald, maskiner, period, periodOffset, fetchDbData]);
 
