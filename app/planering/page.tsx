@@ -7640,23 +7640,30 @@ export default function PlannerPage() {
             </span>
           )}
         </div>
-        {/* Körspårning-knapp — samma container som header, funkar på iPhone */}
-        <div
+      </div>}
+
+      {/* === KÖRSPÅRNING === */}
+      {!briefingMode && (
+        <button
+          type="button"
           onClick={korspårActive ? stopKorspårning : startKorspårning}
           style={{
-            marginTop: 8,
-            background: korspårActive ? 'rgba(220,38,38,0.85)' : 'rgba(34,197,94,0.85)',
-            borderRadius: 10, padding: '8px 14px',
-            display: 'flex', alignItems: 'center', gap: 8,
+            position: 'fixed', top: 100, left: 16, right: 16,
+            zIndex: 200,
+            background: korspårActive ? '#dc2626' : '#22c55e',
+            border: 'none', borderRadius: 12, padding: '12px 16px',
+            display: 'flex', alignItems: 'center', gap: 10,
             cursor: 'pointer',
+            WebkitAppearance: 'none',
+            touchAction: 'manipulation',
           }}
         >
-          {korspårActive && <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff', animation: 'pulse 1s infinite' }} />}
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
+          {korspårActive && <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#fff', animation: 'pulse 1s infinite', flexShrink: 0 }} />}
+          <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: '#fff', textAlign: 'left' }}>
             {korspårActive ? 'Stoppa körspårning' : 'Starta körspårning'}
           </span>
-        </div>
-      </div>}
+        </button>
+      )}
 
       {/* === GEOFENCING MODAL === */}
       {geofencePrompt && (
