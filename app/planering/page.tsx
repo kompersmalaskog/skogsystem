@@ -1696,18 +1696,27 @@ export default function PlannerPage() {
     if (!valtObjekt?.id || korspårActive) return;
     // Request wake lock
     try { korspårWakeLockRef.current = await (navigator as any).wakeLock?.request('screen'); } catch (_) {}
-    // Create track in Supabase
+
+    // Create track in Supabase — wait for confirmation before starting GPS
     const trackId = `ks-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    korspårTrackIdRef.current = trackId;
     korspårPointsRef.current = [];
-    await supabase.from('gps_tracks').insert({
+    console.log('[Körspår] INSERT gps_track:', trackId, 'objekt:', valtObjekt.id);
+    const { data: insertData, error: insertError } = await supabase.from('gps_tracks').insert({
       track_id: trackId, objekt_id: valtObjekt.id, line_type: 'korspår',
       points: [], status: 'recording', started_at: new Date().toISOString(),
-    });
+    }).select('track_id').single();
+
+    if (insertError) {
+      console.error('[Körspår] INSERT failed:', insertError);
+      return; // Don't start tracking if DB insert fails
+    }
+    console.log('[Körspår] INSERT OK:', insertData.track_id);
+    korspårTrackIdRef.current = insertData.track_id;
+
     // Start watching position
     korspårWatchRef.current = navigator.geolocation.watchPosition(
       (pos) => {
-        if (pos.coords.accuracy > 20) return; // skip inaccurate
+        if (pos.coords.accuracy > 20) return;
         korspårPointsRef.current = [...korspårPointsRef.current, {
           lat: pos.coords.latitude, lng: pos.coords.longitude, tid: new Date().toISOString(),
         }];
@@ -1716,12 +1725,14 @@ export default function PlannerPage() {
       { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
     );
     // Save points every 15 seconds
-    korspårSaveRef.current = setInterval(() => {
+    korspårSaveRef.current = setInterval(async () => {
       const pts = korspårPointsRef.current;
       const tid = korspårTrackIdRef.current;
       if (tid && pts.length > 0) {
-        supabase.from('gps_tracks').update({ points: pts, updated_at: new Date().toISOString() })
-          .eq('track_id', tid).then(({ error }) => { if (error) console.error('[Körspår] Save error:', error); });
+        console.log('[Körspår] UPDATE points:', pts.length, 'track:', tid);
+        const { error } = await supabase.from('gps_tracks').update({ points: pts, updated_at: new Date().toISOString() })
+          .eq('track_id', tid);
+        if (error) console.error('[Körspår] UPDATE error:', error);
       }
     }, 15000);
     setKorspårActive(true);
@@ -1743,9 +1754,12 @@ export default function PlannerPage() {
     // Final save + complete in DB
     const tid = korspårTrackIdRef.current;
     if (tid) {
-      await supabase.from('gps_tracks').update({
+      console.log('[Körspår] COMPLETE track:', tid, 'points:', pts.length);
+      const { error } = await supabase.from('gps_tracks').update({
         points: pts, status: 'completed', completed_at: new Date().toISOString(),
       }).eq('track_id', tid);
+      if (error) console.error('[Körspår] COMPLETE error:', error);
+      else console.log('[Körspår] COMPLETE OK');
     }
     korspårTrackIdRef.current = null;
     korspårPointsRef.current = [];
