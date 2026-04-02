@@ -1080,11 +1080,12 @@ export default function Maskinvy() {
       return { startDate: fmt(mon), endDate: fmt(sun) };
     }
     if (p === 'K') {
-      const q = Math.floor(now.getMonth() / 3) + offset;
-      const baseYear = now.getFullYear() + Math.floor(q / 4) * (q < 0 ? -1 : 0);
-      const adjQ = ((q % 4) + 4) % 4;
-      const year = now.getFullYear() + Math.floor((Math.floor(now.getMonth() / 3) + offset) / 4);
-      const qIdx = (((Math.floor(now.getMonth() / 3) + offset) % 4) + 4) % 4;
+      // Q1=jan-mar, Q2=apr-jun, Q3=jul-sep, Q4=okt-dec
+      // Start from month 0 of current year, step by 3 months per quarter
+      const currentQ = Math.floor(now.getMonth() / 3); // 0-3
+      const totalQ = now.getFullYear() * 4 + currentQ + offset;
+      const year = Math.floor(totalQ / 4);
+      const qIdx = ((totalQ % 4) + 4) % 4; // 0=Q1, 1=Q2, 2=Q3, 3=Q4
       const qs = new Date(year, qIdx * 3, 1);
       const qe = new Date(year, qIdx * 3 + 3, 0);
       return { startDate: fmt(qs), endDate: fmt(qe) };
