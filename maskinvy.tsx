@@ -1124,11 +1124,9 @@ export default function Maskinvy() {
       console.log('[Maskinvy] fetchDbData:', { maskinId, period: p, pOffset, startDate, endDate });
 
       let prodRes = await supabase.from('fakt_produktion')
-        .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
+        .select('datum, volym_m3sub, stammar, operator_id, objekt_id, tradslag_id')
         .eq('maskin_id', maskinId)
         .gte('datum', startDate).lte('datum', endDate);
-
-      console.log('[Maskinvy] Query:', { maskinId, startDate, endDate, rows: prodRes.data?.length, error: prodRes.error?.message });
 
       const sDate = new Date(startDate);
       const eDate = new Date(endDate);
@@ -1143,9 +1141,18 @@ export default function Maskinvy() {
         supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer'),
       ]);
 
-      const rawProdRows = prodRes.data || [];
+      // Deduplicate fakt_produktion: one row per (datum, operator_id, objekt_id, tradslag_id)
+      const prodDedup: Record<string, any> = {};
+      for (const r of (prodRes.data || [])) {
+        const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}|${r.tradslag_id || ''}`;
+        if (!prodDedup[key] || (r.volym_m3sub || 0) > (prodDedup[key].volym_m3sub || 0)) {
+          prodDedup[key] = r;
+        }
+      }
+      const rawProdRows = Object.values(prodDedup);
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
+      console.log('[Maskinvy] Data loaded:', { maskinId, rawProd: (prodRes.data||[]).length, deduped: rawProdRows.length, rawTid: (tidRes.data||[]).length });
 
       // Deduplicate fakt_tid: keep one row per (datum, operator_id, objekt_id).
       // If duplicates exist (from reimport), keep the row with highest engine_time_sek.
@@ -1576,7 +1583,7 @@ export default function Maskinvy() {
   const fetchPeriodKpi = useCallback(async (maskinId: string, startDate: string, endDate: string, label: string): Promise<PeriodKpi> => {
     const [prodRes, tidRes] = await Promise.all([
       supabase.from('fakt_produktion')
-        .select('volym_m3sub, stammar')
+        .select('datum, operator_id, objekt_id, tradslag_id, volym_m3sub, stammar')
         .eq('maskin_id', maskinId)
         .gte('datum', startDate).lte('datum', endDate),
       supabase.from('fakt_tid')
@@ -1584,14 +1591,18 @@ export default function Maskinvy() {
         .eq('maskin_id', maskinId)
         .gte('datum', startDate).lte('datum', endDate),
     ]);
-    const prodRows = prodRes.data || [];
+    // Deduplicate fakt_produktion per (datum, operator_id, objekt_id, tradslag_id)
+    const prodDedupKpi: Record<string, any> = {};
+    for (const r of (prodRes.data || [])) {
+      const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}|${r.tradslag_id || ''}`;
+      if (!prodDedupKpi[key] || (r.volym_m3sub || 0) > (prodDedupKpi[key].volym_m3sub || 0)) prodDedupKpi[key] = r;
+    }
+    const prodRows = Object.values(prodDedupKpi);
     // Deduplicate fakt_tid per (datum, operator_id, objekt_id)
     const tidDedupKpi: Record<string, any> = {};
     for (const r of (tidRes.data || [])) {
       const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}`;
-      if (!tidDedupKpi[key] || (r.engine_time_sek || 0) > (tidDedupKpi[key].engine_time_sek || 0)) {
-        tidDedupKpi[key] = r;
-      }
+      if (!tidDedupKpi[key] || (r.engine_time_sek || 0) > (tidDedupKpi[key].engine_time_sek || 0)) tidDedupKpi[key] = r;
     }
     const tidRows = Object.values(tidDedupKpi);
     const volym = prodRows.reduce((s: number, r: any) => s + (r.volym_m3sub || 0), 0);
@@ -1627,7 +1638,7 @@ export default function Maskinvy() {
     setOpCmpLoading(true);
     const [prodRes, tidRes, opRes] = await Promise.all([
       supabase.from('fakt_produktion')
-        .select('datum, volym_m3sub, stammar, operator_id')
+        .select('datum, volym_m3sub, stammar, operator_id, objekt_id, tradslag_id')
         .eq('maskin_id', valdMaskinObj.maskin_id)
         .in('operator_id', opCmpIds)
         .gte('datum', opCmpFrom).lte('datum', opCmpTo),
@@ -1640,7 +1651,13 @@ export default function Maskinvy() {
         .select('operator_id, operator_namn')
         .in('operator_id', opCmpIds),
     ]);
-    const rawProd = prodRes.data || [];
+    // Deduplicate fakt_produktion per (datum, operator_id, objekt_id, tradslag_id)
+    const prodDedupCmp: Record<string, any> = {};
+    for (const r of (prodRes.data || [])) {
+      const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}|${r.tradslag_id || ''}`;
+      if (!prodDedupCmp[key] || (r.volym_m3sub || 0) > (prodDedupCmp[key].volym_m3sub || 0)) prodDedupCmp[key] = r;
+    }
+    const rawProd = Object.values(prodDedupCmp);
     const opNames: Record<string, string> = {};
     (opRes.data || []).forEach((o: any) => { opNames[o.operator_id] = o.operator_namn || o.operator_id; });
 
@@ -1710,7 +1727,7 @@ export default function Maskinvy() {
     // Fetch prod and tid SEPARATELY
     const [prodRes, tidRes] = await Promise.all([
       supabase.from('fakt_produktion')
-        .select('datum, maskin_id, volym_m3sub, stammar')
+        .select('datum, maskin_id, volym_m3sub, stammar, operator_id, objekt_id, tradslag_id')
         .in('maskin_id', allDbIds)
         .gte('datum', machCmpFrom).lte('datum', machCmpTo),
       supabase.from('fakt_tid')
@@ -1719,6 +1736,14 @@ export default function Maskinvy() {
         .gte('datum', machCmpFrom).lte('datum', machCmpTo),
     ]);
 
+    // Deduplicate fakt_produktion per (datum, maskin_id, operator_id, objekt_id, tradslag_id)
+    const prodDedupMach: Record<string, any> = {};
+    for (const r of (prodRes.data || [])) {
+      const key = `${r.datum}|${r.maskin_id}|${r.operator_id || ''}|${r.objekt_id || ''}|${r.tradslag_id || ''}`;
+      if (!prodDedupMach[key] || (r.volym_m3sub || 0) > (prodDedupMach[key].volym_m3sub || 0)) prodDedupMach[key] = r;
+    }
+    const dedupedProd = Object.values(prodDedupMach);
+
     // Map raw maskin_id → logical ID
     const toLogical = (rawMid: string): string => {
       if (dbIdsA.includes(rawMid)) return machCmpA;
@@ -1726,10 +1751,10 @@ export default function Maskinvy() {
       return rawMid;
     };
 
-    // Pre-aggregate prod per logical machine
+    // Pre-aggregate prod per logical machine (from deduplicated rows)
     const prodAgg: Record<string, { vol: number; st: number }> = {};
     const monthProd: Record<string, Record<string, { vol: number; g15sek: number }>> = {};
-    for (const r of (prodRes.data || [])) {
+    for (const r of dedupedProd) {
       const lid = toLogical(r.maskin_id);
       if (!prodAgg[lid]) prodAgg[lid] = { vol: 0, st: 0 };
       prodAgg[lid].vol += r.volym_m3sub || 0;
