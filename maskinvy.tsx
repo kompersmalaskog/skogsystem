@@ -1197,7 +1197,7 @@ export default function Maskinvy() {
       const maskinIds = Array.isArray(maskinId) ? maskinId : [maskinId];
       const rawProdData = await fetchAllRows((from, to) =>
         supabase.from('fakt_produktion')
-          .select('datum, volym_m3sub, stammar, operator_id, objekt_id, processtyp')
+          .select('datum, volym_m3sub, stammar, operator_id, objekt_id, processtyp, tradslag_id')
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate)
           .range(from, to)
@@ -1521,24 +1521,48 @@ export default function Maskinvy() {
         }
       }
 
-      // ── Medelstamsklass-aggregering (per objekt → klass) ──
-      // Medelstam = SUM(volym)/SUM(stammar) per objekt.
-      // Alla KPI beräknas som viktat snitt: SUM/SUM per klass.
-      // Klasser anpassas efter maskintyp.
+      // ── Medelstamsklass-aggregering (per datum+objekt+trädslag → klass) ──
+      // Gruppera fakt_produktion per (datum, objekt_id, tradslag_id).
+      // Beräkna medelstam = SUM(volym)/SUM(stammar) per grupp.
+      // Klassificera gruppen, summera MTH-stammar och total stammar per klass.
+      // Tid/bränsle hämtas separat per objekt (oförändrat).
       const { edges: classEdges, labels: klassLabels } = getMedelstamKlasser(maskinIds);
       const nClasses = klassLabels.length;
+
+      // Aggregate prod per (datum|objekt_id|tradslag_id) group
+      type ProdGroup = { vol: number; st: number; mthSt: number };
+      const prodGroups: Record<string, ProdGroup> = {};
+      for (const r of rawProdRows) {
+        const key = `${r.datum}|${r.objekt_id || ''}|${r.tradslag_id || ''}`;
+        if (!prodGroups[key]) prodGroups[key] = { vol: 0, st: 0, mthSt: 0 };
+        prodGroups[key].vol += r.volym_m3sub || 0;
+        prodGroups[key].st += r.stammar || 0;
+        if (r.processtyp === 'MTH') prodGroups[key].mthSt += r.stammar || 0;
+      }
+
+      // Classify each group into a medelstamsklass
       const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, mthSt: 0, g15sek: 0, bransle: 0 }));
+      for (const g of Object.values(prodGroups)) {
+        if (g.st <= 0) continue;
+        const ms = g.vol / g.st;
+        let ci = nClasses - 1;
+        for (let c = 0; c < nClasses; c++) {
+          if (ms < classEdges[c + 1]) { ci = c; break; }
+        }
+        klassAgg[ci].vol += g.vol;
+        klassAgg[ci].st += g.st;
+        klassAgg[ci].mthSt += g.mthSt;
+      }
+
+      // Add tid/bränsle per objekt (unchanged — tid is per objekt, not per trädslag)
       for (const oid of prodObjIds) {
         const pObj = prodByObjekt[oid];
         if (!pObj || pObj.st <= 0) continue;
-        const medelstamObj = pObj.vol / pObj.st;
+        const ms = pObj.vol / pObj.st;
         let ci = nClasses - 1;
         for (let c = 0; c < nClasses; c++) {
-          if (medelstamObj < classEdges[c + 1]) { ci = c; break; }
+          if (ms < classEdges[c + 1]) { ci = c; break; }
         }
-        klassAgg[ci].vol += pObj.vol;
-        klassAgg[ci].st += pObj.st;
-        klassAgg[ci].mthSt += pObj.mthSt;
         const tObj = tidByObjekt[oid];
         if (tObj) {
           klassAgg[ci].g15sek += tObj.processingSek + tObj.terrainSek;
