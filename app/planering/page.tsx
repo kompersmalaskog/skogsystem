@@ -1651,14 +1651,13 @@ export default function PlannerPage() {
   const [korspårActive, setKorspårActive] = useState(false);
   const [korspårTracks, setKorspårTracks] = useState<Array<{lat: number, lng: number}[]>>([]);
   const korspårWatchRef = useRef<number | null>(null);
-  const korspårTrackIdRef = useRef<string | null>(null);
+  const korspårIdRef = useRef<string | null>(null);        // gps_tracks.id (uuid)
   const korspårPointsRef = useRef<Array<{lat: number, lng: number, tid: string}>>([]);
   const korspårSaveRef = useRef<NodeJS.Timeout | null>(null);
-  const korspårWakeLockRef = useRef<any>(null);
   const trackingPathRef = useRef<{lat: number, lon: number, ts: number}[]>([]);
   const lastGpsTrackSaveCountRef = useRef(0);
 
-  // Periodisk GPS-spår-sparning (var 10:e sekund)
+  // Periodisk GPS-spår-sparning för manuell ritning (var 10:e sekund)
   useEffect(() => {
     if (!isTracking || !gpsLineType) return;
     const interval = setInterval(() => {
@@ -1666,17 +1665,13 @@ export default function PlannerPage() {
       const points = trackingPathRef.current;
       if (!trackId || points.length === lastGpsTrackSaveCountRef.current) return;
       lastGpsTrackSaveCountRef.current = points.length;
-      supabase.from('gps_tracks').update({
-        points: points,
-        updated_at: new Date().toISOString(),
-      }).eq('track_id', trackId).then(({ error }) => {
-        if (error) console.error('[GPS] Spara spår fel:', error);
-      });
+      supabase.from('gps_tracks').update({ points, updated_at: new Date().toISOString() })
+        .eq('track_id', trackId).then(({ error }) => { if (error) console.error('[GPS] Save error:', error); });
     }, 10000);
     return () => clearInterval(interval);
   }, [isTracking, gpsLineType]);
 
-  // ── Load completed körspår for current object ──
+  // Load completed körspår
   useEffect(() => {
     if (!valtObjekt?.id) { setKorspårTracks([]); return; }
     (async () => {
@@ -1691,29 +1686,22 @@ export default function PlannerPage() {
     })();
   }, [valtObjekt?.id, korspårActive]);
 
-  // ── Körspårning: start/stop functions ──
+  // Start körspårning
   const startKorspårning = useCallback(async () => {
     if (!valtObjekt?.id || korspårActive) return;
-    // Request wake lock
-    try { korspårWakeLockRef.current = await (navigator as any).wakeLock?.request('screen'); } catch (_) {}
-
-    // Create track in Supabase — wait for confirmation before starting GPS
-    const trackId = `ks-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     korspårPointsRef.current = [];
-    console.log('[Körspår] INSERT gps_track:', trackId, 'objekt:', valtObjekt.id);
-    const { data: insertData, error: insertError } = await supabase.from('gps_tracks').insert({
-      track_id: trackId, objekt_id: valtObjekt.id, line_type: 'korspår',
-      points: [], status: 'recording', started_at: new Date().toISOString(),
-    }).select('id, track_id').single();
 
-    if (insertError) {
-      console.error('[Körspår] INSERT failed:', insertError);
-      return;
-    }
-    console.log('[Körspår] INSERT OK, id:', insertData.id, 'track_id:', insertData.track_id);
-    korspårTrackIdRef.current = insertData.track_id;
+    // INSERT — use .select('id') to get the uuid primary key
+    console.log('[Körspår] INSERT for objekt:', valtObjekt.id);
+    const { data, error } = await supabase.from('gps_tracks')
+      .insert({ objekt_id: valtObjekt.id, line_type: 'korspår', status: 'recording', points: [] })
+      .select('id')
+      .single();
+    if (error || !data) { console.error('[Körspår] INSERT failed:', error); return; }
+    console.log('[Körspår] INSERT OK, id:', data.id);
+    korspårIdRef.current = data.id;
 
-    // Start watching position
+    // Start GPS
     korspårWatchRef.current = navigator.geolocation.watchPosition(
       (pos) => {
         if (pos.coords.accuracy > 20) return;
@@ -1722,57 +1710,50 @@ export default function PlannerPage() {
         }];
       },
       (err) => console.error('[Körspår] GPS error:', err),
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 }
+      { enableHighAccuracy: true }
     );
-    // Save points every 15 seconds
+
+    // Save points every 15 seconds — UPDATE by id (uuid)
     korspårSaveRef.current = setInterval(async () => {
+      const id = korspårIdRef.current;
       const pts = korspårPointsRef.current;
-      const tid = korspårTrackIdRef.current;
-      if (tid && pts.length > 0) {
-        console.log('[Körspår] UPDATE points:', pts.length, 'track:', tid);
-        const { error } = await supabase.from('gps_tracks').update({ points: pts, updated_at: new Date().toISOString() })
-          .eq('track_id', tid);
-        if (error) console.error('[Körspår] UPDATE error:', error);
-      }
+      if (!id || pts.length === 0) return;
+      console.log('[Körspår] UPDATE', pts.length, 'points, id:', id);
+      const { error: e } = await supabase.from('gps_tracks').update({ points: pts }).eq('id', id);
+      if (e) console.error('[Körspår] UPDATE error:', e);
     }, 15000);
+
     setKorspårActive(true);
   }, [valtObjekt?.id, korspårActive]);
 
+  // Stop körspårning
   const stopKorspårning = useCallback(async () => {
-    // Stop geolocation watch
     if (korspårWatchRef.current != null) { navigator.geolocation.clearWatch(korspårWatchRef.current); korspårWatchRef.current = null; }
-    // Stop save interval
     if (korspårSaveRef.current) { clearInterval(korspårSaveRef.current); korspårSaveRef.current = null; }
-    // Release wake lock
-    try { korspårWakeLockRef.current?.release(); } catch (_) {}
-    // Immediately add the just-recorded track to completed tracks state
+
+    // Add to completed tracks immediately
     const pts = korspårPointsRef.current;
-    if (pts.length > 1) {
-      const newTrack = pts.map(p => ({ lat: p.lat, lng: p.lng }));
-      setKorspårTracks(prev => [...prev, newTrack]);
-    }
-    // Final save + complete in DB
-    const tid = korspårTrackIdRef.current;
-    if (tid) {
-      console.log('[Körspår] COMPLETE track:', tid, 'points:', pts.length);
-      const { error } = await supabase.from('gps_tracks').update({
-        points: pts, status: 'completed', completed_at: new Date().toISOString(),
-      }).eq('track_id', tid);
+    if (pts.length > 1) setKorspårTracks(prev => [...prev, pts.map(p => ({ lat: p.lat, lng: p.lng }))]);
+
+    // Final save — UPDATE by id (uuid)
+    const id = korspårIdRef.current;
+    if (id) {
+      console.log('[Körspår] COMPLETE id:', id, 'points:', pts.length);
+      const { error } = await supabase.from('gps_tracks')
+        .update({ points: pts, status: 'completed', completed_at: new Date().toISOString() })
+        .eq('id', id);
       if (error) console.error('[Körspår] COMPLETE error:', error);
-      else console.log('[Körspår] COMPLETE OK');
     }
-    korspårTrackIdRef.current = null;
+
+    korspårIdRef.current = null;
     korspårPointsRef.current = [];
     setKorspårActive(false);
   }, []);
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (korspårWatchRef.current != null) navigator.geolocation.clearWatch(korspårWatchRef.current);
-      if (korspårSaveRef.current) clearInterval(korspårSaveRef.current);
-      try { korspårWakeLockRef.current?.release(); } catch (_) {}
-    };
+  // Cleanup
+  useEffect(() => () => {
+    if (korspårWatchRef.current != null) navigator.geolocation.clearWatch(korspårWatchRef.current);
+    if (korspårSaveRef.current) clearInterval(korspårSaveRef.current);
   }, []);
 
   // === GEOFENCING: fråga vid ankomst till planerat objekt ===
