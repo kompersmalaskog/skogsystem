@@ -464,12 +464,15 @@ export default function Arbetsrapport() {
               rast: r.rast_min || 30,
               maskin_id: r.maskin_id,
               maskin_namn: maskinNamnMap[r.maskin_id] || r.maskin_id || null,
+              objekt_id: r.objekt_id || null,
+              objekt_namn: objektLista.find(o => o.id === r.objekt_id)?.namn || r.objekt_id || null,
+              objekt_ägare: objektLista.find(o => o.id === r.objekt_id)?.ägare || null,
             };
           }
           setDagData(map);
         }
       });
-  }, [medarbetare, kalÅr, kalMånad, maskinNamnMap]);
+  }, [medarbetare, kalÅr, kalMånad, maskinNamnMap, objektLista]);
 
   const idag=new Date();
   const datumStr=`${["Sön","Mån","Tis","Ons","Tor","Fre","Lör"][idag.getDay()]} ${idag.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][idag.getMonth()]}`;
@@ -1702,6 +1705,7 @@ export default function Arbetsrapport() {
               </div>
               {[
                 ["Maskin", redDag.maskin_namn || redDag.maskin_id || "—"],
+                ["Objekt", redDag.objekt_namn ? (redDag.objekt_ägare ? `${redDag.objekt_namn} · ${redDag.objekt_ägare}` : redDag.objekt_namn) : redDag.objekt_id || "—"],
                 ["Start", redDag.start_tid || "—"],
                 ["Slut", redDag.slut_tid || "—"],
                 ["Rast", `${redDag.rast_min || 30} min`],

@@ -80,24 +80,35 @@ export async function POST(req: NextRequest) {
       (redigerade || []).map(r => `${r.medarbetare_id}_${r.datum}`)
     );
 
-    // 4. Hämta rast_sek från fakt_tid per operator+datum
+    // 4. Hämta rast_sek och objekt_id från fakt_tid per operator+datum
     const operatorIds = [...new Set(skift.map(s => s.operator_id).filter(Boolean))];
-    let rastMap: Record<string, number> = {}; // key: medarbetare_id_datum → rast_min
+    let rastMap: Record<string, number> = {};
+    let objektMap: Record<string, string> = {}; // key: medarbetare_id_datum → objekt_id
 
     if (operatorIds.length && datumSet.length) {
       const { data: rastData } = await supabase
         .from('fakt_tid')
-        .select('operator_id, datum, rast_sek')
+        .select('operator_id, datum, rast_sek, objekt_id, engine_time_sek')
         .in('operator_id', operatorIds)
         .in('datum', datumSet);
 
       if (rastData) {
-        // Aggregera rast_sek per medarbetare+datum
+        // Aggregera rast_sek och hitta dominant objekt per medarbetare+datum
+        const objektTid: Record<string, Record<string, number>> = {};
         for (const r of rastData) {
           const medId = opMap[r.operator_id];
           if (!medId) continue;
           const key = `${medId}_${r.datum}`;
           rastMap[key] = (rastMap[key] || 0) + (r.rast_sek || 0);
+          if (r.objekt_id) {
+            if (!objektTid[key]) objektTid[key] = {};
+            objektTid[key][r.objekt_id] = (objektTid[key][r.objekt_id] || 0) + (r.engine_time_sek || 0);
+          }
+        }
+        // Välj objekt med mest engine_time per dag
+        for (const [key, objs] of Object.entries(objektTid)) {
+          const best = Object.entries(objs).sort((a, b) => b[1] - a[1])[0];
+          if (best) objektMap[key] = best[0];
         }
       }
     }
@@ -158,6 +169,7 @@ export async function POST(req: NextRequest) {
         slut_tid: hhmm(agg.latestEnd),
         rast_min: rastMin,
         maskin_id: agg.maskin_id,
+        objekt_id: objektMap[rastKey] || null,
         bekraftad: false,
       };
     });
