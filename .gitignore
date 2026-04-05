@@ -38,8 +38,7 @@ yarn-error.log*
 # Generated terrain tiles (run scripts/build-terrain-tiles.py to create)
 /public/terrain-tiles/
 
-# Python import scripts (contains secrets)
-skogsmaskin_import*.py
+# Python import scripts — secrets now loaded from .env.local
 
 # Python cache
 __pycache__/
