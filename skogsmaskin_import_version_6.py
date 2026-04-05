@@ -1079,7 +1079,6 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             _stock_objekt_id = obj_key_map.get(obj_key) if obj_key else None
             stock_data = {
                 'stock_key': f"{stem_key}_{log_key}_{filnamn}",
-                'stam_key': stem_key,
                 'maskin_id': maskin_id,
                 'objekt_id': _stock_objekt_id,
                 'sortiment_id': f"{maskin_id}_{prod_key}" if prod_key else None,
