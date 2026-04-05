@@ -945,6 +945,7 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         # GPS för stam - Rottne: StemCoordinates på Stem-nivå, Ponsse: Coordinates i SingleTree
         stem_lat = None
         stem_lon = None
+        stem_alt = None
         stem_coords = find_element(stem, 'StemCoordinates', ns)
         if stem_coords is None:
             stem_coords = find_element(single_tree, 'Coordinates', ns)
@@ -953,6 +954,18 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         if stem_coords is not None:
             stem_lat = safe_float(get_text(stem_coords, 'Latitude', ns))
             stem_lon = safe_float(get_text(stem_coords, 'Longitude', ns))
+            stem_alt = safe_float(get_text(stem_coords, 'Altitude', ns))
+
+        # StemGrade (1-4)
+        stem_grade = None
+        grade_elem = find_element(stem, 'StemGrade', ns) or find_element(single_tree, 'StemGrade', ns)
+        if grade_elem is not None:
+            stem_grade = safe_int(get_text(grade_elem, 'GradeValue', ns))
+
+        # StumpTreatment (boolean)
+        stump_treat_txt = (get_text(stem, 'StumpTreatment', ns) or
+                           get_text(single_tree, 'StumpTreatment', ns) or '').strip().lower()
+        stubbbehandling = True if stump_treat_txt == 'true' else (False if stump_treat_txt == 'false' else None)
         
         # Tidpunkt - Rottne: HarvestDate på Stem-nivå, Ponsse: ProcessingDate i SingleTree
         processing_date = get_text(single_tree, 'ProcessingDate', ns) or get_text(stem, 'HarvestDate', ns)
@@ -978,6 +991,9 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             'dbh_mm': dbh,
             'latitude': stem_lat,
             'longitude': stem_lon,
+            'altitude': stem_alt,
+            'stem_grade': stem_grade,
+            'stubbbehandling': stubbbehandling,
             'tidpunkt': tidpunkt,
             'filnamn': filnamn
         }
