@@ -1599,13 +1599,33 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
                 'maskin_id': maskin_id
             })
 
-    # Bygg location -> obj_key lookup
+    # Bygg location -> obj_key lookup + avlägg-destinationer från LocationDefinition
     location_obj_map = {}
     for loc_def in find_all_elements(machine, 'LocationDefinition', ns):
         loc_key = get_text(loc_def, 'LocationKey', ns)
         obj_key_loc = get_text(loc_def, 'ObjectKey', ns)
         if loc_key and obj_key_loc:
             location_obj_map[loc_key] = obj_key_loc
+        # Avlägg-koordinater till dim_destination
+        if loc_key:
+            loc_name = get_text(loc_def, 'LocationName', ns) or ''
+            loc_lat = None
+            loc_lon = None
+            loc_coords = find_element(loc_def, 'LocationCoordinates', ns)
+            if loc_coords is not None:
+                loc_lat = safe_float(get_text(loc_coords, 'Latitude', ns))
+                loc_lon = safe_float(get_text(loc_coords, 'Longitude', ns))
+            # fallback: direkt under LocationDefinition
+            if loc_lat is None:
+                loc_lat = safe_float(get_text(loc_def, 'Latitude', ns))
+            if loc_lon is None:
+                loc_lon = safe_float(get_text(loc_def, 'Longitude', ns))
+            data['destinationer'].append({
+                'destination_id': loc_key,
+                'namn': loc_name,
+                'latitude': loc_lat,
+                'longitude': loc_lon,
+            })
 
     # Bygg DeliveryKey -> ProductKey lookup
     delivery_product_map = {}
