@@ -779,6 +779,7 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         'stammar': [],
         'stockar': [],
         'sortiment_summering': [],
+        'gps_spar': [],
         'filnamn': filnamn,
         'filtyp': 'HPR'
     }
@@ -899,8 +900,27 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             'maskin_id': maskin_id
         })
     
+    # === KÖRSPÅR (TrackCoordinates) ===
+    for track in find_all_elements(machine, 'Tracking', ns):
+        for coords in find_all_elements(track, 'TrackCoordinates', ns):
+            lat = safe_float(get_text(coords, 'Latitude', ns))
+            lon = safe_float(get_text(coords, 'Longitude', ns))
+            if lat and lon:
+                coord_date = get_text(coords, 'CoordinateDate', ns)
+                obj_key = get_text(coords, 'ObjectKey', ns)
+                data['gps_spar'].append({
+                    'maskin_id': maskin_id,
+                    'objekt_id': obj_key_map.get(obj_key, f"{maskin_id}_{obj_key}") if obj_key else None,
+                    'tidpunkt': parse_datetime(coord_date),
+                    'latitude': lat,
+                    'longitude': lon,
+                    'altitude': safe_float(get_text(coords, 'Altitude', ns)),
+                    'tracking_key': get_text(coords, 'TrackingKey', ns),
+                    'filnamn': filnamn,
+                })
+
     # === STAMMAR OCH STOCKAR ===
-    sortiment_volymer = defaultdict(lambda: {'stockar': 0, 'volym_m3sob': 0, 'volym_m3sub': 0, 
+    sortiment_volymer = defaultdict(lambda: {'stockar': 0, 'volym_m3sob': 0, 'volym_m3sub': 0,
                                               'total_langd': 0, 'total_dia': 0})
     
     for stem in find_all_elements(machine, 'Stem', ns):
@@ -968,15 +988,24 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             log_key = get_text(log, 'LogKey', ns)
             prod_key = get_text(log, 'ProductKey', ns)
             
-            # Längd och diameter
+            # Längd och diameter (ob = on bark, ub = under bark)
             log_meas = find_element(log, 'LogMeasurement', ns)
             langd = 0
-            toppdia = 0
+            toppdia_ob = 0
+            toppdia_ub = 0
             if log_meas is not None:
                 langd = safe_int(get_text(log_meas, 'LogLength', ns))
-                dia_elem = find_element(log_meas, 'LogDiameter', ns)
-                if dia_elem is not None:
-                    toppdia = safe_int(dia_elem.text) if dia_elem.text else 0
+                for dia_elem in find_all_elements(log_meas, 'LogDiameter', ns):
+                    cat = get_attr(dia_elem, 'logDiameterCategory').lower()
+                    val = safe_int(dia_elem.text) if dia_elem.text else 0
+                    if 'top ob' in cat or cat == 'top':
+                        toppdia_ob = val
+                    elif 'top ub' in cat:
+                        toppdia_ub = val
+                # Fallback: if only one value exists, use it as ob
+                if toppdia_ob == 0 and toppdia_ub > 0:
+                    toppdia_ob = toppdia_ub
+            toppdia = toppdia_ob  # used below for sortiment_volymer summary
             
             # Volymer
             volym_sob = 0
@@ -1001,20 +1030,23 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             if cutting_cat is not None:
                 kaporsak = get_text(cutting_cat, 'CuttingReason', ns)
             
+            _stock_objekt_id = obj_key_map.get(obj_key) if obj_key else None
             stock_data = {
-                'stock_key': f"{stem_key}_{log_key}",
+                'stock_key': f"{stem_key}_{log_key}_{filnamn}",
                 'stam_key': stem_key,
                 'maskin_id': maskin_id,
+                'objekt_id': _stock_objekt_id,
                 'sortiment_id': f"{maskin_id}_{prod_key}" if prod_key else None,
                 'sortiment_namn': product_names.get(prod_key, ''),
                 'langd_cm': langd,
-                'toppdia_ob_mm': toppdia,
+                'toppdia_ob_mm': toppdia_ob,
+                'toppdia_ub_mm': toppdia_ub,
                 'volym_m3sob': volym_sob,
                 'volym_m3sub': volym_sub,
                 'kaporsak': kaporsak,
                 'latitude': stem_lat,
                 'longitude': stem_lon,
-                'filnamn': filnamn
+                'filnamn': filnamn,
             }
             data['stockar'].append(stock_data)
             
@@ -1942,6 +1974,20 @@ def save_hpr_to_supabase(data: Dict) -> bool:
             for i in range(0, len(data['stammar']), batch_size):
                 batch = data['stammar'][i:i+batch_size]
                 upsert_data('detalj_stam', batch, ['maskin_id', 'stam_key'])
+
+        # Körspår till detalj_gps_spar (batcha, ej kritiskt)
+        if data.get('gps_spar'):
+            batch_size = 500
+            for i in range(0, len(data['gps_spar']), batch_size):
+                batch = data['gps_spar'][i:i+batch_size]
+                upsert_data('detalj_gps_spar', batch, ['tracking_key', 'filnamn'])
+
+        # Stockar till detalj_stock (batcha, ej kritiskt)
+        if data.get('stockar'):
+            batch_size = 500
+            for i in range(0, len(data['stockar']), batch_size):
+                batch = data['stockar'][i:i+batch_size]
+                upsert_data('detalj_stock', batch, ['stock_key'])
 
         # Sortiment-summering – KRITISK
         if data.get('sortiment_summering'):
