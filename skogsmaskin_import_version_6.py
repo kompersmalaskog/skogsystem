@@ -780,6 +780,7 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         'stockar': [],
         'sortiment_summering': [],
         'gps_spar': [],
+        'objekt_cert_updates': [],   # [(objekt_id, cert)]
         'filnamn': filnamn,
         'filtyp': 'HPR'
     }
@@ -861,6 +862,10 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             'start_date': start_date,
             'end_date': end_date
         })
+
+        # För UPDATE objekt SET cert = ... WHERE dim_objekt_id = obj_key
+        if certifiering:
+            data['objekt_cert_updates'].append((objekt_id, certifiering))
     
     # === SORTIMENT/PRODUKTER ===
     product_names = {}
@@ -879,12 +884,31 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
                     break
         product_names[prod_key] = prod_name
 
-        data['sortiment'].append({
+        # Price + Color1 (för färgmärkning) från ClassifiedProductDefinition
+        pris = None
+        fargmarkning = None
+        for sub_tag in ['ClassifiedProductDefinition', 'UnclassifiedProductDefinition']:
+            sub = find_element(prod_def, sub_tag, ns)
+            if sub is not None:
+                pris_txt = get_text(sub, 'Price', ns)
+                if pris_txt:
+                    pris = safe_float(pris_txt)
+                color_txt = (get_text(sub, 'Color1', ns) or '').strip().lower()
+                if color_txt in ('true', 'false'):
+                    fargmarkning = color_txt == 'true'
+                break
+
+        sort_row = {
             'sortiment_id': f"{maskin_id}_{prod_key}",
             'product_key': prod_key,
             'namn': prod_name,
-            'maskin_id': maskin_id
-        })
+            'maskin_id': maskin_id,
+        }
+        if pris is not None:
+            sort_row['pris_per_m3'] = pris
+        if fargmarkning is not None:
+            sort_row['fargmarkning'] = fargmarkning
+        data['sortiment'].append(sort_row)
     
     # === TRÄDSLAG ===
     species_names = {}
@@ -966,6 +990,11 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         stump_treat_txt = (get_text(stem, 'StumpTreatment', ns) or
                            get_text(single_tree, 'StumpTreatment', ns) or '').strip().lower()
         stubbbehandling = True if stump_treat_txt == 'true' else (False if stump_treat_txt == 'false' else None)
+
+        # ManualFreeBuck (boolean) — manuell frikap
+        free_buck_txt = (get_text(stem, 'ManualFreeBuck', ns) or
+                         get_text(single_tree, 'ManualFreeBuck', ns) or '').strip().lower()
+        manuell_frikap = True if free_buck_txt == 'true' else (False if free_buck_txt == 'false' else None)
         
         # Tidpunkt - Rottne: HarvestDate på Stem-nivå, Ponsse: ProcessingDate i SingleTree
         processing_date = get_text(single_tree, 'ProcessingDate', ns) or get_text(stem, 'HarvestDate', ns)
@@ -994,6 +1023,7 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             'altitude': stem_alt,
             'stem_grade': stem_grade,
             'stubbbehandling': stubbbehandling,
+            'manuell_frikap': manuell_frikap,
             'tidpunkt': tidpunkt,
             'filnamn': filnamn
         }
@@ -2004,6 +2034,20 @@ def save_hpr_to_supabase(data: Dict) -> bool:
             for i in range(0, len(data['stockar']), batch_size):
                 batch = data['stockar'][i:i+batch_size]
                 upsert_data('detalj_stock', batch, ['stock_key'])
+
+        # UPDATE objekt SET cert via PATCH (bara om cert finns)
+        if data.get('objekt_cert_updates'):
+            for objekt_id, cert in data['objekt_cert_updates']:
+                try:
+                    import urllib.parse
+                    enc = urllib.parse.quote(str(objekt_id))
+                    requests.patch(
+                        f"{SUPABASE_URL}/rest/v1/objekt?dim_objekt_id=eq.{enc}",
+                        headers={**SUPABASE_HEADERS, 'Prefer': 'return=minimal'},
+                        json={'cert': cert}, timeout=10
+                    )
+                except Exception as e:
+                    logger.warning(f"  Kunde inte uppdatera cert för {objekt_id}: {e}")
 
         # Sortiment-summering – KRITISK
         if data.get('sortiment_summering'):
