@@ -2352,11 +2352,13 @@ export default function PlannerPage() {
     const loadHogar = async () => {
       console.log('[HPR] Laddar stammar för objekt', valtObjekt.id);
 
-      // Hämta alla hpr_filer för detta objekt
+      // Hämta senaste (kumulativa) HPR-filen — den med högst stammar_count
       const { data: filer, error: filErr } = await supabase
         .from('hpr_filer')
-        .select('id, fil_datum')
-        .eq('objekt_id', valtObjekt.id);
+        .select('id, fil_datum, stammar_count')
+        .eq('objekt_id', valtObjekt.id)
+        .order('stammar_count', { ascending: false })
+        .limit(1);
 
       if (filErr || !filer || filer.length === 0) {
         console.log('[HPR] Inga HPR-filer för detta objekt');
@@ -2369,31 +2371,28 @@ export default function PlannerPage() {
         return;
       }
 
-      // Hämta stammar i batchar (max 1000 per request) — inkludera bio_energy_adaption
-      const filIds = filer.map(f => f.id);
+      const senasteFil = filer[0];
       const filDatum: Record<string, string> = {};
-      filer.forEach(f => { if (f.fil_datum) filDatum[f.id] = f.fil_datum.slice(0, 10); });
+      if (senasteFil.fil_datum) filDatum[senasteFil.id] = senasteFil.fil_datum.slice(0, 10);
 
+      // Hämta stammar från senaste filen i batchar (max 1000 per request)
       let allStammar: any[] = [];
-      for (const fid of filIds) {
-        let offset = 0;
-        while (true) {
-          const { data, error } = await supabase
-            .from('hpr_stammar')
-            .select('lat, lng, total_volym, tradslag, hpr_fil_id, bio_energy_adaption, sortiment')
-            .eq('hpr_fil_id', fid)
-            .not('lat', 'is', null)
-            .range(offset, offset + 999);
-          if (error || !data || data.length === 0) break;
-          allStammar = allStammar.concat(data);
-          if (data.length < 1000) break;
-          offset += 1000;
-        }
+      let offset = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from('hpr_stammar')
+          .select('lat, lng, total_volym, tradslag, hpr_fil_id, bio_energy_adaption, sortiment')
+          .eq('hpr_fil_id', senasteFil.id)
+          .not('lat', 'is', null)
+          .range(offset, offset + 999);
+        if (error || !data || data.length === 0) break;
+        allStammar = allStammar.concat(data);
+        if (data.length < 1000) break;
+        offset += 1000;
       }
 
-      console.log(`[HPR] objekt_id=${valtObjekt.id}, filer=${filer.length}, fil-ids=[${filIds.join(', ')}]`);
+      console.log(`[HPR] objekt_id=${valtObjekt.id}, senaste fil=${senasteFil.id}, stammar_count=${senasteFil.stammar_count}`);
 
-      // Filtrera bort stammar utan koordinater (dedup ej nödvändig — delete-before-insert ger bara en HPR-fil per objekt)
       const dedupStammar = allStammar.filter(s => s.lat && s.lng);
       console.log(`[HPR] ${dedupStammar.length} stammar med koordinater (av ${allStammar.length} totalt)`);
 
@@ -2717,25 +2716,25 @@ export default function PlannerPage() {
       return '#6b7c3a';
     };
     const load = async () => {
-      const { data: filer } = await supabase.from('hpr_filer').select('id').eq('objekt_id', valtObjekt.id);
+      // Hämta senaste (kumulativa) HPR-filen — den med högst stammar_count
+      const { data: filer } = await supabase.from('hpr_filer').select('id, stammar_count')
+        .eq('objekt_id', valtObjekt.id).order('stammar_count', { ascending: false }).limit(1);
       if (!filer || filer.length === 0) { setKvarData([]); return; }
-      // Hämta alla stammar (dedup ej nödvändig — delete-before-insert ger bara en HPR-fil per objekt)
+      const senasteFil = filer[0];
       let allStammar: { sortiment: string; total_volym: number }[] = [];
-      for (const f of filer) {
-        let offset = 0;
-        while (true) {
-          const { data } = await supabase.from('hpr_stammar')
-            .select('sortiment, total_volym')
-            .eq('hpr_fil_id', f.id)
-            .not('sortiment', 'is', null)
-            .range(offset, offset + 999);
-          if (!data || data.length === 0) break;
-          allStammar = allStammar.concat(data as any);
-          if (data.length < 1000) break;
-          offset += 1000;
-        }
+      let offset = 0;
+      while (true) {
+        const { data } = await supabase.from('hpr_stammar')
+          .select('sortiment, total_volym')
+          .eq('hpr_fil_id', senasteFil.id)
+          .not('sortiment', 'is', null)
+          .range(offset, offset + 999);
+        if (!data || data.length === 0) break;
+        allStammar = allStammar.concat(data as any);
+        if (data.length < 1000) break;
+        offset += 1000;
       }
-      // Summera volym per sortiment (dedup ej nödvändig — delete-before-insert ger bara en HPR-fil per objekt)
+      // Summera volym per sortiment
       const totalPerSort: Record<string, number> = {};
       for (const s of allStammar) {
         if (!s.sortiment) continue;
