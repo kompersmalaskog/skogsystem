@@ -26,7 +26,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
-from collections import defaultdict
+from collections import defaultdict, Counter
 
 # UUID pattern — Rottne machines sometimes put UUIDs instead of operator names
 _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
@@ -946,12 +946,18 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
     # === STAMMAR OCH STOCKAR ===
     sortiment_volymer = defaultdict(lambda: {'stockar': 0, 'volym_m3sob': 0, 'volym_m3sub': 0,
                                               'total_langd': 0, 'total_dia': 0})
-    
+    hpr_stam_nummer = 0
+
     for stem in find_all_elements(machine, 'Stem', ns):
         single_tree = find_element(stem, 'SingleTreeProcessedStem', ns)
         if single_tree is None:
             continue
-        
+
+        hpr_stam_nummer += 1
+
+        # BioEnergyAdaption (GROT)
+        bio_energy = get_text(stem, 'BioEnergyAdaption', ns)
+
         # StemKey och ObjectKey ligger på Stem-nivå i Ponsse-filer
         stem_key = get_text(stem, 'StemKey', ns)
         if not stem_key:
@@ -1028,7 +1034,12 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             'filnamn': filnamn
         }
         data['stammar'].append(stam_data)
-        
+
+        # Per-stam aggregat för hpr_stammar
+        hpr_antal_stockar = 0
+        hpr_total_volym = 0.0
+        hpr_sortiment_list = []
+
         # Stockar från denna stam
         for log in find_all_elements(single_tree, 'Log', ns):
             log_key = get_text(log, 'LogKey', ns)
@@ -1094,7 +1105,14 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
                 'filnamn': filnamn,
             }
             data['stockar'].append(stock_data)
-            
+
+            # Aggregera för hpr_stammar
+            hpr_antal_stockar += 1
+            hpr_total_volym += volym_sub
+            prod_namn = product_names.get(prod_key, '')
+            if prod_namn:
+                hpr_sortiment_list.append(prod_namn)
+
             # Summera per sortiment - hoppa om obj_key saknas i kartan
             _objekt_id = obj_key_map.get(obj_key) if obj_key else None
             if not _objekt_id:
@@ -1105,7 +1123,22 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             sortiment_volymer[sort_key]['volym_m3sub'] += volym_sub
             sortiment_volymer[sort_key]['total_langd'] += langd
             sortiment_volymer[sort_key]['total_dia'] += toppdia
-    
+
+        # Lägg till hpr_stammar-fält i stam_data (efter log-loopen)
+        tradslag_namn = species_names.get(sp_key, sp_key or '')
+        hpr_sortiment = None
+        if hpr_sortiment_list:
+            dominant_group = Counter(hpr_sortiment_list).most_common(1)[0][0]
+            if dominant_group:
+                ts_cap = tradslag_namn.capitalize() if tradslag_namn else ''
+                hpr_sortiment = f"{ts_cap} {dominant_group}".strip() or None
+        stam_data['hpr_stam_nummer'] = hpr_stam_nummer
+        stam_data['hpr_tradslag_namn'] = tradslag_namn
+        stam_data['hpr_antal_stockar'] = hpr_antal_stockar
+        stam_data['hpr_total_volym'] = round(hpr_total_volym, 6) if hpr_total_volym > 0 else None
+        stam_data['hpr_bio_energy_adaption'] = bio_energy if bio_energy else None
+        stam_data['hpr_sortiment'] = hpr_sortiment
+
     # Konvertera sortiment-summering - hoppa over rader med null objekt_id
     for key, values in sortiment_volymer.items():
         datum, maskin, objekt, sortiment = key
@@ -2004,6 +2037,111 @@ def save_mom_to_supabase(data: Dict) -> bool:
         logger.error(f"  Fel vid sparande av MOM: {e}")
         return False
 
+def _fetch_objekt_uuid_map() -> Dict[str, str]:
+    """Hämta mapping vo_nummer → objekt.id (uuid) från objekt-tabellen."""
+    url = f"{SUPABASE_URL}/rest/v1/objekt?select=id,vo_nummer&vo_nummer=not.is.null"
+    headers = {**SUPABASE_HEADERS, 'Prefer': 'return=representation'}
+    resp = requests.get(url, headers=headers, timeout=30)
+    if resp.status_code != 200:
+        return {}
+    return {r['vo_nummer']: r['id'] for r in resp.json() if r.get('vo_nummer')}
+
+
+def _save_hpr_tables(data: Dict):
+    """Spara HPR-data till hpr_filer och hpr_stammar tabellerna."""
+    filnamn = data.get('filnamn', '')
+    maskin_id = data.get('maskin', {}).get('maskin_id', '')
+    stammar = data.get('stammar', [])
+    if not stammar or not filnamn:
+        return
+
+    # Hämta objekt UUID-mapping
+    objekt_map = _fetch_objekt_uuid_map()
+
+    # Bestäm objekt_id (uuid) via vo_nummer från objekt-listan
+    objekt_uuid = None
+    for obj in data.get('objekt', []):
+        vo = obj.get('vo_nummer', '')
+        if vo and vo in objekt_map:
+            objekt_uuid = objekt_map[vo]
+            break
+
+    # Beräkna stammar med koordinater
+    stammar_med_koordinat = sum(1 for s in stammar if s.get('latitude') and s.get('longitude'))
+
+    # Upsert hpr_filer
+    fil_row = {
+        'filnamn': filnamn,
+        'stammar_count': len(stammar),
+        'has_coordinates': stammar_med_koordinat > 0,
+        'stammar_med_koordinat': stammar_med_koordinat,
+    }
+    if objekt_uuid:
+        fil_row['objekt_id'] = objekt_uuid
+
+    # Fil-datum från äldsta stam-tidpunkt
+    earliest = None
+    for s in stammar:
+        t = s.get('tidpunkt')
+        if t and (earliest is None or t < earliest):
+            earliest = t
+    if earliest:
+        fil_row['fil_datum'] = earliest.isoformat() if hasattr(earliest, 'isoformat') else str(earliest)
+
+    headers_repr = {**SUPABASE_HEADERS, 'Prefer': 'resolution=merge-duplicates,return=representation'}
+    resp = requests.post(
+        f"{SUPABASE_URL}/rest/v1/hpr_filer?on_conflict=filnamn",
+        json=fil_row,
+        headers=headers_repr,
+        timeout=30
+    )
+    if resp.status_code not in [200, 201]:
+        logger.warning(f"  hpr_filer upsert misslyckades: {resp.status_code} {resp.text}")
+        return
+
+    fil_data = resp.json()
+    if isinstance(fil_data, list):
+        fil_data = fil_data[0]
+    hpr_fil_id = fil_data['id']
+
+    # Insert hpr_stammar med ON CONFLICT DO NOTHING
+    batch_size = 500
+    for i in range(0, len(stammar), batch_size):
+        batch = stammar[i:i + batch_size]
+        rows = []
+        for s in batch:
+            row = {
+                'hpr_fil_id': hpr_fil_id,
+                'stam_nummer': s.get('hpr_stam_nummer'),
+                'tradslag': s.get('hpr_tradslag_namn'),
+            }
+            if s.get('dbh_mm') is not None:
+                row['dbh'] = s['dbh_mm']
+            if s.get('latitude'):
+                row['lat'] = s['latitude']
+            if s.get('longitude'):
+                row['lng'] = s['longitude']
+            if s.get('hpr_antal_stockar'):
+                row['antal_stockar'] = s['hpr_antal_stockar']
+            if s.get('hpr_total_volym') is not None:
+                row['total_volym'] = s['hpr_total_volym']
+            row['bio_energy_adaption'] = s.get('hpr_bio_energy_adaption')
+            row['sortiment'] = s.get('hpr_sortiment')
+            rows.append(row)
+
+        headers_ignore = {**SUPABASE_HEADERS, 'Prefer': 'resolution=ignore-duplicates'}
+        resp = requests.post(
+            f"{SUPABASE_URL}/rest/v1/hpr_stammar?on_conflict=hpr_fil_id,stam_nummer",
+            json=rows,
+            headers=headers_ignore,
+            timeout=60
+        )
+        if resp.status_code not in [200, 201]:
+            logger.warning(f"  hpr_stammar insert batch {i} misslyckades: {resp.status_code} {resp.text}")
+
+    logger.info(f"  hpr_filer + hpr_stammar: {len(stammar)} stammar sparade")
+
+
 def save_hpr_to_supabase(data: Dict) -> bool:
     """Spara HPR-data till Supabase"""
     try:
@@ -2035,9 +2173,13 @@ def save_hpr_to_supabase(data: Dict) -> bool:
 
         # Stammar (batcha, ej kritiskt att stoppa vid fel)
         if data.get('stammar'):
+            # Filtrera bort hpr_*-fält som inte finns i detalj_stam
+            hpr_keys = {'hpr_stam_nummer', 'hpr_tradslag_namn', 'hpr_antal_stockar',
+                        'hpr_total_volym', 'hpr_bio_energy_adaption', 'hpr_sortiment'}
+            clean_stammar = [{k: v for k, v in s.items() if k not in hpr_keys} for s in data['stammar']]
             batch_size = 500
-            for i in range(0, len(data['stammar']), batch_size):
-                batch = data['stammar'][i:i+batch_size]
+            for i in range(0, len(clean_stammar), batch_size):
+                batch = clean_stammar[i:i+batch_size]
                 upsert_data('detalj_stam', batch, ['maskin_id', 'stam_key'])
 
         # Körspår till detalj_gps_spar (batcha, ej kritiskt)
@@ -2073,6 +2215,10 @@ def save_hpr_to_supabase(data: Dict) -> bool:
             if upsert_data('fakt_sortiment', data['sortiment_summering'],
                           ['datum', 'maskin_id', 'objekt_id', 'sortiment_id']) == 0:
                 fel.append('fakt_sortiment')
+
+        # === HPR-filer och HPR-stammar ===
+        if data.get('stammar'):
+            _save_hpr_tables(data)
 
         if fel:
             logger.error(f"  ✗ Misslyckades spara till: {', '.join(fel)}")
