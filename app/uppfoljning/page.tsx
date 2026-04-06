@@ -803,18 +803,27 @@ export default function UppfoljningPage() {
         const typ = inferType(firstEntry.huvudtyp || info?.typ);
 
         let skVol = 0, skStammar = 0;
+        const seenSkObjIds = new Set<string>();
         for (const e of skordareEntries) {
+          if (seenSkObjIds.has(e.objekt_id)) continue;
+          seenSkObjIds.add(e.objekt_id);
           const p = prodAgg.get(e.objekt_id);
           if (p) { skVol += p.vol; skStammar += p.stammar; }
         }
 
         let stVol = 0, stCount = 0;
+        const seenStObjIds = new Set<string>();
         for (const e of skotareEntries) {
+          if (seenStObjIds.has(e.objekt_id)) continue;
+          seenStObjIds.add(e.objekt_id);
           const l = lassAgg.get(e.objekt_id);
           if (l) { stVol += l.vol; stCount += l.count; }
         }
         if (stCount === 0 && skotareEntry) {
+          const seenFb = new Set<string>();
           for (const e of skordareEntries) {
+            if (seenFb.has(e.objekt_id)) continue;
+            seenFb.add(e.objekt_id);
             const l = lassAgg.get(e.objekt_id);
             if (l) { stVol += l.vol; stCount += l.count; }
           }
