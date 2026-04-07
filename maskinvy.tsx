@@ -1417,7 +1417,7 @@ export default function Maskinvy() {
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate),
         supabase.from('dim_operator').select('operator_id, operator_key, operator_namn, maskin_id').in('maskin_id', maskinIds),
-        supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer, bolag, inkopare, avverkningsform, certifiering, timpeng, atgard'),
+        supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, bolag, inkopare, avverkningsform, certifiering, timpeng, atgard'),
         supabase.from('fakt_skift')
           .select('datum, inloggning_tid, utloggning_tid')
           .in('maskin_id', maskinIds)
@@ -1734,7 +1734,7 @@ export default function Maskinvy() {
         const objInfo = objekter.find((o: any) => String(o.objekt_id) === String(oid));
         return {
           objekt_id: oid,
-          namn: objInfo?.objekt_namn || `Objekt ${oid}`,
+          namn: objInfo?.object_name || `Objekt ${oid}`,
           vo_nummer: objInfo?.vo_nummer || '',
           volym: pAgg.vol, stammar: pAgg.st, g15h,
           prod: g15h > 0 ? pAgg.vol / g15h : 0,
@@ -1775,7 +1775,7 @@ export default function Maskinvy() {
           const objInfo = dayProdRow?.objekt_id ? objekter.find((o: any) => String(o.objekt_id) === String(dayProdRow.objekt_id)) : null;
           dagData[dayNum] = {
             typ: 1, forare: opInfo?.operator_namn || '–',
-            objekt: objInfo?.objekt_namn || '–',
+            objekt: objInfo?.object_name || '–',
             start: skiftByDay[dateStr]?.start || '–', slut: skiftByDay[dateStr]?.slut || '–',
             vol: Math.round(pDay.vol), stammar: Math.round(pDay.st),
             g15: parseFloat(g15h.toFixed(1)),
@@ -1946,7 +1946,7 @@ export default function Maskinvy() {
           const avvForm = (o.avverkningsform || '').toLowerCase();
           const typ = avvForm.includes('gallring') ? 'Gallring' : 'Slutavverkning';
           iEntry.objekt.push({
-            namn: o.objekt_namn || o.vo_nummer || o.objekt_id,
+            namn: o.object_name || o.vo_nummer || o.objekt_id,
             nr: o.vo_nummer ? `VO ${o.vo_nummer}` : '',
             typ,
             volym: Math.round(pObj.vol),
@@ -1986,7 +1986,7 @@ export default function Maskinvy() {
         a.volym += pObj.vol;
         a.stammar += pObj.st;
         a.g15sek += oG15;
-        a.objekt.push({ namn: o.objekt_namn || o.vo_nummer || '', volym: Math.round(pObj.vol), stammar: Math.round(pObj.st), g15sek: oG15 });
+        a.objekt.push({ namn: o.object_name || o.vo_nummer || '', volym: Math.round(pObj.vol), stammar: Math.round(pObj.st), g15sek: oG15 });
       }
       const objTypList: DbData['objTypList'] = [];
       atgardMap.forEach((a) => {
@@ -2018,7 +2018,7 @@ export default function Maskinvy() {
         timpengGroups[grp].volym += pObj.vol;
         timpengGroups[grp].stammar += pObj.st;
         timpengGroups[grp].g15sek += oG15;
-        timpengGroups[grp].objekt.push({ namn: o.objekt_namn || o.vo_nummer || '', volym: Math.round(pObj.vol), stammar: Math.round(pObj.st), g15sek: oG15 });
+        timpengGroups[grp].objekt.push({ namn: o.object_name || o.vo_nummer || '', volym: Math.round(pObj.vol), stammar: Math.round(pObj.st), g15sek: oG15 });
       }
       const timpengData: DbData['timpengData'] = Object.entries(timpengGroups)
         .filter(([, g]) => g.volym > 0)
