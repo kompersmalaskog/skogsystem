@@ -27,6 +27,7 @@ type DbData = {
   dailyVol: number[];
   dailySt: number[];
   days: string[];
+  dailyDates: string[];  // full ISO dates for weekend detection
   totalVolym: number;
   totalStammar: number;
   g15Timmar: number;
@@ -189,6 +190,59 @@ setTimeout(()=>{
 const dailyVol = _db.dailyVol || [];
 const dailySt  = _db.dailySt || [];
 const days = _db.days || [];
+const dailyDates = _db.dailyDates || [];
+
+// Detect weekends from ISO date strings
+var isWeekend = dailyDates.map(function(ds) {
+  var d = new Date(ds + 'T12:00:00');
+  var dow = d.getDay();
+  return dow === 0 || dow === 6;
+});
+
+// Average of non-zero days
+var nonZeroVols = dailyVol.filter(function(v){return v>0;});
+var avgVol = nonZeroVols.length > 0 ? Math.round(nonZeroVols.reduce(function(a,b){return a+b;},0) / nonZeroVols.length) : 0;
+
+// Weekend background plugin
+var weekendBgPlugin = {
+  id: 'weekendBg',
+  beforeDraw: function(chart) {
+    var ctx = chart.ctx;
+    var xAxis = chart.scales.x;
+    var yAxis = chart.scales.y;
+    ctx.save();
+    for (var i = 0; i < isWeekend.length; i++) {
+      if (!isWeekend[i]) continue;
+      var x = xAxis.getPixelForValue(i);
+      var halfBar = (xAxis.getPixelForValue(1) - xAxis.getPixelForValue(0)) / 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx.fillRect(x - halfBar, yAxis.top, halfBar * 2, yAxis.bottom - yAxis.top);
+    }
+    ctx.restore();
+  }
+};
+
+// Datalabels plugin (volume on top of bars)
+var barLabelPlugin = {
+  id: 'barLabels',
+  afterDatasetsDraw: function(chart) {
+    var ctx = chart.ctx;
+    var meta = chart.getDatasetMeta(0);
+    ctx.save();
+    ctx.font = '500 9px Geist, system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(232,232,228,0.55)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    for (var i = 0; i < meta.data.length; i++) {
+      var val = dailyVol[i];
+      if (val > 0) {
+        var bar = meta.data[i];
+        ctx.fillText(val.toString(), bar.x, bar.y - 3);
+      }
+    }
+    ctx.restore();
+  }
+};
 
 var dailyEl = document.getElementById('dailyChart');
 console.log('[Maskinvy Script] dailyChart element:', !!dailyEl, 'dailyVol:', dailyVol?.slice(0,5));
@@ -196,21 +250,52 @@ if(!dailyEl){console.warn('[Maskinvy] dailyChart canvas not found');}
 else { new Chart(dailyEl,{
   type:'bar',
   data:{labels:days,datasets:[
-    {label:'m³/dag',data:dailyVol,backgroundColor:dailyVol.map(v=>v===0?'rgba(255,255,255,0.04)':'rgba(90,255,140,0.5)'),borderRadius:3,yAxisID:'y',order:1},
-    {label:'Stammar',data:dailySt,type:'line',borderColor:'rgba(91,143,255,0.6)',backgroundColor:'rgba(91,143,255,0.05)',pointBackgroundColor:dailySt.map(v=>v>0?'#5b8fff':'transparent'),pointRadius:dailySt.map(v=>v>0?3:0),tension:0.3,yAxisID:'y2',order:0,spanGaps:false}
+    {label:'m³/dag',data:dailyVol,backgroundColor:dailyVol.map(function(v,i){return v===0?(isWeekend[i]?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.04)'):'rgba(76,175,80,0.65)'}),borderRadius:4,barPercentage:0.85,categoryPercentage:0.9,yAxisID:'y',order:1},
+    {label:'Snitt: '+avgVol+' m³',data:new Array(dailyVol.length).fill(avgVol),type:'line',borderColor:'rgba(232,232,228,0.25)',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false,yAxisID:'y',order:0}
   ]},
+  plugins:[weekendBgPlugin,barLabelPlugin],
   options:{
     responsive:true,
     interaction:{mode:'index',intersect:false},
-    plugins:{legend:{display:false},tooltip},
-    scales:{x:{grid,ticks:{...ticks,font:{size:10}}},y:{grid,ticks,title:{display:true,text:'m³',color:'#7a7a72',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5b8fff'},title:{display:true,text:'Stammar',color:'#5b8fff',font:{size:10}}}},
+    plugins:{legend:{display:true,labels:{font:{family:'Geist',size:11},boxWidth:12,padding:12,color:'#7a7a72',filter:function(item){return item.datasetIndex===1;}}},
+      tooltip:{
+        backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#c8c8c4',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:12,
+        filter:function(item){return item.datasetIndex===0;},
+        callbacks:{
+          title:function(items){
+            var idx=items[0].dataIndex;
+            var ds=dailyDates[idx]||'';
+            var dObj=new Date(ds+'T12:00:00');
+            var vd=['Sön','Mån','Tis','Ons','Tor','Fre','Lör'];
+            return vd[dObj.getDay()]+' '+days[idx];
+          },
+          label:function(ctx){
+            var idx=ctx.dataIndex;
+            var d=dagData[idx+1];
+            var lines=[];
+            lines.push('Volym: '+dailyVol[idx]+' m\\u00b3');
+            lines.push('Stammar: '+(dailySt[idx]||0).toLocaleString('sv'));
+            if(d&&d.forare) lines.push('Operatör: '+d.forare);
+            return lines;
+          }
+        }
+      }
+    },
+    scales:{
+      x:{grid,ticks:{...ticks,font:{size:10},callback:function(val,idx){
+        if(isWeekend[idx]) return '\\u25AA '+days[idx];
+        return days[idx];
+      }}},
+      y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}},
+        suggestedMax: Math.max.apply(null,dailyVol)*1.15}
+    },
     onClick:(e,els)=>{
-      if(!els.length) return;
+      if(!els.length||els[0].datasetIndex!==0) return;
       const dag = els[0].index + 1;
       if(dagData[dag]) openDag(dag);
     },
     onHover:(e,els)=>{
-      e.native.target.style.cursor = els.length && dagData[els[0].index+1] ? 'pointer' : 'default';
+      e.native.target.style.cursor = els.length && els[0].datasetIndex===0 && dagData[els[0].index+1] ? 'pointer' : 'default';
     }
   }
 }); }
@@ -1264,6 +1349,7 @@ export default function Maskinvy() {
           dailyVol: new Array(totalDays).fill(0),
           dailySt: new Array(totalDays).fill(0),
           days: emptyDays,
+          dailyDates: emptyDays,
           totalVolym: 0, totalStammar: 0, g15Timmar: 0,
           produktivitet: 0, medelstam: 0,
           processingSek: 0, terrainSek: 0, kortStoppSek: 0,
@@ -1367,6 +1453,7 @@ export default function Maskinvy() {
       const dailyVol: number[] = [];
       const dailySt: number[] = [];
       const dayLabels: string[] = [];
+      const dailyDates: string[] = [];
       for (let i = 0; i < totalDays; i++) {
         const d = new Date(sDate); d.setDate(d.getDate() + i);
         const dateStr = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -1374,6 +1461,7 @@ export default function Maskinvy() {
         dailyVol.push(p ? Math.round(p.vol) : 0);
         dailySt.push(p ? Math.round(p.st) : 0);
         dayLabels.push(`${d.getDate()}/${d.getMonth() + 1}`);
+        dailyDates.push(dateStr);
       }
 
       // ── KPI totals (from pre-aggregated data) ──
@@ -1748,6 +1836,7 @@ export default function Maskinvy() {
         dailyVol,
         dailySt,
         days: dayLabels,
+        dailyDates,
         totalVolym: Math.round(totalVolym),
         totalStammar: Math.round(totalStammar),
         g15Timmar: Math.round(g15Timmar),
