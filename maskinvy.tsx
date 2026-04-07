@@ -464,22 +464,13 @@ if (prodSummaryEl && classes.length > 0) {
     + '<span style="color:var(--muted);font-size:11px;margin-left:20px;">Mest volym: <strong style="color:var(--text)">'+classes[mostVolIdx]+' · '+volym[mostVolIdx].toLocaleString('sv')+' m\\u00b3</strong></span>';
 }
 
-// Stammar/G15h per medelstamsklass
-var stg15El = document.getElementById('stg15Chart');
-if (stg15El && classes.length > 0) {
-  new Chart(stg15El, {
-    type:'bar',
-    data:{labels:classes,datasets:[
-      {label:'st/G15h',data:stg15,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
-    ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Stammar/G15h: '+stg15[idx],'Stammar totalt: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'st/G15h',color:'#7a7a72',font:{size:10}}}}}
-  });
-}
-var stg15SummaryEl = document.getElementById('stg15Summary');
-if (stg15SummaryEl && classes.length > 0) {
-  var bestStIdx = 0;
-  for (var si=1;si<stg15.length;si++) { if(stg15[si]>stg15[bestStIdx]) bestStIdx=si; }
-  stg15SummaryEl.innerHTML = '<span style="color:var(--muted);font-size:11px;">Flest stammar/h: <strong style="color:var(--text)">'+classes[bestStIdx]+' · '+stg15[bestStIdx]+' st/G15h</strong></span>';
+// Stammar/G15h KPI-kort (totalt, ej per klass)
+var stg15KpiEl = document.getElementById('stg15Kpi');
+if (stg15KpiEl) {
+  var _totalSt = _db.totalStammar || 0;
+  var _totalG15 = _db.g15Timmar || 0;
+  var snittStG15 = _totalG15 > 0 ? Math.round(_totalSt / _totalG15) : 0;
+  stg15KpiEl.innerHTML = '<div class="fkpi"><div class="fkpi-v">'+snittStG15+'</div><div class="fkpi-l">Snitt stammar / G15h</div></div>';
 }
 
 // Populate diesel KPI cards
@@ -3552,9 +3543,9 @@ body {
         <canvas id="prodChart" style="max-height:175px"></canvas>
         <div style="margin-top:10px;" id="prodSummary"></div>
         <div class="cdiv"></div>
-        <div class="cleg">Stammar/G15h per medelstamsklass</div>
-        <canvas id="stg15Chart" style="max-height:175px"></canvas>
-        <div style="margin-top:10px;" id="stg15Summary"></div>
+        <div class="forar-kpis" id="stg15Kpi" style="justify-content:center;">
+          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Snitt stammar / G15h</div></div>
+        </div>
       </div>
     </div>
   </div>
