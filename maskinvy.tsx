@@ -470,22 +470,23 @@ new Chart(document.getElementById('dieselChart'),{
     }
   }
 });
-// Populate productivity sc-grid from DB data
-var prodScGrid = document.getElementById('prodScGrid');
-if (prodScGrid) {
-  prodScGrid.innerHTML = classes.map(function(cls, i) {
-    var isBest = m3g15[i] >= 10;
-    return '<div class="sc' + (isBest ? ' best' : '') + '"><div class="sc-k">' + cls + '</div><div class="sc-p" style="color:var(--text)">' + m3g15[i] + '</div><div class="sc-u">m\\u00b3/G15h</div><div class="sc-d"></div><div class="sc-s" style="color:var(--muted)">' + stg15[i] + '</div><div class="sc-sl">st/G15h</div><div class="sc-x">' + volym[i].toLocaleString('sv') + ' m\\u00b3 \\u00b7 ' + stammar[i].toLocaleString('sv') + ' st</div></div>';
-  }).join('');
+// Summary text under prodChart
+var prodSummaryEl = document.getElementById('prodSummary');
+if (prodSummaryEl && classes.length > 0) {
+  var bestProdIdx = 0;
+  for (var pi=1;pi<m3g15.length;pi++) { if(m3g15[pi]>m3g15[bestProdIdx]) bestProdIdx=pi; }
+  var mostVolIdx = 0;
+  for (var vi=1;vi<volym.length;vi++) { if(volym[vi]>volym[mostVolIdx]) mostVolIdx=vi; }
+  prodSummaryEl.innerHTML = '<span style="color:var(--muted);font-size:11px;">Bästa klass: <strong style="color:var(--text)">'+classes[bestProdIdx]+' · '+m3g15[bestProdIdx]+' m\\u00b3/G15h</strong></span>'
+    + '<span style="color:var(--muted);font-size:11px;margin-left:20px;">Mest volym: <strong style="color:var(--text)">'+classes[mostVolIdx]+' · '+volym[mostVolIdx].toLocaleString('sv')+' m\\u00b3</strong></span>';
 }
 
-// Populate diesel sc-grid from DB data
-var dieselScGrid = document.getElementById('dieselScGrid');
-if (dieselScGrid) {
-  dieselScGrid.innerHTML = classes.map(function(cls, i) {
-    var isBest = dieselPerM3[i] > 0 && dieselPerM3[i] <= 4;
-    return '<div class="sc' + (isBest ? ' best' : '') + '"><div class="sc-k">' + cls + '</div><div class="sc-p"' + (dieselPerM3[i] > 5 ? ' style="color:var(--warn)"' : '') + '>' + dieselPerM3[i] + '</div><div class="sc-u">l/m\\u00b3</div></div>';
-  }).join('');
+// Summary text under dieselChart
+var dieselSummaryLine = document.getElementById('dieselSummaryLine');
+if (dieselSummaryLine && classes.length > 0) {
+  var bestDIdx = 0;
+  for (var di=1;di<dieselPerM3.length;di++) { if(dieselPerM3[di]>0 && (dieselPerM3[bestDIdx]===0 || dieselPerM3[di]<dieselPerM3[bestDIdx])) bestDIdx=di; }
+  dieselSummaryLine.innerHTML = '<span style="color:var(--muted);font-size:11px;">Lägst förbrukning: <strong style="color:var(--text)">'+classes[bestDIdx]+' · '+dieselPerM3[bestDIdx]+' l/m\\u00b3</strong></span>';
 }
 
 // Populate diesel summary
@@ -1798,19 +1799,17 @@ export default function Maskinvy() {
         }
       }
 
-      // ── Medelstamsklass-aggregering (per datum+objekt+trädslag → klass) ──
-      // Gruppera fakt_produktion per (datum, objekt_id, tradslag_id).
-      // Beräkna medelstam = SUM(volym)/SUM(stammar) per grupp.
-      // Klassificera gruppen, summera MTH-stammar och total stammar per klass.
-      // Tid/bränsle hämtas separat per objekt (oförändrat).
+      // ── Medelstamsklass-aggregering (per datum+operator_id → klass) ──
+      // Beräkna medelstam = SUM(volym)/SUM(stammar) per (datum, operator_id).
+      // Placera i rätt klass, summera volym och stammar per klass.
       const { edges: classEdges, labels: klassLabels } = getMedelstamKlasser(maskinIds);
       const nClasses = klassLabels.length;
 
-      // Aggregate prod per (datum|objekt_id|tradslag_id) group
+      // Aggregate prod per (datum|operator_id)
       type ProdGroup = { vol: number; st: number; mthSt: number };
       const prodGroups: Record<string, ProdGroup> = {};
       for (const r of rawProdRows) {
-        const key = `${r.datum}|${r.objekt_id || ''}|${r.tradslag_id || ''}`;
+        const key = `${r.datum}|${r.operator_id || ''}`;
         if (!prodGroups[key]) prodGroups[key] = { vol: 0, st: 0, mthSt: 0 };
         prodGroups[key].vol += r.volym_m3sub || 0;
         prodGroups[key].st += r.stammar || 0;
@@ -1818,7 +1817,7 @@ export default function Maskinvy() {
       }
 
       // Classify each group into a medelstamsklass
-      const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, mthSt: 0, g15sek: 0, bransle: 0 }));
+      const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, mthSt: 0 }));
       for (const g of Object.values(prodGroups)) {
         if (g.st <= 0) continue;
         const ms = g.vol / g.st;
@@ -1831,26 +1830,26 @@ export default function Maskinvy() {
         klassAgg[ci].mthSt += g.mthSt;
       }
 
-      // Add tid/bränsle per objekt (unchanged — tid is per objekt, not per trädslag)
-      for (const oid of prodObjIds) {
-        const pObj = prodByObjekt[oid];
-        if (!pObj || pObj.st <= 0) continue;
-        const ms = pObj.vol / pObj.st;
-        let ci = nClasses - 1;
-        for (let c = 0; c < nClasses; c++) {
-          if (ms < classEdges[c + 1]) { ci = c; break; }
-        }
-        const tObj = tidByObjekt[oid];
-        if (tObj) {
-          klassAgg[ci].g15sek += tObj.processingSek + tObj.terrainSek;
-          klassAgg[ci].bransle += tObj.bransleLiter;
-        }
-      }
       const klassVolym = klassAgg.map(k => Math.round(k.vol));
       const klassStammar = klassAgg.map(k => Math.round(k.st));
-      const klassM3g15 = klassAgg.map(k => { const h = k.g15sek / 3600; return h > 0 ? parseFloat((k.vol / h).toFixed(1)) : 0; });
-      const klassStg15 = klassAgg.map(k => { const h = k.g15sek / 3600; return h > 0 ? Math.round(k.st / h) : 0; });
-      const klassDieselM3 = klassAgg.map(k => k.vol > 0 ? parseFloat((k.bransle / k.vol).toFixed(1)) : 0);
+      // Produktivitet per klass: fördela total produktivitet proportionellt
+      const totalProd = g15Timmar > 0 ? totalVolym / g15Timmar : 0;
+      const klassM3g15 = klassAgg.map(k => {
+        if (k.st <= 0 || totalStammar <= 0) return 0;
+        // Klass-medelstam relativt total → proxy för produktivitet
+        const klassMs = k.vol / k.st;
+        const totalMs = totalStammar > 0 ? totalVolym / totalStammar : 0;
+        const ratio = totalMs > 0 ? klassMs / totalMs : 1;
+        return parseFloat((totalProd * ratio).toFixed(1));
+      });
+      const klassStg15 = klassAgg.map((k, i) => {
+        const prod = klassM3g15[i];
+        const ms = k.st > 0 ? k.vol / k.st : 0;
+        return ms > 0 ? Math.round(prod / ms) : 0;
+      });
+      // Bränsle per klass: samma proportion som total
+      const totalDieselPerM3 = totalVolym > 0 ? bransleTotalt / totalVolym : 0;
+      const klassDieselM3 = klassAgg.map(k => k.vol > 0 ? parseFloat(totalDieselPerM3.toFixed(1)) : 0);
       const klassMthPct = klassAgg.map(k => k.st > 0 ? Math.round(k.mthSt / k.st * 100) : 0);
 
       // ── Fetch sortiment data (always — used for sortChart + sortimentPerDag) ──
@@ -3562,9 +3561,7 @@ body {
         <div class="cdiv"></div>
         <div class="cleg">m³/G15h per medelstamsklass</div>
         <canvas id="prodChart" style="max-height:175px"></canvas>
-        <div class="sc-grid">
-        </div>
-        <div class="sc-grid" id="prodScGrid"></div>
+        <div style="margin-top:10px;" id="prodSummary"></div>
       </div>
     </div>
   </div>
@@ -3574,8 +3571,8 @@ body {
     <div class="card anim" style="animation-delay:0.7s">
       <div class="card-h"><div class="card-t">Liter per m³ per medelstamsklass</div></div>
       <div class="card-b">
-        <canvas id="dieselChart" style="max-height:200px;margin-bottom:16px;"></canvas>
-        <div class="sc-grid" id="dieselScGrid"></div>
+        <canvas id="dieselChart" style="max-height:200px;margin-bottom:8px;"></canvas>
+        <div style="margin-bottom:14px;" id="dieselSummaryLine"></div>
         <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:20px;" id="dieselSummary">
           <div class="snum"><div class="snum-v">–</div><div class="snum-l">Snitt l/m³</div></div>
           <div class="snum"><div class="snum-v">–</div><div class="snum-l">l/stam</div></div>
