@@ -464,6 +464,24 @@ if (prodSummaryEl && classes.length > 0) {
     + '<span style="color:var(--muted);font-size:11px;margin-left:20px;">Mest volym: <strong style="color:var(--text)">'+classes[mostVolIdx]+' · '+volym[mostVolIdx].toLocaleString('sv')+' m\\u00b3</strong></span>';
 }
 
+// Stammar/G15h per medelstamsklass
+var stg15ChartEl = document.getElementById('stg15Chart');
+if (stg15ChartEl && classes.length > 0) {
+  new Chart(stg15ChartEl, {
+    type:'bar',
+    data:{labels:classes,datasets:[
+      {label:'st/G15h',data:stg15,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
+    ]},
+    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['st/G15h: '+stg15[idx],'Stammar totalt: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'st/G15h',color:'#7a7a72',font:{size:10}}}}}
+  });
+}
+var stg15SumEl = document.getElementById('stg15Summary');
+if (stg15SumEl && classes.length > 0) {
+  var bestStIdx = 0;
+  for (var si=1;si<stg15.length;si++) { if(stg15[si]>stg15[bestStIdx]) bestStIdx=si; }
+  stg15SumEl.innerHTML = '<span style="color:var(--muted);font-size:11px;">Flest stammar/h: <strong style="color:var(--text)">'+classes[bestStIdx]+' · '+stg15[bestStIdx]+' st/G15h</strong></span>';
+}
+
 // Populate diesel KPI cards
 var dieselKpiEl = document.getElementById('dieselKpis');
 if (dieselKpiEl) {
@@ -3544,6 +3562,10 @@ body {
         <div class="cleg">m³/G15h per medelstamsklass</div>
         <canvas id="prodChart" style="max-height:175px"></canvas>
         <div style="margin-top:10px;" id="prodSummary"></div>
+        <div class="cdiv"></div>
+        <div class="cleg">Stammar/G15h per medelstamsklass</div>
+        <canvas id="stg15Chart" style="max-height:175px"></canvas>
+        <div style="margin-top:10px;" id="stg15Summary"></div>
       </div>
     </div>
   </div>
