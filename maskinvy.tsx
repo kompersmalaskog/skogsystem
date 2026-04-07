@@ -273,14 +273,14 @@ if(!dailyEl){console.warn('[Maskinvy] dailyChart canvas not found');}
 else { new Chart(dailyEl,{
   type:'bar',
   data:{labels:days,datasets:[
-    {label:'m³/dag',data:dailyVol,backgroundColor:dailyVol.map(function(v,i){return v===0?(isWeekend[i]?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.04)'):'rgba(76,175,80,0.65)'}),borderRadius:4,barPercentage:0.85,categoryPercentage:0.9,yAxisID:'y',order:1},
-    {label:'Snitt: '+avgVol+' m³',data:new Array(dailyVol.length).fill(avgVol),type:'line',borderColor:'rgba(232,232,228,0.25)',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false,yAxisID:'y',order:0}
+    {label:'m³/dag',data:dailyVol,backgroundColor:dailyVol.map(function(v,i){return v===0?(isWeekend[i]?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.04)'):(isWeekend[i]?'rgba(90,255,140,0.25)':'rgba(76,175,80,0.65)')}),borderRadius:6,barPercentage:0.85,categoryPercentage:0.9,order:1},
+    {label:'Snitt: '+avgVol+' m³',data:new Array(dailyVol.length).fill(avgVol),type:'line',borderColor:'rgba(90,255,140,0.3)',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false,order:0}
   ]},
   plugins:[weekendBgPlugin,barLabelPlugin],
   options:{
     responsive:true,
     interaction:{mode:'index',intersect:false},
-    plugins:{legend:{display:true,labels:{font:{family:'Geist',size:11},boxWidth:12,padding:12,color:'#7a7a72',filter:function(item){return item.datasetIndex===1;}}},
+    plugins:{legend:{display:false},
       tooltip:{
         backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#c8c8c4',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:12,
         filter:function(item){return item.datasetIndex===0;},
@@ -427,7 +427,7 @@ if (_db.hasMth === false) {
 new Chart(document.getElementById('totalChart'),{
   type:'bar',
   data:{labels:classes,datasets:[
-    {label:'Volym m³',data:volym,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:4}
+    {label:'Volym m³',data:volym,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
   ]},
   options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Volym: '+volym[idx].toLocaleString('sv')+' m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
 });
@@ -436,7 +436,7 @@ new Chart(document.getElementById('totalChart'),{
 new Chart(document.getElementById('prodChart'),{
   type:'bar',
   data:{labels:classes,datasets:[
-    {label:'m³/G15h',data:m3g15,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:4}
+    {label:'m³/G15h',data:m3g15,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
   ]},
   options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Produktivitet: '+m3g15[idx]+' m\\u00b3/G15h','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:10}}}}}
 });
@@ -446,7 +446,7 @@ const dieselPerM3 = _db.klassDieselM3 || [];
 new Chart(document.getElementById('dieselChart'),{
   type:'bar',
   data:{labels:classes,datasets:[
-    {label:'l/m³',data:dieselPerM3,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:4}
+    {label:'l/m³',data:dieselPerM3,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
   ]},
   options:{
     responsive:true,
