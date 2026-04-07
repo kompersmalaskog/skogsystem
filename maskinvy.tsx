@@ -449,27 +449,6 @@ new Chart(document.getElementById('prodChart'),{
   options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Produktivitet: '+m3g15[idx]+' m\\u00b3/G15h','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:10}}}}}
 });
 
-// Diesel per medelstamsklass — l/m³ (en y-axel)
-var _rawDieselPerM3 = _db.klassDieselM3 || [];
-const dieselPerM3 = _activeIdx.map(function(i){return _rawDieselPerM3[i]||0;});
-new Chart(document.getElementById('dieselChart'),{
-  type:'bar',
-  data:{labels:classes,datasets:[
-    {label:'l/m³',data:dieselPerM3,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
-  ]},
-  options:{
-    responsive:true,
-    interaction:{mode:'index',intersect:false},
-    plugins:{
-      legend:{display:false},
-      tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Bränsle: '+dieselPerM3[idx]+' l/m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}
-    },
-    scales:{
-      x:{grid,ticks},
-      y:{grid,ticks,title:{display:true,text:'liter / m\\u00b3',color:'#7a7a72',font:{size:10}}}
-    }
-  }
-});
 // Summary text under prodChart
 var prodSummaryEl = document.getElementById('prodSummary');
 if (prodSummaryEl && classes.length > 0) {
@@ -481,25 +460,17 @@ if (prodSummaryEl && classes.length > 0) {
     + '<span style="color:var(--muted);font-size:11px;margin-left:20px;">Mest volym: <strong style="color:var(--text)">'+classes[mostVolIdx]+' · '+volym[mostVolIdx].toLocaleString('sv')+' m\\u00b3</strong></span>';
 }
 
-// Summary text under dieselChart
-var dieselSummaryLine = document.getElementById('dieselSummaryLine');
-if (dieselSummaryLine && classes.length > 0) {
-  var bestDIdx = 0;
-  for (var di=1;di<dieselPerM3.length;di++) { if(dieselPerM3[di]>0 && (dieselPerM3[bestDIdx]===0 || dieselPerM3[di]<dieselPerM3[bestDIdx])) bestDIdx=di; }
-  dieselSummaryLine.innerHTML = '<span style="color:var(--muted);font-size:11px;">Lägst förbrukning: <strong style="color:var(--text)">'+classes[bestDIdx]+' · '+dieselPerM3[bestDIdx]+' l/m\\u00b3</strong></span>';
-}
-
-// Populate diesel summary
-var dieselSummary = document.getElementById('dieselSummary');
-if (dieselSummary) {
+// Populate diesel KPI cards
+var dieselKpiEl = document.getElementById('dieselKpis');
+if (dieselKpiEl) {
   var totalBr = _db.bransleTotalt || 0;
   var totalVol = _db.totalVolym || 0;
   var totalSt = _db.totalStammar || 0;
   var snittLm3 = totalVol > 0 ? (totalBr / totalVol).toFixed(1) : '–';
   var lPerStam = totalSt > 0 ? (totalBr / totalSt).toFixed(2) : '–';
-  var snums = dieselSummary.querySelectorAll('.snum-v');
-  if (snums[0]) snums[0].textContent = snittLm3;
-  if (snums[1]) snums[1].textContent = lPerStam;
+  dieselKpiEl.innerHTML = '<div class="fkpi"><div class="fkpi-v">'+totalBr.toLocaleString('sv')+'</div><div class="fkpi-l">Liter totalt</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+snittLm3+'</div><div class="fkpi-l">Liter / m\\u00b3</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+lPerStam+'</div><div class="fkpi-l">Liter / stam</div></div>';
 }
 
 } // end if(sortChart) else block
@@ -1847,9 +1818,7 @@ export default function Maskinvy() {
         const ms = k.st > 0 ? k.vol / k.st : 0;
         return ms > 0 ? Math.round(prod / ms) : 0;
       });
-      // Bränsle per klass: samma proportion som total
-      const totalDieselPerM3 = totalVolym > 0 ? bransleTotalt / totalVolym : 0;
-      const klassDieselM3 = klassAgg.map(k => k.vol > 0 ? parseFloat(totalDieselPerM3.toFixed(1)) : 0);
+      const klassDieselM3 = klassAgg.map(() => 0); // not used — bränsle visas som KPI, ej per klass
       const klassMthPct = klassAgg.map(k => k.st > 0 ? Math.round(k.mthSt / k.st * 100) : 0);
 
       // ── Fetch sortiment data (always — used for sortChart + sortimentPerDag) ──
@@ -3566,17 +3535,15 @@ body {
     </div>
   </div>
 
-  <!-- DIESEL DIAGRAM -->
+  <!-- BRÄNSLE KPI -->
   <div class="view-section vs-produktion" style="margin-top:8px;">
     <div class="card anim" style="animation-delay:0.7s">
-      <div class="card-h"><div class="card-t">Liter per m³ per medelstamsklass</div></div>
+      <div class="card-h"><div class="card-t">Bränsleförbrukning</div></div>
       <div class="card-b">
-        <canvas id="dieselChart" style="max-height:200px;margin-bottom:8px;"></canvas>
-        <div style="margin-bottom:14px;" id="dieselSummaryLine"></div>
-        <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border);display:flex;gap:20px;" id="dieselSummary">
-          <div class="snum"><div class="snum-v">–</div><div class="snum-l">Snitt l/m³</div></div>
-          <div class="snum"><div class="snum-v">–</div><div class="snum-l">l/stam</div></div>
-          <div class="snum"><div class="snum-v">7 570</div><div class="snum-l">Liter totalt</div></div>
+        <div class="forar-kpis" id="dieselKpis" style="justify-content:center;">
+          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter totalt</div></div>
+          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / m³</div></div>
+          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / stam</div></div>
         </div>
       </div>
     </div>
