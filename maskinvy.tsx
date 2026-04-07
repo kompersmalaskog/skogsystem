@@ -114,6 +114,23 @@ type DbData = {
     massa: number[];
     energi: number[];
   } | null;
+  // Bolag data (from dim_objekt + fakt_produktion)
+  bolagData: Array<{
+    key: string; logo: string; name: string; volym: number; pct: number;
+    inkopare: Array<{
+      namn: string; initialer: string; volym: number;
+      objekt: Array<{ namn: string; nr: string; typ: string; volym: number }>;
+    }>;
+  }>;
+  // ObjTyp data (certifiering from dim_objekt)
+  objTypList: Array<{
+    key: string; label: string; title: string;
+    volym: number; stammar: number; g15: number; prod: number; stg15: number; medelstam: number;
+    objekt: Array<{ namn: string; volym: number; stammar: number; prod: number }>;
+  }>;
+  // Start date ISO for calendar/dag
+  periodStartDate: string;
+  totalDays: number;
 };
 
 const MASKINVY_SCRIPT = `(function(){
@@ -300,20 +317,39 @@ else { new Chart(dailyEl,{
   }
 }); }
 
-// Calendar
+// Calendar — dynamic based on periodStartDate + totalDays
 const cal = document.getElementById('calGrid');
-for(let i=0;i<6;i++){const d=document.createElement('div');d.className='cal-cell';cal.appendChild(d);}
 const dt = _db.calendarDt || [];
 const dc={0:'c-off',1:'c-prod',2:'c-flytt',3:'c-service'};
 const dlbl={0:'Ej aktiv',1:'Produktion',2:'Flytt',3:'Service'};
-dt.forEach((t,i)=>{
-  const el=document.createElement('div');
-  el.className=\`cal-cell \${dc[t]}\`;
-  el.title=\`\${i+1} feb · \${dlbl[t]}\${dailyVol[i]>0?' · '+dailyVol[i]+' m³':''}\` ;
-  if(t===1||t===2||t===3) el.onclick=()=>openDag(i+1);
-  el.textContent=i+1;
+var calStart = new Date((_db.periodStartDate || '2026-01-01') + 'T12:00:00');
+var calTotalDays = _db.totalDays || dt.length || 28;
+// Add empty cells for days before Monday (week starts on Monday)
+var firstDow = calStart.getDay(); // 0=Sun
+var emptyBefore = firstDow === 0 ? 6 : firstDow - 1;
+for(var eb=0;eb<emptyBefore;eb++){var ec=document.createElement('div');ec.className='cal-cell';cal.appendChild(ec);}
+var calManader = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+var calCounts = {prod:0,flytt:0,service:0,off:0};
+for(var ci=0;ci<calTotalDays;ci++){
+  var cDate = new Date(calStart); cDate.setDate(calStart.getDate()+ci);
+  var t = dt[ci] || 0;
+  if(t===1) calCounts.prod++;
+  else if(t===2) calCounts.flytt++;
+  else if(t===3) calCounts.service++;
+  else calCounts.off++;
+  var el=document.createElement('div');
+  el.className='cal-cell '+(dc[t]||'c-off');
+  el.title=cDate.getDate()+' '+calManader[cDate.getMonth()]+' · '+dlbl[t]+(dailyVol[ci]>0?' · '+dailyVol[ci]+' m³':'');
+  if(t===1||t===2||t===3) el.onclick=(function(idx){return function(){openDag(idx+1);};})(ci);
+  el.textContent=cDate.getDate();
   cal.appendChild(el);
-});
+}
+// Update summary counts
+var calSumEl = document.getElementById('calSummary');
+if(calSumEl) calSumEl.innerHTML = '<div class="cal-si"><div class="cal-sn" style="color:var(--text)">'+calCounts.prod+'</div><div class="cal-sl">Produktion</div></div>'
+  +'<div class="cal-si"><div class="cal-sn" style="color:var(--text)">'+calCounts.flytt+'</div><div class="cal-sl">Flytt</div></div>'
+  +'<div class="cal-si"><div class="cal-sn" style="color:var(--warn)">'+calCounts.service+'</div><div class="cal-sl">Service</div></div>'
+  +'<div class="cal-si"><div class="cal-sn" style="color:var(--muted)">'+calCounts.off+'</div><div class="cal-sl">Ej aktiv</div></div>';
 
 // Sortiment (from fakt_sortiment + dim_sortiment)
 var _sd = _db.sortimentData || { categories:[], totals:[] };
@@ -605,21 +641,14 @@ function closeForare() {
   closeAllPanels();
 }
 
-// ── BOLAG ──
-const bolag = {
-  vida: { logo:'VIDA', name:'Vida Skog AB', volym:1024, pct:55,
-    inkopare:[
-      {namn:'Jan-Erik Svensson',initialer:'JS',volym:623,objekt:[{namn:'Ålshult AU 2025',nr:'VO 11080064',typ:'Slutavverkning',volym:623,filer:8,gran:68,tall:28,bjork:4}]},
-      {namn:'Martin Lindqvist', initialer:'ML',volym:401,objekt:[{namn:'Björsamåla AU 2025',nr:'VO 11081163',typ:'Slutavverkning',volym:401,filer:11,gran:72,tall:22,bjork:6}]}
-    ]},
-  sod: { logo:'SÖD', name:'Södra Skogsägarna', volym:444, pct:24,
-    inkopare:[{namn:'Anders Bergström',initialer:'AB',volym:444,objekt:[{namn:'Svinhult Au 2025',nr:'VO 11088xxx',typ:'Slutavverkning',volym:444,filer:6,gran:55,tall:32,bjork:13}]}]},
-  ata: { logo:'ATA', name:'ATA Timber', volym:379, pct:21,
-    inkopare:[{namn:'Kristoffer Holm',initialer:'KH',volym:379,objekt:[{namn:'Karamåla 19 A-S',nr:'VO 11106406',typ:'Gallring',volym:379,filer:5,gran:48,tall:38,bjork:14}]}]}
-};
+// ── BOLAG (from DB) ──
+const bolagList = _db.bolagData || [];
+var bolag = {};
+bolagList.forEach(function(b) { bolag[b.key] = b; });
 
 function openBolag(id) {
   const b = bolag[id];
+  if (!b) return;
   document.getElementById('bpLogo').textContent = b.logo;
   document.getElementById('bpName').textContent = b.name;
   document.getElementById('bpSub').textContent  = b.volym.toLocaleString('sv') + ' m³ · ' + b.pct + '% av total volym';
@@ -752,7 +781,12 @@ function openDag(dag) {
   const d = dagData[dag];
   if (!d) return;
   document.getElementById('dagIcon').textContent  = typIcon[d.typ] || '📅';
-  document.getElementById('dagTitle').textContent = dag + ' februari 2026';
+  // Compute actual date from periodStartDate + day index
+  var pStart = _db.periodStartDate || '2026-01-01';
+  var dagDate = new Date(pStart + 'T12:00:00');
+  dagDate.setDate(dagDate.getDate() + dag - 1);
+  var manader = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+  document.getElementById('dagTitle').textContent = dagDate.getDate() + ' ' + manader[dagDate.getMonth()] + ' ' + dagDate.getFullYear();
   document.getElementById('dagSub').textContent   = typNamn[d.typ];
 
   let html = '';
@@ -853,32 +887,10 @@ function toggleForareAvbrott(el, forareNamn) {
   el.after(div);
 }
 
-// ── OBJ TYP DATA ──
-const objTypData = {
-  rp: {
-    label:'RP', title:'Röjningsprioriterat',
-    volym:892, stammar:4120, g15:75.6, prod:11.8, stg15:54, medelstam:0.22,
-    objekt:[
-      {namn:'Ålshult AU 2025',    volym:512, stammar:2340, prod:12.1},
-      {namn:'Svinhult Au 2025',   volym:380, stammar:1780, prod:11.4},
-    ]
-  },
-  au: {
-    label:'AU', title:'Avverkning utan krav',
-    volym:748, stammar:2980, g15:61.8, prod:12.1, stg15:48, medelstam:0.25,
-    objekt:[
-      {namn:'Björsamåla AU 2025', volym:401, stammar:1620, prod:12.4},
-      {namn:'Karamåla 19 A-S',   volym:347, stammar:1360, prod:11.8},
-    ]
-  },
-  lrk: {
-    label:'LRK', title:'Lågriskklass',
-    volym:207, stammar:1140, g15:21.1, prod:9.8, stg15:54, medelstam:0.18,
-    objekt:[
-      {namn:'Karamåla 19 A-S',   volym:207, stammar:1140, prod:9.8},
-    ]
-  }
-};
+// ── OBJ TYP DATA (from DB certifiering) ──
+const objTypArr = _db.objTypList || [];
+var objTypData = {};
+objTypArr.forEach(function(t) { objTypData[t.key] = t; });
 
 function openObjTyp(id) {
   const d = objTypData[id];
@@ -918,44 +930,47 @@ function closeObjTyp() { closeAllPanels(); }
 
 
 function openObjJmf() {
-  const d = objTypData;
-  const rows = [
-    {lbl:'Volym m³',      rp:d.rp.volym.toLocaleString('sv'),    au:d.au.volym.toLocaleString('sv'),    lrk:d.lrk.volym.toLocaleString('sv'),    best:'au'},
-    {lbl:'Stammar',       rp:d.rp.stammar.toLocaleString('sv'),  au:d.au.stammar.toLocaleString('sv'),  lrk:d.lrk.stammar.toLocaleString('sv'),  best:'rp'},
-    {lbl:'G15-timmar',    rp:d.rp.g15+'h',                       au:d.au.g15+'h',                       lrk:d.lrk.g15+'h',                       best:'rp'},
-    {lbl:'m³/G15h',       rp:d.rp.prod,                          au:d.au.prod,                          lrk:d.lrk.prod,                          best:'au'},
-    {lbl:'st/G15h',       rp:d.rp.stg15,                         au:d.au.stg15,                         lrk:d.lrk.stg15,                         best:'rp'},
-    {lbl:'Medelstam',     rp:d.rp.medelstam,                     au:d.au.medelstam,                     lrk:d.lrk.medelstam,                     best:'au'},
+  if (objTypArr.length < 2) return;
+  // Dynamic comparison table
+  var headers = objTypArr.map(function(t){return t.label;});
+  var thHtml = '<th style="padding:11px 16px;color:var(--muted);font-size:11px;"></th>' + headers.map(function(h){return '<th style="text-align:right;padding:11px 10px;font-size:11px;font-weight:600;">'+h+'</th>';}).join('');
+  var metrics = [
+    {lbl:'Volym m³', fn:function(t){return t.volym.toLocaleString('sv');}, valFn:function(t){return t.volym;}, higher:true},
+    {lbl:'Stammar', fn:function(t){return t.stammar.toLocaleString('sv');}, valFn:function(t){return t.stammar;}, higher:true},
+    {lbl:'G15-timmar', fn:function(t){return t.g15+'h';}, valFn:function(t){return t.g15;}, higher:true},
+    {lbl:'m³/G15h', fn:function(t){return t.prod;}, valFn:function(t){return t.prod;}, higher:true},
+    {lbl:'st/G15h', fn:function(t){return t.stg15;}, valFn:function(t){return t.stg15;}, higher:true},
+    {lbl:'Medelstam', fn:function(t){return t.medelstam;}, valFn:function(t){return t.medelstam;}, higher:true},
   ];
+  var tbody = metrics.map(function(m,mi){
+    var vals = objTypArr.map(function(t){return m.valFn(t);});
+    var bestIdx = vals.indexOf(Math.max.apply(null,vals));
+    var tds = objTypArr.map(function(t,ti){
+      var isBest = ti===bestIdx;
+      return '<td style="text-align:right;padding:11px 10px;font-weight:'+(isBest?'700':'400')+';color:'+(isBest?'rgba(90,255,140,0.9)':'var(--text)')+';">'+m.fn(t)+(isBest?' ↑':'')+'</td>';
+    }).join('');
+    return '<tr style="border-top:1px solid var(--border)"><td style="padding:11px 16px;color:var(--muted);font-size:11px;">'+m.lbl+'</td>'+tds+'</tr>';
+  }).join('');
+  document.getElementById('jmfTableBody').innerHTML = tbody;
+  // Update header row
+  var headerRow = document.getElementById('jmfTableHead');
+  if (headerRow) headerRow.innerHTML = thHtml;
 
-  document.getElementById('jmfTableBody').innerHTML = rows.map((r,i) => \`
-    <tr style="border-top:1px solid var(--border)\${i===rows.length-1?';border-bottom:none':''}">
-      <td style="padding:11px 16px;color:var(--muted);font-size:11px;">\${r.lbl}</td>
-      <td style="text-align:right;padding:11px 10px;font-weight:\${r.best==='rp'?'700':'400'};color:\${r.best==='rp'?'rgba(90,255,140,0.9)':'var(--text)'};">\${r.rp}\${r.best==='rp'?' ↑':''}</td>
-      <td style="text-align:right;padding:11px 10px;font-weight:\${r.best==='au'?'700':'400'};color:\${r.best==='au'?'rgba(90,255,140,0.9)':'var(--text)'};">\${r.au}\${r.best==='au'?' ↑':''}</td>
-      <td style="text-align:right;padding:11px 16px 11px 10px;font-weight:\${r.best==='lrk'?'700':'400'};color:\${r.best==='lrk'?'rgba(90,255,140,0.9)':'var(--text)'};">\${r.lrk}\${r.best==='lrk'?' ↑':''}</td>
-    </tr>\`).join('');
-
+  // Best cards
+  var bestProd = objTypArr.slice().sort(function(a,b){return b.prod-a.prod;})[0];
+  var bestVol = objTypArr.slice().sort(function(a,b){return b.volym-a.volym;})[0];
+  var totalOtVol = objTypArr.reduce(function(s,t){return s+t.volym;},0);
+  var bestVolPct = totalOtVol>0?Math.round(bestVol.volym/totalOtVol*100):0;
   document.getElementById('jmfBest').innerHTML = \`
     <div style="background:var(--surface2);border-radius:10px;padding:14px;">
       <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Bäst produktivitet</div>
-      <div style="font-family:'Fraunces',serif;font-size:22px;">AU</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px;">12.1 m³/G15h</div>
+      <div style="font-family:'Fraunces',serif;font-size:22px;">\${bestProd.label}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px;">\${bestProd.prod} m³/G15h</div>
     </div>
     <div style="background:var(--surface2);border-radius:10px;padding:14px;">
       <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Mest volym</div>
-      <div style="font-family:'Fraunces',serif;font-size:22px;">RP</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px;">892 m³ · 48%</div>
-    </div>
-    <div style="background:var(--surface2);border-radius:10px;padding:14px;">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Lägst medelstam</div>
-      <div style="font-family:'Fraunces',serif;font-size:22px;">LRK</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px;">0.18 m³/stam</div>
-    </div>
-    <div style="background:var(--surface2);border-radius:10px;padding:14px;">
-      <div style="font-size:10px;color:var(--muted);margin-bottom:4px;">Mest stammar/tim</div>
-      <div style="font-family:'Fraunces',serif;font-size:22px;">RP</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px;">54 st/G15h</div>
+      <div style="font-family:'Fraunces',serif;font-size:22px;">\${bestVol.label}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px;">\${bestVol.volym.toLocaleString('sv')} m³ · \${bestVolPct}%</div>
     </div>
   \`;
 
@@ -965,6 +980,49 @@ function openObjJmf() {
 function closeObjJmf() { closeAllPanels(); }
 
 // ── UPDATE DOM WITH DB DATA ──
+
+// Populate bolag card dynamically
+var bolagCardBody = document.getElementById('bolagCardBody');
+if (bolagCardBody && bolagList.length > 0) {
+  bolagCardBody.innerHTML = bolagList.map(function(b,i){
+    return '<div class="ink-row ink-clickable" onclick="openBolag(\\''+b.key+'\\')"><div class="ink-logo">'+b.logo+'</div><div class="ink-name">'+b.name+'</div><div style="text-align:right"><div class="ink-vol">'+b.volym.toLocaleString('sv')+' m³</div><div style="font-size:10px;color:var(--muted)">'+b.pct+'%</div></div></div><div style="padding:4px 0 '+(i<bolagList.length-1?'10':'0')+'px 40px"><div class="prog"><div class="pf" style="width:'+b.pct+'%;background:rgba(255,255,255,0.2)"></div></div></div>';
+  }).join('');
+} else if (bolagCardBody) {
+  bolagCardBody.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:10px;">Ingen data</div>';
+}
+
+// Populate objekt table dynamically
+var objektTblBody = document.getElementById('objektTblBody');
+var objektData = _db.objekt || [];
+if (objektTblBody && objektData.length > 0) {
+  objektTblBody.innerHTML = objektData.map(function(o){
+    return '<tr><td style="padding-left:22px"><div class="tn">'+o.namn+'</div><div class="ts2">'+(o.vo_nummer||'')+'</div></td><td style="font-variant-numeric:tabular-nums;font-weight:600">'+Math.round(o.volym)+'</td><td style="font-variant-numeric:tabular-nums;color:var(--muted)">'+o.prod.toFixed(1)+'</td></tr>';
+  }).join('');
+}
+
+// Populate objtyp distribution dynamically
+var objTypDistEl = document.getElementById('objTypDist');
+if (objTypDistEl && objTypArr.length > 0) {
+  var otTotal = objTypArr.reduce(function(s,t){return s+t.volym;},0);
+  var cards = objTypArr.map(function(t){
+    var pct = otTotal>0?Math.round(t.volym/otTotal*100):0;
+    return '<div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center;cursor:pointer;" onclick="openObjTyp(\\''+t.key+'\\')">'
+      +'<div style="font-family:\\'Fraunces\\',serif;font-size:22px;line-height:1;">'+t.volym.toLocaleString('sv')+'</div>'
+      +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-top:3px;">'+t.label+' · m³</div>'
+      +'<div style="font-size:10px;color:var(--muted);margin-top:4px;">'+t.prod+' m³/G15h</div></div>';
+  }).join('');
+  var colors = ['rgba(90,255,140,0.5)','rgba(255,255,255,0.2)','rgba(91,143,255,0.4)','rgba(255,179,64,0.4)'];
+  var bar = '<div style="background:var(--surface2);border-radius:8px;overflow:hidden;height:6px;display:flex;">'
+    + objTypArr.map(function(t,i){return '<div style="flex:'+t.volym+';background:'+colors[i%colors.length]+(i>0?';margin-left:2px':'')+'"></div>';}).join('')+'</div>';
+  var legend = objTypArr.map(function(t,i){
+    var pct = otTotal>0?Math.round(t.volym/otTotal*100):0;
+    return '<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);"><div style="width:8px;height:8px;border-radius:2px;background:'+colors[i%colors.length]+';"></div>'+t.label+' '+pct+'%</div>';
+  }).join('');
+  objTypDistEl.innerHTML = '<div style="display:grid;grid-template-columns:repeat('+Math.min(objTypArr.length,3)+',1fr);gap:8px;margin-bottom:14px;">'+cards+'</div>'
+    +bar+'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px;"><div style="display:flex;gap:14px;">'+legend+'</div>'
+    +'<button onclick="openObjJmf()" style="border:none;background:rgba(255,255,255,0.07);border-radius:6px;padding:5px 12px;font-family:inherit;font-size:10px;font-weight:600;color:rgba(255,255,255,0.6);cursor:pointer;letter-spacing:0.3px;">Jämför →</button></div>';
+}
+
 var opContainer = document.getElementById('opContainer');
 var opBadge = document.getElementById('opBadge');
 if (_db.operatorer && _db.operatorer.length > 0) {
@@ -1083,8 +1141,20 @@ export default function Maskinvy() {
 
   // ── Period comparison state ──
   const [showCmp, setShowCmp] = useState(false);
-  const [cmpDateA, setCmpDateA] = useState({ start: '2026-01-01', end: '2026-01-31' });
-  const [cmpDateB, setCmpDateB] = useState({ start: '2026-02-01', end: '2026-02-28' });
+  // Default comparison: previous month vs current month
+  const [cmpDateA, setCmpDateA] = useState(() => {
+    const now = new Date();
+    const ps = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const pe = new Date(now.getFullYear(), now.getMonth(), 0);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return { start: `${ps.getFullYear()}-${pad(ps.getMonth()+1)}-01`, end: `${pe.getFullYear()}-${pad(pe.getMonth()+1)}-${pad(pe.getDate())}` };
+  });
+  const [cmpDateB, setCmpDateB] = useState(() => {
+    const now = new Date();
+    const ce = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return { start: `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`, end: `${ce.getFullYear()}-${pad(ce.getMonth()+1)}-${pad(ce.getDate())}` };
+  });
   const [cmpDataA, setCmpDataA] = useState<PeriodKpi | null>(null);
   const [cmpDataB, setCmpDataB] = useState<PeriodKpi | null>(null);
   const [cmpLoading, setCmpLoading] = useState(false);
@@ -1313,7 +1383,7 @@ export default function Maskinvy() {
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate),
         supabase.from('dim_operator').select('operator_id, operator_key, operator_namn, maskin_id').in('maskin_id', maskinIds),
-        supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer'),
+        supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer, bolag, inkopare, avverkningsform, certifiering'),
         supabase.from('fakt_skift')
           .select('datum, inloggning_tid, utloggning_tid')
           .in('maskin_id', maskinIds)
@@ -1363,6 +1433,7 @@ export default function Maskinvy() {
           mthAndelPct: 0, mthMedelstam: 0, singleMedelstam: 0,
           sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], totals: [0,0,0,0] },
           hasMth: false, sortimentPerDag: null,
+          bolagData: [], objTypList: [], periodStartDate: startDate, totalDays,
         };
         (window as any).__maskinvyData = emptyData;
         setDataVersion(v => v + 1);
@@ -1822,6 +1893,81 @@ export default function Maskinvy() {
         }
       }
 
+      // ── Build bolagData from dim_objekt + prodByObjekt ──
+      const bolagMap = new Map<string, { name: string; inkopareMap: Map<string, { namn: string; objekt: Array<{ namn: string; nr: string; typ: string; volym: number }> }> }>();
+      for (const o of objekter) {
+        const bNamn = o.bolag || 'Övrigt';
+        const iNamn = o.inkopare || '–';
+        if (!bolagMap.has(bNamn)) bolagMap.set(bNamn, { name: bNamn, inkopareMap: new Map() });
+        const bEntry = bolagMap.get(bNamn)!;
+        if (!bEntry.inkopareMap.has(iNamn)) bEntry.inkopareMap.set(iNamn, { namn: iNamn, objekt: [] });
+        const iEntry = bEntry.inkopareMap.get(iNamn)!;
+        const pObj = prodByObjekt[o.objekt_id];
+        if (pObj && pObj.vol > 0) {
+          const avvForm = (o.avverkningsform || '').toLowerCase();
+          const typ = avvForm.includes('gallring') ? 'Gallring' : 'Slutavverkning';
+          iEntry.objekt.push({
+            namn: o.objekt_namn || o.vo_nummer || o.objekt_id,
+            nr: o.vo_nummer ? `VO ${o.vo_nummer}` : '',
+            typ,
+            volym: Math.round(pObj.vol),
+          });
+        }
+      }
+      const bolagArr: DbData['bolagData'] = [];
+      bolagMap.forEach((b, key) => {
+        const inkArr: DbData['bolagData'][0]['inkopare'] = [];
+        b.inkopareMap.forEach((ink) => {
+          if (ink.objekt.length === 0) return;
+          const iVol = ink.objekt.reduce((s, o) => s + o.volym, 0);
+          const words = ink.namn.split(' ');
+          const init = words.length >= 2 ? (words[0][0] + words[words.length - 1][0]).toUpperCase() : ink.namn.substring(0, 2).toUpperCase();
+          inkArr.push({ namn: ink.namn, initialer: init, volym: iVol, objekt: ink.objekt });
+        });
+        if (inkArr.length === 0) return;
+        const bVol = inkArr.reduce((s, i) => s + i.volym, 0);
+        const logo = key.substring(0, 4).toUpperCase();
+        bolagArr.push({ key: key.replace(/\s/g, '_').toLowerCase(), logo, name: key, volym: bVol, pct: 0, inkopare: inkArr });
+      });
+      bolagArr.sort((a, b) => b.volym - a.volym);
+      const totalBolagVol = bolagArr.reduce((s, b) => s + b.volym, 0);
+      bolagArr.forEach(b => { b.pct = totalBolagVol > 0 ? Math.round(b.volym / totalBolagVol * 100) : 0; });
+
+      // ── Build objTypList from certifiering ──
+      const certMap = new Map<string, { label: string; title: string; volym: number; stammar: number; g15sek: number; objekt: Array<{ namn: string; volym: number; stammar: number; g15sek: number }> }>();
+      for (const o of objekter) {
+        const cert = (o.certifiering || '').toUpperCase().trim();
+        if (!cert) continue;
+        const pObj = prodByObjekt[o.objekt_id];
+        const tObj = tidByObjekt[o.objekt_id];
+        if (!pObj || pObj.vol <= 0) continue;
+        if (!certMap.has(cert)) certMap.set(cert, { label: cert, title: cert, volym: 0, stammar: 0, g15sek: 0, objekt: [] });
+        const c = certMap.get(cert)!;
+        const oG15 = tObj ? tObj.processingSek + tObj.terrainSek : 0;
+        c.volym += pObj.vol;
+        c.stammar += pObj.st;
+        c.g15sek += oG15;
+        c.objekt.push({ namn: o.objekt_namn || o.vo_nummer || '', volym: Math.round(pObj.vol), stammar: Math.round(pObj.st), g15sek: oG15 });
+      }
+      const objTypList: DbData['objTypList'] = [];
+      certMap.forEach((c) => {
+        const g15h = c.g15sek / 3600;
+        objTypList.push({
+          key: c.label.toLowerCase().replace(/\s/g, '_'),
+          label: c.label, title: c.title,
+          volym: Math.round(c.volym), stammar: Math.round(c.stammar),
+          g15: parseFloat(g15h.toFixed(1)),
+          prod: g15h > 0 ? parseFloat((c.volym / g15h).toFixed(1)) : 0,
+          stg15: g15h > 0 ? Math.round(c.stammar / g15h) : 0,
+          medelstam: c.stammar > 0 ? parseFloat((c.volym / c.stammar).toFixed(2)) : 0,
+          objekt: c.objekt.map(o => {
+            const oG15h = o.g15sek / 3600;
+            return { namn: o.namn, volym: o.volym, stammar: o.stammar, prod: oG15h > 0 ? parseFloat((o.volym / oG15h).toFixed(1)) : 0 };
+          }),
+        });
+      });
+      objTypList.sort((a, b) => b.volym - a.volym);
+
       console.log('[Maskinvy] Computed data:', {
         maskinId, period: p, hasMth,
         totalVolym: Math.round(totalVolym),
@@ -1862,6 +2008,10 @@ export default function Maskinvy() {
         sortimentData,
         hasMth,
         sortimentPerDag,
+        bolagData: bolagArr,
+        objTypList,
+        periodStartDate: startDate,
+        totalDays,
       };
 
       (window as any).__maskinvyData = dbData;
@@ -3215,25 +3365,8 @@ body {
   <div class="g2 view-section vs-objekt" id="sec-objekt">
     <div class="card anim" style="animation-delay:0.5s">
       <div class="card-h"><div class="card-t">Volym per bolag</div></div>
-      <div class="card-b">
-        <div class="ink-row ink-clickable" onclick="openBolag('vida')">
-          <div class="ink-logo">VIDA</div>
-          <div class="ink-name">Vida Skog AB</div>
-          <div style="text-align:right"><div class="ink-vol">1 024 m³</div><div style="font-size:10px;color:var(--muted)">55%</div></div>
-        </div>
-        <div style="padding:4px 0 10px 40px"><div class="prog"><div class="pf" style="width:55%;background:rgba(255,255,255,0.2)"></div></div></div>
-        <div class="ink-row ink-clickable" onclick="openBolag('sod')">
-          <div class="ink-logo">SÖD</div>
-          <div class="ink-name">Södra Skogsägarna</div>
-          <div style="text-align:right"><div class="ink-vol">444 m³</div><div style="font-size:10px;color:var(--muted)">24%</div></div>
-        </div>
-        <div style="padding:4px 0 10px 40px"><div class="prog"><div class="pf" style="width:24%;background:rgba(255,255,255,0.2)"></div></div></div>
-        <div class="ink-row ink-clickable" onclick="openBolag('ata')">
-          <div class="ink-logo">ATA</div>
-          <div class="ink-name">ATA Timber</div>
-          <div style="text-align:right"><div class="ink-vol">379 m³</div><div style="font-size:10px;color:var(--muted)">21%</div></div>
-        </div>
-        <div style="padding:4px 0 0 40px"><div class="prog"><div class="pf" style="width:21%;background:rgba(255,255,255,0.15)"></div></div></div>
+      <div class="card-b" id="bolagCardBody">
+        <div style="color:var(--muted);font-size:12px;padding:10px;">Laddar...</div>
       </div>
     </div>
 
@@ -3243,48 +3376,16 @@ body {
         <div style="overflow-y:auto;max-height:220px;">
         <table class="tbl" style="padding:0 22px">
           <thead><tr style="position:sticky;top:0;background:var(--surface);z-index:1;">
-            <th style="padding-left:22px">Objekt</th><th>Typ</th><th>m³</th><th>m³/G15h</th><th style="padding-right:22px">Cert</th>
+            <th style="padding-left:22px">Objekt</th><th>m³</th><th>m³/G15h</th>
           </tr></thead>
-          <tbody>
-            <tr style="cursor:pointer;" onclick="window.location.href='/planering?objekt=VO11080064'" title="Gå till objektvy"><td style="padding-left:22px"><div class="tn">Ålshult AU 2025</div><div class="ts2">Vida · VO 11080064</div></td><td><span class="badge bs">SLUTAVV</span></td><td style="font-variant-numeric:tabular-nums;font-weight:600">623</td><td style="font-variant-numeric:tabular-nums;color:var(--muted)">12.4</td><td style="padding-right:22px;display:flex;align-items:center;gap:6px;"><span class="badge bm">FSC</span><span style="color:var(--muted);font-size:11px;">→</span></td></tr>
-            <tr style="cursor:pointer;" onclick="window.location.href='/planering?objekt=VO11081163'" title="Gå till objektvy"><td style="padding-left:22px"><div class="tn">Björsamåla AU 2025</div><div class="ts2">Vida · VO 11081163</div></td><td><span class="badge bs">SLUTAVV</span></td><td style="font-variant-numeric:tabular-nums;font-weight:600">401</td><td style="font-variant-numeric:tabular-nums;color:var(--muted)">11.8</td><td style="padding-right:22px;display:flex;align-items:center;gap:6px;"><span class="badge bm">FSC</span><span style="color:var(--muted);font-size:11px;">→</span></td></tr>
-            <tr style="cursor:pointer;" onclick="window.location.href='/planering?objekt=VO11106406'" title="Gå till objektvy"><td style="padding-left:22px"><div class="tn">Karamåla 19 A-S</div><div class="ts2">ATA · VO 11106406</div></td><td><span class="badge bgall">GALLRING</span></td><td style="font-variant-numeric:tabular-nums;font-weight:600">379</td><td style="font-variant-numeric:tabular-nums;color:var(--muted)">10.2</td><td style="padding-right:22px;display:flex;align-items:center;gap:6px;"><span class="badge bm">FSC</span><span style="color:var(--muted);font-size:11px;">→</span></td></tr>
-            <tr style="cursor:pointer;" onclick="window.location.href='/planering?objekt=VO11088xxx'" title="Gå till objektvy"><td style="padding-left:22px"><div class="tn">Svinhult Au 2025</div><div class="ts2">Södra · VO 11088xxx</div></td><td><span class="badge bs">SLUTAVV</span></td><td style="font-variant-numeric:tabular-nums;font-weight:600">444</td><td style="font-variant-numeric:tabular-nums;color:var(--muted)">11.5</td><td style="padding-right:22px;display:flex;align-items:center;gap:6px;"><span class="badge bm">PEFC</span><span style="color:var(--muted);font-size:11px;">→</span></td></tr>
+          <tbody id="objektTblBody">
+            <tr><td style="padding-left:22px;color:var(--muted)">Laddar...</td><td></td><td></td></tr>
           </tbody>
         </table>
         </div>
         <div style="margin:14px 22px 4px;border-top:1px solid var(--border);padding-top:14px;">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Fördelning RP · AU · LRK</div>
-          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px;">
-            <div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center;cursor:pointer;" onclick="openObjTyp('rp')">
-              <div style="font-family:'Fraunces',serif;font-size:22px;line-height:1;">892</div>
-              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-top:3px;">RP · m³</div>
-              <div style="font-size:10px;color:var(--muted);margin-top:4px;">11.8 m³/G15h</div>
-            </div>
-            <div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center;cursor:pointer;" onclick="openObjTyp('au')">
-              <div style="font-family:'Fraunces',serif;font-size:22px;line-height:1;">748</div>
-              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-top:3px;">AU · m³</div>
-              <div style="font-size:10px;color:var(--muted);margin-top:4px;">12.1 m³/G15h</div>
-            </div>
-            <div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center;cursor:pointer;" onclick="openObjTyp('lrk')">
-              <div style="font-family:'Fraunces',serif;font-size:22px;line-height:1;">207</div>
-              <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-top:3px;">LRK · m³</div>
-              <div style="font-size:10px;color:var(--muted);margin-top:4px;">9.8 m³/G15h</div>
-            </div>
-          </div>
-          <div style="background:var(--surface2);border-radius:8px;overflow:hidden;height:6px;display:flex;">
-            <div style="flex:892;background:rgba(90,255,140,0.5);"></div>
-            <div style="flex:748;background:rgba(255,255,255,0.2);margin-left:2px;"></div>
-            <div style="flex:207;background:rgba(91,143,255,0.4);margin-left:2px;"></div>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px;">
-            <div style="display:flex;gap:14px;">
-              <div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);"><div style="width:8px;height:8px;border-radius:2px;background:rgba(90,255,140,0.5);"></div>RP 48%</div>
-              <div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);"><div style="width:8px;height:8px;border-radius:2px;background:rgba(255,255,255,0.2);"></div>AU 41%</div>
-              <div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);"><div style="width:8px;height:8px;border-radius:2px;background:rgba(91,143,255,0.4);"></div>LRK 11%</div>
-            </div>
-            <button onclick="openObjJmf()" style="border:none;background:rgba(255,255,255,0.07);border-radius:6px;padding:5px 12px;font-family:inherit;font-size:10px;font-weight:600;color:rgba(255,255,255,0.6);cursor:pointer;letter-spacing:0.3px;">Jämför →</button>
-          </div>
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Fördelning per certifiering</div>
+          <div id="objTypDist"><div style="color:var(--muted);font-size:12px;">Laddar...</div></div>
         </div>
       </div>
     </div>
@@ -3294,10 +3395,9 @@ body {
   <div class="gf view-section vs-produktion" id="sec-produktion">
     <div class="card anim" style="animation-delay:0.6s">
       <div class="card-h">
-        <div class="card-t">Daglig produktion – februari 2026</div>
+        <div class="card-t" id="dailyChartTitle">Daglig produktion</div>
         <div style="display:flex;gap:12px;">
           <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:var(--accent)"></div>m³/dag</div>
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:var(--blue)"></div>Stammar</div>
         </div>
       </div>
       <div class="card-b"><canvas id="dailyChart" style="max-height:190px"></canvas></div>
@@ -3308,7 +3408,7 @@ body {
   <div class="g2 view-section vs-produktion">
     <div class="card anim" style="animation-delay:0.65s">
       <div class="card-h">
-        <div class="card-t">Aktivitet – februari</div>
+        <div class="card-t">Aktivitet</div>
         <div style="display:flex;gap:10px;">
           <div class="li" style="font-size:10px;color:var(--muted)"><div style="width:7px;height:7px;border-radius:2px;background:rgba(255,255,255,0.4)"></div>Produktion</div>
           <div class="li" style="font-size:10px;color:var(--muted)"><div style="width:7px;height:7px;border-radius:2px;background:rgba(255,255,255,0.2)"></div>Flytt</div>
@@ -3321,12 +3421,7 @@ body {
           <div class="cal-dn">Tor</div><div class="cal-dn">Fre</div><div class="cal-dn">Lör</div><div class="cal-dn">Sön</div>
         </div>
         <div class="cal-grid" id="calGrid"></div>
-        <div class="cal-sum">
-          <div class="cal-si"><div class="cal-sn" style="color:var(--text)">18</div><div class="cal-sl">Produktion</div></div>
-          <div class="cal-si"><div class="cal-sn" style="color:var(--text)">2</div><div class="cal-sl">Flytt</div></div>
-          <div class="cal-si"><div class="cal-sn" style="color:var(--warn)">1</div><div class="cal-sl">Service</div></div>
-          <div class="cal-si"><div class="cal-sn" style="color:var(--muted)">7</div><div class="cal-sl">Ej aktiv</div></div>
-        </div>
+        <div class="cal-sum" id="calSummary"></div>
       </div>
     </div>
 
@@ -3637,11 +3732,8 @@ body {
     <div style="background:var(--surface2);border-radius:10px;overflow:hidden;margin-bottom:20px;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead>
-          <tr style="border-bottom:1px solid var(--border);">
+          <tr style="border-bottom:1px solid var(--border);" id="jmfTableHead">
             <th style="text-align:left;padding:12px 16px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.7px;color:var(--muted);"></th>
-            <th style="text-align:right;padding:12px 10px;font-size:11px;font-weight:700;color:rgba(90,255,140,0.9);">RP</th>
-            <th style="text-align:right;padding:12px 10px;font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);">AU</th>
-            <th style="text-align:right;padding:12px 16px 12px 10px;font-size:11px;font-weight:700;color:rgba(255,255,255,0.7);">LRK</th>
           </tr>
         </thead>
         <tbody id="jmfTableBody"></tbody>
