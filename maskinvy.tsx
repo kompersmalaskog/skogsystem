@@ -417,64 +417,41 @@ if (_db.hasMth === false) {
   }
 }
 
-// Total
+// Total — volym per medelstamsklass (en y-axel)
 new Chart(document.getElementById('totalChart'),{
   type:'bar',
   data:{labels:classes,datasets:[
-    {label:'Volym m³',data:volym,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
-    {label:'Stammar',data:stammar,type:'line',borderColor:'rgba(90,255,140,0.7)',backgroundColor:'rgba(90,255,140,0.04)',pointBackgroundColor:'#5aff8c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
+    {label:'Volym m³',data:volym,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:4}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m³',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5aff8c'},title:{display:true,text:'Stammar',color:'#5aff8c',font:{size:10}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Volym: '+volym[idx].toLocaleString('sv')+' m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
 });
 
-// Produktivitet
-const pc = m3g15.map(()=>'rgba(90,255,140,0.5)');
+// Produktivitet — m³/G15h per medelstamsklass (en y-axel)
 new Chart(document.getElementById('prodChart'),{
   type:'bar',
   data:{labels:classes,datasets:[
-    {label:'m³/G15h',data:m3g15,backgroundColor:pc,borderRadius:4,yAxisID:'y',order:1},
-    {label:'st/G15h',data:stg15,type:'line',borderColor:'rgba(91,143,255,0.6)',backgroundColor:'rgba(91,143,255,0.04)',pointBackgroundColor:'#5b8fff',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
+    {label:'m³/G15h',data:m3g15,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:4}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{label:c=>c.datasetIndex===0?\` \${c.parsed.y} m³/G15h\`:\` \${c.parsed.y} st/G15h\`}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m³/G15h',color:'#7a7a72',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5b8fff'},title:{display:true,text:'st/G15h',color:'#5b8fff',font:{size:10}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Produktivitet: '+m3g15[idx]+' m\\u00b3/G15h','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:10}}}}}
 });
 
-// Diesel per medelstamsklass
+// Diesel per medelstamsklass — l/m³ (en y-axel)
 const dieselPerM3 = _db.klassDieselM3 || [];
 new Chart(document.getElementById('dieselChart'),{
   type:'bar',
   data:{labels:classes,datasets:[
-    {
-      label:'l/m³',
-      data:dieselPerM3,
-      backgroundColor:'rgba(90,255,140,0.5)',
-      borderRadius:4,
-      yAxisID:'y',
-      order:1
-    },
-    {
-      label:'m³/G15h',
-      data:m3g15,
-      type:'line',
-      borderColor:'rgba(91,143,255,0.6)',
-      backgroundColor:'rgba(91,143,255,0.04)',
-      pointBackgroundColor:'#5b8fff',
-      pointRadius:4,
-      tension:0.3,
-      yAxisID:'y2',
-      order:0
-    }
+    {label:'l/m³',data:dieselPerM3,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:4}
   ]},
   options:{
     responsive:true,
     interaction:{mode:'index',intersect:false},
     plugins:{
       legend:{display:false},
-      tooltip:{...tooltip,callbacks:{label:c=>c.datasetIndex===0?\` \${c.parsed.y} l/m³\`:\` \${c.parsed.y} m³/G15h\`}}
+      tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Bränsle: '+dieselPerM3[idx]+' l/m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}
     },
     scales:{
       x:{grid,ticks},
-      y:{grid,ticks,title:{display:true,text:'liter / m³',color:'#7a7a72',font:{size:10}},suggestedMin:2,suggestedMax:8},
-      y2:{position:'right',grid:{drawOnChartArea:false},ticks:{...ticks,color:'#5b8fff'},title:{display:true,text:'m³/G15h',color:'#5b8fff',font:{size:10}}}
+      y:{grid,ticks,title:{display:true,text:'liter / m\\u00b3',color:'#7a7a72',font:{size:10}}}
     }
   }
 });
@@ -3473,18 +3450,10 @@ body {
     <div class="card anim" style="animation-delay:0.8s">
       <div class="card-h"><div class="card-t">Produktion & produktivitet per medelstamsklass</div></div>
       <div class="card-b">
-        <div class="cleg">
-          Total produktion
-          <div class="li"><div class="ld" style="background:rgba(91,143,255,0.7)"></div>Volym m³</div>
-          <div class="li"><div class="ld" style="background:rgba(90,255,140,0.7)"></div>Stammar</div>
-        </div>
+        <div class="cleg">Volym per medelstamsklass</div>
         <canvas id="totalChart" style="max-height:155px"></canvas>
         <div class="cdiv"></div>
-        <div class="cleg">
-          Produktivitet
-          <div class="li"><div class="ld" style="background:rgba(90,255,140,0.7)"></div>m³/G15h</div>
-          <div class="li"><div class="ld" style="background:rgba(91,143,255,0.7)"></div>st/G15h</div>
-        </div>
+        <div class="cleg">m³/G15h per medelstamsklass</div>
         <canvas id="prodChart" style="max-height:175px"></canvas>
         <div class="sc-grid">
         </div>
@@ -3496,7 +3465,7 @@ body {
   <!-- DIESEL DIAGRAM -->
   <div class="view-section vs-produktion" style="margin-top:8px;">
     <div class="card anim" style="animation-delay:0.7s">
-      <div class="card-h"><div class="card-t">Dieselförbrukning per medelstamsklass</div></div>
+      <div class="card-h"><div class="card-t">Liter per m³ per medelstamsklass</div></div>
       <div class="card-b">
         <canvas id="dieselChart" style="max-height:200px;margin-bottom:16px;"></canvas>
         <div class="sc-grid" id="dieselScGrid"></div>
