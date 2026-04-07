@@ -1808,9 +1808,10 @@ export default function Maskinvy() {
         if (r.processtyp === 'MTH') prodGroups[key].mthSt += r.stammar || 0;
       }
 
-      // Classify each group into a medelstamsklass
-      const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, mthSt: 0 }));
-      for (const g of Object.values(prodGroups)) {
+      // Classify each datum+operator group into a medelstamsklass
+      // Join with tidByDayOp to get G15h per class
+      const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, mthSt: 0, g15sek: 0 }));
+      for (const [key, g] of Object.entries(prodGroups)) {
         if (g.st <= 0) continue;
         const ms = g.vol / g.st;
         let ci = nClasses - 1;
@@ -1820,24 +1821,23 @@ export default function Maskinvy() {
         klassAgg[ci].vol += g.vol;
         klassAgg[ci].st += g.st;
         klassAgg[ci].mthSt += g.mthSt;
+        // Match G15h from tidByDayOp with same key (datum|operator_id)
+        const tDayOp = tidByDayOp[key];
+        if (tDayOp) {
+          klassAgg[ci].g15sek += tDayOp.processingSek + tDayOp.terrainSek;
+        }
       }
 
       const klassVolym = klassAgg.map(k => Math.round(k.vol));
       const klassStammar = klassAgg.map(k => Math.round(k.st));
-      // Produktivitet per klass: fördela total produktivitet proportionellt
-      const totalProd = g15Timmar > 0 ? totalVolym / g15Timmar : 0;
+      const klassG15h = klassAgg.map(k => parseFloat((k.g15sek / 3600).toFixed(1)));
       const klassM3g15 = klassAgg.map(k => {
-        if (k.st <= 0 || totalStammar <= 0) return 0;
-        // Klass-medelstam relativt total → proxy för produktivitet
-        const klassMs = k.vol / k.st;
-        const totalMs = totalStammar > 0 ? totalVolym / totalStammar : 0;
-        const ratio = totalMs > 0 ? klassMs / totalMs : 1;
-        return parseFloat((totalProd * ratio).toFixed(1));
+        const h = k.g15sek / 3600;
+        return h > 0 ? parseFloat((k.vol / h).toFixed(1)) : 0;
       });
-      const klassStg15 = klassAgg.map((k, i) => {
-        const prod = klassM3g15[i];
-        const ms = k.st > 0 ? k.vol / k.st : 0;
-        return ms > 0 ? Math.round(prod / ms) : 0;
+      const klassStg15 = klassAgg.map(k => {
+        const h = k.g15sek / 3600;
+        return h > 0 ? Math.round(k.st / h) : 0;
       });
       const klassDieselM3 = klassAgg.map(() => 0); // not used — bränsle visas som KPI, ej per klass
       const klassMthPct = klassAgg.map(k => k.st > 0 ? Math.round(k.mthSt / k.st * 100) : 0);
