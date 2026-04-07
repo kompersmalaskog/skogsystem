@@ -128,6 +128,12 @@ type DbData = {
     volym: number; stammar: number; g15: number; prod: number; stg15: number; medelstam: number;
     objekt: Array<{ namn: string; volym: number; stammar: number; prod: number }>;
   }>;
+  // Timpeng vs Ackord
+  timpengData: Array<{
+    key: string; label: string;
+    volym: number; stammar: number; g15: number; prod: number; stg15: number; medelstam: number;
+    objekt: Array<{ namn: string; volym: number; stammar: number; prod: number }>;
+  }>;
   // Start date ISO for calendar/dag
   periodStartDate: string;
   totalDays: number;
@@ -956,6 +962,34 @@ function openObjJmf() {
 }
 function closeObjJmf() { closeAllPanels(); }
 
+// ── TIMPENG / ACKORD (from DB) ──
+const timpengArr = _db.timpengData || [];
+var timpengData = {};
+timpengArr.forEach(function(t) { timpengData[t.key] = t; });
+
+function openTimpeng(id) {
+  var d = timpengData[id];
+  if (!d) return;
+  document.getElementById('otpLabel').textContent = d.label;
+  document.getElementById('otpTitle').textContent = d.label === 'Timpeng' ? 'Timpeng-objekt' : 'Ackord-objekt';
+
+  var objRows = d.objekt.map(function(o) {
+    return '<div class="frow"><span class="frow-l">'+o.namn+'</span><div style="display:flex;gap:14px;align-items:center;"><span style="font-size:10px;color:var(--muted);">m³/G15h <strong style="color:var(--text)">'+o.prod+'</strong></span><span style="font-size:10px;color:var(--muted);">st <strong style="color:var(--text)">'+o.stammar.toLocaleString('sv')+'</strong></span><span class="frow-v">'+o.volym.toLocaleString('sv')+' m³</span></div></div>';
+  }).join('');
+
+  document.getElementById('otpBody').innerHTML = '<div class="forar-kpis" style="margin-bottom:16px;">'
+    +'<div class="fkpi"><div class="fkpi-v">'+d.volym.toLocaleString('sv')+'</div><div class="fkpi-l">m³ totalt</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+d.stammar.toLocaleString('sv')+'</div><div class="fkpi-l">Stammar</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+d.g15+'h</div><div class="fkpi-l">G15-timmar</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+d.prod+'</div><div class="fkpi-l">m³/G15h</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+d.stg15+'</div><div class="fkpi-l">st/G15h</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+d.medelstam+'</div><div class="fkpi-l">Medelstam</div></div></div>'
+    +'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Per objekt</div>'
+    +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">'+objRows+'</div>';
+  openOverlay();
+  document.getElementById('objTypPanel').classList.add('open');
+}
+
 // ── UPDATE DOM WITH DB DATA ──
 
 // Populate bolag card dynamically
@@ -998,6 +1032,29 @@ if (objTypDistEl && objTypArr.length > 0) {
   objTypDistEl.innerHTML = '<div style="display:grid;grid-template-columns:repeat('+Math.min(objTypArr.length,3)+',1fr);gap:8px;margin-bottom:14px;">'+cards+'</div>'
     +bar+'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px;"><div style="display:flex;gap:14px;">'+legend+'</div>'
     +'<button onclick="openObjJmf()" style="border:none;background:rgba(255,255,255,0.07);border-radius:6px;padding:5px 12px;font-family:inherit;font-size:10px;font-weight:600;color:rgba(255,255,255,0.6);cursor:pointer;letter-spacing:0.3px;">Jämför →</button></div>';
+}
+
+// Populate timpeng distribution
+var timpengDistEl = document.getElementById('timpengDist');
+if (timpengDistEl && timpengArr.length > 0) {
+  var tpTotal = timpengArr.reduce(function(s,t){return s+t.volym;},0);
+  var tpColors = ['rgba(255,179,64,0.5)','rgba(90,255,140,0.5)'];
+  var tpCards = timpengArr.map(function(t,i){
+    return '<div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center;cursor:pointer;" onclick="openTimpeng(\\''+t.key+'\\')">'
+      +'<div style="font-family:\\'Fraunces\\',serif;font-size:22px;line-height:1;">'+t.volym.toLocaleString('sv')+'</div>'
+      +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-top:3px;">'+t.label+' · m³</div>'
+      +'<div style="font-size:10px;color:var(--muted);margin-top:4px;">'+t.prod+' m³/G15h</div></div>';
+  }).join('');
+  var tpBar = '<div style="background:var(--surface2);border-radius:8px;overflow:hidden;height:6px;display:flex;">'
+    + timpengArr.map(function(t,i){return '<div style="flex:'+t.volym+';background:'+tpColors[i%tpColors.length]+(i>0?';margin-left:2px':'')+'"></div>';}).join('')+'</div>';
+  var tpLegend = timpengArr.map(function(t,i){
+    var pct = tpTotal>0?Math.round(t.volym/tpTotal*100):0;
+    return '<div style="display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);"><div style="width:8px;height:8px;border-radius:2px;background:'+tpColors[i%tpColors.length]+';"></div>'+t.label+' '+pct+'%</div>';
+  }).join('');
+  timpengDistEl.innerHTML = '<div style="display:grid;grid-template-columns:repeat('+timpengArr.length+',1fr);gap:8px;margin-bottom:14px;">'+tpCards+'</div>'
+    +tpBar+'<div style="display:flex;gap:14px;margin-top:7px;">'+tpLegend+'</div>';
+} else if (timpengDistEl) {
+  timpengDistEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">Ingen data</div>';
 }
 
 var opContainer = document.getElementById('opContainer');
@@ -1360,7 +1417,7 @@ export default function Maskinvy() {
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate),
         supabase.from('dim_operator').select('operator_id, operator_key, operator_namn, maskin_id').in('maskin_id', maskinIds),
-        supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer, bolag, inkopare, avverkningsform, certifiering'),
+        supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer, bolag, inkopare, avverkningsform, certifiering, timpeng'),
         supabase.from('fakt_skift')
           .select('datum, inloggning_tid, utloggning_tid')
           .in('maskin_id', maskinIds)
@@ -1410,7 +1467,7 @@ export default function Maskinvy() {
           mthAndelPct: 0, mthMedelstam: 0, singleMedelstam: 0,
           sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], totals: [0,0,0,0] },
           hasMth: false, sortimentPerDag: null,
-          bolagData: [], objTypList: [], periodStartDate: startDate, totalDays,
+          bolagData: [], objTypList: [], timpengData: [], periodStartDate: startDate, totalDays,
         };
         (window as any).__maskinvyData = emptyData;
         setDataVersion(v => v + 1);
@@ -1945,6 +2002,37 @@ export default function Maskinvy() {
       });
       objTypList.sort((a, b) => b.volym - a.volym);
 
+      // ── Build timpengData from dim_objekt.timpeng ──
+      const timpengGroups: Record<string, { volym: number; stammar: number; g15sek: number; objekt: Array<{ namn: string; volym: number; stammar: number; g15sek: number }> }> = { Timpeng: { volym: 0, stammar: 0, g15sek: 0, objekt: [] }, Ackord: { volym: 0, stammar: 0, g15sek: 0, objekt: [] } };
+      for (const o of objekter) {
+        const pObj = prodByObjekt[o.objekt_id];
+        if (!pObj || pObj.vol <= 0) continue;
+        const tObj = tidByObjekt[o.objekt_id];
+        const oG15 = tObj ? tObj.processingSek + tObj.terrainSek : 0;
+        const grp = o.timpeng === true ? 'Timpeng' : 'Ackord';
+        timpengGroups[grp].volym += pObj.vol;
+        timpengGroups[grp].stammar += pObj.st;
+        timpengGroups[grp].g15sek += oG15;
+        timpengGroups[grp].objekt.push({ namn: o.objekt_namn || o.vo_nummer || '', volym: Math.round(pObj.vol), stammar: Math.round(pObj.st), g15sek: oG15 });
+      }
+      const timpengData: DbData['timpengData'] = Object.entries(timpengGroups)
+        .filter(([, g]) => g.volym > 0)
+        .map(([label, g]) => {
+          const g15h = g.g15sek / 3600;
+          return {
+            key: label.toLowerCase(), label,
+            volym: Math.round(g.volym), stammar: Math.round(g.stammar),
+            g15: parseFloat(g15h.toFixed(1)),
+            prod: g15h > 0 ? parseFloat((g.volym / g15h).toFixed(1)) : 0,
+            stg15: g15h > 0 ? Math.round(g.stammar / g15h) : 0,
+            medelstam: g.stammar > 0 ? parseFloat((g.volym / g.stammar).toFixed(2)) : 0,
+            objekt: g.objekt.map(o => {
+              const oG15h = o.g15sek / 3600;
+              return { namn: o.namn, volym: o.volym, stammar: o.stammar, prod: oG15h > 0 ? parseFloat((o.volym / oG15h).toFixed(1)) : 0 };
+            }),
+          };
+        });
+
       console.log('[Maskinvy] Computed data:', {
         maskinId, period: p, hasMth,
         totalVolym: Math.round(totalVolym),
@@ -1987,6 +2075,7 @@ export default function Maskinvy() {
         sortimentPerDag,
         bolagData: bolagArr,
         objTypList,
+        timpengData,
         periodStartDate: startDate,
         totalDays,
       };
@@ -3363,6 +3452,10 @@ body {
         <div style="margin:14px 22px 4px;border-top:1px solid var(--border);padding-top:14px;">
           <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Fördelning per certifiering</div>
           <div id="objTypDist"><div style="color:var(--muted);font-size:12px;">Laddar...</div></div>
+        </div>
+        <div style="margin:14px 22px 4px;border-top:1px solid var(--border);padding-top:14px;">
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Timpeng / Ackord</div>
+          <div id="timpengDist"><div style="color:var(--muted);font-size:12px;">Laddar...</div></div>
         </div>
       </div>
     </div>

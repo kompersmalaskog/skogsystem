@@ -26,7 +26,8 @@ const EGENSKAPER = [
   { key: 'klippning', label: 'Klippning' },
   { key: 'risskotning', label: 'Risskotning' },
   { key: 'stubbbehandling', label: 'Stubbbehandling' },
-  { key: 'extra_vagn', label: 'Extra vagn' }
+  { key: 'extra_vagn', label: 'Extra vagn' },
+  { key: 'timpeng', label: 'Timpeng' }
 ]
 
 // === SUPABASE-KOPPLING ===
@@ -90,6 +91,7 @@ async function sparaObjektTillSupabase(obj) {
       risskotning: obj.risskotning || false,
       stubbbehandling: obj.stubbbehandling || false,
       extra_vagn: obj.extra_vagn || false,
+      timpeng: obj.timpeng || false,
       skordning_avslutad: obj.skordning_avslutad || null,
       skotning_avslutad: obj.skotning_avslutad || null,
       ovrigt_info: ovrigtInfo,
