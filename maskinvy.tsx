@@ -148,11 +148,18 @@ Chart.defaults.color = '#7a7a72';
 var _db = window.__maskinvyData || {};
 console.log('[Maskinvy Script] _db:', { keys: Object.keys(_db), totalVolym: _db.totalVolym, dailyVol: _db.dailyVol?.length, operatorer: _db.operatorer?.length, klassM3g15: _db.klassM3g15, klassDieselM3: _db.klassDieselM3 });
 
-var classes = _db.klassLabels || [];
-var m3g15   = _db.klassM3g15 || [];
-var stg15   = _db.klassStg15 || [];
-var volym   = _db.klassVolym || [];
-var stammar = _db.klassStammar || [];
+// Filter out medelstamsklasser with zero stammar
+var _rawClasses = _db.klassLabels || [];
+var _rawM3g15   = _db.klassM3g15 || [];
+var _rawStg15   = _db.klassStg15 || [];
+var _rawVolym   = _db.klassVolym || [];
+var _rawStammar = _db.klassStammar || [];
+var _activeIdx = _rawStammar.map(function(_,i){return _rawStammar[i]>0?i:-1;}).filter(function(i){return i>=0;});
+var classes = _activeIdx.map(function(i){return _rawClasses[i];});
+var m3g15   = _activeIdx.map(function(i){return _rawM3g15[i];});
+var stg15   = _activeIdx.map(function(i){return _rawStg15[i];});
+var volym   = _activeIdx.map(function(i){return _rawVolym[i];});
+var stammar = _activeIdx.map(function(i){return _rawStammar[i];});
 
 var grid    = {color:'rgba(255,255,255,0.05)'};
 var ticks   = {color:'#7a7a72',font:{size:11}};
@@ -405,7 +412,8 @@ if (_db.hasMth === false) {
   if (mthSection) mthSection.style.removeProperty('display');
   if (sortDagSection) sortDagSection.style.display = 'none';
   // Build horizontal bar rows for MTH% per medelstamsklass
-  var mthPct = _db.klassMthPct || [];
+  var _rawMthPct = _db.klassMthPct || [];
+  var mthPct = _activeIdx.map(function(i){return _rawMthPct[i]||0;});
   var mthBody = document.getElementById('mthBody');
   if (mthBody && classes.length > 0) {
     mthBody.innerHTML = classes.map(function(cls, i) {
@@ -442,7 +450,8 @@ new Chart(document.getElementById('prodChart'),{
 });
 
 // Diesel per medelstamsklass — l/m³ (en y-axel)
-const dieselPerM3 = _db.klassDieselM3 || [];
+var _rawDieselPerM3 = _db.klassDieselM3 || [];
+const dieselPerM3 = _activeIdx.map(function(i){return _rawDieselPerM3[i]||0;});
 new Chart(document.getElementById('dieselChart'),{
   type:'bar',
   data:{labels:classes,datasets:[
