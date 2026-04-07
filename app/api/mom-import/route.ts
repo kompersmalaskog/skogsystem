@@ -204,6 +204,86 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // 8. Fallback: skapa arbetsdag från fakt_tid för datum som saknar rad
+    //    (täcker fall där fakt_skift saknas men fakt_tid finns)
+    const { data: tidData } = await supabase
+      .from('fakt_tid')
+      .select('datum, maskin_id, operator_id, processing_sek, terrain_sek, rast_sek, engine_time_sek, objekt_id')
+      .in('datum', datumSet);
+
+    if (tidData?.length) {
+      // Aggregera per operator+datum
+      const tidAgg: Record<string, {
+        datum: string; maskin_id: string; medarbetare_id: string;
+        g15sek: number; rastSek: number; engineSek: number; objekt_id: string | null;
+      }> = {};
+
+      for (const r of tidData) {
+        const medId = opMap[r.operator_id];
+        if (!medId) continue;
+        const key = `${medId}_${r.datum}`;
+        if (!tidAgg[key]) {
+          tidAgg[key] = {
+            datum: r.datum, maskin_id: r.maskin_id, medarbetare_id: medId,
+            g15sek: 0, rastSek: 0, engineSek: 0, objekt_id: null,
+          };
+        }
+        tidAgg[key].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
+        tidAgg[key].rastSek += r.rast_sek || 0;
+        tidAgg[key].engineSek += r.engine_time_sek || 0;
+        if (r.objekt_id) tidAgg[key].objekt_id = r.objekt_id;
+      }
+
+      // Kolla vilka som redan har arbetsdag
+      const fallbackKeys = Object.keys(tidAgg);
+      const fallbackMedIds = [...new Set(fallbackKeys.map(k => k.split('_')[0]))];
+      const { data: befintliga } = await supabase
+        .from('arbetsdag')
+        .select('medarbetare_id, datum')
+        .in('datum', datumSet)
+        .in('medarbetare_id', fallbackMedIds);
+
+      const finnsRedanSet = new Set(
+        (befintliga || []).map(r => `${r.medarbetare_id}_${r.datum}`)
+      );
+
+      const fallbackRows = Object.entries(tidAgg)
+        .filter(([key]) => !finnsRedanSet.has(key) && !skyddade.has(key))
+        .map(([, agg]) => {
+          const arbetadMin = Math.round(agg.g15sek / 60);
+          const rastMin = Math.round(agg.rastSek / 60);
+          return {
+            medarbetare_id: agg.medarbetare_id,
+            datum: agg.datum,
+            dagtyp: 'normal',
+            maskin_id: agg.maskin_id,
+            objekt_id: agg.objekt_id,
+            arbetad_min: arbetadMin,
+            rast_min: rastMin,
+            bekraftad: false,
+          };
+        });
+
+      let fallbackCreated = 0;
+      if (fallbackRows.length) {
+        const { data: fbInserted, error: fbErr } = await supabase
+          .from('arbetsdag')
+          .insert(fallbackRows)
+          .select('id');
+        if (fbErr) {
+          console.error('Fallback arbetsdag insert error:', fbErr.message);
+        }
+        fallbackCreated = fbInserted?.length || 0;
+      }
+
+      return NextResponse.json({
+        created: (inserted?.length || 0) + fallbackCreated,
+        skipped: skyddade.size,
+        fallback: fallbackCreated,
+        message: `${(inserted?.length || 0) + fallbackCreated} arbetsdagar skapade/uppdaterade (varav ${fallbackCreated} från fakt_tid)`,
+      });
+    }
+
     return NextResponse.json({
       created: inserted?.length || 0,
       skipped: skyddade.size,
