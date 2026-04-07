@@ -1809,8 +1809,9 @@ export default function Maskinvy() {
       }
 
       // Classify each datum+operator group into a medelstamsklass
-      // Join with tidByDayOp to get G15h per class
+      // Join with tidByDayOp to get G15h per class (tidByDayOp already sums all objekt per datum+operator)
       const klassAgg = Array.from({ length: nClasses }, () => ({ vol: 0, st: 0, mthSt: 0, g15sek: 0 }));
+      let _klassMatchCount = 0, _klassMissCount = 0;
       for (const [key, g] of Object.entries(prodGroups)) {
         if (g.st <= 0) continue;
         const ms = g.vol / g.st;
@@ -1821,12 +1822,19 @@ export default function Maskinvy() {
         klassAgg[ci].vol += g.vol;
         klassAgg[ci].st += g.st;
         klassAgg[ci].mthSt += g.mthSt;
-        // Match G15h from tidByDayOp with same key (datum|operator_id)
+        // Match G15h from tidByDayOp — same key (datum|operator_id), already summed across all objekt
         const tDayOp = tidByDayOp[key];
         if (tDayOp) {
           klassAgg[ci].g15sek += tDayOp.processingSek + tDayOp.terrainSek;
+          _klassMatchCount++;
+        } else {
+          _klassMissCount++;
         }
       }
+
+      console.log(`[Maskinvy] Klass-join: ${_klassMatchCount} matched, ${_klassMissCount} missed (prod keys without tid match)`,
+        { prodKeys: Object.keys(prodGroups).length, tidKeys: Object.keys(tidByDayOp).length,
+          sampleProdKeys: Object.keys(prodGroups).slice(0, 3), sampleTidKeys: Object.keys(tidByDayOp).slice(0, 3) });
 
       const klassVolym = klassAgg.map(k => Math.round(k.vol));
       const klassStammar = klassAgg.map(k => Math.round(k.st));
