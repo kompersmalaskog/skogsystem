@@ -3579,10 +3579,10 @@ body {
 <!-- BOLAG PANEL -->
 <div class="bolag-panel" id="bolagPanel">
   <div class="forar-head">
-    <div class="forar-av" id="bpLogo" style="border-radius:8px;font-size:11px;font-weight:700;">VIDA</div>
+    <div class="forar-av" id="bpLogo" style="border-radius:8px;font-size:11px;font-weight:700;"></div>
     <div>
-      <div class="forar-title" id="bpName">Vida Skog AB</div>
-      <div class="forar-sub" id="bpSub">1 024 m³ · 55% av total volym</div>
+      <div class="forar-title" id="bpName"></div>
+      <div class="forar-sub" id="bpSub"></div>
     </div>
     <button class="forar-close" onclick="closeBolag()">✕</button>
   </div>
@@ -3597,7 +3597,7 @@ body {
     <div class="forar-av" style="border-radius:8px;font-size:14px;">⏱</div>
     <div>
       <div class="forar-title">Tidsfördelning & avbrott</div>
-      <div class="forar-sub">Ponsse Scorpion Giant 8W · februari 2026</div>
+      <div class="forar-sub"></div>
     </div>
     <button class="forar-close" onclick="closeTid()">✕</button>
   </div>
@@ -3710,7 +3710,7 @@ body {
     <div class="forar-av" style="border-radius:8px;font-size:14px;">🌲</div>
     <div>
       <div class="forar-title">Trädslag & sortiment</div>
-      <div class="forar-sub">Ponsse Scorpion Giant 8W · februari 2026</div>
+      <div class="forar-sub"></div>
     </div>
     <button class="forar-close" onclick="closeTradslag()">✕</button>
   </div>
@@ -3784,7 +3784,7 @@ body {
     <div class="forar-av" style="border-radius:8px;font-size:13px;">⚡</div>
     <div>
       <div class="forar-title">RP · AU · LRK – jämförelse</div>
-      <div class="forar-sub">Ponsse Scorpion Giant 8W · februari 2026</div>
+      <div class="forar-sub"></div>
     </div>
     <button class="forar-close" onclick="closeObjJmf()">✕</button>
   </div>
@@ -3814,8 +3814,8 @@ body {
   <div class="forar-head">
     <div class="forar-av" style="border-radius:8px;font-size:13px;font-weight:700;" id="otpLabel">RP</div>
     <div>
-      <div class="forar-title" id="otpTitle">Röjningsprioriterat</div>
-      <div class="forar-sub">Ponsse Scorpion Giant 8W · februari 2026</div>
+      <div class="forar-title" id="otpTitle"></div>
+      <div class="forar-sub"></div>
     </div>
     <button class="forar-close" onclick="closeObjTyp()">✕</button>
   </div>
@@ -3827,7 +3827,7 @@ body {
   <div class="forar-head">
     <div class="forar-av" style="border-radius:8px;font-size:13px;" id="dagIcon">📅</div>
     <div>
-      <div class="forar-title" id="dagTitle">1 februari 2026</div>
+      <div class="forar-title" id="dagTitle"></div>
       <div class="forar-sub" id="dagSub">Produktion</div>
     </div>
     <button class="forar-close" onclick="closeDag()">✕</button>
@@ -3844,7 +3844,7 @@ body {
     <div class="forar-av" id="fpAv">SK</div>
     <div>
       <div class="forar-title" id="fpName">Stefan Karlsson</div>
-      <div class="forar-sub" id="fpSub">Ponsse Scorpion Giant 8W</div>
+      <div class="forar-sub" id="fpSub"></div>
     </div>
     <button class="forar-close" onclick="closeForare()">✕</button>
   </div>
