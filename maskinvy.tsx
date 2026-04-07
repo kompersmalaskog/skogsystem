@@ -1417,7 +1417,7 @@ export default function Maskinvy() {
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate),
         supabase.from('dim_operator').select('operator_id, operator_key, operator_namn, maskin_id').in('maskin_id', maskinIds),
-        supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer, bolag, inkopare, avverkningsform, certifiering, timpeng'),
+        supabase.from('dim_objekt').select('objekt_id, objekt_namn, vo_nummer, bolag, inkopare, avverkningsform, certifiering, timpeng, atgard'),
         supabase.from('fakt_skift')
           .select('datum, inloggning_tid, utloggning_tid')
           .in('maskin_id', maskinIds)
@@ -1928,14 +1928,19 @@ export default function Maskinvy() {
       }
 
       // ── Build bolagData from dim_objekt + prodByObjekt ──
-      const bolagMap = new Map<string, { name: string; inkopareMap: Map<string, { namn: string; objekt: Array<{ namn: string; nr: string; typ: string; volym: number }> }> }>();
+      // Group case-insensitively (VIDA, Vida → same group), keep first-seen display name
+      const bolagMap = new Map<string, { displayName: string; inkopareMap: Map<string, { namn: string; objekt: Array<{ namn: string; nr: string; typ: string; volym: number }> }> }>();
       for (const o of objekter) {
-        const bNamn = o.bolag || 'Övrigt';
-        const iNamn = o.inkopare || '–';
-        if (!bolagMap.has(bNamn)) bolagMap.set(bNamn, { name: bNamn, inkopareMap: new Map() });
-        const bEntry = bolagMap.get(bNamn)!;
-        if (!bEntry.inkopareMap.has(iNamn)) bEntry.inkopareMap.set(iNamn, { namn: iNamn, objekt: [] });
-        const iEntry = bEntry.inkopareMap.get(iNamn)!;
+        const bRaw = (o.bolag || '').trim();
+        const bKey = bRaw.toUpperCase() || 'ÖVRIGT';
+        const bDisplay = bRaw || 'Övrigt';
+        const iRaw = (o.inkopare || '').trim();
+        const iKey = iRaw.toUpperCase() || '–';
+        const iDisplay = iRaw || '–';
+        if (!bolagMap.has(bKey)) bolagMap.set(bKey, { displayName: bDisplay, inkopareMap: new Map() });
+        const bEntry = bolagMap.get(bKey)!;
+        if (!bEntry.inkopareMap.has(iKey)) bEntry.inkopareMap.set(iKey, { namn: iDisplay, objekt: [] });
+        const iEntry = bEntry.inkopareMap.get(iKey)!;
         const pObj = prodByObjekt[o.objekt_id];
         if (pObj && pObj.vol > 0) {
           const avvForm = (o.avverkningsform || '').toLowerCase();
@@ -1949,7 +1954,7 @@ export default function Maskinvy() {
         }
       }
       const bolagArr: DbData['bolagData'] = [];
-      bolagMap.forEach((b, key) => {
+      bolagMap.forEach((b, bKey) => {
         const inkArr: DbData['bolagData'][0]['inkopare'] = [];
         b.inkopareMap.forEach((ink) => {
           if (ink.objekt.length === 0) return;
@@ -1960,41 +1965,41 @@ export default function Maskinvy() {
         });
         if (inkArr.length === 0) return;
         const bVol = inkArr.reduce((s, i) => s + i.volym, 0);
-        const logo = key.substring(0, 4).toUpperCase();
-        bolagArr.push({ key: key.replace(/\s/g, '_').toLowerCase(), logo, name: key, volym: bVol, pct: 0, inkopare: inkArr });
+        const logo = bKey.substring(0, 4);
+        bolagArr.push({ key: bKey.replace(/\s/g, '_').toLowerCase(), logo, name: b.displayName, volym: bVol, pct: 0, inkopare: inkArr });
       });
       bolagArr.sort((a, b) => b.volym - a.volym);
       const totalBolagVol = bolagArr.reduce((s, b) => s + b.volym, 0);
       bolagArr.forEach(b => { b.pct = totalBolagVol > 0 ? Math.round(b.volym / totalBolagVol * 100) : 0; });
 
-      // ── Build objTypList from certifiering ──
-      const certMap = new Map<string, { label: string; title: string; volym: number; stammar: number; g15sek: number; objekt: Array<{ namn: string; volym: number; stammar: number; g15sek: number }> }>();
+      // ── Build objTypList from atgard (Rp, Au, etc.) ──
+      const atgardMap = new Map<string, { label: string; volym: number; stammar: number; g15sek: number; objekt: Array<{ namn: string; volym: number; stammar: number; g15sek: number }> }>();
       for (const o of objekter) {
-        const cert = (o.certifiering || '').toUpperCase().trim();
-        if (!cert) continue;
+        const atg = (o.atgard || '').trim();
+        if (!atg) continue;
         const pObj = prodByObjekt[o.objekt_id];
         const tObj = tidByObjekt[o.objekt_id];
         if (!pObj || pObj.vol <= 0) continue;
-        if (!certMap.has(cert)) certMap.set(cert, { label: cert, title: cert, volym: 0, stammar: 0, g15sek: 0, objekt: [] });
-        const c = certMap.get(cert)!;
+        if (!atgardMap.has(atg)) atgardMap.set(atg, { label: atg, volym: 0, stammar: 0, g15sek: 0, objekt: [] });
+        const a = atgardMap.get(atg)!;
         const oG15 = tObj ? tObj.processingSek + tObj.terrainSek : 0;
-        c.volym += pObj.vol;
-        c.stammar += pObj.st;
-        c.g15sek += oG15;
-        c.objekt.push({ namn: o.objekt_namn || o.vo_nummer || '', volym: Math.round(pObj.vol), stammar: Math.round(pObj.st), g15sek: oG15 });
+        a.volym += pObj.vol;
+        a.stammar += pObj.st;
+        a.g15sek += oG15;
+        a.objekt.push({ namn: o.objekt_namn || o.vo_nummer || '', volym: Math.round(pObj.vol), stammar: Math.round(pObj.st), g15sek: oG15 });
       }
       const objTypList: DbData['objTypList'] = [];
-      certMap.forEach((c) => {
-        const g15h = c.g15sek / 3600;
+      atgardMap.forEach((a) => {
+        const g15h = a.g15sek / 3600;
         objTypList.push({
-          key: c.label.toLowerCase().replace(/\s/g, '_'),
-          label: c.label, title: c.title,
-          volym: Math.round(c.volym), stammar: Math.round(c.stammar),
+          key: a.label.toLowerCase().replace(/\s/g, '_'),
+          label: a.label, title: a.label,
+          volym: Math.round(a.volym), stammar: Math.round(a.stammar),
           g15: parseFloat(g15h.toFixed(1)),
-          prod: g15h > 0 ? parseFloat((c.volym / g15h).toFixed(1)) : 0,
-          stg15: g15h > 0 ? Math.round(c.stammar / g15h) : 0,
-          medelstam: c.stammar > 0 ? parseFloat((c.volym / c.stammar).toFixed(2)) : 0,
-          objekt: c.objekt.map(o => {
+          prod: g15h > 0 ? parseFloat((a.volym / g15h).toFixed(1)) : 0,
+          stg15: g15h > 0 ? Math.round(a.stammar / g15h) : 0,
+          medelstam: a.stammar > 0 ? parseFloat((a.volym / a.stammar).toFixed(2)) : 0,
+          objekt: a.objekt.map(o => {
             const oG15h = o.g15sek / 3600;
             return { namn: o.namn, volym: o.volym, stammar: o.stammar, prod: oG15h > 0 ? parseFloat((o.volym / oG15h).toFixed(1)) : 0 };
           }),
@@ -3450,7 +3455,7 @@ body {
         </table>
         </div>
         <div style="margin:14px 22px 4px;border-top:1px solid var(--border);padding-top:14px;">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Fördelning per certifiering</div>
+          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Fördelning per åtgärd</div>
           <div id="objTypDist"><div style="color:var(--muted);font-size:12px;">Laddar...</div></div>
         </div>
         <div style="margin:14px 22px 4px;border-top:1px solid var(--border);padding-top:14px;">
