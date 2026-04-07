@@ -161,6 +161,10 @@ var stg15   = _activeIdx.map(function(i){return _rawStg15[i];});
 var volym   = _activeIdx.map(function(i){return _rawVolym[i];});
 var stammar = _activeIdx.map(function(i){return _rawStammar[i];});
 
+console.log('[MTH klasser]', classes.map(function(c,i){return {klass:c, volym:volym[i], stammar:stammar[i]};}));
+console.log('[MTH total]', {sumKlassVolym: volym.reduce(function(a,b){return a+b;},0), totalVolym: _db.totalVolym});
+console.log('[MTH raw]', _rawClasses.map(function(c,i){return {klass:c, volym:_rawVolym[i], stammar:_rawStammar[i]};}));
+
 var grid    = {color:'rgba(255,255,255,0.05)'};
 var ticks   = {color:'#7a7a72',font:{size:11}};
 const tooltip = {backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10};
