@@ -1232,16 +1232,15 @@ export default function Maskinvy() {
       ];
       return { edges, labels };
     }
-    // Slutavverkning: 0.20, 0.25, 0.30, ..., 1.00+ (±0.025)
-    const edges: number[] = [0];
-    const labels: string[] = [];
+    // Slutavverkning: <0.20, 0.20, 0.25, ..., 0.95, 1.00+
+    const edges: number[] = [0, 0.175]; // <0.20 = allt under 0.175
+    const labels: string[] = ['<0.20'];
     for (let v = 0.20; v <= 0.95; v = parseFloat((v + 0.05).toFixed(2))) {
-      edges.push(v - 0.025);
+      edges.push(v + 0.025);
       labels.push(v.toFixed(2));
     }
-    edges.push(0.975);
-    labels.push('1.00+');
     edges.push(Infinity);
+    labels.push('1.00+');
     return { edges, labels };
   }
   const allMachines: { id: string; namn: string }[] = [
@@ -1820,6 +1819,10 @@ export default function Maskinvy() {
       });
       const klassDieselM3 = klassAgg.map(() => 0); // not used — bränsle visas som KPI, ej per klass
       const klassMthPct = klassAgg.map(k => k.st > 0 ? Math.round(k.mthSt / k.st * 100) : 0);
+
+      // Verify all volume is accounted for
+      const sumKlassVol = klassVolym.reduce((s, v) => s + v, 0);
+      console.log(`[Maskinvy] Medelstamsklasser: sumKlassVolym=${sumKlassVol}, totalVolym=${Math.round(totalVolym)}, diff=${Math.round(totalVolym) - sumKlassVol}, klasser=${klassLabels.join(',')}, volym=[${klassVolym.join(',')}], stammar=[${klassStammar.join(',')}]`);
 
       // ── Fetch sortiment data (always — used for sortChart + sortimentPerDag) ──
       const mthCheck = await supabase.from('fakt_produktion')
