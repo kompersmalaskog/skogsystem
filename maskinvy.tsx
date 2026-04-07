@@ -1793,64 +1793,53 @@ export default function Maskinvy() {
       }
 
       // ── Medelstamsklass-aggregering ──
-      // Använder pre-aggregerad data (ALDRIG direkt join av fakt_produktion + fakt_tid):
-      //   prodByDayOp[datum|operator_id] → volym, stammar (redan summerat)
-      //   tidByDayOp[datum|operator_id]  → processingSek, terrainSek (redan summerat)
-      // Beräkna medelstam per dag+operator, placera i klass, summera separat.
-      const { edges: classEdges, labels: klassLabels } = getMedelstamKlasser(maskinIds);
-      const nClasses = klassLabels.length;
+      // BARA pre-aggregerad data, ALDRIG direkt join:
+      //   prodByDayOp[datum|opId] → {vol, st, mthSt}  (fakt_produktion summerat separat)
+      //   tidByDayOp[datum|opId]  → TidAgg             (fakt_tid summerat separat)
+      const { edges, labels: klassLabels } = getMedelstamKlasser(maskinIds);
+      const nKlass = edges.length - 1;
 
-      const klassVolym = new Array(nClasses).fill(0);
-      const klassStammar = new Array(nClasses).fill(0);
-      const klassG15sek = new Array(nClasses).fill(0);
-      const klassMthSt = new Array(nClasses).fill(0);
-      let _klassMatchCount = 0, _klassMissCount = 0;
+      const klassStammar = new Array(nKlass).fill(0);
+      const klassG15h    = new Array(nKlass).fill(0);
+      const klassVolym   = new Array(nKlass).fill(0);
+      const klassMthSt   = new Array(nKlass).fill(0);
 
       for (const [key, prod] of Object.entries(prodByDayOp)) {
-        if (prod.st <= 0) continue;
-        const ms = prod.vol / prod.st;
-        // Placera i rätt klass
-        let ci = nClasses - 1;
-        for (let c = 0; c < nClasses; c++) {
-          if (ms < classEdges[c + 1]) { ci = c; break; }
-        }
-        klassVolym[ci] += prod.vol;
-        klassStammar[ci] += prod.st;
-        klassMthSt[ci] += prod.mthSt || 0;
-        // G15h från tidByDayOp (separat hämtad, aldrig joinad)
+        if (prod.st === 0) continue;
+        const medelstam = prod.vol / prod.st;
         const tid = tidByDayOp[key];
-        if (tid) {
-          klassG15sek[ci] += tid.processingSek + tid.terrainSek;
-          _klassMatchCount++;
-        } else {
-          _klassMissCount++;
+        const g15h = tid ? (tid.processingSek + tid.terrainSek) / 3600 : 0;
+
+        // Hitta rätt klass
+        for (let i = 0; i < nKlass; i++) {
+          if (medelstam >= edges[i] && medelstam < edges[i + 1]) {
+            klassStammar[i] += prod.st;
+            klassG15h[i] += g15h;
+            klassVolym[i] += prod.vol;
+            klassMthSt[i] += prod.mthSt || 0;
+            break;
+          }
         }
       }
 
-      // Avrunda
-      for (let i = 0; i < nClasses; i++) {
+      // Beräkna produktivitet per klass
+      const klassM3g15 = klassG15h.map((h, i) => h > 0 ? parseFloat((klassVolym[i] / h).toFixed(1)) : 0);
+      const klassStg15 = klassG15h.map((h, i) => h > 0 ? Math.round(klassStammar[i] / h) : 0);
+
+      // Avrunda volym och stammar
+      for (let i = 0; i < nKlass; i++) {
         klassVolym[i] = Math.round(klassVolym[i]);
         klassStammar[i] = Math.round(klassStammar[i]);
       }
 
-      console.log(`[Maskinvy] Klass: ${_klassMatchCount} matchade, ${_klassMissCount} utan tid`,
-        { prodKeys: Object.keys(prodByDayOp).length, tidKeys: Object.keys(tidByDayOp).length });
-
-      const klassG15h = klassG15sek.map((s: number) => parseFloat((s / 3600).toFixed(1)));
-      const klassM3g15 = klassG15sek.map((s: number, i: number) => {
-        const h = s / 3600;
-        return h > 0 ? parseFloat((klassVolym[i] / h).toFixed(1)) : 0;
-      });
-      const klassStg15 = klassG15sek.map((s: number, i: number) => {
-        const h = s / 3600;
-        return h > 0 ? Math.round(klassStammar[i] / h) : 0;
-      });
-      const klassDieselM3 = new Array(nClasses).fill(0); // not used — bränsle visas som KPI, ej per klass
+      const klassDieselM3 = new Array(nKlass).fill(0);
       const klassMthPct = klassStammar.map((st: number, i: number) => st > 0 ? Math.round(klassMthSt[i] / st * 100) : 0);
 
-      // Verify all volume is accounted for
-      const sumKlassVol = klassVolym.reduce((s, v) => s + v, 0);
-      console.log(`[Maskinvy] Medelstamsklasser: sumKlassVolym=${sumKlassVol}, totalVolym=${Math.round(totalVolym)}, diff=${Math.round(totalVolym) - sumKlassVol}, klasser=${klassLabels.join(',')}, volym=[${klassVolym.join(',')}], stammar=[${klassStammar.join(',')}]`);
+      // Verifiering
+      const sumKlassVol = klassVolym.reduce((s: number, v: number) => s + v, 0);
+      const sumKlassG15 = klassG15h.reduce((s: number, v: number) => s + v, 0);
+      console.log(`[Maskinvy] Klasser: sumVol=${sumKlassVol} totalVol=${Math.round(totalVolym)} sumG15h=${sumKlassG15.toFixed(1)} totalG15h=${g15Timmar.toFixed(1)}`);
+      console.log(`[Maskinvy] Per klass:`, klassLabels.map((l, i) => `${l}: ${klassVolym[i]}m³ ${klassStammar[i]}st ${klassG15h[i].toFixed(1)}h ${klassM3g15[i]}m³/G15h ${klassStg15[i]}st/G15h`));
 
       // ── Fetch sortiment data (always — used for sortChart + sortimentPerDag) ──
       const mthCheck = await supabase.from('fakt_produktion')
