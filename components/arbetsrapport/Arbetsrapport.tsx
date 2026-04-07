@@ -558,18 +558,7 @@ export default function Arbetsrapport() {
 
   const input = { width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"0 1px 3px rgba(0,0,0,0.08)",fontFamily:"inherit" };
 
-  // Loading fallback
-  if(!medarbetare) return (
-    <div style={shell}>
-      <style>{css}</style>
-      <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"center" }}>
-        <p style={{ fontSize:17,color:C.label }}>Laddar...</p>
-      </div>
-    </div>
-  );
-
-  // Extra tid – en skärm
-  // === ARBETSDAG TOAST (rendered as DOM element to avoid early return issues) ===
+  // === ARBETSDAG TOAST (DOM element) — must be before any early return ===
   useEffect(() => {
     if (!arbetsdagToast) {
       const el = document.getElementById('arbetsdag-toast');
@@ -599,6 +588,16 @@ export default function Arbetsrapport() {
     if (okBtn) okBtn.addEventListener('click', () => { setArbetsdagToast(null); });
     return () => { el?.remove(); };
   }, [arbetsdagToast]);
+
+  // Loading fallback
+  if(!medarbetare) return (
+    <div style={shell}>
+      <style>{css}</style>
+      <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"center" }}>
+        <p style={{ fontSize:17,color:C.label }}>Laddar...</p>
+      </div>
+    </div>
+  );
 
   if(steg==="extraTid") return (
     <ExtraTidSkärm
