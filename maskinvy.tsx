@@ -441,7 +441,7 @@ new Chart(document.getElementById('totalChart'),{
   data:{labels:classes,datasets:[
     {label:'Volym m³',data:volym,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Volym: '+volym[idx].toLocaleString('sv')+' m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Volym: '+volym[idx].toLocaleString('sv')+' m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')+' st','m\\u00b3/G15h: '+m3g15[idx]];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
 });
 
 // Produktivitet — m³/G15h per medelstamsklass (en y-axel)
@@ -462,15 +462,6 @@ if (prodSummaryEl && classes.length > 0) {
   for (var vi=1;vi<volym.length;vi++) { if(volym[vi]>volym[mostVolIdx]) mostVolIdx=vi; }
   prodSummaryEl.innerHTML = '<span style="color:var(--muted);font-size:11px;">Bästa klass: <strong style="color:var(--text)">'+classes[bestProdIdx]+' · '+m3g15[bestProdIdx]+' m\\u00b3/G15h</strong></span>'
     + '<span style="color:var(--muted);font-size:11px;margin-left:20px;">Mest volym: <strong style="color:var(--text)">'+classes[mostVolIdx]+' · '+volym[mostVolIdx].toLocaleString('sv')+' m\\u00b3</strong></span>';
-}
-
-// Stammar/G15h KPI-kort (totalt, ej per klass)
-var stg15KpiEl = document.getElementById('stg15Kpi');
-if (stg15KpiEl) {
-  var _totalSt = _db.totalStammar || 0;
-  var _totalG15 = _db.g15Timmar || 0;
-  var snittStG15 = _totalG15 > 0 ? Math.round(_totalSt / _totalG15) : 0;
-  stg15KpiEl.innerHTML = '<div class="fkpi"><div class="fkpi-v">'+snittStG15+'</div><div class="fkpi-l">Snitt stammar / G15h</div></div>';
 }
 
 // Populate diesel KPI cards
@@ -3542,10 +3533,6 @@ body {
         <div class="cleg">m³/G15h per medelstamsklass</div>
         <canvas id="prodChart" style="max-height:175px"></canvas>
         <div style="margin-top:10px;" id="prodSummary"></div>
-        <div class="cdiv"></div>
-        <div class="forar-kpis" id="stg15Kpi" style="justify-content:center;">
-          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Snitt stammar / G15h</div></div>
-        </div>
       </div>
     </div>
   </div>
