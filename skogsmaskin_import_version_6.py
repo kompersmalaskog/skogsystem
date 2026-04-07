@@ -2008,6 +2008,14 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     'filnamn': data.get('filnamn', ''),
                 })
 
+            # Fallback: om WorkCategory saknas i MOM-filen → processing_sek = 0 och terrain_sek = 0
+            # men engine_time_sek > 0. Sätt processing_sek = 88% av engine_time_sek som uppskattning.
+            for row in rows:
+                if row.get('processing_sek', 0) == 0 and row.get('terrain_sek', 0) == 0 and row.get('engine_time_sek', 0) > 0:
+                    fallback_sek = int(row['engine_time_sek'] * 0.88)
+                    row['processing_sek'] = fallback_sek
+                    logger.warning(f"  VARNING: Fallback G15h från EngineTime för {row.get('maskin_id')} {row.get('datum')} — WorkCategory saknas i MOM-fil (engine={row['engine_time_sek']}s → processing={fallback_sek}s)")
+
             if rows:
                 if upsert_data('fakt_tid', rows, ['datum', 'maskin_id', 'objekt_id']) == 0:
                     fel.append('fakt_tid')
