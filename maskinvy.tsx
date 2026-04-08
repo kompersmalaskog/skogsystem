@@ -247,6 +247,12 @@ var isWeekend = dailyDates.map(function(ds) {
 var nonZeroVols = dailyVol.filter(function(v){return v>0;});
 var avgVol = nonZeroVols.length > 0 ? Math.round(nonZeroVols.reduce(function(a,b){return a+b;},0) / nonZeroVols.length) : 0;
 
+// Update daily chart title with average
+var dailyTitleEl = document.getElementById('dailyChartTitle');
+if (dailyTitleEl && avgVol > 0) {
+  dailyTitleEl.innerHTML = 'Daglig produktion <span style="color:#7a7a72;font-size:11px;font-weight:400;"> \\u00b7 Snitt: ' + avgVol + ' m\\u00b3/dag</span>';
+}
+
 // Weekend background plugin
 var weekendBgPlugin = {
   id: 'weekendBg',
