@@ -2901,7 +2901,6 @@ export default function Maskinvy() {
             { icon: '◉', label: 'Operatörer', view: 'operatorer' },
             { icon: '⬡', label: 'Trädslag', view: 'tradslag' },
             { icon: '▣', label: 'Objekt', view: 'objekt' },
-            { icon: '⊘', label: 'Kalibrering', view: 'kalibrering' },
             { icon: '⇄', label: 'Jämför perioder', view: 'jamfor' },
           ].map(item => {
             const isActive = activeView === item.view;
