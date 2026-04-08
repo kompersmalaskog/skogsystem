@@ -1153,6 +1153,21 @@ if (_db.operatorer && _db.operatorer.length > 0) {
 }
 
 // Expose to global scope for onclick handlers
+// Populate åtgärdsfilter-knappar
+var atgFilterRow = document.getElementById('atgardFilterRow');
+if (atgFilterRow && window.__maskinvyAtgarder) {
+  var currentFilter = window.__maskinvyFilterAtgard || '';
+  var atgarder = window.__maskinvyAtgarder || [];
+  var btnStyle = 'border:none;border-radius:8px;padding:6px 14px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s;letter-spacing:0.2px;';
+  var activeStyle = 'background:rgba(90,255,140,0.2);color:rgba(90,255,140,0.9);';
+  var inactiveStyle = 'background:rgba(255,255,255,0.05);color:#7a7a72;';
+  var html = '<button style="'+btnStyle+(currentFilter===''?activeStyle:inactiveStyle)+'" onclick="window.__setFilterAtgard(\\'\\')">Alla</button>';
+  atgarder.forEach(function(a) {
+    html += '<button style="'+btnStyle+(currentFilter===a?activeStyle:inactiveStyle)+'" onclick="window.__setFilterAtgard(\\''+a+'\\')">'+a+'</button>';
+  });
+  atgFilterRow.innerHTML = html;
+}
+
 Object.assign(window, {
   toggleMMenu, pickM, openForare, closeForare, openBolag, closeBolag,
   openTradslag, closeTradslag, openTid, closeTid, toggleCmp, runCmp,
@@ -1175,6 +1190,8 @@ export default function Maskinvy() {
   const [periodOffset, setPeriodOffset] = useState(0); // 0=current, -1=previous, etc.
   const [loading, setLoading] = useState(false);
   const [maskinOpen, setMaskinOpen] = useState(false);
+  const [filterAtgard, setFilterAtgard] = useState('');
+  const [availableAtgarder, setAvailableAtgarder] = useState<string[]>([]);
 
   // ── Period comparison state ──
   const [showCmp, setShowCmp] = useState(false);
@@ -1391,12 +1408,12 @@ export default function Maskinvy() {
   }
 
   // ── Fetch production data from Supabase ──
-  const fetchDbData = useCallback(async (maskinId: any, p: 'V' | 'M' | 'K' | 'Å' = 'M', pOffset = 0) => {
+  const fetchDbData = useCallback(async (maskinId: any, p: 'V' | 'M' | 'K' | 'Å' = 'M', pOffset = 0, atgardFilter = '') => {
     if (!maskinId) return;
     setLoading(true);
     try {
       const { startDate, endDate } = getPeriodDates(p, pOffset);
-      console.log('[Maskinvy] fetchDbData:', { maskinId, period: p, pOffset, startDate, endDate });
+      console.log('[Maskinvy] fetchDbData:', { maskinId, period: p, pOffset, startDate, endDate, atgardFilter });
 
       // maskinId may be an array (combo machine) or single string
       const maskinIds = Array.isArray(maskinId) ? maskinId : [maskinId];
@@ -1426,10 +1443,22 @@ export default function Maskinvy() {
           .gte('datum', startDate).lte('datum', endDate),
       ]);
 
-      // fakt_produktion: sum all rows (one per diameterklass/trädslag) — no dedup
-      const rawProdRows = rawProdData;
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
+
+      // Build available åtgärder for filter buttons
+      const atgSet = new Set<string>();
+      for (const o of objekter) { if (o.atgard && o.atgard.trim()) atgSet.add(o.atgard.trim()); }
+      setAvailableAtgarder(Array.from(atgSet).sort());
+
+      // Filter prod rows by åtgärd if filter is active
+      let rawProdRows = rawProdData;
+      if (atgardFilter) {
+        const filteredObjIds = new Set(objekter.filter((o: any) => (o.atgard || '').trim() === atgardFilter).map((o: any) => o.objekt_id));
+        rawProdRows = rawProdData.filter((r: any) => filteredObjIds.has(r.objekt_id));
+        console.log(`[Maskinvy] Åtgärdsfilter "${atgardFilter}": ${rawProdData.length} → ${rawProdRows.length} prod-rader (${filteredObjIds.size} objekt)`);
+      }
+
       console.log('[Maskinvy] Data loaded:', { maskinIds, rawProd: rawProdRows.length, rawTid: (tidRes.data||[]).length });
 
       // Deduplicate fakt_tid: keep one row per (datum, operator_id, objekt_id).
@@ -1441,7 +1470,13 @@ export default function Maskinvy() {
           tidDedup[key] = r;
         }
       }
-      const rawTidRows = Object.values(tidDedup);
+      let rawTidRows = Object.values(tidDedup);
+
+      // Filter tid rows by same objekt_ids if åtgärd filter is active
+      if (atgardFilter) {
+        const filteredObjIds = new Set(objekter.filter((o: any) => (o.atgard || '').trim() === atgardFilter).map((o: any) => o.objekt_id));
+        rawTidRows = rawTidRows.filter((r: any) => filteredObjIds.has(r.objekt_id));
+      }
 
       console.log('[Maskinvy] Data loaded:', { maskinId, rawProd: rawProdRows.length, rawTid: rawTidRows.length, operators: operators.length });
 
@@ -2338,15 +2373,15 @@ export default function Maskinvy() {
     })();
   }, [activeView, maskiner, vald]);
 
-  // Fetch data when machine or period changes
+  // Fetch data when machine, period, or åtgärd filter changes
   useEffect(() => {
     const valdMaskinObj = maskiner.find(m => m.modell === vald);
     if (valdMaskinObj) {
       const dbIds = resolveIds(valdMaskinObj.maskin_id);
-      console.log('[Maskinvy] Trigger fetch:', { modell: vald, maskin_id: valdMaskinObj.maskin_id, dbIds, period });
-      fetchDbData(dbIds.length === 1 ? dbIds[0] : dbIds, period, periodOffset);
+      console.log('[Maskinvy] Trigger fetch:', { modell: vald, maskin_id: valdMaskinObj.maskin_id, dbIds, period, filterAtgard });
+      fetchDbData(dbIds.length === 1 ? dbIds[0] : dbIds, period, periodOffset, filterAtgard);
     }
-  }, [vald, maskiner, period, periodOffset, fetchDbData]);
+  }, [vald, maskiner, period, periodOffset, filterAtgard, fetchDbData]);
 
   // ── Re-initialize charts every time data updates or view changes ──
   useEffect(() => {
@@ -2387,6 +2422,10 @@ export default function Maskinvy() {
         });
 
         destroyCharts();
+        // Pass filter state to script
+        (window as any).__maskinvyAtgarder = availableAtgarder;
+        (window as any).__maskinvyFilterAtgard = filterAtgard;
+        (window as any).__setFilterAtgard = (val: string) => setFilterAtgard(val);
         scriptEl = document.createElement('script');
         scriptEl.setAttribute('data-maskinvy', 'true');
         scriptEl.textContent = MASKINVY_SCRIPT;
@@ -3472,6 +3511,11 @@ body {
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- ÅTGÄRDSFILTER -->
+  <div class="gf view-section vs-produktion" style="margin-bottom:-8px;">
+    <div id="atgardFilterRow" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
   </div>
 
   <!-- DAGLIG PRODUKTION -->
