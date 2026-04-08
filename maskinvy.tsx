@@ -134,8 +134,9 @@ type DbData = {
     volym: number; stammar: number; g15: number; prod: number; stg15: number; medelstam: number;
     objekt: Array<{ namn: string; volym: number; stammar: number; prod: number }>;
   }>;
-  // Volym per klass per åtgärd (för jämförelsediagram)
+  // Per klass per åtgärd (för jämförelsediagram)
   atgardKlassData: Record<string, number[]>;
+  atgardM3g15Data: Record<string, number[]>;
   // Start date ISO for calendar/dag
   periodStartDate: string;
   totalDays: number;
@@ -468,6 +469,29 @@ if (atgKlassEl && atgNames.length >= 2) {
   document.getElementById('atgardKlassWrap').style.display = '';
 } else if (document.getElementById('atgardKlassWrap')) {
   document.getElementById('atgardKlassWrap').style.display = 'none';
+}
+
+// Åtgärdsjämförelse — m³/G15h per klass per åtgärd
+var atgM3g15Data = _db.atgardM3g15Data || {};
+var atgM3g15El = document.getElementById('atgardM3g15Chart');
+var atgM3g15Names = Object.keys(atgM3g15Data);
+if (atgM3g15El && atgM3g15Names.length >= 2) {
+  var atgProdColors = ['rgba(76,175,80,0.65)','rgba(91,143,255,0.65)','rgba(255,179,64,0.65)','rgba(255,95,87,0.65)','rgba(160,120,255,0.65)'];
+  var atgProdDatasets = atgM3g15Names.map(function(atg, ai) {
+    var filtered = _activeIdx.map(function(i){return atgM3g15Data[atg][i]||0;});
+    return {label:atg, data:filtered, backgroundColor:atgProdColors[ai%atgProdColors.length], borderRadius:6};
+  });
+  new Chart(atgM3g15El, {
+    type:'bar',
+    data:{labels:classes, datasets:atgProdDatasets},
+    options:{responsive:true,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#7a7a72',font:{family:'Geist',size:11},boxWidth:10,padding:14}},
+        tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){return ' '+ctx.dataset.label+': '+ctx.parsed.y+' m\\u00b3/G15h';}}}},
+      scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:10}}}}}
+  });
+  document.getElementById('atgardM3g15Wrap').style.display = '';
+} else if (document.getElementById('atgardM3g15Wrap')) {
+  document.getElementById('atgardM3g15Wrap').style.display = 'none';
 }
 
 // Produktivitet — m³/G15h per medelstamsklass (en y-axel)
@@ -1530,7 +1554,7 @@ export default function Maskinvy() {
           mthAndelPct: 0, mthMedelstam: 0, singleMedelstam: 0,
           sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], totals: [0,0,0,0] },
           hasMth: false, sortimentPerDag: null,
-          bolagData: [], objTypList: [], timpengData: [], atgardKlassData: {}, periodStartDate: startDate, totalDays,
+          bolagData: [], objTypList: [], timpengData: [], atgardKlassData: {}, atgardM3g15Data: {}, periodStartDate: startDate, totalDays,
         };
         (window as any).__maskinvyData = emptyData;
         setDataVersion(v => v + 1);
@@ -1926,24 +1950,41 @@ export default function Maskinvy() {
         atgProdByDayOpObj[key].st += r.stammar || 0;
       }
       const atgardKlassVolym: Record<string, number[]> = {};
-      for (const g of Object.values(atgProdByDayOpObj)) {
+      const atgardKlassG15sek: Record<string, number[]> = {};
+      for (const [key, g] of Object.entries(atgProdByDayOpObj)) {
         if (g.st === 0) continue;
         const atg = objAtgardMap[g.objekt_id] || '';
         if (!atg) continue;
         const ms = g.vol / g.st;
+        // G15h: hämta från tidByDayOp med datum|operator_id (utan objekt_id)
+        const parts = key.split('|');
+        const tidKey = parts[0] + '|' + parts[1];
+        const tid = tidByDayOp[tidKey];
+        // Fördela tid proportionellt efter volym om flera objekt samma dag+operator
+        const dayOpProd = prodByDayOp[tidKey];
+        const volShare = dayOpProd && dayOpProd.vol > 0 ? g.vol / dayOpProd.vol : 0;
+        const g15sek = tid ? (tid.processingSek + tid.terrainSek) * volShare : 0;
         for (let i = 0; i < nKlass; i++) {
           if (ms >= edges[i] && ms < edges[i + 1]) {
             if (!atgardKlassVolym[atg]) atgardKlassVolym[atg] = new Array(nKlass).fill(0);
+            if (!atgardKlassG15sek[atg]) atgardKlassG15sek[atg] = new Array(nKlass).fill(0);
             atgardKlassVolym[atg][i] += g.vol;
+            atgardKlassG15sek[atg][i] += g15sek;
             break;
           }
         }
       }
-      // Avrunda och filtrera bort tomma
+      // Avrunda volym och beräkna m³/G15h per åtgärd per klass
       const atgardKlassData: Record<string, number[]> = {};
+      const atgardM3g15Data: Record<string, number[]> = {};
       for (const [atg, vols] of Object.entries(atgardKlassVolym)) {
         const rounded = vols.map(v => Math.round(v));
         if (rounded.some(v => v > 0)) atgardKlassData[atg] = rounded;
+        const g15arr = atgardKlassG15sek[atg] || [];
+        atgardM3g15Data[atg] = vols.map((v, i) => {
+          const h = g15arr[i] / 3600;
+          return h > 0 ? parseFloat((v / h).toFixed(1)) : 0;
+        });
       }
 
       // ── Fetch sortiment data (always — used for sortChart + sortimentPerDag) ──
@@ -2184,6 +2225,7 @@ export default function Maskinvy() {
         objTypList,
         timpengData,
         atgardKlassData,
+        atgardM3g15Data,
         periodStartDate: startDate,
         totalDays,
       };
@@ -3666,6 +3708,11 @@ body {
           <div class="cdiv"></div>
           <div class="cleg">Volym per medelstamsklass — per åtgärd</div>
           <canvas id="atgardKlassChart" style="max-height:175px"></canvas>
+        </div>
+        <div id="atgardM3g15Wrap" style="display:none;">
+          <div class="cdiv"></div>
+          <div class="cleg">m³/G15h per medelstamsklass — per åtgärd</div>
+          <canvas id="atgardM3g15Chart" style="max-height:175px"></canvas>
         </div>
         <div class="cdiv"></div>
         <div class="cleg">m³/G15h per medelstamsklass</div>
