@@ -302,7 +302,7 @@ else { new Chart(dailyEl,{
   data:{labels:days,datasets:[
     {label:'m³/dag',data:dailyVol,backgroundColor:dailyVol.map(function(v,i){
       if(v===0) return isWeekend[i]?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.04)';
-      if(isWeekend[i]) return 'rgba(255,255,255,0.12)';
+      if(isWeekend[i]) return 'rgba(91,143,255,0.15)';
       return v>avgVol?'rgba(90,255,140,0.7)':'rgba(76,175,80,0.5)';
     }),borderRadius:6,barPercentage:0.85,categoryPercentage:0.9,order:1},
     {label:'Snitt: '+avgVol+' m³',data:new Array(dailyVol.length).fill(avgVol),type:'line',borderColor:'rgba(255,255,255,0.2)',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false,order:0}
