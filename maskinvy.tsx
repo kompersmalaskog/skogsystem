@@ -702,39 +702,31 @@ function openBolag(id) {
     const inkSlut=ink.objekt.filter(o=>o.typ==='Slutavverkning').reduce((s,o)=>s+o.volym,0);
     const inkGall=ink.objekt.filter(o=>o.typ==='Gallring').reduce((s,o)=>s+o.volym,0);
     // Hitta matchande inkopareData för detaljer
-    const inkKey = ink.namn.split(' ')[0].toLowerCase().replace(/[^a-z\\u00e5\\u00e4\\u00f60-9]/g,'');
-    const objList = ink.objekt.map(o=>\`
-      <div class="frow" style="padding:8px 0;">
-        <div style="flex:1;"><div style="font-size:12px;font-weight:500;">\${o.namn}</div><div style="font-size:10px;color:var(--muted);">\${o.nr} · \${o.typ}</div></div>
-        <span class="frow-v">\${o.volym.toLocaleString('sv')} m³</span>
-      </div>\`).join('');
-    return \`<div style="background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:10px;">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
-        <div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:rgba(255,255,255,0.6);flex-shrink:0;">\${ink.initialer}</div>
-        <div style="flex:1;">
-          <div style="font-size:14px;font-weight:600;">\${ink.namn}</div>
-          <div style="font-size:11px;color:var(--muted);">\${ink.objekt.length} objekt</div>
-        </div>
-        <div style="text-align:right;">
-          <div style="font-family:'Fraunces',serif;font-size:22px;line-height:1;">\${ink.volym.toLocaleString('sv')}</div>
-          <div style="font-size:10px;color:var(--muted);">m³</div>
-        </div>
-      </div>
-      <div style="display:flex;gap:12px;margin-bottom:10px;">
-        \${inkSlut>0?'<div style="font-size:11px;color:var(--muted);">Slutavv <strong style="color:var(--text)">'+inkSlut.toLocaleString('sv')+'</strong> m³</div>':''}
-        \${inkGall>0?'<div style="font-size:11px;color:var(--muted);">Gallring <strong style="color:var(--text)">'+inkGall.toLocaleString('sv')+'</strong> m³</div>':''}
-      </div>
-      <div style="background:var(--bg);border-radius:8px;padding:4px 12px;">\${objList}</div>
-    </div>\`;
+    var objList = ink.objekt.map(function(o){
+      return '<div class="frow" style="padding:8px 0;">'
+        +'<div style="flex:1;"><div style="font-size:12px;font-weight:500;">'+o.namn+'</div><div style="font-size:10px;color:var(--muted);">'+o.nr+' · '+o.typ+'</div></div>'
+        +'<span class="frow-v">'+o.volym.toLocaleString('sv')+' m³</span></div>';
+    }).join('');
+    return '<div style="background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:10px;">'
+      +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">'
+      +'<div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:rgba(255,255,255,0.6);flex-shrink:0;">'+ink.initialer+'</div>'
+      +'<div style="flex:1;"><div style="font-size:14px;font-weight:600;">'+ink.namn+'</div><div style="font-size:11px;color:var(--muted);">'+ink.objekt.length+' objekt</div></div>'
+      +'<div style="text-align:right;"><div style="font-family:\'Fraunces\',serif;font-size:22px;line-height:1;">'+ink.volym.toLocaleString('sv')+'</div><div style="font-size:10px;color:var(--muted);">m³</div></div>'
+      +'</div>'
+      +'<div style="display:flex;gap:12px;margin-bottom:10px;">'
+      +(inkSlut>0?'<div style="font-size:11px;color:var(--muted);">Slutavv <strong style="color:var(--text)">'+inkSlut.toLocaleString('sv')+'</strong> m³</div>':'')
+      +(inkGall>0?'<div style="font-size:11px;color:var(--muted);">Gallring <strong style="color:var(--text)">'+inkGall.toLocaleString('sv')+'</strong> m³</div>':'')
+      +'</div>'
+      +'<div style="background:var(--bg);border-radius:8px;padding:4px 12px;">'+objList+'</div>'
+      +'</div>';
   }).join('');
-  document.getElementById('bpBody').innerHTML = \`
-    <div class="forar-kpis" style="margin-bottom:20px;">
-      <div class="fkpi"><div class="fkpi-v">\${b.volym.toLocaleString('sv')}</div><div class="fkpi-l">m³ totalt</div></div>
-      <div class="fkpi"><div class="fkpi-v">\${slutVol.toLocaleString('sv')}</div><div class="fkpi-l">Slutavverkning</div></div>
-      <div class="fkpi"><div class="fkpi-v">\${gallVol>0?gallVol.toLocaleString('sv'):'–'}</div><div class="fkpi-l">Gallring</div></div>
-    </div>
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:12px;">Inköpare</div>
-    \${inkopareCards}\`;
+  document.getElementById('bpBody').innerHTML = '<div class="forar-kpis" style="margin-bottom:20px;">'
+    +'<div class="fkpi"><div class="fkpi-v">'+b.volym.toLocaleString('sv')+'</div><div class="fkpi-l">m³ totalt</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+slutVol.toLocaleString('sv')+'</div><div class="fkpi-l">Slutavverkning</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+(gallVol>0?gallVol.toLocaleString('sv'):'–')+'</div><div class="fkpi-l">Gallring</div></div>'
+    +'</div>'
+    +'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:12px;">Inköpare</div>'
+    +inkopareCards;
   openOverlay();
   document.getElementById('bolagPanel').classList.add('open');
 }
