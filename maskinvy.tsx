@@ -134,6 +134,13 @@ type DbData = {
     volym: number; stammar: number; g15: number; prod: number; stg15: number; medelstam: number;
     objekt: Array<{ namn: string; volym: number; stammar: number; prod: number }>;
   }>;
+  // Inköpardata
+  inkopareData: Array<{
+    key: string; namn: string; bolag: string; volym: number; stammar: number; prod: number; antalObjekt: number;
+    perAtgard: Record<string, number>;
+    perTradslag: Record<string, number>;
+    objekt: Array<{ namn: string; volym: number; stammar: number; atgard: string }>;
+  }>;
   // Per klass per åtgärd (för jämförelsediagram)
   atgardKlassData: Record<string, number[]>;
   atgardM3g15Data: Record<string, number[]>;
@@ -575,7 +582,7 @@ if(forarOvl) forarOvl.addEventListener('click', function(){ closeAllPanels(); })
 
 function closeAllPanels() {
   closeOverlay();
-  ['forarPanel','bolagPanel','tradslagPanel','tidPanel','dagPanel','objTypPanel','objJmfPanel'].forEach(function(id){
+  ['forarPanel','bolagPanel','tradslagPanel','tidPanel','dagPanel','objTypPanel','objJmfPanel','inkPanel'].forEach(function(id){
     var el=document.getElementById(id); if(el) el.classList.remove('open');
   });
 }
@@ -1110,6 +1117,80 @@ if (timpengDistEl && timpengArr.length > 0) {
   timpengDistEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">Ingen data</div>';
 }
 
+// Populate inkopare cards
+var inkopareList = _db.inkopareData || [];
+var inkopareEl = document.getElementById('inkopareCards');
+if (inkopareEl && inkopareList.length > 0) {
+  var totalInkVol = inkopareList.reduce(function(s,i){return s+i.volym;},0);
+  inkopareEl.innerHTML = inkopareList.map(function(ink) {
+    var pct = totalInkVol > 0 ? Math.round(ink.volym / totalInkVol * 100) : 0;
+    var words = ink.namn.split(' ');
+    var init = words.length >= 2 ? (words[0][0]+words[words.length-1][0]).toUpperCase() : ink.namn.substring(0,2).toUpperCase();
+    // Trädslag bars
+    var tsOrder = ['Gran','Tall','Björk','Övr. löv'];
+    var tsColors = {'Gran':'rgba(90,255,140,0.5)','Tall':'rgba(255,255,255,0.2)','Björk':'rgba(91,143,255,0.4)','Övr. löv':'rgba(255,179,64,0.3)'};
+    var tsBars = tsOrder.filter(function(ts){return (ink.perTradslag[ts]||0)>0;}).map(function(ts){
+      var tsPct = ink.volym>0?Math.round((ink.perTradslag[ts]||0)/ink.volym*100):0;
+      return '<div style="flex:'+tsPct+';background:'+(tsColors[ts]||'rgba(255,255,255,0.1)')+';height:4px;border-radius:2px;"></div>';
+    }).join('');
+    return '<div class="ink-row ink-clickable" onclick="openInkopare(\\''+ink.key+'\\')" style="flex-direction:column;align-items:stretch;gap:6px;">'
+      +'<div style="display:flex;align-items:center;gap:10px;">'
+      +'<div style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);flex-shrink:0;">'+init+'</div>'
+      +'<div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+ink.namn+'</div><div style="font-size:10px;color:var(--muted);">'+ink.bolag+' · '+ink.antalObjekt+' objekt</div></div>'
+      +'<div style="text-align:right;"><div style="font-family:\'Fraunces\',serif;font-size:18px;line-height:1;">'+ink.volym.toLocaleString('sv')+'</div><div style="font-size:10px;color:var(--muted);">m³ · '+pct+'%</div></div>'
+      +'</div>'
+      +'<div style="display:flex;gap:2px;border-radius:2px;overflow:hidden;">'+tsBars+'</div>'
+      +'</div>';
+  }).join('');
+} else if (inkopareEl) {
+  inkopareEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">Ingen data</div>';
+}
+
+function openInkopare(key) {
+  var ink = inkopareList.find(function(i){return i.key===key;});
+  if (!ink) return;
+  var words = ink.namn.split(' ');
+  var init = words.length >= 2 ? (words[0][0]+words[words.length-1][0]).toUpperCase() : ink.namn.substring(0,2).toUpperCase();
+  document.getElementById('inkLogo').textContent = init;
+  document.getElementById('inkName').textContent = ink.namn;
+  document.getElementById('inkSub').textContent = ink.bolag + ' · ' + ink.volym.toLocaleString('sv') + ' m³';
+
+  // Åtgärdsfördelning
+  var atgRows = Object.entries(ink.perAtgard).sort(function(a,b){return b[1]-a[1];}).map(function(e){
+    var pct = ink.volym>0?Math.round(e[1]/ink.volym*100):0;
+    return '<div class="frow"><span class="frow-l">'+e[0]+'</span><div style="flex:1;margin:0 10px"><div class="prog"><div class="pf" style="width:'+pct+'%;background:rgba(90,255,140,0.5)"></div></div></div><span class="frow-v">'+e[1].toLocaleString('sv')+' m³ · '+pct+'%</span></div>';
+  }).join('');
+
+  // Trädslag
+  var tsOrder = ['Gran','Tall','Björk','Övr. löv'];
+  var tsColors = {'Gran':'rgba(90,255,140,0.5)','Tall':'rgba(255,255,255,0.2)','Björk':'rgba(91,143,255,0.4)','Övr. löv':'rgba(255,179,64,0.3)'};
+  var tsRows = tsOrder.filter(function(ts){return (ink.perTradslag[ts]||0)>0;}).map(function(ts){
+    var v = ink.perTradslag[ts]||0;
+    var pct = ink.volym>0?Math.round(v/ink.volym*100):0;
+    return '<div class="frow"><span class="frow-l">'+ts+'</span><div style="flex:1;margin:0 10px"><div class="prog"><div class="pf" style="width:'+pct+'%;background:'+(tsColors[ts]||'rgba(255,255,255,0.1)')+'"></div></div></div><span class="frow-v">'+v.toLocaleString('sv')+' m³ · '+pct+'%</span></div>';
+  }).join('');
+
+  // Objekt
+  var objRows = ink.objekt.map(function(o){
+    return '<div class="frow"><span class="frow-l">'+o.namn+'</span><div style="display:flex;gap:12px;align-items:center;"><span style="font-size:10px;color:var(--muted);">'+o.atgard+'</span><span class="frow-v">'+o.volym.toLocaleString('sv')+' m³</span></div></div>';
+  }).join('');
+
+  document.getElementById('inkBody').innerHTML = '<div class="forar-kpis" style="margin-bottom:16px;">'
+    +'<div class="fkpi"><div class="fkpi-v">'+ink.volym.toLocaleString('sv')+'</div><div class="fkpi-l">m³ totalt</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+ink.stammar.toLocaleString('sv')+'</div><div class="fkpi-l">Stammar</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+ink.prod+'</div><div class="fkpi-l">m³/G15h</div></div>'
+    +'<div class="fkpi"><div class="fkpi-v">'+ink.antalObjekt+'</div><div class="fkpi-l">Objekt</div></div></div>'
+    +'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Åtgärdsfördelning</div>'
+    +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:16px;">'+atgRows+'</div>'
+    +'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Trädslag</div>'
+    +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:16px;">'+tsRows+'</div>'
+    +'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Objekt</div>'
+    +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">'+objRows+'</div>';
+  openOverlay();
+  document.getElementById('inkPanel').classList.add('open');
+}
+function closeInkopare() { closeAllPanels(); }
+
 var opContainer = document.getElementById('opContainer');
 var opBadge = document.getElementById('opBadge');
 if (_db.operatorer && _db.operatorer.length > 0) {
@@ -1222,7 +1303,7 @@ Object.assign(window, {
   toggleMMenu, pickM, openForare, closeForare, openBolag, closeBolag,
   openTradslag, closeTradslag, openTid, closeTid, toggleCmp, runCmp,
   openDag, closeDag, openObjTyp, closeObjTyp, openObjJmf, closeObjJmf,
-  toggleForareAvbrott, closeAllPanels
+  openInkopare, closeInkopare, toggleForareAvbrott, closeAllPanels
 });
 })();`;
 
@@ -1480,7 +1561,7 @@ export default function Maskinvy() {
       const totalDays = Math.round((eDate.getTime() - sDate.getTime()) / 86400000) + 1;
 
       // Fetch tid for all maskinIds, plus operators from all
-      const [tidRes, opRes, objRes, skiftRes] = await Promise.all([
+      const [tidRes, opRes, objRes, skiftRes, tradslagRes] = await Promise.all([
         supabase.from('fakt_tid')
           .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, kort_stopp_sek, avbrott_sek, rast_sek, engine_time_sek, bransle_liter')
           .in('maskin_id', maskinIds)
@@ -1491,6 +1572,7 @@ export default function Maskinvy() {
           .select('datum, inloggning_tid, utloggning_tid')
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate),
+        supabase.from('dim_tradslag').select('tradslag_id, namn').in('maskin_id', maskinIds),
       ]);
 
       const operators = opRes.data || [];
@@ -1554,7 +1636,7 @@ export default function Maskinvy() {
           mthAndelPct: 0, mthMedelstam: 0, singleMedelstam: 0,
           sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], totals: [0,0,0,0] },
           hasMth: false, sortimentPerDag: null,
-          bolagData: [], objTypList: [], timpengData: [], atgardKlassData: {}, atgardM3g15Data: {}, periodStartDate: startDate, totalDays,
+          bolagData: [], objTypList: [], timpengData: [], inkopareData: [], atgardKlassData: {}, atgardM3g15Data: {}, periodStartDate: startDate, totalDays,
         };
         (window as any).__maskinvyData = emptyData;
         setDataVersion(v => v + 1);
@@ -2181,6 +2263,62 @@ export default function Maskinvy() {
           };
         });
 
+      // ── Build inkopareData ──
+      const tradslagMap: Record<string, string> = {};
+      for (const t of (tradslagRes.data || [])) {
+        const n = (t.namn || '').toUpperCase();
+        const cat = n.includes('GRAN') ? 'Gran' : n.includes('TALL') ? 'Tall' : n.includes('BJÖRK') ? 'Björk' : 'Övr. löv';
+        tradslagMap[t.tradslag_id] = cat;
+      }
+      // Aggregate per objekt_id: volym, stammar, per tradslag
+      type ObjProdAgg = { vol: number; st: number; perTs: Record<string, number> };
+      const prodPerObj: Record<string, ObjProdAgg> = {};
+      for (const r of rawProdRows) {
+        const oid = r.objekt_id || '';
+        if (!prodPerObj[oid]) prodPerObj[oid] = { vol: 0, st: 0, perTs: {} };
+        prodPerObj[oid].vol += r.volym_m3sub || 0;
+        prodPerObj[oid].st += r.stammar || 0;
+        const ts = tradslagMap[r.tradslag_id] || 'Övr. löv';
+        prodPerObj[oid].perTs[ts] = (prodPerObj[oid].perTs[ts] || 0) + (r.volym_m3sub || 0);
+      }
+      // Group per inkopare
+      type InkAgg = { namn: string; bolag: string; vol: number; st: number; g15sek: number; perAtgard: Record<string, number>; perTs: Record<string, number>; objekt: Array<{ namn: string; volym: number; stammar: number; atgard: string }> };
+      const inkMap: Record<string, InkAgg> = {};
+      for (const o of objekter) {
+        const ink = (o.inkopare || '').trim();
+        if (!ink) continue;
+        const pObj = prodPerObj[o.objekt_id];
+        if (!pObj || pObj.vol <= 0) continue;
+        if (!inkMap[ink]) inkMap[ink] = { namn: ink, bolag: (o.bolag || '').trim(), vol: 0, st: 0, g15sek: 0, perAtgard: {}, perTs: {}, objekt: [] };
+        const entry = inkMap[ink];
+        entry.vol += pObj.vol;
+        entry.st += pObj.st;
+        const tObj = tidByObjekt[o.objekt_id];
+        if (tObj) entry.g15sek += tObj.processingSek + tObj.terrainSek;
+        const atg = (o.atgard || '').trim() || 'Övrigt';
+        entry.perAtgard[atg] = (entry.perAtgard[atg] || 0) + pObj.vol;
+        if (o.timpeng === true) entry.perAtgard['Timpeng'] = (entry.perAtgard['Timpeng'] || 0) + pObj.vol;
+        for (const [ts, v] of Object.entries(pObj.perTs)) entry.perTs[ts] = (entry.perTs[ts] || 0) + v;
+        entry.objekt.push({ namn: o.object_name || o.vo_nummer || '', volym: Math.round(pObj.vol), stammar: Math.round(pObj.st), atgard: atg });
+      }
+      const inkopareData: DbData['inkopareData'] = Object.values(inkMap)
+        .map(ink => {
+          const g15h = ink.g15sek / 3600;
+          const words = ink.namn.split(' ');
+          const key = words[0].toLowerCase().replace(/[^a-zåäö0-9]/g, '');
+          return {
+            key, namn: ink.namn, bolag: ink.bolag,
+            volym: Math.round(ink.vol), stammar: Math.round(ink.st),
+            prod: g15h > 0 ? parseFloat((ink.vol / g15h).toFixed(1)) : 0,
+            antalObjekt: ink.objekt.length,
+            perAtgard: Object.fromEntries(Object.entries(ink.perAtgard).map(([k, v]) => [k, Math.round(v)])),
+            perTradslag: Object.fromEntries(Object.entries(ink.perTs).map(([k, v]) => [k, Math.round(v)])),
+            objekt: ink.objekt.sort((a, b) => b.volym - a.volym),
+          };
+        })
+        .filter(i => i.volym > 0)
+        .sort((a, b) => b.volym - a.volym);
+
       console.log('[Maskinvy] Computed data:', {
         maskinId, period: p, hasMth,
         totalVolym: Math.round(totalVolym),
@@ -2224,6 +2362,7 @@ export default function Maskinvy() {
         bolagData: bolagArr,
         objTypList,
         timpengData,
+        inkopareData,
         atgardKlassData,
         atgardM3g15Data,
         periodStartDate: startDate,
@@ -3615,6 +3754,16 @@ body {
     </div>
   </div>
 
+  <!-- INKÖPARE -->
+  <div class="gf view-section vs-objekt" style="margin-top:8px;">
+    <div class="card anim" style="animation-delay:0.6s">
+      <div class="card-h"><div class="card-t">Inköpare</div></div>
+      <div class="card-b" id="inkopareCards">
+        <div style="color:var(--muted);font-size:12px;padding:10px;">Laddar...</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ÅTGÄRDSFILTER -->
   <div class="gf view-section vs-produktion" style="margin-bottom:-8px;">
     <div id="atgardFilterRow" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
@@ -3989,6 +4138,19 @@ body {
     <button class="forar-close" onclick="closeObjTyp()">✕</button>
   </div>
   <div class="forar-body" id="otpBody"></div>
+</div>
+
+<!-- INKÖPARE PANEL -->
+<div class="bolag-panel" id="inkPanel">
+  <div class="forar-head">
+    <div class="forar-av" style="border-radius:50%;font-size:11px;font-weight:600;" id="inkLogo"></div>
+    <div>
+      <div class="forar-title" id="inkName"></div>
+      <div class="forar-sub" id="inkSub"></div>
+    </div>
+    <button class="forar-close" onclick="closeInkopare()">✕</button>
+  </div>
+  <div class="forar-body" id="inkBody"></div>
 </div>
 
 <!-- DAG PANEL -->
