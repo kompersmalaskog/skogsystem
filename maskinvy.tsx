@@ -2004,9 +2004,11 @@ export default function Maskinvy() {
 
       // Verifiering
       const sumKlassVol = klassVolym.reduce((s: number, v: number) => s + v, 0);
+      const sumKlassSt = klassStammar.reduce((s: number, v: number) => s + v, 0);
+      const sumKlassMth = klassMthSt.reduce((s: number, v: number) => s + v, 0);
       const sumKlassG15 = klassG15h.reduce((s: number, v: number) => s + v, 0);
-      console.log(`[Maskinvy] Klasser: sumVol=${sumKlassVol} totalVol=${Math.round(totalVolym)} sumG15h=${sumKlassG15.toFixed(1)} totalG15h=${g15Timmar.toFixed(1)}`);
-      console.log(`[Maskinvy] Per klass:`, klassLabels.map((l, i) => `${l}: ${klassVolym[i]}m³ ${klassStammar[i]}st ${klassG15h[i].toFixed(1)}h ${klassM3g15[i]}m³/G15h ${klassStg15[i]}st/G15h`));
+      console.log(`[Maskinvy] Klasser: sumVol=${sumKlassVol} totalVol=${Math.round(totalVolym)} sumSt=${sumKlassSt} totalSt=${Math.round(totalStammar)} sumMth=${Math.round(sumKlassMth)} sumG15h=${sumKlassG15.toFixed(1)} totalG15h=${g15Timmar.toFixed(1)}`);
+      console.log(`[Maskinvy] Per klass:`, klassLabels.map((l, i) => `${l}: ${klassVolym[i]}m³ ${klassStammar[i]}st MTH:${Math.round(klassMthSt[i])}st=${klassMthPct[i]}% ${klassG15h[i].toFixed(1)}h`));
 
       // ── Volym per klass per åtgärd (för jämförelsediagram) ──
       // Aggregera per (datum, operator_id, objekt_id) för att veta åtgärd
