@@ -1961,11 +1961,17 @@ export default function Maskinvy() {
       const klassMthSt   = new Array(nKlass).fill(0);
 
       const _debugRows: string[] = [];
+      let _debugCount = 0;
       for (const [key, prod] of Object.entries(prodByDayOp)) {
         if (prod.st === 0) continue;
         const medelstam = prod.vol / prod.st;
         const tid = tidByDayOp[key];
         const g15h = tid ? (tid.processingSek + tid.terrainSek) / 3600 : 0;
+
+        if (_debugCount < 3) {
+          console.log('[Klass debug]', key, 'st:', prod.st, 'mthSt:', prod.mthSt, 'vol:', Math.round(prod.vol), 'medelstam:', medelstam.toFixed(3));
+          _debugCount++;
+        }
 
         // Hitta rätt klass
         let placed = false;
@@ -1986,6 +1992,10 @@ export default function Maskinvy() {
           _debugRows.push(`"${key}" → medelstam:${medelstam.toFixed(3)} EJ PLACERAD (utanför edges)`);
         }
       }
+      const _prodByDayOpTotalSt = Object.values(prodByDayOp).reduce((s: number, p: any) => s + p.st, 0);
+      const _klassStammarTotal = klassStammar.reduce((a: number, b: number) => a + b, 0);
+      console.log('[Klass total stammar från prodByDayOp]', Math.round(_prodByDayOpTotalSt));
+      console.log('[Klass total klassStammar]', Math.round(_klassStammarTotal));
       console.log(`[Maskinvy] Klassberäkning: ${Object.keys(prodByDayOp).length} dagliga poster (prodByDayOp), ${Object.keys(tidByDayOp).length} tidposter (tidByDayOp)`);
       console.log(`[Maskinvy] Första 5 poster:`, _debugRows);
 
