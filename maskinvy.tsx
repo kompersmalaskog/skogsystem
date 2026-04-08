@@ -1304,7 +1304,7 @@ type PeriodKpi = {
 export default function Maskinvy() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([]);
   const [vald, setVald] = useState('');
-  const [activeView, setActiveView] = useState('oversikt');
+  const [activeView, setActiveView] = useState('idag');
   const [dataVersion, setDataVersion] = useState(0); // increments on each data load
   const [period, setPeriod] = useState<'V' | 'M' | 'K' | 'Å'>('M');
   const [periodOffset, setPeriodOffset] = useState(0); // 0=current, -1=previous, etc.
@@ -1312,6 +1312,10 @@ export default function Maskinvy() {
   const [maskinOpen, setMaskinOpen] = useState(false);
   const [filterAtgard, setFilterAtgard] = useState('');
   const [availableAtgarder, setAvailableAtgarder] = useState<string[]>([]);
+  // Idag-data
+  type IdagData = { vol: number; st: number; g15h: number; prod: number; medelstam: number; bransle: number; bransleLm3: number; utnyttj: number; operatorer: Array<{ namn: string; objekt: string; start: string; vol: number; prod: number }>; tidFord: { proc: number; terr: number; avbrott: number; rast: number; ovrigt: number }; bolag: Array<{ namn: string; vol: number; pct: number }>; trend: Array<{ datum: string; label: string; vol: number; helg: boolean }> };
+  const [idagData, setIdagData] = useState<IdagData | null>(null);
+  const [idagLoading, setIdagLoading] = useState(false);
 
   // ── Period comparison state ──
   const [showCmp, setShowCmp] = useState(false);
@@ -2639,6 +2643,119 @@ export default function Maskinvy() {
     }
   }, [vald, maskiner, period, periodOffset, filterAtgard, fetchDbData]);
 
+  // ── Fetch Idag data ──
+  useEffect(() => {
+    if (activeView !== 'idag') return;
+    const valdMaskinObj = maskiner.find(m => m.modell === vald);
+    if (!valdMaskinObj) return;
+    const maskinIds = resolveIds(valdMaskinObj.maskin_id);
+    setIdagLoading(true);
+    (async () => {
+      try {
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const now = new Date();
+        const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+        // 14 dagars trend
+        const trendStart = new Date(now); trendStart.setDate(trendStart.getDate() - 13);
+        const trendStartStr = `${trendStart.getFullYear()}-${pad(trendStart.getMonth()+1)}-${pad(trendStart.getDate())}`;
+
+        const [prodRes, tidRes, objRes, opRes, skiftRes] = await Promise.all([
+          fetchAllRows((from, to) => supabase.from('fakt_produktion')
+            .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
+            .in('maskin_id', maskinIds).gte('datum', trendStartStr).lte('datum', today).range(from, to)),
+          supabase.from('fakt_tid')
+            .select('datum, operator_id, objekt_id, processing_sek, terrain_sek, other_work_sek, avbrott_sek, rast_sek, engine_time_sek, bransle_liter, kort_stopp_sek')
+            .in('maskin_id', maskinIds).gte('datum', trendStartStr).lte('datum', today),
+          supabase.from('dim_objekt').select('objekt_id, object_name, bolag'),
+          supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', maskinIds),
+          supabase.from('fakt_skift').select('datum, inloggning_tid').in('maskin_id', maskinIds).eq('datum', today),
+        ]);
+
+        const objekter = objRes.data || [];
+        const operators = opRes.data || [];
+        const objNameMap: Record<string, string> = {};
+        const objBolagMap: Record<string, string> = {};
+        for (const o of objekter) { objNameMap[o.objekt_id] = o.object_name || ''; objBolagMap[o.objekt_id] = (o.bolag || '').trim(); }
+        const opNameMap: Record<string, string> = {};
+        for (const o of operators) opNameMap[o.operator_id] = o.operator_namn || '';
+
+        // Today's prod
+        const todayProd = prodRes.filter((r: any) => r.datum === today);
+        const todayVol = todayProd.reduce((s: number, r: any) => s + (r.volym_m3sub || 0), 0);
+        const todaySt = todayProd.reduce((s: number, r: any) => s + (r.stammar || 0), 0);
+
+        // Today's tid (dedup)
+        const tidDedup: Record<string, any> = {};
+        for (const r of (tidRes.data || [])) {
+          if (r.datum !== today) continue;
+          const key = `${r.operator_id || ''}|${r.objekt_id || ''}`;
+          if (!tidDedup[key] || (r.engine_time_sek || 0) > (tidDedup[key].engine_time_sek || 0)) tidDedup[key] = r;
+        }
+        const todayTid = Object.values(tidDedup);
+        const procSek = todayTid.reduce((s: number, r: any) => s + (r.processing_sek || 0), 0);
+        const terrSek = todayTid.reduce((s: number, r: any) => s + (r.terrain_sek || 0), 0);
+        const avbrSek = todayTid.reduce((s: number, r: any) => s + (r.avbrott_sek || 0), 0);
+        const rastSek = todayTid.reduce((s: number, r: any) => s + (r.rast_sek || 0), 0);
+        const otherSek = todayTid.reduce((s: number, r: any) => s + (r.other_work_sek || 0), 0);
+        const engineSek = todayTid.reduce((s: number, r: any) => s + (r.engine_time_sek || 0), 0);
+        const bransleTot = todayTid.reduce((s: number, r: any) => s + parseFloat(r.bransle_liter || 0), 0);
+        const kortStoppSek = todayTid.reduce((s: number, r: any) => s + (r.kort_stopp_sek || 0), 0);
+        const g15sek = procSek + terrSek;
+        const g15h = g15sek / 3600;
+        const effG15h = (procSek + terrSek + kortStoppSek) / 3600;
+        const engineH = engineSek / 3600;
+        const utnyttj = engineH > 0 ? parseFloat((effG15h / engineH * 100).toFixed(1)) : 0;
+
+        // Operators today
+        const opAgg: Record<string, { vol: number; st: number; objekt: string }> = {};
+        for (const r of todayProd) {
+          const opId = r.operator_id || '';
+          if (!opAgg[opId]) opAgg[opId] = { vol: 0, st: 0, objekt: objNameMap[r.objekt_id] || '' };
+          opAgg[opId].vol += r.volym_m3sub || 0;
+          opAgg[opId].st += r.stammar || 0;
+          if (!opAgg[opId].objekt) opAgg[opId].objekt = objNameMap[r.objekt_id] || '';
+        }
+        const opList = Object.entries(opAgg).map(([opId, d]) => {
+          const opTid = todayTid.filter((t: any) => t.operator_id === opId);
+          const opG15 = opTid.reduce((s: number, t: any) => s + (t.processing_sek || 0) + (t.terrain_sek || 0), 0) / 3600;
+          const skift = (skiftRes.data || []).find((s: any) => s.datum === today);
+          return { namn: opNameMap[opId] || opId, objekt: d.objekt, start: skift?.inloggning_tid?.substring(11, 16) || '–', vol: Math.round(d.vol), prod: opG15 > 0 ? parseFloat((d.vol / opG15).toFixed(1)) : 0 };
+        }).sort((a, b) => b.vol - a.vol);
+
+        // Bolag today
+        const bolagAgg: Record<string, number> = {};
+        for (const r of todayProd) {
+          const b = objBolagMap[r.objekt_id] || 'Övrigt';
+          bolagAgg[b] = (bolagAgg[b] || 0) + (r.volym_m3sub || 0);
+        }
+        const bolagList = Object.entries(bolagAgg).map(([namn, vol]) => ({
+          namn, vol: Math.round(vol), pct: todayVol > 0 ? Math.round(vol / todayVol * 100) : 0
+        })).sort((a, b) => b.vol - a.vol);
+
+        // Trend 14 dagar
+        const trend: IdagData['trend'] = [];
+        for (let i = 0; i < 14; i++) {
+          const d = new Date(trendStart); d.setDate(d.getDate() + i);
+          const ds = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+          const dow = d.getDay();
+          const dayVol = prodRes.filter((r: any) => r.datum === ds).reduce((s: number, r: any) => s + (r.volym_m3sub || 0), 0);
+          trend.push({ datum: ds, label: `${d.getDate()}/${d.getMonth()+1}`, vol: Math.round(dayVol), helg: dow === 0 || dow === 6 });
+        }
+
+        setIdagData({
+          vol: Math.round(todayVol), st: Math.round(todaySt), g15h: parseFloat(g15h.toFixed(1)),
+          prod: g15h > 0 ? parseFloat((todayVol / g15h).toFixed(1)) : 0,
+          medelstam: todaySt > 0 ? parseFloat((todayVol / todaySt).toFixed(3)) : 0,
+          bransle: Math.round(bransleTot), bransleLm3: todayVol > 0 ? parseFloat((bransleTot / todayVol).toFixed(1)) : 0,
+          utnyttj, operatorer: opList,
+          tidFord: { proc: procSek, terr: terrSek, avbrott: avbrSek, rast: rastSek, ovrigt: otherSek },
+          bolag: bolagList, trend,
+        });
+      } catch (err) { console.error('Idag fetch error', err); }
+      setIdagLoading(false);
+    })();
+  }, [activeView, maskiner, vald]);
+
   // ── Re-initialize charts every time data updates or view changes ──
   useEffect(() => {
     if (dataVersion === 0) return;
@@ -2745,6 +2862,7 @@ export default function Maskinvy() {
         {/* Nav */}
         <nav style={{ flex: 1, padding: '8px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           {[
+            { icon: '☀', label: 'Idag', view: 'idag' },
             { icon: '◻', label: 'Översikt', view: 'oversikt' },
             { icon: '▤', label: 'Produktion', view: 'produktion' },
             { icon: '⚠', label: 'Avbrott', view: 'avbrott' },
@@ -2860,6 +2978,100 @@ export default function Maskinvy() {
       <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch', background: '#111110' }}>
 
       {/* ── PERIOD COMPARISON PANEL ── */}
+      {activeView === 'idag' && (() => {
+        const d = idagData;
+        const cs = { card: { background: '#1a1a18', borderRadius: 14, padding: 16, marginBottom: 10 } as const, kv: { fontFamily: "'Fraunces', serif", fontSize: 22, lineHeight: '1' }, kl: { fontSize: 10, color: '#7a7a72', marginTop: 3 }, frow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 12 } as const };
+        if (idagLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#7a7a72' }}>Laddar...</div>;
+        if (!d) return <div style={{ padding: 40, textAlign: 'center', color: '#7a7a72' }}>Ingen data</div>;
+        const totalTid = d.tidFord.proc + d.tidFord.terr + d.tidFord.avbrott + d.tidFord.rast + d.tidFord.ovrigt;
+        const tidBar = (sek: number, color: string) => ({ flex: totalTid > 0 ? sek / totalTid : 0, height: 8, background: color, borderRadius: 2 });
+        const trendAvg = d.trend.filter(t => t.vol > 0).length > 0 ? Math.round(d.trend.filter(t => t.vol > 0).reduce((s, t) => s + t.vol, 0) / d.trend.filter(t => t.vol > 0).length) : 0;
+        return (
+          <div style={{ padding: '0 16px' }}>
+            {/* KPI */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, margin: '16px 0' }}>
+              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.vol.toLocaleString('sv')}</div><div style={cs.kl}>m³</div></div>
+              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.st.toLocaleString('sv')}</div><div style={cs.kl}>Stammar</div></div>
+              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.prod}</div><div style={cs.kl}>m³/G15h</div></div>
+              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.medelstam}</div><div style={cs.kl}>Medelstam</div></div>
+              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.utnyttj}%</div><div style={cs.kl}>Utnyttjandegrad</div></div>
+              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.bransleLm3}</div><div style={cs.kl}>l/m³</div></div>
+            </div>
+            {/* Trend 14 dagar */}
+            <div style={cs.card}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#7a7a72', marginBottom: 12 }}>SENASTE 14 DAGARNA</div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 100 }}>
+                {d.trend.map((t, i) => {
+                  const maxVol = Math.max(...d.trend.map(x => x.vol), 1);
+                  const h = t.vol > 0 ? Math.max(4, (t.vol / maxVol) * 90) : 2;
+                  const isToday = i === d.trend.length - 1;
+                  return (
+                    <div key={t.datum} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      {t.vol > 0 && <div style={{ fontSize: 8, color: isToday ? 'rgba(90,255,140,0.9)' : '#7a7a72' }}>{t.vol}</div>}
+                      <div style={{ width: '100%', height: h, borderRadius: 3, background: isToday ? 'rgba(90,255,140,0.8)' : t.helg ? 'rgba(255,255,255,0.07)' : t.vol > 0 ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.04)' }} />
+                      <div style={{ fontSize: 8, color: isToday ? '#e8e8e4' : '#7a7a72' }}>{t.label}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              {trendAvg > 0 && <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 8, textAlign: 'center' }}>Snitt: {trendAvg} m³/dag</div>}
+            </div>
+            {/* Operatörer */}
+            {d.operatorer.length > 0 && (
+              <div style={cs.card}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#7a7a72', marginBottom: 10 }}>OPERATÖRER IDAG</div>
+                {d.operatorer.map(op => (
+                  <div key={op.namn} style={cs.frow}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{op.namn}</div>
+                      <div style={{ fontSize: 10, color: '#7a7a72' }}>{op.objekt} · start {op.start}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 14, fontWeight: 600 }}>{op.vol} m³</div>
+                      <div style={{ fontSize: 10, color: '#7a7a72' }}>{op.prod} m³/G15h</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Tidsfördelning */}
+            <div style={cs.card}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#7a7a72', marginBottom: 10 }}>TIDSFÖRDELNING</div>
+              <div style={{ display: 'flex', gap: 2, borderRadius: 4, overflow: 'hidden', marginBottom: 10 }}>
+                <div style={tidBar(d.tidFord.proc, 'rgba(90,255,140,0.5)')} />
+                <div style={tidBar(d.tidFord.terr, 'rgba(91,143,255,0.4)')} />
+                <div style={tidBar(d.tidFord.avbrott, 'rgba(255,179,64,0.4)')} />
+                <div style={tidBar(d.tidFord.rast, 'rgba(255,255,255,0.1)')} />
+                <div style={tidBar(d.tidFord.ovrigt, 'rgba(255,255,255,0.07)')} />
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', fontSize: 10, color: '#7a7a72' }}>
+                <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: 'rgba(90,255,140,0.5)', marginRight: 4 }} />Produktion {(d.tidFord.proc/3600).toFixed(1)}h</span>
+                <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: 'rgba(91,143,255,0.4)', marginRight: 4 }} />Körning {(d.tidFord.terr/3600).toFixed(1)}h</span>
+                <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: 'rgba(255,179,64,0.4)', marginRight: 4 }} />Avbrott {(d.tidFord.avbrott/3600).toFixed(1)}h</span>
+                <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: 'rgba(255,255,255,0.1)', marginRight: 4 }} />Rast {(d.tidFord.rast/3600).toFixed(1)}h</span>
+              </div>
+            </div>
+            {/* Bolag */}
+            {d.bolag.length > 0 && (
+              <div style={cs.card}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#7a7a72', marginBottom: 10 }}>BOLAG IDAG</div>
+                {d.bolag.map(b => (
+                  <div key={b.namn} style={{ marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                      <span>{b.namn}</span>
+                      <span style={{ fontWeight: 600 }}>{b.vol} m³ <span style={{ color: '#7a7a72', fontWeight: 400 }}>{b.pct}%</span></span>
+                    </div>
+                    <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.05)', marginTop: 4, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${b.pct}%`, background: 'rgba(90,255,140,0.5)', borderRadius: 2 }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {activeView === 'jamfor' && (
         <div style={{ padding: '24px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 900 }}>
           <div style={{ fontSize: 20, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 4 }}>
@@ -3158,7 +3370,7 @@ export default function Maskinvy() {
         );
       })()}
 
-      <div style={{ display: activeView === 'jamfor' || activeView === 'avbrott' ? 'none' : 'block' }}>
+      <div style={{ display: activeView === 'jamfor' || activeView === 'avbrott' || activeView === 'idag' ? 'none' : 'block' }}>
       <style dangerouslySetInnerHTML={{ __html: `.mach-wrap { display: none !important; }
 .hdr { display: none !important; }
 .cmp-bar { display: none !important; }
