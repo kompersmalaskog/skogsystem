@@ -711,7 +711,7 @@ function openBolag(id) {
       +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">'
       +'<div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:rgba(255,255,255,0.6);flex-shrink:0;">'+ink.initialer+'</div>'
       +'<div style="flex:1;"><div style="font-size:14px;font-weight:600;">'+ink.namn+'</div><div style="font-size:11px;color:var(--muted);">'+ink.objekt.length+' objekt</div></div>'
-      +'<div style="text-align:right;"><div style="font-family:\'Fraunces\',serif;font-size:22px;line-height:1;">'+ink.volym.toLocaleString('sv')+'</div><div style="font-size:10px;color:var(--muted);">m³</div></div>'
+      +'<div style="text-align:right;"><div style="font-family:Fraunces,serif;font-size:22px;line-height:1;">'+ink.volym.toLocaleString('sv')+'</div><div style="font-size:10px;color:var(--muted);">m³</div></div>'
       +'</div>'
       +'<div style="display:flex;gap:12px;margin-bottom:10px;">'
       +(inkSlut>0?'<div style="font-size:11px;color:var(--muted);">Slutavv <strong style="color:var(--text)">'+inkSlut.toLocaleString('sv')+'</strong> m³</div>':'')
@@ -1064,7 +1064,7 @@ if (objTypDistEl && objTypArr.length > 0) {
   var cards = objTypArr.map(function(t){
     var pct = otTotal>0?Math.round(t.volym/otTotal*100):0;
     return '<div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center;cursor:pointer;" onclick="openObjTyp(\\''+t.key+'\\')">'
-      +'<div style="font-family:\\'Fraunces\\',serif;font-size:22px;line-height:1;">'+t.volym.toLocaleString('sv')+'</div>'
+      +'<div style="font-family:Fraunces,serif;font-size:22px;line-height:1;">'+t.volym.toLocaleString('sv')+'</div>'
       +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-top:3px;">'+t.label+' · m³</div>'
       +'<div style="font-size:10px;color:var(--muted);margin-top:4px;">'+t.prod+' m³/G15h</div></div>';
   }).join('');
@@ -1087,7 +1087,7 @@ if (timpengDistEl && timpengArr.length > 0) {
   var tpColors = ['rgba(255,179,64,0.5)','rgba(90,255,140,0.5)'];
   var tpCards = timpengArr.map(function(t,i){
     return '<div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center;cursor:pointer;" onclick="openTimpeng(\\''+t.key+'\\')">'
-      +'<div style="font-family:\\'Fraunces\\',serif;font-size:22px;line-height:1;">'+t.volym.toLocaleString('sv')+'</div>'
+      +'<div style="font-family:Fraunces,serif;font-size:22px;line-height:1;">'+t.volym.toLocaleString('sv')+'</div>'
       +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-top:3px;">'+t.label+' · m³</div>'
       +'<div style="font-size:10px;color:var(--muted);margin-top:4px;">'+t.prod+' m³/G15h</div></div>';
   }).join('');
@@ -1124,7 +1124,7 @@ if (inkopareEl && inkopareList.length > 0) {
       +'<div style="display:flex;align-items:center;gap:10px;">'
       +'<div style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);flex-shrink:0;">'+init+'</div>'
       +'<div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+ink.namn+'</div><div style="font-size:10px;color:var(--muted);">'+ink.bolag+' · '+ink.antalObjekt+' objekt</div></div>'
-      +'<div style="text-align:right;"><div style="font-family:\'Fraunces\',serif;font-size:18px;line-height:1;">'+ink.volym.toLocaleString('sv')+'</div><div style="font-size:10px;color:var(--muted);">m³ · '+pct+'%</div></div>'
+      +'<div style="text-align:right;"><div style="font-family:Fraunces,serif;font-size:18px;line-height:1;">'+ink.volym.toLocaleString('sv')+'</div><div style="font-size:10px;color:var(--muted);">m³ · '+pct+'%</div></div>'
       +'</div>'
       +'<div style="display:flex;gap:2px;border-radius:2px;overflow:hidden;">'+tsBars+'</div>'
       +'</div>';
