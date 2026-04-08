@@ -294,8 +294,12 @@ if(!dailyEl){console.warn('[Maskinvy] dailyChart canvas not found');}
 else { new Chart(dailyEl,{
   type:'bar',
   data:{labels:days,datasets:[
-    {label:'m³/dag',data:dailyVol,backgroundColor:dailyVol.map(function(v,i){return v===0?(isWeekend[i]?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.04)'):(isWeekend[i]?'rgba(90,255,140,0.25)':'rgba(76,175,80,0.65)')}),borderRadius:6,barPercentage:0.85,categoryPercentage:0.9,order:1},
-    {label:'Snitt: '+avgVol+' m³',data:new Array(dailyVol.length).fill(avgVol),type:'line',borderColor:'rgba(90,255,140,0.3)',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false,order:0}
+    {label:'m³/dag',data:dailyVol,backgroundColor:dailyVol.map(function(v,i){
+      if(v===0) return isWeekend[i]?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.04)';
+      if(isWeekend[i]) return 'rgba(255,255,255,0.12)';
+      return v>avgVol?'rgba(90,255,140,0.7)':'rgba(76,175,80,0.5)';
+    }),borderRadius:6,barPercentage:0.85,categoryPercentage:0.9,order:1},
+    {label:'Snitt: '+avgVol+' m³',data:new Array(dailyVol.length).fill(avgVol),type:'line',borderColor:'rgba(255,255,255,0.2)',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false,order:0}
   ]},
   plugins:[weekendBgPlugin,barLabelPlugin],
   options:{
@@ -318,8 +322,8 @@ else { new Chart(dailyEl,{
             var d=dagData[idx+1];
             var lines=[];
             lines.push('Volym: '+dailyVol[idx]+' m\\u00b3');
-            lines.push('Stammar: '+(dailySt[idx]||0).toLocaleString('sv'));
-            if(d&&d.forare) lines.push('Operatör: '+d.forare);
+            if(d&&d.snitt) lines.push('m\\u00b3/G15h: '+d.snitt);
+            if(d&&d.objekt&&d.objekt!=='\\u2013') lines.push('Objekt: '+d.objekt);
             return lines;
           }
         }
