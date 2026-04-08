@@ -1842,11 +1842,11 @@ export default function Maskinvy() {
         const volym = pOp ? pOp.vol : 0;
         const stammar = pOp ? pOp.st : 0;
         const dagarSize = pOp ? pOp.dagar.size : 0;
-        // timmar = G15h from fakt_tid
-        const timmar = g15sek / 3600;
         // m³/G15h = volym from fakt_produktion / g15h from fakt_tid
-        const g15sek = tOp.processingSek + tOp.terrainSek;
-        const g15h = g15sek / 3600;
+        const opG15sek = tOp.processingSek + tOp.terrainSek;
+        const g15h = opG15sek / 3600;
+        // timmar = G15h from fakt_tid
+        const timmar = g15h;
         const prod = g15h > 0 ? volym / g15h : 0;
         // Daily vol array aligned to period
         const opDailyVol: number[] = [];
