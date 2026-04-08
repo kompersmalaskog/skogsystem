@@ -1671,6 +1671,20 @@ export default function Maskinvy() {
         }
       }
 
+      // Debug: inspektera en specifik dag+operator
+      const _debugKey = '2026-01-20|R64101_7';
+      const _debugDayOp = prodByDayOp[_debugKey];
+      const _debugRawRows = rawProdRows.filter((r: any) => r.datum === '2026-01-20' && r.operator_id === 'R64101_7');
+      if (_debugDayOp || _debugRawRows.length > 0) {
+        console.log(`[ProdByDayOp debug] key="${_debugKey}":`, {
+          prodByDayOp_st: _debugDayOp?.st, prodByDayOp_vol: _debugDayOp?.vol, prodByDayOp_mthSt: _debugDayOp?.mthSt,
+          rawRows: _debugRawRows.length,
+          rawRowsDetail: _debugRawRows.map((r: any) => ({ tradslag: r.tradslag_id, processtyp: r.processtyp, stammar: r.stammar, vol: r.volym_m3sub, objekt: r.objekt_id })),
+          rawSumStammar: _debugRawRows.reduce((s: number, r: any) => s + (r.stammar || 0), 0),
+          rawSumVol: _debugRawRows.reduce((s: number, r: any) => s + (r.volym_m3sub || 0), 0),
+        });
+      }
+
       // ── Aggregate fakt_tid per (datum, operator_id, objekt_id) ──
       type TidAgg = { processingSek: number; terrainSek: number; otherWorkSek: number; disturbanceSek: number; maintenanceSek: number; kortStoppSek: number; avbrottSek: number; rastSek: number; engineTimeSek: number; bransleLiter: number };
       const emptyTid = (): TidAgg => ({ processingSek: 0, terrainSek: 0, otherWorkSek: 0, disturbanceSek: 0, maintenanceSek: 0, kortStoppSek: 0, avbrottSek: 0, rastSek: 0, engineTimeSek: 0, bransleLiter: 0 });
