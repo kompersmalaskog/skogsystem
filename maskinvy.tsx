@@ -134,6 +134,8 @@ type DbData = {
     volym: number; stammar: number; g15: number; prod: number; stg15: number; medelstam: number;
     objekt: Array<{ namn: string; volym: number; stammar: number; prod: number }>;
   }>;
+  // Volym per klass per åtgärd (för jämförelsediagram)
+  atgardKlassData: Record<string, number[]>;
   // Start date ISO for calendar/dag
   periodStartDate: string;
   totalDays: number;
@@ -443,6 +445,30 @@ new Chart(document.getElementById('totalChart'),{
   ]},
   options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Volym: '+volym[idx].toLocaleString('sv')+' m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')+' st','m\\u00b3/G15h: '+m3g15[idx]];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
 });
+
+// Åtgärdsjämförelse — volym per klass per åtgärd
+var atgKlassData = _db.atgardKlassData || {};
+var atgKlassEl = document.getElementById('atgardKlassChart');
+var atgNames = Object.keys(atgKlassData);
+if (atgKlassEl && atgNames.length >= 2) {
+  var atgColors = ['rgba(76,175,80,0.65)','rgba(91,143,255,0.65)','rgba(255,179,64,0.65)','rgba(255,95,87,0.65)','rgba(160,120,255,0.65)'];
+  var atgDatasets = atgNames.map(function(atg, ai) {
+    // Filter by activeIdx (same as classes)
+    var filtered = _activeIdx.map(function(i){return atgKlassData[atg][i]||0;});
+    return {label:atg, data:filtered, backgroundColor:atgColors[ai%atgColors.length], borderRadius:6};
+  });
+  new Chart(atgKlassEl, {
+    type:'bar',
+    data:{labels:classes, datasets:atgDatasets},
+    options:{responsive:true,interaction:{mode:'index',intersect:false},
+      plugins:{legend:{labels:{color:'#7a7a72',font:{family:'Geist',size:11},boxWidth:10,padding:14}},
+        tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){return ' '+ctx.dataset.label+': '+ctx.parsed.y.toLocaleString('sv')+' m\\u00b3';}}}},
+      scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
+  });
+  document.getElementById('atgardKlassWrap').style.display = '';
+} else if (document.getElementById('atgardKlassWrap')) {
+  document.getElementById('atgardKlassWrap').style.display = 'none';
+}
 
 // Produktivitet — m³/G15h per medelstamsklass (en y-axel)
 new Chart(document.getElementById('prodChart'),{
@@ -1504,7 +1530,7 @@ export default function Maskinvy() {
           mthAndelPct: 0, mthMedelstam: 0, singleMedelstam: 0,
           sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], totals: [0,0,0,0] },
           hasMth: false, sortimentPerDag: null,
-          bolagData: [], objTypList: [], timpengData: [], periodStartDate: startDate, totalDays,
+          bolagData: [], objTypList: [], timpengData: [], atgardKlassData: {}, periodStartDate: startDate, totalDays,
         };
         (window as any).__maskinvyData = emptyData;
         setDataVersion(v => v + 1);
@@ -1887,6 +1913,39 @@ export default function Maskinvy() {
       console.log(`[Maskinvy] Klasser: sumVol=${sumKlassVol} totalVol=${Math.round(totalVolym)} sumG15h=${sumKlassG15.toFixed(1)} totalG15h=${g15Timmar.toFixed(1)}`);
       console.log(`[Maskinvy] Per klass:`, klassLabels.map((l, i) => `${l}: ${klassVolym[i]}m³ ${klassStammar[i]}st ${klassG15h[i].toFixed(1)}h ${klassM3g15[i]}m³/G15h ${klassStg15[i]}st/G15h`));
 
+      // ── Volym per klass per åtgärd (för jämförelsediagram) ──
+      // Aggregera per (datum, operator_id, objekt_id) för att veta åtgärd
+      const objAtgardMap: Record<string, string> = {};
+      for (const o of objekter) { if (o.atgard && o.atgard.trim()) objAtgardMap[o.objekt_id] = o.atgard.trim(); }
+      type AtgProdGroup = { vol: number; st: number };
+      const atgProdByDayOpObj: Record<string, AtgProdGroup & { objekt_id: string }> = {};
+      for (const r of rawProdRows) {
+        const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}`;
+        if (!atgProdByDayOpObj[key]) atgProdByDayOpObj[key] = { vol: 0, st: 0, objekt_id: r.objekt_id || '' };
+        atgProdByDayOpObj[key].vol += r.volym_m3sub || 0;
+        atgProdByDayOpObj[key].st += r.stammar || 0;
+      }
+      const atgardKlassVolym: Record<string, number[]> = {};
+      for (const g of Object.values(atgProdByDayOpObj)) {
+        if (g.st === 0) continue;
+        const atg = objAtgardMap[g.objekt_id] || '';
+        if (!atg) continue;
+        const ms = g.vol / g.st;
+        for (let i = 0; i < nKlass; i++) {
+          if (ms >= edges[i] && ms < edges[i + 1]) {
+            if (!atgardKlassVolym[atg]) atgardKlassVolym[atg] = new Array(nKlass).fill(0);
+            atgardKlassVolym[atg][i] += g.vol;
+            break;
+          }
+        }
+      }
+      // Avrunda och filtrera bort tomma
+      const atgardKlassData: Record<string, number[]> = {};
+      for (const [atg, vols] of Object.entries(atgardKlassVolym)) {
+        const rounded = vols.map(v => Math.round(v));
+        if (rounded.some(v => v > 0)) atgardKlassData[atg] = rounded;
+      }
+
       // ── Fetch sortiment data (always — used for sortChart + sortimentPerDag) ──
       const mthCheck = await supabase.from('fakt_produktion')
         .select('processtyp')
@@ -2124,6 +2183,7 @@ export default function Maskinvy() {
         bolagData: bolagArr,
         objTypList,
         timpengData,
+        atgardKlassData,
         periodStartDate: startDate,
         totalDays,
       };
@@ -3602,6 +3662,11 @@ body {
       <div class="card-b">
         <div class="cleg">Volym per medelstamsklass</div>
         <canvas id="totalChart" style="max-height:155px"></canvas>
+        <div id="atgardKlassWrap" style="display:none;">
+          <div class="cdiv"></div>
+          <div class="cleg">Volym per medelstamsklass — per åtgärd</div>
+          <canvas id="atgardKlassChart" style="max-height:175px"></canvas>
+        </div>
         <div class="cdiv"></div>
         <div class="cleg">m³/G15h per medelstamsklass</div>
         <canvas id="prodChart" style="max-height:175px"></canvas>
