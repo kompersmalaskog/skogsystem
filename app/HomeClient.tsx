@@ -28,6 +28,7 @@ const apps: { href: string; label: string; icon: string; color: string; img?: st
   { href: '/maskin-service', label: 'Servicelogg', icon: '🔧', color: '#8E8E93' },
   { href: '/ledighet', label: 'Ledighet', icon: '🕐', color: '#5856D6' },
   { href: '/utbildning', label: 'Utbildning', icon: '🎓', color: '#34D399' },
+  { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: '💼', color: '#FF9500' },
 ]
 
 function getDatum() {
