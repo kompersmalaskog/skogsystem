@@ -2980,92 +2980,155 @@ export default function Maskinvy() {
       {/* ── PERIOD COMPARISON PANEL ── */}
       {activeView === 'idag' && (() => {
         const d = idagData;
-        const cs = { card: { background: '#1a1a18', borderRadius: 14, padding: 16, marginBottom: 10 } as const, kv: { fontFamily: "'Fraunces', serif", fontSize: 22, lineHeight: '1' }, kl: { fontSize: 10, color: '#7a7a72', marginTop: 3 }, frow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', fontSize: 12 } as const };
         if (idagLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#7a7a72' }}>Laddar...</div>;
         if (!d) return <div style={{ padding: 40, textAlign: 'center', color: '#7a7a72' }}>Ingen data</div>;
+        const stG15h = d.g15h > 0 ? parseFloat((d.st / d.g15h).toFixed(1)) : 0;
         const totalTid = d.tidFord.proc + d.tidFord.terr + d.tidFord.avbrott + d.tidFord.rast + d.tidFord.ovrigt;
-        const tidBar = (sek: number, color: string) => ({ flex: totalTid > 0 ? sek / totalTid : 0, height: 8, background: color, borderRadius: 2 });
-        const trendAvg = d.trend.filter(t => t.vol > 0).length > 0 ? Math.round(d.trend.filter(t => t.vol > 0).reduce((s, t) => s + t.vol, 0) / d.trend.filter(t => t.vol > 0).length) : 0;
+        const tidPct = (sek: number) => totalTid > 0 ? Math.round(sek / totalTid * 100) : 0;
+        const trendNonZero = d.trend.filter(t => t.vol > 0);
+        const trendAvg = trendNonZero.length > 0 ? Math.round(trendNonZero.reduce((s, t) => s + t.vol, 0) / trendNonZero.length) : 0;
+        const maxTrendVol = Math.max(...d.trend.map(x => x.vol), 1);
         return (
-          <div style={{ padding: '0 16px' }}>
-            {/* KPI */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, margin: '16px 0' }}>
-              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.vol.toLocaleString('sv')}</div><div style={cs.kl}>m³</div></div>
-              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.st.toLocaleString('sv')}</div><div style={cs.kl}>Stammar</div></div>
-              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.prod}</div><div style={cs.kl}>m³/G15h</div></div>
-              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.medelstam}</div><div style={cs.kl}>Medelstam</div></div>
-              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.utnyttj}%</div><div style={cs.kl}>Utnyttjandegrad</div></div>
-              <div style={{ ...cs.card, textAlign: 'center' }}><div style={cs.kv}>{d.bransleLm3}</div><div style={cs.kl}>l/m³</div></div>
+          <div style={{ padding: '0 20px 60px', maxWidth: 900 }}>
+            {/* KPI ROW 1 — samma layout som Översikt */}
+            <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 16 }}>
+              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="k-label">Volym</div>
+                <div className="k-val">{d.vol.toLocaleString('sv')}</div>
+                <div className="k-unit">m³sub</div>
+              </div>
+              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="k-label">Stammar</div>
+                <div className="k-val">{d.st.toLocaleString('sv')}</div>
+                <div className="k-unit">stammar</div>
+              </div>
+              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="k-label">Produktivitet</div>
+                <div className="k-val">{d.prod}</div>
+                <div className="k-unit">m³/G15h</div>
+              </div>
+              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="k-label">Medelstam</div>
+                <div className="k-val">{d.medelstam}</div>
+                <div className="k-unit">m³/stam</div>
+              </div>
             </div>
+            {/* KPI ROW 2 */}
+            <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 8 }}>
+              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="k-label">Utnyttjandegrad</div>
+                <div className="k-val">{d.utnyttj}</div>
+                <div className="k-unit">%</div>
+              </div>
+              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="k-label">Bränsle totalt</div>
+                <div className="k-val">{d.bransle}</div>
+                <div className="k-unit">liter</div>
+              </div>
+              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="k-label">Bränsle/m³</div>
+                <div className="k-val">{d.bransleLm3}</div>
+                <div className="k-unit">L/m³</div>
+              </div>
+              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="k-label">Stammar/G15h</div>
+                <div className="k-val">{stG15h}</div>
+                <div className="k-unit">st/G15h</div>
+              </div>
+            </div>
+
             {/* Trend 14 dagar */}
-            <div style={cs.card}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#7a7a72', marginBottom: 12 }}>SENASTE 14 DAGARNA</div>
-              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 100 }}>
-                {d.trend.map((t, i) => {
-                  const maxVol = Math.max(...d.trend.map(x => x.vol), 1);
-                  const h = t.vol > 0 ? Math.max(4, (t.vol / maxVol) * 90) : 2;
-                  const isToday = i === d.trend.length - 1;
-                  return (
-                    <div key={t.datum} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                      {t.vol > 0 && <div style={{ fontSize: 8, color: isToday ? 'rgba(90,255,140,0.9)' : '#7a7a72' }}>{t.vol}</div>}
-                      <div style={{ width: '100%', height: h, borderRadius: 3, background: isToday ? 'rgba(90,255,140,0.8)' : t.helg ? 'rgba(255,255,255,0.07)' : t.vol > 0 ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.04)' }} />
-                      <div style={{ fontSize: 8, color: isToday ? '#e8e8e4' : '#7a7a72' }}>{t.label}</div>
-                    </div>
-                  );
-                })}
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="card-h"><div className="card-t">Senaste 14 dagarna</div></div>
+              <div className="card-b">
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 110 }}>
+                  {d.trend.map((t, i) => {
+                    const h = t.vol > 0 ? Math.max(6, (t.vol / maxTrendVol) * 95) : 3;
+                    const isToday = i === d.trend.length - 1;
+                    return (
+                      <div key={t.datum} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                        {t.vol > 0 && <div style={{ fontSize: 9, fontWeight: 500, color: isToday ? 'rgba(90,255,140,0.9)' : 'rgba(232,232,228,0.5)' }}>{t.vol}</div>}
+                        <div style={{ width: '100%', height: h, borderRadius: 4, background: isToday ? 'rgba(90,255,140,0.8)' : t.helg ? 'rgba(255,255,255,0.07)' : t.vol > 0 ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.04)' }} />
+                        <div style={{ fontSize: 9, color: isToday ? '#e8e8e4' : '#666' }}>{t.label}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {trendAvg > 0 && <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 10, textAlign: 'center' }}>Snitt: {trendAvg} m³/dag</div>}
               </div>
-              {trendAvg > 0 && <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 8, textAlign: 'center' }}>Snitt: {trendAvg} m³/dag</div>}
             </div>
-            {/* Operatörer */}
-            {d.operatorer.length > 0 && (
-              <div style={cs.card}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#7a7a72', marginBottom: 10 }}>OPERATÖRER IDAG</div>
-                {d.operatorer.map(op => (
-                  <div key={op.namn} style={cs.frow}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{op.namn}</div>
-                      <div style={{ fontSize: 10, color: '#7a7a72' }}>{op.objekt} · start {op.start}</div>
+
+            {/* Operatörer + Tidsfördelning */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+              {/* Operatörer */}
+              <div className="card">
+                <div className="card-h"><div className="card-t">Operatörer</div></div>
+                <div className="card-b">
+                  {d.operatorer.length > 0 ? d.operatorer.map(op => (
+                    <div key={op.namn} className="op-row">
+                      <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>
+                        {op.namn.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{op.namn}</div>
+                        <div style={{ fontSize: 10, color: '#666' }}>{op.objekt} · start {op.start}</div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 15, fontWeight: 600 }}>{op.vol} m³</div>
+                        <div style={{ fontSize: 10, color: '#666' }}>{op.prod} m³/G15h</div>
+                      </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 14, fontWeight: 600 }}>{op.vol} m³</div>
-                      <div style={{ fontSize: 10, color: '#7a7a72' }}>{op.prod} m³/G15h</div>
-                    </div>
+                  )) : <div style={{ color: '#666', fontSize: 12 }}>Ingen data idag</div>}
+                </div>
+              </div>
+
+              {/* Tidsfördelning */}
+              <div className="card">
+                <div className="card-h"><div className="card-t">Tidsfördelning</div></div>
+                <div className="card-b">
+                  <div style={{ display: 'flex', gap: 2, borderRadius: 4, overflow: 'hidden', marginBottom: 14, height: 10 }}>
+                    {totalTid > 0 && <>
+                      <div style={{ flex: d.tidFord.proc, background: 'rgba(90,255,140,0.5)', borderRadius: 2 }} />
+                      <div style={{ flex: d.tidFord.terr, background: 'rgba(91,143,255,0.4)', borderRadius: 2 }} />
+                      <div style={{ flex: d.tidFord.avbrott, background: 'rgba(255,179,64,0.4)', borderRadius: 2 }} />
+                      <div style={{ flex: d.tidFord.rast, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }} />
+                    </>}
                   </div>
-                ))}
-              </div>
-            )}
-            {/* Tidsfördelning */}
-            <div style={cs.card}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#7a7a72', marginBottom: 10 }}>TIDSFÖRDELNING</div>
-              <div style={{ display: 'flex', gap: 2, borderRadius: 4, overflow: 'hidden', marginBottom: 10 }}>
-                <div style={tidBar(d.tidFord.proc, 'rgba(90,255,140,0.5)')} />
-                <div style={tidBar(d.tidFord.terr, 'rgba(91,143,255,0.4)')} />
-                <div style={tidBar(d.tidFord.avbrott, 'rgba(255,179,64,0.4)')} />
-                <div style={tidBar(d.tidFord.rast, 'rgba(255,255,255,0.1)')} />
-                <div style={tidBar(d.tidFord.ovrigt, 'rgba(255,255,255,0.07)')} />
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', fontSize: 10, color: '#7a7a72' }}>
-                <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: 'rgba(90,255,140,0.5)', marginRight: 4 }} />Produktion {(d.tidFord.proc/3600).toFixed(1)}h</span>
-                <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: 'rgba(91,143,255,0.4)', marginRight: 4 }} />Körning {(d.tidFord.terr/3600).toFixed(1)}h</span>
-                <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: 'rgba(255,179,64,0.4)', marginRight: 4 }} />Avbrott {(d.tidFord.avbrott/3600).toFixed(1)}h</span>
-                <span><span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: 'rgba(255,255,255,0.1)', marginRight: 4 }} />Rast {(d.tidFord.rast/3600).toFixed(1)}h</span>
+                  {[
+                    { label: 'Produktion', sek: d.tidFord.proc, color: 'rgba(90,255,140,0.5)' },
+                    { label: 'Körning', sek: d.tidFord.terr, color: 'rgba(91,143,255,0.4)' },
+                    { label: 'Avbrott', sek: d.tidFord.avbrott, color: 'rgba(255,179,64,0.4)' },
+                    { label: 'Rast', sek: d.tidFord.rast, color: 'rgba(255,255,255,0.1)' },
+                  ].map(t => (
+                    <div key={t.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', fontSize: 12, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: 2, background: t.color, display: 'inline-block' }} />
+                        {t.label}
+                      </span>
+                      <span style={{ color: '#e8e8e4', fontWeight: 500 }}>{(t.sek / 3600).toFixed(1)}h <span style={{ color: '#666', fontWeight: 400 }}>{tidPct(t.sek)}%</span></span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
+
             {/* Bolag */}
             {d.bolag.length > 0 && (
-              <div style={cs.card}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#7a7a72', marginBottom: 10 }}>BOLAG IDAG</div>
-                {d.bolag.map(b => (
-                  <div key={b.namn} style={{ marginBottom: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                      <span>{b.namn}</span>
-                      <span style={{ fontWeight: 600 }}>{b.vol} m³ <span style={{ color: '#7a7a72', fontWeight: 400 }}>{b.pct}%</span></span>
+              <div className="card" style={{ marginTop: 12 }}>
+                <div className="card-h"><div className="card-t">Bolag</div></div>
+                <div className="card-b">
+                  {d.bolag.map(b => (
+                    <div key={b.namn} style={{ marginBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                        <span style={{ fontWeight: 500 }}>{b.namn}</span>
+                        <span><span style={{ fontWeight: 600 }}>{b.vol} m³</span> <span style={{ color: '#666', fontSize: 11 }}>{b.pct}%</span></span>
+                      </div>
+                      <div style={{ height: 5, borderRadius: 2, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${b.pct}%`, background: 'rgba(90,255,140,0.5)', borderRadius: 2 }} />
+                      </div>
                     </div>
-                    <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.05)', marginTop: 4, overflow: 'hidden' }}>
-                      <div style={{ height: '100%', width: `${b.pct}%`, background: 'rgba(90,255,140,0.5)', borderRadius: 2 }} />
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
           </div>
