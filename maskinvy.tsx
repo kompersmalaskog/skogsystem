@@ -1273,6 +1273,39 @@ if (_db.operatorer && _db.operatorer.length > 0) {
 }
 
 // Expose to global scope for onclick handlers
+// Produktion sub-tabs
+var _prodSubTab = 'daglig';
+var _subTabs = [
+  {key:'daglig',label:'Daglig'},
+  {key:'medelstam',label:'Medelstam'},
+  {key:'rpau',label:'RP \\u00b7 AU'},
+  {key:'sortiment',label:'Sortiment'}
+];
+function switchProdSub(tab) {
+  _prodSubTab = tab;
+  _subTabs.forEach(function(t) {
+    var els = document.querySelectorAll('.ps-'+t.key);
+    els.forEach(function(el) {
+      if (t.key === tab) el.classList.remove('ps-hidden');
+      else el.classList.add('ps-hidden');
+    });
+  });
+  // Update button styles
+  var btns = document.querySelectorAll('.ps-btn');
+  btns.forEach(function(btn) {
+    var isActive = btn.getAttribute('data-tab') === tab;
+    btn.style.background = isActive ? 'rgba(90,255,140,0.15)' : 'transparent';
+    btn.style.color = isActive ? 'rgba(90,255,140,0.9)' : '#7a7a72';
+  });
+}
+var prodSubTabsEl = document.getElementById('prodSubTabs');
+if (prodSubTabsEl) {
+  prodSubTabsEl.innerHTML = _subTabs.map(function(t) {
+    var isActive = t.key === _prodSubTab;
+    return '<button class="ps-btn" data-tab="'+t.key+'" onclick="switchProdSub(\\''+t.key+'\\')" style="border:none;border-radius:6px;padding:5px 14px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;letter-spacing:0.2px;background:'+(isActive?'rgba(90,255,140,0.15)':'transparent')+';color:'+(isActive?'rgba(90,255,140,0.9)':'#7a7a72')+';">'+t.label+'</button>';
+  }).join('');
+}
+
 // Populate åtgärdsfilter-knappar
 var atgFilterRow = document.getElementById('atgardFilterRow');
 if (atgFilterRow && window.__maskinvyAtgarder) {
@@ -1292,7 +1325,7 @@ Object.assign(window, {
   toggleMMenu, pickM, openForare, closeForare, openBolag, closeBolag,
   openTradslag, closeTradslag, openTid, closeTid, toggleCmp, runCmp,
   openDag, closeDag, openObjTyp, closeObjTyp, openObjJmf, closeObjJmf,
-  openInkopare, closeInkopare, toggleForareAvbrott, closeAllPanels
+  openInkopare, closeInkopare, toggleForareAvbrott, closeAllPanels, switchProdSub
 });
 })();`;
 
@@ -3442,6 +3475,7 @@ export default function Maskinvy() {
 .view-section { display: none !important; }
 .page[data-view="oversikt"] .vs-oversikt { display: block !important; }
 .page[data-view="produktion"] .vs-produktion { display: block !important; }
+.page[data-view="produktion"] .vs-produktion.ps-hidden { display: none !important; }
 .page[data-view="operatorer"] .vs-operatorer { display: block !important; }
 .page[data-view="tradslag"] .vs-tradslag { display: block !important; }
 .page[data-view="objekt"] .vs-objekt { display: block !important; }
@@ -4054,13 +4088,16 @@ body {
     </div>
   </div>
 
-  <!-- ÅTGÄRDSFILTER -->
-  <div class="gf view-section vs-produktion" style="margin-bottom:-8px;">
-    <div id="atgardFilterRow" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+  <!-- PRODUKTION SUB-TABS + ÅTGÄRDSFILTER -->
+  <div class="gf view-section vs-produktion" style="margin-bottom:-4px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+      <div id="prodSubTabs" style="display:flex;gap:2px;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;"></div>
+      <div id="atgardFilterRow" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
+    </div>
   </div>
 
-  <!-- DAGLIG PRODUKTION -->
-  <div class="gf view-section vs-produktion" id="sec-produktion">
+  <!-- SUB: DAGLIG -->
+  <div class="gf view-section vs-produktion ps-daglig" id="sec-produktion">
     <div class="card anim" style="animation-delay:0.6s">
       <div class="card-h">
         <div class="card-t" id="dailyChartTitle">Daglig produktion</div>
@@ -4071,9 +4108,7 @@ body {
       <div class="card-b"><canvas id="dailyChart" style="max-height:190px"></canvas></div>
     </div>
   </div>
-
-  <!-- KALENDER + SORTIMENT -->
-  <div class="g2 view-section vs-produktion">
+  <div class="g2 view-section vs-produktion ps-daglig">
     <div class="card anim" style="animation-delay:0.65s">
       <div class="card-h">
         <div class="card-t">Aktivitet</div>
@@ -4092,67 +4127,25 @@ body {
         <div class="cal-sum" id="calSummary"></div>
       </div>
     </div>
-
     <div class="card anim" style="animation-delay:0.7s">
-      <div class="card-h"><div class="card-t">Sortiment</div></div>
+      <div class="card-h"><div class="card-t">Bränsleförbrukning</div></div>
       <div class="card-b">
-        <canvas id="sortChart" style="max-height:175px"></canvas>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px;" id="sortSummary"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- MTH (hidden for slutavverkningsskördare without MTH data) -->
-  <div class="gf view-section vs-produktion vs-tradslag" id="sec-mth">
-    <div class="card anim" style="animation-delay:0.75s">
-      <div class="card-h">
-        <div class="card-t">Flerträd (MTH) per medelstamsklass</div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <div style="width:10px;height:10px;border-radius:2px;background:rgba(90,255,140,0.4);"></div>
-          <span style="font-size:10px;color:var(--muted);">MTH-andel</span>
+        <div class="forar-kpis" id="dieselKpis" style="justify-content:center;">
+          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter totalt</div></div>
+          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / m³</div></div>
+          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / stam</div></div>
         </div>
       </div>
-      <div class="card-b">
-        <div id="mthBody"></div>
-      </div>
     </div>
   </div>
 
-  <!-- SORTIMENT PER DAG (shown instead of MTH for slutavverkningsskördare) -->
-  <div class="gf view-section vs-produktion vs-tradslag" id="sec-sortiment-dag" style="display:none">
-    <div class="card anim" style="animation-delay:0.75s">
-      <div class="card-h">
-        <div class="card-t">Sortiment per dag</div>
-        <div style="display:flex;gap:12px;">
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(90,255,140,0.5)"></div>Timmer</div>
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(91,143,255,0.5)"></div>Kubb</div>
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(255,179,64,0.4)"></div>Massa</div>
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(255,255,255,0.1)"></div>Energi</div>
-        </div>
-      </div>
-      <div class="card-b">
-        <canvas id="sortDagChart" style="max-height:190px"></canvas>
-      </div>
-    </div>
-  </div>
-
-  <!-- PRODUKTION & PRODUKTIVITET -->
-  <div class="gf view-section vs-produktion">
-    <div class="card anim" style="animation-delay:0.8s">
-      <div class="card-h"><div class="card-t">Produktion & produktivitet per medelstamsklass</div></div>
+  <!-- SUB: MEDELSTAM -->
+  <div class="gf view-section vs-produktion ps-medelstam ps-hidden">
+    <div class="card anim">
+      <div class="card-h"><div class="card-t">Produktion per medelstamsklass</div></div>
       <div class="card-b">
         <div class="cleg">Volym per medelstamsklass</div>
         <canvas id="totalChart" style="max-height:155px"></canvas>
-        <div id="atgardKlassWrap" style="display:none;">
-          <div class="cdiv"></div>
-          <div class="cleg">Volym per medelstamsklass — per åtgärd</div>
-          <canvas id="atgardKlassChart" style="max-height:175px"></canvas>
-        </div>
-        <div id="atgardM3g15Wrap" style="display:none;">
-          <div class="cdiv"></div>
-          <div class="cleg">m³/G15h per medelstamsklass — per åtgärd</div>
-          <canvas id="atgardM3g15Chart" style="max-height:175px"></canvas>
-        </div>
         <div class="cdiv"></div>
         <div class="cleg">m³/G15h per medelstamsklass</div>
         <canvas id="prodChart" style="max-height:175px"></canvas>
@@ -4164,17 +4157,60 @@ body {
       </div>
     </div>
   </div>
-
-  <!-- BRÄNSLE KPI -->
-  <div class="view-section vs-produktion" style="margin-top:8px;">
-    <div class="card anim" style="animation-delay:0.7s">
-      <div class="card-h"><div class="card-t">Bränsleförbrukning</div></div>
-      <div class="card-b">
-        <div class="forar-kpis" id="dieselKpis" style="justify-content:center;">
-          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter totalt</div></div>
-          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / m³</div></div>
-          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / stam</div></div>
+  <div class="gf view-section vs-produktion vs-tradslag ps-medelstam ps-hidden" id="sec-mth">
+    <div class="card anim">
+      <div class="card-h">
+        <div class="card-t">Flerträd (MTH) per medelstamsklass</div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <div style="width:10px;height:10px;border-radius:2px;background:rgba(90,255,140,0.4);"></div>
+          <span style="font-size:10px;color:var(--muted);">MTH-andel</span>
         </div>
+      </div>
+      <div class="card-b"><div id="mthBody"></div></div>
+    </div>
+  </div>
+
+  <!-- SUB: RP · AU -->
+  <div class="gf view-section vs-produktion ps-rpau ps-hidden">
+    <div class="card anim">
+      <div class="card-h"><div class="card-t">Åtgärdsjämförelse per medelstamsklass</div></div>
+      <div class="card-b">
+        <div id="atgardKlassWrap" style="display:none;">
+          <div class="cleg">Volym per medelstamsklass — per åtgärd</div>
+          <canvas id="atgardKlassChart" style="max-height:175px"></canvas>
+        </div>
+        <div id="atgardM3g15Wrap" style="display:none;">
+          <div class="cdiv"></div>
+          <div class="cleg">m³/G15h per medelstamsklass — per åtgärd</div>
+          <canvas id="atgardM3g15Chart" style="max-height:175px"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUB: SORTIMENT -->
+  <div class="gf view-section vs-produktion ps-sortiment ps-hidden">
+    <div class="card anim">
+      <div class="card-h"><div class="card-t">Sortiment</div></div>
+      <div class="card-b">
+        <canvas id="sortChart" style="max-height:175px"></canvas>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px;" id="sortSummary"></div>
+      </div>
+    </div>
+  </div>
+  <div class="gf view-section vs-produktion vs-tradslag ps-sortiment ps-hidden" id="sec-sortiment-dag">
+    <div class="card anim">
+      <div class="card-h">
+        <div class="card-t">Sortiment per dag</div>
+        <div style="display:flex;gap:12px;">
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(90,255,140,0.5)"></div>Timmer</div>
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(91,143,255,0.5)"></div>Kubb</div>
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(255,179,64,0.4)"></div>Massa</div>
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(255,255,255,0.1)"></div>Energi</div>
+        </div>
+      </div>
+      <div class="card-b">
+        <canvas id="sortDagChart" style="max-height:190px"></canvas>
       </div>
     </div>
   </div>
