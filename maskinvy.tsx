@@ -697,50 +697,44 @@ function openBolag(id) {
   document.getElementById('bpSub').textContent  = b.volym.toLocaleString('sv') + ' m³ · ' + b.pct + '% av total volym';
   const slutVol = b.inkopare.flatMap(i=>i.objekt).filter(o=>o.typ==='Slutavverkning').reduce((s,o)=>s+o.volym,0);
   const gallVol = b.inkopare.flatMap(i=>i.objekt).filter(o=>o.typ==='Gallring').reduce((s,o)=>s+o.volym,0);
-  const summaryRows = b.inkopare.map(ink=>{
+  // Inköpare som klickbara kort — tryck för att se objekt
+  const inkopareCards = b.inkopare.map(ink=>{
     const inkSlut=ink.objekt.filter(o=>o.typ==='Slutavverkning').reduce((s,o)=>s+o.volym,0);
     const inkGall=ink.objekt.filter(o=>o.typ==='Gallring').reduce((s,o)=>s+o.volym,0);
-    return \`<div class="frow">
-      <div style="display:flex;align-items:center;gap:8px;flex:1;">
-        <div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);flex-shrink:0;">\${ink.initialer}</div>
-        <span class="frow-l">\${ink.namn}</span>
+    // Hitta matchande inkopareData för detaljer
+    const inkKey = ink.namn.split(' ')[0].toLowerCase().replace(/[^a-z\\u00e5\\u00e4\\u00f60-9]/g,'');
+    const objList = ink.objekt.map(o=>\`
+      <div class="frow" style="padding:8px 0;">
+        <div style="flex:1;"><div style="font-size:12px;font-weight:500;">\${o.namn}</div><div style="font-size:10px;color:var(--muted);">\${o.nr} · \${o.typ}</div></div>
+        <span class="frow-v">\${o.volym.toLocaleString('sv')} m³</span>
+      </div>\`).join('');
+    return \`<div style="background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:rgba(255,255,255,0.6);flex-shrink:0;">\${ink.initialer}</div>
+        <div style="flex:1;">
+          <div style="font-size:14px;font-weight:600;">\${ink.namn}</div>
+          <div style="font-size:11px;color:var(--muted);">\${ink.objekt.length} objekt</div>
+        </div>
+        <div style="text-align:right;">
+          <div style="font-family:'Fraunces',serif;font-size:22px;line-height:1;">\${ink.volym.toLocaleString('sv')}</div>
+          <div style="font-size:10px;color:var(--muted);">m³</div>
+        </div>
       </div>
-      <div style="display:flex;gap:12px;align-items:center;">
-        \${inkSlut>0?\`<span style="font-size:10px;color:var(--muted);">Slutavv <strong style="color:var(--text)">\${inkSlut.toLocaleString('sv')}</strong></span>\`:''}
-        \${inkGall>0?\`<span style="font-size:10px;color:var(--muted);">Gallring <strong style="color:var(--text)">\${inkGall.toLocaleString('sv')}</strong></span>\`:''}
-        <span class="frow-v">\${ink.volym.toLocaleString('sv')} m³</span>
+      <div style="display:flex;gap:12px;margin-bottom:10px;">
+        \${inkSlut>0?'<div style="font-size:11px;color:var(--muted);">Slutavv <strong style="color:var(--text)">'+inkSlut.toLocaleString('sv')+'</strong> m³</div>':''}
+        \${inkGall>0?'<div style="font-size:11px;color:var(--muted);">Gallring <strong style="color:var(--text)">'+inkGall.toLocaleString('sv')+'</strong> m³</div>':''}
       </div>
+      <div style="background:var(--bg);border-radius:8px;padding:4px 12px;">\${objList}</div>
     </div>\`;
   }).join('');
-  const inkopareRows = b.inkopare.map(ink=>{
-    const objRows = ink.objekt.map(o=>\`
-      <div style="background:var(--bg);border-radius:8px;padding:12px;margin-top:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-          <div><div style="font-size:12px;font-weight:600;">\${o.namn}</div><div style="font-size:10px;color:var(--muted);margin-top:1px;">\${o.nr} · \${o.typ}</div></div>
-          <div style="text-align:right;"><div style="font-family:'Fraunces',serif;font-size:18px;line-height:1;">\${o.volym}</div><div style="font-size:10px;color:var(--muted);">m³</div></div>
-        </div>
-        <div class="frow"><span class="frow-l">Gran</span><div style="flex:1;margin:0 10px"><div class="prog"><div class="pf" style="width:\${o.gran}%;background:rgba(90,255,140,0.5)"></div></div></div><span class="frow-v">\${o.gran}%</span></div>
-        <div class="frow"><span class="frow-l">Tall</span><div style="flex:1;margin:0 10px"><div class="prog"><div class="pf" style="width:\${o.tall}%;background:rgba(255,255,255,0.2)"></div></div></div><span class="frow-v">\${o.tall}%</span></div>
-        <div class="frow" style="border-bottom:none"><span class="frow-l">Björk</span><div style="flex:1;margin:0 10px"><div class="prog"><div class="pf" style="width:\${o.bjork}%;background:rgba(91,143,255,0.4)"></div></div></div><span class="frow-v">\${o.bjork}%</span></div>
-      </div>\`).join('');
-    return \`<div style="background:var(--surface2);border-radius:10px;padding:14px;margin-bottom:8px;">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
-        <div style="width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:rgba(255,255,255,0.6);flex-shrink:0;">\${ink.initialer}</div>
-        <div style="flex:1;"><div style="font-size:13px;font-weight:600;">\${ink.namn}</div><div style="font-size:10px;color:var(--muted);">\${ink.objekt.length} objekt</div></div>
-        <div style="text-align:right;"><div style="font-family:'Fraunces',serif;font-size:20px;line-height:1;">\${ink.volym.toLocaleString('sv')}</div><div style="font-size:10px;color:var(--muted);">m³fub</div></div>
-      </div>\${objRows}</div>\`;
-  }).join('');
-  const totObjekt = b.inkopare.reduce((s,i)=>s+i.objekt.length,0);
   document.getElementById('bpBody').innerHTML = \`
-    <div class="forar-kpis" style="margin-bottom:16px;">
+    <div class="forar-kpis" style="margin-bottom:20px;">
       <div class="fkpi"><div class="fkpi-v">\${b.volym.toLocaleString('sv')}</div><div class="fkpi-l">m³ totalt</div></div>
       <div class="fkpi"><div class="fkpi-v">\${slutVol.toLocaleString('sv')}</div><div class="fkpi-l">Slutavverkning</div></div>
       <div class="fkpi"><div class="fkpi-v">\${gallVol>0?gallVol.toLocaleString('sv'):'–'}</div><div class="fkpi-l">Gallring</div></div>
     </div>
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Sammanställning per inköpare</div>
-    <div style="background:var(--surface2);border-radius:10px;padding:4px 14px;margin-bottom:16px;">\${summaryRows}</div>
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Inköpare & objekt</div>
-    \${inkopareRows}\`;
+    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:12px;">Inköpare</div>
+    \${inkopareCards}\`;
   openOverlay();
   document.getElementById('bolagPanel').classList.add('open');
 }
@@ -1129,8 +1123,9 @@ if (inkopareEl && inkopareList.length > 0) {
     // Trädslag bars
     var tsOrder = ['Gran','Tall','Björk','Övr. löv'];
     var tsColors = {'Gran':'rgba(90,255,140,0.5)','Tall':'rgba(255,255,255,0.2)','Björk':'rgba(91,143,255,0.4)','Övr. löv':'rgba(255,179,64,0.3)'};
-    var tsBars = tsOrder.filter(function(ts){return (ink.perTradslag[ts]||0)>0;}).map(function(ts){
-      var tsPct = ink.volym>0?Math.round((ink.perTradslag[ts]||0)/ink.volym*100):0;
+    var inkTs2 = ink.perTradslag || {};
+    var tsBars = tsOrder.filter(function(ts){return (inkTs2[ts]||0)>0;}).map(function(ts){
+      var tsPct = ink.volym>0?Math.round((inkTs2[ts]||0)/ink.volym*100):0;
       return '<div style="flex:'+tsPct+';background:'+(tsColors[ts]||'rgba(255,255,255,0.1)')+';height:4px;border-radius:2px;"></div>';
     }).join('');
     return '<div class="ink-row ink-clickable" onclick="openInkopare(\\''+ink.key+'\\')" style="flex-direction:column;align-items:stretch;gap:6px;">'
@@ -1156,18 +1151,20 @@ function openInkopare(key) {
   document.getElementById('inkSub').textContent = ink.bolag + ' · ' + ink.volym.toLocaleString('sv') + ' m³';
 
   // Åtgärdsfördelning
-  var atgRows = Object.entries(ink.perAtgard).sort(function(a,b){return b[1]-a[1];}).map(function(e){
+  var inkAtgard = ink.perAtgard || {};
+  var atgRows = Object.entries(inkAtgard).sort(function(a,b){return b[1]-a[1];}).map(function(e){
     var pct = ink.volym>0?Math.round(e[1]/ink.volym*100):0;
-    return '<div class="frow"><span class="frow-l">'+e[0]+'</span><div style="flex:1;margin:0 10px"><div class="prog"><div class="pf" style="width:'+pct+'%;background:rgba(90,255,140,0.5)"></div></div></div><span class="frow-v">'+e[1].toLocaleString('sv')+' m³ · '+pct+'%</span></div>';
+    return '<div class="frow" style="padding:10px 0;"><span class="frow-l">'+e[0]+'</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:'+pct+'%;background:rgba(90,255,140,0.5)"></div></div></div><span class="frow-v" style="min-width:90px;text-align:right;">'+e[1].toLocaleString('sv')+' m³ <span style="color:var(--muted)">'+pct+'%</span></span></div>';
   }).join('');
 
   // Trädslag
   var tsOrder = ['Gran','Tall','Björk','Övr. löv'];
   var tsColors = {'Gran':'rgba(90,255,140,0.5)','Tall':'rgba(255,255,255,0.2)','Björk':'rgba(91,143,255,0.4)','Övr. löv':'rgba(255,179,64,0.3)'};
-  var tsRows = tsOrder.filter(function(ts){return (ink.perTradslag[ts]||0)>0;}).map(function(ts){
-    var v = ink.perTradslag[ts]||0;
+  var inkTs = ink.perTradslag || {};
+  var tsRows = tsOrder.filter(function(ts){return (inkTs[ts]||0)>0;}).map(function(ts){
+    var v = inkTs[ts]||0;
     var pct = ink.volym>0?Math.round(v/ink.volym*100):0;
-    return '<div class="frow"><span class="frow-l">'+ts+'</span><div style="flex:1;margin:0 10px"><div class="prog"><div class="pf" style="width:'+pct+'%;background:'+(tsColors[ts]||'rgba(255,255,255,0.1)')+'"></div></div></div><span class="frow-v">'+v.toLocaleString('sv')+' m³ · '+pct+'%</span></div>';
+    return '<div class="frow" style="padding:10px 0;"><span class="frow-l">'+ts+'</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:'+pct+'%;background:'+(tsColors[ts]||'rgba(255,255,255,0.1)')+'"></div></div></div><span class="frow-v" style="min-width:90px;text-align:right;">'+v.toLocaleString('sv')+' m³ <span style="color:var(--muted)">'+pct+'%</span></span></div>';
   }).join('');
 
   // Objekt
@@ -3895,7 +3892,7 @@ body {
 
 
 <!-- BOLAG PANEL -->
-<div class="bolag-panel" id="bolagPanel">
+<div class="bolag-panel" id="bolagPanel" style="width:min(480px,100vw)">
   <div class="forar-head">
     <div class="forar-av" id="bpLogo" style="border-radius:8px;font-size:11px;font-weight:700;"></div>
     <div>
@@ -4141,7 +4138,7 @@ body {
 </div>
 
 <!-- INKÖPARE PANEL -->
-<div class="bolag-panel" id="inkPanel">
+<div class="bolag-panel" id="inkPanel" style="width:min(480px,100vw)">
   <div class="forar-head">
     <div class="forar-av" style="border-radius:50%;font-size:11px;font-weight:600;" id="inkLogo"></div>
     <div>
