@@ -351,6 +351,10 @@ const dc={0:'c-off',1:'c-prod',2:'c-flytt',3:'c-service'};
 const dlbl={0:'Ej aktiv',1:'Produktion',2:'Flytt',3:'Service'};
 var calStart = new Date((_db.periodStartDate || '2026-01-01') + 'T12:00:00');
 var calTotalDays = _db.totalDays || dt.length || 28;
+// Set calendar title with month name
+var calTitleMonths = ['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'];
+var calTitleEl = document.getElementById('calTitle');
+if (calTitleEl) calTitleEl.textContent = calTitleMonths[calStart.getMonth()] + ' ' + calStart.getFullYear();
 // Add empty cells for days before Monday (week starts on Monday)
 var firstDow = calStart.getDay(); // 0=Sun
 var emptyBefore = firstDow === 0 ? 6 : firstDow - 1;
@@ -1304,21 +1308,6 @@ if (prodSubTabsEl) {
     var isActive = t.key === _prodSubTab;
     return '<button class="ps-btn" data-tab="'+t.key+'" onclick="switchProdSub(\\''+t.key+'\\')" style="border:none;border-radius:6px;padding:5px 14px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;letter-spacing:0.2px;background:'+(isActive?'rgba(90,255,140,0.15)':'transparent')+';color:'+(isActive?'rgba(90,255,140,0.9)':'#7a7a72')+';">'+t.label+'</button>';
   }).join('');
-}
-
-// Populate åtgärdsfilter-knappar
-var atgFilterRow = document.getElementById('atgardFilterRow');
-if (atgFilterRow && window.__maskinvyAtgarder) {
-  var currentFilter = window.__maskinvyFilterAtgard || '';
-  var atgarder = window.__maskinvyAtgarder || [];
-  var btnStyle = 'border:none;border-radius:8px;padding:6px 14px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;transition:all 0.15s;letter-spacing:0.2px;';
-  var activeStyle = 'background:rgba(90,255,140,0.2);color:rgba(90,255,140,0.9);';
-  var inactiveStyle = 'background:rgba(255,255,255,0.05);color:#7a7a72;';
-  var html = '<button style="'+btnStyle+(currentFilter===''?activeStyle:inactiveStyle)+'" onclick="window.__setFilterAtgard(\\'\\')">Alla</button>';
-  atgarder.forEach(function(a) {
-    html += '<button style="'+btnStyle+(currentFilter===a?activeStyle:inactiveStyle)+'" onclick="window.__setFilterAtgard(\\''+a+'\\')">'+a+'</button>';
-  });
-  atgFilterRow.innerHTML = html;
 }
 
 Object.assign(window, {
@@ -4088,12 +4077,9 @@ body {
     </div>
   </div>
 
-  <!-- PRODUKTION SUB-TABS + ÅTGÄRDSFILTER -->
+  <!-- PRODUKTION SUB-TABS -->
   <div class="gf view-section vs-produktion" style="margin-bottom:-4px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-      <div id="prodSubTabs" style="display:flex;gap:2px;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;"></div>
-      <div id="atgardFilterRow" style="display:flex;gap:6px;flex-wrap:wrap;"></div>
-    </div>
+    <div id="prodSubTabs" style="display:flex;gap:2px;background:rgba(255,255,255,0.05);border-radius:8px;padding:3px;"></div>
   </div>
 
   <!-- SUB: DAGLIG -->
@@ -4111,7 +4097,7 @@ body {
   <div class="g2 view-section vs-produktion ps-daglig">
     <div class="card anim" style="animation-delay:0.65s">
       <div class="card-h">
-        <div class="card-t">Aktivitet</div>
+        <div class="card-t" id="calTitle">Aktivitet</div>
         <div style="display:flex;gap:10px;">
           <div class="li" style="font-size:10px;color:var(--muted)"><div style="width:7px;height:7px;border-radius:2px;background:rgba(255,255,255,0.4)"></div>Produktion</div>
           <div class="li" style="font-size:10px;color:var(--muted)"><div style="width:7px;height:7px;border-radius:2px;background:rgba(255,255,255,0.2)"></div>Flytt</div>
@@ -4125,16 +4111,6 @@ body {
         </div>
         <div class="cal-grid" id="calGrid"></div>
         <div class="cal-sum" id="calSummary"></div>
-      </div>
-    </div>
-    <div class="card anim" style="animation-delay:0.7s">
-      <div class="card-h"><div class="card-t">Bränsleförbrukning</div></div>
-      <div class="card-b">
-        <div class="forar-kpis" id="dieselKpis" style="justify-content:center;">
-          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter totalt</div></div>
-          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / m³</div></div>
-          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / stam</div></div>
-        </div>
       </div>
     </div>
   </div>
@@ -4211,6 +4187,18 @@ body {
       </div>
       <div class="card-b">
         <canvas id="sortDagChart" style="max-height:190px"></canvas>
+      </div>
+    </div>
+  </div>
+  <div class="gf view-section vs-produktion ps-sortiment ps-hidden">
+    <div class="card anim">
+      <div class="card-h"><div class="card-t">Bränsleförbrukning</div></div>
+      <div class="card-b">
+        <div class="forar-kpis" id="dieselKpis" style="justify-content:center;">
+          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter totalt</div></div>
+          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / m³</div></div>
+          <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / stam</div></div>
+        </div>
       </div>
     </div>
   </div>
