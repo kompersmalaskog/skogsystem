@@ -728,7 +728,7 @@ function openBolag(id) {
     +'<div class="fkpi"><div class="fkpi-v">'+slutVol.toLocaleString('sv')+'</div><div class="fkpi-l">Slutavverkning</div></div>'
     +'<div class="fkpi"><div class="fkpi-v">'+(gallVol>0?gallVol.toLocaleString('sv'):'–')+'</div><div class="fkpi-l">Gallring</div></div>'
     +'</div>'
-    +'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:12px;">Inköpare</div>'
+    +'<div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:12px;">Inköpare</div>'
     +inkopareCards;
   openOverlay();
   document.getElementById('bolagPanel').classList.add('open');
@@ -771,7 +771,7 @@ function runCmp(){
   div.innerHTML=\`
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
-      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.9px;color:var(--muted);">Jämförelse</div>
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);">Jämförelse</div>
       <button onclick="document.getElementById('cmpView').remove()" style="border:none;background:var(--surface2);border-radius:6px;padding:4px 10px;font-family:inherit;font-size:11px;cursor:pointer;color:var(--muted);">✕</button>
     </div>
     <div style="display:grid;grid-template-columns:120px 1fr 32px 1fr;gap:7px;align-items:center;margin-bottom:12px;">
@@ -785,7 +785,7 @@ function runCmp(){
       const pos=m.b>=m.a;
       const fmt=v=>v>100?v.toLocaleString('sv'):v;
       return \`<div style="display:grid;grid-template-columns:120px 1fr 32px 1fr;gap:7px;align-items:center;margin-bottom:7px;">
-        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);">\${m.lbl}</div>
+        <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);">\${m.lbl}</div>
         <div style="background:var(--surface2);border-radius:10px;padding:12px 16px;display:flex;align-items:baseline;gap:5px;">
           <span style="font-family:'Fraunces',serif;font-size:26px;color:var(--accent)">\${fmt(m.a)}</span>
           <span style="font-size:11px;color:var(--muted)">\${m.unit}</span>
@@ -850,7 +850,7 @@ function openDag(dag) {
         <div class="fkpi"><div class="fkpi-v">\${d.medelstam}</div><div class="fkpi-l">Medelstam</div></div>
       </div>
 
-      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Skiftinfo</div>
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Skiftinfo</div>
       <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:16px;">
         <div class="frow"><span class="frow-l">Förare</span><span class="frow-v">\${d.forare}</span></div>
         <div class="frow"><span class="frow-l">Objekt</span><span class="frow-v">\${d.objekt}</span></div>
@@ -859,7 +859,7 @@ function openDag(dag) {
         <div class="frow" style="border:none"><span class="frow-l">Diesel</span><span class="frow-v">\${d.diesel} l/m³</span></div>
       </div>
 
-      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Avbrott</div>
+      <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Avbrott</div>
       <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">
         \${avbrott}
       </div>\`;
@@ -949,7 +949,7 @@ function openObjTyp(id) {
       <div class="fkpi"><div class="fkpi-v">\${d.medelstam}</div><div class="fkpi-l">Medelstam</div></div>
     </div>
 
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Per objekt</div>
+    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Per objekt</div>
     <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">
       \${objRows}
     </div>
@@ -1033,7 +1033,7 @@ function openTimpeng(id) {
     +'<div class="fkpi"><div class="fkpi-v">'+d.prod+'</div><div class="fkpi-l">m³/G15h</div></div>'
     +'<div class="fkpi"><div class="fkpi-v">'+d.stg15+'</div><div class="fkpi-l">st/G15h</div></div>'
     +'<div class="fkpi"><div class="fkpi-v">'+d.medelstam+'</div><div class="fkpi-l">Medelstam</div></div></div>'
-    +'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Per objekt</div>'
+    +'<div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Per objekt</div>'
     +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">'+objRows+'</div>';
   openOverlay();
   document.getElementById('objTypPanel').classList.add('open');
@@ -1068,7 +1068,7 @@ if (objTypDistEl && objTypArr.length > 0) {
     var pct = otTotal>0?Math.round(t.volym/otTotal*100):0;
     return '<div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center;cursor:pointer;" onclick="openObjTyp(\\''+t.key+'\\')">'
       +'<div style="font-family:Fraunces,serif;font-size:22px;line-height:1;">'+t.volym.toLocaleString('sv')+'</div>'
-      +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-top:3px;">'+t.label+' · m³</div>'
+      +'<div style="font-size:9px;letter-spacing:0.2px;color:var(--muted);margin-top:3px;">'+t.label+' · m³</div>'
       +'<div style="font-size:10px;color:var(--muted);margin-top:4px;">'+t.prod+' m³/G15h</div></div>';
   }).join('');
   var colors = ['rgba(90,255,140,0.5)','rgba(255,255,255,0.2)','rgba(91,143,255,0.4)','rgba(255,179,64,0.4)'];
@@ -1091,7 +1091,7 @@ if (timpengDistEl && timpengArr.length > 0) {
   var tpCards = timpengArr.map(function(t,i){
     return '<div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center;cursor:pointer;" onclick="openTimpeng(\\''+t.key+'\\')">'
       +'<div style="font-family:Fraunces,serif;font-size:22px;line-height:1;">'+t.volym.toLocaleString('sv')+'</div>'
-      +'<div style="font-size:9px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);margin-top:3px;">'+t.label+' · m³</div>'
+      +'<div style="font-size:9px;letter-spacing:0.2px;color:var(--muted);margin-top:3px;">'+t.label+' · m³</div>'
       +'<div style="font-size:10px;color:var(--muted);margin-top:4px;">'+t.prod+' m³/G15h</div></div>';
   }).join('');
   var tpBar = '<div style="background:var(--surface2);border-radius:8px;overflow:hidden;height:6px;display:flex;">'
@@ -1172,11 +1172,11 @@ function openInkopare(key) {
     +'<div class="fkpi"><div class="fkpi-v">'+ink.stammar.toLocaleString('sv')+'</div><div class="fkpi-l">Stammar</div></div>'
     +'<div class="fkpi"><div class="fkpi-v">'+ink.prod+'</div><div class="fkpi-l">m³/G15h</div></div>'
     +'<div class="fkpi"><div class="fkpi-v">'+ink.antalObjekt+'</div><div class="fkpi-l">Objekt</div></div></div>'
-    +'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Åtgärdsfördelning</div>'
+    +'<div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Åtgärdsfördelning</div>'
     +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:16px;">'+atgRows+'</div>'
-    +'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Trädslag</div>'
+    +'<div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Trädslag</div>'
     +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:16px;">'+tsRows+'</div>'
-    +'<div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:8px;">Objekt</div>'
+    +'<div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Objekt</div>'
     +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">'+objRows+'</div>';
   openOverlay();
   document.getElementById('inkPanel').classList.add('open');
@@ -3115,7 +3115,7 @@ export default function Maskinvy() {
                 const fmt = (v: number) => v > 100 ? v.toLocaleString('sv-SE') : v;
                 return (
                   <div key={m.lbl} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 32px 1fr', gap: 7, alignItems: 'center', marginBottom: 7 }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#7a7a72' }}>{m.lbl}</div>
+                    <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.02em', color: '#7a7a72' }}>{m.lbl}</div>
                     <div style={{ background: '#222220', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
                       <span style={{ fontFamily: "'Fraunces', serif", fontSize: 26, color: '#00c48c' }}>{fmt(m.a)}</span>
                       <span style={{ fontSize: 11, color: '#7a7a72' }}>{m.unit}</span>
@@ -3220,7 +3220,7 @@ export default function Maskinvy() {
                 {/* Monthly m³/G15h chart */}
                 {machCmpMonths.length > 0 && (
                   <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '16px 16px 12px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#3a3a36', marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.02em', color: '#3a3a36', marginBottom: 12 }}>
                       m³/G15h per månad
                     </div>
                     <div style={{ height: 240, position: 'relative' }}>
@@ -3258,7 +3258,7 @@ export default function Maskinvy() {
                 { label: 'Snitt per avbrott', value: at.snittMin + ' min' },
               ].map(c => (
                 <div key={c.label} style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7a7a72', marginBottom: 6 }}>{c.label}</div>
+                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.02em', color: '#7a7a72', marginBottom: 6 }}>{c.label}</div>
                   <div style={{ fontSize: 28, fontWeight: 700, color: '#e8e8e4', letterSpacing: -1 }}>{c.value}</div>
                 </div>
               ))}
@@ -3267,7 +3267,7 @@ export default function Maskinvy() {
             {/* Chart: stacked bars per month if multi-month, horizontal bars per category if single month */}
             {pk.length > 0 && (
               <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '18px', marginBottom: 16 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#3a3a36', marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.02em', color: '#3a3a36', marginBottom: 14 }}>
                   {isMultiMonth ? 'Avbrottstid per månad & kategori' : 'Avbrottstid per kategori'}
                 </div>
                 <div style={{ height: isMultiMonth ? 280 : Math.max(180, pk.length * 36), position: 'relative' }}>
@@ -3437,7 +3437,7 @@ body {
   background: var(--surface2); border-radius: 7px; border: 1px solid var(--border);
   flex: 1; max-width: 300px;
 }
-.cmp-lbl { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; white-space: nowrap; }
+.cmp-lbl { font-size: 10px; font-weight: 600; letter-spacing: 0.2px; white-space: nowrap; }
 .cmp-lbl.a { color: var(--accent); }
 .cmp-lbl.b { color: var(--warn); }
 .cmp-period input[type=date] { border: none; background: transparent; font-family: 'Geist', sans-serif; font-size: 12px; color: var(--text); outline: none; cursor: pointer; color-scheme: dark; }
@@ -3465,10 +3465,10 @@ body {
 }
 .hero-main::after { display: none; }
 
-.hero-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #666; margin-bottom: 10px; }
+.hero-label { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #666; margin-bottom: 10px; }
 .hero-val {
   font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1;
-  font-weight: 700; letter-spacing: -1px; color: var(--accent);
+  font-weight: 700; letter-spacing: -1px; color: var(--text);
   margin-bottom: 4px;
 }
 .hero-unit { font-size: 12px; color: #888; font-weight: 400; }
@@ -3483,7 +3483,7 @@ body {
 .kpi:nth-child(2){animation-delay:0.1s} .kpi:nth-child(3){animation-delay:0.15s}
 .kpi:nth-child(4){animation-delay:0.2s} .kpi:nth-child(5){animation-delay:0.25s}
 
-.k-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #666; margin-bottom: 10px; }
+.k-label { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #666; margin-bottom: 10px; }
 .k-val { font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1; font-weight: 700; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
 .k-unit { font-size: 12px; color: #888; }
 .k-delta { margin-top: 10px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 20px; }
@@ -3497,7 +3497,7 @@ body {
 }
 .card:hover { border-color: var(--border2); }
 .card-h { padding: 20px 24px 0; display: flex; align-items: center; justify-content: space-between; }
-.card-t { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: #666; }
+.card-t { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #666; }
 .card-b { padding: 16px 24px 24px; }
 
 /* ── GRID ── */
@@ -3549,7 +3549,7 @@ body {
 
 /* ── TABLE ── */
 .tbl { width: 100%; border-collapse: collapse; }
-.tbl th { text-align: left; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); padding: 0 0 10px; border-bottom: 1px solid var(--border); }
+.tbl th { text-align: left; font-size: 10px; font-weight: 600; letter-spacing: 0.2px; color: var(--muted); padding: 0 0 10px; border-bottom: 1px solid var(--border); }
 .tbl td { padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 12px; vertical-align: middle; }
 .tbl tr:last-child td { border-bottom: none; }
 .tbl tr:hover td { background: rgba(255,255,255,0.02); }
@@ -3581,7 +3581,7 @@ body {
 .cal-sum { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-top: 12px; }
 .cal-si { background: var(--surface2); border-radius: 8px; padding: 10px 8px; text-align: center; }
 .cal-sn { font-family: 'Geist', system-ui, sans-serif; font-size: 20px; font-weight: 700; line-height: 1; }
-.cal-sl { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-top: 3px; }
+.cal-sl { font-size: 9px; letter-spacing: 0.2px; color: var(--muted); margin-top: 3px; }
 
 /* ── MEDELSTAM CARDS ── */
 .sc-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 6px; margin-top: 14px; }
@@ -3591,7 +3591,7 @@ body {
 }
 .sc:hover { border-color: var(--border2); background: var(--surface); }
 .sc.best { border-color: rgba(90,255,140,0.2); }
-.sc-k { font-size: 9px; color: var(--muted); font-weight: 600; letter-spacing: 0.3px; margin-bottom: 7px; text-transform: uppercase; }
+.sc-k { font-size: 9px; color: var(--muted); font-weight: 600; letter-spacing: 0.2px; margin-bottom: 7px; }
 .sc-p { font-family: 'Geist', system-ui, sans-serif; font-size: 16px; font-weight: 700; line-height: 1; margin-bottom: 1px; }
 .sc-u { font-size: 9px; color: var(--muted); margin-bottom: 6px; }
 .sc-d { height: 1px; background: var(--border); margin: 5px 0; }
@@ -3600,7 +3600,7 @@ body {
 .sc-x { font-size: 9px; color: var(--dim); margin-top: 4px; }
 
 /* ── CHART LEGEND ── */
-.cleg { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.7px; color: var(--muted); display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.cleg { font-size: 10px; font-weight: 600; letter-spacing: 0.2px; color: var(--muted); display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .li { display: flex; align-items: center; gap: 4px; }
 .ld { width: 7px; height: 7px; border-radius: 50%; }
 .cdiv { height: 1px; background: var(--border); margin: 18px 0; }
@@ -3609,7 +3609,7 @@ body {
 .snum-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-top: 12px; }
 .snum { background: var(--surface2); border-radius: 8px; padding: 10px; text-align: center; }
 .snum-v { font-family: 'Geist', system-ui, sans-serif; font-size: 17px; font-weight: 700; line-height: 1; }
-.snum-l { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-top: 3px; }
+.snum-l { font-size: 9px; letter-spacing: 0.2px; color: var(--muted); margin-top: 3px; }
 
 /* ── TIDS-BAR ── */
 .tbar { display: flex; height: 18px; border-radius: 5px; overflow: hidden; gap: 2px; margin-bottom: 14px; }
@@ -3667,9 +3667,9 @@ body {
 .forar-kpis { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 20px; }
 .fkpi { background: #161614; border-radius: 10px; padding: 14px 12px; text-align: center; }
 .fkpi-v { font-family: 'Geist', system-ui, sans-serif; font-size: 22px; font-weight: 700; line-height: 1; color: var(--text); }
-.fkpi-l { font-size: 9px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); margin-top: 4px; }
+.fkpi-l { font-size: 9px; letter-spacing: 0.2px; color: var(--muted); margin-top: 4px; }
 
-.fsec-title { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 10px; }
+.fsec-title { font-size: 10px; font-weight: 600; letter-spacing: 0.2px; color: var(--muted); margin-bottom: 10px; }
 .fsec { margin-bottom: 20px; }
 
 .frow { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
@@ -3952,11 +3952,11 @@ body {
         </table>
         </div>
         <div style="margin:14px 22px 4px;border-top:1px solid var(--border);padding-top:14px;">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Fördelning per åtgärd</div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Fördelning per åtgärd</div>
           <div id="objTypDist"><div style="color:var(--muted);font-size:12px;">Laddar...</div></div>
         </div>
         <div style="margin:14px 22px 4px;border-top:1px solid var(--border);padding-top:14px;">
-          <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Timpeng / Ackord</div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Timpeng / Ackord</div>
           <div id="timpengDist"><div style="color:var(--muted);font-size:12px;">Laddar...</div></div>
         </div>
       </div>
@@ -4156,7 +4156,7 @@ body {
     </div>
 
     <!-- Tidsfördelning stapel -->
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Fördelning</div>
+    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Fördelning</div>
     <div style="background:var(--surface2);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div class="frow"><span class="frow-l">Processar</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:66%;background:rgba(90,255,140,0.4)"></div></div></div><span class="frow-v">111h · 66%</span></div>
       <div class="frow"><span class="frow-l">Kör</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:14%;background:rgba(255,255,255,0.2)"></div></div></div><span class="frow-v">23h · 14%</span></div>
@@ -4166,7 +4166,7 @@ body {
     </div>
 
     <!-- Avbrott per orsak -->
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Avbrott per orsak</div>
+    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Avbrott per orsak</div>
     <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:20px;">
       <div class="frow">
         <div style="flex:1;">
@@ -4241,7 +4241,7 @@ body {
     </div>
 
     <!-- Avbrott per förare (dynamiskt) -->
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Avbrott per förare</div>
+    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Avbrott per förare</div>
     <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;" id="avbrottForareContainer">
       <!-- Populated dynamically -->
     </div>
@@ -4266,16 +4266,16 @@ body {
       <div class="fkpi"><div class="fkpi-v">575</div><div class="fkpi-l">Massaved</div></div>
     </div>
 
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Sortiment per trädslag</div>
+    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Sortiment per trädslag</div>
     <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:20px;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead>
           <tr>
-            <th style="text-align:left;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);padding:10px 0 8px;"></th>
-            <th style="text-align:right;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);padding:10px 0 8px;">Sågtimmer</th>
-            <th style="text-align:right;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);padding:10px 0 8px;">Massaved</th>
-            <th style="text-align:right;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);padding:10px 0 8px;">Energived</th>
-            <th style="text-align:right;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);padding:10px 0 8px;">Totalt</th>
+            <th style="text-align:left;font-size:9px;font-weight:600;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;"></th>
+            <th style="text-align:right;font-size:9px;font-weight:600;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Sågtimmer</th>
+            <th style="text-align:right;font-size:9px;font-weight:600;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Massaved</th>
+            <th style="text-align:right;font-size:9px;font-weight:600;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Energived</th>
+            <th style="text-align:right;font-size:9px;font-weight:600;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Totalt</th>
           </tr>
         </thead>
         <tbody>
@@ -4311,7 +4311,7 @@ body {
       </table>
     </div>
 
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Andel per sortiment</div>
+    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Andel per sortiment</div>
     <div style="background:var(--surface2);border-radius:10px;padding:14px 16px;">
       <div class="frow"><span class="frow-l">Sågtimmer</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:62%;background:rgba(90,255,140,0.5)"></div></div></div><span class="frow-v">62% · 1 124 m³</span></div>
       <div class="frow"><span class="frow-l">Massaved</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:32%;background:rgba(255,255,255,0.2)"></div></div></div><span class="frow-v">32% · 575 m³</span></div>
@@ -4348,7 +4348,7 @@ body {
     </div>
 
     <!-- Bäst-kort -->
-    <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);margin-bottom:10px;">Bäst per kategori</div>
+    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Bäst per kategori</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" id="jmfBest"></div>
 
   </div>
