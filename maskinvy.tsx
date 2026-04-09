@@ -2735,7 +2735,7 @@ export default function Maskinvy() {
       const pm: Array<{ month: string; byKat: Record<string, number> }> = db.avbrottPerManad || [];
       if (pk.length === 0) return;
       const allKats = pk.map(k => k.kategori);
-      const palette = ['#5b8fff','#00c48c','#ffb340','#ff5f57','#a78bfa','#f472b6','#38bdf8','#7a7a72'];
+      const palette = ['rgba(90,255,140,0.7)','rgba(90,255,140,0.55)','rgba(90,255,140,0.4)','rgba(90,255,140,0.28)','rgba(90,255,140,0.18)','rgba(90,255,140,0.1)'];
       const katColors: Record<string, string> = {};
       allKats.forEach((k, i) => { katColors[k] = palette[i % palette.length]; });
       const isMultiMonth = pm.length > 1;
@@ -2964,22 +2964,22 @@ export default function Maskinvy() {
             ) : (<>
               {/* KPI ROW 1 */}
               <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 16 }}>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                   <div className="k-label">Volym</div>
                   <div className="k-val">{d.vol.toLocaleString('sv')}</div>
                   <div className="k-unit">m³sub</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                   <div className="k-label">Stammar</div>
                   <div className="k-val">{d.st.toLocaleString('sv')}</div>
                   <div className="k-unit">stammar</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                   <div className="k-label">Produktivitet</div>
                   <div className="k-val">{d.prod}</div>
                   <div className="k-unit">m³/G15h</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                   <div className="k-label">Medelstam</div>
                   <div className="k-val">{d.medelstam}</div>
                   <div className="k-unit">m³/stam</div>
@@ -2987,22 +2987,22 @@ export default function Maskinvy() {
               </div>
               {/* KPI ROW 2 */}
               <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 8 }}>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                   <div className="k-label">Utnyttjandegrad</div>
                   <div className="k-val">{d.utnyttj}</div>
                   <div className="k-unit">%</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                   <div className="k-label">Bränsle totalt</div>
                   <div className="k-val">{d.bransle}</div>
                   <div className="k-unit">liter</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                   <div className="k-label">Bränsle/m³</div>
                   <div className="k-val">{d.bransleLm3}</div>
                   <div className="k-unit">L/m³</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                   <div className="k-label">Stammar/G15h</div>
                   <div className="k-val">{stG15h}</div>
                   <div className="k-unit">st/G15h</div>
@@ -3243,7 +3243,7 @@ export default function Maskinvy() {
         const pm: Array<{ month: string; byKat: Record<string, number> }> = db.avbrottPerManad || [];
         const allKats = pk.map(k => k.kategori);
         const katColors: Record<string, string> = {};
-        const palette = ['#5b8fff','#00c48c','#ffb340','#ff5f57','#a78bfa','#f472b6','#38bdf8','#7a7a72'];
+        const palette = ['rgba(90,255,140,0.7)','rgba(90,255,140,0.55)','rgba(90,255,140,0.4)','rgba(90,255,140,0.28)','rgba(90,255,140,0.18)','rgba(90,255,140,0.1)'];
         allKats.forEach((k, i) => { katColors[k] = palette[i % palette.length]; });
         const isMultiMonth = pm.length > 1;
         return (
@@ -3257,9 +3257,9 @@ export default function Maskinvy() {
                 { label: 'Antal avbrott', value: String(at.antal) },
                 { label: 'Snitt per avbrott', value: at.snittMin + ' min' },
               ].map(c => (
-                <div key={c.label} style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 18px' }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.02em', color: '#7a7a72', marginBottom: 6 }}>{c.label}</div>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: '#e8e8e4', letterSpacing: -1 }}>{c.value}</div>
+                <div key={c.label} style={{ background: '#161614', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 20 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.02em', color: '#666', marginBottom: 8 }}>{c.label}</div>
+                  <div style={{ fontSize: 32, fontWeight: 700, color: '#e8e8e4', letterSpacing: -1, marginBottom: 4 }}>{c.value}</div>
                 </div>
               ))}
             </div>
@@ -3459,13 +3459,13 @@ body {
 
 .hero-main {
   background: #161614; border: 1px solid var(--border);
-  border-radius: 16px; padding: 24px;
+  border-radius: 16px; padding: 20px;
   position: relative; overflow: hidden;
   animation-delay: 0.05s;
 }
 .hero-main::after { display: none; }
 
-.hero-label { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #666; margin-bottom: 10px; }
+.hero-label { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #666; margin-bottom: 8px; }
 .hero-val {
   font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1;
   font-weight: 700; letter-spacing: -1px; color: var(--text);
@@ -3476,14 +3476,14 @@ body {
 
 .kpi {
   background: #161614; border: 1px solid var(--border); border-radius: 16px;
-  padding: 24px; position: relative; overflow: hidden;
+  padding: 20px; position: relative; overflow: hidden;
   transition: border-color 0.2s, transform 0.2s;
 }
 .kpi:hover { border-color: var(--border2); transform: translateY(-1px); }
 .kpi:nth-child(2){animation-delay:0.1s} .kpi:nth-child(3){animation-delay:0.15s}
 .kpi:nth-child(4){animation-delay:0.2s} .kpi:nth-child(5){animation-delay:0.25s}
 
-.k-label { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #666; margin-bottom: 10px; }
+.k-label { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #666; margin-bottom: 8px; }
 .k-val { font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1; font-weight: 700; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
 .k-unit { font-size: 12px; color: #888; }
 .k-delta { margin-top: 10px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 20px; }
