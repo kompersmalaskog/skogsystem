@@ -336,11 +336,11 @@ else { new Chart(dailyEl,{
       }
     },
     scales:{
-      x:{grid,ticks:{...ticks,font:{size:10},callback:function(val,idx){
+      x:{grid,ticks:{...ticks,callback:function(val,idx){
         if(isWeekend[idx]) return '\\u25AA '+days[idx];
         return days[idx];
       }}},
-      y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}},
+      y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:11}},
         suggestedMax: Math.max.apply(null,dailyVol)*1.15}
     },
     onClick:(e,els)=>{
@@ -401,7 +401,7 @@ new Chart(document.getElementById('sortChart'),{
   data:{labels:_sd.categories,datasets:[
     {label:'m\\u00b3sub',data:_sd.totals,backgroundColor:['rgba(90,255,140,0.5)','rgba(91,143,255,0.5)','rgba(255,179,64,0.4)','rgba(255,255,255,0.15)'],borderRadius:4}
   ]},
-  options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
+  options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:11}}}}}
 });
 // Update sortiment summary with totals + percent
 var _stotal = _sd.totals.reduce(function(a,b){return a+b;},0);
@@ -432,7 +432,7 @@ if (_db.hasMth === false) {
       ]},
       options: { responsive: true, interaction: { mode: 'index', intersect: false },
         plugins: { legend: { position: 'top', labels: { font: { family: 'Geist', size: 11 }, boxWidth: 8, borderRadius: 2, padding: 12, color: '#7a7a72' } }, tooltip },
-        scales: { x: { stacked: true, grid, ticks: { ...ticks, font: { size: 10 } } }, y: { stacked: true, grid, ticks, title: { display: true, text: 'm\\u00b3', color: '#7a7a72', font: { size: 10 } } } }
+        scales: { x: { stacked: true, grid, ticks }, y: { stacked: true, grid, ticks, title: { display: true, text: 'm\\u00b3', color: '#7a7a72', font: { size: 11 } } } }
       }
     });
   }
@@ -465,7 +465,7 @@ new Chart(document.getElementById('totalChart'),{
   data:{labels:classes,datasets:[
     {label:'Volym m³',data:volym,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Volym: '+volym[idx].toLocaleString('sv')+' m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')+' st','m\\u00b3/G15h: '+m3g15[idx]];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Volym: '+volym[idx].toLocaleString('sv')+' m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')+' st','m\\u00b3/G15h: '+m3g15[idx]];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:11}}}}}
 });
 
 // Åtgärdsjämförelse — volym per klass per åtgärd
@@ -485,7 +485,7 @@ if (atgKlassEl && atgNames.length >= 2) {
     options:{responsive:true,interaction:{mode:'index',intersect:false},
       plugins:{legend:{labels:{color:'#7a7a72',font:{family:'Geist',size:11},boxWidth:10,padding:14}},
         tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){return ' '+ctx.dataset.label+': '+ctx.parsed.y.toLocaleString('sv')+' m\\u00b3';}}}},
-      scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:10}}}}}
+      scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:11}}}}}
   });
   document.getElementById('atgardKlassWrap').style.display = '';
 } else if (document.getElementById('atgardKlassWrap')) {
@@ -508,7 +508,7 @@ if (atgM3g15El && atgM3g15Names.length >= 2) {
     options:{responsive:true,interaction:{mode:'index',intersect:false},
       plugins:{legend:{labels:{color:'#7a7a72',font:{family:'Geist',size:11},boxWidth:10,padding:14}},
         tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){return ' '+ctx.dataset.label+': '+ctx.parsed.y+' m\\u00b3/G15h';}}}},
-      scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:10}}}}}
+      scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:11}}}}}
   });
   document.getElementById('atgardM3g15Wrap').style.display = '';
 } else if (document.getElementById('atgardM3g15Wrap')) {
@@ -521,7 +521,7 @@ new Chart(document.getElementById('prodChart'),{
   data:{labels:classes,datasets:[
     {label:'m³/G15h',data:m3g15,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Produktivitet: '+m3g15[idx]+' m\\u00b3/G15h','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:10}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Produktivitet: '+m3g15[idx]+' m\\u00b3/G15h','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:11}}}}}
 });
 
 // Summary text under prodChart
@@ -543,7 +543,7 @@ if (stg15ChartEl && classes.length > 0) {
     data:{labels:classes,datasets:[
       {label:'st/G15h',data:stg15,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['st/G15h: '+stg15[idx],'Stammar totalt: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'st/G15h',color:'#7a7a72',font:{size:10}}}}}
+    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['st/G15h: '+stg15[idx],'Stammar totalt: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'st/G15h',color:'#7a7a72',font:{size:11}}}}}
   });
 }
 var stg15SumEl = document.getElementById('stg15Summary');
@@ -676,7 +676,7 @@ function openForare(id) {
       data:{labels:dLabels,datasets:[
         {label:'m³/dag',data:f.dailyVol,backgroundColor:f.dailyVol.map(v=>v===0?'rgba(255,255,255,0.04)':'rgba(90,255,140,0.5)'),borderRadius:3}
       ]},
-      options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks:{...ticks,font:{size:9}}},y:{grid,ticks,title:{display:true,text:'m³',color:'#7a7a72',font:{size:10}}}}}
+      options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m³',color:'#7a7a72',font:{size:11}}}}}
     });
   }, 50);
   openOverlay();
@@ -1208,7 +1208,7 @@ if (_db.operatorer && _db.operatorer.length > 0) {
     });
   }
 
-  if (opBadge) opBadge.textContent = Object.keys(forare).length + ' aktiva';
+  if (opBadge) opBadge.textContent = '\\u00b7 ' + Object.keys(forare).length + ' aktiva';
 
   // Populate avbrott per förare
   var avbrottContainer = document.getElementById('avbrottForareContainer');
@@ -1232,7 +1232,7 @@ if (_db.operatorer && _db.operatorer.length > 0) {
 } else {
   // No operators — clear stale content
   if (opContainer) opContainer.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px 0;">Ingen data för vald period</div>';
-  if (opBadge) opBadge.textContent = '0';
+  if (opBadge) opBadge.textContent = '';
 }
 
 // Update time distribution bar & legend — always update (zero when no data)
@@ -1430,7 +1430,7 @@ export default function Maskinvy() {
         plugins: { legend: { labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 11 }, boxWidth: 10, padding: 14 } } },
         scales: {
           x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
-          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'm³/G15h', color: '#7a7a72', font: { size: 10 } } },
+          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'm³/G15h', color: '#7a7a72', font: { size: 11 } } },
         },
       },
     });
@@ -2754,10 +2754,10 @@ export default function Maskinvy() {
           options: {
             responsive: true, maintainAspectRatio: false,
             interaction: { mode: 'index' as const, intersect: false },
-            plugins: { legend: { position: 'top' as const, labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 10 }, boxWidth: 8, padding: 10 } } },
+            plugins: { legend: { position: 'top' as const, labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 11 }, boxWidth: 8, padding: 10 } } },
             scales: {
               x: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
-              y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 10 } } },
+              y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 11 } } },
             },
           },
         });
@@ -2772,7 +2772,7 @@ export default function Maskinvy() {
             indexAxis: 'y' as const, responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-              x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 10 } } },
+              x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 11 } } },
               y: { grid: { display: false }, ticks: { color: '#e8e8e4', font: { size: 11 } } },
             },
           },
@@ -3881,7 +3881,7 @@ body {
   <!-- ROW 1: Operatörer + Tidsfördelning -->
   <div class="g2 view-section vs-oversikt" id="sec-operatorer">
     <div class="card anim" style="animation-delay:0.3s">
-      <div class="card-h"><div class="card-t">Operatörer</div><span class="badge bg" id="opBadge">–</span></div>
+      <div class="card-h"><div class="card-t">Operatörer <span id="opBadge" style="color:#7a7a72;font-weight:400;"></span></div></div>
       <div class="card-b" id="opContainer">
         <!-- Populated dynamically from DB -->
       </div>
