@@ -3473,7 +3473,6 @@ export default function Maskinvy() {
 .view-section { display: none !important; }
 .page[data-view="oversikt"] .vs-oversikt { display: block !important; }
 .page[data-view="produktion"] .vs-produktion { display: block !important; }
-.page[data-view="produktion"] .vs-produktion.ps-hidden { display: none !important; }
 .page[data-view="operatorer"] .vs-operatorer { display: block !important; }
 .page[data-view="tradslag"] .vs-tradslag { display: block !important; }
 .page[data-view="objekt"] .vs-objekt { display: block !important; }
@@ -3484,6 +3483,8 @@ export default function Maskinvy() {
 .page[data-view="operatorer"] .vs-operatorer.g2 { display: grid !important; }
 .page[data-view="objekt"] .vs-objekt.g2 { display: grid !important; }
 .page[data-view="produktion"] .vs-produktion.g2 { display: grid !important; }
+/* ps-hidden MUST come after .g2 rules so it wins at equal specificity */
+.page[data-view="produktion"] .vs-produktion.ps-hidden { display: none !important; }
 :root {
   --bg:       #111110;
   --surface:  #1a1a18;
