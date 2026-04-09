@@ -2758,7 +2758,7 @@ export default function Maskinvy() {
             { icon: '▤', label: 'Produktion', view: 'produktion' },
             { icon: '⚠', label: 'Avbrott', view: 'avbrott' },
 
-            { icon: '⬡', label: 'Trädslag', view: 'tradslag' },
+
             { icon: '▣', label: 'Objekt', view: 'objekt' },
             { icon: '⇄', label: 'Jämför perioder', view: 'jamfor' },
           ].map(item => {
@@ -3300,7 +3300,6 @@ export default function Maskinvy() {
 .view-section { display: none !important; }
 .page[data-view="oversikt"] .vs-oversikt { display: block !important; }
 .page[data-view="produktion"] .vs-produktion { display: block !important; }
-.page[data-view="tradslag"] .vs-tradslag { display: block !important; }
 .page[data-view="objekt"] .vs-objekt { display: block !important; }
 .page[data-view="kalibrering"] .vs-kalibrering { display: block !important; }
 /* grids need display:grid */
@@ -3835,24 +3834,6 @@ body {
 
   </div>
 
-  <!-- Trädslag -->
-  <div class="gf view-section vs-tradslag" id="sec-tradslag">
-    <div class="card anim" style="animation-delay:0.45s">
-      <div class="card-h"><div class="card-t">Trädslag</div></div>
-      <div class="card-b" onclick="openTradslag()" style="cursor:pointer;">
-        <div class="ts"><div class="ts-top"><span class="ts-n">Gran</span><span class="ts-v">1 124 m³ · 61%</span></div><div class="prog"><div class="pf" style="width:61%;background:rgba(255,255,255,0.2)"></div></div></div>
-        <div class="ts"><div class="ts-top"><span class="ts-n">Tall</span><span class="ts-v">498 m³ · 27%</span></div><div class="prog"><div class="pf" style="width:27%;background:rgba(255,255,255,0.2)"></div></div></div>
-        <div class="ts"><div class="ts-top"><span class="ts-n">Björk</span><span class="ts-v">185 m³ · 10%</span></div><div class="prog"><div class="pf" style="width:10%;background:rgba(255,255,255,0.15)"></div></div></div>
-        <div class="ts"><div class="ts-top"><span class="ts-n">Övrigt</span><span class="ts-v">40 m³ · 2%</span></div><div class="prog"><div class="pf" style="width:2%;background:rgba(255,255,255,0.08)"></div></div></div>
-        <div class="snum-grid">
-          <div class="snum"><div class="snum-v" id="mthAndelVal">0%</div><div class="snum-l">MTH-andel</div></div>
-          <div class="snum"><div class="snum-v" id="mthStamVal">0</div><div class="snum-l">MTH stam</div></div>
-          <div class="snum"><div class="snum-v" id="singleStamVal">0</div><div class="snum-l">Single stam</div></div>
-        </div>
-        <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center;letter-spacing:0.3px;">Tryck för sortiment per trädslag →</div>
-      </div>
-    </div>
-  </div>
 
   <!-- Kalibrering -->
   <div class="gf view-section vs-kalibrering">
@@ -3968,7 +3949,7 @@ body {
       </div>
     </div>
   </div>
-  <div class="gf view-section vs-produktion vs-tradslag ps-medelstam ps-hidden" id="sec-mth">
+  <div class="gf view-section vs-produktion ps-medelstam ps-hidden" id="sec-mth">
     <div class="card anim">
       <div class="card-h">
         <div class="card-t">Flerträd (MTH) per medelstamsklass</div>
@@ -4009,7 +3990,7 @@ body {
       </div>
     </div>
   </div>
-  <div class="gf view-section vs-produktion vs-tradslag ps-sortiment ps-hidden" id="sec-sortiment-dag">
+  <div class="gf view-section vs-produktion ps-sortiment ps-hidden" id="sec-sortiment-dag">
     <div class="card anim">
       <div class="card-h">
         <div class="card-t">Sortiment per dag</div>
@@ -4034,6 +4015,23 @@ body {
           <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / m³</div></div>
           <div class="fkpi"><div class="fkpi-v">–</div><div class="fkpi-l">Liter / stam</div></div>
         </div>
+      </div>
+    </div>
+  </div>
+  <div class="gf view-section vs-produktion ps-sortiment ps-hidden" id="sec-tradslag">
+    <div class="card anim">
+      <div class="card-h"><div class="card-t">Trädslag</div></div>
+      <div class="card-b" onclick="openTradslag()" style="cursor:pointer;">
+        <div class="ts"><div class="ts-top"><span class="ts-n">Gran</span><span class="ts-v">1 124 m³ · 61%</span></div><div class="prog"><div class="pf" style="width:61%;background:rgba(255,255,255,0.2)"></div></div></div>
+        <div class="ts"><div class="ts-top"><span class="ts-n">Tall</span><span class="ts-v">498 m³ · 27%</span></div><div class="prog"><div class="pf" style="width:27%;background:rgba(255,255,255,0.2)"></div></div></div>
+        <div class="ts"><div class="ts-top"><span class="ts-n">Björk</span><span class="ts-v">185 m³ · 10%</span></div><div class="prog"><div class="pf" style="width:10%;background:rgba(255,255,255,0.15)"></div></div></div>
+        <div class="ts"><div class="ts-top"><span class="ts-n">Övrigt</span><span class="ts-v">40 m³ · 2%</span></div><div class="prog"><div class="pf" style="width:2%;background:rgba(255,255,255,0.08)"></div></div></div>
+        <div class="snum-grid">
+          <div class="snum"><div class="snum-v" id="mthAndelVal">0%</div><div class="snum-l">MTH-andel</div></div>
+          <div class="snum"><div class="snum-v" id="mthStamVal">0</div><div class="snum-l">MTH stam</div></div>
+          <div class="snum"><div class="snum-v" id="singleStamVal">0</div><div class="snum-l">Single stam</div></div>
+        </div>
+        <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center;letter-spacing:0.3px;">Tryck för sortiment per trädslag →</div>
       </div>
     </div>
   </div>
