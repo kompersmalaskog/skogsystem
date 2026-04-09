@@ -2839,10 +2839,14 @@ export default function Maskinvy() {
 
 
             { icon: '◈', label: 'Analys', view: 'analys' },
+            { icon: '🔧', label: 'Maskinlogg', view: 'maskinlogg' },
           ].map(item => {
             const isActive = activeView === item.view;
             return (
-            <div key={item.label} onClick={() => { setActiveView(item.view); }} style={{
+            <div key={item.label} onClick={() => {
+              if (item.view === 'maskinlogg') { (window as any).__openMaskinLogg?.(); return; }
+              setActiveView(item.view);
+            }} style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
               background: isActive ? '#1e1e1c' : 'transparent',
@@ -4477,8 +4481,12 @@ body {
           { icon: '▤', label: 'Produktion', view: 'produktion' },
           { icon: '⚠', label: 'Avbrott', view: 'avbrott' },
           { icon: '◈', label: 'Analys', view: 'analys' },
+          { icon: '🔧', label: 'Logg', view: 'maskinlogg' },
         ].map(item => (
-          <button key={item.view} onClick={() => setActiveView(item.view)} className={activeView === item.view ? 'active' : ''}>
+          <button key={item.view} onClick={() => {
+            if (item.view === 'maskinlogg') { (window as any).__openMaskinLogg?.(); return; }
+            setActiveView(item.view);
+          }} className={activeView === item.view ? 'active' : ''}>
             <span className="mv-bn-icon">{item.icon}</span>
             <span className="mv-bn-label">{item.label}</span>
           </button>

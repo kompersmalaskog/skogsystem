@@ -244,22 +244,14 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
 
   const maskinNamn = maskiner.find(m => m.maskin_id === selectedMaskin)?.modell || '';
 
+  // Expose open function globally so sidebar menu can trigger it
+  useEffect(() => {
+    (window as any).__openMaskinLogg = () => setOpen(true);
+    return () => { delete (window as any).__openMaskinLogg; };
+  }, []);
+
   if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        style={{
-          position: 'fixed', bottom: 80, right: 20, zIndex: 70,
-          padding: '10px 18px', border: `1px solid ${C.border2}`, borderRadius: 12,
-          background: 'rgba(17,17,16,0.95)', backdropFilter: 'blur(20px)',
-          color: C.t1, fontFamily: ff, fontSize: 13, fontWeight: 500,
-          cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
-        }}
-      >
-        <span style={{ fontSize: 16 }}>🔧</span> Maskinlogg
-      </button>
-    );
+    return null;
   }
 
   return (
