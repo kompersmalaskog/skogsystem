@@ -663,17 +663,6 @@ function openForare(id) {
       </div>
     </div>
     <div class="fsec">
-      <div class="fsec-title">Tidsfördelning</div>
-      <div style="display:flex;height:14px;border-radius:4px;overflow:hidden;gap:2px;margin-bottom:12px;">
-        <div style="flex:\${pProd};background:rgba(90,255,140,0.4);"></div>
-        <div style="flex:\${pKor};background:rgba(91,143,255,0.35);"></div>
-        <div style="flex:\${pStor};background:rgba(255,179,64,0.3);"></div>
-      </div>
-      <div class="frow"><span class="frow-l" style="display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:2px;background:rgba(90,255,140,0.4);display:inline-block;"></span>Produktion</span><span class="frow-v">\${prodH}h · \${pProd}%</span></div>
-      <div class="frow"><span class="frow-l" style="display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:2px;background:rgba(91,143,255,0.35);display:inline-block;"></span>Körning</span><span class="frow-v">\${korH}h · \${pKor}%</span></div>
-      <div class="frow"><span class="frow-l" style="display:flex;align-items:center;gap:6px;"><span style="width:8px;height:8px;border-radius:2px;background:rgba(255,179,64,0.3);display:inline-block;"></span>Störning</span><span class="frow-v">\${storH}h · \${pStor}%</span></div>
-    </div>
-    <div class="fsec">
       <div class="fsec-title">Daglig produktion</div>
       <canvas id="fpChart" style="max-height:180px;"></canvas>
     </div>\`;
@@ -3089,57 +3078,25 @@ export default function Maskinvy() {
               </div>
             </div>
 
-            {/* Operatörer + Tidsfördelning */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
-              {/* Operatörer */}
-              <div className="card">
-                <div className="card-h"><div className="card-t">Operatörer</div></div>
-                <div className="card-b">
-                  {d.operatorer.length > 0 ? d.operatorer.map(op => (
-                    <div key={op.namn} className="op-row">
-                      <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>
-                        {op.namn.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
-                      </div>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 500 }}>{op.namn}</div>
-                        <div style={{ fontSize: 10, color: '#666' }}>{op.objekt} · start {op.start}</div>
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: 15, fontWeight: 600 }}>{op.vol} m³</div>
-                        <div style={{ fontSize: 10, color: '#666' }}>{op.prod} m³/G15h</div>
-                      </div>
+            {/* Operatörer */}
+            <div className="card" style={{ marginTop: 12 }}>
+              <div className="card-h"><div className="card-t">Operatörer</div></div>
+              <div className="card-b">
+                {d.operatorer.length > 0 ? d.operatorer.map(op => (
+                  <div key={op.namn} className="op-row">
+                    <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>
+                      {op.namn.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
                     </div>
-                  )) : <div style={{ color: '#666', fontSize: 12 }}>Ingen data idag</div>}
-                </div>
-              </div>
-
-              {/* Tidsfördelning */}
-              <div className="card">
-                <div className="card-h"><div className="card-t">Tidsfördelning</div></div>
-                <div className="card-b">
-                  <div style={{ display: 'flex', gap: 2, borderRadius: 4, overflow: 'hidden', marginBottom: 14, height: 10 }}>
-                    {totalTid > 0 && <>
-                      <div style={{ flex: d.tidFord.proc, background: 'rgba(90,255,140,0.5)', borderRadius: 2 }} />
-                      <div style={{ flex: d.tidFord.terr, background: 'rgba(91,143,255,0.4)', borderRadius: 2 }} />
-                      <div style={{ flex: d.tidFord.avbrott, background: 'rgba(255,179,64,0.4)', borderRadius: 2 }} />
-                      <div style={{ flex: d.tidFord.rast, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }} />
-                    </>}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500 }}>{op.namn}</div>
+                      <div style={{ fontSize: 10, color: '#666' }}>{op.objekt} · start {op.start}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 15, fontWeight: 600 }}>{op.vol} m³</div>
+                      <div style={{ fontSize: 10, color: '#666' }}>{op.prod} m³/G15h</div>
+                    </div>
                   </div>
-                  {[
-                    { label: 'Produktion', sek: d.tidFord.proc, color: 'rgba(90,255,140,0.5)' },
-                    { label: 'Körning', sek: d.tidFord.terr, color: 'rgba(91,143,255,0.4)' },
-                    { label: 'Avbrott', sek: d.tidFord.avbrott, color: 'rgba(255,179,64,0.4)' },
-                    { label: 'Rast', sek: d.tidFord.rast, color: 'rgba(255,255,255,0.1)' },
-                  ].map(t => (
-                    <div key={t.label} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', fontSize: 12, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 2, background: t.color, display: 'inline-block' }} />
-                        {t.label}
-                      </span>
-                      <span style={{ color: '#e8e8e4', fontWeight: 500 }}>{(t.sek / 3600).toFixed(1)}h <span style={{ color: '#666', fontWeight: 400 }}>{tidPct(t.sek)}%</span></span>
-                    </div>
-                  ))}
-                </div>
+                )) : <div style={{ color: '#666', fontSize: 12 }}>Ingen data idag</div>}
               </div>
             </div>
 
