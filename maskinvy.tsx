@@ -1906,6 +1906,17 @@ export default function Maskinvy() {
         }
       }
 
+      // ── Group avbrott per day ──
+      const avbrottByDay: Record<string, Array<{ orsak: string; tid: string }>> = {};
+      for (const r of avbrottRows) {
+        const dateStr = r.datum;
+        if (!avbrottByDay[dateStr]) avbrottByDay[dateStr] = [];
+        const sek = r.langd_sek || 0;
+        const min = Math.round(sek / 60);
+        const tid = min >= 60 ? `${Math.floor(min / 60)}h ${min % 60 > 0 ? (min % 60) + 'min' : ''}` : `${min} min`;
+        avbrottByDay[dateStr].push({ orsak: r.kategori_kod || 'Övrigt', tid });
+      }
+
       // ── Build dagData from pre-aggregated daily data ──
       const dagData: DbData['dagData'] = {};
       const calendarDt: number[] = new Array(totalDays).fill(0);
@@ -1934,7 +1945,7 @@ export default function Maskinvy() {
             stg15: g15h > 0 ? Math.round(pDay.st / g15h) : 0,
             medelstam: pDay.st > 0 ? parseFloat((pDay.vol / pDay.st).toFixed(2)) : 0,
             diesel: pDay.vol > 0 ? parseFloat((diesel / pDay.vol).toFixed(1)) : 0,
-            avbrott: [],
+            avbrott: avbrottByDay[dateStr] || [],
           };
           calendarDt[i] = 1;
         }
