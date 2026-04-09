@@ -2781,7 +2781,7 @@ export default function Maskinvy() {
   useEffect(() => {
     const page = document.getElementById('page');
     if (page) page.setAttribute('data-view', activeView);
-  }, [activeView]);
+  }, [activeView, dataVersion]);
 
   const valdMaskin = maskiner.find(m => m.modell === vald);
 
