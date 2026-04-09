@@ -1299,7 +1299,7 @@ var prodSubTabsEl = document.getElementById('prodSubTabs');
 if (prodSubTabsEl) {
   prodSubTabsEl.innerHTML = _subTabs.map(function(t) {
     var isActive = t.key === _prodSubTab;
-    return '<button class="ps-btn" data-tab="'+t.key+'" onclick="switchProdSub(\\''+t.key+'\\')" style="border:none;border-radius:6px;padding:5px 14px;font-family:inherit;font-size:11px;font-weight:500;cursor:pointer;letter-spacing:0.2px;background:'+(isActive?'rgba(90,255,140,0.15)':'transparent')+';color:'+(isActive?'rgba(90,255,140,0.9)':'#7a7a72')+';">'+t.label+'</button>';
+    return '<button class="ps-btn" data-tab="'+t.key+'" onclick="switchProdSub(\\''+t.key+'\\')" style="border:none;border-radius:6px;padding:10px 14px;font-family:inherit;font-size:11px;font-weight:500;cursor:pointer;letter-spacing:0.2px;background:'+(isActive?'rgba(90,255,140,0.15)':'transparent')+';color:'+(isActive?'rgba(90,255,140,0.9)':'#7a7a72')+';">'+t.label+'</button>';
   }).join('');
 }
 
@@ -3734,7 +3734,7 @@ body {
   .mv-bottomnav button {
     flex: 1; display: flex; flex-direction: column; align-items: center;
     gap: 2px; background: none; border: none; cursor: pointer;
-    padding: 6px 0; color: #555; transition: color 0.15s;
+    padding: 6px 0; min-height: 44px; color: #555; transition: color 0.15s;
   }
   .mv-bottomnav button.active { color: #00c48c; }
   .mv-bn-icon { font-size: 18px; line-height: 1; }
@@ -3771,7 +3771,20 @@ body {
   .mv-scroll { padding-bottom: 64px; }
 
   /* 8. Slide-out panels: full width */
-  .bolag-panel, .forar-panel, .dag-panel { width: 100vw !important; }
+  .bolag-panel, .forar-panel, .dag-panel { width: 100% !important; }
+
+  /* 9. Touch targets: min 44px */
+  .cmp-btn, .mach-btn { min-height: 44px; display: flex; align-items: center; }
+
+  /* 10. Compare bar: reduce padding */
+  .cmp-bar { padding: 8px 12px !important; flex-wrap: wrap !important; }
+  .cmp-period { flex: 1 1 100% !important; max-width: none !important; margin-bottom: 6px; }
+
+  /* 11. Machine dropdown: fit screen */
+  .mach-menu { min-width: auto !important; max-width: 90vw !important; }
+
+  /* 12. Machine name: ellipsis */
+  #mName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; display: inline-block; }
 }
 ` }} />
       <div dangerouslySetInnerHTML={{ __html: `<header class="hdr">
