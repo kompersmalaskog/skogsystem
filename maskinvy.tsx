@@ -2657,7 +2657,7 @@ export default function Maskinvy() {
 
     function destroyCharts() {
       if (typeof window !== 'undefined' && (window as any).Chart) {
-        document.querySelectorAll('canvas').forEach((c) => {
+        document.querySelectorAll('canvas:not(#avbrottCanvas)').forEach((c) => {
           const chart = (window as any).Chart.getChart(c as HTMLCanvasElement);
           if (chart) chart.destroy();
         });
@@ -2719,6 +2719,70 @@ export default function Maskinvy() {
       destroyCharts();
     };
   }, [dataVersion, activeView]);
+
+  // ── Initialize avbrott chart when avbrott view is active and data is ready ──
+  useEffect(() => {
+    if (activeView !== 'avbrott' || dataVersion === 0) return;
+    let timer: ReturnType<typeof setTimeout>;
+    function initAvbrott() {
+      const Chart = (window as any).Chart;
+      const canvas = document.getElementById('avbrottCanvas') as HTMLCanvasElement | null;
+      if (!Chart || !canvas) { timer = setTimeout(initAvbrott, 200); return; }
+      const existing = Chart.getChart(canvas);
+      if (existing) existing.destroy();
+      const db = (window as any).__maskinvyData || {};
+      const pk: Array<{ kategori: string; timmar: number; antal: number; snittMin: number }> = db.avbrottPerKategori || [];
+      const pm: Array<{ month: string; byKat: Record<string, number> }> = db.avbrottPerManad || [];
+      if (pk.length === 0) return;
+      const allKats = pk.map(k => k.kategori);
+      const palette = ['#5b8fff','#00c48c','#ffb340','#ff5f57','#a78bfa','#f472b6','#38bdf8','#7a7a72'];
+      const katColors: Record<string, string> = {};
+      allKats.forEach((k, i) => { katColors[k] = palette[i % palette.length]; });
+      const isMultiMonth = pm.length > 1;
+      if (isMultiMonth) {
+        new Chart(canvas, {
+          type: 'bar',
+          data: {
+            labels: pm.map(m => m.month),
+            datasets: allKats.map(kat => ({
+              label: translateKategori(kat),
+              data: pm.map(m => parseFloat((m.byKat[kat] || 0).toFixed(1))),
+              backgroundColor: katColors[kat],
+              borderRadius: 3, stack: 'a',
+            })),
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index' as const, intersect: false },
+            plugins: { legend: { position: 'top' as const, labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 10 }, boxWidth: 8, padding: 10 } } },
+            scales: {
+              x: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
+              y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 10 } } },
+            },
+          },
+        });
+      } else {
+        new Chart(canvas, {
+          type: 'bar',
+          data: {
+            labels: pk.map(k => translateKategori(k.kategori)),
+            datasets: [{ data: pk.map(k => k.timmar), backgroundColor: pk.map(k => katColors[k.kategori]), borderRadius: 4 }],
+          },
+          options: {
+            indexAxis: 'y' as const, responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 10 } } },
+              y: { grid: { display: false }, ticks: { color: '#e8e8e4', font: { size: 11 } } },
+            },
+          },
+        });
+      }
+    }
+    // Delay to run after MASKINVY_SCRIPT (which has 500ms delay) and let React render the canvas
+    timer = setTimeout(initAvbrott, 800);
+    return () => { if (timer) clearTimeout(timer); };
+  }, [activeView, dataVersion]);
 
   useEffect(() => {
     const page = document.getElementById('page');
@@ -3221,55 +3285,7 @@ export default function Maskinvy() {
                   {isMultiMonth ? 'Avbrottstid per månad & kategori' : 'Avbrottstid per kategori'}
                 </div>
                 <div style={{ height: isMultiMonth ? 280 : Math.max(180, pk.length * 36), position: 'relative' }}>
-                  <canvas ref={(canvas) => {
-                    if (!canvas) return;
-                    const tryDraw = () => {
-                      const Chart = (window as any).Chart;
-                      if (!Chart) { setTimeout(tryDraw, 200); return; }
-                      const existing = Chart.getChart(canvas);
-                      if (existing) existing.destroy();
-                      if (isMultiMonth) {
-                        new Chart(canvas, {
-                          type: 'bar',
-                          data: {
-                            labels: pm.map(m => m.month),
-                            datasets: allKats.map((kat, ki) => ({
-                              label: translateKategori(kat),
-                              data: pm.map(m => parseFloat((m.byKat[kat] || 0).toFixed(1))),
-                              backgroundColor: katColors[kat],
-                              borderRadius: 3, stack: 'a',
-                            })),
-                          },
-                          options: {
-                            responsive: true, maintainAspectRatio: false,
-                            interaction: { mode: 'index' as const, intersect: false },
-                            plugins: { legend: { position: 'top' as const, labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 10 }, boxWidth: 8, padding: 10 } } },
-                            scales: {
-                              x: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
-                              y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 10 } } },
-                            },
-                          },
-                        });
-                      } else {
-                        new Chart(canvas, {
-                          type: 'bar',
-                          data: {
-                            labels: pk.map(k => translateKategori(k.kategori)),
-                            datasets: [{ data: pk.map(k => k.timmar), backgroundColor: pk.map(k => katColors[k.kategori]), borderRadius: 4 }],
-                          },
-                          options: {
-                            indexAxis: 'y' as const, responsive: true, maintainAspectRatio: false,
-                            plugins: { legend: { display: false } },
-                            scales: {
-                              x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 10 } } },
-                              y: { grid: { display: false }, ticks: { color: '#e8e8e4', font: { size: 11 } } },
-                            },
-                          },
-                        });
-                      }
-                    };
-                    tryDraw();
-                  }} />
+                  <canvas id="avbrottCanvas" />
                 </div>
               </div>
             )}
