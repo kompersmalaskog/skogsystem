@@ -2921,7 +2921,7 @@ export default function Maskinvy() {
             }}>‹</button>
             <div style={{
               minWidth: 90, textAlign: 'center', fontSize: 12, fontWeight: 500,
-              color: periodOffset === 0 ? '#e8e8e4' : '#00c48c', letterSpacing: '-0.2px',
+              color: '#e8e8e4', letterSpacing: '-0.2px',
             }}>
               {getPeriodLabel(period, periodOffset)}
             </div>
@@ -3122,7 +3122,7 @@ export default function Maskinvy() {
                   <div key={m.lbl} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 32px 1fr', gap: 7, alignItems: 'center', marginBottom: 7 }}>
                     <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#7a7a72' }}>{m.lbl}</div>
                     <div style={{ background: '#222220', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
-                      <span style={{ fontFamily: "'Fraunces', serif", fontSize: 26, color: '#00c48c' }}>{fmt(m.a)}</span>
+                      <span style={{ fontFamily: "'Fraunces', serif", fontSize: 26, color: '#e8e8e4' }}>{fmt(m.a)}</span>
                       <span style={{ fontSize: 11, color: '#7a7a72' }}>{m.unit}</span>
                     </div>
                     <div style={{ textAlign: 'center' }}>
@@ -3157,7 +3157,7 @@ export default function Maskinvy() {
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
               <select value={machCmpA} onChange={e => setMachCmpA(e.target.value)} style={{
                 background: '#1a1a18', border: '1px solid rgba(90,255,140,0.15)', borderRadius: 8,
-                padding: '7px 10px', color: '#00c48c', fontFamily: "'Geist', system-ui, sans-serif",
+                padding: '7px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif",
                 fontSize: 12, fontWeight: 500, outline: 'none', cursor: 'pointer',
               }}>
                 {allMachines.map(m => <option key={m.id} value={m.id}>{m.namn}</option>)}
@@ -3180,7 +3180,7 @@ export default function Maskinvy() {
               <button onClick={runMachCmp} disabled={machCmpA === machCmpB} style={{
                 padding: '7px 16px', border: 'none', borderRadius: 8,
                 background: machCmpA !== machCmpB ? '#1a4a2e' : '#1a1a18',
-                color: machCmpA !== machCmpB ? '#00c48c' : '#555',
+                color: machCmpA !== machCmpB ? '#e8e8e4' : '#555',
                 fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, fontWeight: 500,
                 cursor: machCmpA !== machCmpB ? 'pointer' : 'default',
               }}>
@@ -4359,7 +4359,7 @@ body {
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead>
           <tr style="border-bottom:1px solid var(--border);" id="jmfTableHead">
-            <th style="text-align:left;padding:12px 16px;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.7px;color:var(--muted);"></th>
+            <th style="text-align:left;padding:12px 16px;font-size:9px;font-weight:500;letter-spacing:0.2px;color:var(--muted);"></th>
           </tr>
         </thead>
         <tbody id="jmfTableBody"></tbody>
