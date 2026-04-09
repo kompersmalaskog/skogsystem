@@ -2769,12 +2769,11 @@ export default function Maskinvy() {
             { icon: '⚠', label: 'Avbrott', view: 'avbrott' },
 
 
-            { icon: '▣', label: 'Objekt', view: 'objekt' },
-            { icon: '⇄', label: 'Jämför perioder', view: 'jamfor' },
+            { icon: '◈', label: 'Analys', view: 'analys' },
           ].map(item => {
             const isActive = activeView === item.view;
             return (
-            <div key={item.label} onClick={() => { setActiveView(item.view); if (item.view === 'jamfor') setShowCmp(true); }} style={{
+            <div key={item.label} onClick={() => { setActiveView(item.view); }} style={{
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
               background: isActive ? '#1e1e1c' : 'transparent',
@@ -3316,11 +3315,13 @@ export default function Maskinvy() {
 .page[data-view="oversikt"] .vs-oversikt { display: block !important; }
 .page[data-view="produktion"] .vs-produktion { display: block !important; }
 .page[data-view="objekt"] .vs-objekt { display: block !important; }
+.page[data-view="analys"] .vs-objekt { display: block !important; }
 .page[data-view="kalibrering"] .vs-kalibrering { display: block !important; }
 /* grids need display:grid */
 .page[data-view="oversikt"] .vs-oversikt.hero { display: grid !important; }
 .page[data-view="oversikt"] .vs-oversikt.g2 { display: grid !important; }
 .page[data-view="objekt"] .vs-objekt.g2 { display: grid !important; }
+.page[data-view="analys"] .vs-objekt.g2 { display: grid !important; }
 .page[data-view="produktion"] .vs-produktion.g2 { display: grid !important; }
 /* ps-hidden MUST come after .g2 rules so it wins at equal specificity */
 .page[data-view="produktion"] .vs-produktion.ps-hidden { display: none !important; }
@@ -4344,6 +4345,29 @@ body {
   <div class="forar-body" id="fpBody"></div>
 </div>` }} />
       </div>
+
+      {/* Jämför perioder section inside Analys view */}
+      {activeView === 'analys' && (
+        <div style={{ padding: '12px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 900 }}>
+          <div style={{
+            borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 20,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.3 }}>Jämför perioder</div>
+              <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>
+                {valdMaskin ? `${valdMaskin.tillverkare} ${valdMaskin.modell}` : ''} — sida vid sida
+              </div>
+            </div>
+            <button onClick={() => setActiveView('jamfor')} style={{
+              padding: '8px 18px', border: 'none', borderRadius: 8,
+              background: '#1a4a2e', color: '#00c48c',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              fontFamily: "'Geist', system-ui, sans-serif",
+            }}>Öppna jämförelse →</button>
+          </div>
+        </div>
+      )}
 
       </div>{/* end scrollable content */}
       </div>{/* end main content */}
