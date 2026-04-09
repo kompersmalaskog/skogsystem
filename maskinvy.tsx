@@ -1265,14 +1265,8 @@ if (_db.operatorer && _db.operatorer.length > 0) {
   // Update G15 and avbrott summary
   var g15h = Math.round(((_db.processingSek || 0) + (_db.terrainSek || 0)) / 3600);
   var avbrH = Math.round((_db.avbrottSek || 0) / 3600);
-  // Find the ones labeled "Effektiv G15" and "Avbrott"
-  document.querySelectorAll('.snum').forEach(function(el) {
-    var label = el.querySelector('.snum-l');
-    var val = el.querySelector('.snum-v');
-    if (!label || !val) return;
-    if (label.textContent === 'Effektiv G15') val.textContent = g15h + 'h';
-    if (label.textContent === 'Avbrott') val.textContent = avbrH + 'h';
-    });
+  var _g15El = document.getElementById('tidG15Val'); if (_g15El) _g15El.textContent = g15h + 'h';
+  var _avbrEl = document.getElementById('tidAvbrVal'); if (_avbrEl) _avbrEl.textContent = avbrH + 'h';
 }
 
 // Expose to global scope for onclick handlers
@@ -3257,7 +3251,7 @@ export default function Maskinvy() {
                 { label: 'Antal avbrott', value: String(at.antal) },
                 { label: 'Snitt per avbrott', value: at.snittMin + ' min' },
               ].map(c => (
-                <div key={c.label} style={{ background: '#161614', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 20 }}>
+                <div key={c.label} style={{ background: '#161614', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 20, minHeight: 100 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.02em', color: '#666', marginBottom: 8 }}>{c.label}</div>
                   <div style={{ fontSize: 32, fontWeight: 700, color: '#e8e8e4', letterSpacing: -1, marginBottom: 4 }}>{c.value}</div>
                 </div>
@@ -3459,7 +3453,7 @@ body {
 
 .hero-main {
   background: #161614; border: 1px solid var(--border);
-  border-radius: 16px; padding: 20px;
+  border-radius: 16px; padding: 20px; min-height: 100px;
   position: relative; overflow: hidden;
   animation-delay: 0.05s;
 }
@@ -3476,7 +3470,7 @@ body {
 
 .kpi {
   background: #161614; border: 1px solid var(--border); border-radius: 16px;
-  padding: 20px; position: relative; overflow: hidden;
+  padding: 20px; min-height: 100px; position: relative; overflow: hidden;
   transition: border-color 0.2s, transform 0.2s;
 }
 .kpi:hover { border-color: var(--border2); transform: translateY(-1px); }
@@ -3887,28 +3881,40 @@ body {
       </div>
     </div>
 
-    <div class="card anim" style="animation-delay:0.35s;cursor:pointer;" onclick="openTid()">
-      <div class="card-h"><div class="card-t">Tidsfördelning</div></div>
-      <div class="card-b">
-        <div class="tbar">
-          <div class="tseg" style="flex:66;background:rgba(90,255,140,0.25)"></div>
-          <div class="tseg" style="flex:14;background:rgba(91,143,255,0.2)"></div>
-          <div class="tseg" style="flex:2;background:rgba(91,143,255,0.35)"></div>
-          <div class="tseg" style="flex:11;background:rgba(255,179,64,0.2)"></div>
-          <div class="tseg" style="flex:7;background:rgba(255,255,255,0.04)"></div>
+    <div style="display:flex;flex-direction:column;gap:16px;">
+      <!-- Zon 1: Stapel + legend -->
+      <div class="card anim" style="animation-delay:0.35s;cursor:pointer;" onclick="openTid()">
+        <div class="card-h"><div class="card-t">Tidsfördelning</div></div>
+        <div class="card-b">
+          <div class="tbar">
+            <div class="tseg" style="flex:66;background:rgba(90,255,140,0.25)"></div>
+            <div class="tseg" style="flex:14;background:rgba(91,143,255,0.2)"></div>
+            <div class="tseg" style="flex:2;background:rgba(91,143,255,0.35)"></div>
+            <div class="tseg" style="flex:11;background:rgba(255,179,64,0.2)"></div>
+            <div class="tseg" style="flex:7;background:rgba(255,255,255,0.04)"></div>
+          </div>
+          <div class="tleg">
+            <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.3)"></div>Processar 66%</div>
+            <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.2)"></div>Kör 14%</div>
+            <div class="tli"><div class="tld" style="background:rgba(91,143,255,0.35)"></div>Korta stopp 2%</div>
+            <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.1)"></div>Avbrott 11%</div>
+            <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.1)"></div>Rast 7%</div>
+          </div>
+          <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center;letter-spacing:0.3px;">Tryck för avbrottsdetaljer →</div>
         </div>
-        <div class="tleg">
-          <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.3)"></div>Processar 66%</div>
-          <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.2)"></div>Kör 14%</div>
-          <div class="tli"><div class="tld" style="background:rgba(91,143,255,0.35)"></div>Korta stopp 2%</div>
-          <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.1)"></div>Avbrott 11%</div>
-          <div class="tli"><div class="tld" style="background:rgba(255,255,255,0.1)"></div>Rast 7%</div>
+      </div>
+      <!-- Zon 2: Sub-KPI-kort -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div class="kpi anim" style="animation-delay:0.4s">
+          <div class="k-label">Effektiv G15</div>
+          <div class="k-val" id="tidG15Val" style="font-size:24px;">111h</div>
+          <div class="k-unit">timmar</div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:14px;">
-          <div class="snum"><div class="snum-v" style="color:var(--text)">111h</div><div class="snum-l">Effektiv G15</div></div>
-          <div class="snum"><div class="snum-v">18h</div><div class="snum-l">Avbrott</div></div>
+        <div class="kpi anim" style="animation-delay:0.45s">
+          <div class="k-label">Avbrott</div>
+          <div class="k-val" id="tidAvbrVal" style="font-size:24px;">18h</div>
+          <div class="k-unit">timmar</div>
         </div>
-        <div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center;letter-spacing:0.3px;">Tryck för avbrottsdetaljer →</div>
       </div>
     </div>
 
