@@ -3186,6 +3186,7 @@ export default function Maskinvy() {
 
       {/* ── AVBROTT PANEL ── */}
       {activeView === 'avbrott' && (() => {
+        void dataVersion; // depend on dataVersion so panel re-renders when data loads
         const db = (window as any).__maskinvyData || {} as DbData;
         const at = db.avbrottTotal || { timmar: 0, antal: 0, snittMin: 0 };
         const pk: Array<{ kategori: string; timmar: number; antal: number; snittMin: number }> = db.avbrottPerKategori || [];
