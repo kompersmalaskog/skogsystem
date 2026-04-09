@@ -2026,9 +2026,28 @@ def save_mom_to_supabase(data: Dict) -> bool:
                            ['maskin_id', 'operator_id', 'objekt_id', 'tradslag_id', 'processtyp', 'monitoring_start']) == 0:
                 fel.append('fakt_produktion')
 
-        # Avbrott
+        # Avbrott — deduplicate before insert
         if data.get('avbrott'):
-            if upsert_data('fakt_avbrott', data['avbrott']) == 0:
+            seen = set()
+            deduped = []
+            for a in data['avbrott']:
+                key = (a.get('maskin_id'), a.get('datum'), str(a.get('klockslag', '')), a.get('langd_sek'), a.get('kategori_kod'))
+                if key not in seen:
+                    seen.add(key)
+                    deduped.append(a)
+            if len(deduped) < len(data['avbrott']):
+                logger.info(f"  Avbrott dedup: {len(data['avbrott'])} → {len(deduped)} (tog bort {len(data['avbrott']) - len(deduped)} dubletter)")
+            # Delete existing avbrott for this maskin+date range to avoid duplicates on re-import
+            maskin_id = data['avbrott'][0].get('maskin_id') if data['avbrott'] else None
+            if maskin_id and deduped:
+                dates = sorted(set(a['datum'] for a in deduped if a.get('datum')))
+                if dates:
+                    del_url = f"{SUPABASE_URL}/rest/v1/fakt_avbrott?maskin_id=eq.{maskin_id}&datum=gte.{dates[0]}&datum=lte.{dates[-1]}"
+                    try:
+                        requests.delete(del_url, headers=SUPABASE_HEADERS, timeout=15)
+                    except Exception as e:
+                        logger.warning(f"  Kunde inte rensa gamla avbrott: {e}")
+            if upsert_data('fakt_avbrott', deduped) == 0:
                 fel.append('fakt_avbrott')
 
         # Maskinstatistik
@@ -2561,6 +2580,37 @@ def process_existing_files():
     logger.info(f"Fel/hoppade: {errors}")
     logger.info(f"{'='*50}")
 
+def cleanup_avbrott_duplicates():
+    """Rensa dubletter i fakt_avbrott via Supabase RPC"""
+    logger.info("Rensar dubletter i fakt_avbrott...")
+    sql = """
+    DELETE FROM fakt_avbrott a
+    USING fakt_avbrott b
+    WHERE a.id > b.id
+      AND a.maskin_id = b.maskin_id
+      AND a.datum = b.datum
+      AND a.langd_sek = b.langd_sek
+      AND COALESCE(a.operator_id, '') = COALESCE(b.operator_id, '')
+      AND COALESCE(a.kategori_kod, '') = COALESCE(b.kategori_kod, '')
+      AND COALESCE(a.klockslag::text, '') = COALESCE(b.klockslag::text, '')
+    """
+    try:
+        resp = requests.post(
+            f"{SUPABASE_URL}/rest/v1/rpc/exec_sql",
+            json={"query": sql},
+            headers=SUPABASE_HEADERS,
+            timeout=30
+        )
+        if resp.status_code in [200, 204]:
+            logger.info("  Dubletter i fakt_avbrott rensade.")
+        else:
+            # RPC kanske inte finns — kör via vanlig SQL om möjligt
+            logger.warning(f"  Kunde inte rensa dubletter via RPC: {resp.status_code}")
+            logger.info("  Kör följande SQL manuellt i Supabase SQL Editor:")
+            logger.info(sql.strip())
+    except Exception as e:
+        logger.warning(f"  Kunde inte rensa dubletter: {e}")
+
 def main():
     """Huvudprogram"""
     print("""
@@ -2581,7 +2631,10 @@ def main():
     if not init_supabase():
         input("\nTryck Enter för att avsluta...")
         return
-    
+
+    # Rensa eventuella dubletter i fakt_avbrott
+    cleanup_avbrott_duplicates()
+
     # Processa befintliga filer först
     process_existing_files()
     
