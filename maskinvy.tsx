@@ -2950,123 +2950,109 @@ export default function Maskinvy() {
         const d = idagData;
         if (idagLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#7a7a72' }}>Laddar...</div>;
         if (!d) return <div style={{ padding: 40, textAlign: 'center', color: '#7a7a72' }}>Ingen data</div>;
+        const noProduction = d.vol === 0 && d.st === 0;
         const stG15h = d.g15h > 0 ? parseFloat((d.st / d.g15h).toFixed(1)) : 0;
-        const totalTid = d.tidFord.proc + d.tidFord.terr + d.tidFord.avbrott + d.tidFord.rast + d.tidFord.ovrigt;
-        const tidPct = (sek: number) => totalTid > 0 ? Math.round(sek / totalTid * 100) : 0;
-        const trendNonZero = d.trend.filter(t => t.vol > 0);
-        const trendAvg = trendNonZero.length > 0 ? Math.round(trendNonZero.reduce((s, t) => s + t.vol, 0) / trendNonZero.length) : 0;
-        const maxTrendVol = Math.max(...d.trend.map(x => x.vol), 1);
         return (
-          <div style={{ padding: '0 20px 60px', maxWidth: 900 }}>
-            {/* KPI ROW 1 — samma layout som Översikt */}
-            <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 16 }}>
-              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
-                <div className="k-label">Volym</div>
-                <div className="k-val">{d.vol.toLocaleString('sv')}</div>
-                <div className="k-unit">m³sub</div>
-              </div>
-              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
-                <div className="k-label">Stammar</div>
-                <div className="k-val">{d.st.toLocaleString('sv')}</div>
-                <div className="k-unit">stammar</div>
-              </div>
-              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
-                <div className="k-label">Produktivitet</div>
-                <div className="k-val">{d.prod}</div>
-                <div className="k-unit">m³/G15h</div>
-              </div>
-              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
-                <div className="k-label">Medelstam</div>
-                <div className="k-val">{d.medelstam}</div>
-                <div className="k-unit">m³/stam</div>
-              </div>
-            </div>
-            {/* KPI ROW 2 */}
-            <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 8 }}>
-              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
-                <div className="k-label">Utnyttjandegrad</div>
-                <div className="k-val">{d.utnyttj}</div>
-                <div className="k-unit">%</div>
-              </div>
-              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
-                <div className="k-label">Bränsle totalt</div>
-                <div className="k-val">{d.bransle}</div>
-                <div className="k-unit">liter</div>
-              </div>
-              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
-                <div className="k-label">Bränsle/m³</div>
-                <div className="k-val">{d.bransleLm3}</div>
-                <div className="k-unit">L/m³</div>
-              </div>
-              <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
-                <div className="k-label">Stammar/G15h</div>
-                <div className="k-val">{stG15h}</div>
-                <div className="k-unit">st/G15h</div>
-              </div>
-            </div>
+          <div style={{ padding: '0 20px 60px', maxWidth: 900, fontFamily: "'Geist', system-ui, sans-serif" }}>
 
-            {/* Trend 14 dagar */}
-            <div className="card" style={{ marginTop: 16 }}>
-              <div className="card-h"><div className="card-t">Senaste 14 dagarna</div></div>
-              <div className="card-b">
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 110 }}>
-                  {d.trend.map((t, i) => {
-                    const h = t.vol > 0 ? Math.max(6, (t.vol / maxTrendVol) * 95) : 3;
-                    const isToday = i === d.trend.length - 1;
-                    return (
-                      <div key={t.datum} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                        {t.vol > 0 && <div style={{ fontSize: 9, fontWeight: 500, color: isToday ? 'rgba(90,255,140,0.9)' : 'rgba(232,232,228,0.5)' }}>{t.vol}</div>}
-                        <div style={{ width: '100%', height: h, borderRadius: 4, background: isToday ? 'rgba(90,255,140,0.8)' : t.helg ? 'rgba(255,255,255,0.07)' : t.vol > 0 ? 'rgba(76,175,80,0.5)' : 'rgba(255,255,255,0.04)' }} />
-                        <div style={{ fontSize: 9, color: isToday ? '#e8e8e4' : '#666' }}>{t.label}</div>
-                      </div>
-                    );
-                  })}
+            {noProduction ? (
+              <div style={{ marginTop: 32, textAlign: 'center', padding: '48px 20px', background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16 }}>
+                <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.3 }}>☀</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#e8e8e4', marginBottom: 6 }}>Ingen produktion registrerad idag</div>
+                <div style={{ fontSize: 12, color: '#7a7a72' }}>Data visas här när maskinen startar</div>
+              </div>
+            ) : (<>
+              {/* KPI ROW 1 */}
+              <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 16 }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                  <div className="k-label">Volym</div>
+                  <div className="k-val">{d.vol.toLocaleString('sv')}</div>
+                  <div className="k-unit">m³sub</div>
                 </div>
-                {trendAvg > 0 && <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 10, textAlign: 'center' }}>Snitt: {trendAvg} m³/dag</div>}
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                  <div className="k-label">Stammar</div>
+                  <div className="k-val">{d.st.toLocaleString('sv')}</div>
+                  <div className="k-unit">stammar</div>
+                </div>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                  <div className="k-label">Produktivitet</div>
+                  <div className="k-val">{d.prod}</div>
+                  <div className="k-unit">m³/G15h</div>
+                </div>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                  <div className="k-label">Medelstam</div>
+                  <div className="k-val">{d.medelstam}</div>
+                  <div className="k-unit">m³/stam</div>
+                </div>
               </div>
-            </div>
+              {/* KPI ROW 2 */}
+              <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 8 }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                  <div className="k-label">Utnyttjandegrad</div>
+                  <div className="k-val">{d.utnyttj}</div>
+                  <div className="k-unit">%</div>
+                </div>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                  <div className="k-label">Bränsle totalt</div>
+                  <div className="k-val">{d.bransle}</div>
+                  <div className="k-unit">liter</div>
+                </div>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                  <div className="k-label">Bränsle/m³</div>
+                  <div className="k-val">{d.bransleLm3}</div>
+                  <div className="k-unit">L/m³</div>
+                </div>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 14, padding: '20px 16px' }}>
+                  <div className="k-label">Stammar/G15h</div>
+                  <div className="k-val">{stG15h}</div>
+                  <div className="k-unit">st/G15h</div>
+                </div>
+              </div>
 
-            {/* Operatörer */}
-            <div className="card" style={{ marginTop: 12 }}>
-              <div className="card-h"><div className="card-t">Operatörer</div></div>
-              <div className="card-b">
-                {d.operatorer.length > 0 ? d.operatorer.map(op => (
-                  <div key={op.namn} className="op-row">
-                    <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.07)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 600, color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>
-                      {op.namn.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{op.namn}</div>
-                      <div style={{ fontSize: 10, color: '#666' }}>{op.objekt} · start {op.start}</div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 15, fontWeight: 600 }}>{op.vol} m³</div>
-                      <div style={{ fontSize: 10, color: '#666' }}>{op.prod} m³/G15h</div>
-                    </div>
+              {/* Aktiv förare & objekt */}
+              {d.operatorer.length > 0 && (
+                <div className="card" style={{ marginTop: 16 }}>
+                  <div className="card-h"><div className="card-t">Just nu</div></div>
+                  <div className="card-b">
+                    {d.operatorer.map(op => (
+                      <div key={op.namn} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(90,255,140,0.1)', border: '1px solid rgba(90,255,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'rgba(90,255,140,0.8)', flexShrink: 0 }}>
+                          {op.namn.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4' }}>{op.namn}</div>
+                          <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{op.objekt} · start {op.start}</div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 17, fontWeight: 700, color: '#e8e8e4' }}>{op.vol} m³</div>
+                          <div style={{ fontSize: 10, color: '#7a7a72' }}>{op.prod} m³/G15h</div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                )) : <div style={{ color: '#666', fontSize: 12 }}>Ingen data idag</div>}
-              </div>
-            </div>
-
-            {/* Bolag */}
-            {d.bolag.length > 0 && (
-              <div className="card" style={{ marginTop: 12 }}>
-                <div className="card-h"><div className="card-t">Bolag</div></div>
-                <div className="card-b">
-                  {d.bolag.map(b => (
-                    <div key={b.namn} style={{ marginBottom: 10 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
-                        <span style={{ fontWeight: 500 }}>{b.namn}</span>
-                        <span><span style={{ fontWeight: 600 }}>{b.vol} m³</span> <span style={{ color: '#666', fontSize: 11 }}>{b.pct}%</span></span>
-                      </div>
-                      <div style={{ height: 5, borderRadius: 2, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', width: `${b.pct}%`, background: 'rgba(90,255,140,0.5)', borderRadius: 2 }} />
-                      </div>
-                    </div>
-                  ))}
                 </div>
-              </div>
-            )}
+              )}
+
+              {/* Bolag */}
+              {d.bolag.length > 0 && (
+                <div className="card" style={{ marginTop: 12 }}>
+                  <div className="card-h"><div className="card-t">Bolag</div></div>
+                  <div className="card-b">
+                    {d.bolag.map(b => (
+                      <div key={b.namn} style={{ marginBottom: 10 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
+                          <span style={{ fontWeight: 500 }}>{b.namn}</span>
+                          <span><span style={{ fontWeight: 600 }}>{b.vol} m³</span> <span style={{ color: '#666', fontSize: 11 }}>{b.pct}%</span></span>
+                        </div>
+                        <div style={{ height: 5, borderRadius: 2, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${b.pct}%`, background: 'rgba(90,255,140,0.5)', borderRadius: 2 }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>)}
           </div>
         );
       })()}
