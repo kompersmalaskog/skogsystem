@@ -2750,7 +2750,7 @@ export default function Maskinvy() {
         </div>
       )}
       {/* ── SIDEBAR ── */}
-      <aside style={{
+      <aside className="mv-sidebar" style={{
         width: 220, flexShrink: 0, background: '#0f0f0e', borderRight: '1px solid rgba(255,255,255,0.07)',
         display: 'flex', flexDirection: 'column', fontFamily: "'Geist', system-ui, sans-serif",
         overflow: 'hidden',
@@ -2792,7 +2792,7 @@ export default function Maskinvy() {
       {/* ── MAIN CONTENT ── */}
       <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch', background: '#111110', display: 'flex', flexDirection: 'column' }}>
         {/* ── TOP BAR: Maskin + Period ── */}
-        <div style={{
+        <div className="mv-topbar" style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '8px 20px',
           borderBottom: '1px solid rgba(255,255,255,0.07)', background: '#0f0f0e',
           fontFamily: "'Geist', system-ui, sans-serif", flexShrink: 0,
@@ -2879,7 +2879,7 @@ export default function Maskinvy() {
           </div>
         </div>
         {/* ── SCROLLABLE CONTENT ── */}
-        <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div className="mv-scroll" style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
 
       {/* ── PERIOD COMPARISON PANEL ── */}
       {activeView === 'idag' && (() => {
@@ -3200,7 +3200,7 @@ export default function Maskinvy() {
             <div style={{ fontSize: 20, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
 
             {/* KPI cards */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
+            <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
               {[
                 { label: 'Total avbrottstid', value: at.timmar + 'h' },
                 { label: 'Antal avbrott', value: String(at.antal) },
@@ -3704,7 +3704,68 @@ body {
 .dag-panel.open { transform: translateX(0); }
 .cal-cell.c-prod { cursor: pointer; }
 .cal-cell.c-flytt { cursor: pointer; }
-.cal-cell.c-service { cursor: pointer; }` }} />
+.cal-cell.c-service { cursor: pointer; }
+
+/* ── BOTTOM NAV (hidden on desktop) ── */
+.mv-bottomnav { display: none; }
+
+/* ── RESPONSIVE: MOBILE & TABLET ── */
+@media (max-width: 768px) {
+  /* 1. Hide sidebar, show bottom nav */
+  .mv-sidebar { display: none !important; }
+  .mv-bottomnav {
+    display: flex !important;
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 56px; background: rgba(15,15,14,0.97);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(255,255,255,0.07);
+    z-index: 200; justify-content: space-around; align-items: center;
+    padding: 0 4px; padding-bottom: env(safe-area-inset-bottom);
+    font-family: 'Geist', system-ui, sans-serif;
+  }
+  .mv-bottomnav button {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    gap: 2px; background: none; border: none; cursor: pointer;
+    padding: 6px 0; color: #555; transition: color 0.15s;
+  }
+  .mv-bottomnav button.active { color: #00c48c; }
+  .mv-bn-icon { font-size: 18px; line-height: 1; }
+  .mv-bn-label { font-size: 9px; font-weight: 600; letter-spacing: 0.3px; }
+
+  /* 2. Top bar: stack vertically */
+  .mv-topbar {
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    padding: 8px 12px !important;
+  }
+  .mv-topbar > div:first-child { width: 100%; }
+  .mv-topbar > div:first-child button { width: 100%; }
+
+  /* 3. KPI grids: 2 columns */
+  .hero, .page .hero { grid-template-columns: repeat(2, 1fr) !important; }
+
+  /* 4. Two-column grids: stack to 1 column */
+  .g2 { grid-template-columns: 1fr !important; }
+
+  /* 5. Chart containers: horizontal scroll */
+  .card-b { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .card-b canvas { min-width: 320px; }
+
+  /* 6. Sub-tabs: horizontal scroll */
+  #prodSubTabs {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap !important;
+  }
+
+  /* 7. Page padding & bottom spacing for bottom nav */
+  .page { padding-left: 12px !important; padding-right: 12px !important; padding-bottom: 72px !important; }
+  .mv-scroll { padding-bottom: 64px; }
+
+  /* 8. Slide-out panels: full width */
+  .bolag-panel, .forar-panel, .dag-panel { width: 100vw !important; }
+}
+` }} />
       <div dangerouslySetInnerHTML={{ __html: `<header class="hdr">
   <div class="brand">
     <div class="brand-mark">🌲</div>
@@ -4371,6 +4432,21 @@ body {
 
       </div>{/* end scrollable content */}
       </div>{/* end main content */}
+      {/* ── BOTTOM NAV (mobile) ── */}
+      <nav className="mv-bottomnav">
+        {[
+          { icon: '☀', label: 'Idag', view: 'idag' },
+          { icon: '◻', label: 'Översikt', view: 'oversikt' },
+          { icon: '▤', label: 'Produktion', view: 'produktion' },
+          { icon: '⚠', label: 'Avbrott', view: 'avbrott' },
+          { icon: '◈', label: 'Analys', view: 'analys' },
+        ].map(item => (
+          <button key={item.view} onClick={() => setActiveView(item.view)} className={activeView === item.view ? 'active' : ''}>
+            <span className="mv-bn-icon">{item.icon}</span>
+            <span className="mv-bn-label">{item.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }
