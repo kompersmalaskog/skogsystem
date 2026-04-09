@@ -1358,47 +1358,6 @@ export default function Maskinvy() {
   const [cmpDataB, setCmpDataB] = useState<PeriodKpi | null>(null);
   const [cmpLoading, setCmpLoading] = useState(false);
 
-  // ── Operator comparison state ──
-  type OpCmpRow = { id: string; namn: string; stammar: number; volym: number; prod: number; motorH: number; bransleH: number };
-  type OpCmpMonth = { month: string; byOp: Record<string, number> };
-  const [opCmpIds, setOpCmpIds] = useState<string[]>([]);
-  const [opCmpFrom, setOpCmpFrom] = useState('2026-01-01');
-  const [opCmpTo, setOpCmpTo] = useState('2026-03-31');
-  const [opCmpRows, setOpCmpRows] = useState<OpCmpRow[]>([]);
-  const [opCmpMonths, setOpCmpMonths] = useState<OpCmpMonth[]>([]);
-  const [opCmpLoading, setOpCmpLoading] = useState(false);
-  const [opCmpAllOps, setOpCmpAllOps] = useState<{ id: string; namn: string }[]>([]);
-  const opCmpChartRef = useCallback((canvas: HTMLCanvasElement | null) => {
-    if (!canvas || opCmpMonths.length === 0 || opCmpIds.length === 0) return;
-    const Chart = (window as any).Chart;
-    if (!Chart) return;
-    const existing = Chart.getChart(canvas);
-    if (existing) existing.destroy();
-    const colors = ['rgba(90,255,140,0.8)', 'rgba(91,143,255,0.8)', 'rgba(255,179,64,0.8)', 'rgba(255,95,87,0.8)'];
-    const names = opCmpRows.reduce((m, r) => { m[r.id] = r.namn; return m; }, {} as Record<string, string>);
-    new Chart(canvas, {
-      type: 'line',
-      data: {
-        labels: opCmpMonths.map(m => m.month),
-        datasets: opCmpIds.map((id, i) => ({
-          label: names[id] || id,
-          data: opCmpMonths.map(m => Math.round(m.byOp[id] || 0)),
-          borderColor: colors[i % colors.length],
-          backgroundColor: colors[i % colors.length].replace('0.8', '0.1'),
-          pointRadius: 4, pointBackgroundColor: colors[i % colors.length],
-          tension: 0.3, fill: false,
-        })),
-      },
-      options: {
-        responsive: true, interaction: { mode: 'index' as const, intersect: false },
-        plugins: { legend: { labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 11 }, boxWidth: 10, padding: 14 } } },
-        scales: {
-          x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
-          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'm³', color: '#7a7a72', font: { size: 10 } } },
-        },
-      },
-    });
-  }, [opCmpMonths, opCmpIds, opCmpRows]);
 
   // ── Machine comparison state ──
   // Combo ID maps to multiple maskin_ids for machines that were swapped
@@ -2468,83 +2427,6 @@ export default function Maskinvy() {
     setCmpLoading(false);
   }, [maskiner, vald, cmpDateA, cmpDateB, fetchPeriodKpi]);
 
-  // ── Fetch operator comparison data ──
-  const runOpCmp = useCallback(async () => {
-    const valdMaskinObj = maskiner.find(m => m.modell === vald);
-    if (!valdMaskinObj || opCmpIds.length < 2) return;
-    setOpCmpLoading(true);
-    const [rawProd, tidRes, opRes] = await Promise.all([
-      fetchAllRows((from, to) =>
-        supabase.from('fakt_produktion')
-          .select('datum, volym_m3sub, stammar, operator_id')
-          .eq('maskin_id', valdMaskinObj.maskin_id)
-          .in('operator_id', opCmpIds)
-          .gte('datum', opCmpFrom).lte('datum', opCmpTo)
-          .range(from, to)
-      ),
-      supabase.from('fakt_tid')
-        .select('datum, operator_id, processing_sek, terrain_sek, kort_stopp_sek, avbrott_sek, engine_time_sek, bransle_liter')
-        .eq('maskin_id', valdMaskinObj.maskin_id)
-        .in('operator_id', opCmpIds)
-        .gte('datum', opCmpFrom).lte('datum', opCmpTo),
-      supabase.from('dim_operator')
-        .select('operator_id, operator_namn')
-        .in('operator_id', opCmpIds),
-    ]);
-    const opNames: Record<string, string> = {};
-    (opRes.data || []).forEach((o: any) => { opNames[o.operator_id] = o.operator_namn || o.operator_id; });
-
-    // Deduplicate fakt_tid per (datum, operator_id)
-    const tidDedupCmp: Record<string, any> = {};
-    for (const r of (tidRes.data || [])) {
-      const key = `${r.datum}|${r.operator_id || ''}`;
-      if (!tidDedupCmp[key] || (r.engine_time_sek || 0) > (tidDedupCmp[key].engine_time_sek || 0)) {
-        tidDedupCmp[key] = r;
-      }
-    }
-    const rawTid = Object.values(tidDedupCmp);
-
-    // Pre-aggregate prod per (operator_id, YYYY-MM) to avoid 23x row multiplication
-    const prodAgg: Record<string, { volym: number; stammar: number }> = {};
-    const monthAgg: Record<string, Record<string, number>> = {};
-    for (const r of rawProd) {
-      const opId = r.operator_id;
-      if (!opId) continue;
-      if (!prodAgg[opId]) prodAgg[opId] = { volym: 0, stammar: 0 };
-      prodAgg[opId].volym += r.volym_m3sub || 0;
-      prodAgg[opId].stammar += r.stammar || 0;
-      const ym = r.datum.substring(0, 7);
-      if (!monthAgg[ym]) monthAgg[ym] = {};
-      monthAgg[ym][opId] = (monthAgg[ym][opId] || 0) + (r.volym_m3sub || 0);
-    }
-    // Pre-aggregate tid per operator_id
-    const tidAgg: Record<string, { g15sek: number; engineSek: number; bransle: number }> = {};
-    for (const r of rawTid) {
-      const opId = r.operator_id;
-      if (!opId) continue;
-      if (!tidAgg[opId]) tidAgg[opId] = { g15sek: 0, engineSek: 0, bransle: 0 };
-      tidAgg[opId].g15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
-      tidAgg[opId].engineSek += r.engine_time_sek || 0;
-      tidAgg[opId].bransle += r.bransle_liter || 0;
-    }
-
-    const rows: OpCmpRow[] = opCmpIds.map(id => {
-      const p = prodAgg[id] || { volym: 0, stammar: 0 };
-      const t = tidAgg[id] || { g15sek: 0, engineSek: 0, bransle: 0 };
-      const g15h = t.g15sek / 3600;
-      const motorH = t.engineSek / 3600;
-      return { id, namn: opNames[id] || id, stammar: Math.round(p.stammar), volym: Math.round(p.volym),
-        prod: g15h > 0 ? parseFloat((p.volym / g15h).toFixed(1)) : 0,
-        motorH: parseFloat(motorH.toFixed(1)),
-        bransleH: motorH > 0 ? parseFloat((t.bransle / motorH).toFixed(1)) : 0 };
-    });
-
-    const months = Object.keys(monthAgg).sort().map(ym => ({ month: ym, byOp: monthAgg[ym] }));
-
-    setOpCmpRows(rows);
-    setOpCmpMonths(months);
-    setOpCmpLoading(false);
-  }, [maskiner, vald, opCmpIds, opCmpFrom, opCmpTo]);
 
   // ── Fetch machine comparison data ──
   const runMachCmp = useCallback(async () => {
@@ -2641,18 +2523,6 @@ export default function Maskinvy() {
     setMachCmpLoading(false);
   }, [machCmpA, machCmpB, machCmpFrom, machCmpTo]);
 
-  // Load available operators when switching to operatorer view
-  useEffect(() => {
-    if (activeView !== 'operatorer') return;
-    const valdMaskinObj = maskiner.find(m => m.modell === vald);
-    if (!valdMaskinObj) return;
-    (async () => {
-      const { data } = await supabase.from('dim_operator')
-        .select('operator_id, operator_namn')
-        .eq('maskin_id', valdMaskinObj.maskin_id);
-      if (data) setOpCmpAllOps(data.map((o: any) => ({ id: o.operator_id, namn: o.operator_namn || o.operator_id })));
-    })();
-  }, [activeView, maskiner, vald]);
 
   // Fetch data when machine, period, or åtgärd filter changes
   useEffect(() => {
@@ -2887,7 +2757,7 @@ export default function Maskinvy() {
             { icon: '◻', label: 'Översikt', view: 'oversikt' },
             { icon: '▤', label: 'Produktion', view: 'produktion' },
             { icon: '⚠', label: 'Avbrott', view: 'avbrott' },
-            { icon: '◉', label: 'Operatörer', view: 'operatorer' },
+
             { icon: '⬡', label: 'Trädslag', view: 'tradslag' },
             { icon: '▣', label: 'Objekt', view: 'objekt' },
             { icon: '⇄', label: 'Jämför perioder', view: 'jamfor' },
@@ -3430,14 +3300,12 @@ export default function Maskinvy() {
 .view-section { display: none !important; }
 .page[data-view="oversikt"] .vs-oversikt { display: block !important; }
 .page[data-view="produktion"] .vs-produktion { display: block !important; }
-.page[data-view="operatorer"] .vs-operatorer { display: block !important; }
 .page[data-view="tradslag"] .vs-tradslag { display: block !important; }
 .page[data-view="objekt"] .vs-objekt { display: block !important; }
 .page[data-view="kalibrering"] .vs-kalibrering { display: block !important; }
 /* grids need display:grid */
 .page[data-view="oversikt"] .vs-oversikt.hero { display: grid !important; }
 .page[data-view="oversikt"] .vs-oversikt.g2 { display: grid !important; }
-.page[data-view="operatorer"] .vs-operatorer.g2 { display: grid !important; }
 .page[data-view="objekt"] .vs-objekt.g2 { display: grid !important; }
 .page[data-view="produktion"] .vs-produktion.g2 { display: grid !important; }
 /* ps-hidden MUST come after .g2 rules so it wins at equal specificity */
@@ -3932,7 +3800,7 @@ body {
   </div>
 
   <!-- ROW 1: Operatörer + Tidsfördelning -->
-  <div class="g2 view-section vs-oversikt vs-operatorer" id="sec-operatorer">
+  <div class="g2 view-section vs-oversikt" id="sec-operatorer">
     <div class="card anim" style="animation-delay:0.3s">
       <div class="card-h"><div class="card-t">Operatörer</div><span class="badge bg" id="opBadge">–</span></div>
       <div class="card-b" id="opContainer">
@@ -4464,109 +4332,6 @@ body {
 </div>` }} />
       </div>
 
-      {/* ── OPERATOR COMPARISON — below the operator cards ── */}
-      {activeView === 'operatorer' && (
-        <div style={{ padding: '0 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 960 }}>
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 24, marginTop: 8 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.3, marginBottom: 4 }}>
-              Jämför operatörer
-            </div>
-            <div style={{ fontSize: 12, color: '#7a7a72', marginBottom: 16 }}>
-              Välj 2–4 operatörer och en period
-            </div>
-
-            {/* Operator selector */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-              {opCmpAllOps.map(op => {
-                const sel = opCmpIds.includes(op.id);
-                return (
-                  <button key={op.id} onClick={() => {
-                    setOpCmpIds(prev => sel ? prev.filter(x => x !== op.id) : prev.length < 4 ? [...prev, op.id] : prev);
-                  }} style={{
-                    padding: '5px 12px', borderRadius: 7, border: 'none', cursor: 'pointer',
-                    background: sel ? '#1a4a2e' : '#1a1a18',
-                    color: sel ? '#00c48c' : '#7a7a72',
-                    fontSize: 11, fontWeight: 600, fontFamily: "'Geist', system-ui, sans-serif",
-                    transition: 'all 0.15s',
-                  }}>
-                    {op.namn}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Date range */}
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 18 }}>
-              <input type="date" value={opCmpFrom} onChange={e => setOpCmpFrom(e.target.value)}
-                style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
-              <span style={{ color: '#3a3a36', fontSize: 12 }}>–</span>
-              <input type="date" value={opCmpTo} onChange={e => setOpCmpTo(e.target.value)}
-                style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
-              <button onClick={runOpCmp} disabled={opCmpIds.length < 2} style={{
-                padding: '7px 16px', border: 'none', borderRadius: 8,
-                background: opCmpIds.length >= 2 ? '#1a4a2e' : '#1a1a18',
-                color: opCmpIds.length >= 2 ? '#00c48c' : '#555',
-                fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, fontWeight: 600,
-                cursor: opCmpIds.length >= 2 ? 'pointer' : 'default',
-              }}>
-                {opCmpLoading ? 'Laddar...' : 'Jämför →'}
-              </button>
-            </div>
-
-            {/* Results table */}
-            {opCmpRows.length > 0 && (
-              <>
-                <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                        <th style={{ padding: '10px 14px', textAlign: 'left', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Operatör</th>
-                        <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Stammar</th>
-                        <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Volym m³</th>
-                        <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>m³/G15h</th>
-                        <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Motortid h</th>
-                        <th style={{ padding: '10px 14px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Bränsle L/h</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {opCmpRows.map((r, i) => {
-                        const colors = ['#00c48c', '#5b8fff', '#ffb340', '#ff5f57'];
-                        const best = (field: keyof OpCmpRow, higher = true) => {
-                          const vals = opCmpRows.map(x => x[field] as number);
-                          const target = higher ? Math.max(...vals) : Math.min(...vals);
-                          return r[field] === target;
-                        };
-                        return (
-                          <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                            <td style={{ padding: '10px 14px', fontWeight: 600, color: colors[i % colors.length] }}>{r.namn}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('stammar') ? '#e8e8e4' : '#7a7a72', fontWeight: best('stammar') ? 700 : 400 }}>{r.stammar.toLocaleString('sv-SE')}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('volym') ? '#e8e8e4' : '#7a7a72', fontWeight: best('volym') ? 700 : 400 }}>{r.volym.toLocaleString('sv-SE')}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('prod') ? '#e8e8e4' : '#7a7a72', fontWeight: best('prod') ? 700 : 400 }}>{r.prod}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.motorH}</td>
-                            <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: best('bransleH', false) ? '#e8e8e4' : '#7a7a72', fontWeight: best('bransleH', false) ? 700 : 400 }}>{r.bransleH}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Monthly volume chart */}
-                {opCmpMonths.length > 0 && (
-                  <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '16px 16px 12px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.14em', color: '#3a3a36', marginBottom: 12 }}>
-                      Volym per månad
-                    </div>
-                    <div style={{ height: 240, position: 'relative' }}>
-                      <canvas ref={opCmpChartRef} />
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
 
       </div>
     </div>
