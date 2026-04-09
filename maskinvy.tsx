@@ -2727,6 +2727,16 @@ export default function Maskinvy() {
 
   const valdMaskin = maskiner.find(m => m.modell === vald);
 
+  // Update TopBar title with machine name + period
+  useEffect(() => {
+    const el = document.getElementById('topbar-title');
+    if (!el) return;
+    const maskinNamn = valdMaskin ? `${valdMaskin.tillverkare} ${valdMaskin.modell}` : 'Maskinvy';
+    const periodLabel = getPeriodLabel(period, periodOffset);
+    el.textContent = `${maskinNamn} — ${periodLabel}`;
+    return () => { el.textContent = 'Maskinvy'; };
+  }, [valdMaskin, period, periodOffset]);
+
   return (
     <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, display: 'flex', zIndex: 1 }}>
       {/* Loading overlay */}

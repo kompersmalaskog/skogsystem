@@ -70,7 +70,7 @@ export default function TopBar() {
       ) : null}
 
       {/* Sidnamn */}
-      <span style={{
+      <span id="topbar-title" style={{
         fontSize: 16,
         fontWeight: 600,
         color: '#fff',
