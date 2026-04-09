@@ -712,8 +712,8 @@ function openBolag(id) {
     }).join('');
     return '<div style="background:var(--surface2);border-radius:12px;padding:16px;margin-bottom:10px;">'
       +'<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;">'
-      +'<div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:rgba(255,255,255,0.6);flex-shrink:0;">'+ink.initialer+'</div>'
-      +'<div style="flex:1;"><div style="font-size:14px;font-weight:600;">'+ink.namn+'</div><div style="font-size:11px;color:var(--muted);">'+ink.objekt.length+' objekt</div></div>'
+      +'<div style="width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:rgba(255,255,255,0.6);flex-shrink:0;">'+ink.initialer+'</div>'
+      +'<div style="flex:1;"><div style="font-size:14px;font-weight:500;">'+ink.namn+'</div><div style="font-size:11px;color:var(--muted);">'+ink.objekt.length+' objekt</div></div>'
       +'<div style="text-align:right;"><div style="font-family:Fraunces,serif;font-size:22px;line-height:1;">'+ink.volym.toLocaleString('sv')+'</div><div style="font-size:10px;color:var(--muted);">m³</div></div>'
       +'</div>'
       +'<div style="display:flex;gap:12px;margin-bottom:10px;">'
@@ -728,7 +728,7 @@ function openBolag(id) {
     +'<div class="fkpi"><div class="fkpi-v">'+slutVol.toLocaleString('sv')+'</div><div class="fkpi-l">Slutavverkning</div></div>'
     +'<div class="fkpi"><div class="fkpi-v">'+(gallVol>0?gallVol.toLocaleString('sv'):'–')+'</div><div class="fkpi-l">Gallring</div></div>'
     +'</div>'
-    +'<div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:12px;">Inköpare</div>'
+    +'<div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:12px;">Inköpare</div>'
     +inkopareCards;
   openOverlay();
   document.getElementById('bolagPanel').classList.add('open');
@@ -771,27 +771,27 @@ function runCmp(){
   div.innerHTML=\`
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
-      <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);">Jämförelse</div>
+      <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);">Jämförelse</div>
       <button onclick="document.getElementById('cmpView').remove()" style="border:none;background:var(--surface2);border-radius:6px;padding:4px 10px;font-family:inherit;font-size:11px;cursor:pointer;color:var(--muted);">✕</button>
     </div>
     <div style="display:grid;grid-template-columns:120px 1fr 32px 1fr;gap:7px;align-items:center;margin-bottom:12px;">
       <div></div>
-      <div style="background:rgba(90,255,140,0.08);color:var(--accent);border-radius:7px;padding:9px 14px;font-size:11px;font-weight:600;border:1px solid rgba(90,255,140,0.15);">Period A · Jan 2026</div>
-      <div style="text-align:center;font-size:10px;font-weight:700;color:var(--dim);">VS</div>
-      <div style="background:rgba(255,179,64,0.08);color:var(--warn);border-radius:7px;padding:9px 14px;font-size:11px;font-weight:600;border:1px solid rgba(255,179,64,0.15);">Period B · Feb 2026</div>
+      <div style="background:rgba(90,255,140,0.08);color:var(--accent);border-radius:7px;padding:9px 14px;font-size:11px;font-weight:500;border:1px solid rgba(90,255,140,0.15);">Period A · Jan 2026</div>
+      <div style="text-align:center;font-size:10px;font-weight:500;color:var(--dim);">VS</div>
+      <div style="background:rgba(255,179,64,0.08);color:var(--warn);border-radius:7px;padding:9px 14px;font-size:11px;font-weight:500;border:1px solid rgba(255,179,64,0.15);">Period B · Feb 2026</div>
     </div>
     \${ms.map(m=>{
       const d=((m.b-m.a)/m.a*100).toFixed(1);
       const pos=m.b>=m.a;
       const fmt=v=>v>100?v.toLocaleString('sv'):v;
       return \`<div style="display:grid;grid-template-columns:120px 1fr 32px 1fr;gap:7px;align-items:center;margin-bottom:7px;">
-        <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);">\${m.lbl}</div>
+        <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);">\${m.lbl}</div>
         <div style="background:var(--surface2);border-radius:10px;padding:12px 16px;display:flex;align-items:baseline;gap:5px;">
           <span style="font-family:'Fraunces',serif;font-size:26px;color:var(--accent)">\${fmt(m.a)}</span>
           <span style="font-size:11px;color:var(--muted)">\${m.unit}</span>
         </div>
         <div style="text-align:center;">
-          <div style="border-radius:5px;padding:3px 1px;font-size:10px;font-weight:700;background:\${pos?'rgba(90,255,140,0.1)':'rgba(255,95,87,0.1)'};color:\${pos?'var(--accent)':'var(--danger)'};">\${pos?'+':''}\${d}%</div>
+          <div style="border-radius:5px;padding:3px 1px;font-size:10px;font-weight:500;background:\${pos?'rgba(90,255,140,0.1)':'rgba(255,95,87,0.1)'};color:\${pos?'var(--accent)':'var(--danger)'};">\${pos?'+':''}\${d}%</div>
         </div>
         <div style="background:var(--surface2);border-radius:10px;padding:12px 16px;display:flex;align-items:baseline;gap:5px;">
           <span style="font-family:'Fraunces',serif;font-size:26px;color:var(--warn)">\${fmt(m.b)}</span>
@@ -850,7 +850,7 @@ function openDag(dag) {
         <div class="fkpi"><div class="fkpi-v">\${d.medelstam}</div><div class="fkpi-l">Medelstam</div></div>
       </div>
 
-      <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Skiftinfo</div>
+      <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Skiftinfo</div>
       <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:16px;">
         <div class="frow"><span class="frow-l">Förare</span><span class="frow-v">\${d.forare}</span></div>
         <div class="frow"><span class="frow-l">Objekt</span><span class="frow-v">\${d.objekt}</span></div>
@@ -859,7 +859,7 @@ function openDag(dag) {
         <div class="frow" style="border:none"><span class="frow-l">Diesel</span><span class="frow-v">\${d.diesel} l/m³</span></div>
       </div>
 
-      <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Avbrott</div>
+      <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Avbrott</div>
       <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">
         \${avbrott}
       </div>\`;
@@ -910,7 +910,7 @@ function toggleForareAvbrott(el, forareNamn) {
     var bb = i < data.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none';
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:' + bb + ';font-size:11px;">' +
       '<span style="color:var(--muted);">' + orsak + ' <span style="font-size:9px;">(' + v.antal + 'x · ' + pct + '%)</span></span>' +
-      '<span style="font-weight:600;font-variant-numeric:tabular-nums;color:var(--warn);">' + fmtAvbrottTid(v.tid) + '</span></div>';
+      '<span style="font-weight:500;font-variant-numeric:tabular-nums;color:var(--warn);">' + fmtAvbrottTid(v.tid) + '</span></div>';
   }).join('');
   var div = document.createElement('div');
   div.className = 'forare-avbrott-detail';
@@ -949,7 +949,7 @@ function openObjTyp(id) {
       <div class="fkpi"><div class="fkpi-v">\${d.medelstam}</div><div class="fkpi-l">Medelstam</div></div>
     </div>
 
-    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Per objekt</div>
+    <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Per objekt</div>
     <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">
       \${objRows}
     </div>
@@ -965,7 +965,7 @@ function openObjJmf() {
   if (objTypArr.length < 2) return;
   // Dynamic comparison table
   var headers = objTypArr.map(function(t){return t.label;});
-  var thHtml = '<th style="padding:11px 16px;color:var(--muted);font-size:11px;"></th>' + headers.map(function(h){return '<th style="text-align:right;padding:11px 10px;font-size:11px;font-weight:600;">'+h+'</th>';}).join('');
+  var thHtml = '<th style="padding:11px 16px;color:var(--muted);font-size:11px;"></th>' + headers.map(function(h){return '<th style="text-align:right;padding:11px 10px;font-size:11px;font-weight:500;">'+h+'</th>';}).join('');
   var metrics = [
     {lbl:'Volym m³', fn:function(t){return t.volym.toLocaleString('sv');}, valFn:function(t){return t.volym;}, higher:true},
     {lbl:'Stammar', fn:function(t){return t.stammar.toLocaleString('sv');}, valFn:function(t){return t.stammar;}, higher:true},
@@ -979,7 +979,7 @@ function openObjJmf() {
     var bestIdx = vals.indexOf(Math.max.apply(null,vals));
     var tds = objTypArr.map(function(t,ti){
       var isBest = ti===bestIdx;
-      return '<td style="text-align:right;padding:11px 10px;font-weight:'+(isBest?'700':'400')+';color:'+(isBest?'rgba(90,255,140,0.9)':'var(--text)')+';">'+m.fn(t)+(isBest?' ↑':'')+'</td>';
+      return '<td style="text-align:right;padding:11px 10px;font-weight:'+(isBest?'500':'400')+';color:'+(isBest?'rgba(90,255,140,0.9)':'var(--text)')+';">'+m.fn(t)+(isBest?' ↑':'')+'</td>';
     }).join('');
     return '<tr style="border-top:1px solid var(--border)"><td style="padding:11px 16px;color:var(--muted);font-size:11px;">'+m.lbl+'</td>'+tds+'</tr>';
   }).join('');
@@ -1033,7 +1033,7 @@ function openTimpeng(id) {
     +'<div class="fkpi"><div class="fkpi-v">'+d.prod+'</div><div class="fkpi-l">m³/G15h</div></div>'
     +'<div class="fkpi"><div class="fkpi-v">'+d.stg15+'</div><div class="fkpi-l">st/G15h</div></div>'
     +'<div class="fkpi"><div class="fkpi-v">'+d.medelstam+'</div><div class="fkpi-l">Medelstam</div></div></div>'
-    +'<div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Per objekt</div>'
+    +'<div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Per objekt</div>'
     +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">'+objRows+'</div>';
   openOverlay();
   document.getElementById('objTypPanel').classList.add('open');
@@ -1056,7 +1056,7 @@ var objektTblBody = document.getElementById('objektTblBody');
 var objektData = _db.objekt || [];
 if (objektTblBody && objektData.length > 0) {
   objektTblBody.innerHTML = objektData.map(function(o){
-    return '<tr><td style="padding-left:22px"><div class="tn">'+o.namn+'</div><div class="ts2">'+(o.vo_nummer||'')+'</div></td><td style="font-variant-numeric:tabular-nums;font-weight:600">'+Math.round(o.volym)+'</td><td style="font-variant-numeric:tabular-nums;color:var(--muted)">'+o.prod.toFixed(1)+'</td></tr>';
+    return '<tr><td style="padding-left:22px"><div class="tn">'+o.namn+'</div><div class="ts2">'+(o.vo_nummer||'')+'</div></td><td style="font-variant-numeric:tabular-nums;font-weight:500">'+Math.round(o.volym)+'</td><td style="font-variant-numeric:tabular-nums;color:var(--muted)">'+o.prod.toFixed(1)+'</td></tr>';
   }).join('');
 }
 
@@ -1080,7 +1080,7 @@ if (objTypDistEl && objTypArr.length > 0) {
   }).join('');
   objTypDistEl.innerHTML = '<div style="display:grid;grid-template-columns:repeat('+Math.min(objTypArr.length,3)+',1fr);gap:8px;margin-bottom:14px;">'+cards+'</div>'
     +bar+'<div style="display:flex;justify-content:space-between;align-items:center;margin-top:7px;"><div style="display:flex;gap:14px;">'+legend+'</div>'
-    +'<button onclick="openObjJmf()" style="border:none;background:rgba(255,255,255,0.07);border-radius:6px;padding:5px 12px;font-family:inherit;font-size:10px;font-weight:600;color:rgba(255,255,255,0.6);cursor:pointer;letter-spacing:0.3px;">Jämför →</button></div>';
+    +'<button onclick="openObjJmf()" style="border:none;background:rgba(255,255,255,0.07);border-radius:6px;padding:5px 12px;font-family:inherit;font-size:10px;font-weight:500;color:rgba(255,255,255,0.6);cursor:pointer;letter-spacing:0.3px;">Jämför →</button></div>';
 }
 
 // Populate timpeng distribution
@@ -1125,8 +1125,8 @@ if (inkopareEl && inkopareList.length > 0) {
     }).join('');
     return '<div class="ink-row ink-clickable" onclick="openInkopare(\\''+ink.key+'\\')" style="flex-direction:column;align-items:stretch;gap:6px;">'
       +'<div style="display:flex;align-items:center;gap:10px;">'
-      +'<div style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);flex-shrink:0;">'+init+'</div>'
-      +'<div style="flex:1;"><div style="font-size:12px;font-weight:600;">'+ink.namn+'</div><div style="font-size:10px;color:var(--muted);">'+ink.bolag+' · '+ink.antalObjekt+' objekt</div></div>'
+      +'<div style="width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;color:rgba(255,255,255,0.5);flex-shrink:0;">'+init+'</div>'
+      +'<div style="flex:1;"><div style="font-size:12px;font-weight:500;">'+ink.namn+'</div><div style="font-size:10px;color:var(--muted);">'+ink.bolag+' · '+ink.antalObjekt+' objekt</div></div>'
       +'<div style="text-align:right;"><div style="font-family:Fraunces,serif;font-size:18px;line-height:1;">'+ink.volym.toLocaleString('sv')+'</div><div style="font-size:10px;color:var(--muted);">m³ · '+pct+'%</div></div>'
       +'</div>'
       +'<div style="display:flex;gap:2px;border-radius:2px;overflow:hidden;">'+tsBars+'</div>'
@@ -1172,11 +1172,11 @@ function openInkopare(key) {
     +'<div class="fkpi"><div class="fkpi-v">'+ink.stammar.toLocaleString('sv')+'</div><div class="fkpi-l">Stammar</div></div>'
     +'<div class="fkpi"><div class="fkpi-v">'+ink.prod+'</div><div class="fkpi-l">m³/G15h</div></div>'
     +'<div class="fkpi"><div class="fkpi-v">'+ink.antalObjekt+'</div><div class="fkpi-l">Objekt</div></div></div>'
-    +'<div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Åtgärdsfördelning</div>'
+    +'<div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Åtgärdsfördelning</div>'
     +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:16px;">'+atgRows+'</div>'
-    +'<div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Trädslag</div>'
+    +'<div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Trädslag</div>'
     +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:16px;">'+tsRows+'</div>'
-    +'<div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Objekt</div>'
+    +'<div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:8px;">Objekt</div>'
     +'<div style="background:var(--surface2);border-radius:10px;padding:4px 16px;">'+objRows+'</div>';
   openOverlay();
   document.getElementById('inkPanel').classList.add('open');
@@ -1223,7 +1223,7 @@ if (_db.operatorer && _db.operatorer.length > 0) {
       if (i === opKeys2.length - 1) row.style.borderBottom = 'none';
       row.setAttribute('onclick', "toggleForareAvbrott(this,'" + f.name + "')");
       row.innerHTML = '<div style="display:flex;align-items:center;gap:8px;flex:1;">'
-        + '<div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:rgba(255,255,255,0.5);">' + f.av + '</div>'
+        + '<div style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.07);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:500;color:rgba(255,255,255,0.5);">' + f.av + '</div>'
         + '<span class="frow-l">' + f.name + '</span></div>'
         + '<span class="frow-v">– <span style="font-size:10px;color:var(--muted);margin-left:4px;">›</span></span>';
       avbrottContainer.appendChild(row);
@@ -1299,7 +1299,7 @@ var prodSubTabsEl = document.getElementById('prodSubTabs');
 if (prodSubTabsEl) {
   prodSubTabsEl.innerHTML = _subTabs.map(function(t) {
     var isActive = t.key === _prodSubTab;
-    return '<button class="ps-btn" data-tab="'+t.key+'" onclick="switchProdSub(\\''+t.key+'\\')" style="border:none;border-radius:6px;padding:5px 14px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;letter-spacing:0.2px;background:'+(isActive?'rgba(90,255,140,0.15)':'transparent')+';color:'+(isActive?'rgba(90,255,140,0.9)':'#7a7a72')+';">'+t.label+'</button>';
+    return '<button class="ps-btn" data-tab="'+t.key+'" onclick="switchProdSub(\\''+t.key+'\\')" style="border:none;border-radius:6px;padding:5px 14px;font-family:inherit;font-size:11px;font-weight:500;cursor:pointer;letter-spacing:0.2px;background:'+(isActive?'rgba(90,255,140,0.15)':'transparent')+';color:'+(isActive?'rgba(90,255,140,0.9)':'#7a7a72')+';">'+t.label+'</button>';
   }).join('');
 }
 
@@ -2816,7 +2816,7 @@ export default function Maskinvy() {
         {/* Logo */}
         <div style={{ padding: '20px 16px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 32, height: 32, borderRadius: 8, background: '#1a4a2e', border: '1px solid rgba(90,255,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>🌲</div>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4', letterSpacing: '-0.3px' }}>Dashboard</span>
+          <span style={{ fontSize: 14, fontWeight: 500, color: '#e8e8e4', letterSpacing: '-0.3px' }}>Dashboard</span>
         </div>
         {/* Nav */}
         <nav style={{ flex: 1, padding: '8px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -2862,7 +2862,7 @@ export default function Maskinvy() {
               style={{
                 background: '#1a1a18', color: '#e8e8e4',
                 border: maskinOpen ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.1)',
-                borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
+                borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 500,
                 fontFamily: "'Geist', system-ui, sans-serif",
                 outline: 'none', cursor: 'pointer', textAlign: 'left',
                 display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
@@ -2909,7 +2909,7 @@ export default function Maskinvy() {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>‹</button>
             <div style={{
-              minWidth: 90, textAlign: 'center', fontSize: 12, fontWeight: 600,
+              minWidth: 90, textAlign: 'center', fontSize: 12, fontWeight: 500,
               color: periodOffset === 0 ? '#e8e8e4' : '#00c48c', letterSpacing: '-0.2px',
             }}>
               {getPeriodLabel(period, periodOffset)}
@@ -2930,7 +2930,7 @@ export default function Maskinvy() {
                 padding: '4px 10px', border: 'none', borderRadius: 5,
                 background: period === p ? '#1e1e1c' : 'transparent',
                 color: period === p ? '#e8e8e4' : '#555',
-                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                fontSize: 11, fontWeight: 500, cursor: 'pointer',
                 fontFamily: "'Geist', system-ui, sans-serif",
               }}>{p}</button>
             ))}
@@ -2952,7 +2952,7 @@ export default function Maskinvy() {
             {noProduction ? (
               <div style={{ marginTop: 32, textAlign: 'center', padding: '48px 20px', background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16 }}>
                 <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.3 }}>☀</div>
-                <div style={{ fontSize: 16, fontWeight: 600, color: '#e8e8e4', marginBottom: 6 }}>Ingen produktion registrerad idag</div>
+                <div style={{ fontSize: 16, fontWeight: 500, color: '#e8e8e4', marginBottom: 6 }}>Ingen produktion registrerad idag</div>
                 <div style={{ fontSize: 12, color: '#7a7a72' }}>Data visas här när maskinen startar</div>
               </div>
             ) : (<>
@@ -3010,15 +3010,15 @@ export default function Maskinvy() {
                   <div className="card-b">
                     {d.operatorer.map(op => (
                       <div key={op.namn} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(90,255,140,0.1)', border: '1px solid rgba(90,255,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'rgba(90,255,140,0.8)', flexShrink: 0 }}>
+                        <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(90,255,140,0.1)', border: '1px solid rgba(90,255,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 500, color: 'rgba(90,255,140,0.8)', flexShrink: 0 }}>
                           {op.namn.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
                         </div>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 14, fontWeight: 600, color: '#e8e8e4' }}>{op.namn}</div>
+                          <div style={{ fontSize: 14, fontWeight: 500, color: '#e8e8e4' }}>{op.namn}</div>
                           <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{op.objekt} · start {op.start}</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: 17, fontWeight: 700, color: '#e8e8e4' }}>{op.vol} m³</div>
+                          <div style={{ fontSize: 17, fontWeight: 500, color: '#e8e8e4' }}>{op.vol} m³</div>
                           <div style={{ fontSize: 10, color: '#7a7a72' }}>{op.prod} m³/G15h</div>
                         </div>
                       </div>
@@ -3036,7 +3036,7 @@ export default function Maskinvy() {
                       <div key={b.namn} style={{ marginBottom: 10 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 4 }}>
                           <span style={{ fontWeight: 500 }}>{b.namn}</span>
-                          <span><span style={{ fontWeight: 600 }}>{b.vol} m³</span> <span style={{ color: '#666', fontSize: 11 }}>{b.pct}%</span></span>
+                          <span><span style={{ fontWeight: 500 }}>{b.vol} m³</span> <span style={{ color: '#666', fontSize: 11 }}>{b.pct}%</span></span>
                         </div>
                         <div style={{ height: 5, borderRadius: 2, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
                           <div style={{ height: '100%', width: `${b.pct}%`, background: 'rgba(90,255,140,0.5)', borderRadius: 2 }} />
@@ -3053,7 +3053,7 @@ export default function Maskinvy() {
 
       {activeView === 'jamfor' && (
         <div style={{ padding: '24px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 900 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 4 }}>
+          <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 4 }}>
             Jämför perioder
           </div>
           <div style={{ fontSize: 13, color: '#7a7a72', marginBottom: 24 }}>
@@ -3063,16 +3063,16 @@ export default function Maskinvy() {
           {/* Date pickers */}
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 24, flexWrap: 'wrap' }}>
             <div style={{ background: '#1a1a18', border: '1px solid rgba(90,255,140,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#00c48c', letterSpacing: '0.08em' }}>A</span>
+              <span style={{ fontSize: 10, fontWeight: 500, color: '#00c48c', letterSpacing: '0.08em' }}>A</span>
               <input type="date" value={cmpDateA.start} onChange={e => setCmpDateA(p => ({ ...p, start: e.target.value }))}
                 style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
               <span style={{ color: '#3a3a36' }}>–</span>
               <input type="date" value={cmpDateA.end} onChange={e => setCmpDateA(p => ({ ...p, end: e.target.value }))}
                 style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
             </div>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#3a3a36' }}>VS</span>
+            <span style={{ fontSize: 11, fontWeight: 500, color: '#3a3a36' }}>VS</span>
             <div style={{ background: '#1a1a18', border: '1px solid rgba(255,179,64,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#ffb340', letterSpacing: '0.08em' }}>B</span>
+              <span style={{ fontSize: 10, fontWeight: 500, color: '#ffb340', letterSpacing: '0.08em' }}>B</span>
               <input type="date" value={cmpDateB.start} onChange={e => setCmpDateB(p => ({ ...p, start: e.target.value }))}
                 style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
               <span style={{ color: '#3a3a36' }}>–</span>
@@ -3082,7 +3082,7 @@ export default function Maskinvy() {
             <button onClick={runComparison} style={{
               padding: '10px 20px', border: 'none', borderRadius: 8,
               background: '#1a4a2e', color: '#00c48c', fontFamily: "'Geist', system-ui, sans-serif",
-              fontSize: 13, fontWeight: 600, cursor: 'pointer', letterSpacing: -0.2,
+              fontSize: 13, fontWeight: 500, cursor: 'pointer', letterSpacing: -0.2,
             }}>
               {cmpLoading ? 'Laddar...' : 'Visa →'}
             </button>
@@ -3093,9 +3093,9 @@ export default function Maskinvy() {
             <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 22 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 32px 1fr', gap: 7, alignItems: 'center', marginBottom: 12 }}>
                 <div />
-                <div style={{ background: 'rgba(90,255,140,0.08)', color: '#00c48c', borderRadius: 7, padding: '9px 14px', fontSize: 11, fontWeight: 600, border: '1px solid rgba(90,255,140,0.15)' }}>Period A</div>
-                <div style={{ textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#3a3a36' }}>VS</div>
-                <div style={{ background: 'rgba(255,179,64,0.08)', color: '#ffb340', borderRadius: 7, padding: '9px 14px', fontSize: 11, fontWeight: 600, border: '1px solid rgba(255,179,64,0.15)' }}>Period B</div>
+                <div style={{ background: 'rgba(90,255,140,0.08)', color: '#00c48c', borderRadius: 7, padding: '9px 14px', fontSize: 11, fontWeight: 500, border: '1px solid rgba(90,255,140,0.15)' }}>Period A</div>
+                <div style={{ textAlign: 'center', fontSize: 10, fontWeight: 500, color: '#3a3a36' }}>VS</div>
+                <div style={{ background: 'rgba(255,179,64,0.08)', color: '#ffb340', borderRadius: 7, padding: '9px 14px', fontSize: 11, fontWeight: 500, border: '1px solid rgba(255,179,64,0.15)' }}>Period B</div>
               </div>
               {[
                 { lbl: 'Volym', a: cmpDataA.volym, b: cmpDataB.volym, unit: 'm³' },
@@ -3109,14 +3109,14 @@ export default function Maskinvy() {
                 const fmt = (v: number) => v > 100 ? v.toLocaleString('sv-SE') : v;
                 return (
                   <div key={m.lbl} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 32px 1fr', gap: 7, alignItems: 'center', marginBottom: 7 }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.02em', color: '#7a7a72' }}>{m.lbl}</div>
+                    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#7a7a72' }}>{m.lbl}</div>
                     <div style={{ background: '#222220', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
                       <span style={{ fontFamily: "'Fraunces', serif", fontSize: 26, color: '#00c48c' }}>{fmt(m.a)}</span>
                       <span style={{ fontSize: 11, color: '#7a7a72' }}>{m.unit}</span>
                     </div>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{
-                        borderRadius: 5, padding: '3px 1px', fontSize: 10, fontWeight: 700,
+                        borderRadius: 5, padding: '3px 1px', fontSize: 10, fontWeight: 500,
                         background: pos ? 'rgba(90,255,140,0.1)' : 'rgba(255,95,87,0.1)',
                         color: pos ? '#00c48c' : '#ff5f57',
                       }}>
@@ -3135,7 +3135,7 @@ export default function Maskinvy() {
 
           {/* ── MACHINE COMPARISON ── */}
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 28, marginTop: 28 }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.4, marginBottom: 4 }}>
+            <div style={{ fontSize: 18, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.4, marginBottom: 4 }}>
               Jämför maskiner
             </div>
             <div style={{ fontSize: 12, color: '#7a7a72', marginBottom: 18 }}>
@@ -3147,15 +3147,15 @@ export default function Maskinvy() {
               <select value={machCmpA} onChange={e => setMachCmpA(e.target.value)} style={{
                 background: '#1a1a18', border: '1px solid rgba(90,255,140,0.15)', borderRadius: 8,
                 padding: '7px 10px', color: '#00c48c', fontFamily: "'Geist', system-ui, sans-serif",
-                fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer',
+                fontSize: 12, fontWeight: 500, outline: 'none', cursor: 'pointer',
               }}>
                 {allMachines.map(m => <option key={m.id} value={m.id}>{m.namn}</option>)}
               </select>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#3a3a36' }}>VS</span>
+              <span style={{ fontSize: 11, fontWeight: 500, color: '#3a3a36' }}>VS</span>
               <select value={machCmpB} onChange={e => setMachCmpB(e.target.value)} style={{
                 background: '#1a1a18', border: '1px solid rgba(91,143,255,0.2)', borderRadius: 8,
                 padding: '7px 10px', color: '#5b8fff', fontFamily: "'Geist', system-ui, sans-serif",
-                fontSize: 12, fontWeight: 600, outline: 'none', cursor: 'pointer',
+                fontSize: 12, fontWeight: 500, outline: 'none', cursor: 'pointer',
               }}>
                 {allMachines.map(m => <option key={m.id} value={m.id}>{m.namn}</option>)}
               </select>
@@ -3170,7 +3170,7 @@ export default function Maskinvy() {
                 padding: '7px 16px', border: 'none', borderRadius: 8,
                 background: machCmpA !== machCmpB ? '#1a4a2e' : '#1a1a18',
                 color: machCmpA !== machCmpB ? '#00c48c' : '#555',
-                fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, fontWeight: 600,
+                fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, fontWeight: 500,
                 cursor: machCmpA !== machCmpB ? 'pointer' : 'default',
               }}>
                 {machCmpLoading ? 'Laddar...' : 'Jämför →'}
@@ -3197,12 +3197,12 @@ export default function Maskinvy() {
                         const better = (a: number, b: number, higher: boolean) => higher ? a >= b : a <= b;
                         return (
                           <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                            <td style={{ padding: '10px 14px', fontWeight: 600, color: colors[i] }}>{r.namn}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.stammar, other.stammar, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.stammar, other.stammar, true) ? 700 : 400 }}>{r.stammar.toLocaleString('sv-SE')}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.volym, other.volym, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.volym, other.volym, true) ? 700 : 400 }}>{r.volym.toLocaleString('sv-SE')}</td>
+                            <td style={{ padding: '10px 14px', fontWeight: 500, color: colors[i] }}>{r.namn}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.stammar, other.stammar, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.stammar, other.stammar, true) ? 500 : 400 }}>{r.stammar.toLocaleString('sv-SE')}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.volym, other.volym, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.volym, other.volym, true) ? 500 : 400 }}>{r.volym.toLocaleString('sv-SE')}</td>
                             <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.medelstam}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.prod, other.prod, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.prod, other.prod, true) ? 700 : 400 }}>{r.prod}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.dieselM3, other.dieselM3, false) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.dieselM3, other.dieselM3, false) ? 700 : 400 }}>{r.dieselM3}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.prod, other.prod, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.prod, other.prod, true) ? 500 : 400 }}>{r.prod}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.dieselM3, other.dieselM3, false) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.dieselM3, other.dieselM3, false) ? 500 : 400 }}>{r.dieselM3}</td>
                             <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.motorH}</td>
                           </tr>
                         );
@@ -3214,7 +3214,7 @@ export default function Maskinvy() {
                 {/* Monthly m³/G15h chart */}
                 {machCmpMonths.length > 0 && (
                   <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '16px 16px 12px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.02em', color: '#3a3a36', marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#3a3a36', marginBottom: 12 }}>
                       m³/G15h per månad
                     </div>
                     <div style={{ height: 240, position: 'relative' }}>
@@ -3242,7 +3242,7 @@ export default function Maskinvy() {
         const isMultiMonth = pm.length > 1;
         return (
           <div style={{ padding: '24px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 960 }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
+            <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
 
             {/* KPI cards */}
             <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
@@ -3252,8 +3252,8 @@ export default function Maskinvy() {
                 { label: 'Snitt per avbrott', value: at.snittMin + ' min' },
               ].map(c => (
                 <div key={c.label} style={{ background: '#161614', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 20, minHeight: 100 }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.02em', color: '#666', marginBottom: 8 }}>{c.label}</div>
-                  <div style={{ fontSize: 32, fontWeight: 700, color: '#e8e8e4', letterSpacing: -1, marginBottom: 4 }}>{c.value}</div>
+                  <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.02em', color: '#666', marginBottom: 8 }}>{c.label}</div>
+                  <div style={{ fontSize: 32, fontWeight: 500, color: '#e8e8e4', letterSpacing: -1, marginBottom: 4 }}>{c.value}</div>
                 </div>
               ))}
             </div>
@@ -3261,7 +3261,7 @@ export default function Maskinvy() {
             {/* Chart: stacked bars per month if multi-month, horizontal bars per category if single month */}
             {pk.length > 0 && (
               <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '18px', marginBottom: 16 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.02em', color: '#3a3a36', marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#3a3a36', marginBottom: 14 }}>
                   {isMultiMonth ? 'Avbrottstid per månad & kategori' : 'Avbrottstid per kategori'}
                 </div>
                 <div style={{ height: isMultiMonth ? 280 : Math.max(180, pk.length * 36), position: 'relative' }}>
@@ -3289,7 +3289,7 @@ export default function Maskinvy() {
                           <div style={{ width: 8, height: 8, borderRadius: 2, background: katColors[r.kategori] || '#7a7a72', flexShrink: 0 }} />
                           {translateKategori(r.kategori)}
                         </td>
-                        <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 600, color: '#e8e8e4' }}>{r.timmar}</td>
+                        <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: '#e8e8e4' }}>{r.timmar}</td>
                         <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.antal}</td>
                         <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.snittMin}</td>
                       </tr>
@@ -3431,13 +3431,13 @@ body {
   background: var(--surface2); border-radius: 7px; border: 1px solid var(--border);
   flex: 1; max-width: 300px;
 }
-.cmp-lbl { font-size: 10px; font-weight: 600; letter-spacing: 0.2px; white-space: nowrap; }
+.cmp-lbl { font-size: 10px; font-weight: 500; letter-spacing: 0.2px; white-space: nowrap; }
 .cmp-lbl.a { color: var(--accent); }
 .cmp-lbl.b { color: var(--warn); }
 .cmp-period input[type=date] { border: none; background: transparent; font-family: 'Geist', sans-serif; font-size: 12px; color: var(--text); outline: none; cursor: pointer; color-scheme: dark; }
 .cmp-sep { color: var(--dim); }
-.cmp-vs { font-size: 11px; font-weight: 700; color: var(--dim); }
-.cmp-go { padding: 7px 18px; background: var(--accent); color: #0a1a10; border: none; border-radius: 7px; font-family: 'Geist', sans-serif; font-size: 12px; font-weight: 600; cursor: pointer; margin-left: auto; transition: opacity 0.15s; }
+.cmp-vs { font-size: 11px; font-weight: 500; color: var(--dim); }
+.cmp-go { padding: 7px 18px; background: var(--accent); color: #0a1a10; border: none; border-radius: 7px; font-family: 'Geist', sans-serif; font-size: 12px; font-weight: 500; cursor: pointer; margin-left: auto; transition: opacity 0.15s; }
 .cmp-go:hover { opacity: 0.85; }
 
 /* ── PAGE ── */
@@ -3459,10 +3459,10 @@ body {
 }
 .hero-main::after { display: none; }
 
-.hero-label { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #666; margin-bottom: 8px; }
+.hero-label { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; color: #666; margin-bottom: 8px; }
 .hero-val {
   font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1;
-  font-weight: 700; letter-spacing: -1px; color: var(--text);
+  font-weight: 500; letter-spacing: -1px; color: var(--text);
   margin-bottom: 4px;
 }
 .hero-unit { font-size: 12px; color: #888; font-weight: 400; }
@@ -3477,8 +3477,8 @@ body {
 .kpi:nth-child(2){animation-delay:0.1s} .kpi:nth-child(3){animation-delay:0.15s}
 .kpi:nth-child(4){animation-delay:0.2s} .kpi:nth-child(5){animation-delay:0.25s}
 
-.k-label { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #666; margin-bottom: 8px; }
-.k-val { font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1; font-weight: 700; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
+.k-label { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; color: #666; margin-bottom: 8px; }
+.k-val { font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1; font-weight: 500; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
 .k-unit { font-size: 12px; color: #888; }
 .k-delta { margin-top: 10px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 20px; }
 .up   { color: var(--accent); background: rgba(90,255,140,0.1); }
@@ -3491,7 +3491,7 @@ body {
 }
 .card:hover { border-color: var(--border2); }
 .card-h { padding: 20px 24px 0; display: flex; align-items: center; justify-content: space-between; }
-.card-t { font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: #666; }
+.card-t { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; color: #666; }
 .card-b { padding: 16px 24px 24px; }
 
 /* ── GRID ── */
@@ -3500,7 +3500,7 @@ body {
 .gf { margin-bottom: 16px; }
 
 /* ── BADGE ── */
-.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 600; letter-spacing: 0.3px; }
+.badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 500; letter-spacing: 0.3px; }
 .bg  { background: rgba(90,255,140,0.1);  color: var(--accent); }
 .bw  { background: rgba(255,179,64,0.1);  color: var(--warn); }
 .bs  { background: rgba(255,179,64,0.12); color: var(--warn); }
@@ -3515,12 +3515,12 @@ body {
 .op-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .op-row:last-child { border-bottom: none; padding-bottom: 0; }
 .op-row:first-child { padding-top: 0; }
-.op-av { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.op-av { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; flex-shrink: 0; }
 .op-name { font-size: 13px; font-weight: 500; }
 .op-sub  { font-size: 11px; color: var(--muted); }
 .op-info { flex: 1; }
 .op-stats { display: flex; gap: 16px; }
-.op-sv { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.op-sv { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .op-sl { font-size: 10px; color: var(--muted); }
 
 /* ── PROGRESS ── */
@@ -3543,24 +3543,24 @@ body {
 
 /* ── TABLE ── */
 .tbl { width: 100%; border-collapse: collapse; }
-.tbl th { text-align: left; font-size: 10px; font-weight: 600; letter-spacing: 0.2px; color: var(--muted); padding: 0 0 10px; border-bottom: 1px solid var(--border); }
+.tbl th { text-align: left; font-size: 10px; font-weight: 500; letter-spacing: 0.2px; color: var(--muted); padding: 0 0 10px; border-bottom: 1px solid var(--border); }
 .tbl td { padding: 11px 0; border-bottom: 1px solid var(--border); font-size: 12px; vertical-align: middle; }
 .tbl tr:last-child td { border-bottom: none; }
 .tbl tr:hover td { background: rgba(255,255,255,0.02); }
-.tn { font-weight: 600; font-size: 12px; }
+.tn { font-weight: 500; font-size: 12px; }
 .ts2{ font-size: 10px; color: var(--muted); margin-top: 1px; }
 
 /* ── INK ── */
 .ink-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--border); }
 .ink-row:last-child { border-bottom: none; padding-bottom: 0; }
 .ink-row:first-child { padding-top: 0; }
-.ink-logo { width: 30px; height: 30px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: var(--muted); flex-shrink: 0; }
+.ink-logo { width: 30px; height: 30px; border-radius: 6px; background: var(--surface2); border: 1px solid var(--border2); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 500; color: var(--muted); flex-shrink: 0; }
 .ink-name { font-size: 12px; font-weight: 400; flex: 1; }
-.ink-vol  { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ink-vol  { font-size: 12px; font-weight: 500; font-variant-numeric: tabular-nums; }
 
 /* ── CALENDAR ── */
 .cal-names { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; margin-bottom: 5px; }
-.cal-dn { text-align: center; font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); padding-bottom: 3px; }
+.cal-dn { text-align: center; font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); padding-bottom: 3px; }
 .cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
 .cal-cell {
   aspect-ratio: 1; border-radius: 6px; display: flex; align-items: center; justify-content: center;
@@ -3574,7 +3574,7 @@ body {
 
 .cal-sum { display: grid; grid-template-columns: repeat(4,1fr); gap: 6px; margin-top: 12px; }
 .cal-si { background: var(--surface2); border-radius: 8px; padding: 10px 8px; text-align: center; }
-.cal-sn { font-family: 'Geist', system-ui, sans-serif; font-size: 20px; font-weight: 700; line-height: 1; }
+.cal-sn { font-family: 'Geist', system-ui, sans-serif; font-size: 20px; font-weight: 500; line-height: 1; }
 .cal-sl { font-size: 9px; letter-spacing: 0.2px; color: var(--muted); margin-top: 3px; }
 
 /* ── MEDELSTAM CARDS ── */
@@ -3585,16 +3585,16 @@ body {
 }
 .sc:hover { border-color: var(--border2); background: var(--surface); }
 .sc.best { border-color: rgba(90,255,140,0.2); }
-.sc-k { font-size: 9px; color: var(--muted); font-weight: 600; letter-spacing: 0.2px; margin-bottom: 7px; }
-.sc-p { font-family: 'Geist', system-ui, sans-serif; font-size: 16px; font-weight: 700; line-height: 1; margin-bottom: 1px; }
+.sc-k { font-size: 9px; color: var(--muted); font-weight: 500; letter-spacing: 0.2px; margin-bottom: 7px; }
+.sc-p { font-family: 'Geist', system-ui, sans-serif; font-size: 16px; font-weight: 500; line-height: 1; margin-bottom: 1px; }
 .sc-u { font-size: 9px; color: var(--muted); margin-bottom: 6px; }
 .sc-d { height: 1px; background: var(--border); margin: 5px 0; }
-.sc-s { font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sc-s { font-size: 11px; font-weight: 500; font-variant-numeric: tabular-nums; }
 .sc-sl{ font-size: 9px; color: var(--muted); }
 .sc-x { font-size: 9px; color: var(--dim); margin-top: 4px; }
 
 /* ── CHART LEGEND ── */
-.cleg { font-size: 10px; font-weight: 600; letter-spacing: 0.2px; color: var(--muted); display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.cleg { font-size: 10px; font-weight: 500; letter-spacing: 0.2px; color: var(--muted); display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .li { display: flex; align-items: center; gap: 4px; }
 .ld { width: 7px; height: 7px; border-radius: 50%; }
 .cdiv { height: 1px; background: var(--border); margin: 18px 0; }
@@ -3602,12 +3602,12 @@ body {
 /* ── SMALL NUMS ── */
 .snum-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; margin-top: 12px; }
 .snum { background: var(--surface2); border-radius: 8px; padding: 10px; text-align: center; }
-.snum-v { font-family: 'Geist', system-ui, sans-serif; font-size: 17px; font-weight: 700; line-height: 1; }
+.snum-v { font-family: 'Geist', system-ui, sans-serif; font-size: 17px; font-weight: 500; line-height: 1; }
 .snum-l { font-size: 9px; letter-spacing: 0.2px; color: var(--muted); margin-top: 3px; }
 
 /* ── TIDS-BAR ── */
 .tbar { display: flex; height: 18px; border-radius: 5px; overflow: hidden; gap: 2px; margin-bottom: 14px; }
-.tseg { display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 600; }
+.tseg { display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 500; }
 .tleg { display: flex; flex-wrap: wrap; gap: 10px; }
 .tli  { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
 .tld  { width: 6px; height: 6px; border-radius: 2px; }
@@ -3643,7 +3643,7 @@ body {
   width: 44px; height: 44px; border-radius: 50%;
   background: rgba(255,255,255,0.07);
   display: flex; align-items: center; justify-content: center;
-  font-size: 15px; font-weight: 600; color: rgba(255,255,255,0.7);
+  font-size: 15px; font-weight: 500; color: rgba(255,255,255,0.7);
   flex-shrink: 0;
 }
 .forar-title { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 500; }
@@ -3660,16 +3660,16 @@ body {
 
 .forar-kpis { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 20px; }
 .fkpi { background: #161614; border-radius: 10px; padding: 14px 12px; text-align: center; }
-.fkpi-v { font-family: 'Geist', system-ui, sans-serif; font-size: 22px; font-weight: 700; line-height: 1; color: var(--text); }
+.fkpi-v { font-family: 'Geist', system-ui, sans-serif; font-size: 22px; font-weight: 500; line-height: 1; color: var(--text); }
 .fkpi-l { font-size: 9px; letter-spacing: 0.2px; color: var(--muted); margin-top: 4px; }
 
-.fsec-title { font-size: 10px; font-weight: 600; letter-spacing: 0.2px; color: var(--muted); margin-bottom: 10px; }
+.fsec-title { font-size: 10px; font-weight: 500; letter-spacing: 0.2px; color: var(--muted); margin-bottom: 10px; }
 .fsec { margin-bottom: 20px; }
 
 .frow { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
 .frow:last-child { border-bottom: none; }
 .frow-l { color: var(--muted); }
-.frow-v { font-weight: 600; font-variant-numeric: tabular-nums; }
+.frow-v { font-weight: 500; font-variant-numeric: tabular-nums; }
 
 /* ── BOLAG PANEL ── */
 .ink-clickable { cursor: pointer; transition: background 0.12s; border-radius: 8px; margin: 0 -8px; padding-left: 8px; padding-right: 8px; }
@@ -3727,7 +3727,7 @@ body {
   }
   .mv-bottomnav button.active { color: #00c48c; }
   .mv-bn-icon { font-size: 18px; line-height: 1; }
-  .mv-bn-label { font-size: 9px; font-weight: 600; letter-spacing: 0.3px; }
+  .mv-bn-label { font-size: 9px; font-weight: 500; letter-spacing: 0.3px; }
 
   /* 2. Top bar: stack vertically */
   .mv-topbar {
@@ -3958,11 +3958,11 @@ body {
         </table>
         </div>
         <div style="margin:14px 22px 4px;border-top:1px solid var(--border);padding-top:14px;">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Fördelning per åtgärd</div>
+          <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Fördelning per åtgärd</div>
           <div id="objTypDist"><div style="color:var(--muted);font-size:12px;">Laddar...</div></div>
         </div>
         <div style="margin:14px 22px 4px;border-top:1px solid var(--border);padding-top:14px;">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Timpeng / Ackord</div>
+          <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Timpeng / Ackord</div>
           <div id="timpengDist"><div style="color:var(--muted);font-size:12px;">Laddar...</div></div>
         </div>
       </div>
@@ -3989,8 +3989,10 @@ body {
     <div class="card anim" style="animation-delay:0.6s">
       <div class="card-h">
         <div class="card-t" id="dailyChartTitle">Daglig produktion</div>
-        <div style="display:flex;gap:12px;">
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:var(--accent)"></div>m³/dag</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(90,255,140,0.7)"></div>Över snitt</div>
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(76,175,80,0.5)"></div>Under snitt</div>
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(91,143,255,0.15)"></div>Helg</div>
         </div>
       </div>
       <div class="card-b"><canvas id="dailyChart" style="max-height:190px"></canvas></div>
@@ -4130,7 +4132,7 @@ body {
 <!-- BOLAG PANEL -->
 <div class="bolag-panel" id="bolagPanel" style="width:min(480px,100vw)">
   <div class="forar-head">
-    <div class="forar-av" id="bpLogo" style="border-radius:8px;font-size:11px;font-weight:700;"></div>
+    <div class="forar-av" id="bpLogo" style="border-radius:8px;font-size:11px;font-weight:500;"></div>
     <div>
       <div class="forar-title" id="bpName"></div>
       <div class="forar-sub" id="bpSub"></div>
@@ -4162,7 +4164,7 @@ body {
     </div>
 
     <!-- Tidsfördelning stapel -->
-    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Fördelning</div>
+    <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Fördelning</div>
     <div style="background:var(--surface2);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
       <div class="frow"><span class="frow-l">Processar</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:66%;background:rgba(90,255,140,0.4)"></div></div></div><span class="frow-v">111h · 66%</span></div>
       <div class="frow"><span class="frow-l">Kör</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:14%;background:rgba(255,255,255,0.2)"></div></div></div><span class="frow-v">23h · 14%</span></div>
@@ -4172,7 +4174,7 @@ body {
     </div>
 
     <!-- Avbrott per orsak -->
-    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Avbrott per orsak</div>
+    <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Avbrott per orsak</div>
     <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:20px;">
       <div class="frow">
         <div style="flex:1;">
@@ -4180,7 +4182,7 @@ body {
           <div style="font-size:10px;color:var(--muted);margin-top:1px;">Schemalagt underhåll</div>
         </div>
         <div style="text-align:right;">
-          <div style="font-weight:600;font-variant-numeric:tabular-nums;">6h 20min</div>
+          <div style="font-weight:500;font-variant-numeric:tabular-nums;">6h 20min</div>
           <div style="font-size:10px;color:var(--muted);">4 tillfällen · 30%</div>
         </div>
       </div>
@@ -4190,7 +4192,7 @@ body {
           <div style="font-size:10px;color:var(--muted);margin-top:1px;">Förflyttning mellan objekt</div>
         </div>
         <div style="text-align:right;">
-          <div style="font-weight:600;font-variant-numeric:tabular-nums;">4h 45min</div>
+          <div style="font-weight:500;font-variant-numeric:tabular-nums;">4h 45min</div>
           <div style="font-size:10px;color:var(--muted);">2 tillfällen · 22%</div>
         </div>
       </div>
@@ -4200,7 +4202,7 @@ body {
           <div style="font-size:10px;color:var(--muted);margin-top:1px;">Oplanerade stopp</div>
         </div>
         <div style="text-align:right;">
-          <div style="font-weight:600;font-variant-numeric:tabular-nums;">3h 10min</div>
+          <div style="font-weight:500;font-variant-numeric:tabular-nums;">3h 10min</div>
           <div style="font-size:10px;color:var(--muted);">3 tillfällen · 15%</div>
         </div>
       </div>
@@ -4210,7 +4212,7 @@ body {
           <div style="font-size:10px;color:var(--muted);margin-top:1px;">Stopp ≤ 15 min (other_work_sek)</div>
         </div>
         <div style="text-align:right;">
-          <div style="font-weight:600;font-variant-numeric:tabular-nums;">2h 30min</div>
+          <div style="font-weight:500;font-variant-numeric:tabular-nums;">2h 30min</div>
           <div style="font-size:10px;color:var(--muted);">48 tillfällen · 12%</div>
         </div>
       </div>
@@ -4220,7 +4222,7 @@ body {
           <div style="font-size:10px;color:var(--muted);margin-top:1px;">Bränsle & smörjning</div>
         </div>
         <div style="text-align:right;">
-          <div style="font-weight:600;font-variant-numeric:tabular-nums;">2h 05min</div>
+          <div style="font-weight:500;font-variant-numeric:tabular-nums;">2h 05min</div>
           <div style="font-size:10px;color:var(--muted);">8 tillfällen · 10%</div>
         </div>
       </div>
@@ -4230,7 +4232,7 @@ body {
           <div style="font-size:10px;color:var(--muted);margin-top:1px;">Väder, uppdrag, övrigt</div>
         </div>
         <div style="text-align:right;">
-          <div style="font-weight:600;font-variant-numeric:tabular-nums;">1h 40min</div>
+          <div style="font-weight:500;font-variant-numeric:tabular-nums;">1h 40min</div>
           <div style="font-size:10px;color:var(--muted);">5 tillfällen · 8%</div>
         </div>
       </div>
@@ -4240,14 +4242,14 @@ body {
           <div style="font-size:10px;color:var(--muted);margin-top:1px;">Ej kategoriserat</div>
         </div>
         <div style="text-align:right;">
-          <div style="font-weight:600;font-variant-numeric:tabular-nums;">0h 40min</div>
+          <div style="font-weight:500;font-variant-numeric:tabular-nums;">0h 40min</div>
           <div style="font-size:10px;color:var(--muted);">2 tillfällen · 3%</div>
         </div>
       </div>
     </div>
 
     <!-- Avbrott per förare (dynamiskt) -->
-    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Avbrott per förare</div>
+    <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Avbrott per förare</div>
     <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;" id="avbrottForareContainer">
       <!-- Populated dynamically -->
     </div>
@@ -4272,16 +4274,16 @@ body {
       <div class="fkpi"><div class="fkpi-v">575</div><div class="fkpi-l">Massaved</div></div>
     </div>
 
-    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Sortiment per trädslag</div>
+    <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Sortiment per trädslag</div>
     <div style="background:var(--surface2);border-radius:10px;padding:4px 16px;margin-bottom:20px;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead>
           <tr>
-            <th style="text-align:left;font-size:9px;font-weight:600;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;"></th>
-            <th style="text-align:right;font-size:9px;font-weight:600;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Sågtimmer</th>
-            <th style="text-align:right;font-size:9px;font-weight:600;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Massaved</th>
-            <th style="text-align:right;font-size:9px;font-weight:600;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Energived</th>
-            <th style="text-align:right;font-size:9px;font-weight:600;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Totalt</th>
+            <th style="text-align:left;font-size:9px;font-weight:500;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;"></th>
+            <th style="text-align:right;font-size:9px;font-weight:500;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Sågtimmer</th>
+            <th style="text-align:right;font-size:9px;font-weight:500;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Massaved</th>
+            <th style="text-align:right;font-size:9px;font-weight:500;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Energived</th>
+            <th style="text-align:right;font-size:9px;font-weight:500;letter-spacing:0.2px;color:var(--muted);padding:10px 0 8px;">Totalt</th>
           </tr>
         </thead>
         <tbody>
@@ -4290,34 +4292,34 @@ body {
             <td style="text-align:right;padding:10px 0;font-variant-numeric:tabular-nums;">820</td>
             <td style="text-align:right;padding:10px 0;font-variant-numeric:tabular-nums;">280</td>
             <td style="text-align:right;padding:10px 0;font-variant-numeric:tabular-nums;">24</td>
-            <td style="text-align:right;padding:10px 0;font-weight:600;font-variant-numeric:tabular-nums;">1 124</td>
+            <td style="text-align:right;padding:10px 0;font-weight:500;font-variant-numeric:tabular-nums;">1 124</td>
           </tr>
           <tr style="border-top:1px solid var(--border)">
             <td style="padding:10px 0;font-weight:500;">Tall</td>
             <td style="text-align:right;padding:10px 0;font-variant-numeric:tabular-nums;">220</td>
             <td style="text-align:right;padding:10px 0;font-variant-numeric:tabular-nums;">215</td>
             <td style="text-align:right;padding:10px 0;font-variant-numeric:tabular-nums;">63</td>
-            <td style="text-align:right;padding:10px 0;font-weight:600;font-variant-numeric:tabular-nums;">498</td>
+            <td style="text-align:right;padding:10px 0;font-weight:500;font-variant-numeric:tabular-nums;">498</td>
           </tr>
           <tr style="border-top:1px solid var(--border)">
             <td style="padding:10px 0;font-weight:500;">Björk</td>
             <td style="text-align:right;padding:10px 0;font-variant-numeric:tabular-nums;">84</td>
             <td style="text-align:right;padding:10px 0;font-variant-numeric:tabular-nums;">80</td>
             <td style="text-align:right;padding:10px 0;font-variant-numeric:tabular-nums;">21</td>
-            <td style="text-align:right;padding:10px 0;font-weight:600;font-variant-numeric:tabular-nums;">185</td>
+            <td style="text-align:right;padding:10px 0;font-weight:500;font-variant-numeric:tabular-nums;">185</td>
           </tr>
           <tr style="border-top:1px solid var(--border2)">
-            <td style="padding:10px 0;font-size:10px;color:var(--muted);font-weight:600;">Totalt</td>
-            <td style="text-align:right;padding:10px 0;font-weight:600;font-variant-numeric:tabular-nums;">1 124</td>
-            <td style="text-align:right;padding:10px 0;font-weight:600;font-variant-numeric:tabular-nums;">575</td>
-            <td style="text-align:right;padding:10px 0;font-weight:600;font-variant-numeric:tabular-nums;">108</td>
-            <td style="text-align:right;padding:10px 0;font-weight:700;font-variant-numeric:tabular-nums;">1 807</td>
+            <td style="padding:10px 0;font-size:10px;color:var(--muted);font-weight:500;">Totalt</td>
+            <td style="text-align:right;padding:10px 0;font-weight:500;font-variant-numeric:tabular-nums;">1 124</td>
+            <td style="text-align:right;padding:10px 0;font-weight:500;font-variant-numeric:tabular-nums;">575</td>
+            <td style="text-align:right;padding:10px 0;font-weight:500;font-variant-numeric:tabular-nums;">108</td>
+            <td style="text-align:right;padding:10px 0;font-weight:500;font-variant-numeric:tabular-nums;">1 807</td>
           </tr>
         </tbody>
       </table>
     </div>
 
-    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Andel per sortiment</div>
+    <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Andel per sortiment</div>
     <div style="background:var(--surface2);border-radius:10px;padding:14px 16px;">
       <div class="frow"><span class="frow-l">Sågtimmer</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:62%;background:rgba(90,255,140,0.5)"></div></div></div><span class="frow-v">62% · 1 124 m³</span></div>
       <div class="frow"><span class="frow-l">Massaved</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:32%;background:rgba(255,255,255,0.2)"></div></div></div><span class="frow-v">32% · 575 m³</span></div>
@@ -4346,7 +4348,7 @@ body {
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead>
           <tr style="border-bottom:1px solid var(--border);" id="jmfTableHead">
-            <th style="text-align:left;padding:12px 16px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.7px;color:var(--muted);"></th>
+            <th style="text-align:left;padding:12px 16px;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:0.7px;color:var(--muted);"></th>
           </tr>
         </thead>
         <tbody id="jmfTableBody"></tbody>
@@ -4354,7 +4356,7 @@ body {
     </div>
 
     <!-- Bäst-kort -->
-    <div style="font-size:10px;font-weight:600;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Bäst per kategori</div>
+    <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Bäst per kategori</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;" id="jmfBest"></div>
 
   </div>
@@ -4363,7 +4365,7 @@ body {
 <!-- OBJ TYP PANEL -->
 <div class="bolag-panel" id="objTypPanel">
   <div class="forar-head">
-    <div class="forar-av" style="border-radius:8px;font-size:13px;font-weight:700;" id="otpLabel">RP</div>
+    <div class="forar-av" style="border-radius:8px;font-size:13px;font-weight:500;" id="otpLabel">RP</div>
     <div>
       <div class="forar-title" id="otpTitle"></div>
       <div class="forar-sub"></div>
@@ -4376,7 +4378,7 @@ body {
 <!-- INKÖPARE PANEL -->
 <div class="bolag-panel" id="inkPanel" style="width:min(480px,100vw)">
   <div class="forar-head">
-    <div class="forar-av" style="border-radius:50%;font-size:11px;font-weight:600;" id="inkLogo"></div>
+    <div class="forar-av" style="border-radius:50%;font-size:11px;font-weight:500;" id="inkLogo"></div>
     <div>
       <div class="forar-title" id="inkName"></div>
       <div class="forar-sub" id="inkSub"></div>
@@ -4424,7 +4426,7 @@ body {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#e8e8e4', letterSpacing: -0.3 }}>Jämför perioder</div>
+              <div style={{ fontSize: 16, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.3 }}>Jämför perioder</div>
               <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>
                 {valdMaskin ? `${valdMaskin.tillverkare} ${valdMaskin.modell}` : ''} — sida vid sida
               </div>
@@ -4432,7 +4434,7 @@ body {
             <button onClick={() => setActiveView('jamfor')} style={{
               padding: '8px 18px', border: 'none', borderRadius: 8,
               background: '#1a4a2e', color: '#00c48c',
-              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              fontSize: 12, fontWeight: 500, cursor: 'pointer',
               fontFamily: "'Geist', system-ui, sans-serif",
             }}>Öppna jämförelse →</button>
           </div>
