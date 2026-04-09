@@ -2779,68 +2779,40 @@ export default function Maskinvy() {
             );
           })}
         </nav>
-        {/* Maskin + Period */}
-        <div style={{ padding: '12px 12px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {/* Period type + navigation */}
-          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginBottom: 2 }}>Period</div>
-          <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-            {(['V', 'M', 'K', 'Å'] as const).map((p) => (
-              <button key={p} onClick={() => { setPeriod(p); setPeriodOffset(0); }} style={{
-                flex: 1, padding: '5px 0', border: 'none', borderRadius: 6,
-                background: period === p ? '#1e1e1c' : 'transparent',
-                color: period === p ? '#e8e8e4' : '#555',
-                fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                fontFamily: "'Geist', system-ui, sans-serif",
-              }}>{p}</button>
-            ))}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-            <button onClick={() => setPeriodOffset(o => o - 1)} style={{
-              width: 28, height: 28, border: 'none', borderRadius: 6, background: 'transparent',
-              color: '#7a7a72', fontSize: 14, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>‹</button>
-            <div style={{
-              flex: 1, textAlign: 'center', fontSize: 12, fontWeight: 600,
-              color: periodOffset === 0 ? '#e8e8e4' : '#00c48c', letterSpacing: '-0.2px',
-            }}>
-              {getPeriodLabel(period, periodOffset)}
-            </div>
-            <button onClick={() => setPeriodOffset(o => Math.min(o + 1, 0))} style={{
-              width: 28, height: 28, border: 'none', borderRadius: 6, background: 'transparent',
-              color: periodOffset >= 0 ? '#333' : '#7a7a72', fontSize: 14,
-              cursor: periodOffset >= 0 ? 'default' : 'pointer',
-              fontFamily: "'Geist', system-ui, sans-serif",
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>›</button>
-          </div>
-
-          {/* Maskin — custom dropdown that opens UPWARD */}
-          <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#666', marginTop: 8, marginBottom: 2 }}>Maskin</div>
+      </aside>
+      {/* ── MAIN CONTENT ── */}
+      <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch', background: '#111110', display: 'flex', flexDirection: 'column' }}>
+        {/* ── TOP BAR: Maskin + Period ── */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '8px 20px',
+          borderBottom: '1px solid rgba(255,255,255,0.07)', background: '#0f0f0e',
+          fontFamily: "'Geist', system-ui, sans-serif", flexShrink: 0,
+        }}>
+          {/* Maskin dropdown */}
           <div style={{ position: 'relative' }}>
             <button
               onClick={() => setMaskinOpen(!maskinOpen)}
               style={{
-                width: '100%', background: '#1a1a18', color: '#e8e8e4',
+                background: '#1a1a18', color: '#e8e8e4',
                 border: maskinOpen ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.1)',
-                borderRadius: 8, padding: '8px 10px', fontSize: 12,
+                borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
                 fontFamily: "'Geist', system-ui, sans-serif",
                 outline: 'none', cursor: 'pointer', textAlign: 'left',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
               }}
             >
               <span>{maskiner.find(m => m.modell === vald)
                 ? `${maskiner.find(m => m.modell === vald)!.tillverkare} ${vald}`
                 : 'Välj maskin...'}</span>
-              <span style={{ fontSize: 10, color: '#555', transform: maskinOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▲</span>
+              <span style={{ fontSize: 9, color: '#555', transform: maskinOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▼</span>
             </button>
             {maskinOpen && (
               <div style={{
-                position: 'absolute', bottom: 'calc(100% + 4px)', left: 0, right: 0,
+                position: 'absolute', top: 'calc(100% + 4px)', left: 0,
                 background: '#1a1a18', border: '1px solid rgba(255,255,255,0.15)',
                 borderRadius: 8, overflow: 'hidden', zIndex: 50,
-                boxShadow: '0 -8px 24px rgba(0,0,0,0.5)',
-                maxHeight: 200, overflowY: 'auto',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                maxHeight: 240, overflowY: 'auto', minWidth: '100%',
               }}>
                 {maskiner.map((m, i) => (
                   <button
@@ -2852,7 +2824,7 @@ export default function Maskinvy() {
                       background: m.modell === vald ? 'rgba(255,255,255,0.08)' : 'transparent',
                       color: m.modell === vald ? '#e8e8e4' : '#999',
                       fontSize: 12, fontFamily: "'Geist', system-ui, sans-serif",
-                      cursor: 'pointer', textAlign: 'left',
+                      cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap',
                     }}
                   >
                     {m.tillverkare} {m.modell}
@@ -2862,10 +2834,43 @@ export default function Maskinvy() {
             )}
           </div>
 
+          {/* Period navigation: ‹ Label › */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
+            <button onClick={() => setPeriodOffset(o => o - 1)} style={{
+              width: 26, height: 26, border: 'none', borderRadius: 6, background: 'transparent',
+              color: '#7a7a72', fontSize: 14, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>‹</button>
+            <div style={{
+              minWidth: 90, textAlign: 'center', fontSize: 12, fontWeight: 600,
+              color: periodOffset === 0 ? '#e8e8e4' : '#00c48c', letterSpacing: '-0.2px',
+            }}>
+              {getPeriodLabel(period, periodOffset)}
+            </div>
+            <button onClick={() => setPeriodOffset(o => Math.min(o + 1, 0))} style={{
+              width: 26, height: 26, border: 'none', borderRadius: 6, background: 'transparent',
+              color: periodOffset >= 0 ? '#333' : '#7a7a72', fontSize: 14,
+              cursor: periodOffset >= 0 ? 'default' : 'pointer',
+              fontFamily: "'Geist', system-ui, sans-serif",
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>›</button>
+          </div>
+
+          {/* Period type: V M K Å */}
+          <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.04)', borderRadius: 6, padding: 2 }}>
+            {(['V', 'M', 'K', 'Å'] as const).map((p) => (
+              <button key={p} onClick={() => { setPeriod(p); setPeriodOffset(0); }} style={{
+                padding: '4px 10px', border: 'none', borderRadius: 5,
+                background: period === p ? '#1e1e1c' : 'transparent',
+                color: period === p ? '#e8e8e4' : '#555',
+                fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                fontFamily: "'Geist', system-ui, sans-serif",
+              }}>{p}</button>
+            ))}
+          </div>
         </div>
-      </aside>
-      {/* ── MAIN CONTENT ── */}
-      <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch', background: '#111110' }}>
+        {/* ── SCROLLABLE CONTENT ── */}
+        <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
 
       {/* ── PERIOD COMPARISON PANEL ── */}
       {activeView === 'idag' && (() => {
@@ -4330,8 +4335,8 @@ body {
 </div>` }} />
       </div>
 
-
-      </div>
+      </div>{/* end scrollable content */}
+      </div>{/* end main content */}
     </div>
   );
 }
