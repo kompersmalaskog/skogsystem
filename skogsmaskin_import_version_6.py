@@ -1860,8 +1860,8 @@ def insert_if_not_exists(table: str, data: List[Dict], filnamn_key: str = 'filna
         return 0
 
 
-def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None):
-    """Upsert data till Supabase via REST API"""
+def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, on_conflict: str = 'merge'):
+    """Upsert data till Supabase via REST API. on_conflict: 'merge' or 'ignore'"""
     if not data:
         return 0
     
@@ -1901,7 +1901,7 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None):
         
         if unique_columns:
             url = f"{SUPABASE_URL}/rest/v1/{table}?on_conflict={','.join(unique_columns)}"
-            headers["Prefer"] = "resolution=merge-duplicates"
+            headers["Prefer"] = f"resolution={'ignore-duplicates' if on_conflict == 'ignore' else 'merge-duplicates'}"
         else:
             url = f"{SUPABASE_URL}/rest/v1/{table}"
         
@@ -2026,7 +2026,7 @@ def save_mom_to_supabase(data: Dict) -> bool:
                            ['maskin_id', 'operator_id', 'objekt_id', 'tradslag_id', 'processtyp', 'monitoring_start']) == 0:
                 fel.append('fakt_produktion')
 
-        # Avbrott — deduplicate before insert
+        # Avbrott — deduplicate in Python, then upsert with ON CONFLICT DO NOTHING
         if data.get('avbrott'):
             seen = set()
             deduped = []
@@ -2036,18 +2036,10 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     seen.add(key)
                     deduped.append(a)
             if len(deduped) < len(data['avbrott']):
-                logger.info(f"  Avbrott dedup: {len(data['avbrott'])} → {len(deduped)} (tog bort {len(data['avbrott']) - len(deduped)} dubletter)")
-            # Delete existing avbrott for this maskin+date range to avoid duplicates on re-import
-            maskin_id = data['avbrott'][0].get('maskin_id') if data['avbrott'] else None
-            if maskin_id and deduped:
-                dates = sorted(set(a['datum'] for a in deduped if a.get('datum')))
-                if dates:
-                    del_url = f"{SUPABASE_URL}/rest/v1/fakt_avbrott?maskin_id=eq.{maskin_id}&datum=gte.{dates[0]}&datum=lte.{dates[-1]}"
-                    try:
-                        requests.delete(del_url, headers=SUPABASE_HEADERS, timeout=15)
-                    except Exception as e:
-                        logger.warning(f"  Kunde inte rensa gamla avbrott: {e}")
-            if upsert_data('fakt_avbrott', deduped) == 0:
+                logger.info(f"  Avbrott dedup: {len(data['avbrott'])} → {len(deduped)} (tog bort {len(data['avbrott']) - len(deduped)} dubletter i batch)")
+            if upsert_data('fakt_avbrott', deduped,
+                           ['maskin_id', 'datum', 'klockslag', 'kategori_kod'],
+                           on_conflict='ignore') == 0:
                 fel.append('fakt_avbrott')
 
         # Maskinstatistik
@@ -2581,33 +2573,37 @@ def process_existing_files():
     logger.info(f"{'='*50}")
 
 def cleanup_avbrott_duplicates():
-    """Rensa dubletter i fakt_avbrott via Supabase RPC"""
-    logger.info("Rensar dubletter i fakt_avbrott...")
-    sql = """
+    """Rensa dubletter i fakt_avbrott och skapa UNIQUE constraint"""
+    logger.info("Rensar dubletter i fakt_avbrott och skapar UNIQUE constraint...")
+    cleanup_sql = """
     DELETE FROM fakt_avbrott a
     USING fakt_avbrott b
     WHERE a.id > b.id
       AND a.maskin_id = b.maskin_id
       AND a.datum = b.datum
-      AND a.langd_sek = b.langd_sek
-      AND COALESCE(a.operator_id, '') = COALESCE(b.operator_id, '')
       AND COALESCE(a.kategori_kod, '') = COALESCE(b.kategori_kod, '')
-      AND COALESCE(a.klockslag::text, '') = COALESCE(b.klockslag::text, '')
+      AND COALESCE(a.klockslag::text, '') = COALESCE(b.klockslag::text, '');
     """
+    constraint_sql = """
+    ALTER TABLE fakt_avbrott
+    ADD CONSTRAINT unique_avbrott
+    UNIQUE (maskin_id, datum, klockslag, kategori_kod);
+    """
+    full_sql = cleanup_sql + constraint_sql
     try:
         resp = requests.post(
             f"{SUPABASE_URL}/rest/v1/rpc/exec_sql",
-            json={"query": sql},
+            json={"query": full_sql},
             headers=SUPABASE_HEADERS,
             timeout=30
         )
         if resp.status_code in [200, 204]:
-            logger.info("  Dubletter i fakt_avbrott rensade.")
+            logger.info("  Dubletter rensade och UNIQUE constraint skapad.")
         else:
-            # RPC kanske inte finns — kör via vanlig SQL om möjligt
-            logger.warning(f"  Kunde inte rensa dubletter via RPC: {resp.status_code}")
+            logger.warning(f"  Kunde inte köra via RPC: {resp.status_code}")
             logger.info("  Kör följande SQL manuellt i Supabase SQL Editor:")
-            logger.info(sql.strip())
+            logger.info(cleanup_sql.strip())
+            logger.info(constraint_sql.strip())
     except Exception as e:
         logger.warning(f"  Kunde inte rensa dubletter: {e}")
 
