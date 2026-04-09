@@ -910,7 +910,7 @@ function toggleForareAvbrott(el, forareNamn) {
     var bb = i < data.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none';
     return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:' + bb + ';font-size:11px;">' +
       '<span style="color:var(--muted);">' + orsak + ' <span style="font-size:9px;">(' + v.antal + 'x · ' + pct + '%)</span></span>' +
-      '<span style="font-weight:500;font-variant-numeric:tabular-nums;color:var(--warn);">' + fmtAvbrottTid(v.tid) + '</span></div>';
+      '<span style="font-weight:500;font-variant-numeric:tabular-nums;color:var(--text);">' + fmtAvbrottTid(v.tid) + '</span></div>';
   }).join('');
   var div = document.createElement('div');
   div.className = 'forare-avbrott-detail';
@@ -1914,7 +1914,7 @@ export default function Maskinvy() {
         const sek = r.langd_sek || 0;
         const min = Math.round(sek / 60);
         const tid = min >= 60 ? `${Math.floor(min / 60)}h ${min % 60 > 0 ? (min % 60) + 'min' : ''}` : `${min} min`;
-        avbrottByDay[dateStr].push({ orsak: r.kategori_kod || 'Övrigt', tid });
+        avbrottByDay[dateStr].push({ orsak: translateKategori(r.kategori_kod || 'Övrigt'), tid });
       }
 
       // ── Build dagData from pre-aggregated daily data ──
