@@ -3970,7 +3970,7 @@ body {
   </div>
 
   <!-- INKÖPARE -->
-  <div class="gf view-section vs-objekt" style="margin-top:8px;">
+  <div class="gf view-section vs-objekt" style="margin-top:16px;">
     <div class="card anim" style="animation-delay:0.6s">
       <div class="card-h"><div class="card-t">Inköpare</div></div>
       <div class="card-b" id="inkopareCards">
@@ -4420,22 +4420,24 @@ body {
 
       {/* Jämför perioder section inside Analys view */}
       {activeView === 'analys' && (
-        <div style={{ padding: '12px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 900 }}>
+        <div style={{ padding: '0 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 1400, margin: '0 auto' }}>
           <div style={{
-            borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 20,
+            background: '#161614', border: '1px solid rgba(255,255,255,0.07)',
+            borderRadius: 16, padding: 20, marginTop: 16,
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
             <div>
-              <div style={{ fontSize: 16, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.3 }}>Jämför perioder</div>
-              <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>
+              <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.02em', color: '#666', marginBottom: 8 }}>Jämför perioder</div>
+              <div style={{ fontSize: 13, color: '#e8e8e4' }}>
                 {valdMaskin ? `${valdMaskin.tillverkare} ${valdMaskin.modell}` : ''} — sida vid sida
               </div>
             </div>
             <button onClick={() => setActiveView('jamfor')} style={{
-              padding: '8px 18px', border: 'none', borderRadius: 8,
-              background: '#1a4a2e', color: '#00c48c',
+              padding: '8px 18px', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8,
+              background: '#1a1a18', color: '#e8e8e4',
               fontSize: 12, fontWeight: 500, cursor: 'pointer',
               fontFamily: "'Geist', system-ui, sans-serif",
+              transition: 'border-color 0.15s',
             }}>Öppna jämförelse →</button>
           </div>
         </div>
