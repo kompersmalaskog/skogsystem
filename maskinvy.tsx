@@ -515,6 +515,29 @@ if (atgM3g15El && atgM3g15Names.length >= 2) {
   document.getElementById('atgardM3g15Wrap').style.display = 'none';
 }
 
+// RP · AU sammanfattning — volymviktad m³/G15h per åtgärd
+var rpauSummaryEl = document.getElementById('rpauSummary');
+if (rpauSummaryEl && atgM3g15Names.length >= 1) {
+  var atgKlassVol = _db.atgardKlassData || {};
+  var rpauParts = atgM3g15Names.map(function(atg) {
+    var vols = atgKlassVol[atg] || [];
+    var m3g15s = atgM3g15Data[atg] || [];
+    var totalVol = 0, totalH = 0;
+    for (var i = 0; i < vols.length; i++) {
+      if (m3g15s[i] > 0 && vols[i] > 0) {
+        totalVol += vols[i];
+        totalH += vols[i] / m3g15s[i];
+      }
+    }
+    var avg = totalH > 0 ? (totalVol / totalH) : 0;
+    return atg + ': ' + avg.toFixed(1) + ' m\\u00b3/G15h';
+  });
+  rpauSummaryEl.innerHTML = rpauParts.join('  \\u00b7  ');
+  rpauSummaryEl.style.display = '';
+} else if (rpauSummaryEl) {
+  rpauSummaryEl.style.display = 'none';
+}
+
 // Produktivitet — m³/G15h per medelstamsklass (en y-axel)
 new Chart(document.getElementById('prodChart'),{
   type:'bar',
@@ -4123,6 +4146,7 @@ body {
     <div class="card anim">
       <div class="card-h"><div class="card-t">Åtgärdsjämförelse per medelstamsklass</div></div>
       <div class="card-b">
+        <div id="rpauSummary" style="display:none;margin-bottom:16px;padding:14px 18px;background:rgba(0,196,140,0.06);border:1px solid rgba(0,196,140,0.18);border-radius:12px;color:var(--accent);font-size:14px;font-weight:500;letter-spacing:-0.1px;text-align:center;"></div>
         <div id="atgardKlassWrap" style="display:none;">
           <div class="cleg">Volym per medelstamsklass — per åtgärd</div>
           <canvas id="atgardKlassChart" style="max-height:175px"></canvas>
