@@ -1788,7 +1788,8 @@ export default function Maskinvy() {
       const processingSek = tidTotal.processingSek;
       const terrainSek = tidTotal.terrainSek;
       const kortStoppSek = tidTotal.kortStoppSek;
-      const avbrottSek = tidTotal.avbrottSek;
+      // OBS: avbrottSek hämtas nedan från fakt_avbrott (SUM langd_sek), INTE från
+      // fakt_tid.avbrott_sek som är ofullständig. Se totalAvbrottSek-beräkningen.
       const rastSek = tidTotal.rastSek;
       const engineTimeSek = tidTotal.engineTimeSek;
       const bransleTotalt = tidTotal.bransleLiter;
@@ -1852,6 +1853,8 @@ export default function Maskinvy() {
         manadKat[ym][kat] = (manadKat[ym][kat] || 0) + (r.langd_sek || 0) / 3600;
       }
       const totalAvbrottSek = avbrottRows.reduce((s: number, r: any) => s + (r.langd_sek || 0), 0);
+      // avbrottSek för tidsfördelningskortet — samma källa som Avbrott-fliken (fakt_avbrott)
+      const avbrottSek = totalAvbrottSek;
       const avbrottTotal = {
         timmar: parseFloat((totalAvbrottSek / 3600).toFixed(1)),
         antal: avbrottRows.length,
