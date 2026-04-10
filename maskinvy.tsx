@@ -3884,11 +3884,11 @@ body {
 
 <div class="page" id="page" data-view="oversikt">
 
-  <!-- KPI ROW — 4 cards -->
-  <div class="hero view-section vs-oversikt" id="sec-oversikt">
-    <div class="hero-main anim" style="animation-delay:0.05s">
+  <!-- KPI ROW 1 — Volym (hero) + Stammar + Medelstam -->
+  <div class="hero view-section vs-oversikt" id="sec-oversikt" style="grid-template-columns:repeat(4,1fr);">
+    <div class="hero-main anim" style="animation-delay:0.05s;grid-column:span 2;background:rgba(255,255,255,0.06);">
       <div class="hero-label">Volym</div>
-      <div class="hero-val" id="hv">0</div>
+      <div class="hero-val" id="hv" style="font-size:48px;">0</div>
       <div class="hero-unit">m³sub</div>
       <div class="hero-delta" id="hvDelta"></div>
     </div>
@@ -3899,12 +3899,6 @@ body {
       <div class="k-delta"></div>
     </div>
     <div class="kpi anim">
-      <div class="k-label">Produktivitet</div>
-      <div class="k-val" data-count="0" data-dec="1">0</div>
-      <div class="k-unit">m³/G15h</div>
-      <div class="k-delta"></div>
-    </div>
-    <div class="kpi anim">
       <div class="k-label">Medelstam</div>
       <div class="k-val" data-count="0" data-dec="2">0</div>
       <div class="k-unit">m³/stam</div>
@@ -3912,8 +3906,14 @@ body {
     </div>
   </div>
 
-  <!-- KPI ROW 2 — Bränsle + Stammar/G15h -->
+  <!-- KPI ROW 2 — Produktivitet (hero) + Utnyttjandegrad + Bränsle totalt -->
   <div class="hero view-section vs-oversikt" id="sec-kpi2" style="grid-template-columns:repeat(4,1fr);margin-top:-8px;">
+    <div class="kpi anim" style="animation-delay:0.12s;grid-column:span 2;background:rgba(255,255,255,0.06);">
+      <div class="k-label">Produktivitet</div>
+      <div class="k-val" data-count="0" data-dec="1" style="font-size:48px;">0</div>
+      <div class="k-unit">m³/G15h</div>
+      <div class="k-delta"></div>
+    </div>
     <div class="kpi anim" style="animation-delay:0.15s">
       <div class="k-label">Utnyttjandegrad</div>
       <div class="k-val" data-count="0" data-dec="1">0</div>
@@ -3924,6 +3924,10 @@ body {
       <div class="k-val" data-count="0">0</div>
       <div class="k-unit">liter</div>
     </div>
+  </div>
+
+  <!-- KPI ROW 3 — Bränsle/m³ + Stammar/G15h -->
+  <div class="hero view-section vs-oversikt" id="sec-kpi3" style="grid-template-columns:repeat(4,1fr);margin-top:-8px;">
     <div class="kpi anim" style="animation-delay:0.21s">
       <div class="k-label">Bränsle/m³</div>
       <div class="k-val" data-count="0" data-dec="2">0</div>
