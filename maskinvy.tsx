@@ -144,6 +144,8 @@ type DbData = {
   // Per klass per åtgärd (för jämförelsediagram)
   atgardKlassData: Record<string, number[]>;
   atgardM3g15Data: Record<string, number[]>;
+  // Trädslag: total volym per kategori (Gran/Tall/Björk/Övr. löv)
+  tradslagData: Record<string, number>;
   // Start date ISO for calendar/dag
   periodStartDate: string;
   totalDays: number;
@@ -423,6 +425,22 @@ new Chart(document.getElementById('sortChart'),{
   }]
 });
 
+// Trädslag — populera sec-tradslag-kortet från _db.tradslagData
+var _tsData = _db.tradslagData || {};
+console.log('[Trädslag script]', _tsData);
+var _tsRowsEl = document.getElementById('tradslagRows');
+if (_tsRowsEl) {
+  var _tsOrder = ['Gran','Tall','Björk','Övr. löv'];
+  var _tsLabels = {'Gran':'Gran','Tall':'Tall','Björk':'Björk','Övr. löv':'Övrigt'};
+  var _tsColors = {'Gran':'rgba(255,255,255,0.2)','Tall':'rgba(255,255,255,0.2)','Björk':'rgba(255,255,255,0.15)','Övr. löv':'rgba(255,255,255,0.08)'};
+  var _tsTotal = _tsOrder.reduce(function(a,k){return a + (_tsData[k] || 0);}, 0);
+  _tsRowsEl.innerHTML = _tsOrder.map(function(k){
+    var v = _tsData[k] || 0;
+    var pct = _tsTotal > 0 ? Math.round(v / _tsTotal * 100) : 0;
+    return '<div class="ts"><div class="ts-top"><span class="ts-n">' + _tsLabels[k] + '</span><span class="ts-v">' + Math.round(v).toLocaleString('sv') + ' m\\u00b3 \\u00b7 ' + pct + '%</span></div><div class="prog"><div class="pf" style="width:' + pct + '%;background:' + _tsColors[k] + '"></div></div></div>';
+  }).join('');
+}
+
 // MTH — only if machine has MTH data
 var mthSection = document.getElementById('sec-mth');
 var sortDagSection = document.getElementById('sec-sortiment-dag');
@@ -557,15 +575,24 @@ new Chart(document.getElementById('prodChart'),{
   options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Produktivitet: '+m3g15[idx]+' m\\u00b3/G15h','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:11}}}}}
 });
 
-// Summary text under prodChart
-var prodSummaryEl = document.getElementById('prodSummary');
-if (prodSummaryEl && classes.length > 0) {
+// Medelstam insight card (ovanför diagrammen)
+var miCard = document.getElementById('medelstamInsightCard');
+if (miCard && classes.length > 0) {
   var bestProdIdx = 0;
   for (var pi=1;pi<m3g15.length;pi++) { if(m3g15[pi]>m3g15[bestProdIdx]) bestProdIdx=pi; }
   var mostVolIdx = 0;
   for (var vi=1;vi<volym.length;vi++) { if(volym[vi]>volym[mostVolIdx]) mostVolIdx=vi; }
-  prodSummaryEl.innerHTML = '<span style="color:var(--muted);font-size:11px;">Bästa klass: <strong style="color:var(--text)">'+classes[bestProdIdx]+' · '+m3g15[bestProdIdx]+' m\\u00b3/G15h</strong></span>'
-    + '<span style="color:var(--muted);font-size:11px;margin-left:20px;">Mest volym: <strong style="color:var(--text)">'+classes[mostVolIdx]+' · '+volym[mostVolIdx].toLocaleString('sv')+' m\\u00b3</strong></span>';
+  var bpVal = document.getElementById('miBestProdVal');
+  var bpLbl = document.getElementById('miBestProdLbl');
+  var mvVal = document.getElementById('miMostVolVal');
+  var mvLbl = document.getElementById('miMostVolLbl');
+  if (bpVal) bpVal.textContent = m3g15[bestProdIdx] + ' m\\u00b3/G15h';
+  if (bpLbl) bpLbl.textContent = 'Medelstamsklass ' + classes[bestProdIdx];
+  if (mvVal) mvVal.textContent = volym[mostVolIdx].toLocaleString('sv') + ' m\\u00b3';
+  if (mvLbl) mvLbl.textContent = 'Medelstamsklass ' + classes[mostVolIdx];
+  miCard.style.display = '';
+} else if (miCard) {
+  miCard.style.display = 'none';
 }
 
 // Stammar/G15h per medelstamsklass
@@ -1636,7 +1663,7 @@ export default function Maskinvy() {
           mthAndelPct: 0, mthMedelstam: 0, singleMedelstam: 0,
           sortimentData: { categories: ['Sägtimmer','Kubb','Massaved','Energived'], totals: [0,0,0,0] },
           hasMth: false, sortimentPerDag: null,
-          bolagData: [], objTypList: [], timpengData: [], inkopareData: [], atgardKlassData: {}, atgardM3g15Data: {}, periodStartDate: startDate, totalDays,
+          bolagData: [], objTypList: [], timpengData: [], inkopareData: [], atgardKlassData: {}, atgardM3g15Data: {}, tradslagData: { 'Gran': 0, 'Tall': 0, 'Björk': 0, 'Övr. löv': 0 }, periodStartDate: startDate, totalDays,
         };
         (window as any).__maskinvyData = emptyData;
         setDataVersion(v => v + 1);
@@ -2307,6 +2334,15 @@ export default function Maskinvy() {
         const cat = n.includes('GRAN') ? 'Gran' : n.includes('TALL') ? 'Tall' : n.includes('BJÖRK') ? 'Björk' : 'Övr. löv';
         tradslagMap[t.tradslag_id] = cat;
       }
+
+      // Aggregera total volym per trädslag från rawProdRows (används av sec-tradslag-kortet)
+      const tradslagData: Record<string, number> = { 'Gran': 0, 'Tall': 0, 'Björk': 0, 'Övr. löv': 0 };
+      for (const r of rawProdRows) {
+        const ts = tradslagMap[r.tradslag_id] || 'Övr. löv';
+        tradslagData[ts] = (tradslagData[ts] || 0) + (r.volym_m3sub || 0);
+      }
+      console.log('[Trädslag raw]', tradslagData);
+      console.log('[Trädslag filter]', maskinId, startDate, endDate);
       // Aggregate per objekt_id: volym, stammar, per tradslag
       type ObjProdAgg = { vol: number; st: number; perTs: Record<string, number> };
       const prodPerObj: Record<string, ObjProdAgg> = {};
@@ -2402,6 +2438,7 @@ export default function Maskinvy() {
         inkopareData,
         atgardKlassData,
         atgardM3g15Data,
+        tradslagData,
         periodStartDate: startDate,
         totalDays,
       };
@@ -4128,6 +4165,26 @@ body {
   </div>
 
   <!-- SUB: MEDELSTAM -->
+  <!-- Insight highlight card above Medelstam-diagrams -->
+  <div class="gf view-section vs-produktion ps-medelstam ps-hidden">
+    <div class="card anim" id="medelstamInsightCard" style="display:none;">
+      <div class="card-b" style="padding:22px 24px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+          <div>
+            <div style="font-size:11px;font-weight:500;letter-spacing:0.02em;color:#666;margin-bottom:8px;">Bästa produktivitet</div>
+            <div id="miBestProdVal" style="font-size:24px;font-weight:500;color:#e8e8e4;letter-spacing:-0.5px;line-height:1.1;">–</div>
+            <div id="miBestProdLbl" style="font-size:11px;color:#7a7a72;margin-top:4px;"></div>
+          </div>
+          <div>
+            <div style="font-size:11px;font-weight:500;letter-spacing:0.02em;color:#666;margin-bottom:8px;">Mest volym</div>
+            <div id="miMostVolVal" style="font-size:24px;font-weight:500;color:#e8e8e4;letter-spacing:-0.5px;line-height:1.1;">–</div>
+            <div id="miMostVolLbl" style="font-size:11px;color:#7a7a72;margin-top:4px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="gf view-section vs-produktion ps-medelstam ps-hidden">
     <div class="card anim">
       <div class="card-h"><div class="card-t">Produktion per medelstamsklass</div></div>
@@ -4137,7 +4194,6 @@ body {
         <div class="cdiv"></div>
         <div class="cleg">m³/G15h per medelstamsklass</div>
         <canvas id="prodChart" style="max-height:175px"></canvas>
-        <div style="margin-top:10px;" id="prodSummary"></div>
         <div class="cdiv"></div>
         <div class="cleg">Stammar/G15h per medelstamsklass</div>
         <canvas id="stg15Chart" style="max-height:175px"></canvas>
@@ -4163,7 +4219,7 @@ body {
     <div class="card anim">
       <div class="card-h"><div class="card-t">Åtgärdsjämförelse per medelstamsklass</div></div>
       <div class="card-b">
-        <div id="rpauSummary" style="display:none;margin-bottom:16px;padding:14px 18px;background:rgba(0,196,140,0.06);border:1px solid rgba(0,196,140,0.18);border-radius:12px;color:var(--accent);font-size:14px;font-weight:500;letter-spacing:-0.1px;text-align:center;"></div>
+        <div id="rpauSummary" style="display:none;margin-bottom:16px;padding:14px 18px;background:rgba(0,196,140,0.06);border:1px solid rgba(0,196,140,0.18);border-radius:12px;color:#e8e8e4;font-size:14px;font-weight:500;letter-spacing:-0.1px;text-align:center;"></div>
         <div id="atgardKlassWrap" style="display:none;">
           <div class="cleg">Volym per medelstamsklass — per åtgärd</div>
           <canvas id="atgardKlassChart" style="max-height:175px"></canvas>
@@ -4218,10 +4274,7 @@ body {
     <div class="card anim">
       <div class="card-h"><div class="card-t">Trädslag</div></div>
       <div class="card-b" onclick="openTradslag()" style="cursor:pointer;">
-        <div class="ts"><div class="ts-top"><span class="ts-n">Gran</span><span class="ts-v">1 124 m³ · 61%</span></div><div class="prog"><div class="pf" style="width:61%;background:rgba(255,255,255,0.2)"></div></div></div>
-        <div class="ts"><div class="ts-top"><span class="ts-n">Tall</span><span class="ts-v">498 m³ · 27%</span></div><div class="prog"><div class="pf" style="width:27%;background:rgba(255,255,255,0.2)"></div></div></div>
-        <div class="ts"><div class="ts-top"><span class="ts-n">Björk</span><span class="ts-v">185 m³ · 10%</span></div><div class="prog"><div class="pf" style="width:10%;background:rgba(255,255,255,0.15)"></div></div></div>
-        <div class="ts"><div class="ts-top"><span class="ts-n">Övrigt</span><span class="ts-v">40 m³ · 2%</span></div><div class="prog"><div class="pf" style="width:2%;background:rgba(255,255,255,0.08)"></div></div></div>
+        <div id="tradslagRows"></div>
         <div class="snum-grid">
           <div class="snum"><div class="snum-v" id="mthAndelVal">0%</div><div class="snum-l">MTH-andel</div></div>
           <div class="snum"><div class="snum-v" id="mthStamVal">0</div><div class="snum-l">MTH stam</div></div>
