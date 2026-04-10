@@ -396,22 +396,32 @@ if(calSumEl) calSumEl.innerHTML = '<div class="cal-si"><div class="cal-sn" style
 var _sd = _db.sortimentData || { categories:[], totals:[] };
 if(!document.getElementById('sortChart')){console.warn('[Maskinvy] sortChart not found, skipping remaining charts');}
 else {
+var _stotal = _sd.totals.reduce(function(a,b){return a+b;},0);
 new Chart(document.getElementById('sortChart'),{
   type:'bar',
   data:{labels:_sd.categories,datasets:[
     {label:'m\\u00b3sub',data:_sd.totals,backgroundColor:['rgba(90,255,140,0.5)','rgba(91,143,255,0.5)','rgba(255,179,64,0.4)','rgba(255,255,255,0.15)'],borderRadius:4}
   ]},
-  options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:11}}}}}
+  options:{responsive:true,layout:{padding:{top:22}},plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:11}}}}},
+  plugins:[{
+    id:'sortPctLabels',
+    afterDatasetsDraw:function(chart){
+      var ctx = chart.ctx;
+      var meta = chart.getDatasetMeta(0);
+      if (!meta || !meta.data) return;
+      meta.data.forEach(function(bar, i){
+        var pct = _stotal > 0 ? Math.round((_sd.totals[i] || 0) / _stotal * 100) : 0;
+        ctx.save();
+        ctx.fillStyle = '#e8e8e4';
+        ctx.font = "500 11px 'Geist', system-ui, sans-serif";
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(pct + '%', bar.x, bar.y - 4);
+        ctx.restore();
+      });
+    }
+  }]
 });
-// Update sortiment summary with totals + percent
-var _stotal = _sd.totals.reduce(function(a,b){return a+b;},0);
-var sortSumEl = document.getElementById('sortSummary');
-if (sortSumEl) {
-  sortSumEl.innerHTML = _sd.categories.map(function(cat,i){
-    var pct = _stotal > 0 ? Math.round(_sd.totals[i] / _stotal * 100) : 0;
-    return '<div class="snum"><div class="snum-v" style="color:var(--text)">' + _sd.totals[i].toLocaleString('sv') + '</div><div class="snum-l">' + cat + ' \\u00b7 ' + pct + '%</div></div>';
-  }).join('');
-}
 
 // MTH — only if machine has MTH data
 var mthSection = document.getElementById('sec-mth');
@@ -4166,7 +4176,6 @@ body {
       <div class="card-h"><div class="card-t">Sortiment</div></div>
       <div class="card-b">
         <canvas id="sortChart" style="max-height:175px"></canvas>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px;" id="sortSummary"></div>
       </div>
     </div>
   </div>
