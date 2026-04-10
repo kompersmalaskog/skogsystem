@@ -1620,16 +1620,37 @@ export default function Maskinvy() {
 
       console.log('[Maskinvy] Data loaded:', { maskinIds, rawProd: rawProdRows.length, rawTid: (tidRes.data||[]).length });
 
-      // Deduplicate fakt_tid: keep one row per (datum, operator_id, objekt_id).
-      // If duplicates exist (from reimport), keep the row with highest engine_time_sek.
-      const tidDedup: Record<string, any> = {};
+      // Consolidate fakt_tid rows per (datum, operator_id, objekt_id) by SUMMING
+      // all fields. Earlier versions picked the row with highest engine_time_sek,
+      // but that silently dropped rows where other fields (notably kort_stopp_sek
+      // for Ponsse) were non-zero but engine_time_sek happened to be lower.
+      // Summing matches the DB SUM the SQL query returns.
+      const tidConsolidated: Record<string, any> = {};
       for (const r of (tidRes.data || [])) {
         const key = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}`;
-        if (!tidDedup[key] || (r.engine_time_sek || 0) > (tidDedup[key].engine_time_sek || 0)) {
-          tidDedup[key] = r;
+        if (!tidConsolidated[key]) {
+          tidConsolidated[key] = {
+            datum: r.datum,
+            operator_id: r.operator_id,
+            objekt_id: r.objekt_id,
+            processing_sek: 0, terrain_sek: 0, other_work_sek: 0,
+            maintenance_sek: 0, disturbance_sek: 0, kort_stopp_sek: 0,
+            avbrott_sek: 0, rast_sek: 0, engine_time_sek: 0, bransle_liter: 0,
+          };
         }
+        const c = tidConsolidated[key];
+        c.processing_sek += r.processing_sek || 0;
+        c.terrain_sek += r.terrain_sek || 0;
+        c.other_work_sek += r.other_work_sek || 0;
+        c.maintenance_sek += r.maintenance_sek || 0;
+        c.disturbance_sek += r.disturbance_sek || 0;
+        c.kort_stopp_sek += r.kort_stopp_sek || 0;
+        c.avbrott_sek += r.avbrott_sek || 0;
+        c.rast_sek += r.rast_sek || 0;
+        c.engine_time_sek += r.engine_time_sek || 0;
+        c.bransle_liter += parseFloat(r.bransle_liter) || 0;
       }
-      let rawTidRows = Object.values(tidDedup);
+      let rawTidRows = Object.values(tidConsolidated);
 
       // Filter tid rows by same objekt_ids if åtgärd filter is active
       if (atgardFilter) {
