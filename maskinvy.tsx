@@ -1328,7 +1328,7 @@ export default function Maskinvy() {
   const [filterAtgard, setFilterAtgard] = useState('');
   const [availableAtgarder, setAvailableAtgarder] = useState<string[]>([]);
   // Idag-data
-  type IdagData = { vol: number; st: number; g15h: number; prod: number; medelstam: number; bransle: number; bransleLm3: number; utnyttj: number; operatorer: Array<{ namn: string; objekt: string; start: string; vol: number; prod: number }>; tidFord: { proc: number; terr: number; avbrott: number; rast: number; ovrigt: number }; bolag: Array<{ namn: string; vol: number; pct: number }>; trend: Array<{ datum: string; label: string; vol: number; helg: boolean }> };
+  type IdagData = { vol: number; st: number; g15h: number; prod: number; medelstam: number; bransle: number; bransleLm3: number; utnyttj: number; operatorer: Array<{ namn: string; objekt: string; start: string; vol: number; prod: number }>; tidFord: { proc: number; terr: number; avbrott: number; rast: number; ovrigt: number }; bolag: Array<{ namn: string; vol: number; pct: number }>; trend: Array<{ datum: string; label: string; vol: number; helg: boolean }>; senastAktiv: { datum: string; tid: string | null } | null };
   const [idagData, setIdagData] = useState<IdagData | null>(null);
   const [idagLoading, setIdagLoading] = useState(false);
 
@@ -2555,7 +2555,7 @@ export default function Maskinvy() {
         const trendStart = new Date(now); trendStart.setDate(trendStart.getDate() - 13);
         const trendStartStr = `${trendStart.getFullYear()}-${pad(trendStart.getMonth()+1)}-${pad(trendStart.getDate())}`;
 
-        const [prodRes, tidRes, objRes, opRes, skiftRes] = await Promise.all([
+        const [prodRes, tidRes, objRes, opRes, skiftRes, senastRes] = await Promise.all([
           fetchAllRows((from, to) => supabase.from('fakt_produktion')
             .select('datum, volym_m3sub, stammar, operator_id, objekt_id')
             .in('maskin_id', maskinIds).gte('datum', trendStartStr).lte('datum', today).range(from, to)),
@@ -2565,6 +2565,10 @@ export default function Maskinvy() {
           supabase.from('dim_objekt').select('objekt_id, object_name, bolag'),
           supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', maskinIds),
           supabase.from('fakt_skift').select('datum, inloggning_tid').in('maskin_id', maskinIds).eq('datum', today),
+          supabase.from('fakt_produktion')
+            .select('datum')
+            .in('maskin_id', maskinIds).gt('volym_m3sub', 0)
+            .order('datum', { ascending: false }).limit(1),
         ]);
 
         const objekter = objRes.data || [];
@@ -2638,6 +2642,23 @@ export default function Maskinvy() {
           trend.push({ datum: ds, label: `${d.getDate()}/${d.getMonth()+1}`, vol: Math.round(dayVol), helg: dow === 0 || dow === 6 });
         }
 
+        // Senast aktiv: senaste datum i fakt_produktion med volym > 0
+        const senastAktivDatum: string | null = (senastRes.data && senastRes.data[0] && senastRes.data[0].datum) || null;
+        let senastAktivTid: string | null = null;
+        if (senastAktivDatum) {
+          const { data: sRows } = await supabase
+            .from('fakt_skift')
+            .select('inloggning_tid')
+            .in('maskin_id', maskinIds)
+            .eq('datum', senastAktivDatum)
+            .order('inloggning_tid', { ascending: false })
+            .limit(1);
+          const rawTid = sRows?.[0]?.inloggning_tid;
+          if (rawTid && typeof rawTid === 'string') {
+            senastAktivTid = rawTid.length >= 16 ? rawTid.substring(11, 16) : rawTid.substring(0, 5);
+          }
+        }
+
         setIdagData({
           vol: Math.round(todayVol), st: Math.round(todaySt), g15h: parseFloat(g15h.toFixed(1)),
           prod: g15h > 0 ? parseFloat((todayVol / g15h).toFixed(1)) : 0,
@@ -2646,6 +2667,7 @@ export default function Maskinvy() {
           utnyttj, operatorer: opList,
           tidFord: { proc: procSek, terr: terrSek, avbrott: avbrSek, rast: rastSek, ovrigt: otherSek },
           bolag: bolagList, trend,
+          senastAktiv: senastAktivDatum ? { datum: senastAktivDatum, tid: senastAktivTid } : null,
         });
       } catch (err) { console.error('Idag fetch error', err); }
       setIdagLoading(false);
@@ -2964,13 +2986,27 @@ export default function Maskinvy() {
         return (
           <div style={{ padding: '0 20px 60px', maxWidth: 900, fontFamily: "'Geist', system-ui, sans-serif" }}>
 
-            {noProduction ? (
-              <div style={{ marginTop: 32, textAlign: 'center', padding: '48px 20px', background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16 }}>
+            {noProduction ? (<>
+              <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginTop: 24, marginBottom: 20 }}>Idag</div>
+              <div style={{ textAlign: 'center', padding: '48px 20px', background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16 }}>
                 <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.3 }}>☀</div>
                 <div style={{ fontSize: 16, fontWeight: 500, color: '#e8e8e4', marginBottom: 6 }}>Ingen produktion registrerad idag</div>
-                <div style={{ fontSize: 12, color: '#7a7a72' }}>Data visas här när maskinen startar</div>
+                {d.senastAktiv && (() => {
+                  const [yy, mm, dd] = d.senastAktiv.datum.split('-').map(Number);
+                  const dObj = new Date(yy, mm - 1, dd);
+                  const datumStr = dObj.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
+                  const tidStr = d.senastAktiv.tid ? `, kl ${d.senastAktiv.tid}` : '';
+                  return (
+                    <div style={{ fontSize: 13, color: '#9a9a92', marginTop: 4 }}>
+                      Senast aktiv: {datumStr}{tidStr}
+                    </div>
+                  );
+                })()}
+                <div style={{ fontSize: 11, color: '#5a5a52', marginTop: 24, fontStyle: 'italic' }}>
+                  Data synkroniseras automatiskt när MOM-filer importeras
+                </div>
               </div>
-            ) : (<>
+            </>) : (<>
               {/* KPI ROW 1 */}
               <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 16 }}>
                 <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
