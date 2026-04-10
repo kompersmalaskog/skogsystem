@@ -3329,15 +3329,22 @@ export default function Maskinvy() {
             <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
 
             {/* KPI cards */}
-            <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
+            <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
               {[
-                { label: 'Total avbrottstid', value: at.timmar + 'h' },
-                { label: 'Antal avbrott', value: String(at.antal) },
-                { label: 'Snitt per avbrott', value: at.snittMin + ' min' },
+                { label: 'Total avbrottstid', value: at.timmar + 'h', hero: true },
+                { label: 'Antal avbrott', value: String(at.antal), hero: false },
+                { label: 'Snitt per avbrott', value: at.snittMin + ' min', hero: false },
               ].map(c => (
-                <div key={c.label} style={{ background: '#161614', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 20, minHeight: 100 }}>
+                <div key={c.label} style={{
+                  background: '#161614',
+                  border: '1px solid rgba(255,255,255,0.07)',
+                  borderRadius: 16,
+                  padding: 20,
+                  minHeight: 100,
+                  ...(c.hero ? { gridColumn: 'span 2' } : {}),
+                }}>
                   <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.02em', color: '#666', marginBottom: 8 }}>{c.label}</div>
-                  <div style={{ fontSize: 32, fontWeight: 500, color: '#e8e8e4', letterSpacing: -1, marginBottom: 4 }}>{c.value}</div>
+                  <div style={{ fontSize: c.hero ? 48 : 32, fontWeight: 500, color: '#e8e8e4', letterSpacing: -1, marginBottom: 4 }}>{c.value}</div>
                 </div>
               ))}
             </div>
@@ -3359,11 +3366,11 @@ export default function Maskinvy() {
               <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
-                    <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                      <th style={{ padding: '10px 14px', textAlign: 'left', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Kategori</th>
-                      <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Timmar</th>
-                      <th style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Antal</th>
-                      <th style={{ padding: '10px 14px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Snitt min</th>
+                    <tr style={{ borderBottom: '0.5px solid rgba(255,255,255,0.15)' }}>
+                      <th style={{ padding: '12px 14px', textAlign: 'left', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Kategori</th>
+                      <th style={{ padding: '12px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Timmar</th>
+                      <th style={{ padding: '12px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Antal</th>
+                      <th style={{ padding: '12px 14px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Snitt min</th>
                     </tr>
                   </thead>
                   <tbody>
