@@ -1297,12 +1297,19 @@ if (_db.operatorer && _db.operatorer.length > 0) {
 
 // Update time distribution bar & legend — always update (zero when no data)
 {
-  var totalSek = _db.engineTimeSek || 0;
-  var pProc = totalSek > 0 ? Math.round((_db.processingSek / totalSek) * 100) : 0;
-  var pTerr = totalSek > 0 ? Math.round((_db.terrainSek / totalSek) * 100) : 0;
-  var pKort = totalSek > 0 ? Math.round((_db.kortStoppSek / totalSek) * 100) : 0;
-  var pAvbr = totalSek > 0 ? Math.round((_db.avbrottSek / totalSek) * 100) : 0;
-  var pRast = totalSek > 0 ? Math.max(0, Math.round((_db.rastSek / totalSek) * 100)) : 0;
+  // Total = summan av tidskategorierna som visas i stapeln, INTE engineTimeSek
+  // (som för Ponsse råkar motsvara processingSek och gav "Processar 100%").
+  var _tdProc = _db.processingSek || 0;
+  var _tdTerr = _db.terrainSek || 0;
+  var _tdKort = _db.kortStoppSek || 0;
+  var _tdAvbr = _db.avbrottSek || 0;
+  var _tdRast = _db.rastSek || 0;
+  var totalSek = _tdProc + _tdTerr + _tdKort + _tdAvbr + _tdRast;
+  var pProc = totalSek > 0 ? Math.round((_tdProc / totalSek) * 100) : 0;
+  var pTerr = totalSek > 0 ? Math.round((_tdTerr / totalSek) * 100) : 0;
+  var pKort = totalSek > 0 ? Math.round((_tdKort / totalSek) * 100) : 0;
+  var pAvbr = totalSek > 0 ? Math.round((_tdAvbr / totalSek) * 100) : 0;
+  var pRast = totalSek > 0 ? Math.max(0, Math.round((_tdRast / totalSek) * 100)) : 0;
 
   var tbarSegs = document.querySelectorAll('.tbar .tseg');
   if (tbarSegs.length >= 5) {
