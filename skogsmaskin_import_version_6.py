@@ -1958,10 +1958,10 @@ def save_mom_to_supabase(data: Dict) -> bool:
                 batch = data['gps_spar'][i:i+batch_size]
                 upsert_data('detalj_gps_spar', batch)
 
-        # Skift
+        # Skift — upsert on unique constraint (maskin_id, inloggning_tid, filnamn)
         if data.get('skift'):
-            if upsert_data('fakt_skift', data['skift']) == 0:
-                fel.append('fakt_skift')
+            if upsert_data('fakt_skift', data['skift'], ['maskin_id', 'inloggning_tid', 'filnamn']) == 0:
+                logger.warning(f"  Skift-data kunde inte sparas (ej kritiskt)")
 
         # Tid – global entry-level deduplicering över filer.
         # MOM-filer har överlappande entries mellan sessioner. Vi samlar ALLA
@@ -2387,10 +2387,10 @@ def log_if_new_maskin(maskin_id: str, maskin_typ: str):
         pass
 
 def is_file_already_imported(filnamn: str) -> bool:
-    """Kolla om fil redan är importerad"""
+    """Kolla om fil redan är importerad med status OK. FEL-filer tillåts omimporteras."""
     try:
         response = requests.get(
-            f"{SUPABASE_URL}/rest/v1/meta_importerade_filer?filnamn=eq.{filnamn}&select=id",
+            f"{SUPABASE_URL}/rest/v1/meta_importerade_filer?filnamn=eq.{filnamn}&status=eq.OK&select=id",
             headers=SUPABASE_HEADERS,
             timeout=30
         )
@@ -2401,8 +2401,15 @@ def is_file_already_imported(filnamn: str) -> bool:
         return False
 
 def mark_file_imported(filnamn: str, filtyp: str, maskin_id: str, status: str = 'OK', felmeddelande: str = None):
-    """Markera fil som importerad"""
+    """Markera fil som importerad. Tar bort gamla FEL-rader vid omimport."""
     try:
+        # Ta bort gamla FEL-rader för denna fil så vi inte får dubletter
+        requests.delete(
+            f"{SUPABASE_URL}/rest/v1/meta_importerade_filer?filnamn=eq.{filnamn}&status=eq.FEL",
+            headers=SUPABASE_HEADERS,
+            timeout=30
+        )
+
         data = {
             'filnamn': filnamn,
             'filtyp': filtyp,
@@ -2411,7 +2418,7 @@ def mark_file_imported(filnamn: str, filtyp: str, maskin_id: str, status: str = 
         }
         if felmeddelande:
             data['felmeddelande'] = felmeddelande
-        
+
         requests.post(
             f"{SUPABASE_URL}/rest/v1/meta_importerade_filer",
             json=data,
