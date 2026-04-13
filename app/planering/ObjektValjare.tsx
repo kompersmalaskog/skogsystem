@@ -19,6 +19,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [objekt, setObjekt] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [roadDist, setRoadDist] = useState<Record<string, number | 'loading'>>({});
   const [sheetVisible, setSheetVisible] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
   const touchStartY = useRef(0);
@@ -48,6 +49,41 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
       setUserPos({ lat: 56.40, lng: 14.70 });
     }
   }, []);
+
+  // Fetch road distances one by one via OSRM
+  useEffect(() => {
+    if (!userPos || objekt.length === 0) return;
+    let cancelled = false;
+
+    const fetchRoadDistances = async () => {
+      const withCoords = objekt.filter(o => o.lat && o.lng);
+      // Sort by straight-line distance so nearest load first
+      const sorted = [...withCoords].sort((a, b) => {
+        return (getDistance(a.lat, a.lng) || 999) - (getDistance(b.lat, b.lng) || 999);
+      });
+
+      for (const obj of sorted) {
+        if (cancelled) break;
+        const key = obj.id;
+        setRoadDist(prev => ({ ...prev, [key]: 'loading' }));
+        try {
+          const url = `https://router.project-osrm.org/route/v1/driving/${userPos.lng},${userPos.lat};${obj.lng},${obj.lat}?overview=false`;
+          const res = await fetch(url);
+          const data = await res.json();
+          if (!cancelled && data.routes?.[0]) {
+            const km = Math.round(data.routes[0].distance / 100) / 10; // 1 decimal
+            setRoadDist(prev => ({ ...prev, [key]: km }));
+          }
+        } catch {
+          // Silently fail — straight-line fallback will show
+          if (!cancelled) setRoadDist(prev => { const n = { ...prev }; delete n[key]; return n; });
+        }
+      }
+    };
+
+    fetchRoadDistances();
+    return () => { cancelled = true; };
+  }, [userPos, objekt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sheet open/close animation
   useEffect(() => {
@@ -105,8 +141,8 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
   let lista = filter === 'alla' ? allData : allData.filter(o => o.typ === filter);
   if (userPos) {
     lista = [...lista].sort((a, b) => {
-      const distA = getDistance(a.lat, a.lng) || 999;
-      const distB = getDistance(b.lat, b.lng) || 999;
+      const distA = (typeof roadDist[a.id] === 'number' ? roadDist[a.id] as number : null) ?? getDistance(a.lat, a.lng) ?? 999;
+      const distB = (typeof roadDist[b.id] === 'number' ? roadDist[b.id] as number : null) ?? getDistance(b.lat, b.lng) ?? 999;
       return distA - distB;
     });
   }
@@ -289,10 +325,16 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
               </div>
 
               {/* Avstånd */}
-              {dist !== null && (
+              {(dist !== null || roadDist[obj.id]) && (
                 <div style={{ textAlign: 'right', marginLeft: '12px', flexShrink: 0 }}>
                   <div style={{ fontSize: '14px', color: '#666' }}>
-                    {dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`}
+                    {typeof roadDist[obj.id] === 'number'
+                      ? `${roadDist[obj.id]} km`
+                      : roadDist[obj.id] === 'loading'
+                        ? (dist !== null ? `~${dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`}` : '...')
+                        : dist !== null
+                          ? (dist < 1 ? `${Math.round(dist * 1000)} m` : `${dist.toFixed(1)} km`)
+                          : ''}
                   </div>
                 </div>
               )}
@@ -391,9 +433,11 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
             <p style={{ margin: '0 0 24px', color: '#8e8e93', fontSize: '13px' }}>
               {selectedObj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}
               {' · '}{selectedObj.volym ? `${selectedObj.volym} m³` : '–'}
-              {getDistance(selectedObj.lat, selectedObj.lng) !== null && (
-                <> · {getDistance(selectedObj.lat, selectedObj.lng)!.toFixed(1)} km bort</>
-              )}
+              {typeof roadDist[selectedObj.id] === 'number'
+                ? <> · {roadDist[selectedObj.id]} km</>
+                : getDistance(selectedObj.lat, selectedObj.lng) !== null
+                  ? <> · ~{getDistance(selectedObj.lat, selectedObj.lng)!.toFixed(1)} km</>
+                  : null}
             </p>
 
             {/* Knappar — staplade vertikalt */}
