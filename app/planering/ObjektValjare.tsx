@@ -149,31 +149,6 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
 
   const filtreratTotal = lista.reduce((sum, o) => sum + (o.volym || 0), 0);
 
-  // Status icon for typ
-  const TypIcon = ({ typ }: { typ: string }) => {
-    const isSlut = typ === 'slutavverkning';
-    return (
-      <div style={{
-        width: 28, height: 28, borderRadius: 8, flexShrink: 0,
-        background: isSlut ? 'rgba(255,159,10,0.15)' : 'rgba(52,199,89,0.15)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        {isSlut ? (
-          // Tree stump icon for slutavverkning
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-            <path d="M8 1L3 7h3v4H2v2h12v-2h-4V7h3L8 1z" fill="#ff9f0a" />
-          </svg>
-        ) : (
-          // Thinned trees icon for gallring
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-            <path d="M5 2L2 7h2v5h2V7h2L5 2z" fill="#34c759" />
-            <path d="M11 4L9 8h1.5v4h2V8H14l-3-4z" fill="#34c759" opacity="0.6" />
-          </svg>
-        )}
-      </div>
-    );
-  };
-
   return (
     <div style={{
       minHeight: '100vh',
@@ -301,11 +276,6 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
                 cursor: 'pointer',
               }}
             >
-              {/* Typ-ikon */}
-              <div style={{ marginRight: '14px' }}>
-                <TypIcon typ={obj.typ || 'slutavverkning'} />
-              </div>
-
               {/* Info */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
@@ -318,9 +288,9 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
                 }}>
                   {obj.namn}
                 </div>
-                <div style={{ fontSize: '13px', color: '#666', textTransform: 'none' }}>
-                  {obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}
-                  {obj.bolag && ` · ${obj.bolag}`}
+                <div style={{ fontSize: '13px' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>{obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}</span>
+                  {obj.bolag && <span style={{ color: '#555' }}> · {obj.bolag}</span>}
                 </div>
               </div>
 
