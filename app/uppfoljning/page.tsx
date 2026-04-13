@@ -291,8 +291,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const skTid = buildTid(skTidRows);
       const stTid = buildTid(stTidRows);
 
-      // Production aggregation
-      const skProd = skId ? prodRows.filter((r: any) => r.objekt_id === skId) : [];
+      // Production aggregation — filter by maskin_id when shared objekt_id
+      const skProd = skId ? prodRows.filter((r: any) => r.objekt_id === skId && (!shared || !skMid || r.maskin_id === skMid)) : [];
       let totalStammar = 0, totalVol = 0;
       skProd.forEach((p: any) => {
         totalStammar += p.stammar || 0;
@@ -300,7 +300,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       });
       const medelstam = totalStammar > 0 ? Math.round((totalVol / totalStammar) * 100) / 100 : 0;
       const stamPerG15 = skTid.g15 > 0 ? Math.round((totalStammar / skTid.g15) * 10) / 10 : 0;
-      const m3PerG15Sk = skTid.g15 > 0 ? Math.round((obj.volymSkordare / skTid.g15) * 10) / 10 : 0;
+      const m3PerG15Sk = skTid.g15 > 0 ? Math.round((totalVol / skTid.g15) * 10) / 10 : 0;
 
       // Per trädslag
       const tradslagAgg = new Map<string, number>();
