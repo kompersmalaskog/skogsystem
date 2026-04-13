@@ -341,15 +341,15 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
 
       {/* Footer med total */}
       <div style={{
-        padding: '20px',
-        borderTop: '1px solid #222',
+        padding: '16px 20px',
+        borderTop: '1px solid rgba(255,255,255,0.1)',
         backgroundColor: '#0a0a0a',
         textAlign: 'center',
       }}>
-        <span style={{ color: '#666', fontSize: '14px' }}>
+        <span style={{ color: '#8e8e93', fontSize: '15px' }}>
           {activeTab === 'oplanerade' ? 'Oplanerat' : 'Planerat'} totalt:{' '}
         </span>
-        <span style={{ fontSize: '16px', fontWeight: '600' }}>
+        <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>
           {filtreratTotal.toLocaleString()} m³
         </span>
       </div>
