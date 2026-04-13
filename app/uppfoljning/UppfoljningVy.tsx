@@ -634,6 +634,15 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                       kortaStopp: data.skotareKortaStopp, avbrott: data.skotareAvbrott, rast: data.skotareRast,
                     }] : []),
                   ].map(m => {
+                    const harData = m.g15 > 0 || m.g0 > 0 || m.avbrott > 0 || m.rast > 0;
+                    if (!harData) return (
+                      <div key={m.label} className="panel-card">
+                        <h3>{m.label}</h3>
+                        <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '1.5rem 0' }}>
+                          Ingen {m.label.toLowerCase()} kopplad till detta objekt
+                        </div>
+                      </div>
+                    );
                     const arbetstid = Math.round((m.g15 + m.avbrott) * 10) / 10;
                     const totaltid = Math.round((arbetstid + m.rast) * 10) / 10;
                     return (
@@ -660,16 +669,20 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                 <div className="panel-two" style={{ marginBottom: 12 }}>
                   <div className="panel-card">
                     <h3>Skördare</h3>
-                    <div className="row"><span className="row-label">m³/G15h</span><span className="row-val">{data.skordareM3G15h}</span></div>
-                    <div className="row"><span className="row-label">Stammar/G15h</span><span className="row-val">{data.skordareStammarG15h}</span></div>
-                    <div className="row"><span className="row-label">Medelstam</span><span className="row-val">{data.skordareMedelstam} m³</span></div>
+                    {data.skordareM3G15h > 0 || data.skordareStammarG15h > 0 ? <>
+                      <div className="row"><span className="row-label">m³/G15h</span><span className="row-val">{data.skordareM3G15h}</span></div>
+                      <div className="row"><span className="row-label">Stammar/G15h</span><span className="row-val">{data.skordareStammarG15h}</span></div>
+                      <div className="row"><span className="row-label">Medelstam</span><span className="row-val">{data.skordareMedelstam} m³</span></div>
+                    </> : <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '1.5rem 0' }}>Ingen skördare kopplad till detta objekt</div>}
                   </div>
                   {!egen && !extern && (
                     <div className="panel-card">
                       <h3>Skotare</h3>
-                      <div className="row"><span className="row-label">m³/G15h</span><span className="row-val">{data.skotareM3G15h}</span></div>
-                      <div className="row"><span className="row-label">Lass/G15h</span><span className="row-val">{data.skotareLassG15h}</span></div>
-                      <div className="row"><span className="row-label">Snittlass</span><span className="row-val">{data.skotareSnittlass} m³</span></div>
+                      {data.skotareM3G15h > 0 || data.skotareLassG15h > 0 ? <>
+                        <div className="row"><span className="row-label">m³/G15h</span><span className="row-val">{data.skotareM3G15h}</span></div>
+                        <div className="row"><span className="row-label">Lass/G15h</span><span className="row-val">{data.skotareLassG15h}</span></div>
+                        <div className="row"><span className="row-label">Snittlass</span><span className="row-val">{data.skotareSnittlass} m³</span></div>
+                      </> : <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '1.5rem 0' }}>Ingen skotare kopplad till detta objekt</div>}
                     </div>
                   )}
                 </div>
@@ -751,11 +764,13 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                   {[...(!grot ? [{ label: 'Skördare', rows: data.avbrottSkordare, totalt: data.avbrottSkordare_totalt }] : []), ...((!egen && !extern) ? [{ label: 'Skotare', rows: data.avbrottSkotare, totalt: data.avbrottSkotareTotalt }] : [])].map(m => (
                     <div key={m.label} className="panel-card">
                       <h3>{m.label}</h3>
-                      <table className="avbrott-table">
-                        <thead><tr><th>Orsak</th><th>Typ</th><th>Tid</th><th>Antal</th></tr></thead>
-                        <tbody>{m.rows.map(r => <tr key={r.orsak}><td>{r.orsak}</td><td>{r.typ}</td><td>{r.tid}</td><td>{r.antal}</td></tr>)}</tbody>
-                      </table>
-                      <div className="total-row"><span>Totalt</span><span>{m.totalt}</span></div>
+                      {m.rows.length > 0 ? <>
+                        <table className="avbrott-table">
+                          <thead><tr><th>Orsak</th><th>Typ</th><th>Tid</th><th>Antal</th></tr></thead>
+                          <tbody>{m.rows.map(r => <tr key={r.orsak}><td>{r.orsak}</td><td>{r.typ}</td><td>{r.tid}</td><td>{r.antal}</td></tr>)}</tbody>
+                        </table>
+                        <div className="total-row"><span>Totalt</span><span>{m.totalt}</span></div>
+                      </> : <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '1.5rem 0' }}>Ingen {m.label.toLowerCase()} kopplad till detta objekt</div>}
                     </div>
                   ))}
                 </div>
@@ -765,6 +780,9 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
             {/* SKOTARPRODUKTION */}
             {aktifTab === 'skotare' && (
               <div className="panel">
+                {data.antalLass === 0 && data.skotareM3G15h === 0 ? (
+                  <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '2rem 0', textAlign: 'center' }}>Ingen skotare kopplad till detta objekt</div>
+                ) : <>
                 <div className="stats4">
                   {[['Antal lass', data.antalLass], ['Snittlass', data.snittlassM3 + ' m³'], ['Lass/G15h', data.lassG15h], ['Skotningsavst.', data.skotningsavstand + ' m']].map(([l, v]) => (
                     <div key={String(l)} className="stat-card"><div className="stat-label">{l}</div><div className="stat-num">{v}</div></div>
@@ -774,6 +792,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                   <h3>Lass per dag</h3>
                   {data.lassPerDag.map((d, i) => <HBar key={d.datum} label={d.datum} pct={Math.round(d.lass / maxLass * 100)} val={d.lass + ' lass'} delay={i * 60} />)}
                 </div>
+                </>}
               </div>
             )}
 
