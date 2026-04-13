@@ -104,49 +104,55 @@ function getObjektStatus(obj: UppfoljningObjekt): { text: string; color: string 
   return { text: 'Pågående', color: 'rgba(255,255,255,0.5)' };
 }
 
-/* ── ObjektKort — list item ── */
+/* ── ObjektKort — card ── */
 function ObjektKort({ obj, onClick }: { obj: UppfoljningObjekt; onClick: () => void }) {
   const vol = Math.round(obj.volymSkordare);
   const framkort = obj.volymSkordare > 0 ? Math.min(100, Math.round((obj.volymSkotare / obj.volymSkordare) * 100)) : 0;
   const status = getObjektStatus(obj);
   const maskin = obj.skordareModell || obj.skotareModell || '';
   const start = obj.skordareStart ? fmtDate(obj.skordareStart) : obj.skotareStart ? fmtDate(obj.skotareStart) : '';
+  const isLive = obj.status === 'pagaende';
 
   return (
     <div onClick={onClick} style={{
-      display: 'flex', alignItems: 'center', gap: 16,
-      padding: '14px 0', cursor: 'pointer',
-      borderBottom: `1px solid ${divider}`,
+      background: '#1c1c1e', borderRadius: 12, padding: 16, marginBottom: 8,
+      cursor: 'pointer', transition: 'background 0.15s',
     }}>
-      {/* Namn + ägare + maskin */}
-      <div style={{ flex: '1 1 0', minWidth: 0 }}>
-        <div style={{ fontSize: 15, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
-        <div style={{ fontSize: 12, color: muted, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {obj.agare}{maskin ? ` · ${maskin}` : ''}{start ? ` · ${start}` : ''}
-        </div>
+      {/* Rad 1: Namn + status */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ fontSize: 17, fontWeight: 600, color: text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{obj.namn}</div>
+        {isLive ? (
+          <span style={{ fontSize: 11, fontWeight: 500, color: '#4ade80', display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, marginLeft: 12 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
+            {status.text}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, color: '#636366', flexShrink: 0, marginLeft: 12 }}>Avslutat</span>
+        )}
       </div>
 
-      {/* Progress-bar (mitten) */}
+      {/* Rad 2: Ägare · Maskin · Datum */}
+      <div style={{ fontSize: 13, color: '#636366', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {obj.agare}{maskin ? ` · ${maskin}` : ''}{start ? ` · ${start}` : ''}
+      </div>
+
+      {/* Rad 3: Progress-bar full bredd */}
       {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning && (
-        <div style={{ flex: '0 0 160px' }}>
-          <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: obj.volymSkordare > 0 ? `${framkort}%` : '0%', background: obj.volymSkordare > 0 ? (framkort >= 95 ? '#4ade80' : 'rgba(255,255,255,0.35)') : 'rgba(255,255,255,0.08)', borderRadius: 2, transition: 'width 0.3s' }} />
-          </div>
-          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-            {obj.volymSkordare > 0 ? `Skotat: ${Math.round(obj.volymSkotare)} av ${Math.round(obj.volymSkordare)} m³` : '–'}
-          </div>
+        <div style={{ marginTop: 12, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: obj.volymSkordare > 0 ? `${framkort}%` : '0%', background: obj.volymSkordare > 0 ? (framkort >= 95 ? '#4ade80' : 'rgba(255,255,255,0.35)') : 'rgba(255,255,255,0.08)', borderRadius: 2, transition: 'width 0.3s' }} />
         </div>
       )}
 
-      {/* Volym */}
-      <div style={{ flex: '0 0 70px', textAlign: 'right' }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: text, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{vol > 0 ? vol : '--'}</div>
-        <div style={{ fontSize: 10, color: muted }}>m³</div>
-      </div>
-
-      {/* Status */}
-      <div style={{ flex: '0 0 110px', textAlign: 'right' }}>
-        <span style={{ fontSize: 11, color: status.color, fontWeight: 500 }}>{status.text}</span>
+      {/* Rad 4: Skotat text + total m³ */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
+        <div style={{ fontSize: 12, color: '#636366', fontVariantNumeric: 'tabular-nums' }}>
+          {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning
+            ? (obj.volymSkordare > 0 ? `Skotat: ${Math.round(obj.volymSkotare)} av ${Math.round(obj.volymSkordare)} m³` : '–')
+            : ''}
+        </div>
+        <div style={{ fontSize: 13, color: '#636366', fontVariantNumeric: 'tabular-nums' }}>
+          {vol > 0 ? `${vol} m³` : ''}
+        </div>
       </div>
     </div>
   );

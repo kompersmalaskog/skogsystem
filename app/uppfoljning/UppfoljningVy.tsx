@@ -172,11 +172,25 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
   const grot = data.grotSkotning === true;
   const extern = data.externSkotning === true;
   const externKostnad = (data.externPris || 0) * (data.externAntal || 0);
-  const tabChoices = (egen || extern)
-    ? (['oversikt', 'tid', 'produktion', 'diesel', 'avbrott'] as const)
-    : grot
-      ? (['oversikt', 'tid', 'diesel', 'avbrott', 'skotare'] as const)
-      : (['oversikt', 'tid', 'produktion', 'diesel', 'avbrott', 'skotare'] as const);
+  const harSkordareData = data.skordareG15h > 0 || data.skordareM3G15h > 0;
+  const harSkotareData = data.skotareG15h > 0 || data.antalLass > 0 || data.skotareM3G15h > 0;
+  const harTidData = harSkordareData || harSkotareData;
+  const harProduktionData = data.skordareM3G15h > 0 || data.skordareStammarG15h > 0 || data.skotareM3G15h > 0 || data.tradslag.length > 0 || data.sortiment.length > 0;
+  const harDieselData = data.dieselTotalt > 0;
+  const harAvbrottData = data.avbrottSkordare.length > 0 || data.avbrottSkotare.length > 0;
+  const harSkotareProdData = data.antalLass > 0 || data.skotareM3G15h > 0;
+
+  const tabChoices = (() => {
+    const tabs: Array<'oversikt' | 'tid' | 'produktion' | 'diesel' | 'avbrott' | 'skotare'> = ['oversikt'];
+    if (harTidData) tabs.push('tid');
+    if (!grot && harProduktionData) tabs.push('produktion');
+    if (harDieselData) tabs.push('diesel');
+    if (harAvbrottData) tabs.push('avbrott');
+    if (!egen && !extern && !grot && harSkotareProdData) tabs.push('skotare');
+    // For grot: skotare tab if data exists
+    if (grot && harSkotareProdData) tabs.push('skotare');
+    return tabs;
+  })();
   const [aktifTab, setAktifTab] = useState<'oversikt' | 'tid' | 'produktion' | 'diesel' | 'avbrott' | 'skotare'>('oversikt');
   const [visaForare, setVisaForare] = useState<Record<number, boolean>>({});
   const [timestamp, setTimestamp] = useState('');
@@ -191,13 +205,10 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
   const skordareBalStr = useCountUp(data.skordareBalG15h, 1400, true, 1);
   const skotareBalStr = useCountUp(data.skotareBalG15h, 1400, true, 1);
 
-  // Timestamp
+  // Timestamp (only HH:MM for inline display)
   useEffect(() => {
     const now = new Date();
     setTimestamp(
-      now.getFullYear() + '-' +
-      String(now.getMonth() + 1).padStart(2, '0') + '-' +
-      String(now.getDate()).padStart(2, '0') + ' ' +
       String(now.getHours()).padStart(2, '0') + ':' +
       String(now.getMinutes()).padStart(2, '0')
     );
@@ -295,6 +306,29 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
     return { namn: raw, kod: null };
   }
 
+  const avbrottOversattning: Record<string, string> = {
+    'Saw maintenance': 'Sågunderhåll',
+    'Refilling and lubrication': 'Påfyllning och smörjning',
+    'Boom failure': 'Kranfel',
+    'Saw failure': 'Sågfel',
+    'Engine failure': 'Motorfel',
+    'Hydraulic failure': 'Hydraulikfel',
+    'Electric failure': 'Elfel',
+    'Boom maintenance': 'Kranunderhåll',
+    'Track failure': 'Bandfel',
+    'Moving': 'Förflyttning',
+    'Waiting': 'Väntan',
+    'Planning': 'Planering',
+    'Personal': 'Personligt',
+    'Other': 'Övrigt',
+    'Mechanical': 'Mekaniskt',
+    'Planned': 'Planerat',
+    'Logistics': 'Logistik',
+  };
+  function oversattAvbrott(s: string): string {
+    return avbrottOversattning[s] || s;
+  }
+
   const maxSortiment = Math.max(...data.sortiment.map(s => s.m3));
   const maxDieselSkord = Math.max(...data.dieselSkordare.map(d => d.liter));
   const maxDieselSkot = Math.max(...data.dieselSkotare.map(d => d.liter));
@@ -383,11 +417,13 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         .forare-header { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:10px; color:var(--text-ter); letter-spacing:0.04em; margin-bottom:6px; }
         .forare-row { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:12px; color:var(--text-sec); padding:5px 0; }
         .forare-list { margin-top:10px; padding-top:10px; border-top:1px solid var(--border); }
+        .tabs-outer { position:relative; }
+        .tabs-outer::after { content:''; position:absolute; top:0; right:0; bottom:0; width:32px; background:linear-gradient(90deg,transparent,var(--bg)); pointer-events:none; z-index:2; }
         .tabs-wrap { display:flex; border-bottom:1px solid var(--border); overflow-x:auto; position:relative; scrollbar-width:none; -ms-overflow-style:none; padding-top:4px; }
         .tabs-wrap::-webkit-scrollbar { display:none; }
-        .tab-btn { padding:12px 20px; font-size:12px; font-weight:500; letter-spacing:0.02em; color:#888; background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; white-space:nowrap; font-family:inherit; transition:color 0.25s, background 0.25s; border-radius:6px 6px 0 0; flex-shrink:0; }
+        .tab-btn { padding:12px 20px; font-size:12px; font-weight:500; letter-spacing:0.02em; color:#636366; background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; white-space:nowrap; font-family:inherit; transition:color 0.25s, background 0.25s; border-radius:6px 6px 0 0; flex-shrink:0; }
         .tab-btn:hover { color:var(--text-sec); }
-        .tab-active { color:var(--text) !important; background:rgba(255,255,255,0.08); }
+        .tab-active { color:var(--text) !important; background:rgba(255,255,255,0.08); border-bottom-color:var(--text) !important; }
         .tab-slider { position:absolute; bottom:-1px; height:2px; background:linear-gradient(90deg,rgba(255,255,255,0.2),rgba(255,255,255,0.7),rgba(255,255,255,0.2)); border-radius:2px; transition:left 0.35s cubic-bezier(0.34,1.2,0.64,1), width 0.35s cubic-bezier(0.34,1.2,0.64,1); pointer-events:none; box-shadow:0 0 8px rgba(255,255,255,0.3); }
         .panel { padding:1.5rem 0; }
         .panel-two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
@@ -440,26 +476,28 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
             <div className="uppf-header-title">{data.objektNamn}</div>
             {grot && <div style={{ fontSize: 12, color: '#4ade80', fontWeight: 600, letterSpacing: '0.05em', marginTop: 2 }}>Grot-skotning</div>}
             {extern && <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, letterSpacing: '0.05em', marginTop: 2 }}>Extern skotare{data.externForetag ? ` — ${data.externForetag}` : ''}</div>}
-            <div className="uppf-live"><span className="uppf-live-dot" /><span className="uppf-live-label">LIVE</span></div>
-          </div>
-          <div>
-            <div className="uppf-ts-label">Senast uppdaterad</div>
-            <div className="uppf-ts-val">{timestamp || '—'}</div>
+            <div className="uppf-live">
+              <span className="uppf-live-dot" />
+              <span className="uppf-live-label">LIVE</span>
+              {timestamp && <span style={{ color: 'var(--text-ter)', fontSize: 10 }}>· Uppdaterad {timestamp}</span>}
+            </div>
           </div>
         </div>
 
         {/* TABS — sticky under header */}
-        <div ref={tabsRef} className="tabs-wrap" style={{ position: 'sticky', top: 0, zIndex: 9, background: 'var(--bg)' }}>
-          {tabChoices.map(tab => (
-            <button
-              key={tab}
-              className={`tab-btn${aktifTab === tab ? ' tab-active' : ''}`}
-              onClick={e => { setAktifTab(tab); moveSlider(e.currentTarget); }}
-            >
-              {tab === 'oversikt' ? 'Översikt' : tab === 'tid' ? 'Tidredovisning' : tab === 'produktion' ? 'Produktion' : tab === 'diesel' ? 'Diesel' : tab === 'avbrott' ? 'Avbrott' : 'Skotarproduktion'}
-            </button>
-          ))}
-          <div ref={sliderRef} className="tab-slider" />
+        <div className="tabs-outer" style={{ position: 'sticky', top: 0, zIndex: 9, background: 'var(--bg)' }}>
+          <div ref={tabsRef} className="tabs-wrap">
+            {tabChoices.map(tab => (
+              <button
+                key={tab}
+                className={`tab-btn${aktifTab === tab ? ' tab-active' : ''}`}
+                onClick={e => { setAktifTab(tab); moveSlider(e.currentTarget); }}
+              >
+                {tab === 'oversikt' ? 'Översikt' : tab === 'tid' ? 'Tidredovisning' : tab === 'produktion' ? 'Produktion' : tab === 'diesel' ? 'Diesel' : tab === 'avbrott' ? 'Avbrott' : 'Skotarproduktion'}
+              </button>
+            ))}
+            <div ref={sliderRef} className="tab-slider" />
+          </div>
         </div>
 
         <div className="uppf-content">
@@ -767,7 +805,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                       {m.rows.length > 0 ? <>
                         <table className="avbrott-table">
                           <thead><tr><th>Orsak</th><th>Typ</th><th>Tid</th><th>Antal</th></tr></thead>
-                          <tbody>{m.rows.map(r => <tr key={r.orsak}><td>{r.orsak}</td><td>{r.typ}</td><td>{r.tid}</td><td>{r.antal}</td></tr>)}</tbody>
+                          <tbody>{m.rows.map(r => <tr key={r.orsak}><td>{oversattAvbrott(r.orsak)}</td><td>{oversattAvbrott(r.typ)}</td><td>{r.tid}</td><td>{r.antal}</td></tr>)}</tbody>
                         </table>
                         <div className="total-row"><span>Totalt</span><span>{m.totalt}</span></div>
                       </> : <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '1.5rem 0' }}>Ingen {m.label.toLowerCase()} kopplad till detta objekt</div>}
