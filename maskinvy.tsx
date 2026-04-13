@@ -3872,21 +3872,28 @@ body {
   .mv-bottomnav {
     display: flex !important;
     position: fixed; bottom: 0; left: 0; right: 0;
-    height: 56px; background: rgba(15,15,14,0.97);
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    border-top: 1px solid rgba(255,255,255,0.07);
-    z-index: 200; justify-content: space-around; align-items: center;
-    padding: 0 4px; padding-bottom: env(safe-area-inset-bottom);
+    background: #111110;
+    border-top: 0.5px solid rgba(255,255,255,0.07);
+    z-index: 200; justify-content: space-around; align-items: flex-start;
+    padding: 10px 4px 16px 4px;
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
     font-family: 'Geist', system-ui, sans-serif;
   }
   .mv-bottomnav button {
     flex: 1; display: flex; flex-direction: column; align-items: center;
-    gap: 2px; background: none; border: none; cursor: pointer;
-    padding: 6px 0; min-height: 44px; color: #555; transition: color 0.15s;
+    gap: 0; background: none; border: none; cursor: pointer;
+    padding: 0; min-height: 44px; color: #7a7a72; transition: color 0.15s;
   }
-  .mv-bottomnav button.active { color: #00c48c; }
-  .mv-bn-icon { font-size: 18px; line-height: 1; }
-  .mv-bn-label { font-size: 9px; font-weight: 500; letter-spacing: 0.3px; }
+  .mv-bottomnav button.active { color: #5aff8c; }
+  .mv-bn-icon-wrap {
+    width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
+    border-radius: 12px; padding: 6px; transition: background 0.15s;
+  }
+  .mv-bottomnav button.active .mv-bn-icon-wrap {
+    background: rgba(90,255,140,0.1);
+  }
+  .mv-bn-icon-wrap svg { width: 24px; height: 24px; }
+  .mv-bn-label { font-size: 10px; font-weight: 500; letter-spacing: 0.3px; margin-top: 2px; }
 
   /* 2. Top bar: stack vertically */
   .mv-topbar {
@@ -4640,18 +4647,18 @@ body {
       {/* ── BOTTOM NAV (mobile) ── */}
       <nav className="mv-bottomnav">
         {[
-          { icon: '☀', label: 'Idag', view: 'idag' },
-          { icon: '◻', label: 'Översikt', view: 'oversikt' },
-          { icon: '▤', label: 'Produktion', view: 'produktion' },
-          { icon: '⚠', label: 'Avbrott', view: 'avbrott' },
-          { icon: '◈', label: 'Analys', view: 'analys' },
-          { icon: '🔧', label: 'Logg', view: 'maskinlogg' },
+          { label: 'Idag', view: 'idag', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg> },
+          { label: 'Översikt', view: 'oversikt', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg> },
+          { label: 'Produktion', view: 'produktion', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="6" y1="20" x2="6" y2="14"/><line x1="10" y1="20" x2="10" y2="8"/><line x1="14" y1="20" x2="14" y2="11"/><line x1="18" y1="20" x2="18" y2="5"/></svg> },
+          { label: 'Avbrott', view: 'avbrott', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg> },
+          { label: 'Analys', view: 'analys', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="18" r="3"/><circle cx="19" cy="18" r="3"/><line x1="12" y1="8" x2="5" y2="15"/><line x1="12" y1="8" x2="19" y2="15"/></svg> },
+          { label: 'Maskinlogg', view: 'maskinlogg', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="13" y2="15"/></svg> },
         ].map(item => (
           <button key={item.view} onClick={() => {
             if (item.view === 'maskinlogg') { (window as any).__openMaskinLogg?.(); return; }
             setActiveView(item.view);
           }} className={activeView === item.view ? 'active' : ''}>
-            <span className="mv-bn-icon">{item.icon}</span>
+            <span className="mv-bn-icon-wrap">{item.svg}</span>
             <span className="mv-bn-label">{item.label}</span>
           </button>
         ))}
