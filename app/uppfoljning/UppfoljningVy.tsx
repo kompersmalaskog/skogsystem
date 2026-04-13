@@ -173,11 +173,11 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
   const extern = data.externSkotning === true;
   const externKostnad = (data.externPris || 0) * (data.externAntal || 0);
   const tabChoices = (egen || extern)
-    ? (['tid', 'produktion', 'diesel', 'avbrott'] as const)
+    ? (['oversikt', 'tid', 'produktion', 'diesel', 'avbrott'] as const)
     : grot
-      ? (['tid', 'diesel', 'avbrott', 'skotare'] as const)
-      : (['tid', 'produktion', 'diesel', 'avbrott', 'skotare'] as const);
-  const [aktifTab, setAktifTab] = useState<'tid' | 'produktion' | 'diesel' | 'avbrott' | 'skotare'>('tid');
+      ? (['oversikt', 'tid', 'diesel', 'avbrott', 'skotare'] as const)
+      : (['oversikt', 'tid', 'produktion', 'diesel', 'avbrott', 'skotare'] as const);
+  const [aktifTab, setAktifTab] = useState<'oversikt' | 'tid' | 'produktion' | 'diesel' | 'avbrott' | 'skotare'>('oversikt');
   const [visaForare, setVisaForare] = useState<Record<number, boolean>>({});
   const [timestamp, setTimestamp] = useState('');
   const tabsRef = useRef<HTMLDivElement>(null);
@@ -272,6 +272,29 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
     }
   };
 
+  const sortimentNamnMap: Record<string, string> = {
+    'BmavFall': 'Barrmassaved', 'BmavFall_V3': 'Barrmassaved', 'BmavFall_V4': 'Barrmassaved',
+    'BjörkmavFall': 'Björkmassaved', 'BjörkmavFall_V3': 'Björkmassaved',
+    'EngvedFall': 'Energived', 'EngvedFall_V3': 'Energived',
+    'Timmer': 'Sågtimmer', 'TimmerFall': 'Sågtimmer',
+    'Kubb': 'Kubb', 'KubbFall': 'Kubb',
+    'GranTimmer': 'Grantimmer', 'TallTimmer': 'Talltimmer',
+    'GranMassa': 'Granmassaved', 'TallMassa': 'Tallmassaved',
+  };
+  function sortimentSvenska(raw: string): { namn: string; kod: string | null } {
+    // Check exact match
+    if (sortimentNamnMap[raw]) return { namn: sortimentNamnMap[raw], kod: raw };
+    // Check prefix match (strip _V3 etc)
+    const base = raw.replace(/_V\d+$/, '');
+    if (sortimentNamnMap[base]) return { namn: sortimentNamnMap[base], kod: raw };
+    // Check case-insensitive
+    const lower = raw.toLowerCase();
+    for (const [k, v] of Object.entries(sortimentNamnMap)) {
+      if (k.toLowerCase() === lower) return { namn: v, kod: raw };
+    }
+    return { namn: raw, kod: null };
+  }
+
   const maxSortiment = Math.max(...data.sortiment.map(s => s.m3));
   const maxDieselSkord = Math.max(...data.dieselSkordare.map(d => d.liter));
   const maxDieselSkot = Math.max(...data.dieselSkotare.map(d => d.liter));
@@ -320,13 +343,13 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         .section-reveal { padding:2rem 0; border-bottom:1px solid var(--border); opacity:0; transform:translateY(16px); transition:opacity 0.55s ease, transform 0.55s cubic-bezier(0.16,1,0.3,1); }
         .section-reveal:last-child { border-bottom:none; }
         .section-reveal.visible { opacity:1; transform:translateY(0); }
-        .sec-label { font-size:11px; font-weight:500; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-ter); margin-bottom:1.25rem; display:flex; align-items:center; gap:10px; }
+        .sec-label { font-size:11px; font-weight:500; letter-spacing:0.04em; color:var(--text-ter); margin-bottom:1.25rem; display:flex; align-items:center; gap:10px; }
         .sec-label::after { content:''; flex:1; height:1px; background:var(--border); }
         .card3d { background:linear-gradient(160deg,var(--surface3) 0%,var(--surface) 100%); border:1px solid var(--border); border-top-color:var(--border-top); border-radius:16px; padding:1.25rem; box-shadow:var(--shadow-md); transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.35s ease, border-color 0.2s; position:relative; overflow:hidden; }
         .card3d::before { content:''; position:absolute; top:0; left:-20%; right:-20%; height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.12),transparent); pointer-events:none; }
         .card3d:hover { box-shadow:var(--shadow-lg); border-color:var(--border-strong); }
         .hero-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
-        .hero-label { font-size:11px; color:var(--text-ter); margin-bottom:10px; font-weight:500; letter-spacing:0.04em; text-transform:uppercase; }
+        .hero-label { font-size:11px; color:var(--text-ter); margin-bottom:10px; font-weight:500; letter-spacing:0.04em; }
         .hero-num { font-size:clamp(40px,9vw,68px); font-weight:300; font-variant-numeric:tabular-nums; letter-spacing:-0.04em; line-height:1; text-shadow:0 0 40px rgba(255,255,255,0.12),0 0 80px rgba(255,255,255,0.05); }
         .hero-unit { font-size:12px; color:var(--text-sec); margin-top:6px; }
         .progress-wrap { padding:1.25rem; background:linear-gradient(160deg,var(--surface3) 0%,var(--surface) 100%); border:1px solid var(--border); border-top-color:var(--border-top); border-radius:16px; box-shadow:var(--shadow-md); position:relative; overflow:hidden; }
@@ -338,7 +361,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         .progress-fill { height:100%; background:linear-gradient(90deg,rgba(255,255,255,0.3),rgba(255,255,255,0.7)); width:0; border-radius:1px; transition:width 2s cubic-bezier(0.16,1,0.3,1) 0.3s; }
         .two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
         .bal-inner { padding:1.25rem; }
-        .bal-machine { font-size:11px; color:var(--text-ter); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:8px; font-weight:500; }
+        .bal-machine { font-size:11px; color:var(--text-ter); letter-spacing:0.04em; margin-bottom:8px; font-weight:500; }
         .bal-num { font-size:30px; font-weight:300; letter-spacing:-0.03em; font-variant-numeric:tabular-nums; text-shadow:0 0 30px rgba(255,255,255,0.1),0 0 60px rgba(255,255,255,0.04); }
         .bal-unit { font-size:11px; color:var(--text-sec); margin-top:3px; }
         .bal-bar { height:1px; background:rgba(255,255,255,0.05); margin-top:12px; overflow:hidden; border-radius:1px; }
@@ -346,23 +369,23 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         .bal-note { padding:1rem 1.25rem; border-top:1px solid var(--border); font-size:12px; color:var(--text-sec); line-height:1.6; }
         .bal-note strong { color:var(--text); font-weight:500; }
         .maskin-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
-        .maskin-type { font-size:11px; color:var(--text-ter); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; font-weight:500; }
+        .maskin-type { font-size:11px; color:var(--text-ter); letter-spacing:0.04em; margin-bottom:4px; font-weight:500; }
         .maskin-model { font-size:15px; font-weight:500; letter-spacing:-0.01em; }
         .badge { font-size:10px; padding:3px 9px; border-radius:20px; background:rgba(255,255,255,0.04); color:var(--text-sec); display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border); box-shadow:inset 0 1px 0 rgba(255,255,255,0.06); }
         .badge-aktiv .badge-dot { width:5px; height:5px; border-radius:50%; background:#4ade80; box-shadow:0 0 6px rgba(74,222,128,0.6); animation:lp 2s ease-in-out infinite; }
         .badge-klar { color:#6e6e73; }
         .badge-klar .badge-dot { width:5px; height:5px; border-radius:50%; background:#6e6e73; }
         .maskin-meta { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
-        .maskin-lbl { font-size:10px; color:var(--text-ter); margin-bottom:3px; text-transform:uppercase; letter-spacing:0.04em; }
+        .maskin-lbl { font-size:10px; color:var(--text-ter); margin-bottom:3px; letter-spacing:0.04em; }
         .maskin-val { font-size:13px; color:var(--text-sec); }
         .forare-toggle { margin-top:12px; font-size:11px; color:var(--text-ter); cursor:pointer; transition:color 0.2s; display:inline-block; }
         .forare-toggle:hover { color:var(--text-sec); }
-        .forare-header { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:10px; color:var(--text-ter); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px; }
+        .forare-header { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:10px; color:var(--text-ter); letter-spacing:0.04em; margin-bottom:6px; }
         .forare-row { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:12px; color:var(--text-sec); padding:5px 0; }
         .forare-list { margin-top:10px; padding-top:10px; border-top:1px solid var(--border); }
-        .tabs-wrap { display:flex; margin-top:1.75rem; border-top:1px solid var(--border-strong); border-bottom:1px solid var(--border); overflow-x:auto; position:relative; scrollbar-width:none; -ms-overflow-style:none; padding-top:4px; }
+        .tabs-wrap { display:flex; border-bottom:1px solid var(--border); overflow-x:auto; position:relative; scrollbar-width:none; -ms-overflow-style:none; padding-top:4px; }
         .tabs-wrap::-webkit-scrollbar { display:none; }
-        .tab-btn { padding:12px 20px; font-size:12px; font-weight:500; letter-spacing:0.04em; text-transform:uppercase; color:#888; background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; white-space:nowrap; font-family:inherit; transition:color 0.25s, background 0.25s; border-radius:6px 6px 0 0; }
+        .tab-btn { padding:12px 20px; font-size:12px; font-weight:500; letter-spacing:0.02em; color:#888; background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; white-space:nowrap; font-family:inherit; transition:color 0.25s, background 0.25s; border-radius:6px 6px 0 0; }
         .tab-btn:hover { color:var(--text-sec); }
         .tab-active { color:var(--text) !important; background:rgba(255,255,255,0.08); }
         .tab-slider { position:absolute; bottom:-1px; height:2px; background:linear-gradient(90deg,rgba(255,255,255,0.2),rgba(255,255,255,0.7),rgba(255,255,255,0.2)); border-radius:2px; transition:left 0.35s cubic-bezier(0.34,1.2,0.64,1), width 0.35s cubic-bezier(0.34,1.2,0.64,1); pointer-events:none; box-shadow:0 0 8px rgba(255,255,255,0.3); }
@@ -371,7 +394,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         .panel-card { background:linear-gradient(160deg,var(--surface3) 0%,var(--surface) 100%); border:1px solid var(--border); border-top-color:rgba(255,255,255,0.1); border-radius:14px; padding:1.1rem; box-shadow:var(--shadow-sm); transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1),box-shadow 0.3s ease; position:relative; overflow:hidden; }
         .panel-card::before { content:''; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent); }
         .panel-card:hover { transform:translateY(-3px); box-shadow:var(--shadow-md); }
-        .panel-card h3 { font-size:10px; color:var(--text-ter); text-transform:uppercase; letter-spacing:0.06em; font-weight:500; margin-bottom:12px; }
+        .panel-card h3 { font-size:10px; color:var(--text-ter); letter-spacing:0.04em; font-weight:500; margin-bottom:12px; }
         .row { display:flex; justify-content:space-between; align-items:center; font-size:13px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
         .row:last-child { border-bottom:none; }
         .row-label { color:var(--text-sec); }
@@ -391,7 +414,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         .tradslag-legend { display:flex; flex-wrap:wrap; gap:14px; font-size:11px; color:var(--text-sec); }
         .leg-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; display:inline-block; margin-right:4px; }
         .avbrott-table { width:100%; font-size:12px; border-collapse:collapse; }
-        .avbrott-table th { color:var(--text-ter); font-weight:500; text-align:left; padding:4px 0 8px; border-bottom:1px solid var(--border); font-size:10px; text-transform:uppercase; letter-spacing:0.06em; }
+        .avbrott-table th { color:var(--text-ter); font-weight:500; text-align:left; padding:4px 0 8px; border-bottom:1px solid var(--border); font-size:10px; letter-spacing:0.04em; }
         .avbrott-table td { padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.04); color:var(--text-sec); }
         .avbrott-table td:first-child { color:var(--text); }
         .avbrott-table td:last-child, .avbrott-table th:last-child { text-align:right; }
@@ -401,12 +424,12 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
         @media(min-width:500px){ .stats4 { grid-template-columns:repeat(4,1fr); } }
         .stat-card { background:linear-gradient(160deg,var(--surface3) 0%,var(--surface) 100%); border:1px solid var(--border); border-top-color:rgba(255,255,255,0.1); border-radius:14px; padding:1rem; box-shadow:var(--shadow-sm); transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1),box-shadow 0.3s; }
         .stat-card:hover { transform:translateY(-3px) scale(1.01); box-shadow:var(--shadow-md); }
-        .stat-label { font-size:10px; color:var(--text-ter); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; font-weight:500; }
+        .stat-label { font-size:10px; color:var(--text-ter); letter-spacing:0.04em; margin-bottom:6px; font-weight:500; }
         .stat-num { font-size:22px; font-weight:300; letter-spacing:-0.02em; }
         .diesel-hero { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; }
         .diesel-big { font-size:clamp(28px,6vw,44px); font-weight:300; letter-spacing:-0.03em; font-variant-numeric:tabular-nums; }
         .diesel-unit { font-size:12px; color:var(--text-sec); margin-top:4px; }
-        .sub-label { font-size:10px; color:var(--text-ter); text-transform:uppercase; letter-spacing:0.08em; margin:16px 0 10px; padding-top:14px; border-top:1px solid var(--border); font-weight:500; }
+        .sub-label { font-size:10px; color:var(--text-ter); letter-spacing:0.04em; margin:16px 0 10px; padding-top:14px; border-top:1px solid var(--border); font-weight:500; }
       `}</style>
 
       <div className="uppf-wrap">
@@ -415,7 +438,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
           <div>
             <div className="uppf-header-label">Uppföljning</div>
             <div className="uppf-header-title">{data.objektNamn}</div>
-            {grot && <div style={{ fontSize: 12, color: '#4ade80', fontWeight: 600, letterSpacing: '0.05em', marginTop: 2 }}>GROT-skotning</div>}
+            {grot && <div style={{ fontSize: 12, color: '#4ade80', fontWeight: 600, letterSpacing: '0.05em', marginTop: 2 }}>Grot-skotning</div>}
             {extern && <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, letterSpacing: '0.05em', marginTop: 2 }}>Extern skotare{data.externForetag ? ` — ${data.externForetag}` : ''}</div>}
             <div className="uppf-live"><span className="uppf-live-dot" /><span className="uppf-live-label">LIVE</span></div>
           </div>
@@ -425,7 +448,24 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
           </div>
         </div>
 
+        {/* TABS — sticky under header */}
+        <div ref={tabsRef} className="tabs-wrap" style={{ position: 'sticky', top: 0, zIndex: 9, background: 'var(--bg)' }}>
+          {tabChoices.map(tab => (
+            <button
+              key={tab}
+              className={`tab-btn${aktifTab === tab ? ' tab-active' : ''}`}
+              onClick={e => { setAktifTab(tab); moveSlider(e.currentTarget); }}
+            >
+              {tab === 'oversikt' ? 'Översikt' : tab === 'tid' ? 'Tidredovisning' : tab === 'produktion' ? 'Produktion' : tab === 'diesel' ? 'Diesel' : tab === 'avbrott' ? 'Avbrott' : 'Skotarproduktion'}
+            </button>
+          ))}
+          <div ref={sliderRef} className="tab-slider" />
+        </div>
+
         <div className="uppf-content">
+
+          {/* ÖVERSIKT — Volym + Balans + Maskiner */}
+          {aktifTab === 'oversikt' && <>
 
           {/* VOLYM */}
           <div className="section-reveal">
@@ -449,10 +489,12 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
             {!egen && !grot && !extern && (
               <div className="progress-wrap card3d" style={{ padding: '1.25rem' }}>
                 <div className="progress-top">
-                  <div className="progress-pct">{kvar}<span style={{ fontSize: '18px', color: 'var(--text-sec)', fontWeight: 300 }}>%</span></div>
-                  <div className="progress-lbl">kvar i skogen</div>
+                  <div className="progress-lbl">Framkört</div>
                 </div>
-                <div className="progress-track"><div ref={progressRef} className="progress-fill" /></div>
+                <div className="progress-track"><div ref={progressRef} className="progress-fill" style={data.skordat === 0 ? { background: 'rgba(255,255,255,0.08)' } : {}} /></div>
+                <div style={{ fontSize: 12, color: 'var(--text-sec)', marginTop: 8 }}>
+                  {data.skordat > 0 ? `Skotat: ${data.skotat.toLocaleString('sv-SE')} av ${data.skordat.toLocaleString('sv-SE')} m³` : '–'}
+                </div>
               </div>
             )}
           </div>
@@ -465,22 +507,22 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                 <div className="card3d" style={{ padding: '1.25rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                     <div>
-                      <div style={{ fontSize: 11, color: 'var(--text-ter)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 500, marginBottom: 4 }}>Företag</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-ter)', letterSpacing: '0.06em', fontWeight: 500, marginBottom: 4 }}>Företag</div>
                       <div style={{ fontSize: 15, fontWeight: 500 }}>{data.externForetag || '—'}</div>
                     </div>
                     <div className="badge" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.3)' }}>Inlejd</div>
                   </div>
                   <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
                     <div>
-                      <div style={{ fontSize: 10, color: 'var(--text-ter)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>Pris</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-ter)', letterSpacing: '0.04em', marginBottom: 3 }}>Pris</div>
                       <div style={{ fontSize: 13, color: 'var(--text-sec)' }}>{data.externPris || 0} kr/{data.externPrisTyp === 'timme' ? 'h' : 'm³'}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 10, color: 'var(--text-ter)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>Antal</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-ter)', letterSpacing: '0.04em', marginBottom: 3 }}>Antal</div>
                       <div style={{ fontSize: 13, color: 'var(--text-sec)' }}>{data.externAntal || 0} {data.externPrisTyp === 'timme' ? 'h' : 'm³'}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 10, color: 'var(--text-ter)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>Kostnad</div>
+                      <div style={{ fontSize: 10, color: 'var(--text-ter)', letterSpacing: '0.04em', marginBottom: 3 }}>Kostnad</div>
                       <div style={{ fontSize: 13, color: '#f59e0b', fontWeight: 600 }}>{externKostnad.toLocaleString('sv-SE')} kr</div>
                     </div>
                   </div>
@@ -502,7 +544,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
               </>
             ) : (
               <>
-                <div className="sec-label">Balans — Skördare vs Skotare</div>
+                <div className="sec-label">Balans – skördare vs skotare</div>
                 <div className="card3d" style={{ padding: 0, overflow: 'hidden' }}>
                   <div className="two-col" style={{ gap: 0 }}>
                     <div className="bal-inner" style={{ borderRight: '1px solid var(--border)' }}>
@@ -573,19 +615,8 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
               ))}
             </div>
 
-            {/* TABS */}
-            <div ref={tabsRef} className="tabs-wrap">
-              {tabChoices.map(tab => (
-                <button
-                  key={tab}
-                  className={`tab-btn${aktifTab === tab ? ' tab-active' : ''}`}
-                  onClick={e => { setAktifTab(tab); moveSlider(e.currentTarget); }}
-                >
-                  {tab === 'tid' ? 'Tidredovisning' : tab === 'produktion' ? 'Produktion' : tab === 'diesel' ? 'Diesel' : tab === 'avbrott' ? 'Avbrott' : 'Skotarproduktion'}
-                </button>
-              ))}
-              <div ref={sliderRef} className="tab-slider" />
-            </div>
+          </div>
+          </>}
 
             {/* TID */}
             {aktifTab === 'tid' && (
@@ -654,7 +685,15 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
                   </div>
                   <div className="panel-card">
                     <h3>Sortiment</h3>
-                    {data.sortiment.map((s, i) => <HBar key={s.namn} label={s.namn} pct={Math.round(s.m3 / maxSortiment * 100)} val={s.m3 + ' m³'} delay={i * 60} />)}
+                    {data.sortiment.map((s, i) => {
+                      const { namn, kod } = sortimentSvenska(s.namn);
+                      return (
+                        <div key={s.namn} style={{ marginBottom: 8 }}>
+                          <HBar label={namn} pct={Math.round(s.m3 / maxSortiment * 100)} val={s.m3 + ' m³'} delay={i * 60} />
+                          {kod && <div style={{ fontSize: 9, color: 'var(--text-ter)', marginTop: -4, marginLeft: 0, paddingLeft: 0 }}>{kod}</div>}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -738,7 +777,6 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
               </div>
             )}
 
-          </div>
         </div>
       </div>
     </>

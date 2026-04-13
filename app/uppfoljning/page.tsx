@@ -133,13 +133,15 @@ function ObjektKort({ obj, onClick }: { obj: UppfoljningObjekt; onClick: () => v
         </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-        {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning && obj.volymSkordare > 0 && (
-          <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden', maxWidth: 120 }}>
-            <div style={{ height: '100%', width: `${framkort}%`, background: framkort >= 95 ? '#4ade80' : 'rgba(255,255,255,0.35)', borderRadius: 2, transition: 'width 0.3s' }} />
+        {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning && (
+          <div style={{ flex: 1, maxWidth: 120 }}>
+            <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: obj.volymSkordare > 0 ? `${framkort}%` : '0%', background: obj.volymSkordare > 0 ? (framkort >= 95 ? '#4ade80' : 'rgba(255,255,255,0.35)') : 'rgba(255,255,255,0.08)', borderRadius: 2, transition: 'width 0.3s' }} />
+            </div>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+              {obj.volymSkordare > 0 ? `Skotat: ${Math.round(obj.volymSkotare)} av ${Math.round(obj.volymSkordare)} m³` : '–'}
+            </div>
           </div>
-        )}
-        {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning && obj.volymSkordare > 0 && (
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', fontVariantNumeric: 'tabular-nums' }}>{framkort}%</span>
         )}
         <span style={{ fontSize: 10, color: status.color, fontWeight: 500, marginLeft: 'auto' }}>{status.text}</span>
       </div>
@@ -969,14 +971,13 @@ export default function UppfoljningPage() {
           }}
         />
 
-        <div style={{ display: 'flex', gap: 2, marginBottom: 16 }}>
+        <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 2, marginBottom: 16 }}>
           {(['alla', 'pagaende', 'avslutat'] as const).map(f => (
             <button key={f} onClick={() => setFlik(f)} style={{
-              padding: '8px 18px', border: 'none', borderRadius: 0,
+              padding: '7px 16px', border: 'none', borderRadius: 6,
               fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-              background: 'none',
+              background: flik === f ? 'rgba(255,255,255,0.12)' : 'transparent',
               color: flik === f ? text : muted,
-              borderBottom: flik === f ? `2px solid ${text}` : '2px solid transparent',
               transition: 'all 0.15s',
             }}>
               {f === 'alla' ? 'Alla' : f === 'pagaende' ? 'Pågående' : 'Avslutade'}
@@ -984,16 +985,19 @@ export default function UppfoljningPage() {
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
-          {[{ k: 'alla', l: 'Alla' }, { k: 'slutavverkning', l: 'Slutavv.' }, { k: 'gallring', l: 'Gallring' }, { k: 'grot', l: 'Grot' }].map(f => (
-            <button key={f.k} onClick={() => setFilter(f.k as any)} style={{
-              padding: 0, border: 'none', cursor: 'pointer', fontFamily: ff,
-              fontSize: 13, background: 'none',
-              color: filter === f.k ? text : muted,
-              fontWeight: filter === f.k ? 600 : 400,
-              transition: 'all 0.15s',
-            }}>{f.l}</button>
-          ))}
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: muted, marginBottom: 6, letterSpacing: '0.02em' }}>Avverkningstyp:</div>
+          <div style={{ display: 'flex', gap: 12 }}>
+            {[{ k: 'alla', l: 'Alla' }, { k: 'slutavverkning', l: 'Slutavverkning' }, { k: 'gallring', l: 'Gallring' }, { k: 'grot', l: 'Grot' }].map(f => (
+              <button key={f.k} onClick={() => setFilter(f.k as any)} style={{
+                padding: 0, border: 'none', cursor: 'pointer', fontFamily: ff,
+                fontSize: 13, background: 'none',
+                color: filter === f.k ? text : muted,
+                fontWeight: filter === f.k ? 600 : 400,
+                transition: 'all 0.15s',
+              }}>{f.l}</button>
+            ))}
+          </div>
         </div>
       </div>
 
