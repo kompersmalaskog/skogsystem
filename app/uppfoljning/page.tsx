@@ -282,17 +282,19 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         };
       };
 
-      // When skördare and skotare share the same objekt_id, filter by maskin_id
+      // When skördare and skotare share the same objekt_id, exclude the other machine type
       const shared = skId && stId && skId === stId;
       const skMid = obj.skordareModellMaskinId;
       const stMid = obj.skotareModellMaskinId;
-      const skTidRows = skId ? tidRows.filter((r: any) => r.objekt_id === skId && (!shared || !skMid || r.maskin_id === skMid)) : [];
-      const stTidRows = stId ? tidRows.filter((r: any) => r.objekt_id === stId && (!shared || !stMid || r.maskin_id === stMid)) : [];
+      // For shared objekt: exclude skotare from skördare rows (and vice versa)
+      // This allows multiple skördare on the same objekt (e.g. R64428 + R64101)
+      const skTidRows = skId ? tidRows.filter((r: any) => r.objekt_id === skId && (!shared || !stMid || r.maskin_id !== stMid)) : [];
+      const stTidRows = stId ? tidRows.filter((r: any) => r.objekt_id === stId && (!shared || !skMid || r.maskin_id !== skMid)) : [];
       const skTid = buildTid(skTidRows);
       const stTid = buildTid(stTidRows);
 
-      // Production aggregation — filter by maskin_id when shared objekt_id
-      const skProd = skId ? prodRows.filter((r: any) => r.objekt_id === skId && (!shared || !skMid || r.maskin_id === skMid)) : [];
+      // Production aggregation — exclude skotare when shared objekt_id
+      const skProd = skId ? prodRows.filter((r: any) => r.objekt_id === skId && (!shared || !stMid || r.maskin_id !== stMid)) : [];
       let totalStammar = 0, totalVol = 0;
       skProd.forEach((p: any) => {
         totalStammar += p.stammar || 0;
