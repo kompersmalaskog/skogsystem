@@ -10,9 +10,7 @@ const pageNames: Record<string, string> = {
   '/arbetsrapport': 'Arbetsrapport',
   '/starta-jobb': 'Starta jobb',
   '/planering': 'Planering',
-  '/planner': 'Planner',
   '/objekt': 'Objekt',
-  '/karta': 'Karta',
   '/oversikt': 'Översikt',
   '/redigering': 'Redigering',
   '/kalibrering': 'Kalibrering',
@@ -20,7 +18,6 @@ const pageNames: Record<string, string> = {
   '/helikopter': 'Helikopter',
   '/forbattringsforslag': 'Förslag',
   '/maskin-service': 'Maskinservice',
-  '/maskinvy-ny': 'Maskinvy Ny',
   '/utbildning': 'Utbildning',
 }
 

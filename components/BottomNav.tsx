@@ -18,11 +18,9 @@ const morItems = [
   { href: '/forbattringsforslag', label: 'Förslag', icon: '💡' },
   { href: '/uppfoljning', label: 'Uppföljning', icon: '📊' },
   { href: '/helikopter-v2', label: 'Helikopter', icon: '🚁' },
-  { href: '/karta', label: 'Karta', icon: '🗺️' },
   { href: '/starta-jobb', label: 'Starta jobb', icon: '▶' },
   { href: '/arbetsrapport', label: 'Rapport', icon: '📝' },
   { href: '/maskinvy', label: 'Maskinvy', icon: '🔧' },
-  { href: '/maskinvy2', label: 'Skördare', icon: '🌲' },
   { href: '/affarsuppfoljning', label: 'Affär', icon: '💼' },
 ];
 
