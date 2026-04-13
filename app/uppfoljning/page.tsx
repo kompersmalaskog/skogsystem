@@ -114,36 +114,39 @@ function ObjektKort({ obj, onClick }: { obj: UppfoljningObjekt; onClick: () => v
 
   return (
     <div onClick={onClick} style={{
-      padding: '12px 0', cursor: 'pointer',
+      display: 'flex', alignItems: 'center', gap: 16,
+      padding: '14px 0', cursor: 'pointer',
       borderBottom: `1px solid ${divider}`,
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
-          <div style={{ fontSize: 12, color: muted, marginTop: 2 }}>{obj.agare}</div>
-          {(maskin || start) && (
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.25)', marginTop: 2 }}>
-              {maskin}{maskin && start ? ' · ' : ''}{start}
-            </div>
-          )}
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
-          <div style={{ fontSize: 18, fontWeight: 700, color: text, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{vol > 0 ? vol : '--'}</div>
-          <div style={{ fontSize: 10, color: muted }}>m³</div>
+      {/* Namn + ägare + maskin */}
+      <div style={{ flex: '1 1 0', minWidth: 0 }}>
+        <div style={{ fontSize: 15, fontWeight: 600, color: text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
+        <div style={{ fontSize: 12, color: muted, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {obj.agare}{maskin ? ` · ${maskin}` : ''}{start ? ` · ${start}` : ''}
         </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-        {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning && (
-          <div style={{ flex: 1, maxWidth: 120 }}>
-            <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: obj.volymSkordare > 0 ? `${framkort}%` : '0%', background: obj.volymSkordare > 0 ? (framkort >= 95 ? '#4ade80' : 'rgba(255,255,255,0.35)') : 'rgba(255,255,255,0.08)', borderRadius: 2, transition: 'width 0.3s' }} />
-            </div>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-              {obj.volymSkordare > 0 ? `Skotat: ${Math.round(obj.volymSkotare)} av ${Math.round(obj.volymSkordare)} m³` : '–'}
-            </div>
+
+      {/* Progress-bar (mitten) */}
+      {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning && (
+        <div style={{ flex: '0 0 160px' }}>
+          <div style={{ height: 3, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: obj.volymSkordare > 0 ? `${framkort}%` : '0%', background: obj.volymSkordare > 0 ? (framkort >= 95 ? '#4ade80' : 'rgba(255,255,255,0.35)') : 'rgba(255,255,255,0.08)', borderRadius: 2, transition: 'width 0.3s' }} />
           </div>
-        )}
-        <span style={{ fontSize: 10, color: status.color, fontWeight: 500, marginLeft: 'auto' }}>{status.text}</span>
+          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.25)', marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
+            {obj.volymSkordare > 0 ? `Skotat: ${Math.round(obj.volymSkotare)} av ${Math.round(obj.volymSkordare)} m³` : '–'}
+          </div>
+        </div>
+      )}
+
+      {/* Volym */}
+      <div style={{ flex: '0 0 70px', textAlign: 'right' }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: text, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{vol > 0 ? vol : '--'}</div>
+        <div style={{ fontSize: 10, color: muted }}>m³</div>
+      </div>
+
+      {/* Status */}
+      <div style={{ flex: '0 0 110px', textAlign: 'right' }}>
+        <span style={{ fontSize: 11, color: status.color, fontWeight: 500 }}>{status.text}</span>
       </div>
     </div>
   );
@@ -955,7 +958,7 @@ export default function UppfoljningPage() {
   return (
     <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: bg, color: text, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
 
-      <div style={{ padding: '32px 24px 0' }}>
+      <div style={{ padding: '32px 32px 0', maxWidth: 1400, margin: '0 auto' }}>
         <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 28 }}>Uppföljning</div>
 
         <input
@@ -1001,7 +1004,7 @@ export default function UppfoljningPage() {
         </div>
       </div>
 
-      <div style={{ padding: '0 24px 120px', maxWidth: 600, margin: '0 auto' }}>
+      <div style={{ padding: '0 32px 120px', maxWidth: 1400, margin: '0 auto' }}>
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: muted, fontSize: 14 }}>Laddar...</div>
         ) : lista.length === 0 ? (
