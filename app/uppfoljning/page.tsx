@@ -176,9 +176,9 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         return;
       }
 
-      const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes, dimOperatorRes] = await Promise.all([
+      const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes, dimOperatorRes, dimMaskinRes] = await Promise.all([
         supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
-        supabase.from('fakt_produktion').select('objekt_id, volym_m3sub, stammar, processtyp, tradslag_id').in('objekt_id', ids),
+        supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar, processtyp, tradslag_id').in('objekt_id', ids),
         supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
         supabase.from('dim_tradslag').select('tradslag_id, namn'),
@@ -186,6 +186,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         stId ? supabase.from('fakt_lass').select('objekt_id, datum, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
         stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
         supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
+        supabase.from('dim_maskin').select('maskin_id, maskin_typ'),
       ]);
 
       const tidRows = tidRes.data || [];
@@ -282,19 +283,25 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         };
       };
 
-      // When skördare and skotare share the same objekt_id, exclude the other machine type
+      // Build sets of harvester/forwarder maskin_ids from dim_maskin
+      const harvesterIds = new Set<string>();
+      const forwarderIds = new Set<string>();
+      (dimMaskinRes.data || []).forEach((m: any) => {
+        const typ = (m.maskin_typ || '').toLowerCase();
+        if (typ === 'harvester' || typ === 'skördare') harvesterIds.add(m.maskin_id);
+        else if (typ === 'forwarder' || typ === 'skotare') forwarderIds.add(m.maskin_id);
+      });
+
+      // When skördare and skotare share the same objekt_id, filter by machine type
       const shared = skId && stId && skId === stId;
-      const skMid = obj.skordareModellMaskinId;
-      const stMid = obj.skotareModellMaskinId;
-      // For shared objekt: exclude skotare from skördare rows (and vice versa)
-      // This allows multiple skördare on the same objekt (e.g. R64428 + R64101)
-      const skTidRows = skId ? tidRows.filter((r: any) => r.objekt_id === skId && (!shared || !stMid || r.maskin_id !== stMid)) : [];
-      const stTidRows = stId ? tidRows.filter((r: any) => r.objekt_id === stId && (!shared || !skMid || r.maskin_id !== skMid)) : [];
+      // For shared objekt: keep only harvesters for skördare, only forwarders for skotare
+      const skTidRows = skId ? tidRows.filter((r: any) => r.objekt_id === skId && (!shared || !forwarderIds.has(r.maskin_id))) : [];
+      const stTidRows = stId ? tidRows.filter((r: any) => r.objekt_id === stId && (!shared || !harvesterIds.has(r.maskin_id))) : [];
       const skTid = buildTid(skTidRows);
       const stTid = buildTid(stTidRows);
 
-      // Production aggregation — exclude skotare when shared objekt_id
-      const skProd = skId ? prodRows.filter((r: any) => r.objekt_id === skId && (!shared || !stMid || r.maskin_id !== stMid)) : [];
+      // Production aggregation — exclude forwarders when shared objekt_id
+      const skProd = skId ? prodRows.filter((r: any) => r.objekt_id === skId && (!shared || !forwarderIds.has(r.maskin_id))) : [];
       let totalStammar = 0, totalVol = 0;
       skProd.forEach((p: any) => {
         totalStammar += p.stammar || 0;
@@ -366,18 +373,18 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         if (!datum || !start) return false;
         return datum >= start && (!slut || datum <= slut);
       };
-      const skAvbrott = skMid ? avbrottRows.filter((r: any) => {
-        if (r.maskin_id === skMid) {
+      const skAvbrott = skId ? avbrottRows.filter((r: any) => {
+        if (harvesterIds.has(r.maskin_id)) {
           return r.objekt_id === skId || skDatumSet.has(r.datum) || inDateRange(r.datum, obj.skordareStart, obj.skordareSlut);
         }
         return r.objekt_id === skId && !shared;
-      }) : (skId ? avbrottRows.filter((r: any) => r.objekt_id === skId) : []);
-      const stAvbrott = stMid ? avbrottRows.filter((r: any) => {
-        if (r.maskin_id === stMid) {
+      }) : [];
+      const stAvbrott = stId ? avbrottRows.filter((r: any) => {
+        if (forwarderIds.has(r.maskin_id)) {
           return r.objekt_id === stId || stDatumSet.has(r.datum) || inDateRange(r.datum, obj.skotareStart, obj.skotareSlut);
         }
         return r.objekt_id === stId && !shared;
-      }) : (stId ? avbrottRows.filter((r: any) => r.objekt_id === stId) : []);
+      }) : [];
 
       // Lass
       let totalLassVol = 0, totalKor = 0;
