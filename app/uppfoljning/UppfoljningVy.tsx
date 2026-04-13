@@ -212,7 +212,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
     const t2 = setTimeout(() => { if (balSkordRef.current) balSkordRef.current.style.width = '88%'; }, 300);
     const t3 = setTimeout(() => { if (balSkotRef.current) balSkotRef.current.style.width = '100%'; }, 500);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [data.kvarPct]);
+  }, [data.kvarPct, aktifTab]);
 
   // Tab slider
   useEffect(() => {
@@ -250,7 +250,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
     });
   }, [aktifTab]);
 
-  // Scroll reveal
+  // Scroll reveal — re-run when tab changes so conditionally rendered sections get observed
   useEffect(() => {
     const sections = document.querySelectorAll<HTMLElement>('.section-reveal');
     const observer = new IntersectionObserver(entries => {
@@ -263,7 +263,7 @@ export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningD
     }, { threshold: 0.08 });
     sections.forEach(s => observer.observe(s));
     return () => observer.disconnect();
-  }, []);
+  }, [aktifTab]);
 
   const moveSlider = (btn: HTMLButtonElement) => {
     if (sliderRef.current) {
