@@ -29,25 +29,25 @@ const css = `
 `;
 
 const C = {
-  bg:"#f2f2f7", card:"#ffffff", label:"#8e8e93", text:"#1c1c1e",
-  line:"rgba(60,60,67,0.12)", blue:"#007aff", green:"#34c759",
-  red:"#ff3b30", orange:"#ff9500", ink:"#1c1c1e",
-  dark:"#1c1c1e", darkCard:"rgba(255,255,255,0.08)", darkLabel:"rgba(255,255,255,0.4)",
+  bg:"#000", card:"#1c1c1e", label:"#8e8e93", text:"#fff",
+  line:"rgba(255,255,255,0.08)", blue:"#0a84ff", green:"#34c759",
+  red:"#ff453a", orange:"#ff9f0a", ink:"#fff",
+  dark:"#000", darkCard:"rgba(255,255,255,0.08)", darkLabel:"rgba(255,255,255,0.4)",
 };
-const T = { fontFamily:'-apple-system,"SF Pro Display","SF Pro Text",sans-serif', color:C.text };
-const shell: CSSProperties  = { minHeight:"100vh", background:C.bg, ...T, display:"flex", flexDirection:"column" as const, padding:"0 20px" };
-const darkShell: CSSProperties = { ...shell, background:C.dark, color:"#fff" };
+const T = { fontFamily:"'Inter',-apple-system,'SF Pro Display',sans-serif", color:C.text };
+const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:"0 20px", maxWidth:390, margin:"0 auto", boxSizing:"border-box" as const, width:"100%" };
+const darkShell: CSSProperties = { ...shell };
 const topBar: CSSProperties = { paddingTop:24, paddingBottom:12 };
 const mid: CSSProperties    = { flex:1, display:"flex", flexDirection:"column" as const, justifyContent:"center", alignItems:"center", textAlign:"center" as const };
 const bottom: CSSProperties = { paddingBottom:36, display:"flex", flexDirection:"column" as const, gap:10 };
 
 const btn = {
-  primary:   { width:"100%", height:56, padding:"0 24px", background:C.ink,   color:"#fff", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer" } as CSSProperties,
-  green:     { width:"100%", height:56, padding:"0 24px", background:C.green, color:"#fff", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer" } as CSSProperties,
-  secondary: { width:"100%", height:56, padding:"0 24px", background:C.card,  color:C.ink,  border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", boxShadow:"0 1px 3px rgba(0,0,0,0.08)" } as CSSProperties,
-  ghost:     { width:"100%", padding:"14px 24px", background:"transparent", color:C.blue, border:`1.5px solid ${C.blue}`, borderRadius:14, fontSize:15, fontWeight:600, cursor:"pointer" } as CSSProperties,
-  danger:    { width:"100%", padding:"17px 24px", background:"transparent", color:C.red, border:`1.5px solid ${C.red}`, borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer" } as CSSProperties,
-  textBack:  { width:"100%", height:44, padding:"0", background:"transparent", color:C.label, border:"none", borderRadius:0, fontSize:15, fontWeight:500, cursor:"pointer" } as CSSProperties,
+  primary:   { width:"100%", height:56, padding:"0 24px", background:"#fff", color:"#000", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
+  green:     { width:"100%", height:56, padding:"0 24px", background:C.green, color:"#fff", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
+  secondary: { width:"100%", height:56, padding:"0 24px", background:"#1c1c1e", color:"#fff", border:"1px solid rgba(255,255,255,0.1)", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
+  ghost:     { width:"100%", padding:"14px 24px", background:"transparent", color:C.blue, border:`1.5px solid ${C.blue}`, borderRadius:14, fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
+  danger:    { width:"100%", padding:"17px 24px", background:"transparent", color:C.red, border:`1.5px solid rgba(255,69,58,0.3)`, borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
+  textBack:  { width:"100%", height:44, padding:"0", background:"transparent", color:"#8e8e93", border:"none", borderRadius:0, fontSize:15, fontWeight:500, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
 };
 
 const månadsNamn = (offset = 0) => {
@@ -110,9 +110,9 @@ const fmt = (m) => {
 };
 
 /* ── Sub-komponenter ── */
-const BackBtn = ({ onClick, light = false }: { onClick: () => void; light?: boolean }) => (
-  <button onClick={onClick} style={{ width:40,height:40,borderRadius:12,background:light?"rgba(255,255,255,0.14)":"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-    <svg width="9" height="16" viewBox="0 0 9 16" fill="none"><path d="M8 1L1 8L8 15" stroke={light?"#fff":C.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+const BackBtn = ({ onClick }: { onClick: () => void; light?: boolean }) => (
+  <button onClick={onClick} style={{ width:40,height:40,borderRadius:12,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+    <svg width="9" height="16" viewBox="0 0 9 16" fill="none"><path d="M8 1L1 8L8 15" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
   </button>
 );
 
@@ -121,12 +121,12 @@ const Label = ({ children, style }: { children: ReactNode; style?: CSSProperties
 );
 
 const Card = ({ children, style, onClick }: { children?: ReactNode; onClick?: () => void; style?: CSSProperties }) => (
-  <div onClick={onClick} style={{ background:C.card,borderRadius:16,padding:"18px 20px",marginBottom:10,boxShadow:"0 1px 4px rgba(0,0,0,0.06)",cursor:onClick?"pointer":"default",...style }}>{children}</div>
+  <div onClick={onClick} style={{ background:"#1c1c1e",borderRadius:12,padding:"18px 20px",marginBottom:10,border:"1px solid rgba(255,255,255,0.06)",cursor:onClick?"pointer":"default",...style }}>{children}</div>
 );
 
 const ChevronRight = ({ light = false }: { light?: boolean }) => (
   <svg width="8" height="14" viewBox="0 0 8 14" fill="none">
-    <path d="M1 1l6 6-6 6" stroke={light?"rgba(255,255,255,0.3)":C.label} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M1 1l6 6-6 6" stroke="rgba(255,255,255,0.3)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 );
 
@@ -141,9 +141,9 @@ const CheckCircle = ({ color=C.green, size=80 }) => (
 /* Drum-roller */
 const Drum = ({ value, onChange, min=0, max=59, pad=2 }: { value: number; onChange: (v: number) => void; min?: number; max?: number; pad?: number }) => (
   <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:6 }}>
-    <button style={{ width:52,height:40,background:C.card,border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:C.ink,boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }} onClick={()=>onChange(value===max?min:value+1)}>▲</button>
-    <div style={{ width:60,height:52,background:"#f2f2f7",borderRadius:12,fontSize:30,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",color:C.ink }}>{String(value).padStart(pad,"0")}</div>
-    <button style={{ width:52,height:40,background:C.card,border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:C.ink,boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }} onClick={()=>onChange(value===min?max:value-1)}>▼</button>
+    <button style={{ width:52,height:40,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:"#fff" }} onClick={()=>onChange(value===max?min:value+1)}>▲</button>
+    <div style={{ width:60,height:52,background:"rgba(255,255,255,0.06)",borderRadius:12,fontSize:30,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff" }}>{String(value).padStart(pad,"0")}</div>
+    <button style={{ width:52,height:40,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:"#fff" }} onClick={()=>onChange(value===min?max:value-1)}>▼</button>
   </div>
 );
 
@@ -181,9 +181,9 @@ const KmPicker = ({ value, onChange, label }: { value: number; onChange: (v: num
   const h=Math.floor(value/100),t=Math.floor((value%100)/10),e=value%10;
   const D=(v,add)=>(
     <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:6 }}>
-      <button style={{ width:44,height:40,background:C.card,border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:C.ink,boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }} onClick={()=>onChange(Math.min(999,value+add))}>▲</button>
-      <div style={{ width:48,height:52,background:"#f2f2f7",borderRadius:12,fontSize:28,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",color:C.ink }}>{v}</div>
-      <button style={{ width:44,height:40,background:C.card,border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:C.ink,boxShadow:"0 1px 3px rgba(0,0,0,0.08)" }} onClick={()=>onChange(Math.max(0,value-add))}>▼</button>
+      <button style={{ width:44,height:40,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:"#fff" }} onClick={()=>onChange(Math.min(999,value+add))}>▲</button>
+      <div style={{ width:48,height:52,background:"rgba(255,255,255,0.06)",borderRadius:12,fontSize:28,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff" }}>{v}</div>
+      <button style={{ width:44,height:40,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:"#fff" }} onClick={()=>onChange(Math.max(0,value-add))}>▼</button>
     </div>
   );
   return (
@@ -268,7 +268,7 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
         )}
 
         {/* Tid */}
-        <div style={{ background:C.card,borderRadius:16,padding:"18px 20px",marginBottom:6,boxShadow:"0 1px 4px rgba(0,0,0,0.06)" }}>
+        <div style={{ background:C.card,borderRadius:16,padding:"18px 20px",marginBottom:6,boxShadow:"none" }}>
           <MinPicker value={min} onChange={setMin} label="Tid"/>
           <div style={{ textAlign:"center",marginTop:-8 }}>
             <p style={{ margin:0,fontSize:32,fontWeight:700,color:C.green }}>{fmt(min)}</p>
@@ -282,7 +282,7 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
             placeholder="Kommentar"
             value={besk}
             onChange={e=>setBesk(e.target.value)}
-            style={{ width:"100%",padding:"12px 14px",fontSize:16,border:"1px solid rgba(0,0,0,0.08)",borderRadius:10,outline:"none",background:"#f9f9f9",fontFamily:"inherit" }}
+            style={{ width:"100%",padding:"12px 14px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.06)",color:"#fff",fontFamily:"inherit" }}
           />
         </Card>
       </div>
@@ -557,7 +557,7 @@ export default function Arbetsrapport() {
   const isWorking = !!dagData[idagKey];
   const förnamn = medarbetare?.namn?.split(' ')[0] || '';
 
-  const input = { width:"100%",minHeight:52,padding:"14px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"0 1px 3px rgba(0,0,0,0.08)",fontFamily:"inherit" };
+  const input = { width:"100%",minHeight:52,padding:"14px 16px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,background:"rgba(255,255,255,0.06)",outline:"none",fontFamily:"inherit",color:"#fff" };
 
   // === ARBETSDAG TOAST (DOM element) — must be before any early return ===
   useEffect(() => {
@@ -810,7 +810,7 @@ export default function Arbetsrapport() {
             <div style={{ marginTop:16,marginBottom:12 }}>
               <Label>Kommentar</Label>
               <input placeholder="Kommentar" value={avBesk} onChange={e=>setAvBesk(e.target.value)}
-                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"0 1px 3px rgba(0,0,0,0.08)",fontFamily:"inherit" }}/>
+                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"none",fontFamily:"inherit" }}/>
             </div>
 
             {/* Debiterbar toggle */}
@@ -1146,7 +1146,7 @@ export default function Arbetsrapport() {
             value={redigHem||hemadress}
             onChange={e=>setRedigHem(e.target.value)}
             onFocus={()=>{ if(!redigHem) setRedigHem(hemadress); }}
-            style={{ width:"100%",padding:"13px 14px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:10,outline:"none",background:"#f9f9f9",fontFamily:"inherit" }}
+            style={{ width:"100%",padding:"13px 14px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.06)",color:"#fff",fontFamily:"inherit" }}
           />
         </Card>
         <p style={{ margin:"0 0 32px",fontSize:13,color:C.label }}>Adressen används bara för att räkna ut avstånd — aldrig delad med andra.</p>
@@ -1168,17 +1168,17 @@ export default function Arbetsrapport() {
             onChange={e=>setRedigBt(e.target.value)}
             onFocus={()=>{ if(!redigBt) setRedigBt(btBil); }}
             placeholder="T.ex. Min bil"
-            style={{ width:"100%",padding:"13px 14px",fontSize:16,border:`1px solid ${C.line}`,borderRadius:10,outline:"none",background:"#f9f9f9",fontFamily:"inherit" }}
+            style={{ width:"100%",padding:"13px 14px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.06)",color:"#fff",fontFamily:"inherit" }}
           />
         </Card>
-        <div style={{ background:"rgba(52,199,89,0.07)",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8 }}>
+        <div style={{ background:"rgba(52,199,89,0.08)",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8 }}>
           <div style={{ width:8,height:8,borderRadius:"50%",background:C.green,flexShrink:0 }}/>
           <p style={{ margin:0,fontSize:13,color:C.green,fontWeight:500 }}>{btBil} ansluten</p>
         </div>
-        <div style={{ marginTop:40, paddingTop:20, borderTop:`1px solid ${C.line}` }}>
+        <div style={{ marginTop:40, paddingTop:20, borderTop:"1px solid rgba(255,255,255,0.08)" }}>
           <button
             onClick={async ()=>{ await supabase.auth.signOut(); window.location.href='/login'; }}
-            style={{ width:"100%",padding:"14px 0",borderRadius:12,border:"none",background:"rgba(239,68,68,0.12)",color:"#ef4444",fontSize:16,fontWeight:600,fontFamily:"inherit",cursor:"pointer" }}
+            style={{ width:"100%",padding:"14px 0",borderRadius:12,border:"none",background:"rgba(255,69,58,0.12)",color:"#ff453a",fontSize:16,fontWeight:600,fontFamily:"inherit",cursor:"pointer" }}
           >
             Logga ut
           </button>
@@ -1228,7 +1228,7 @@ export default function Arbetsrapport() {
             </Card>
           </div>
         ))}
-        <div style={{ background:"rgba(0,122,255,0.06)",borderRadius:14,padding:"14px 16px",marginBottom:24,border:"1px solid rgba(0,122,255,0.12)" }}>
+        <div style={{ background:"rgba(10,132,255,0.08)",borderRadius:14,padding:"14px 16px",marginBottom:24,border:"1px solid rgba(10,132,255,0.15)" }}>
           <p style={{ margin:0,fontSize:13,color:C.blue,fontWeight:500 }}>Värdena hämtas från Supabase och uppdateras automatiskt om avtalet ändras.</p>
         </div>
       </div>
@@ -1242,8 +1242,8 @@ export default function Arbetsrapport() {
       <style>{css}</style>
       <div style={{ ...topBar,display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
         <p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p>
-        <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
-          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M0 6h16M0 11h16" stroke={C.ink} strokeWidth="1.8" strokeLinecap="round"/></svg>
+        <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M0 6h16M0 11h16" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></svg>
         </button>
       </div>
       <div style={mid}>
@@ -1481,7 +1481,7 @@ export default function Arbetsrapport() {
         <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("kväll")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Arbetstid</h1></div></div>
         <div style={{ flex:1,overflowY:"auto",paddingTop:24 }}>
 
-          <div style={{ background:C.card,borderRadius:16,padding:"20px 16px",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)" }}>
+          <div style={{ background:C.card,borderRadius:16,padding:"20px 16px",marginBottom:16,boxShadow:"none" }}>
             <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8 }}>
 
               {/* Start */}
@@ -1525,7 +1525,7 @@ export default function Arbetsrapport() {
             </div>
           </div>
 
-          <div style={{ textAlign:"center",padding:"18px 20px",background:ä?"rgba(52,199,89,0.07)":"#f2f2f7",borderRadius:14,marginBottom:16 }}>
+          <div style={{ textAlign:"center",padding:"18px 20px",background:ä?"rgba(52,199,89,0.07)":"rgba(255,255,255,0.06)",borderRadius:14,marginBottom:16 }}>
             <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:700,color:C.label,textTransform:"none",letterSpacing:"0" }}>Total arbetstid</p>
             <p style={{ margin:0,fontSize:48,fontWeight:700,color:ä?C.green:C.ink }}>{fmt(tAm)}</p>
           </div>
@@ -1600,9 +1600,9 @@ export default function Arbetsrapport() {
     <div style={shell}><style>{css}</style>
       <div style={topBar}><p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p></div>
       <div style={mid}>
-        <div style={{ width:80,height:80,borderRadius:24,background:"#f2f2f7",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:28,animation:"scalePop 0.4s ease" }}>
+        <div style={{ width:80,height:80,borderRadius:24,background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:28,animation:"scalePop 0.4s ease" }}>
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
-            <path d={dagTyp==="sjuk"?"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z":"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"} fill={C.label}/>
+            <path d={dagTyp==="sjuk"?"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z":"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"} fill="#8e8e93"/>
           </svg>
         </div>
         <h1 style={{ fontSize:28,fontWeight:700,margin:"0 0 10px" }}>{dagTyp==="sjuk"?"Krya på dig":"Hoppas barnet mår bättre"}</h1>
@@ -1658,15 +1658,15 @@ export default function Arbetsrapport() {
     <div style={shell}><style>{css}</style>
       <div style={{ ...topBar,display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
         <p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p>
-        <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
-          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M0 6h16M0 11h16" stroke={C.ink} strokeWidth="1.8" strokeLinecap="round"/></svg>
+        <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
+          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M0 6h16M0 11h16" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></svg>
         </button>
       </div>
       <div style={mid}>
         <div style={{ width:10,height:10,borderRadius:"50%",background:C.blue,marginBottom:28,animation:"pulseDot 2s infinite" }}/>
         <p style={{ fontSize:72,fontWeight:600,margin:0,letterSpacing:"-3px" }}>{start}</p>
         <p style={{ fontSize:16,color:C.label,margin:"10px 0 24px" }}>Arbetsdag startad</p>
-        <div style={{ background:"rgba(0,0,0,0.05)",borderRadius:12,padding:"12px 24px" }}>
+        <div style={{ background:"rgba(255,255,255,0.06)",borderRadius:12,padding:"12px 24px" }}>
           <p style={{ margin:0,fontSize:15,fontWeight:600 }}>{mBesk}</p>
         </div>
       </div>
@@ -1705,7 +1705,7 @@ export default function Arbetsrapport() {
         <div style={{ flex:1,overflowY:"auto",paddingTop:24 }}>
 
           {/* Alla tre pickers på en rad */}
-          <div style={{ background:C.card,borderRadius:16,padding:"20px 16px",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)" }}>
+          <div style={{ background:C.card,borderRadius:16,padding:"20px 16px",marginBottom:16,boxShadow:"none" }}>
             <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8 }}>
 
               {/* Start */}
@@ -1901,7 +1901,7 @@ export default function Arbetsrapport() {
                 placeholder="Kommentar"
                 value={redAnl}
                 onChange={e=>setRedAnl(e.target.value)}
-                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"0 1px 3px rgba(0,0,0,0.08)",fontFamily:"inherit" }}
+                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"none",fontFamily:"inherit" }}
               />
             </div>
           )}
@@ -2008,16 +2008,16 @@ export default function Arbetsrapport() {
         <div style={topBar}>
           <div style={{ display:"flex",alignItems:"center",gap:14,marginBottom:20 }}>
             <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-              <button onClick={()=>kanBakåt&&navigera(-1)} style={{ width:36,height:36,borderRadius:10,background:"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:kanBakåt?1:0.3 }}>
-                <svg width="8" height="14" viewBox="0 0 9 16" fill="none"><path d="M8 1L1 8L8 15" stroke={C.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <button onClick={()=>kanBakåt&&navigera(-1)} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:kanBakåt?1:0.3 }}>
+                <svg width="8" height="14" viewBox="0 0 9 16" fill="none"><path d="M8 1L1 8L8 15" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </button>
               <h1 style={{ margin:0,fontSize:22,fontWeight:700 }}>{kalMånadLabel}</h1>
-              <button onClick={()=>kanFramåt&&navigera(1)} style={{ width:36,height:36,borderRadius:10,background:"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:kanFramåt?1:0.3 }}>
-                <svg width="8" height="14" viewBox="0 0 9 16" fill="none"><path d="M1 1L8 8L1 15" stroke={C.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+              <button onClick={()=>kanFramåt&&navigera(1)} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:kanFramåt?1:0.3 }}>
+                <svg width="8" height="14" viewBox="0 0 9 16" fill="none"><path d="M1 1L8 8L1 15" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </button>
             </div>
-            <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke={C.ink} strokeWidth="2" strokeLinecap="round"/></svg>
+            <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="#fff" strokeWidth="2" strokeLinecap="round"/></svg>
             </button>
           </div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:4 }}>
@@ -2081,7 +2081,7 @@ export default function Arbetsrapport() {
           </div>
 
           {/* Månadssammanfattning */}
-          <div style={{ margin:"16px 0 0",background:C.card,borderRadius:16,padding:"18px 20px",boxShadow:"0 1px 4px rgba(0,0,0,0.06)" }}>
+          <div style={{ margin:"16px 0 0",background:C.card,borderRadius:16,padding:"18px 20px",boxShadow:"none" }}>
             <p style={{ margin:"0 0 14px",fontSize:13,fontWeight:700,color:C.label,textTransform:"none",letterSpacing:"0" }}>Sammanfattning</p>
             {[
               ["Arbetsdagar",`${arbetsdagar} dagar`],
