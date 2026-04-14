@@ -633,7 +633,7 @@ export default function Arbetsrapport() {
       </header>
 
       {/* Main content */}
-      <main style={{ paddingTop:96,paddingBottom:128,paddingLeft:24,paddingRight:24,maxWidth:512,margin:"0 auto",flex:1,width:"100%",boxSizing:"border-box" }}>
+      <main style={{ paddingTop:96,paddingBottom:128,paddingLeft:24,paddingRight:24,maxWidth:390,margin:"0 auto",flex:1,width:"100%",boxSizing:"border-box" }}>
 
         {/* Hero */}
         <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
@@ -706,8 +706,10 @@ export default function Arbetsrapport() {
           <div style={{ marginBottom:24,paddingLeft:4 }}>
             <p style={{ fontSize:11,fontWeight:700,letterSpacing:"0.2em",color:"#636366",marginBottom:12 }}>Maskinstatus</p>
             <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
-              {maskinNamn && <div style={{ background:"#1c1c1a",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{maskinNamn}</div>}
-              {medarbetare?.maskin_id && <div style={{ background:"#1c1c1a",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{medarbetare.maskin_id}</div>}
+              {maskinNamn || medarbetare?.maskin_id ? <>
+                {maskinNamn && <div style={{ background:"#1c1c1a",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{maskinNamn}</div>}
+                {medarbetare?.maskin_id && <div style={{ background:"#1c1c1a",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{medarbetare.maskin_id}</div>}
+              </> : <p style={{ margin:0,fontSize:13,color:"#636366" }}>Ingen maskin inloggad</p>}
             </div>
           </div>
           <div style={{ paddingLeft:4 }}>
