@@ -982,10 +982,10 @@ export default function Arbetsrapport() {
       }
     };
 
-    // Build weekly breakdown from historik
+    // Build weekly breakdown from historik — filtered to current month
+    const månadsPrefix = lönePeriod; // "YYYY-MM"
     const veckoData: Record<number, { dagar: {datum:string;min:number}[]; sumH:number }> = {};
-    historik.forEach(d => {
-      if(!d.datum) return;
+    historik.filter(d => d.datum && d.datum.startsWith(månadsPrefix)).forEach(d => {
       const date = new Date(d.datum);
       // ISO week: getDay()=0 is Sun, we want Mon=1
       const dayOfYear = Math.floor((date.getTime() - new Date(date.getFullYear(),0,1).getTime()) / 86400000);
@@ -1035,11 +1035,11 @@ export default function Arbetsrapport() {
         <div style={{ minHeight:"100vh",background:"#131313",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased" }}>
           <style>{css}</style>
           <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(19,19,19,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
-            <button onClick={()=>setLönVy('översikt')} style={{ background:"none",border:"none",cursor:"pointer",padding:8 }}>
-              <span className="material-symbols-outlined" style={{ color:"#adc6ff" }}>arrow_back</span>
+            <button onClick={()=>setLönVy('översikt')} style={{ background:"none",border:"none",cursor:"pointer",padding:"8px 12px 8px 8px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4 }}>
+              <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>chevron_left</span>
+              <span style={{ color:"#adc6ff",fontSize:15,fontWeight:500 }}>Löneunderlag</span>
             </button>
-            <h1 style={{ flex:1,margin:"0 12px",fontSize:18,fontWeight:600,color:"#e2e2e2",letterSpacing:"-0.02em" }}>Detaljer — {månadsNamn()}</h1>
-            <span style={{ color:"#adc6ff",fontSize:14,fontWeight:500 }}>Löneunderlag</span>
+            <h1 style={{ flex:1,margin:"0 12px",fontSize:18,fontWeight:600,color:"#e2e2e2",letterSpacing:"-0.02em",textAlign:"right" }}>Detaljer — {månadsNamn()}</h1>
           </header>
 
           <main style={{ paddingTop:80,paddingBottom:128,padding:"80px 16px 128px",maxWidth:640,margin:"0 auto" }}>
