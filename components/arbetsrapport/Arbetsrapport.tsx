@@ -2117,14 +2117,21 @@ export default function Arbetsrapport() {
             disabled={harData&&harÄndrat&&!redAnl}
             onClick={async ()=>{
               if(harÄndrat) {
-                setRedDagar(r=>({...r,[redDag.datum]:{start:redStart,slut:redSlut,rast:redRast,km:redKm,anl:redAnl}}));
-                await supabase.from("arbetsdag").upsert({
-                  medarbetare_id: medarbetare.id,
-                  datum: redDag.datum,
-                  start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
-                  km_totalt: redKm, redigerad: true,
-                  redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
-                });
+                try {
+                  const { error } = await supabase.from("arbetsdag").upsert({
+                    medarbetare_id: medarbetare.id,
+                    datum: redDag.datum,
+                    start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
+                    arbetad_min: Math.max(0, tim(redStart,redSlut)-redRast),
+                    km_totalt: redKm, redigerad: true,
+                    redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
+                  });
+                  if(error) throw error;
+                  setRedDagar(r=>({...r,[redDag.datum]:{start:redStart,slut:redSlut,rast:redRast,km:redKm,anl:redAnl}}));
+                } catch(e) {
+                  alert("Kunde inte spara — kontrollera anslutningen.");
+                  return;
+                }
               }
               setSteg("kalender");
             }}>
