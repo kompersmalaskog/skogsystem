@@ -623,65 +623,54 @@ export default function Arbetsrapport() {
 
   /* ─── MORGON ─── */
   if(steg==="morgon") return (
-    <div style={shell}>
+    <div style={{ minHeight:"100vh",background:"#000",color:"#e5e2e0",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
       <style>{css}</style>
-      <div style={{ ...topBar, display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
-        <div>
-          <p style={{ margin:0,fontSize:15,color:C.label,fontWeight:500 }}>{datumStr}</p>
-        </div>
-        {/* Synlig meny-knapp — inte gömd bakom datumklick */}
-        <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:månadsKlar&&!lönSkickat?"rgba(255,149,0,0.12)":"rgba(0,0,0,0.06)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",position:"relative",animation:månadsKlar&&!lönSkickat?"menuPulse 1.5s ease-in-out infinite":"none" }}>
-          <svg width="16" height="12" viewBox="0 0 16 12" fill="none">
-            <path d="M0 1h16M0 6h16M0 11h16" stroke={månadsKlar&&!lönSkickat?C.orange:C.ink} strokeWidth="1.8" strokeLinecap="round"/>
-          </svg>
-          {månadsKlar&&!lönSkickat&&(
-            <div style={{ position:"absolute",top:6,right:6,width:7,height:7,borderRadius:"50%",background:C.orange,border:"1.5px solid #f2f2f7" }}/>
-          )}
-        </button>
-      </div>
 
-      <div style={{ flex:1,overflowY:"auto" }}>
-        <div style={{ animation:"fadeUp 0.5s ease both",marginBottom:24 }}>
-          <h1 style={{ fontSize:34,fontWeight:700,letterSpacing:"-0.5px",margin:"0 0 6px" }}>God morgon, {förnamn}</h1>
-          {isWorking ? (
-            <p style={{ margin:0,fontSize:16,color:C.green,fontWeight:500 }}>Pågående sedan {dagData[idagKey]?.start_tid?.slice(0,5) || '—'}</p>
-          ) : (
-            <>
-              <p style={{ margin:"0 0 8px",fontSize:16,color:C.label }}>Startar automatiskt när maskinen loggar in</p>
-              <button onClick={()=>setSteg("dag")} style={{ padding:0,background:"none",border:"none",fontSize:14,color:C.label,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline",textUnderlineOffset:2 }}>
+      {/* Top bar */}
+      <header style={{ position:"fixed",top:0,width:"100%",height:64,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",zIndex:50,display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",boxSizing:"border-box" }}>
+        <span style={{ fontSize:13,fontWeight:500,letterSpacing:"0.1em",color:"#adc6ff" }}>{datumStr.toUpperCase()}</span>
+        <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:22 }}>sync</span>
+      </header>
+
+      {/* Main content */}
+      <main style={{ paddingTop:96,paddingBottom:128,paddingLeft:24,paddingRight:24,maxWidth:512,margin:"0 auto",flex:1,width:"100%",boxSizing:"border-box" }}>
+
+        {/* Hero */}
+        <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
+          <h1 style={{ fontSize:32,fontWeight:700,letterSpacing:"-0.02em",color:"#fff",margin:"0 0 4px" }}>God morgon, {förnamn}</h1>
+          <p style={{ margin:0,fontSize:15,color:"#8e8e93" }}>{datumStr}</p>
+        </section>
+
+        {/* Shift Status */}
+        <section style={{ background:"#20201e",borderRadius:12,padding:24,marginBottom:32,position:"relative",overflow:"hidden",animation:"fadeUp 0.5s ease 0.05s both" }}>
+          <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
+            {isWorking && <div style={{ width:8,height:8,borderRadius:"50%",background:"#adc6ff",boxShadow:"0 0 8px #adc6ff",flexShrink:0 }} />}
+            <h2 style={{ margin:0,color:"#fff",fontWeight:600,fontSize:17 }}>
+              {isWorking ? `Pågående sedan ${dagData[idagKey]?.start_tid?.slice(0,5) || '—'}` : 'Inget pass registrerat'}
+            </h2>
+          </div>
+          <p style={{ fontSize:14,color:"#8e8e93",margin:"0 0 24px",lineHeight:1.6 }}>
+            {isWorking ? 'Avslutas automatiskt vid utloggning från maskinen' : 'Startar automatiskt när maskinen loggar in'}
+          </p>
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+            {!isWorking && (
+              <button onClick={()=>setSteg("dag")} style={{ fontSize:14,fontWeight:500,color:"#adc6ff",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
                 Starta manuellt
               </button>
-            </>
-          )}
-        </div>
+            )}
+            {isWorking && <div />}
+            <span className="material-symbols-outlined" style={{ color:"rgba(194,198,214,0.3)",fontSize:24 }}>precision_manufacturing</span>
+          </div>
+        </section>
 
-        {/* Snabbval */}
-        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:24,animation:"fadeUp 0.5s ease 0.1s both" }}>
-          {[
-            {id:"sjuk",label:"Sjukfrånvaro"},
-            {id:"traktamente",label:"Traktamente"},
-            {id:"semester",label:"Semester"},
-            {id:"meny",label:"Övrigt"},
-          ].map(s=>(
-            <button key={s.id} onClick={()=>{
-              if(s.id==="sjuk"){setDagTyp("sjuk");setSteg("bekräftaFrånvaro");}
-              else if(s.id==="traktamente") setSteg("traktamente");
-              else if(s.id==="semester"){setDagTyp("semester");setSteg("bekräftaFrånvaro");}
-              else setSteg("meny");
-            }} style={{ padding:"14px 12px",background:C.card,border:"none",borderRadius:12,fontSize:14,fontWeight:500,color:C.ink,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.06)" }}>
-              {s.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Notis om löneunderlag */}
+        {/* Löneunderlag-notis */}
         {månadsKlar&&!lönSkickat&&(
-          <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:`1px solid rgba(255,149,0,0.25)`,borderRadius:14,padding:"16px",marginBottom:16,cursor:"pointer",animation:"fadeUp 0.4s ease" }}>
+          <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:16,marginBottom:24,cursor:"pointer",animation:"fadeUp 0.4s ease" }}>
             <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:6 }}>
-              <div style={{ width:8,height:8,borderRadius:"50%",background:C.orange,flexShrink:0 }}/>
+              <div style={{ width:8,height:8,borderRadius:"50%",background:C.orange,flexShrink:0 }} />
               <p style={{ margin:0,fontSize:13,fontWeight:500,color:C.orange }}>Månaden är slut</p>
             </div>
-            <p style={{ margin:"0 0 10px",fontSize:15,fontWeight:600,color:C.ink }}>Granska och godkänn löneunderlaget för {månadsNamn()}</p>
+            <p style={{ margin:"0 0 10px",fontSize:15,fontWeight:600,color:"#fff" }}>Granska och godkänn löneunderlaget för {månadsNamn()}</p>
             <div style={{ display:"flex",alignItems:"center",gap:6 }}>
               <span style={{ fontSize:14,color:C.orange,fontWeight:500 }}>Öppna löneunderlag</span>
               <svg width="6" height="10" viewBox="0 0 9 16" fill="none"><path d="M1 1L8 8L1 15" stroke={C.orange} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -689,21 +678,64 @@ export default function Arbetsrapport() {
           </div>
         )}
 
-        <Card style={{ background:C.dark,color:"#fff",animation:"fadeUp 0.5s ease 0.15s both" }}>
-          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
-            <div>
-              <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.4)",fontWeight:500 }}>{dagensObjekt || maskinNamn || 'Aktuellt objekt'}</p>
-              <p style={{ margin:0,fontSize:42,fontWeight:600,letterSpacing:"-1px" }}>{vader?.temp !== undefined ? `${vader.temp}°` : '...'}</p>
-              <p style={{ margin:"4px 0 0",fontSize:15,color:"rgba(255,255,255,0.55)" }}>{vader ? symbolText(vader.symbol) : 'Hämtar väder...'}</p>
+        {/* Rapportera avvikelse */}
+        <section style={{ animation:"fadeUp 0.5s ease 0.1s both" }}>
+          <h3 style={{ fontSize:12,fontWeight:700,letterSpacing:"0.15em",color:"#636366",marginBottom:16,marginLeft:4 }}>Rapportera avvikelse</h3>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+            {[
+              {id:"sjuk",label:"Sjukfrånvaro",icon:"medical_services"},
+              {id:"traktamente",label:"Traktamente",icon:"directions_car"},
+              {id:"semester",label:"Semester",icon:"wb_sunny"},
+              {id:"meny",label:"Övrigt",icon:"more_horiz"},
+            ].map(s=>(
+              <button key={s.id} onClick={()=>{
+                if(s.id==="sjuk"){setDagTyp("sjuk");setSteg("bekräftaFrånvaro");}
+                else if(s.id==="traktamente") setSteg("traktamente");
+                else if(s.id==="semester"){setDagTyp("semester");setSteg("bekräftaFrånvaro");}
+                else setSteg("meny");
+              }} style={{ height:56,background:"#353533",borderRadius:12,border:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",transition:"transform 0.15s",fontFamily:"inherit" }}>
+                <span className="material-symbols-outlined" style={{ color:"#c2c6d6",fontSize:20 }}>{s.icon}</span>
+                <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Maskin & objekt metadata */}
+        <section style={{ marginTop:48,paddingTop:32,borderTop:"1px solid rgba(255,255,255,0.05)",animation:"fadeUp 0.5s ease 0.15s both" }}>
+          <div style={{ marginBottom:24,paddingLeft:4 }}>
+            <p style={{ fontSize:11,fontWeight:700,letterSpacing:"0.2em",color:"#636366",marginBottom:12 }}>Maskinstatus</p>
+            <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
+              {maskinNamn && <div style={{ background:"#1c1c1a",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{maskinNamn}</div>}
+              {medarbetare?.maskin_id && <div style={{ background:"#1c1c1a",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{medarbetare.maskin_id}</div>}
             </div>
           </div>
-        </Card>
+          <div style={{ paddingLeft:4 }}>
+            <p style={{ fontSize:11,fontWeight:700,letterSpacing:"0.2em",color:"#636366",marginBottom:8 }}>Plats</p>
+            <p style={{ margin:0,fontSize:13,fontWeight:500,color:"#fff" }}>{dagensObjekt || dagData[idagKey]?.objekt_namn || 'Inget objekt valt'}</p>
+          </div>
+        </section>
+      </main>
 
-        {kmM&&<Card style={{ display:"flex",alignItems:"center",gap:12,animation:"fadeUp 0.3s ease" }}>
-          <div style={{ width:10,height:10,borderRadius:"50%",background:C.green }}/>
-          <span style={{ fontSize:15,color:C.green,fontWeight:500 }}>Körning loggas · {kmM.km} km</span>
-        </Card>}
-      </div>
+      {/* Bottom nav */}
+      <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"0 16px 8px",background:"#000",height:80,borderTop:"1px solid rgba(255,255,255,0.05)",boxSizing:"border-box" }}>
+        {[
+          {icon:"schedule",label:"Dag",action:()=>{},active:true},
+          {icon:"calendar_month",label:"Kalender",action:()=>setSteg("kalender"),active:false},
+          {icon:"description",label:"Löneunderlag",action:()=>setSteg("lön"),active:false},
+          {icon:"settings",label:"Inställningar",action:()=>setSteg("inst"),active:false},
+        ].map(n=>(
+          <button key={n.label} onClick={n.action} style={{
+            display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+            background:n.active?"#27272a":"transparent",color:n.active?"#fff":"#71717a",
+            borderRadius:12,height:56,width:64,border:"none",cursor:"pointer",fontFamily:"inherit",
+            transition:"transform 0.15s",
+          }}>
+            <span className="material-symbols-outlined" style={{ fontSize:22,marginBottom:2 }}>{n.icon}</span>
+            <span style={{ fontSize:11,fontWeight:500,letterSpacing:"-0.01em" }}>{n.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 
