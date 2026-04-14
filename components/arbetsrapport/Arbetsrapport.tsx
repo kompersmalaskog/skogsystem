@@ -931,21 +931,24 @@ export default function Arbetsrapport() {
     const kmErs2 = gsAvtal?.km_ersattning_kr ?? 2.90;
     const trakHel = gsAvtal?.traktamente_hel_kr ?? 300;
 
-    // Beräkna från faktiska dagar i historik
-    const arbetsdagar = historik.length || 21;
-    const jobbadMin2 = historik.reduce((a,d) => a + (d.arbetad_min || 0), 0);
-    const jobbadH = historik.length > 0 ? Math.round(jobbadMin2/60*10)/10 : 0;
+    // Filtrera historik på aktuell månad
+    const nu = new Date();
+    const lönePeriod = `${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,"0")}`;
+    const månadsHistorik = historik.filter(d => d.datum && d.datum.startsWith(lönePeriod));
+
+    // Beräkna från faktiska dagar i filtrerad historik
+    const arbetsdagar = månadsHistorik.length || 21;
+    const jobbadMin2 = månadsHistorik.reduce((a,d) => a + (d.arbetad_min || 0), 0);
+    const jobbadH = månadsHistorik.length > 0 ? Math.round(jobbadMin2/60*10)/10 : 0;
     const målH = arbetsdagar * 8;
     const övH = Math.max(0, jobbadH - målH);
     const övKr = Math.round(övH * timlon * otFaktor);
-    const totalKm = historik.reduce((a,d) => a + (d.km_totalt || d.km_morgon || 0) + (d.km_kvall || 0), 0);
+    const totalKm = månadsHistorik.reduce((a,d) => a + (d.km_totalt || d.km_morgon || 0) + (d.km_kvall || 0), 0);
     const löneErsKm = Math.max(0, totalKm - frikm2*arbetsdagar);
     const löneErsKr = Math.round(löneErsKm * kmErs2);
-    const trakDagar = historik.filter(d => d.traktamente).length;
+    const trakDagar = månadsHistorik.filter(d => d.traktamente).length;
     const trakKr = trakDagar * trakHel;
     const redigeringar = Object.entries(redDagar);
-    const nu = new Date();
-    const lönePeriod = `${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,"0")}`;
 
     const skickaLön = async () => {
       setLönSparar(true);
@@ -997,15 +1000,15 @@ export default function Arbetsrapport() {
     });
     const sortedWeeks = Object.entries(veckoData).sort(([a],[b]) => Number(a)-Number(b));
 
-    // Build objekt/maskin aggregation
+    // Build objekt/maskin aggregation — filtered to current month
     const maskinAgg: Record<string,{namn:string;maskin:string;dagar:number}> = {};
-    historik.forEach(d => {
+    månadsHistorik.forEach(d => {
       if(!d.maskin_id) return;
       const key = d.maskin_id + (d.objekt_id||'');
       if(!maskinAgg[key]) {
-        const objNamn = d.objekt_id ? (objektLista.find(o=>o.id===d.objekt_id)?.namn || d.objekt_id) : '';
+        const objNamn = d.objekt_id ? (objektLista.find(o=>o.id===d.objekt_id)?.namn || '') : '';
         const mNamn = maskinNamnMap[d.maskin_id] || d.maskin_id;
-        maskinAgg[key] = { namn:objNamn||mNamn, maskin:mNamn, dagar:0 };
+        maskinAgg[key] = { namn:objNamn, maskin:mNamn, dagar:0 };
       }
       maskinAgg[key].dagar++;
     });
@@ -1112,8 +1115,8 @@ export default function Arbetsrapport() {
                       <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>precision_manufacturing</span>
                     </div>
                     <div>
-                      <p style={{ margin:0,fontSize:14,fontWeight:500 }}>{o.namn}</p>
-                      <p style={{ margin:"2px 0 0",fontSize:12,color:"#8b90a0" }}>{o.maskin} · {o.dagar} dagar</p>
+                      <p style={{ margin:0,fontSize:14,fontWeight:500 }}>{o.namn ? `${o.namn} / ${o.maskin}` : o.maskin}</p>
+                      <p style={{ margin:"2px 0 0",fontSize:12,color:"#8b90a0" }}>{o.dagar} {o.dagar===1?'dag':'dagar'}</p>
                     </div>
                   </div>
                 ))}
