@@ -1508,7 +1508,7 @@ export default function Arbetsrapport() {
     <div style={shell}><style>{css}</style>
       <div style={topBar} />
 
-      <div style={{ flex:1,overflowY:"auto",paddingBottom:100 }}>
+      <div style={{ flex:1,display:"flex",flexDirection:"column",justifyContent:"center",overflowY:"auto",paddingBottom:100 }}>
 
         {/* Sammanfattningskort */}
         <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"1px solid rgba(255,255,255,0.06)" }}>
@@ -1724,7 +1724,7 @@ export default function Arbetsrapport() {
         </main>
 
         {/* Spara — fixed */}
-        <div style={{ position:"fixed",bottom:96,left:0,width:"100%",padding:"0 20px",zIndex:40,boxSizing:"border-box" }}>
+        <div style={{ position:"fixed",bottom:0,left:0,width:"100%",padding:"16px 20px 36px",zIndex:40,boxSizing:"border-box",background:"linear-gradient(to top,#000 60%,transparent)" }}>
           <button style={{ width:"100%",height:56,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",opacity:(ä&&!anledn)?0.35:1 }}
             disabled={ä&&!anledn}
             onClick={()=>{if(ä){setKmM({km:tMK});setKmK({km:tKK});}setSteg("kväll");}}>
