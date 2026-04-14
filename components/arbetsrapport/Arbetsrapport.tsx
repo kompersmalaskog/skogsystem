@@ -1990,7 +1990,7 @@ export default function Arbetsrapport() {
       return "tom";
     };
 
-    const dotFärg: Record<string,string> = {ok:"#fff",saknas:"#ffb4ab"};
+    const dotFärg: Record<string,string> = {ok:"#fff",saknas:"#FF3B30"};
 
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
@@ -2071,25 +2071,21 @@ export default function Arbetsrapport() {
                       setSteg("redigera");
                     } }}
                     style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:klickbar?"pointer":"default",padding:"8px 0" }}>
-                    {/* Today ring */}
+                    {/* Ring: idag=blå, redigerad=gul, idag har prioritet */}
                     {isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #adc6ff",borderRadius:"50%" }} />}
-                    {/* Redigerad ring */}
-                    {erRedigerad && !isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #adc6ff",borderRadius:"50%" }} />}
+                    {erRedigerad && !isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #f5c518",borderRadius:"50%" }} />}
                     <span style={{
                       fontSize:15,
-                      fontWeight: isToday ? 700 : s==="röd" ? 500 : 500,
+                      fontWeight: isToday ? 700 : 500,
                       color: s==="röd" ? "#FF3B30" : "#fff",
                       position:"relative",zIndex:1,
                       lineHeight:"36px",
                     }}>{d}</span>
                     {/* Helgdag namn */}
                     {helgNamn && <span style={{ fontSize:8,color:s==="röd"?"#FF3B30":"#8b90a0",marginTop:1,lineHeight:1.2,maxWidth:44,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{helgNamn}</span>}
-                    {/* Status dot */}
-                    {(s==="ok"||s==="saknas")&&!erRedigerad&&!helgNamn&&(
+                    {/* Status dot: bekräftad=vit, saknas=röd */}
+                    {(s==="ok"||s==="saknas")&&!helgNamn&&(
                       <div style={{ width:4,height:4,borderRadius:"50%",background:dotFärg[s],marginTop:4 }}/>
-                    )}
-                    {erRedigerad&&!helgNamn&&(
-                      <div style={{ width:4,height:4,borderRadius:"50%",background:"#adc6ff",marginTop:4 }}/>
                     )}
                   </div>
                 );
@@ -2106,8 +2102,12 @@ export default function Arbetsrapport() {
                 <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Bekräftad</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:12,height:12,borderRadius:"50%",background:"#ffb4ab" }} />
+                <div style={{ width:12,height:12,borderRadius:"50%",background:"#FF3B30" }} />
                 <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Saknas</span>
+              </div>
+              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
+                <div style={{ width:20,height:20,border:"2px solid #f5c518",borderRadius:"50%" }} />
+                <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Redigerad</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:20,height:20,border:"2px solid #adc6ff",borderRadius:"50%" }} />
