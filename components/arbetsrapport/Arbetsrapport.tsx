@@ -1605,31 +1605,49 @@ export default function Arbetsrapport() {
 
           {/* Time Picker Card */}
           <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,marginBottom:24,border:"1px solid rgba(255,255,255,0.04)",boxShadow:"0 4px 24px rgba(0,0,0,0.4)" }}>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16 }}>
-              {/* Start */}
-              <TimeCol label="Start" value={`${pad(sH)}:${pad(sM)}`} changed={tS!==start}
-                onUp={()=>{const nm=(sH*60+sM+15)%(24*60);setTS(`${pad(Math.floor(nm/60))}:${pad(nm%60)}`);}}
-                onDown={()=>{const nm=(sH*60+sM-15+24*60)%(24*60);setTS(`${pad(Math.floor(nm/60))}:${pad(nm%60)}`);}}
-              />
-              {/* Slut — with border */}
-              <div style={{ borderLeft:"1px solid rgba(255,255,255,0.05)",borderRight:"1px solid rgba(255,255,255,0.05)" }}>
-                <TimeCol label="Slut" value={`${pad(eH)}:${pad(eM)}`} changed={tE!==slut}
-                  onUp={()=>{const nm=(eH*60+eM+15)%(24*60);setTE(`${pad(Math.floor(nm/60))}:${pad(nm%60)}`);}}
-                  onDown={()=>{const nm=(eH*60+eM-15+24*60)%(24*60);setTE(`${pad(Math.floor(nm/60))}:${pad(nm%60)}`);}}
-                />
-              </div>
-              {/* Rast */}
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
+              {/* Start — H : M */}
               <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                <span style={{ ...secHead,marginBottom:16,color:tR!==rast?C.orange:"#8e8e93" }}>Rast</span>
-                <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
-                  <button onClick={()=>setTR(Math.min(120,tR+5))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
-                    <span className="material-symbols-outlined" style={{ fontSize:30 }}>keyboard_arrow_up</span>
-                  </button>
-                  <div style={{ fontSize:36,fontWeight:700,color:"#fff",letterSpacing:"-0.03em" }}>{tR}</div>
-                  <span style={{ fontSize:10,color:"#8e8e93",marginTop:-4 }}>MIN</span>
-                  <button onClick={()=>setTR(Math.max(0,tR-5))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
-                    <span className="material-symbols-outlined" style={{ fontSize:30 }}>keyboard_arrow_down</span>
-                  </button>
+                <span style={{ ...secHead,marginBottom:12,color:tS!==start?C.orange:"#8e8e93" }}>Start</span>
+                <div style={{ display:"flex",alignItems:"center",gap:2 }}>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                    <button onClick={()=>{const h=(sH+1)%24;setTS(`${pad(h)}:${pad(sM)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
+                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{pad(sH)}</span>
+                    <button onClick={()=>{const h=(sH-1+24)%24;setTS(`${pad(h)}:${pad(sM)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
+                  </div>
+                  <span style={{ fontSize:20,color:"#636366",fontWeight:300 }}>:</span>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                    <button onClick={()=>{const m=(sM+1)%60;setTS(`${pad(sH)}:${pad(m)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
+                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{pad(sM)}</span>
+                    <button onClick={()=>{const m=(sM-1+60)%60;setTS(`${pad(sH)}:${pad(m)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
+                  </div>
+                </div>
+              </div>
+              {/* Slut — H : M */}
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",borderLeft:"1px solid rgba(255,255,255,0.05)",borderRight:"1px solid rgba(255,255,255,0.05)" }}>
+                <span style={{ ...secHead,marginBottom:12,color:tE!==slut?C.orange:"#8e8e93" }}>Slut</span>
+                <div style={{ display:"flex",alignItems:"center",gap:2 }}>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                    <button onClick={()=>{const h=(eH+1)%24;setTE(`${pad(h)}:${pad(eM)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
+                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{pad(eH)}</span>
+                    <button onClick={()=>{const h=(eH-1+24)%24;setTE(`${pad(h)}:${pad(eM)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
+                  </div>
+                  <span style={{ fontSize:20,color:"#636366",fontWeight:300 }}>:</span>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                    <button onClick={()=>{const m=(eM+1)%60;setTE(`${pad(eH)}:${pad(m)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
+                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{pad(eM)}</span>
+                    <button onClick={()=>{const m=(eM-1+60)%60;setTE(`${pad(eH)}:${pad(m)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
+                  </div>
+                </div>
+              </div>
+              {/* Rast — 5 min steg */}
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                <span style={{ ...secHead,marginBottom:12,color:tR!==rast?C.orange:"#8e8e93" }}>Rast</span>
+                <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                  <button onClick={()=>setTR(Math.min(120,tR+5))} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
+                  <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{tR}</span>
+                  <span style={{ fontSize:10,color:"#8e8e93",marginTop:-2 }}>min</span>
+                  <button onClick={()=>setTR(Math.max(0,tR-5))} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
                 </div>
               </div>
             </div>
@@ -1883,49 +1901,56 @@ export default function Arbetsrapport() {
         <div style={{ flex:1,overflowY:"auto",paddingTop:24 }}>
 
           {/* Alla tre pickers på en rad */}
-          <div style={{ background:C.card,borderRadius:16,padding:"20px 16px",marginBottom:16,boxShadow:"none" }}>
-            <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8 }}>
-
-              {/* Start */}
-              <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redStart!==(redDag.start||"00:00")?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Start</p>
-                {(()=>{ const [h,m]=redStart.split(":").map(Number); return (
-                  <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
-                    <Drum value={h} onChange={v=>setRedStart(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
-                    <span style={{ fontSize:22,fontWeight:300,color:C.label }}>:</span>
-                    <Drum value={m} onChange={v=>setRedStart(`${String(h).padStart(2,"0")}:${String(v).padStart(2,"0")}`)} max={59}/>
+          {(()=>{ const [rH,rM]=redStart.split(":").map(Number),[rEH,rEM]=redSlut.split(":").map(Number); const p2=(n:number)=>String(n).padStart(2,"0"); return (
+          <div style={{ background:C.card,borderRadius:16,padding:"20px 16px",marginBottom:16 }}>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
+              {/* Start — H : M */}
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                <span style={{ ...secHead,marginBottom:12,color:redStart!==(redDag.start||"00:00")?C.orange:"#8e8e93" }}>Start</span>
+                <div style={{ display:"flex",alignItems:"center",gap:2 }}>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                    <button onClick={()=>setRedStart(`${p2((rH+1)%24)}:${p2(rM)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
+                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{p2(rH)}</span>
+                    <button onClick={()=>setRedStart(`${p2((rH-1+24)%24)}:${p2(rM)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
                   </div>
-                ); })()}
+                  <span style={{ fontSize:20,color:"#636366",fontWeight:300 }}>:</span>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                    <button onClick={()=>setRedStart(`${p2(rH)}:${p2((rM+1)%60)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
+                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{p2(rM)}</span>
+                    <button onClick={()=>setRedStart(`${p2(rH)}:${p2((rM-1+60)%60)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
+                  </div>
+                </div>
               </div>
-
-              <div style={{ width:1,background:C.line,alignSelf:"stretch",marginTop:28 }}/>
-
-              {/* Slut */}
-              <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redSlut!==(redDag.slut||"00:00")?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Slut</p>
-                {(()=>{ const [h,m]=redSlut.split(":").map(Number); return (
-                  <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
-                    <Drum value={h} onChange={v=>setRedSlut(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
-                    <span style={{ fontSize:22,fontWeight:300,color:C.label }}>:</span>
-                    <Drum value={m} onChange={v=>setRedSlut(`${String(h).padStart(2,"0")}:${String(v).padStart(2,"0")}`)} max={59}/>
+              {/* Slut — H : M */}
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",borderLeft:"1px solid rgba(255,255,255,0.05)",borderRight:"1px solid rgba(255,255,255,0.05)" }}>
+                <span style={{ ...secHead,marginBottom:12,color:redSlut!==(redDag.slut||"00:00")?C.orange:"#8e8e93" }}>Slut</span>
+                <div style={{ display:"flex",alignItems:"center",gap:2 }}>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                    <button onClick={()=>setRedSlut(`${p2((rEH+1)%24)}:${p2(rEM)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
+                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{p2(rEH)}</span>
+                    <button onClick={()=>setRedSlut(`${p2((rEH-1+24)%24)}:${p2(rEM)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
                   </div>
-                ); })()}
+                  <span style={{ fontSize:20,color:"#636366",fontWeight:300 }}>:</span>
+                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                    <button onClick={()=>setRedSlut(`${p2(rEH)}:${p2((rEM+1)%60)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
+                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{p2(rEM)}</span>
+                    <button onClick={()=>setRedSlut(`${p2(rEH)}:${p2((rEM-1+60)%60)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
+                  </div>
+                </div>
               </div>
-
-              <div style={{ width:1,background:C.line,alignSelf:"stretch",marginTop:28 }}/>
-
-              {/* Rast */}
-              <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redRast!==(redDag.rast||0)?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Rast</p>
-                {(()=>{ const h=Math.floor(redRast/60),m=redRast%60; return (
-                  <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
-                    <Drum value={m} onChange={v=>setRedRast(h*60+v)} max={59}/>
-                    <span style={{ fontSize:11,color:C.label,fontWeight:600 }}>min</span>
-                  </div>
-                ); })()}
+              {/* Rast — 5 min steg */}
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                <span style={{ ...secHead,marginBottom:12,color:redRast!==(redDag.rast||0)?C.orange:"#8e8e93" }}>Rast</span>
+                <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                  <button onClick={()=>setRedRast(Math.min(120,redRast+5))} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
+                  <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{redRast}</span>
+                  <span style={{ fontSize:10,color:"#8e8e93",marginTop:-2 }}>min</span>
+                  <button onClick={()=>setRedRast(Math.max(0,redRast-5))} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
+                </div>
               </div>
             </div>
           </div>
+          ); })()}
 
           {/* Resultat */}
           <div style={{ textAlign:"center",padding:"18px 20px",background:"rgba(52,199,89,0.07)",borderRadius:14 }}>
