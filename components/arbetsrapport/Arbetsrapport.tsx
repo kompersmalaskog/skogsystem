@@ -446,7 +446,10 @@ export default function Arbetsrapport() {
   const [valtObjektId, setValtObjektId] = useState<string | null>(null);
   const [visaObjektVäljare, setVisaObjektVäljare] = useState(false);
   const [redObjektId, setRedObjektId] = useState<string | null>(null);
+  const [redMaskinId, setRedMaskinId] = useState<string | null>(null);
   const [visaRedObjektVäljare, setVisaRedObjektVäljare] = useState(false);
+  const [visaRedMaskinVäljare, setVisaRedMaskinVäljare] = useState(false);
+  const [visaRedRastPicker, setVisaRedRastPicker] = useState(false);
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
 
@@ -2134,21 +2137,37 @@ export default function Arbetsrapport() {
                   <ChevronRight/>
                 </div>
               </div>
+              {/* Maskin — klickbar */}
+              <div onClick={()=>setVisaRedMaskinVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
+                <span style={{ fontSize:16,color:C.label }}>Maskin</span>
+                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                  <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{(()=>{const m=redMaskinId?maskinNamnMap[redMaskinId]:null; return m||redDag.maskin_namn||redDag.maskin_id||"—";})()}</span>
+                  <ChevronRight/>
+                </div>
+              </div>
+              {/* Start + Slut */}
               {[
-                ["Maskin", redDag.maskin_namn || redDag.maskin_id || "—"],
                 ["Start", tidKort(redDag.start_tid)],
                 ["Slut", tidKort(redDag.slut_tid)],
-                ["Rast", `${redDag.rast_min || 0} min`],
               ].map(([l,v])=>(
                 <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
                   <span style={{ fontSize:16,color:C.label }}>{l}</span>
-                  <span style={{ fontSize:16,fontWeight:500 }}>{v}</span>
+                  <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{v}</span>
                 </div>
               ))}
+              {/* Rast — klickbar */}
+              <div onClick={()=>setVisaRedRastPicker(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
+                <span style={{ fontSize:16,color:C.label }}>Rast</span>
+                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                  <span style={{ fontSize:16,fontWeight:500,color:redRast!==(redDag.rast_min||0)?"#ff9f0a":"#fff" }}>{redRast} min</span>
+                  <ChevronRight/>
+                </div>
+              </div>
+              {/* Objekt — klickbar */}
               <div onClick={()=>setVisaRedObjektVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
                 <span style={{ fontSize:16,color:C.label }}>Objekt</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:500,color:redObjektId?C.orange:C.ink }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(redDag.objekt_namn||redDag.objekt_id||"—");})()}</span>
+                  <span style={{ fontSize:16,fontWeight:500,color:"#adc6ff" }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(redDag.objekt_namn||redDag.objekt_id||"—");})()}</span>
                   <ChevronRight/>
                 </div>
               </div>
@@ -2201,7 +2220,7 @@ export default function Arbetsrapport() {
                     datum: redDag.datum,
                     start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
                     arbetad_min: Math.max(0, tim(redStart,redSlut)-redRast),
-                    km_totalt: redKm, objekt_id: redObjektId || redDag.objekt_id || null, redigerad: true,
+                    km_totalt: redKm, objekt_id: redObjektId || redDag.objekt_id || null, maskin_id: redMaskinId || redDag.maskin_id || null, redigerad: true,
                     redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
                   });
                   if(error) throw error;
@@ -2238,6 +2257,53 @@ export default function Arbetsrapport() {
                     {redObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#adc6ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
                   </button>
                 ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Maskinväljare */}
+        {visaRedMaskinVäljare&&(
+          <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
+            <div style={{ background:"#1c1c1e",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+              <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <h3 style={{ margin:0,fontSize:17,fontWeight:600 }}>Välj maskin</h3>
+                <button onClick={()=>setVisaRedMaskinVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+              </div>
+              <div style={{ flex:1,overflowY:"auto",padding:"8px 0" }}>
+                {Object.entries(maskinNamnMap).map(([mid,namn])=>(
+                  <button key={mid} onClick={()=>{setRedMaskinId(mid);setVisaRedMaskinVäljare(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 20px",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+                    <div>
+                      <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff" }}>{namn}</p>
+                      <p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{mid}</p>
+                    </div>
+                    {redMaskinId===mid&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#adc6ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Rast-picker */}
+        {visaRedRastPicker&&(
+          <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
+            <div style={{ background:"#1c1c1e",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:500,padding:24 }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24 }}>
+                <h3 style={{ margin:0,fontSize:17,fontWeight:600 }}>Rast</h3>
+                <button onClick={()=>setVisaRedRastPicker(false)} style={{ background:"none",border:"none",color:"#adc6ff",fontSize:15,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Klar</button>
+              </div>
+              <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:16 }}>
+                <button onClick={()=>setRedRast(Math.max(0,redRast-5))} style={{ width:48,height:48,borderRadius:12,background:"rgba(255,255,255,0.08)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                  <span className="material-symbols-outlined" style={{ color:"#fff",fontSize:24 }}>remove</span>
+                </button>
+                <div style={{ width:80,textAlign:"center" }}>
+                  <span style={{ fontSize:36,fontWeight:700,color:"#fff" }}>{redRast}</span>
+                  <p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>minuter</p>
+                </div>
+                <button onClick={()=>setRedRast(Math.min(120,redRast+5))} style={{ width:48,height:48,borderRadius:12,background:"rgba(255,255,255,0.08)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                  <span className="material-symbols-outlined" style={{ color:"#fff",fontSize:24 }}>add</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2382,6 +2448,7 @@ export default function Arbetsrapport() {
                       setRedKm(d2?.km_totalt||0);
                       setRedAnl("");
                       setRedObjektId(d2?.objekt_id||null);
+                      setRedMaskinId(d2?.maskin_id||null);
                       setRedVy("översikt");
                       setSteg("redigera");
                     } }}
