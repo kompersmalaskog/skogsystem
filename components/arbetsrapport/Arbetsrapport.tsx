@@ -770,22 +770,33 @@ export default function Arbetsrapport() {
           </div>
         )}
 
-        {/* Rapportera avvikelse */}
-        <section style={{ animation:"fadeUp 0.5s ease 0.1s both" }}>
-          <h3 style={secHead}>Rapportera avvikelse</h3>
+        {/* Frånvaro */}
+        <section style={{ animation:"fadeUp 0.5s ease 0.1s both",marginBottom:32 }}>
+          <h3 style={secHead}>Frånvaro</h3>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
             {[
               {id:"sjuk",label:"Sjukfrånvaro",icon:"medical_services"},
-              {id:"traktamente",label:"Traktamente",icon:"directions_car"},
               {id:"vab",label:"VAB",icon:"child_care"},
-              {id:"övrigt",label:"Övrigt",icon:"more_horiz"},
             ].map(s=>(
-              <button key={s.id} onClick={()=>{
-                if(s.id==="sjuk"){setDagTyp("sjuk");setSteg("bekräftaFrånvaro");}
-                else if(s.id==="traktamente") setSteg("traktamente");
-                else if(s.id==="vab"){setDagTyp("vab");setSteg("bekräftaFrånvaro");}
-                else {setDagTyp("annat");setSteg("manuellDag");}
-              }} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
+              <button key={s.id} onClick={()=>{setDagTyp(s.id);setSteg("bekräftaFrånvaro");}} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
+                <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
+                <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Arbete utan maskin */}
+        <section style={{ animation:"fadeUp 0.5s ease 0.15s both" }}>
+          <h3 style={secHead}>Arbete utan maskin</h3>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+            {[
+              {id:"utbildning",label:"Utbildning",icon:"school"},
+              {id:"service",label:"Service",icon:"build"},
+              {id:"möte",label:"Möte",icon:"groups"},
+              {id:"annat",label:"Annat arbete",icon:"more_horiz"},
+            ].map(s=>(
+              <button key={s.id} onClick={()=>{setDagTyp(s.id);setSteg("manuellDag");}} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
                 <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
                 <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
               </button>
@@ -1545,7 +1556,7 @@ export default function Arbetsrapport() {
           {[
             {label:"Ändra arbetstid",action:()=>{setTS(start);setTE(slut);setTR(rast);setAnledn("");setSteg("äTid");}},
             {label:"Ändra körning",action:()=>{setTMK(kmM?.km||0);setTKK(kmK?.km||0);setAnledn("");setSteg("äKm");}},
-            {label:extra.length>0?"Ändra extra tid":"Lägg till extra tid",action:()=>setSteg("extraTid")},
+            {label:extra.length>0?"Ändra extra tid":"Lägg till fler aktiviteter",action:()=>setSteg("extraTid")},
             {label:trak?"Ändra traktamente":"Lägg till traktamente",action:()=>setSteg("traktamente")},
           ].map(l=>(
             <button key={l.label} onClick={l.action} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",color:"#8e8e93",fontSize:16,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:"16px 0",textAlign:"left" }}>
