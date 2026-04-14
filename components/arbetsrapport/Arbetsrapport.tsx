@@ -556,6 +556,18 @@ export default function Arbetsrapport() {
           setArbetsdagToast({ typ: 'slut', maskin, objekt: objNamn, start: startTid, slut: slutTid, tid });
           localStorage.setItem(slutKey, '1');
           setTimeout(() => setArbetsdagToast(null), 10000);
+          // Send push notification for when app is closed
+          const kmTot = (row.km_morgon || 0) + (row.km_kvall || 0) + (row.km_totalt || 0);
+          fetch('/api/notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              medarbetare_id: medarbetare.id,
+              title: 'Din arbetsdag',
+              body: `${tid}${kmTot > 0 ? ` · ${kmTot}km` : ''} — Stämmer?`,
+              url: '/arbetsrapport',
+            }),
+          }).catch(() => {});
           return;
         }
 

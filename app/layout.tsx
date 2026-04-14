@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import TopBar from '../components/TopBar'
+import PushRegister from '../components/PushRegister'
 
 export const metadata: Metadata = {
   title: 'Kompersmåla Skog',
@@ -43,6 +44,7 @@ export default function RootLayout({
       </head>
       <body style={{ margin: 0, padding: 0 }}>
         <TopBar />
+        <PushRegister />
         <div style={{ paddingTop: 56 }}>
           {children}
         </div>
