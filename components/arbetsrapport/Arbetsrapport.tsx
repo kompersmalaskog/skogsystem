@@ -26,6 +26,8 @@ const css = `
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body { margin: 0; }
+  *::-webkit-scrollbar { display: none; }
+  * { scrollbar-width: none; -ms-overflow-style: none; }
 `;
 
 const C = {
@@ -35,7 +37,7 @@ const C = {
   dark:"#000", darkCard:"rgba(255,255,255,0.08)", darkLabel:"rgba(255,255,255,0.4)",
 };
 const T = { fontFamily:"'Inter',-apple-system,'SF Pro Display',sans-serif", color:C.text };
-const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:"0 20px", maxWidth:390, margin:"0 auto", boxSizing:"border-box" as const, width:"100%" };
+const shell: CSSProperties  = { minHeight:"100vh", background:"#000", ...T, display:"flex", flexDirection:"column" as const, padding:"0 20px", boxSizing:"border-box" as const, width:"100%" };
 const darkShell: CSSProperties = { ...shell };
 const topBar: CSSProperties = { paddingTop:24, paddingBottom:12 };
 const mid: CSSProperties    = { flex:1, display:"flex", flexDirection:"column" as const, justifyContent:"center", alignItems:"center", textAlign:"center" as const };
@@ -633,7 +635,7 @@ export default function Arbetsrapport() {
       </header>
 
       {/* Main content */}
-      <main style={{ paddingTop:96,paddingBottom:128,paddingLeft:24,paddingRight:24,maxWidth:390,margin:"0 auto",flex:1,width:"100%",boxSizing:"border-box" }}>
+      <main style={{ paddingTop:96,paddingBottom:128,paddingLeft:24,paddingRight:24,flex:1,width:"100%",boxSizing:"border-box" }}>
 
         {/* Hero */}
         <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
@@ -1477,11 +1479,12 @@ export default function Arbetsrapport() {
   if(steg==="äTid"){
     const tAm=Math.max(0,tim(tS,tE)-tR),ä=tS!==start||tE!==slut||tR!==rast;
     return (
-      <div style={shell}><style>{css}</style>
+      <div style={shell}>
+        <style>{css}</style>
         <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("kväll")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Arbetstid</h1></div></div>
         <div style={{ flex:1,overflowY:"auto",paddingTop:24 }}>
 
-          <div style={{ background:C.card,borderRadius:16,padding:"20px 16px",marginBottom:16,boxShadow:"none" }}>
+          <div style={{ background:"#1c1c1e",borderRadius:12,padding:"20px 16px",marginBottom:16 }}>
             <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8 }}>
 
               {/* Start */}
@@ -1496,7 +1499,7 @@ export default function Arbetsrapport() {
                 ); })()}
               </div>
 
-              <div style={{ width:1,background:C.line,alignSelf:"stretch",marginTop:28 }}/>
+              <div style={{ width:1,background:"rgba(255,255,255,0.08)",alignSelf:"stretch",marginTop:28 }}/>
 
               {/* Slut */}
               <div style={{ flex:1,textAlign:"center" }}>
@@ -1510,7 +1513,7 @@ export default function Arbetsrapport() {
                 ); })()}
               </div>
 
-              <div style={{ width:1,background:C.line,alignSelf:"stretch",marginTop:28 }}/>
+              <div style={{ width:1,background:"rgba(255,255,255,0.08)",alignSelf:"stretch",marginTop:28 }}/>
 
               {/* Rast */}
               <div style={{ flex:1,textAlign:"center" }}>
@@ -1525,9 +1528,9 @@ export default function Arbetsrapport() {
             </div>
           </div>
 
-          <div style={{ textAlign:"center",padding:"18px 20px",background:ä?"rgba(52,199,89,0.07)":"rgba(255,255,255,0.06)",borderRadius:14,marginBottom:16 }}>
-            <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:700,color:C.label,textTransform:"none",letterSpacing:"0" }}>Total arbetstid</p>
-            <p style={{ margin:0,fontSize:48,fontWeight:700,color:ä?C.green:C.ink }}>{fmt(tAm)}</p>
+          <div style={{ textAlign:"center",padding:"18px 20px",background:"rgba(255,255,255,0.06)",borderRadius:14,marginBottom:16 }}>
+            <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:500,color:C.label }}>Total arbetstid</p>
+            <p style={{ margin:0,fontSize:48,fontWeight:700,color:"#fff" }}>{fmt(tAm)}</p>
           </div>
 
           {ä&&<div style={{ marginBottom:20 }}>
@@ -1535,7 +1538,7 @@ export default function Arbetsrapport() {
             <input placeholder="Kommentar" value={anledn} onChange={e=>setAnledn(e.target.value)} style={input}/>
           </div>}
         </div>
-        <div style={bottom}>
+        <div style={{ position:"sticky",bottom:0,background:"#000",paddingBottom:36,paddingTop:12,display:"flex",flexDirection:"column",gap:10 }}>
           <button style={{ ...btn.primary,opacity:(ä&&!anledn)?0.35:1 }} disabled={ä&&!anledn}
             onClick={()=>{if(ä){setStart(tS);setSlut(tE);setRast(tR);setÄ(anledn);}setSteg("kväll");}}>
             {ä?"Spara ändring":"Tillbaka"}
