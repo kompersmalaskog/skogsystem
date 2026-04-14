@@ -1990,113 +1990,151 @@ export default function Arbetsrapport() {
       return "tom";
     };
 
-    const dagBg={
-      ok:"rgba(52,199,89,0.12)",
-      saknas:"rgba(255,149,0,0.15)",
-      röd:"rgba(255,59,48,0.08)",
-      tom:"rgba(0,0,0,0.03)",
-      weekend:"transparent",
-    };
-    const dagTextFärg={
-      ok:C.ink, saknas:C.orange, röd:C.red,
-      tom:"rgba(0,0,0,0.2)", weekend:"rgba(0,0,0,0.18)",
-    };
-    const dotFärg={ok:C.green,saknas:C.orange};
+    const dotFärg: Record<string,string> = {ok:"#fff",saknas:"#ffb4ab"};
 
     return (
-      <div style={shell}><style>{css}</style>
-        <div style={topBar}>
-          <div style={{ display:"flex",alignItems:"center",gap:14,marginBottom:20 }}>
-            <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-              <button onClick={()=>kanBakåt&&navigera(-1)} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:kanBakåt?1:0.3 }}>
-                <svg width="8" height="14" viewBox="0 0 9 16" fill="none"><path d="M8 1L1 8L8 15" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </button>
-              <h1 style={{ margin:0,fontSize:22,fontWeight:700 }}>{kalMånadLabel}</h1>
-              <button onClick={()=>kanFramåt&&navigera(1)} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",opacity:kanFramåt?1:0.3 }}>
-                <svg width="8" height="14" viewBox="0 0 9 16" fill="none"><path d="M1 1L8 8L1 15" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-              </button>
-            </div>
-            <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="#fff" strokeWidth="2" strokeLinecap="round"/></svg>
-            </button>
-          </div>
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4,marginBottom:4 }}>
-            {veckar.map(v=>(
-              <div key={v} style={{ textAlign:"center",fontSize:11,fontWeight:700,color:C.label,letterSpacing:"0.5px",padding:"4px 0" }}>{v}</div>
-            ))}
-          </div>
-        </div>
+      <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
+        <style>{css}</style>
 
-        <div style={{ flex:1,overflowY:"auto",paddingBottom:24 }}>
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:4 }}>
-            {cells.map((d,i)=>{
-              if(!d) return <div key={i}/>;
-              const s=statusFärg(d);
-              const isToday=d===nuDat.getDate()&&kalMånad===nuDat.getMonth()&&kalÅr===nuDat.getFullYear();
-              const k=dagKey(d);
-              const klickbar=s==="ok"||s==="saknas";
-              const datum=`${d} ${new Date(kalÅr,kalMånad,1).toLocaleString('sv-SE',{month:'short'})}`;
-              const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
-              return (
-                <div key={i}
-                  onClick={()=>{ if(klickbar){
-                    const d2=dagData[k];
-                    setRedDag({...d2,datum});
-                    setRedStart(d2?.start_tid||"06:00");
-                    setRedSlut(d2?.slut_tid||"16:00");
-                    setRedRast(d2?.rast_min||30);
-                    setRedKm(d2?.km_totalt||0);
-                    setRedAnl("");
-                    setRedVy("översikt");
-                    setSteg("redigera");
-                  } }}
-                  title={rödaDagar[k]||""}
-                  style={{ aspectRatio:"1",borderRadius:12,background:isToday?C.ink:dagBg[s]||"transparent",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",cursor:klickbar?"pointer":"default",border:s==="röd"?`1px solid rgba(255,59,48,0.2)`:"2px solid transparent",position:"relative" }}>
-                  <div style={{ position:"relative",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                    {erRedigerad&&<div style={{ position:"absolute",width:28,height:28,borderRadius:"50%",border:`2px solid ${C.blue}` }}/>}
-                    <span style={{ fontSize:15,fontWeight:isToday||s==="röd"?700:500,color:isToday?"#fff":dagTextFärg[s]||C.ink }}>{d}</span>
+        {/* Header — sticky nav with month + arrows */}
+        <header style={{ position:"sticky",top:0,background:"#131313",zIndex:50,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 24px",height:64 }}>
+          <button onClick={()=>kanBakåt&&navigera(-1)} style={{ background:"none",border:"none",cursor:"pointer",opacity:kanBakåt?1:0.3,padding:4 }}>
+            <span className="material-symbols-outlined" style={{ color:"#adc6ff" }}>chevron_left</span>
+          </button>
+          <h1 style={{ margin:0,fontSize:18,fontWeight:600,letterSpacing:"-0.02em",color:"#adc6ff" }}>{kalMånadLabel}</h1>
+          <button onClick={()=>kanFramåt&&navigera(1)} style={{ background:"none",border:"none",cursor:"pointer",opacity:kanFramåt?1:0.3,padding:4 }}>
+            <span className="material-symbols-outlined" style={{ color:"#adc6ff" }}>chevron_right</span>
+          </button>
+        </header>
+
+        <main style={{ flex:1,padding:"0 16px 128px",overflowY:"auto" }}>
+
+          {/* Summary card */}
+          <section style={{ marginTop:16,marginBottom:32 }}>
+            <div style={{ background:"#1c1c1e",borderRadius:12,padding:24 }}>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"24px 0" }}>
+                {[
+                  ["Arbetsdagar",`${arbetsdagar} dagar`],
+                  ["Mål",`${målH} tim`],
+                  ["Jobbat",`${jobbadH} tim`],
+                  ["Körning",`${totalKm} km`],
+                ].map(([label,val])=>(
+                  <div key={label as string} style={{ display:"flex",flexDirection:"column" }}>
+                    <span style={{ color:"#8b90a0",fontSize:11,fontWeight:500,letterSpacing:"0.05em",textTransform:"uppercase" as const }}>{label}</span>
+                    <span style={{ color:"#e2e2e2",fontSize:20,fontWeight:600 }}>{val}</span>
                   </div>
-                  {(s==="ok"||s==="saknas")&&!erRedigerad&&(
-                    <div style={{ width:4,height:4,borderRadius:"50%",background:dotFärg[s],marginTop:2 }}/>
-                  )}
-                  {erRedigerad&&(
-                    <div style={{ width:4,height:4,borderRadius:"50%",background:C.blue,marginTop:2 }}/>
-                  )}
-                  {s==="röd"&&(
-                    <div style={{ width:4,height:4,borderRadius:"50%",background:C.red,marginTop:2 }}/>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* Calendar grid */}
+          <section style={{ marginBottom:40 }}>
+            {/* Weekday headers */}
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",textAlign:"center",marginBottom:16 }}>
+              {veckar.map(v=>(
+                <div key={v} style={{ color:"#8b90a0",fontSize:12,fontWeight:600 }}>{v}</div>
+              ))}
+            </div>
+
+            {/* Day cells */}
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:"24px 0",textAlign:"center" }}>
+              {cells.map((d,i)=>{
+                if(!d) return <div key={i} style={{ padding:"8px 0",opacity:0.2 }}>{(() => {
+                  // Show prev/next month days faded
+                  if(i < startDag) {
+                    const prevMonth = new Date(kalÅr, kalMånad, 0);
+                    return prevMonth.getDate() - (startDag - 1 - i);
+                  }
+                  return '';
+                })()}</div>;
+
+                const s=statusFärg(d);
+                const isToday=d===nuDat.getDate()&&kalMånad===nuDat.getMonth()&&kalÅr===nuDat.getFullYear();
+                const k=dagKey(d);
+                const klickbar=s==="ok"||s==="saknas";
+                const datum=`${d} ${new Date(kalÅr,kalMånad,1).toLocaleString('sv-SE',{month:'short'})}`;
+                const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
+                const helgNamn = rödaDagar[k] || '';
+
+                return (
+                  <div key={i}
+                    onClick={()=>{ if(klickbar){
+                      const d2=dagData[k];
+                      setRedDag({...d2,datum});
+                      setRedStart(d2?.start_tid||"06:00");
+                      setRedSlut(d2?.slut_tid||"16:00");
+                      setRedRast(d2?.rast_min||30);
+                      setRedKm(d2?.km_totalt||0);
+                      setRedAnl("");
+                      setRedVy("översikt");
+                      setSteg("redigera");
+                    } }}
+                    style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:klickbar?"pointer":"default",padding:"8px 0" }}>
+                    {/* Today ring */}
+                    {isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #adc6ff",borderRadius:"50%" }} />}
+                    {/* Redigerad ring */}
+                    {erRedigerad && !isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #adc6ff",borderRadius:"50%" }} />}
+                    <span style={{
+                      fontSize:15,
+                      fontWeight: isToday ? 700 : s==="röd" ? 500 : 500,
+                      color: s==="röd" ? "#FF3B30" : "#fff",
+                      position:"relative",zIndex:1,
+                      lineHeight:"36px",
+                    }}>{d}</span>
+                    {/* Helgdag namn */}
+                    {helgNamn && <span style={{ fontSize:8,color:s==="röd"?"#FF3B30":"#8b90a0",marginTop:1,lineHeight:1.2,maxWidth:44,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{helgNamn}</span>}
+                    {/* Status dot */}
+                    {(s==="ok"||s==="saknas")&&!erRedigerad&&!helgNamn&&(
+                      <div style={{ width:4,height:4,borderRadius:"50%",background:dotFärg[s],marginTop:4 }}/>
+                    )}
+                    {erRedigerad&&!helgNamn&&(
+                      <div style={{ width:4,height:4,borderRadius:"50%",background:"#adc6ff",marginTop:4 }}/>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
 
           {/* Legend */}
-          <div style={{ display:"flex",gap:14,justifyContent:"center",marginTop:20,flexWrap:"wrap" }}>
-            {[[C.green,"Bekräftad"],[C.orange,"Saknas"],[C.red,"Röd dag"],[C.blue,"Redigerad"],[C.ink,"Idag"]].map(([c,l])=>(
-              <div key={l} style={{ display:"flex",alignItems:"center",gap:5 }}>
-                <div style={{ width:7,height:7,borderRadius:"50%",background:c }}/>
-                <span style={{ fontSize:11,color:C.label,fontWeight:500 }}>{l}</span>
+          <section style={{ marginTop:32,paddingTop:32,borderTop:"1px solid rgba(255,255,255,0.05)" }}>
+            <h3 style={{ color:"#8b90a0",fontSize:11,fontWeight:700,letterSpacing:"0.15em",marginBottom:24 }}>Statusförklaring</h3>
+            <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
+              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
+                <div style={{ width:12,height:12,borderRadius:"50%",background:"#fff" }} />
+                <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Bekräftad</span>
               </div>
-            ))}
-          </div>
+              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
+                <div style={{ width:12,height:12,borderRadius:"50%",background:"#ffb4ab" }} />
+                <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Saknas</span>
+              </div>
+              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
+                <div style={{ width:20,height:20,border:"2px solid #adc6ff",borderRadius:"50%" }} />
+                <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Idag</span>
+              </div>
+            </div>
+          </section>
+        </main>
 
-          {/* Månadssammanfattning */}
-          <div style={{ margin:"16px 0 0",background:C.card,borderRadius:16,padding:"18px 20px",boxShadow:"none" }}>
-            <p style={{ margin:"0 0 14px",fontSize:13,fontWeight:700,color:C.label,textTransform:"none",letterSpacing:"0" }}>Sammanfattning</p>
-            {[
-              ["Arbetsdagar",`${arbetsdagar} dagar`],
-              ["Mål",`${målH} tim`],
-              ["Jobbat",`${jobbadH} tim`, jobbadH>=målH?C.green:C.orange],
-              ["Körning",`${totalKm} km`],
-              ...(övH>0?[["Övertid",`${övH} tim`,C.orange]]:[]),
-            ].map(([l,v,c],i,arr)=>(
-              <div key={l} style={{ display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
-                <span style={{ fontSize:15,color:C.label }}>{l}</span>
-                <span style={{ fontSize:15,fontWeight:600,color:c||C.ink }}>{v}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* Bottom nav */}
+        <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"12px 16px 24px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"16px 16px 0 0",boxShadow:"0 -4px 20px rgba(0,0,0,0.5)" }}>
+          {[
+            {icon:"today",label:"Dag",action:()=>setSteg("morgon"),active:false},
+            {icon:"calendar_month",label:"Kalender",action:()=>{},active:true},
+            {icon:"payments",label:"Löneunderlag",action:()=>setSteg("lön"),active:false},
+            {icon:"settings",label:"Inställningar",action:()=>setSteg("inst"),active:false},
+          ].map(n=>(
+            <button key={n.label} onClick={n.action} style={{
+              display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
+              color:n.active?"#adc6ff":"#8b90a0",
+              background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",
+            }}>
+              <span className="material-symbols-outlined" style={{ fontSize:24,marginBottom:4,fontVariationSettings:n.active?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
+              <span style={{ fontSize:11,fontWeight:n.active?600:500 }}>{n.label}</span>
+            </button>
+          ))}
+        </nav>
       </div>
     );
   }
