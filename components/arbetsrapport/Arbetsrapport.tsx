@@ -1875,7 +1875,7 @@ export default function Arbetsrapport() {
   /* ─── REDIGERA HISTORIK ─── */
   if(steg==="redigera"&&redDag){
     const redArbMin = Math.max(0, tim(redStart,redSlut)-redRast);
-    const harÄndrat = redStart!==(redDag.start||"06:00")||redSlut!==(redDag.slut||"16:00")||redRast!==(redDag.rast||30)||redKm!==redDag.km;
+    const harÄndrat = redStart!==(redDag.start||"00:00")||redSlut!==(redDag.slut||"00:00")||redRast!==(redDag.rast||0)||redKm!==(redDag.km||0);
 
     if(redVy==="tid") return (
       <div style={shell}><style>{css}</style>
@@ -1888,7 +1888,7 @@ export default function Arbetsrapport() {
 
               {/* Start */}
               <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redStart!==(redDag.start||"06:00")?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Start</p>
+                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redStart!==(redDag.start||"00:00")?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Start</p>
                 {(()=>{ const [h,m]=redStart.split(":").map(Number); return (
                   <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
                     <Drum value={h} onChange={v=>setRedStart(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
@@ -1902,7 +1902,7 @@ export default function Arbetsrapport() {
 
               {/* Slut */}
               <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redSlut!==(redDag.slut||"16:00")?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Slut</p>
+                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redSlut!==(redDag.slut||"00:00")?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Slut</p>
                 {(()=>{ const [h,m]=redSlut.split(":").map(Number); return (
                   <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
                     <Drum value={h} onChange={v=>setRedSlut(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
@@ -1916,7 +1916,7 @@ export default function Arbetsrapport() {
 
               {/* Rast */}
               <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redRast!==(redDag.rast||30)?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Rast</p>
+                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redRast!==(redDag.rast||0)?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Rast</p>
                 {(()=>{ const h=Math.floor(redRast/60),m=redRast%60; return (
                   <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
                     <Drum value={m} onChange={v=>setRedRast(h*60+v)} max={59}/>
@@ -1979,7 +1979,7 @@ export default function Arbetsrapport() {
             ].map(([l,v],i,arr)=>(
               <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
                 <span style={{ fontSize:15,color:C.label }}>{l}</span>
-                <span style={{ fontSize:15,fontWeight:600,color:C.blue }}>{v}</span>
+                <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{v}</span>
               </div>
             ))}
           </Card>
@@ -2035,7 +2035,7 @@ export default function Arbetsrapport() {
               <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
                 <span style={{ fontSize:16,color:C.label }}>Arbetstid</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:600,color:(redStart!==(redDag.start||"06:00")||redSlut!==(redDag.slut||"16:00")||redRast!==(redDag.rast||30))?C.orange:C.ink }}>{fmt(redArbMin)}</span>
+                  <span style={{ fontSize:16,fontWeight:600,color:(redStart!==(redDag.start||"00:00")||redSlut!==(redDag.slut||"00:00")||redRast!==(redDag.rast||0))?C.orange:C.ink }}>{fmt(redArbMin)}</span>
                   <ChevronRight/>
                 </div>
               </div>
@@ -2044,7 +2044,7 @@ export default function Arbetsrapport() {
                 ["Objekt", redDag.objekt_namn ? (redDag.objekt_ägare ? `${redDag.objekt_namn} · ${redDag.objekt_ägare}` : redDag.objekt_namn) : redDag.objekt_id || "—"],
                 ["Start", redDag.start_tid || "—"],
                 ["Slut", redDag.slut_tid || "—"],
-                ["Rast", `${redDag.rast_min || 30} min`],
+                ["Rast", `${redDag.rast_min || 0} min`],
               ].map(([l,v])=>(
                 <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
                   <span style={{ fontSize:16,color:C.label }}>{l}</span>
@@ -2242,9 +2242,9 @@ export default function Arbetsrapport() {
                     onClick={()=>{ if(klickbar){
                       const d2=dagData[k];
                       setRedDag({...d2,datum});
-                      setRedStart(d2?.start_tid||"06:00");
-                      setRedSlut(d2?.slut_tid||"16:00");
-                      setRedRast(d2?.rast_min||30);
+                      setRedStart(d2?.start_tid||"00:00");
+                      setRedSlut(d2?.slut_tid||"00:00");
+                      setRedRast(d2?.rast_min||0);
                       setRedKm(d2?.km_totalt||0);
                       setRedAnl("");
                       setRedVy("översikt");
