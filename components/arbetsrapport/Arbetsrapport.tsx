@@ -1497,20 +1497,16 @@ export default function Arbetsrapport() {
     <div style={shell}><style>{css}</style>
       <div style={topBar} />
 
-      <div style={{ flex:1,display:"flex",flexDirection:"column",justifyContent:"center",padding:"0 0 40px" }}>
+      <div style={{ flex:1,overflowY:"auto",paddingBottom:100 }}>
 
         {/* Sammanfattningskort */}
-        <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"1px solid rgba(255,255,255,0.06)",marginBottom:16 }}>
-          <p style={{ margin:"0 0 4px",fontSize:32,fontWeight:700,color:"#fff" }}>{fmt(arbMin)}</p>
-          <p style={{ margin:"0 0 16px",fontSize:14,color:"#8e8e93" }}>{start} – {slut} · {rast} min rast</p>
-          {totKm>0 ? (
-            <div style={{ paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin:0,fontSize:18,fontWeight:600,color:"#fff" }}>{totKm} km</p>
+        <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"1px solid rgba(255,255,255,0.06)" }}>
+          <p style={{ margin:"0 0 6px",fontSize:44,fontWeight:800,color:"#fff",lineHeight:1 }}>{fmt(arbMin)}</p>
+          <p style={{ margin:0,fontSize:16,color:"#8e8e93" }}>{start} – {slut} · {rast} min rast</p>
+          {totKm>0&&(
+            <div style={{ paddingTop:16,marginTop:16,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
+              <p style={{ margin:0,fontSize:20,fontWeight:600,color:"#fff" }}>{totKm} km</p>
               {ersKm>0&&<p style={{ margin:"4px 0 0",fontSize:13,color:C.green }}>+{ersKm} km · {ersKr.toFixed(0)} kr ersättning</p>}
-            </div>
-          ) : (
-            <div style={{ paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin:0,fontSize:14,color:"rgba(255,255,255,0.3)" }}>Ingen körning</p>
             </div>
           )}
           {extra.length>0&&(
@@ -1540,16 +1536,23 @@ export default function Arbetsrapport() {
             bekraftad_tid: new Date().toISOString(),
           });
           setSteg("klar");
-        }} style={{ width:"100%",height:56,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginBottom:32 }}>
+        }} style={{ width:"100%",height:60,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:19,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:32 }}>
           Bekräfta
         </button>
 
-        {/* Diskreta textlänkar */}
-        <div style={{ display:"flex",flexDirection:"column",gap:12,alignItems:"center" }}>
-          <button onClick={()=>{setTS(start);setTE(slut);setTR(rast);setAnledn("");setSteg("äTid");}} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Ändra arbetstid</button>
-          <button onClick={()=>{setTMK(kmM?.km||0);setTKK(kmK?.km||0);setAnledn("");setSteg("äKm");}} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Ändra körning</button>
-          <button onClick={()=>setSteg("extraTid")} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>{extra.length>0?"Ändra extra tid":"Lägg till extra tid"}</button>
-          <button onClick={()=>setSteg("traktamente")} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>{trak?"Ändra traktamente":"Lägg till traktamente"}</button>
+        {/* Länkrader */}
+        <div style={{ display:"flex",flexDirection:"column",marginTop:24 }}>
+          {[
+            {label:"Ändra arbetstid",action:()=>{setTS(start);setTE(slut);setTR(rast);setAnledn("");setSteg("äTid");}},
+            {label:"Ändra körning",action:()=>{setTMK(kmM?.km||0);setTKK(kmK?.km||0);setAnledn("");setSteg("äKm");}},
+            {label:extra.length>0?"Ändra extra tid":"Lägg till extra tid",action:()=>setSteg("extraTid")},
+            {label:trak?"Ändra traktamente":"Lägg till traktamente",action:()=>setSteg("traktamente")},
+          ].map(l=>(
+            <button key={l.label} onClick={l.action} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",color:"#8e8e93",fontSize:16,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:"16px 0",textAlign:"left" }}>
+              <span>{l.label}</span>
+              <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.15)" }}>chevron_right</span>
+            </button>
+          ))}
         </div>
       </div>
 
