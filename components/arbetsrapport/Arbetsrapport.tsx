@@ -747,13 +747,13 @@ export default function Arbetsrapport() {
             {[
               {id:"sjuk",label:"Sjukfrånvaro",icon:"medical_services"},
               {id:"traktamente",label:"Traktamente",icon:"directions_car"},
-              {id:"semester",label:"Semester",icon:"wb_sunny"},
+              {id:"vab",label:"VAB",icon:"child_care"},
               {id:"övrigt",label:"Övrigt",icon:"more_horiz"},
             ].map(s=>(
               <button key={s.id} onClick={()=>{
                 if(s.id==="sjuk"){setDagTyp("sjuk");setSteg("bekräftaFrånvaro");}
                 else if(s.id==="traktamente") setSteg("traktamente");
-                else if(s.id==="semester"){setDagTyp("semester");setSteg("bekräftaFrånvaro");}
+                else if(s.id==="vab"){setDagTyp("vab");setSteg("bekräftaFrånvaro");}
                 else {setDagTyp("annat");setSteg("manuellDag");}
               }} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
                 <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
