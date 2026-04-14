@@ -44,9 +44,9 @@ const mid: CSSProperties    = { flex:1, display:"flex", flexDirection:"column" a
 const bottom: CSSProperties = { paddingBottom:36, display:"flex", flexDirection:"column" as const, gap:10 };
 
 const btn = {
-  primary:   { width:"100%", height:56, padding:"0 24px", background:"#fff", color:"#000", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
+  primary:   { width:"100%", height:56, padding:"0 24px", background:"#2a2a2a", color:"#fff", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
   green:     { width:"100%", height:56, padding:"0 24px", background:C.green, color:"#fff", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
-  secondary: { width:"100%", height:56, padding:"0 24px", background:"#1c1c1e", color:"#fff", border:"1px solid rgba(255,255,255,0.1)", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
+  secondary: { width:"100%", height:44, padding:"0", background:"transparent", color:"#8e8e93", border:"none", borderRadius:0, fontSize:15, fontWeight:500, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
   ghost:     { width:"100%", padding:"14px 24px", background:"transparent", color:C.blue, border:`1.5px solid ${C.blue}`, borderRadius:14, fontSize:15, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
   danger:    { width:"100%", padding:"17px 24px", background:"transparent", color:C.red, border:`1.5px solid rgba(255,69,58,0.3)`, borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
   textBack:  { width:"100%", height:44, padding:"0", background:"transparent", color:"#8e8e93", border:"none", borderRadius:0, fontSize:15, fontWeight:500, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
@@ -1030,7 +1030,7 @@ export default function Arbetsrapport() {
                   const ld = lastDay ? new Date(lastDay.datum) : null;
                   const rangeStr = fd && ld ? `(${fd.getDate()}-${ld.getDate()} ${månNamn[fd.getMonth()]})` : '';
                   return (
-                    <div key={weekNum} style={{ background:"#1f1f1f",borderRadius:12,padding:20 }}>
+                    <div key={weekNum} style={{ background:"#1c1c1e",borderRadius:12,padding:20 }}>
                       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16 }}>
                         <h3 style={{ margin:0,fontSize:15,fontWeight:600,color:"#e2e2e2" }}>Vecka {weekNum} <span style={{ color:"#8b90a0",fontWeight:400,fontSize:14 }}>{rangeStr}</span></h3>
                         <div style={{ display:"flex",alignItems:"baseline",gap:4 }}>
@@ -1064,14 +1064,14 @@ export default function Arbetsrapport() {
             <section style={{ marginBottom:32 }}>
               <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Körning</h2>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
-                <div style={{ gridColumn:"1/-1",background:"#1f1f1f",borderRadius:12,padding:20,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <div style={{ gridColumn:"1/-1",background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                   <div><p style={{ fontSize:12,color:"#8b90a0",margin:"0 0 4px" }}>Total körning</p><p style={{ fontSize:20,fontWeight:600,margin:0 }}>{totalKm} km</p></div>
                   <div style={{ textAlign:"right" }}><p style={{ fontSize:12,color:"#8b90a0",margin:"0 0 4px" }}>Ersättning</p><p style={{ fontSize:20,fontWeight:700,color:"#adc6ff",margin:0 }}>{löneErsKr} kr</p></div>
                 </div>
-                <div style={{ background:"#1b1b1b",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.03)" }}>
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.03)" }}>
                   <p style={{ fontSize:12,color:"#8b90a0",margin:"0 0 4px" }}>Ersättningsgrundande</p><p style={{ fontSize:18,fontWeight:500,margin:0 }}>{löneErsKm} km</p>
                 </div>
-                <div style={{ background:"#1b1b1b",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.03)" }}>
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.03)" }}>
                   <p style={{ fontSize:12,color:"#8b90a0",margin:"0 0 4px" }}>Pris/km</p><p style={{ fontSize:18,fontWeight:500,margin:0 }}>{kmErs2} kr</p>
                 </div>
               </div>
@@ -1082,7 +1082,7 @@ export default function Arbetsrapport() {
               <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Objekt och maskin</h2>
               <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
                 {objektEntries.map((o,i) => (
-                  <div key={i} style={{ background:"#1f1f1f",borderRadius:12,padding:20,display:"flex",alignItems:"center",gap:16 }}>
+                  <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",alignItems:"center",gap:16 }}>
                     <div style={{ width:40,height:40,borderRadius:"50%",background:"rgba(75,142,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center" }}>
                       <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>precision_manufacturing</span>
                     </div>
@@ -1107,7 +1107,7 @@ export default function Arbetsrapport() {
         <style>{css}</style>
 
         {/* Header */}
-        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"#1b1b1b",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",height:64 }}>
+        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",height:64 }}>
           <div style={{ display:"flex",alignItems:"center",gap:16 }}>
             <button onClick={()=>{setSteg("morgon");setLönVy('översikt');}} style={{ background:"none",border:"none",cursor:"pointer",padding:8,borderRadius:"50%" }}>
               <span className="material-symbols-outlined" style={{ color:"#adc6ff" }}>chevron_left</span>
@@ -1445,7 +1445,7 @@ export default function Arbetsrapport() {
 
           {/* Arbetstid */}
           <div onClick={()=>{setTS(start);setTE(slut);setTR(rast);setAnledn("");setSteg("äTid");}}
-            style={{ background:"#1b1b1b",borderRadius:16,padding:24,cursor:"pointer",boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
+            style={{ background:"#1c1c1e",borderRadius:16,padding:24,cursor:"pointer",boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
             <p style={{ ...secHead,marginBottom:8 }}>Arbetstid</p>
             <p style={{ margin:"0 0 4px",fontSize:40,fontWeight:700,color:"#fff",lineHeight:1 }}>{fmt(arbMin)}</p>
             <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>{start} – {slut} · {rast} min rast</p>
@@ -1454,7 +1454,7 @@ export default function Arbetsrapport() {
 
           {/* Körning */}
           <div onClick={()=>{setTMK(kmM?.km||0);setTKK(kmK?.km||0);setAnledn("");setSteg("äKm");}}
-            style={{ background:"#1b1b1b",borderRadius:16,padding:24,cursor:"pointer",boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
+            style={{ background:"#1c1c1e",borderRadius:16,padding:24,cursor:"pointer",boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
             <p style={{ ...secHead,marginBottom:8 }}>Körning</p>
             {totKm>0?<>
               <p style={{ margin:0,fontSize:40,fontWeight:700,color:"#fff",lineHeight:1 }}>{totKm} km</p>
@@ -1466,7 +1466,7 @@ export default function Arbetsrapport() {
           <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
             {extra.length>0?(
               <div onClick={()=>setSteg("extraTid")}
-                style={{ background:"#1b1b1b",borderRadius:12,padding:"18px 20px",cursor:"pointer",boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
+                style={{ background:"#1c1c1e",borderRadius:12,padding:"18px 20px",cursor:"pointer",boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
                 <p style={{ ...secHead,marginBottom:8 }}>Extra tid</p>
                 <p style={{ margin:0,fontSize:28,fontWeight:700 }}>{fmt(totEx)}</p>
                 <p style={{ margin:"4px 0 0",fontSize:13,color:"#8e8e93" }}>{extra.map(e=>e.besk).join(", ")}</p>
@@ -1690,7 +1690,6 @@ export default function Arbetsrapport() {
           </button>
         </div>
 
-        <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
       </div>
     );
   }
