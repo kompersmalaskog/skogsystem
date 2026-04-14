@@ -1493,70 +1493,87 @@ export default function Arbetsrapport() {
   /* ─── ÄNDRA ARBETSTID ─── */
   if(steg==="äTid"){
     const tAm=Math.max(0,tim(tS,tE)-tR),ä=tS!==start||tE!==slut||tR!==rast;
+    const TimeCol = ({label,value,onUp,onDown,changed}:{label:string;value:string;onUp:()=>void;onDown:()=>void;changed:boolean}) => (
+      <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+        <span style={{ ...secHead,marginBottom:16,color:changed?C.orange:"#8e8e93" }}>{label}</span>
+        <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+          <button onClick={onUp} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
+            <span className="material-symbols-outlined" style={{ fontSize:30 }}>keyboard_arrow_up</span>
+          </button>
+          <div style={{ fontSize:36,fontWeight:700,color:"#fff",letterSpacing:"-0.03em" }}>{value}</div>
+          <button onClick={onDown} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
+            <span className="material-symbols-outlined" style={{ fontSize:30 }}>keyboard_arrow_down</span>
+          </button>
+        </div>
+      </div>
+    );
+    const [sH,sM]=tS.split(":").map(Number),[eH,eM]=tE.split(":").map(Number);
+    const pad=(n:number)=>String(n).padStart(2,"0");
     return (
-      <div style={shell}>
+      <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
         <style>{css}</style>
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("kväll")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Arbetstid</h1></div></div>
-        <div style={{ flex:1,overflowY:"auto",paddingTop:24 }}>
+        {/* Header */}
+        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
+          <button onClick={()=>setSteg("kväll")} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
+            <span className="material-symbols-outlined" style={{ color:"#34c759" }}>arrow_back</span>
+          </button>
+          <h1 style={{ margin:"0 16px",fontSize:18,fontWeight:700,color:"#fff",letterSpacing:"-0.02em" }}>Arbetstid</h1>
+        </header>
 
-          <div style={{ background:"#1c1c1e",borderRadius:12,padding:"20px 16px",marginBottom:16 }}>
-            <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",gap:8 }}>
+        <main style={{ flex:1,paddingTop:96,paddingLeft:16,paddingRight:16,paddingBottom:120,maxWidth:512,margin:"0 auto",width:"100%" }}>
 
+          {/* Time Picker Card */}
+          <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,marginBottom:24,border:"1px solid rgba(255,255,255,0.04)",boxShadow:"0 4px 24px rgba(0,0,0,0.4)" }}>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16 }}>
               {/* Start */}
-              <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:tS!==start?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Start</p>
-                {(()=>{ const [h,m]=tS.split(":").map(Number); return (
-                  <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
-                    <Drum value={h} onChange={v=>setTS(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
-                    <span style={{ fontSize:22,fontWeight:300,color:C.label }}>:</span>
-                    <Drum value={m} onChange={v=>setTS(`${String(h).padStart(2,"0")}:${String(v).padStart(2,"0")}`)} max={59}/>
-                  </div>
-                ); })()}
+              <TimeCol label="Start" value={`${pad(sH)}:${pad(sM)}`} changed={tS!==start}
+                onUp={()=>{const nm=(sH*60+sM+15)%(24*60);setTS(`${pad(Math.floor(nm/60))}:${pad(nm%60)}`);}}
+                onDown={()=>{const nm=(sH*60+sM-15+24*60)%(24*60);setTS(`${pad(Math.floor(nm/60))}:${pad(nm%60)}`);}}
+              />
+              {/* Slut — with border */}
+              <div style={{ borderLeft:"1px solid rgba(255,255,255,0.05)",borderRight:"1px solid rgba(255,255,255,0.05)" }}>
+                <TimeCol label="Slut" value={`${pad(eH)}:${pad(eM)}`} changed={tE!==slut}
+                  onUp={()=>{const nm=(eH*60+eM+15)%(24*60);setTE(`${pad(Math.floor(nm/60))}:${pad(nm%60)}`);}}
+                  onDown={()=>{const nm=(eH*60+eM-15+24*60)%(24*60);setTE(`${pad(Math.floor(nm/60))}:${pad(nm%60)}`);}}
+                />
               </div>
-
-              <div style={{ width:1,background:"rgba(255,255,255,0.08)",alignSelf:"stretch",marginTop:28 }}/>
-
-              {/* Slut */}
-              <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:tE!==slut?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Slut</p>
-                {(()=>{ const [h,m]=tE.split(":").map(Number); return (
-                  <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
-                    <Drum value={h} onChange={v=>setTE(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
-                    <span style={{ fontSize:22,fontWeight:300,color:C.label }}>:</span>
-                    <Drum value={m} onChange={v=>setTE(`${String(h).padStart(2,"0")}:${String(v).padStart(2,"0")}`)} max={59}/>
-                  </div>
-                ); })()}
-              </div>
-
-              <div style={{ width:1,background:"rgba(255,255,255,0.08)",alignSelf:"stretch",marginTop:28 }}/>
-
               {/* Rast */}
-              <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:tR!==rast?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Rast</p>
-                {(()=>{ const m=tR%60; return (
-                  <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
-                    <Drum value={m} onChange={v=>setTR(v)} max={59}/>
-                    <span style={{ fontSize:11,color:C.label,fontWeight:600 }}>min</span>
-                  </div>
-                ); })()}
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                <span style={{ ...secHead,marginBottom:16,color:tR!==rast?C.orange:"#8e8e93" }}>Rast</span>
+                <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+                  <button onClick={()=>setTR(Math.min(120,tR+5))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:30 }}>keyboard_arrow_up</span>
+                  </button>
+                  <div style={{ fontSize:36,fontWeight:700,color:"#fff",letterSpacing:"-0.03em" }}>{tR}</div>
+                  <span style={{ fontSize:10,color:"#8e8e93",marginTop:-4 }}>MIN</span>
+                  <button onClick={()=>setTR(Math.max(0,tR-5))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:30 }}>keyboard_arrow_down</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
 
-          <div style={{ textAlign:"center",padding:"18px 20px",background:"rgba(255,255,255,0.06)",borderRadius:14,marginBottom:16 }}>
-            <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:500,color:C.label }}>Total arbetstid</p>
-            <p style={{ margin:0,fontSize:48,fontWeight:700,color:"#fff" }}>{fmt(tAm)}</p>
+          {/* Total */}
+          <div style={{ borderRadius:16,padding:32,marginBottom:32,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",background:"rgba(52,199,89,0.1)" }}>
+            <span style={{ fontSize:11,fontWeight:600,letterSpacing:"0.15em",textTransform:"uppercase",color:"#34c759",opacity:0.8,marginBottom:8 }}>Total arbetstid</span>
+            <div style={{ fontSize:40,fontWeight:800,color:"#34c759",letterSpacing:"-0.03em" }}>{fmt(tAm)}</div>
           </div>
 
-          {ä&&<div style={{ marginBottom:20 }}>
-            <Label>Anledning <span style={{ color:C.red }}>*</span></Label>
-            <input placeholder="Kommentar" value={anledn} onChange={e=>setAnledn(e.target.value)} style={input}/>
+          {/* Kommentar */}
+          {ä&&<div style={{ marginBottom:32 }}>
+            <label style={{ ...secHead,display:"block",marginBottom:8,marginLeft:4 }}>Kommentar</label>
+            <input placeholder="Kommentar till ändring" value={anledn} onChange={e=>setAnledn(e.target.value)}
+              style={{ width:"100%",height:56,background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.05)",borderRadius:12,padding:"0 16px",color:"#fff",fontSize:16,outline:"none",fontFamily:"inherit",boxSizing:"border-box" }}/>
           </div>}
-        </div>
-        <div style={{ position:"sticky",bottom:0,background:"#000",paddingBottom:36,paddingTop:12,display:"flex",flexDirection:"column",gap:10 }}>
-          <button style={{ ...btn.primary,opacity:(ä&&!anledn)?0.35:1 }} disabled={ä&&!anledn}
+        </main>
+
+        {/* Fixed Save */}
+        <div style={{ width:"100%",padding:"0 16px 24px",boxSizing:"border-box",marginTop:"auto" }}>
+          <button style={{ width:"100%",height:56,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 20px rgba(52,199,89,0.2)",opacity:(ä&&!anledn)?0.35:1 }}
+            disabled={ä&&!anledn}
             onClick={()=>{if(ä){setStart(tS);setSlut(tE);setRast(tR);setÄ(anledn);}setSteg("kväll");}}>
-            {ä?"Spara ändring":"Tillbaka"}
+            {ä?"Spara":"Tillbaka"}
           </button>
         </div>
       </div>
