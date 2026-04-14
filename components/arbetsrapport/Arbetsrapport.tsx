@@ -643,13 +643,17 @@ export default function Arbetsrapport() {
       <div style={{ flex:1,overflowY:"auto" }}>
         <div style={{ animation:"fadeUp 0.5s ease both",marginBottom:24 }}>
           <h1 style={{ fontSize:34,fontWeight:700,letterSpacing:"-0.5px",margin:"0 0 6px" }}>God morgon, {förnamn}</h1>
-          <p style={{ margin:0,fontSize:16,color:C.label }}>Kör försiktigt till jobbet</p>
+          {isWorking ? (
+            <p style={{ margin:0,fontSize:16,color:C.green,fontWeight:500 }}>Pågående sedan {dagData[idagKey]?.start_tid?.slice(0,5) || '—'}</p>
+          ) : (
+            <>
+              <p style={{ margin:"0 0 8px",fontSize:16,color:C.label }}>Startar automatiskt när maskinen loggar in</p>
+              <button onClick={()=>setSteg("dag")} style={{ padding:0,background:"none",border:"none",fontSize:14,color:C.label,cursor:"pointer",fontFamily:"inherit",textDecoration:"underline",textUnderlineOffset:2 }}>
+                Starta manuellt
+              </button>
+            </>
+          )}
         </div>
-
-        {/* Primärknapp */}
-        <button onClick={()=>setSteg("dag")} style={{ ...btn.primary, marginBottom:16, animation:"fadeUp 0.5s ease 0.05s both" }}>
-          Starta dagrapport →
-        </button>
 
         {/* Snabbval */}
         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:24,animation:"fadeUp 0.5s ease 0.1s both" }}>
