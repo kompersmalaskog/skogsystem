@@ -2051,9 +2051,27 @@ export default function Arbetsrapport() {
           const harData = !!(redDag?.start_tid);
           return (<>
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
-          {!harData?(
+          {!harData&&redStart==="00:00"&&redSlut==="00:00"&&redRast===0?(
             <Card style={{ padding:"24px 20px",textAlign:"center" as const }}>
-              <p style={{ margin:0,fontSize:15,color:C.label }}>Ingen data från MOM</p>
+              <p style={{ margin:"0 0 4px",fontSize:15,color:C.label }}>Ingen data från MOM</p>
+              <p style={{ margin:0,fontSize:13,color:"#636366" }}>Lägg till arbetstid och körning manuellt</p>
+            </Card>
+          ):!harData?(
+            <Card style={{ padding:"4px 20px" }}>
+              <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
+                <span style={{ fontSize:16,color:C.label }}>Arbetstid</span>
+                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                  <span style={{ fontSize:16,fontWeight:600,color:C.orange }}>{fmt(redArbMin)}</span>
+                  <ChevronRight/>
+                </div>
+              </div>
+              <div onClick={()=>setRedVy("km")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",cursor:"pointer" }}>
+                <span style={{ fontSize:16,color:C.label }}>Körning</span>
+                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                  <span style={{ fontSize:16,fontWeight:600,color:redKm>0?C.orange:C.ink }}>{redKm} km</span>
+                  <ChevronRight/>
+                </div>
+              </div>
             </Card>
           ):(
             <Card style={{ padding:"4px 20px" }}>
@@ -2098,25 +2116,27 @@ export default function Arbetsrapport() {
             </Card>
           )}
 
-          {/* Anledning — visas bara om data finns och något ändrats */}
-          {harData&&harÄndrat&&(
+          {/* Anledning — visas om något ändrats */}
+          {harÄndrat&&(
             <div style={{ marginTop:16 }}>
-              <Label>Anledning till ändring <span style={{ color:C.red }}>*</span></Label>
+              <Label>{harData?"Anledning till ändring":"Kommentar"} <span style={{ color:C.red }}>*</span></Label>
               <input
                 placeholder="Kommentar"
                 value={redAnl}
                 onChange={e=>setRedAnl(e.target.value)}
-                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"none",fontFamily:"inherit" }}
+                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"none",fontFamily:"inherit",color:"#fff" }}
               />
             </div>
           )}
         </div>
         <div style={bottom}>
-          <button
-            style={{ ...btn.primary,opacity:harData&&harÄndrat&&!redAnl?0.35:1 }}
-            disabled={harData&&harÄndrat&&!redAnl}
-            onClick={async ()=>{
-              if(harÄndrat) {
+          {!harData&&redStart==="00:00"&&redSlut==="00:00"&&redRast===0?(
+            <button style={btn.primary} onClick={()=>setRedVy("tid")}>Lägg till manuellt</button>
+          ):harÄndrat?(
+            <button
+              style={{ ...btn.primary,opacity:!redAnl?0.35:1 }}
+              disabled={!redAnl}
+              onClick={async ()=>{
                 try {
                   const { error } = await supabase.from("arbetsdag").upsert({
                     medarbetare_id: medarbetare.id,
@@ -2128,15 +2148,16 @@ export default function Arbetsrapport() {
                   });
                   if(error) throw error;
                   setRedDagar(r=>({...r,[redDag.datum]:{start:redStart,slut:redSlut,rast:redRast,km:redKm,anl:redAnl}}));
+                  setSteg("kalender");
                 } catch(e) {
                   alert("Kunde inte spara — kontrollera anslutningen.");
-                  return;
                 }
-              }
-              setSteg("kalender");
-            }}>
-            {!harData?"Lägg till manuellt":harÄndrat?"Spara ändring":"Tillbaka"}
-          </button>
+              }}>
+              {harData?"Spara ändring":"Spara"}
+            </button>
+          ):(
+            <button style={btn.secondary} onClick={()=>setSteg("kalender")}>Tillbaka</button>
+          )}
         </div>
           </>);
         })()}
