@@ -228,6 +228,8 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
   const [obj,  setObj]  = useState(initial?.obj  ?? null);
   const [väljer, setVäljer] = useState(false);
 
+  const h=Math.floor(min/60),m=min%60;
+
   if(väljer) return (
     <div style={shell}>
       <style>{css}</style>
@@ -239,13 +241,13 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
       </div>
       <div style={{ flex:1,paddingTop:16 }}>
         {objekt.map(o=>(
-          <Card key={o.id} onClick={()=>{setObj(o);setVäljer(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:obj?.id===o.id?"rgba(0,122,255,0.06)":C.card,border:obj?.id===o.id?`1px solid rgba(0,122,255,0.2)`:"none" }}>
+          <Card key={o.id} onClick={()=>{setObj(o);setVäljer(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:obj?.id===o.id?"rgba(0,122,255,0.06)":"#1c1c1e",border:obj?.id===o.id?"1px solid rgba(0,122,255,0.2)":"1px solid rgba(255,255,255,0.06)" }}>
             <div>
               <p style={{ margin:0,fontSize:16,fontWeight:600 }}>{o.namn}</p>
-              <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{o.ägare}</p>
+              <p style={{ margin:"3px 0 0",fontSize:13,color:"#8e8e93" }}>{o.ägare}</p>
             </div>
             {obj?.id===o.id
-              ? <div style={{ width:22,height:22,borderRadius:"50%",background:C.blue,display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
+              ? <div style={{ width:22,height:22,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
               : <ChevronRight/>
             }
           </Card>
@@ -255,70 +257,107 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
   );
 
   return (
-    <div style={shell}>
+    <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased" }}>
       <style>{css}</style>
-      <div style={topBar}>
-        <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <BackBtn onClick={onAvbryt}/>
-          <h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Extra tid</h1>
+
+      {/* Header */}
+      <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 16px",height:64 }}>
+        <div style={{ display:"flex",alignItems:"center",gap:16 }}>
+          <button onClick={onAvbryt} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
+            <span className="material-symbols-outlined" style={{ color:"#34c759",fontSize:24 }}>arrow_back</span>
+          </button>
+          <h1 style={{ margin:0,fontSize:18,fontWeight:700,color:"#fff",letterSpacing:"-0.02em" }}>Extra tid</h1>
         </div>
-      </div>
-      <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
+      </header>
 
-        {/* Debiterbar toggle */}
-        <Card style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
-          <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Debiterbar</p>
-            <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>Faktureras kunden</p>
-          </div>
-          <div onClick={()=>{setDeb(v=>!v); if(deb)setObj(null);}}
-            style={{ width:51,height:31,borderRadius:16,background:deb?C.green:"rgba(120,120,128,0.2)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
-            <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:deb?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
-          </div>
-        </Card>
+      <main style={{ paddingTop:96,paddingBottom:32,padding:"96px 16px 32px",maxWidth:512,margin:"0 auto" }}>
+        <div style={{ display:"flex",flexDirection:"column",gap:24 }}>
 
-        {/* Objekt – visas bara om debiterbar */}
-        {deb && (
-          <Card onClick={()=>setVäljer(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
-            <div>
-              <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Objekt</p>
-              <p style={{ margin:"2px 0 0",fontSize:13,color:obj?C.blue:C.label }}>{obj?obj.namn:"Välj objekt"}</p>
+          {/* Tid-väljare */}
+          <section style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"1px solid rgba(255,255,255,0.06)" }}>
+            <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:32,padding:"16px 0" }}>
+              {/* Timmar */}
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                <button onClick={()=>setMin(min+60)} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:28 }}>keyboard_arrow_up</span>
+                </button>
+                <span style={{ fontSize:32,fontWeight:700,color:"#fff",padding:"8px 0" }}>{String(h).padStart(2,"0")}</span>
+                <button onClick={()=>setMin(Math.max(0,min-60))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:28 }}>keyboard_arrow_down</span>
+                </button>
+              </div>
+              <span style={{ fontSize:16,color:"#8e8e93",fontWeight:400 }}>tim</span>
+              {/* Minuter */}
+              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
+                <button onClick={()=>setMin(min+5)} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:28 }}>keyboard_arrow_up</span>
+                </button>
+                <span style={{ fontSize:32,fontWeight:700,color:"#fff",padding:"8px 0" }}>{String(m).padStart(2,"0")}</span>
+                <button onClick={()=>setMin(Math.max(0,min-5))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:28 }}>keyboard_arrow_down</span>
+                </button>
+              </div>
+              <span style={{ fontSize:16,color:"#8e8e93",fontWeight:400 }}>min</span>
             </div>
-            <ChevronRight/>
-          </Card>
-        )}
+            <div style={{ marginTop:16,paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.04)",textAlign:"center" }}>
+              <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#34c759" }}>Total tid: {fmt(min)}</p>
+            </div>
+          </section>
 
-        {/* Tid */}
-        <div style={{ background:C.card,borderRadius:16,padding:"18px 20px",marginBottom:6,boxShadow:"none" }}>
-          <MinPicker value={min} onChange={setMin} label="Tid"/>
-          <div style={{ textAlign:"center",marginTop:-8 }}>
-            <p style={{ margin:0,fontSize:32,fontWeight:700,color:C.green }}>{fmt(min)}</p>
+          {/* Beskrivning */}
+          <section style={{ background:"#1c1c1e",borderRadius:16,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+            <label style={{ ...secHead,display:"block",marginBottom:12 }}>Vad gjorde du?</label>
+            <textarea
+              placeholder="T.ex. hämtat reservdelar, träffat markägare..."
+              value={besk}
+              onChange={e=>setBesk(e.target.value)}
+              rows={4}
+              style={{ width:"100%",background:"#353535",border:"none",borderRadius:12,color:"#fff",padding:12,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",boxSizing:"border-box" }}
+            />
+          </section>
+
+          {/* Debiterbar */}
+          <section style={{ background:"#1c1c1e",borderRadius:16,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+            <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+              <span style={{ fontSize:17,fontWeight:500,color:"#fff" }}>Debiterbar</span>
+              <div onClick={()=>{setDeb(v=>!v); if(deb)setObj(null);}}
+                style={{ width:51,height:31,borderRadius:16,background:deb?"#34c759":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
+                <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:deb?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.3)" }}/>
+              </div>
+            </div>
+            <p style={{ margin:"8px 0 0",fontSize:14,color:"#8e8e93" }}>Faktureras kunden</p>
+
+            {/* Objekt — visas om debiterbar */}
+            {deb && (
+              <div onClick={()=>setVäljer(true)} style={{ marginTop:16,paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer" }}>
+                <div>
+                  <p style={{ margin:0,fontSize:16,fontWeight:500 }}>Objekt</p>
+                  <p style={{ margin:"2px 0 0",fontSize:13,color:obj?"#0a84ff":"#8e8e93" }}>{obj?obj.namn:"Välj objekt"}</p>
+                </div>
+                <ChevronRight/>
+              </div>
+            )}
+          </section>
+
+          {/* Knappar */}
+          <div style={{ display:"flex",flexDirection:"column",gap:16,paddingTop:16 }}>
+            <button
+              style={{ width:"100%",height:56,background:"#2a2a2a",color:"#fff",border:"1px solid rgba(255,255,255,0.05)",borderRadius:14,fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"inherit",opacity:besk&&(!deb||obj)?1:0.35 }}
+              disabled={!besk||(!(!deb||obj))}
+              onClick={()=>onSpara({min,besk,deb,obj})}
+            >
+              Spara
+            </button>
+            {harBefintlig && <button onClick={onTaBort} style={{ width:"100%",padding:"12px 0",background:"none",border:"none",color:"#ff453a",fontSize:15,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Ta bort extra tid</button>}
+            <button onClick={onAvbryt} style={{ width:"100%",padding:"8px 0",background:"none",border:"none",color:"#8e8e93",fontSize:15,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
+              Avbryt
+            </button>
           </div>
         </div>
+      </main>
 
-        {/* Beskrivning */}
-        <Card>
-          <Label>Vad gjorde du?</Label>
-          <input
-            placeholder="Kommentar"
-            value={besk}
-            onChange={e=>setBesk(e.target.value)}
-            style={{ width:"100%",padding:"12px 14px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.06)",color:"#fff",fontFamily:"inherit" }}
-          />
-        </Card>
-      </div>
-
-      <div style={bottom}>
-        <button
-          style={{ ...btn.primary, opacity:besk&&(!deb||obj)?1:0.35 }}
-          disabled={!besk||(!(!deb||obj))}
-          onClick={()=>onSpara({min,besk,deb,obj})}
-        >
-          Spara
-        </button>
-        {harBefintlig && <button style={btn.danger} onClick={onTaBort}>Ta bort extra tid</button>}
-        <button style={btn.secondary} onClick={onAvbryt}>Avbryt</button>
-      </div>
+      {/* Fade gradient */}
+      <div style={{ position:"fixed",bottom:0,width:"100%",height:96,background:"linear-gradient(to top,#000,transparent)",pointerEvents:"none" }} />
     </div>
   );
 };
