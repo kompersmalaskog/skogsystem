@@ -37,16 +37,17 @@ const C = {
 const T = { fontFamily:'-apple-system,"SF Pro Display","SF Pro Text",sans-serif', color:C.text };
 const shell: CSSProperties  = { minHeight:"100vh", background:C.bg, ...T, display:"flex", flexDirection:"column" as const, padding:"0 20px" };
 const darkShell: CSSProperties = { ...shell, background:C.dark, color:"#fff" };
-const topBar: CSSProperties = { paddingTop:56, paddingBottom:12 };
+const topBar: CSSProperties = { paddingTop:24, paddingBottom:12 };
 const mid: CSSProperties    = { flex:1, display:"flex", flexDirection:"column" as const, justifyContent:"center", alignItems:"center", textAlign:"center" as const };
 const bottom: CSSProperties = { paddingBottom:36, display:"flex", flexDirection:"column" as const, gap:10 };
 
 const btn = {
-  primary:   { width:"100%", padding:"17px 24px", background:C.ink,   color:"#fff", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer" },
-  green:     { width:"100%", padding:"17px 24px", background:C.green, color:"#fff", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer" },
-  secondary: { width:"100%", padding:"17px 24px", background:C.card,  color:C.ink,  border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", boxShadow:"0 1px 3px rgba(0,0,0,0.08)" },
-  ghost:     { width:"100%", padding:"14px 24px", background:"transparent", color:C.blue, border:`1.5px solid ${C.blue}`, borderRadius:14, fontSize:15, fontWeight:600, cursor:"pointer" },
-  danger:    { width:"100%", padding:"17px 24px", background:"transparent", color:C.red, border:`1.5px solid ${C.red}`, borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer" },
+  primary:   { width:"100%", height:56, padding:"0 24px", background:C.ink,   color:"#fff", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer" } as CSSProperties,
+  green:     { width:"100%", height:56, padding:"0 24px", background:C.green, color:"#fff", border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer" } as CSSProperties,
+  secondary: { width:"100%", height:56, padding:"0 24px", background:C.card,  color:C.ink,  border:"none", borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer", boxShadow:"0 1px 3px rgba(0,0,0,0.08)" } as CSSProperties,
+  ghost:     { width:"100%", padding:"14px 24px", background:"transparent", color:C.blue, border:`1.5px solid ${C.blue}`, borderRadius:14, fontSize:15, fontWeight:600, cursor:"pointer" } as CSSProperties,
+  danger:    { width:"100%", padding:"17px 24px", background:"transparent", color:C.red, border:`1.5px solid ${C.red}`, borderRadius:14, fontSize:17, fontWeight:600, cursor:"pointer" } as CSSProperties,
+  textBack:  { width:"100%", height:44, padding:"0", background:"transparent", color:C.label, border:"none", borderRadius:0, fontSize:15, fontWeight:500, cursor:"pointer" } as CSSProperties,
 };
 
 const månadsNamn = (offset = 0) => {
@@ -116,7 +117,7 @@ const BackBtn = ({ onClick, light = false }: { onClick: () => void; light?: bool
 );
 
 const Label = ({ children, style }: { children: ReactNode; style?: CSSProperties }) => (
-  <p style={{ margin:"0 0 8px",fontSize:13,fontWeight:600,color:C.label,textTransform:"uppercase",letterSpacing:"0.6px",...style }}>{children}</p>
+  <p style={{ margin:"0 0 8px",fontSize:13,fontWeight:500,color:C.label,textTransform:"none",letterSpacing:"0",...style }}>{children}</p>
 );
 
 const Card = ({ children, style, onClick }: { children?: ReactNode; onClick?: () => void; style?: CSSProperties }) => (
@@ -556,7 +557,7 @@ export default function Arbetsrapport() {
   const isWorking = !!dagData[idagKey];
   const förnamn = medarbetare?.namn?.split(' ')[0] || '';
 
-  const input = { width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"0 1px 3px rgba(0,0,0,0.08)",fontFamily:"inherit" };
+  const input = { width:"100%",minHeight:52,padding:"14px 16px",fontSize:16,border:"none",borderRadius:12,background:C.card,outline:"none",boxShadow:"0 1px 3px rgba(0,0,0,0.08)",fontFamily:"inherit" };
 
   // === ARBETSDAG TOAST (DOM element) — must be before any early return ===
   useEffect(() => {
@@ -639,18 +640,42 @@ export default function Arbetsrapport() {
         </button>
       </div>
 
-      <div style={{ flex:1,display:"flex",flexDirection:"column",justifyContent:"center" }}>
-        <div style={{ animation:"fadeUp 0.5s ease both" }}>
+      <div style={{ flex:1,overflowY:"auto" }}>
+        <div style={{ animation:"fadeUp 0.5s ease both",marginBottom:24 }}>
           <h1 style={{ fontSize:34,fontWeight:700,letterSpacing:"-0.5px",margin:"0 0 6px" }}>God morgon, {förnamn}</h1>
-          <p style={{ margin:"0 0 32px",fontSize:16,color:C.label }}>Kör försiktigt till jobbet</p>
+          <p style={{ margin:0,fontSize:16,color:C.label }}>Kör försiktigt till jobbet</p>
         </div>
 
-        {/* Notis om löneunderlag — visas när månaden är slut och underlaget ej skickat */}
+        {/* Primärknapp */}
+        <button onClick={()=>setSteg("dag")} style={{ ...btn.primary, marginBottom:16, animation:"fadeUp 0.5s ease 0.05s both" }}>
+          Starta dagrapport →
+        </button>
+
+        {/* Snabbval */}
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:24,animation:"fadeUp 0.5s ease 0.1s both" }}>
+          {[
+            {id:"sjuk",label:"Sjukfrånvaro"},
+            {id:"traktamente",label:"Traktamente"},
+            {id:"semester",label:"Semester"},
+            {id:"meny",label:"Övrigt"},
+          ].map(s=>(
+            <button key={s.id} onClick={()=>{
+              if(s.id==="sjuk"){setDagTyp("sjuk");setSteg("bekräftaFrånvaro");}
+              else if(s.id==="traktamente") setSteg("traktamente");
+              else if(s.id==="semester"){setDagTyp("semester");setSteg("bekräftaFrånvaro");}
+              else setSteg("meny");
+            }} style={{ padding:"14px 12px",background:C.card,border:"none",borderRadius:12,fontSize:14,fontWeight:500,color:C.ink,cursor:"pointer",boxShadow:"0 1px 3px rgba(0,0,0,0.06)" }}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Notis om löneunderlag */}
         {månadsKlar&&!lönSkickat&&(
           <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:`1px solid rgba(255,149,0,0.25)`,borderRadius:14,padding:"16px",marginBottom:16,cursor:"pointer",animation:"fadeUp 0.4s ease" }}>
             <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:6 }}>
               <div style={{ width:8,height:8,borderRadius:"50%",background:C.orange,flexShrink:0 }}/>
-              <p style={{ margin:0,fontSize:13,fontWeight:700,color:C.orange,textTransform:"uppercase",letterSpacing:"0.5px" }}>Månaden är slut</p>
+              <p style={{ margin:0,fontSize:13,fontWeight:500,color:C.orange }}>Månaden är slut</p>
             </div>
             <p style={{ margin:"0 0 10px",fontSize:15,fontWeight:600,color:C.ink }}>Granska och godkänn löneunderlaget för {månadsNamn()}</p>
             <div style={{ display:"flex",alignItems:"center",gap:6 }}>
@@ -660,7 +685,7 @@ export default function Arbetsrapport() {
           </div>
         )}
 
-        <Card style={{ background:C.dark,color:"#fff",animation:"fadeUp 0.5s ease 0.1s both" }}>
+        <Card style={{ background:C.dark,color:"#fff",animation:"fadeUp 0.5s ease 0.15s both" }}>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
             <div>
               <p style={{ margin:"0 0 6px",fontSize:13,color:"rgba(255,255,255,0.4)",fontWeight:500 }}>{dagensObjekt || maskinNamn || 'Aktuellt objekt'}</p>
@@ -674,10 +699,6 @@ export default function Arbetsrapport() {
           <div style={{ width:10,height:10,borderRadius:"50%",background:C.green }}/>
           <span style={{ fontSize:15,color:C.green,fontWeight:500 }}>Körning loggas · {kmM.km} km</span>
         </Card>}
-      </div>
-
-      <div style={bottom}>
-        <p style={{ margin:"0 0 4px",fontSize:13,color:C.label,textAlign:"center" }}>Appen registrerar automatiskt vid inloggning på maskinen</p>
       </div>
     </div>
   );
@@ -717,7 +738,7 @@ export default function Arbetsrapport() {
 
           {/* GPS-avvikelse-kort */}
           <div style={{ background:"rgba(255,149,0,0.08)",borderRadius:16,padding:"18px 20px",marginBottom:20,border:"1px solid rgba(255,149,0,0.2)" }}>
-            <p style={{ margin:"0 0 12px",fontSize:12,fontWeight:700,color:C.orange,textTransform:"uppercase",letterSpacing:"1px" }}>GPS märkte längre rutt</p>
+            <p style={{ margin:"0 0 12px",fontSize:12,fontWeight:700,color:C.orange,textTransform:"none",letterSpacing:"0" }}>GPS märkte längre rutt</p>
             <div style={{ display:"flex",justifyContent:"space-between",marginBottom:8 }}>
               <span style={{ fontSize:15,color:C.label }}>Normalrutt hem → maskin</span>
               <span style={{ fontSize:15,fontWeight:600 }}>{normalKm} km</span>
@@ -1249,7 +1270,7 @@ export default function Arbetsrapport() {
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
           {/* GPS-avvikelse-kort */}
           <div style={{ background:"rgba(255,149,0,0.1)",borderRadius:16,padding:"18px 20px",marginBottom:20,border:"1px solid rgba(255,149,0,0.25)" }}>
-            <p style={{ margin:"0 0 12px",fontSize:12,fontWeight:700,color:C.orange,textTransform:"uppercase",letterSpacing:"1px" }}>GPS märkte längre hemkörning</p>
+            <p style={{ margin:"0 0 12px",fontSize:12,fontWeight:700,color:C.orange,textTransform:"none",letterSpacing:"0" }}>GPS märkte längre hemkörning</p>
             <div style={{ display:"flex",justifyContent:"space-between",marginBottom:8 }}>
               <span style={{ fontSize:15,color:C.darkLabel }}>Normalrutt maskin → hem</span>
               <span style={{ fontSize:15,fontWeight:600 }}>{normalKm} km</span>
@@ -1341,7 +1362,7 @@ export default function Arbetsrapport() {
         {/* Arbetstid */}
         <div onClick={()=>{setTS(start);setTE(slut);setTR(rast);setAnledn("");setSteg("äTid");}}
           style={{ background:ändring?"rgba(255,149,0,0.1)":C.darkCard,borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:`1px solid ${ändring?"rgba(255,149,0,0.3)":"rgba(255,255,255,0.08)"}` }}>
-          <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"uppercase",letterSpacing:"1.5px" }}>Arbetstid</p>
+          <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"none",letterSpacing:"0" }}>Arbetstid</p>
           <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{fmt(arbMin)}</p>
           <p style={{ margin:"6px 0 0",fontSize:14,color:C.darkLabel }}>{start} – {slut} · {rast} min rast</p>
           {ändring&&<p style={{ margin:"8px 0 0",fontSize:13,fontWeight:600,color:C.orange }}>Ändrad</p>}
@@ -1350,7 +1371,7 @@ export default function Arbetsrapport() {
         {/* Körning */}
         <div onClick={()=>{setTMK(kmM?.km||0);setTKK(kmK?.km||0);setAnledn("");setSteg("äKm");}}
           style={{ background:C.darkCard,borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:"1px solid rgba(255,255,255,0.08)" }}>
-          <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"uppercase",letterSpacing:"1.5px" }}>Körning</p>
+          <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"none",letterSpacing:"0" }}>Körning</p>
           {totKm>0?<>
             <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{totKm} km</p>
             {ersKm>0&&<p style={{ margin:"6px 0 0",fontSize:14,fontWeight:600,color:C.green }}>+{ersKm} km · {ersKr.toFixed(0)} kr ersättning</p>}
@@ -1361,7 +1382,7 @@ export default function Arbetsrapport() {
         {extra.length>0?(
           <div onClick={()=>setSteg("extraTid")}
             style={{ background:"rgba(0,122,255,0.12)",borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:"1px solid rgba(0,122,255,0.25)" }}>
-            <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"uppercase",letterSpacing:"1.5px" }}>Extra tid</p>
+            <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"none",letterSpacing:"0" }}>Extra tid</p>
             <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{fmt(totEx)}</p>
             <p style={{ margin:"6px 0 0",fontSize:14,color:C.darkLabel }}>{extra.map(e=>e.besk).join(", ")}</p>
           </div>
@@ -1377,7 +1398,7 @@ export default function Arbetsrapport() {
         {trak?(
           <div onClick={()=>setSteg("traktamente")}
             style={{ background:"rgba(52,199,89,0.1)",borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:"1px solid rgba(52,199,89,0.2)" }}>
-            <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"uppercase",letterSpacing:"1.5px" }}>Traktamente</p>
+            <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"none",letterSpacing:"0" }}>Traktamente</p>
             <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{trak.summa} kr</p>
             <p style={{ margin:"6px 0 0",fontSize:14,color:C.darkLabel }}>Heldag · skattefritt</p>
           </div>
@@ -1390,7 +1411,7 @@ export default function Arbetsrapport() {
 
         {/* Totalt */}
         <div style={{ background:"rgba(52,199,89,0.1)",borderRadius:16,padding:"20px",marginTop:4,border:"1px solid rgba(52,199,89,0.18)" }}>
-          <p style={{ margin:"0 0 6px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"uppercase",letterSpacing:"1.5px" }}>Totalt idag</p>
+          <p style={{ margin:"0 0 6px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"none",letterSpacing:"0" }}>Totalt idag</p>
           <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{fmt(totMin)}</p>
         </div>
       </div>
@@ -1427,7 +1448,7 @@ export default function Arbetsrapport() {
 
               {/* Start */}
               <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:tS!==start?C.orange:C.label,textTransform:"uppercase",letterSpacing:"1px" }}>Start</p>
+                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:tS!==start?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Start</p>
                 {(()=>{ const [h,m]=tS.split(":").map(Number); return (
                   <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
                     <Drum value={h} onChange={v=>setTS(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
@@ -1441,7 +1462,7 @@ export default function Arbetsrapport() {
 
               {/* Slut */}
               <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:tE!==slut?C.orange:C.label,textTransform:"uppercase",letterSpacing:"1px" }}>Slut</p>
+                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:tE!==slut?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Slut</p>
                 {(()=>{ const [h,m]=tE.split(":").map(Number); return (
                   <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
                     <Drum value={h} onChange={v=>setTE(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
@@ -1455,7 +1476,7 @@ export default function Arbetsrapport() {
 
               {/* Rast */}
               <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:tR!==rast?C.orange:C.label,textTransform:"uppercase",letterSpacing:"1px" }}>Rast</p>
+                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:tR!==rast?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Rast</p>
                 {(()=>{ const m=tR%60; return (
                   <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
                     <Drum value={m} onChange={v=>setTR(v)} max={59}/>
@@ -1467,7 +1488,7 @@ export default function Arbetsrapport() {
           </div>
 
           <div style={{ textAlign:"center",padding:"18px 20px",background:ä?"rgba(52,199,89,0.07)":"#f2f2f7",borderRadius:14,marginBottom:16 }}>
-            <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:700,color:C.label,textTransform:"uppercase",letterSpacing:"1px" }}>Total arbetstid</p>
+            <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:700,color:C.label,textTransform:"none",letterSpacing:"0" }}>Total arbetstid</p>
             <p style={{ margin:0,fontSize:48,fontWeight:700,color:ä?C.green:C.ink }}>{fmt(tAm)}</p>
           </div>
 
@@ -1551,7 +1572,7 @@ export default function Arbetsrapport() {
       </div>
       <div style={bottom}>
         <button style={btn.primary} onClick={()=>setSteg("klarFrånvaro")}>Bekräfta</button>
-        <button style={btn.secondary} onClick={()=>setSteg("meny")}>Avbryt</button>
+        <button style={{ ...btn.textBack, marginTop:2 }} onClick={()=>setSteg("meny")}>Ångra och gå tillbaka</button>
       </div>
     </div>
   );
@@ -1651,7 +1672,7 @@ export default function Arbetsrapport() {
 
               {/* Start */}
               <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redStart!==(redDag.start||"06:00")?C.orange:C.label,textTransform:"uppercase",letterSpacing:"1px" }}>Start</p>
+                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redStart!==(redDag.start||"06:00")?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Start</p>
                 {(()=>{ const [h,m]=redStart.split(":").map(Number); return (
                   <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
                     <Drum value={h} onChange={v=>setRedStart(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
@@ -1665,7 +1686,7 @@ export default function Arbetsrapport() {
 
               {/* Slut */}
               <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redSlut!==(redDag.slut||"16:00")?C.orange:C.label,textTransform:"uppercase",letterSpacing:"1px" }}>Slut</p>
+                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redSlut!==(redDag.slut||"16:00")?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Slut</p>
                 {(()=>{ const [h,m]=redSlut.split(":").map(Number); return (
                   <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
                     <Drum value={h} onChange={v=>setRedSlut(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
@@ -1679,7 +1700,7 @@ export default function Arbetsrapport() {
 
               {/* Rast */}
               <div style={{ flex:1,textAlign:"center" }}>
-                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redRast!==(redDag.rast||30)?C.orange:C.label,textTransform:"uppercase",letterSpacing:"1px" }}>Rast</p>
+                <p style={{ margin:"0 0 10px",fontSize:11,fontWeight:700,color:redRast!==(redDag.rast||30)?C.orange:C.label,textTransform:"none",letterSpacing:"0" }}>Rast</p>
                 {(()=>{ const h=Math.floor(redRast/60),m=redRast%60; return (
                   <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:4 }}>
                     <Drum value={m} onChange={v=>setRedRast(h*60+v)} max={59}/>
@@ -1692,7 +1713,7 @@ export default function Arbetsrapport() {
 
           {/* Resultat */}
           <div style={{ textAlign:"center",padding:"18px 20px",background:"rgba(52,199,89,0.07)",borderRadius:14 }}>
-            <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:700,color:C.label,textTransform:"uppercase",letterSpacing:"1px" }}>Arbetstid</p>
+            <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:700,color:C.label,textTransform:"none",letterSpacing:"0" }}>Arbetstid</p>
             <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{fmt(redArbMin)}</p>
           </div>
         </div>
@@ -2023,7 +2044,7 @@ export default function Arbetsrapport() {
 
           {/* Månadssammanfattning */}
           <div style={{ margin:"16px 0 0",background:C.card,borderRadius:16,padding:"18px 20px",boxShadow:"0 1px 4px rgba(0,0,0,0.06)" }}>
-            <p style={{ margin:"0 0 14px",fontSize:13,fontWeight:700,color:C.label,textTransform:"uppercase",letterSpacing:"0.8px" }}>Sammanfattning</p>
+            <p style={{ margin:"0 0 14px",fontSize:13,fontWeight:700,color:C.label,textTransform:"none",letterSpacing:"0" }}>Sammanfattning</p>
             {[
               ["Arbetsdagar",`${arbetsdagar} dagar`],
               ["Mål",`${målH} tim`],
