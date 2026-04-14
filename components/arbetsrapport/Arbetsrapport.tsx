@@ -1951,6 +1951,8 @@ export default function Arbetsrapport() {
       </div>
     );
 
+    const månNamnKort = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+    const redDatumDisplay = (() => { const p = redDag.datum?.split('-'); if(!p||p.length<3) return redDag.datum; return `${parseInt(p[2])} ${månNamnKort[parseInt(p[1])-1]}`; })();
     const sparadRed: {start:string;slut:string;rast:number;km:number;anl:string} | undefined = redDagar[redDag.datum];
 
     if(sparadRed && redVy==="översikt") return (
@@ -1960,7 +1962,7 @@ export default function Arbetsrapport() {
             <BackBtn onClick={()=>setSteg("kalender")}/>
             <div>
               <p style={{ margin:0,fontSize:13,color:C.blue,fontWeight:600 }}>Redigerad</p>
-              <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>{redDag.datum}</h1>
+              <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>{redDatumDisplay}</h1>
             </div>
           </div>
         </div>
@@ -2015,7 +2017,7 @@ export default function Arbetsrapport() {
             <BackBtn onClick={()=>setSteg("kalender")}/>
             <div>
               <p style={{ margin:0,fontSize:13,color:C.label }}>{månadsNamn()}</p>
-              <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>{redDag.datum}</h1>
+              <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>{redDatumDisplay}</h1>
             </div>
           </div>
         </div>
@@ -2230,7 +2232,7 @@ export default function Arbetsrapport() {
                 const isToday=d===nuDat.getDate()&&kalMånad===nuDat.getMonth()&&kalÅr===nuDat.getFullYear();
                 const k=dagKey(d);
                 const klickbar=s==="ok"||s==="saknas";
-                const datum=`${d} ${new Date(kalÅr,kalMånad,1).toLocaleString('sv-SE',{month:'short'})}`;
+                const datum=`${kalÅr}-${String(kalMånad+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
                 const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
                 const helgNamn = rödaDagar[k] || '';
 
