@@ -445,6 +445,8 @@ export default function Arbetsrapport() {
   const [dagensObjekt, setDagensObjekt] = useState<string | null>(null);
   const [valtObjektId, setValtObjektId] = useState<string | null>(null);
   const [visaObjektVäljare, setVisaObjektVäljare] = useState(false);
+  const [redObjektId, setRedObjektId] = useState<string | null>(null);
+  const [visaRedObjektVäljare, setVisaRedObjektVäljare] = useState(false);
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
 
@@ -1941,7 +1943,7 @@ export default function Arbetsrapport() {
   /* ─── REDIGERA HISTORIK ─── */
   if(steg==="redigera"&&redDag){
     const redArbMin = Math.max(0, tim(redStart,redSlut)-redRast);
-    const harÄndrat = redStart!==(redDag.start||"00:00")||redSlut!==(redDag.slut||"00:00")||redRast!==(redDag.rast||0)||redKm!==(redDag.km||0);
+    const harÄndrat = redStart!==(redDag.start||"00:00")||redSlut!==(redDag.slut||"00:00")||redRast!==(redDag.rast||0)||redKm!==(redDag.km||0)||(redObjektId&&redObjektId!==(redDag.objekt_id||null));
 
     if(redVy==="tid") return (
       <div style={shell}><style>{css}</style>
@@ -2027,6 +2029,8 @@ export default function Arbetsrapport() {
 
     const månNamnKort = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
     const redDatumDisplay = (() => { const p = redDag.datum?.split('-'); if(!p||p.length<3) return redDag.datum; return `${parseInt(p[2])} ${månNamnKort[parseInt(p[1])-1]}`; })();
+    const redMånadDisplay = (() => { const p = redDag.datum?.split('-'); if(!p||p.length<2) return ''; const m=parseInt(p[1])-1; const månader=['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december']; return `${månader[m]} ${p[0]}`; })();
+    const tidKort = (t: string|null|undefined) => t ? t.slice(0,5) : '—';
     const sparadRed: {start:string;slut:string;rast:number;km:number;anl:string} | undefined = redDagar[redDag.datum];
 
     if(sparadRed && redVy==="översikt") return (
@@ -2090,7 +2094,7 @@ export default function Arbetsrapport() {
           <div style={{ display:"flex",alignItems:"center",gap:14 }}>
             <BackBtn onClick={()=>setSteg("kalender")}/>
             <div>
-              <p style={{ margin:0,fontSize:13,color:C.label }}>{månadsNamn()}</p>
+              <p style={{ margin:0,fontSize:13,color:C.label }}>{redMånadDisplay}</p>
               <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>{redDatumDisplay}</h1>
             </div>
           </div>
@@ -2132,9 +2136,8 @@ export default function Arbetsrapport() {
               </div>
               {[
                 ["Maskin", redDag.maskin_namn || redDag.maskin_id || "—"],
-                ["Objekt", redDag.objekt_namn ? (redDag.objekt_ägare ? `${redDag.objekt_namn} · ${redDag.objekt_ägare}` : redDag.objekt_namn) : redDag.objekt_id || "—"],
-                ["Start", redDag.start_tid || "—"],
-                ["Slut", redDag.slut_tid || "—"],
+                ["Start", tidKort(redDag.start_tid)],
+                ["Slut", tidKort(redDag.slut_tid)],
                 ["Rast", `${redDag.rast_min || 0} min`],
               ].map(([l,v])=>(
                 <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
@@ -2142,6 +2145,13 @@ export default function Arbetsrapport() {
                   <span style={{ fontSize:16,fontWeight:500 }}>{v}</span>
                 </div>
               ))}
+              <div onClick={()=>setVisaRedObjektVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
+                <span style={{ fontSize:16,color:C.label }}>Objekt</span>
+                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                  <span style={{ fontSize:16,fontWeight:500,color:redObjektId?C.orange:C.ink }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(redDag.objekt_namn||redDag.objekt_id||"—");})()}</span>
+                  <ChevronRight/>
+                </div>
+              </div>
               <div onClick={()=>setRedVy("km")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.extra>0?`1px solid ${C.line}`:"none",cursor:"pointer" }}>
                 <span style={{ fontSize:16,color:C.label }}>Körning</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
@@ -2191,7 +2201,7 @@ export default function Arbetsrapport() {
                     datum: redDag.datum,
                     start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
                     arbetad_min: Math.max(0, tim(redStart,redSlut)-redRast),
-                    km_totalt: redKm, redigerad: true,
+                    km_totalt: redKm, objekt_id: redObjektId || redDag.objekt_id || null, redigerad: true,
                     redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
                   });
                   if(error) throw error;
@@ -2209,6 +2219,29 @@ export default function Arbetsrapport() {
         </div>
           </>);
         })()}
+
+        {/* Objektväljare för redigering */}
+        {visaRedObjektVäljare&&(
+          <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
+            <div style={{ background:"#1c1c1e",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+              <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <h3 style={{ margin:0,fontSize:17,fontWeight:600 }}>Välj objekt</h3>
+                <button onClick={()=>setVisaRedObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+              </div>
+              <div style={{ flex:1,overflowY:"auto",padding:"8px 0" }}>
+                {objektLista.map(o=>(
+                  <button key={o.id} onClick={()=>{setRedObjektId(o.id);setVisaRedObjektVäljare(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 20px",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+                    <div>
+                      <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff" }}>{o.namn}</p>
+                      {o.ägare&&<p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{o.ägare}</p>}
+                    </div>
+                    {redObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#adc6ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -2348,6 +2381,7 @@ export default function Arbetsrapport() {
                       setRedRast(d2?.rast_min||0);
                       setRedKm(d2?.km_totalt||0);
                       setRedAnl("");
+                      setRedObjektId(d2?.objekt_id||null);
                       setRedVy("översikt");
                       setSteg("redigera");
                     } }}
