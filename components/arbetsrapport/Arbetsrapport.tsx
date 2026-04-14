@@ -108,7 +108,16 @@ const fmt = (m) => {
   const h=Math.floor(m/60),min=m%60; 
   if(!h)return`${min} min`; 
   if(!min)return`${h} tim`; 
-  return`${h} tim ${min} min`; 
+  return`${h} tim ${min} min`;
+};
+const hälsning = () => {
+  const h = new Date().getHours();
+  if(h < 5) return "God natt";
+  if(h < 10) return "God morgon";
+  if(h < 12) return "God förmiddag";
+  if(h < 17) return "God eftermiddag";
+  if(h < 22) return "God kväll";
+  return "God natt";
 };
 
 /* ── Sub-komponenter ── */
@@ -434,6 +443,8 @@ export default function Arbetsrapport() {
   const [objektLista, setObjektLista] = useState<any[]>([]);
   const [historik, setHistorik] = useState<any[]>([]);
   const [dagensObjekt, setDagensObjekt] = useState<string | null>(null);
+  const [valtObjektId, setValtObjektId] = useState<string | null>(null);
+  const [visaObjektVäljare, setVisaObjektVäljare] = useState(false);
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
 
@@ -732,7 +743,7 @@ export default function Arbetsrapport() {
 
         {/* Hero */}
         <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
-          <h1 style={{ fontSize:32,fontWeight:700,letterSpacing:"-0.02em",color:"#fff",margin:"0 0 4px" }}>God morgon, {förnamn}</h1>
+          <h1 style={{ fontSize:32,fontWeight:700,letterSpacing:"-0.02em",color:"#fff",margin:"0 0 4px" }}>{hälsning()}, {förnamn}</h1>
           <p style={{ margin:0,fontSize:15,color:"#8e8e93" }}>{datumStr}</p>
         </section>
 
@@ -817,9 +828,45 @@ export default function Arbetsrapport() {
           </div>
           <div>
             <h3 style={secHead}>Plats</h3>
-            <p style={{ margin:0,fontSize:13,fontWeight:500,color:"#fff" }}>{dagensObjekt || dagData[idagKey]?.objekt_namn || 'Inget objekt valt'}</p>
+            {(()=>{
+              const vObj = valtObjektId ? objektLista.find(o=>o.id===valtObjektId) : null;
+              const visatObjekt = dagensObjekt || dagData[idagKey]?.objekt_namn || (vObj?.namn);
+              const visatÄgare = vObj?.ägare || null;
+              if(visatObjekt) return (
+                <div>
+                  <p style={{ margin:0,fontSize:13,fontWeight:500,color:"#fff" }}>{visatObjekt}{visatÄgare ? ` · ${visatÄgare}` : ''}</p>
+                  <button onClick={()=>setVisaObjektVäljare(true)} style={{ background:"none",border:"none",padding:0,marginTop:4,fontSize:12,color:"#8e8e93",cursor:"pointer",fontFamily:"inherit" }}>Ändra objekt</button>
+                </div>
+              );
+              return (
+                <button onClick={()=>setVisaObjektVäljare(true)} style={{ background:"none",border:"none",padding:0,fontSize:13,fontWeight:500,color:"#adc6ff",cursor:"pointer",fontFamily:"inherit" }}>Välj objekt</button>
+              );
+            })()}
           </div>
-        </section>
+        </section>}
+
+        {/* Objektväljare */}
+        {visaObjektVäljare&&(
+          <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
+            <div style={{ background:"#1c1c1e",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+              <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                <h3 style={{ margin:0,fontSize:17,fontWeight:600 }}>Välj objekt</h3>
+                <button onClick={()=>setVisaObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
+              </div>
+              <div style={{ flex:1,overflowY:"auto",padding:"8px 0" }}>
+                {objektLista.map(o=>(
+                  <button key={o.id} onClick={()=>{setValtObjektId(o.id);setVisaObjektVäljare(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 20px",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+                    <div>
+                      <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff" }}>{o.namn}</p>
+                      {o.ägare&&<p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{o.ägare}</p>}
+                    </div>
+                    {valtObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#adc6ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
@@ -853,7 +900,7 @@ export default function Arbetsrapport() {
     return (
       <div style={shell}><style>{css}</style>
         <div style={topBar}>
-          <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>God morgon, {förnamn}</h1>
+          <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>{hälsning()}, {förnamn}</h1>
           <p style={{ margin:0,fontSize:15,color:C.label }}>Du loggade in på maskinen</p>
         </div>
 
@@ -1423,7 +1470,7 @@ export default function Arbetsrapport() {
     return (
       <div style={darkShell}><style>{css}</style>
         <div style={topBar}>
-          <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>God kväll, {förnamn}</h1>
+          <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>{hälsning()}, {förnamn}</h1>
           <p style={{ margin:0,fontSize:15,color:C.darkLabel }}>Du är nästan klar för dagen</p>
         </div>
 
@@ -1543,6 +1590,7 @@ export default function Arbetsrapport() {
             extra_tid_min: totEx,
             km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
             maskin_id: medarbetare.maskin_id,
+            objekt_id: valtObjektId || dagData[idagKey]?.objekt_id || null,
             traktamente: trak, bekraftad: true,
             bekraftad_tid: new Date().toISOString(),
           });
