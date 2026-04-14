@@ -620,6 +620,9 @@ export default function Arbetsrapport() {
   const totEx  = extra.reduce((a,e)=>a+e.min,0);
   const totMin = arbMin+totEx;
   const idagKey = new Date().toISOString().split('T')[0];
+  const igårDate = new Date(); igårDate.setDate(igårDate.getDate()-1);
+  const igårKey = igårDate.toISOString().split('T')[0];
+  const igårObekräftad = dagData[igårKey] && !dagData[igårKey].status?.includes?.('ok') && dagData[igårKey].start_tid && !historik.find(d => d.datum === igårKey && d.bekraftad);
   const isWorking = !!dagData[idagKey];
   const förnamn = medarbetare?.namn?.split(' ')[0] || '';
 
@@ -699,6 +702,21 @@ export default function Arbetsrapport() {
       </header>
 
       <main style={{ paddingTop:96,paddingBottom:128,paddingLeft:24,paddingRight:24,flex:1,width:"100%",boxSizing:"border-box" }}>
+
+        {/* Påminnelse obekräftad dag */}
+        {igårObekräftad&&(
+          <div onClick={()=>{
+            const d=dagData[igårKey];
+            setStart(d.start_tid||"06:00");setSlut(d.slut_tid||"16:00");setRast(d.rast_min||30);
+            setSteg("kväll");
+          }} style={{ background:"rgba(255,159,10,0.06)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",animation:"fadeUp 0.3s ease" }}>
+            <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+              <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>warning</span>
+              <span style={{ fontSize:14,fontWeight:600,color:"#fff" }}>Du glömde bekräfta gårdagen</span>
+            </div>
+            <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>chevron_right</span>
+          </div>
+        )}
 
         {/* Hero */}
         <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
