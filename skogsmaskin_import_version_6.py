@@ -2400,12 +2400,41 @@ def is_file_already_imported(filnamn: str) -> bool:
     except:
         return False
 
+def get_import_time(filnamn: str) -> Optional[float]:
+    """Hämta importerad_tid som UNIX timestamp för en fil. Returnerar None om ej hittad."""
+    try:
+        response = requests.get(
+            f"{SUPABASE_URL}/rest/v1/meta_importerade_filer?filnamn=eq.{filnamn}&status=eq.OK&select=importerad_tid",
+            headers=SUPABASE_HEADERS,
+            timeout=30
+        )
+        if response.status_code == 200:
+            rows = response.json()
+            if rows and rows[0].get('importerad_tid'):
+                from datetime import timezone
+                dt = datetime.fromisoformat(rows[0]['importerad_tid'].replace('Z', '+00:00'))
+                return dt.timestamp()
+        return None
+    except:
+        return None
+
+def delete_meta_entry(filnamn: str):
+    """Ta bort alla meta-poster (OK och FEL) för en fil."""
+    try:
+        requests.delete(
+            f"{SUPABASE_URL}/rest/v1/meta_importerade_filer?filnamn=eq.{filnamn}",
+            headers=SUPABASE_HEADERS,
+            timeout=30
+        )
+    except:
+        pass
+
 def mark_file_imported(filnamn: str, filtyp: str, maskin_id: str, status: str = 'OK', felmeddelande: str = None):
     """Markera fil som importerad. Tar bort gamla FEL-rader vid omimport."""
     try:
-        # Ta bort gamla FEL-rader för denna fil så vi inte får dubletter
+        # Ta bort alla gamla rader (OK + FEL) för denna fil så vi inte får dubletter
         requests.delete(
-            f"{SUPABASE_URL}/rest/v1/meta_importerade_filer?filnamn=eq.{filnamn}&status=eq.FEL",
+            f"{SUPABASE_URL}/rest/v1/meta_importerade_filer?filnamn=eq.{filnamn}",
             headers=SUPABASE_HEADERS,
             timeout=30
         )
@@ -2443,9 +2472,25 @@ def process_file(filepath: str) -> bool:
     
     # Kolla om redan importerad
     if is_file_already_imported(filnamn):
-        logger.info(f"  Redan importerad, hoppar över")
-        return False
-    
+        # Kumulativa filer (MOM/FPR) kan ha uppdaterats sedan import.
+        # Jämför filens mtime med importerad_tid — omimportera om nyare.
+        if ext in ('.mom', '.fpr'):
+            try:
+                file_mtime = os.path.getmtime(filepath)
+                import_time = get_import_time(filnamn)
+                if import_time and file_mtime > import_time + 60:  # 60s marginal
+                    logger.info(f"  Fil uppdaterad sedan import — omimporterar")
+                    delete_meta_entry(filnamn)
+                else:
+                    logger.info(f"  Redan importerad, hoppar över")
+                    return False
+            except:
+                logger.info(f"  Redan importerad, hoppar över")
+                return False
+        else:
+            logger.info(f"  Redan importerad, hoppar över")
+            return False
+
     # Vänta lite så filen hinner skrivas klart
     time.sleep(1)
     
