@@ -118,8 +118,27 @@ const BackBtn = ({ onClick }: { onClick: () => void; light?: boolean }) => (
   </button>
 );
 
+const secHead: CSSProperties = { margin:"0 0 10px",fontSize:11,fontWeight:700,color:"#636366",textTransform:"uppercase",letterSpacing:"0.15em" };
+
+function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => void }) {
+  return (
+    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"12px 16px 24px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"16px 16px 0 0",boxShadow:"0 -4px 20px rgba(0,0,0,0.5)" }}>
+      {[
+        {icon:"today",key:"morgon",label:"Dag"},
+        {icon:"calendar_month",key:"kalender",label:"Kalender"},
+        {icon:"payments",key:"lön",label:"Löneunderlag"},
+        {icon:"settings",key:"inst",label:"Inställningar"},
+      ].map(n=>(
+        <button key={n.key} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#adc6ff":"#8b90a0",background:"none",border:"none",cursor:"pointer",fontFamily:"'Inter',sans-serif",borderRadius:12,height:48,width:64,padding:0 }}>
+          <span className="material-symbols-outlined" style={{ fontSize:22,marginBottom:2,fontVariationSettings:aktiv===n.key?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
+          <span style={{ fontSize:10,fontWeight:aktiv===n.key?600:500 }}>{n.label}</span>
+        </button>
+      ))}
+    </nav>
+  );
+}
 const Label = ({ children, style }: { children: ReactNode; style?: CSSProperties }) => (
-  <p style={{ margin:"0 0 8px",fontSize:13,fontWeight:500,color:C.label,textTransform:"none",letterSpacing:"0",...style }}>{children}</p>
+  <p style={{ ...secHead,...style }}>{children}</p>
 );
 
 const Card = ({ children, style, onClick }: { children?: ReactNode; onClick?: () => void; style?: CSSProperties }) => (
@@ -343,6 +362,7 @@ export default function Arbetsrapport() {
   const [redDagar, setRedDagar] = useState<Record<string, {start:string;slut:string;rast:number;km:number;anl:string}>>({});
   const [lönSkickat, setLönSkickat] = useState(false);
   const [lönVy, setLönVy] = useState<'översikt'|'detaljer'>('översikt');
+  const [sparatToast, setSparatToast] = useState(false);
   const [lönSparar, setLönSparar] = useState(false);
   const [lönFel, setLönFel] = useState("");
   const [månadsKlar, setMånadsKlar] = useState(false);
@@ -624,123 +644,97 @@ export default function Arbetsrapport() {
     />
   );
 
-  /* ─── MORGON ─── */
-  if(steg==="morgon") return (
-    <div style={{ minHeight:"100vh",background:"#000",color:"#e5e2e0",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
-      <style>{css}</style>
-
-      {/* Top bar */}
-      <header style={{ position:"fixed",top:0,width:"100%",height:64,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",zIndex:50,display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",boxSizing:"border-box" }}>
+  /* ─── HEM (morgon/dag/meny unified) ─── */
+  if(steg==="morgon"||steg==="dag"||steg==="meny") return (
+    <div style={shell}><style>{css}</style>
+      <div style={{ ...topBar,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
         <span style={{ fontSize:13,fontWeight:500,letterSpacing:"0.1em",color:"#adc6ff" }}>{datumStr.toUpperCase()}</span>
         <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:22 }}>sync</span>
-      </header>
+      </div>
 
-      {/* Main content */}
-      <main style={{ paddingTop:96,paddingBottom:128,paddingLeft:24,paddingRight:24,flex:1,width:"100%",boxSizing:"border-box" }}>
-
+      <div style={{ flex:1,overflowY:"auto",paddingBottom:100 }}>
         {/* Hero */}
-        <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
-          <h1 style={{ fontSize:32,fontWeight:700,letterSpacing:"-0.02em",color:"#fff",margin:"0 0 4px" }}>God morgon, {förnamn}</h1>
+        <div style={{ marginBottom:28,animation:"fadeUp 0.5s ease both" }}>
+          <h1 style={{ fontSize:32,fontWeight:700,letterSpacing:"-0.02em",margin:"0 0 4px" }}>God morgon, {förnamn}</h1>
           <p style={{ margin:0,fontSize:15,color:"#8e8e93" }}>{datumStr}</p>
-        </section>
+        </div>
 
-        {/* Shift Status */}
-        <section style={{ background:"#20201e",borderRadius:12,padding:24,marginBottom:32,position:"relative",overflow:"hidden",animation:"fadeUp 0.5s ease 0.05s both" }}>
-          <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
-            {isWorking && <div style={{ width:8,height:8,borderRadius:"50%",background:"#adc6ff",boxShadow:"0 0 8px #adc6ff",flexShrink:0 }} />}
-            <h2 style={{ margin:0,color:"#fff",fontWeight:600,fontSize:17 }}>
-              {isWorking ? `Pågående sedan ${dagData[idagKey]?.start_tid?.slice(0,5) || '—'}` : 'Inget pass registrerat'}
-            </h2>
-          </div>
-          <p style={{ fontSize:14,color:"#8e8e93",margin:"0 0 24px",lineHeight:1.6 }}>
-            {isWorking ? 'Avslutas automatiskt vid utloggning från maskinen' : 'Startar automatiskt när maskinen loggar in'}
-          </p>
-          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
-            {!isWorking && (
-              <button onClick={()=>setSteg("dag")} style={{ fontSize:14,fontWeight:500,color:"#adc6ff",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
-                Starta manuellt
+        {isWorking ? (
+          /* ── Aktivt pass ── */
+          <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:24,animation:"fadeUp 0.5s ease 0.05s both" }}>
+            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:16 }}>
+              <div style={{ width:8,height:8,borderRadius:"50%",background:"#adc6ff",boxShadow:"0 0 8px #adc6ff",animation:"pulseDot 2s infinite" }} />
+              <span style={{ ...secHead,margin:0 }}>Aktivt pass</span>
+            </div>
+            <p style={{ margin:"0 0 4px",fontSize:40,fontWeight:700 }}>{dagData[idagKey]?.start_tid?.slice(0,5) || start}</p>
+            <p style={{ margin:"0 0 16px",fontSize:14,color:"#8e8e93" }}>Startat</p>
+            {(maskinNamn||dagensObjekt)&&<div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:20 }}>
+              {maskinNamn&&<div style={{ background:"rgba(255,255,255,0.06)",padding:"6px 12px",borderRadius:20,fontSize:13,color:"#fff" }}>{maskinNamn}</div>}
+              {(dagensObjekt||dagData[idagKey]?.objekt_namn)&&<div style={{ background:"rgba(255,255,255,0.06)",padding:"6px 12px",borderRadius:20,fontSize:13,color:"#fff" }}>{dagensObjekt||dagData[idagKey]?.objekt_namn}</div>}
+            </div>}
+            <button onClick={()=>setSteg("kväll")} style={{ width:"100%",height:50,background:"rgba(255,69,58,0.12)",color:"#ff453a",border:"none",borderRadius:12,fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+              Avsluta pass
+            </button>
+          </section>
+        ) : (
+          /* ── Inget pass ── */
+          <>
+            <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:24,animation:"fadeUp 0.5s ease 0.05s both" }}>
+              <p style={{ margin:"0 0 4px",fontSize:17,fontWeight:600 }}>Inget pass registrerat</p>
+              <p style={{ margin:"0 0 20px",fontSize:14,color:"#8e8e93" }}>Startar automatiskt när maskinen loggar in</p>
+              <button onClick={()=>{setStart(new Date().toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}));setSteg("manuellDag");}} style={btn.primary}>
+                Starta pass
               </button>
-            )}
-            {isWorking && <div />}
-            <span className="material-symbols-outlined" style={{ color:"rgba(194,198,214,0.3)",fontSize:24 }}>precision_manufacturing</span>
-          </div>
-        </section>
+            </section>
+          </>
+        )}
 
         {/* Löneunderlag-notis */}
         {månadsKlar&&!lönSkickat&&(
-          <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:16,marginBottom:24,cursor:"pointer",animation:"fadeUp 0.4s ease" }}>
-            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:6 }}>
-              <div style={{ width:8,height:8,borderRadius:"50%",background:C.orange,flexShrink:0 }} />
-              <p style={{ margin:0,fontSize:13,fontWeight:500,color:C.orange }}>Månaden är slut</p>
-            </div>
-            <p style={{ margin:"0 0 10px",fontSize:15,fontWeight:600,color:"#fff" }}>Granska och godkänn löneunderlaget för {månadsNamn()}</p>
-            <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-              <span style={{ fontSize:14,color:C.orange,fontWeight:500 }}>Öppna löneunderlag</span>
-              <svg width="6" height="10" viewBox="0 0 9 16" fill="none"><path d="M1 1L8 8L1 15" stroke={C.orange} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </div>
+          <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:16,marginBottom:24,cursor:"pointer" }}>
+            <p style={{ margin:"0 0 6px",fontSize:13,fontWeight:500,color:C.orange }}>Månaden är slut</p>
+            <p style={{ margin:"0 0 8px",fontSize:15,fontWeight:600 }}>Granska löneunderlaget för {månadsNamn()}</p>
+            <span style={{ fontSize:14,color:"#adc6ff",fontWeight:500 }}>Öppna →</span>
           </div>
         )}
 
-        {/* Rapportera avvikelse */}
+        {/* Avvikelse-knappar */}
         <section style={{ animation:"fadeUp 0.5s ease 0.1s both" }}>
-          <h3 style={{ fontSize:12,fontWeight:700,letterSpacing:"0.15em",color:"#636366",marginBottom:16,marginLeft:4 }}>Rapportera avvikelse</h3>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+          <h3 style={secHead}>Rapportera avvikelse</h3>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
             {[
               {id:"sjuk",label:"Sjukfrånvaro",icon:"medical_services"},
               {id:"traktamente",label:"Traktamente",icon:"directions_car"},
               {id:"semester",label:"Semester",icon:"wb_sunny"},
-              {id:"meny",label:"Övrigt",icon:"more_horiz"},
+              {id:"övrigt",label:"Övrigt",icon:"more_horiz"},
             ].map(s=>(
               <button key={s.id} onClick={()=>{
                 if(s.id==="sjuk"){setDagTyp("sjuk");setSteg("bekräftaFrånvaro");}
                 else if(s.id==="traktamente") setSteg("traktamente");
                 else if(s.id==="semester"){setDagTyp("semester");setSteg("bekräftaFrånvaro");}
-                else setSteg("meny");
-              }} style={{ height:56,background:"#353533",borderRadius:12,border:"1px solid rgba(255,255,255,0.05)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",transition:"transform 0.15s",fontFamily:"inherit" }}>
-                <span className="material-symbols-outlined" style={{ color:"#c2c6d6",fontSize:20 }}>{s.icon}</span>
-                <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
+                else {setDagTyp("annat");setSteg("manuellDag");}
+              }} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 14px",cursor:"pointer",fontFamily:"inherit" }}>
+                <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
+                <span style={{ color:"#fff",fontWeight:600,fontSize:14 }}>{s.label}</span>
               </button>
             ))}
           </div>
         </section>
 
-        {/* Maskin & objekt metadata */}
-        <section style={{ marginTop:48,paddingTop:32,borderTop:"1px solid rgba(255,255,255,0.05)",animation:"fadeUp 0.5s ease 0.15s both" }}>
-          <div style={{ marginBottom:24,paddingLeft:4 }}>
-            <p style={{ fontSize:11,fontWeight:700,letterSpacing:"0.2em",color:"#636366",marginBottom:12 }}>Maskinstatus</p>
-            <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
-              {maskinNamn || medarbetare?.maskin_id ? <>
-                {maskinNamn && <div style={{ background:"#1c1c1a",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{maskinNamn}</div>}
-                {medarbetare?.maskin_id && <div style={{ background:"#1c1c1a",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{medarbetare.maskin_id}</div>}
-              </> : <p style={{ margin:0,fontSize:13,color:"#636366" }}>Ingen maskin inloggad</p>}
-            </div>
+        {/* Maskin & objekt */}
+        {!isWorking&&<section style={{ marginTop:40,paddingTop:24,borderTop:"1px solid rgba(255,255,255,0.05)" }}>
+          <h3 style={secHead}>Maskinstatus</h3>
+          <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:20 }}>
+            {maskinNamn||medarbetare?.maskin_id ? <>
+              {maskinNamn&&<div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500 }}>{maskinNamn}</div>}
+              {medarbetare?.maskin_id&&<div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500 }}>{medarbetare.maskin_id}</div>}
+            </> : <p style={{ margin:0,fontSize:13,color:"#636366" }}>Ingen maskin inloggad</p>}
           </div>
-          <div style={{ paddingLeft:4 }}>
-            <p style={{ fontSize:11,fontWeight:700,letterSpacing:"0.2em",color:"#636366",marginBottom:8 }}>Plats</p>
-            <p style={{ margin:0,fontSize:13,fontWeight:500,color:"#fff" }}>{dagensObjekt || dagData[idagKey]?.objekt_namn || 'Inget objekt valt'}</p>
-          </div>
-        </section>
-      </main>
-
-      {/* Bottom nav */}
-      <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"0 16px 8px",background:"#000",height:80,borderTop:"1px solid rgba(255,255,255,0.05)",boxSizing:"border-box" }}>
-        {[
-          {icon:"schedule",label:"Dag",action:()=>{},active:true},
-          {icon:"calendar_month",label:"Kalender",action:()=>setSteg("kalender"),active:false},
-          {icon:"description",label:"Löneunderlag",action:()=>setSteg("lön"),active:false},
-          {icon:"settings",label:"Inställningar",action:()=>setSteg("inst"),active:false},
-        ].map(n=>(
-          <button key={n.label} onClick={n.action} style={{
-            display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-            background:n.active?"#27272a":"transparent",color:n.active?"#fff":"#71717a",
-            borderRadius:12,height:56,width:64,border:"none",cursor:"pointer",fontFamily:"inherit",
-            transition:"transform 0.15s",
-          }}>
-            <span className="material-symbols-outlined" style={{ fontSize:22,marginBottom:2 }}>{n.icon}</span>
-            <span style={{ fontSize:11,fontWeight:500,letterSpacing:"-0.01em" }}>{n.label}</span>
-          </button>
-        ))}
-      </nav>
+          <h3 style={secHead}>Plats</h3>
+          <p style={{ margin:0,fontSize:13,fontWeight:500 }}>{dagensObjekt||dagData[idagKey]?.objekt_namn||'Inget objekt valt'}</p>
+        </section>}
+      </div>
+      <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
     </div>
   );
 
@@ -853,75 +847,6 @@ export default function Arbetsrapport() {
       </div>
     );
   }
-
-  /* ─── MENY ─── */
-  if(steg==="meny") return (
-    <div style={shell}>
-      <style>{css}</style>
-      <div style={topBar}>
-        <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <BackBtn onClick={()=>setSteg(isWorking?"dag":"morgon")}/>
-          <div>
-            <p style={{ margin:0,fontSize:13,color:C.label }}>{datumStr}</p>
-            <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>Välj dagtyp</h1>
-          </div>
-        </div>
-      </div>
-      <div style={{ flex:1,overflowY:"auto",paddingTop:16 }}>
-        <Label>Idag</Label>
-        {[
-          {id:"sjuk",label:"Sjukfrånvaro"},
-          {id:"vab",label:"VAB"},
-          {id:"service",label:"Service / Haveri"},
-          {id:"annat",label:"Annat arbete"},
-          {id:"utbildning",label:"Utbildning"},
-        ].map(item=>(
-          <Card key={item.id} onClick={()=>{setDagTyp(item.id);setSteg(item.id==="sjuk"||item.id==="vab"?"bekräftaFrånvaro":"manuellDag");}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-            <span style={{ fontSize:16,fontWeight:500 }}>{item.label}</span>
-            <ChevronRight/>
-          </Card>
-        ))}
-        <Card onClick={()=>setSteg("traktamente")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-          <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:500 }}>Traktamente</p>
-            <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.traktamente_hel_kr ?? 300} kr / dag</p>
-          </div>
-          <ChevronRight/>
-        </Card>
-        <div style={{ marginTop:24 }}><Label>Kalender</Label></div>
-        <Card onClick={()=>setSteg("kalender")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-          <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:500 }}>{månadsNamn()}</p>
-            <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>1 dag saknas · 18 bekräftade</p>
-          </div>
-          <ChevronRight/>
-        </Card>
-        <div style={{ marginTop:24 }}><Label>Löneunderlag</Label></div>
-        <Card onClick={()=>setSteg("lön")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:lönSkickat?"rgba(52,199,89,0.06)":månadsKlar?"rgba(255,149,0,0.08)":C.card,border:lönSkickat?"1px solid rgba(52,199,89,0.2)":månadsKlar?"1px solid rgba(255,149,0,0.25)":"none",animation:månadsKlar&&!lönSkickat?"menuPulse 1.5s ease-in-out infinite":"none" }}>
-          <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:500,color:månadsKlar&&!lönSkickat?C.orange:C.ink }}>{månadsNamn()}</p>
-            <p style={{ margin:"2px 0 0",fontSize:13,color:lönSkickat?C.green:månadsKlar?C.orange:C.label }}>{lönSkickat?"Skickat till chef":månadsKlar?"Väntar på godkännande":"Ej skickat"}</p>
-          </div>
-          <ChevronRight/>
-        </Card>
-        <div style={{ marginTop:24 }}><Label>Övrigt</Label></div>
-        <Card onClick={()=>setSteg("inst")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-          <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:500 }}>Inställningar</p>
-            <p style={{ margin:"2px 0 0",fontSize:13,color:hemadress?C.label:C.orange }}>{hemadress||"Hemadress saknas"}</p>
-          </div>
-          <ChevronRight/>
-        </Card>
-        <Card onClick={()=>setSteg("avtal")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-          <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:500 }}>Mitt avtal</p>
-            <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'GS-avtalet'}</p>
-          </div>
-          <ChevronRight/>
-        </Card>
-      </div>
-    </div>
-  );
 
   /* ─── LÖNEUNDERLAG ─── */
   if(steg==="lön"){
@@ -1042,14 +967,18 @@ export default function Arbetsrapport() {
               <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>chevron_left</span>
               <span style={{ color:"#adc6ff",fontSize:15,fontWeight:500 }}>Löneunderlag</span>
             </button>
-            <h1 style={{ flex:1,margin:"0 12px",fontSize:18,fontWeight:600,color:"#e2e2e2",letterSpacing:"-0.02em",textAlign:"right" }}>Detaljer — {månadsNamn()}</h1>
+            <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8 }}>
+              <span className="material-symbols-outlined" style={{ color:"#adc6ff",cursor:"pointer",fontSize:20 }}>chevron_left</span>
+              <span style={{ fontSize:15,fontWeight:600,color:"#e2e2e2" }}>{månadsNamn()}</span>
+              <span className="material-symbols-outlined" style={{ color:"#adc6ff",cursor:"pointer",fontSize:20 }}>chevron_right</span>
+            </div>
           </header>
 
           <main style={{ paddingTop:80,paddingBottom:128,padding:"80px 16px 128px",maxWidth:640,margin:"0 auto" }}>
 
             {/* Timmar per vecka */}
             <section style={{ marginBottom:32 }}>
-              <h2 style={{ color:"#8b90a0",fontSize:12,fontWeight:500,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:16,marginLeft:4 }}>Timmar per vecka</h2>
+              <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Timmar per vecka</h2>
               <div style={{ display:"flex",flexDirection:"column",gap:16 }}>
                 {sortedWeeks.map(([weekNum, week]) => {
                   const firstDay = week.dagar.sort((a,b)=>a.datum.localeCompare(b.datum))[0];
@@ -1090,7 +1019,7 @@ export default function Arbetsrapport() {
 
             {/* Körning */}
             <section style={{ marginBottom:32 }}>
-              <h2 style={{ color:"#8b90a0",fontSize:12,fontWeight:500,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:16,marginLeft:4 }}>Körning</h2>
+              <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Körning</h2>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
                 <div style={{ gridColumn:"1/-1",background:"#1f1f1f",borderRadius:12,padding:20,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                   <div><p style={{ fontSize:12,color:"#8b90a0",margin:"0 0 4px" }}>Total körning</p><p style={{ fontSize:20,fontWeight:600,margin:0 }}>{totalKm} km</p></div>
@@ -1107,7 +1036,7 @@ export default function Arbetsrapport() {
 
             {/* Objekt och maskin */}
             <section>
-              <h2 style={{ color:"#8b90a0",fontSize:12,fontWeight:500,letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:16,marginLeft:4 }}>Objekt och maskin</h2>
+              <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Objekt och maskin</h2>
               <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
                 {objektEntries.map((o,i) => (
                   <div key={i} style={{ background:"#1f1f1f",borderRadius:12,padding:20,display:"flex",alignItems:"center",gap:16 }}>
@@ -1211,15 +1140,20 @@ export default function Arbetsrapport() {
   }
 
   /* ─── INSTÄLLNINGAR ─── */
-  if(steg==="inst") return (
+  if(steg==="inst") {
+    const autoSave = (field: 'hem'|'bt', val: string) => {
+      if(field==='hem'&&val&&val!==hemadress){setHemadress(val);setSparatToast(true);setTimeout(()=>setSparatToast(false),2000);}
+      if(field==='bt'&&val&&val!==btBil){setBtBil(val);setSparatToast(true);setTimeout(()=>setSparatToast(false),2000);}
+    };
+    return (
     <div style={shell}><style>{css}</style>
       <div style={topBar}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <BackBtn onClick={()=>setSteg("meny")}/>
+          <BackBtn onClick={()=>setSteg("morgon")}/>
           <h1 style={{ margin:0,fontSize:26,fontWeight:700 }}>Inställningar</h1>
         </div>
       </div>
-      <div style={{ flex:1,paddingTop:16 }}>
+      <div style={{ flex:1,paddingTop:16,paddingBottom:100,overflowY:"auto" }}>
         <Label>Hemadress</Label>
         <Card style={{ marginBottom:6 }}>
           <p style={{ margin:"0 0 10px",fontSize:13,color:C.label }}>Används för att beräkna körersättning</p>
@@ -1227,6 +1161,7 @@ export default function Arbetsrapport() {
             value={redigHem||hemadress}
             onChange={e=>setRedigHem(e.target.value)}
             onFocus={()=>{ if(!redigHem) setRedigHem(hemadress); }}
+            onBlur={()=>autoSave('hem',redigHem)}
             style={{ width:"100%",padding:"13px 14px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.06)",color:"#fff",fontFamily:"inherit" }}
           />
         </Card>
@@ -1248,15 +1183,25 @@ export default function Arbetsrapport() {
             value={redigBt||btBil}
             onChange={e=>setRedigBt(e.target.value)}
             onFocus={()=>{ if(!redigBt) setRedigBt(btBil); }}
+            onBlur={()=>autoSave('bt',redigBt)}
             placeholder="T.ex. Min bil"
             style={{ width:"100%",padding:"13px 14px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,outline:"none",background:"rgba(255,255,255,0.06)",color:"#fff",fontFamily:"inherit" }}
           />
         </Card>
-        <div style={{ background:"rgba(52,199,89,0.08)",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8 }}>
+        {btBil&&<div style={{ background:"rgba(52,199,89,0.08)",borderRadius:10,padding:"10px 14px",display:"flex",alignItems:"center",gap:8 }}>
           <div style={{ width:8,height:8,borderRadius:"50%",background:C.green,flexShrink:0 }}/>
           <p style={{ margin:0,fontSize:13,color:C.green,fontWeight:500 }}>{btBil} ansluten</p>
-        </div>
-        <div style={{ marginTop:40, paddingTop:20, borderTop:"1px solid rgba(255,255,255,0.08)" }}>
+        </div>}
+
+        <Card onClick={()=>setSteg("avtal")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:24 }}>
+          <div>
+            <p style={{ margin:0,fontSize:16,fontWeight:500 }}>Mitt avtal</p>
+            <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'GS-avtalet'}</p>
+          </div>
+          <ChevronRight/>
+        </Card>
+
+        <div style={{ marginTop:48, paddingTop:24, borderTop:"1px solid rgba(255,255,255,0.08)" }}>
           <button
             onClick={async ()=>{ await supabase.auth.signOut(); window.location.href='/login'; }}
             style={{ width:"100%",padding:"14px 0",borderRadius:12,border:"none",background:"rgba(255,69,58,0.12)",color:"#ff453a",fontSize:16,fontWeight:600,fontFamily:"inherit",cursor:"pointer" }}
@@ -1265,23 +1210,20 @@ export default function Arbetsrapport() {
           </button>
         </div>
       </div>
-      <div style={bottom}>
-        <button style={{ ...btn.primary,opacity:(redigHem&&redigHem!==hemadress)||(redigBt&&redigBt!==btBil)?1:0.35 }}
-          disabled={!(redigHem&&redigHem!==hemadress)&&!(redigBt&&redigBt!==btBil)}
-          onClick={()=>{ if(redigHem)setHemadress(redigHem); if(redigBt)setBtBil(redigBt); setRedigHem(""); setRedigBt(""); setSteg("meny"); }}>
-          Spara
-        </button>
-        <button style={btn.secondary} onClick={()=>{ setRedigHem(""); setSteg("meny"); }}>Avbryt</button>
-      </div>
+
+      {/* Sparat-toast */}
+      {sparatToast&&<div style={{ position:"fixed",bottom:100,left:"50%",transform:"translateX(-50%)",background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.1)",borderRadius:12,padding:"10px 20px",fontSize:14,fontWeight:500,color:"#fff",animation:"fadeUp 0.3s ease",zIndex:100 }}>Sparat</div>}
+      <BottomNavBar aktiv="inst" onNav={s=>setSteg(s)} />
     </div>
-  );
+  );}
+
 
   /* ─── MITT AVTAL ─── */
   if(steg==="avtal") return (
     <div style={shell}><style>{css}</style>
       <div style={topBar}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <BackBtn onClick={()=>setSteg("meny")}/>
+          <BackBtn onClick={()=>setSteg("morgon")}/>
           <div>
             <h1 style={{ margin:0,fontSize:26,fontWeight:700 }}>Mitt avtal</h1>
             <p style={{ margin:"4px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'GS-avtalet'}</p>
@@ -1317,30 +1259,6 @@ export default function Arbetsrapport() {
   );
 
   /* ─── KALENDER ─── */
-
-  if(steg==="dag") return (
-    <div style={shell}>
-      <style>{css}</style>
-      <div style={{ ...topBar,display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
-        <p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p>
-        <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
-          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M0 6h16M0 11h16" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></svg>
-        </button>
-      </div>
-      <div style={mid}>
-        <div style={{ width:10,height:10,borderRadius:"50%",background:C.green,marginBottom:28,animation:"pulseDot 2s infinite" }}/>
-        <p style={{ fontSize:72,fontWeight:600,margin:0,letterSpacing:"-3px" }}>{start}</p>
-        <p style={{ fontSize:16,color:C.label,margin:"10px 0 28px" }}>Inloggad på maskin</p>
-        <div style={{ background:"rgba(52,199,89,0.1)",borderRadius:12,padding:"12px 24px",marginBottom:24 }}>
-          <p style={{ margin:0,fontSize:15,fontWeight:600,color:C.green }}>{maskinNamn || 'Aktuellt objekt'}</p>
-        </div>
-
-      </div>
-      <div style={bottom}>
-        <p style={{ margin:"0 0 4px",fontSize:13,color:C.label,textAlign:"center" }}>Appen registrerar automatiskt vid utloggning från maskinen</p>
-      </div>
-    </div>
-  );
 
   /* ─── STOPPURS (tid på objekt under dag) ─── */
   if(steg==="stoppurs") return (
@@ -1449,7 +1367,7 @@ export default function Arbetsrapport() {
 
         <div style={bottom}>
           <button
-            style={{ ...btn.green,opacity:(kvAvTyp&&kvAvBesk&&(!kvAvDeb||kvAvObj))?1:0.35,boxShadow:"0 4px 20px rgba(52,199,89,0.3)" }}
+            style={{ ...btn.primary,opacity:(kvAvTyp&&kvAvBesk&&(!kvAvDeb||kvAvObj))?1:0.35 }}
             disabled={!kvAvTyp||!kvAvBesk||(kvAvDeb&&!kvAvObj)}
             onClick={()=>{
               if(kvAvDeb&&kvAvObj) setExtra(e=>[...e,{besk:kvAvBesk,min:60,deb:true,obj:kvAvObj}]);
@@ -1471,7 +1389,7 @@ export default function Arbetsrapport() {
           <p style={{ margin:0,fontSize:15,color:C.darkLabel }}>{ datumStr}</p>
           <h1 style={{ margin:"6px 0 0",fontSize:28,fontWeight:700 }}>God kväll, {förnamn}</h1>
         </div>
-        <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",marginTop:6 }}>
+        <button onClick={()=>setSteg("morgon")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",marginTop:6 }}>
           <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M0 6h16M0 11h16" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></svg>
         </button>
       </div>
@@ -1481,7 +1399,7 @@ export default function Arbetsrapport() {
         {/* Arbetstid */}
         <div onClick={()=>{setTS(start);setTE(slut);setTR(rast);setAnledn("");setSteg("äTid");}}
           style={{ background:ändring?"rgba(255,149,0,0.1)":C.darkCard,borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:`1px solid ${ändring?"rgba(255,149,0,0.3)":"rgba(255,255,255,0.08)"}` }}>
-          <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"none",letterSpacing:"0" }}>Arbetstid</p>
+          <p style={{ margin:"0 0 10px",...secHead }}>Arbetstid</p>
           <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{fmt(arbMin)}</p>
           <p style={{ margin:"6px 0 0",fontSize:14,color:C.darkLabel }}>{start} – {slut} · {rast} min rast</p>
           {ändring&&<p style={{ margin:"8px 0 0",fontSize:13,fontWeight:600,color:C.orange }}>Ändrad</p>}
@@ -1490,7 +1408,7 @@ export default function Arbetsrapport() {
         {/* Körning */}
         <div onClick={()=>{setTMK(kmM?.km||0);setTKK(kmK?.km||0);setAnledn("");setSteg("äKm");}}
           style={{ background:C.darkCard,borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:"1px solid rgba(255,255,255,0.08)" }}>
-          <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"none",letterSpacing:"0" }}>Körning</p>
+          <p style={{ margin:"0 0 10px",...secHead }}>Körning</p>
           {totKm>0?<>
             <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{totKm} km</p>
             {ersKm>0&&<p style={{ margin:"6px 0 0",fontSize:14,fontWeight:600,color:C.green }}>+{ersKm} km · {ersKr.toFixed(0)} kr ersättning</p>}
@@ -1501,7 +1419,7 @@ export default function Arbetsrapport() {
         {extra.length>0?(
           <div onClick={()=>setSteg("extraTid")}
             style={{ background:"rgba(0,122,255,0.12)",borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:"1px solid rgba(0,122,255,0.25)" }}>
-            <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"none",letterSpacing:"0" }}>Extra tid</p>
+            <p style={{ margin:"0 0 10px",...secHead }}>Extra tid</p>
             <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{fmt(totEx)}</p>
             <p style={{ margin:"6px 0 0",fontSize:14,color:C.darkLabel }}>{extra.map(e=>e.besk).join(", ")}</p>
           </div>
@@ -1517,7 +1435,7 @@ export default function Arbetsrapport() {
         {trak?(
           <div onClick={()=>setSteg("traktamente")}
             style={{ background:"rgba(52,199,89,0.1)",borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:"1px solid rgba(52,199,89,0.2)" }}>
-            <p style={{ margin:"0 0 10px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"none",letterSpacing:"0" }}>Traktamente</p>
+            <p style={{ margin:"0 0 10px",...secHead }}>Traktamente</p>
             <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{trak.summa} kr</p>
             <p style={{ margin:"6px 0 0",fontSize:14,color:C.darkLabel }}>Heldag · skattefritt</p>
           </div>
@@ -1530,13 +1448,13 @@ export default function Arbetsrapport() {
 
         {/* Totalt */}
         <div style={{ background:"rgba(52,199,89,0.1)",borderRadius:16,padding:"20px",marginTop:4,border:"1px solid rgba(52,199,89,0.18)" }}>
-          <p style={{ margin:"0 0 6px",fontSize:12,fontWeight:700,color:C.darkLabel,textTransform:"none",letterSpacing:"0" }}>Totalt idag</p>
+          <p style={{ margin:"0 0 6px",...secHead }}>Totalt idag</p>
           <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{fmt(totMin)}</p>
         </div>
       </div>
 
       <div style={bottom}>
-        <button style={{ ...btn.green,boxShadow:"0 4px 20px rgba(52,199,89,0.3)" }} onClick={async ()=>{
+        <button style={{ ...btn.primary }} onClick={async ()=>{
           await supabase.from("arbetsdag").upsert({
             medarbetare_id: medarbetare.id,
             datum: new Date().toISOString().split("T")[0],
@@ -1551,6 +1469,7 @@ export default function Arbetsrapport() {
           Allt stämmer
         </button>
       </div>
+      <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
     </div>
   );
 
@@ -1657,25 +1576,41 @@ export default function Arbetsrapport() {
   }
 
   /* ─── TRAKTAMENTE ─── */
-  if(steg==="traktamente") return (
+  if(steg==="traktamente") {
+    const helKr = gsAvtal?.traktamente_hel_kr ?? 300;
+    const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
+    const backTo = isWorking?"kväll":"morgon";
+    return (
     <div style={shell}><style>{css}</style>
-      <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg(isWorking?"kväll":"meny")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Traktamente</h1></div></div>
-      <div style={mid}>
-        <p style={{ margin:"0 0 4px",fontSize:72,fontWeight:700,letterSpacing:"-3px" }}>{gsAvtal?.traktamente_hel_kr ?? 300}</p>
-        <p style={{ margin:"0 0 6px",fontSize:22,color:C.label,fontWeight:300 }}>kr per dag</p>
-        <p style={{ margin:"0 0 32px",fontSize:14,color:C.label }}>Skattefritt enligt Skatteverket</p>
-        <div style={{ background:"rgba(52,199,89,0.08)",borderRadius:14,padding:"12px 24px" }}>
-          <p style={{ margin:0,fontSize:14,color:C.green,fontWeight:600 }}>Heldagstraktamente</p>
-        </div>
+      <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg(backTo)}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Traktamente</h1></div></div>
+      <div style={{ flex:1,paddingTop:16 }}>
+        <p style={{ margin:"0 0 24px",fontSize:14,color:C.label }}>Skattefritt enligt Skatteverket</p>
+
+        {/* Heldagstraktamente */}
+        <Card onClick={()=>{setTrak({summa:helKr,typ:'hel'});setSteg(backTo);}}
+          style={{ display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:trak?.typ==='hel'?"1px solid rgba(52,199,89,0.3)":"1px solid rgba(255,255,255,0.06)",background:trak?.typ==='hel'?"rgba(52,199,89,0.06)":"#1c1c1e" }}>
+          <div>
+            <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Heldagstraktamente</p>
+            <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>Övernattning, borta hela dagen</p>
+          </div>
+          <p style={{ margin:0,fontSize:20,fontWeight:700 }}>{helKr} kr</p>
+        </Card>
+
+        {/* Halvdagstraktamente */}
+        <Card onClick={()=>{setTrak({summa:halvKr,typ:'halv'});setSteg(backTo);}}
+          style={{ display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:trak?.typ==='halv'?"1px solid rgba(52,199,89,0.3)":"1px solid rgba(255,255,255,0.06)",background:trak?.typ==='halv'?"rgba(52,199,89,0.06)":"#1c1c1e" }}>
+          <div>
+            <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Halvdagstraktamente</p>
+            <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>Borta mer än 6 timmar</p>
+          </div>
+          <p style={{ margin:0,fontSize:20,fontWeight:700 }}>{halvKr} kr</p>
+        </Card>
+
+        {trak&&<button onClick={()=>{setTrak(null);setSteg(backTo);}} style={{ ...btn.textBack,marginTop:16,color:C.red }}>Ta bort traktamente</button>}
       </div>
-      <div style={bottom}>
-        {!trak
-          ?<button style={btn.primary} onClick={()=>{setTrak({summa:gsAvtal?.traktamente_hel_kr ?? 300});setSteg(isWorking?"kväll":"meny");}}>Lägg till</button>
-          :<button style={btn.danger}  onClick={()=>{setTrak(null);      setSteg(isWorking?"kväll":"meny");}}>Ta bort</button>
-        }
-      </div>
+      <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
     </div>
-  );
+  );}
 
   /* ─── FRÅNVARO ─── */
   if(steg==="bekräftaFrånvaro") return (
@@ -1692,7 +1627,7 @@ export default function Arbetsrapport() {
       </div>
       <div style={bottom}>
         <button style={btn.primary} onClick={()=>setSteg("klarFrånvaro")}>Bekräfta</button>
-        <button style={{ ...btn.textBack, marginTop:2 }} onClick={()=>setSteg("meny")}>Ångra och gå tillbaka</button>
+        <button style={{ ...btn.textBack, marginTop:2 }} onClick={()=>setSteg("morgon")}>Ångra och gå tillbaka</button>
       </div>
     </div>
   );
@@ -1715,7 +1650,7 @@ export default function Arbetsrapport() {
     const platsh={service:"Kommentar",utbildning:"Kommentar",annat:"Kommentar"};
     return (
       <div style={shell}><style>{css}</style>
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("meny")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>{titlar[dagTyp]}</h1></div></div>
+        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("morgon")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>{titlar[dagTyp]}</h1></div></div>
         <div style={{ flex:1,paddingTop:20,overflowY:"auto" }}>
           <div style={{ marginBottom:24 }}>
             <Label>Vad gör du?</Label>
@@ -1740,7 +1675,7 @@ export default function Arbetsrapport() {
     <div style={shell}><style>{css}</style>
       <div style={{ ...topBar,display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
         <p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p>
-        <button onClick={()=>setSteg("meny")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
+        <button onClick={()=>setSteg("morgon")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
           <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M0 6h16M0 11h16" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></svg>
         </button>
       </div>
@@ -2072,7 +2007,7 @@ export default function Arbetsrapport() {
       return "tom";
     };
 
-    const dotFärg: Record<string,string> = {ok:"#fff",saknas:"#FF3B30"};
+    const dotFärg: Record<string,string> = {ok:"#fff",saknas:"#ff9f0a"};
 
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
@@ -2177,14 +2112,14 @@ export default function Arbetsrapport() {
 
           {/* Legend */}
           <section style={{ marginTop:32,paddingTop:32,borderTop:"1px solid rgba(255,255,255,0.05)" }}>
-            <h3 style={{ color:"#8b90a0",fontSize:11,fontWeight:700,letterSpacing:"0.15em",marginBottom:24 }}>Statusförklaring</h3>
+            <h3 style={{ ...secHead,marginBottom:24 }}>Statusförklaring</h3>
             <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:12,height:12,borderRadius:"50%",background:"#fff" }} />
                 <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Bekräftad</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:12,height:12,borderRadius:"50%",background:"#FF3B30" }} />
+                <div style={{ width:12,height:12,borderRadius:"50%",background:"#ff9f0a" }} />
                 <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Saknas</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
