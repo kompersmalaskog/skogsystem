@@ -1566,28 +1566,75 @@ export default function Arbetsrapport() {
   /* ─── ÄNDRA KM ─── */
   if(steg==="äKm"){
     const ny=tMK+tKK,ä=tMK!==(kmM?.km||0)||tKK!==(kmK?.km||0);
-    return (
-      <div style={shell}><style>{css}</style>
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("kväll")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Körning</h1></div></div>
-        <div style={{ flex:1,paddingTop:20 }}>
-          <KmPicker value={tMK} onChange={setTMK} label="Morgon"/>
-          <KmPicker value={tKK} onChange={setTKK} label="Kväll"/>
-          <div style={{ textAlign:"center",padding:24,background:"rgba(52,199,89,0.07)",borderRadius:16,marginBottom:24 }}>
-            <Label>Totalt</Label>
-            <p style={{ margin:0,fontSize:48,fontWeight:700,color:C.green }}>{ny} km</p>
-            {ny>frikm&&<p style={{ margin:"8px 0 0",fontSize:15,color:C.green,fontWeight:600 }}>+{ny-frikm} km ger ersättning</p>}
+    const KmDigits = ({value,onChange,label}:{value:number;onChange:(v:number)=>void;label:string}) => {
+      const h=Math.floor(value/100),t=Math.floor((value%100)/10),e=value%10;
+      const Dig = ({v,add}:{v:number;add:number}) => (
+        <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
+          <button onClick={()=>onChange(Math.min(999,value+add))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#636366",fontSize:28,fontFamily:"inherit",lineHeight:1 }}>
+            <span className="material-symbols-outlined" style={{ fontSize:30 }}>expand_less</span>
+          </button>
+          <span style={{ fontSize:36,fontWeight:700,color:"#fff",letterSpacing:"-0.03em",width:32,textAlign:"center" }}>{v}</span>
+          <button onClick={()=>onChange(Math.max(0,value-add))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#636366",fontSize:28,fontFamily:"inherit",lineHeight:1 }}>
+            <span className="material-symbols-outlined" style={{ fontSize:30 }}>expand_more</span>
+          </button>
+        </div>
+      );
+      return (
+        <section style={{ marginBottom:40 }}>
+          <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>{label}</h2>
+          <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"0.5px solid rgba(255,255,255,0.06)" }}>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:32 }}>
+              <Dig v={h} add={100}/><Dig v={t} add={10}/><Dig v={e} add={1}/>
+            </div>
+            <div style={{ marginTop:16,textAlign:"center" }}>
+              <span style={{ ...secHead,margin:0 }}>km</span>
+            </div>
           </div>
-          {ä&&<div style={{ marginBottom:20 }}>
+        </section>
+      );
+    };
+    return (
+      <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column",paddingBottom:160 }}>
+        <style>{css}</style>
+        {/* Header */}
+        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:56 }}>
+          <button onClick={()=>setSteg("kväll")} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
+            <span className="material-symbols-outlined" style={{ color:"#34c759" }}>arrow_back</span>
+          </button>
+          <h1 style={{ flex:1,textAlign:"center",margin:0,fontSize:20,fontWeight:600,color:"#fff",letterSpacing:"-0.02em" }}>Körning</h1>
+          <div style={{ width:24 }}/>
+        </header>
+
+        <main style={{ marginTop:80,padding:"0 20px",flex:1 }}>
+          <KmDigits value={tMK} onChange={setTMK} label="Morgon"/>
+          <KmDigits value={tKK} onChange={setTKK} label="Kväll"/>
+
+          {/* Totalt */}
+          <section>
+            <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Totalt</h2>
+            <div style={{ background:"rgba(52,199,89,0.1)",borderRadius:16,border:"1px solid rgba(52,199,89,0.2)",padding:32,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center" }}>
+              <div style={{ fontSize:44,fontWeight:800,color:"#34c759",letterSpacing:"-0.03em" }}>{ny} km</div>
+              <p style={{ margin:"8px 0 0",fontSize:11,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",color:"rgba(52,199,89,0.6)" }}>Dagens körsträcka</p>
+              {ny>frikm&&<p style={{ margin:"8px 0 0",fontSize:14,color:"#34c759",fontWeight:600 }}>+{ny-frikm} km ger ersättning</p>}
+            </div>
+          </section>
+
+          {ä&&<div style={{ marginTop:24 }}>
             <Label>Anledning <span style={{ color:C.red }}>*</span></Label>
             <input placeholder="Kommentar" value={anledn} onChange={e=>setAnledn(e.target.value)} style={input}/>
           </div>}
-        </div>
-        <div style={bottom}>
-          <button style={{ ...btn.primary,opacity:(ä&&!anledn)?0.35:1 }} disabled={ä&&!anledn}
+        </main>
+
+        {/* Spara — fixed */}
+        <div style={{ position:"fixed",bottom:96,left:0,width:"100%",padding:"0 20px",zIndex:40,boxSizing:"border-box" }}>
+          <button style={{ width:"100%",height:56,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",opacity:(ä&&!anledn)?0.35:1 }}
+            disabled={ä&&!anledn}
             onClick={()=>{if(ä){setKmM({km:tMK});setKmK({km:tKK});}setSteg("kväll");}}>
             {ä?"Spara":"Tillbaka"}
           </button>
         </div>
+
+        <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
       </div>
     );
   }
