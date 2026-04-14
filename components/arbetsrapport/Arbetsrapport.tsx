@@ -2317,9 +2317,6 @@ export default function Arbetsrapport() {
         <div style={{ animation:"scalePop 0.5s ease",marginBottom:32 }}><CheckCircle size={88}/></div>
         <h1 style={{ fontSize:34,fontWeight:700,margin:"0 0 10px",animation:"fadeUp 0.4s ease 0.15s both" }}>Tack, {förnamn}</h1>
         <p style={{ fontSize:18,color:C.label,margin:0,animation:"fadeUp 0.4s ease 0.25s both" }}>Ha en bra kväll</p>
-        <div style={{ marginTop:40,background:"rgba(255,149,0,0.07)",borderRadius:14,padding:"16px 20px",animation:"fadeUp 0.4s ease 0.35s both",border:"1px solid rgba(255,149,0,0.12)" }}>
-          <p style={{ margin:0,fontSize:15,fontWeight:600,color:C.orange }}>Kör försiktigt hem · Skymning</p>
-        </div>
       </div>
       <div style={bottom}></div>
     </div>
