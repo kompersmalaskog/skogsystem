@@ -1386,79 +1386,91 @@ export default function Arbetsrapport() {
 
   /* ─── KVÄLL ─── */
   if(steg==="kväll") return (
-    <div style={darkShell}>
+    <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",paddingBottom:160 }}>
       <style>{css}</style>
-      <div style={{ ...topBar,display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
-        <div>
-          <p style={{ margin:0,fontSize:15,color:C.darkLabel }}>{ datumStr}</p>
-          <h1 style={{ margin:"6px 0 0",fontSize:28,fontWeight:700 }}>God kväll, {förnamn}</h1>
-        </div>
-        <button onClick={()=>setSteg("morgon")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",marginTop:6 }}>
-          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M0 6h16M0 11h16" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></svg>
-        </button>
-      </div>
 
-      <div style={{ flex:1,overflowY:"auto",paddingTop:8,paddingBottom:16 }}>
+      {/* Header */}
+      <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",height:64 }}>
+        <h1 style={{ margin:0,fontSize:20,fontWeight:700,color:"#fff",letterSpacing:"-0.02em" }}>Arbetsrapport</h1>
+      </header>
 
-        {/* Arbetstid */}
-        <div onClick={()=>{setTS(start);setTE(slut);setTR(rast);setAnledn("");setSteg("äTid");}}
-          style={{ background:ändring?"rgba(255,149,0,0.1)":C.darkCard,borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:`1px solid ${ändring?"rgba(255,149,0,0.3)":"rgba(255,255,255,0.08)"}` }}>
-          <p style={{ margin:"0 0 10px",...secHead }}>Arbetstid</p>
-          <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{fmt(arbMin)}</p>
-          <p style={{ margin:"6px 0 0",fontSize:14,color:C.darkLabel }}>{start} – {slut} · {rast} min rast</p>
-          {ändring&&<p style={{ margin:"8px 0 0",fontSize:13,fontWeight:600,color:C.orange }}>Ändrad</p>}
-        </div>
+      <main style={{ paddingTop:96,paddingLeft:24,paddingRight:24,maxWidth:640,margin:"0 auto" }}>
 
-        {/* Körning */}
-        <div onClick={()=>{setTMK(kmM?.km||0);setTKK(kmK?.km||0);setAnledn("");setSteg("äKm");}}
-          style={{ background:C.darkCard,borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:"1px solid rgba(255,255,255,0.08)" }}>
-          <p style={{ margin:"0 0 10px",...secHead }}>Körning</p>
-          {totKm>0?<>
-            <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{totKm} km</p>
-            {ersKm>0&&<p style={{ margin:"6px 0 0",fontSize:14,fontWeight:600,color:C.green }}>+{ersKm} km · {ersKr.toFixed(0)} kr ersättning</p>}
-          </>:<p style={{ margin:0,fontSize:18,color:"rgba(255,255,255,0.3)" }}>Ingen körning</p>}
-        </div>
+        {/* Hero */}
+        <section style={{ marginBottom:40 }}>
+          <p style={{ ...secHead,marginBottom:4 }}>{datumStr}</p>
+          <h2 style={{ margin:0,fontSize:36,fontWeight:800,color:"#fff",letterSpacing:"-0.02em" }}>God kväll, {förnamn}</h2>
+        </section>
 
-        {/* Extra tid */}
-        {extra.length>0?(
-          <div onClick={()=>setSteg("extraTid")}
-            style={{ background:"rgba(0,122,255,0.12)",borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:"1px solid rgba(0,122,255,0.25)" }}>
-            <p style={{ margin:"0 0 10px",...secHead }}>Extra tid</p>
-            <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{fmt(totEx)}</p>
-            <p style={{ margin:"6px 0 0",fontSize:14,color:C.darkLabel }}>{extra.map(e=>e.besk).join(", ")}</p>
+        <div style={{ display:"flex",flexDirection:"column",gap:24 }}>
+
+          {/* Arbetstid */}
+          <div onClick={()=>{setTS(start);setTE(slut);setTR(rast);setAnledn("");setSteg("äTid");}}
+            style={{ background:"#1b1b1b",borderRadius:16,padding:24,cursor:"pointer",boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
+            <p style={{ ...secHead,marginBottom:8 }}>Arbetstid</p>
+            <p style={{ margin:"0 0 4px",fontSize:40,fontWeight:700,color:"#fff",lineHeight:1 }}>{fmt(arbMin)}</p>
+            <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>{start} – {slut} · {rast} min rast</p>
+            {ändring&&<p style={{ margin:"8px 0 0",fontSize:13,fontWeight:600,color:C.orange }}>Ändrad</p>}
           </div>
-        ):(
-          /* Lägg till extra tid — tydlig knapp, inte gömd bakom datum */
-          <button onClick={()=>setSteg("extraTid")}
-            style={{ width:"100%",background:"rgba(255,255,255,0.05)",border:"1.5px dashed rgba(255,255,255,0.15)",borderRadius:16,padding:"16px 20px",marginBottom:10,cursor:"pointer",textAlign:"left",color:"rgba(255,255,255,0.4)",fontSize:15,fontWeight:500 }}>
-            + Lägg till extra tid
-          </button>
-        )}
 
-        {/* Traktamente */}
-        {trak?(
-          <div onClick={()=>setSteg("traktamente")}
-            style={{ background:"rgba(52,199,89,0.1)",borderRadius:16,padding:"18px 20px",marginBottom:10,cursor:"pointer",border:"1px solid rgba(52,199,89,0.2)" }}>
-            <p style={{ margin:"0 0 10px",...secHead }}>Traktamente</p>
-            <p style={{ margin:0,fontSize:36,fontWeight:700 }}>{trak.summa} kr</p>
-            <p style={{ margin:"6px 0 0",fontSize:14,color:C.darkLabel }}>Heldag · skattefritt</p>
+          {/* Körning */}
+          <div onClick={()=>{setTMK(kmM?.km||0);setTKK(kmK?.km||0);setAnledn("");setSteg("äKm");}}
+            style={{ background:"#1b1b1b",borderRadius:16,padding:24,cursor:"pointer",boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
+            <p style={{ ...secHead,marginBottom:8 }}>Körning</p>
+            {totKm>0?<>
+              <p style={{ margin:0,fontSize:40,fontWeight:700,color:"#fff",lineHeight:1 }}>{totKm} km</p>
+              {ersKm>0&&<p style={{ margin:"6px 0 0",fontSize:14,fontWeight:600,color:C.green }}>+{ersKm} km · {ersKr.toFixed(0)} kr ersättning</p>}
+            </>:<p style={{ margin:0,fontSize:18,fontWeight:500,color:"rgba(255,255,255,0.3)" }}>Ingen körning</p>}
           </div>
-        ):(
-          <button onClick={()=>setSteg("traktamente")}
-            style={{ width:"100%",background:"rgba(255,255,255,0.05)",border:"1.5px dashed rgba(255,255,255,0.15)",borderRadius:16,padding:"16px 20px",marginBottom:10,cursor:"pointer",textAlign:"left",color:"rgba(255,255,255,0.4)",fontSize:15,fontWeight:500 }}>
-            + Lägg till traktamente
-          </button>
-        )}
 
-        {/* Totalt */}
-        <div style={{ background:"rgba(52,199,89,0.1)",borderRadius:16,padding:"20px",marginTop:4,border:"1px solid rgba(52,199,89,0.18)" }}>
-          <p style={{ margin:"0 0 6px",...secHead }}>Totalt idag</p>
-          <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{fmt(totMin)}</p>
+          {/* Extra tid + Traktamente buttons */}
+          <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+            {extra.length>0?(
+              <div onClick={()=>setSteg("extraTid")}
+                style={{ background:"#1b1b1b",borderRadius:12,padding:"18px 20px",cursor:"pointer",boxShadow:"inset 0 0 0 1px rgba(255,255,255,0.06)" }}>
+                <p style={{ ...secHead,marginBottom:8 }}>Extra tid</p>
+                <p style={{ margin:0,fontSize:28,fontWeight:700 }}>{fmt(totEx)}</p>
+                <p style={{ margin:"4px 0 0",fontSize:13,color:"#8e8e93" }}>{extra.map(e=>e.besk).join(", ")}</p>
+              </div>
+            ):(
+              <button onClick={()=>setSteg("extraTid")}
+                style={{ width:"100%",height:56,background:"rgba(255,255,255,0.05)",border:"1px dashed rgba(255,255,255,0.15)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer",fontFamily:"inherit",color:"rgba(255,255,255,0.4)",fontWeight:500,fontSize:15 }}>
+                <span className="material-symbols-outlined" style={{ fontSize:18 }}>add</span>
+                Lägg till extra tid
+              </button>
+            )}
+            {trak?(
+              <div onClick={()=>setSteg("traktamente")}
+                style={{ background:"rgba(52,199,89,0.08)",borderRadius:12,padding:"18px 20px",cursor:"pointer",border:"1px solid rgba(52,199,89,0.15)" }}>
+                <p style={{ ...secHead,marginBottom:8,color:C.green }}>Traktamente</p>
+                <p style={{ margin:0,fontSize:28,fontWeight:700 }}>{trak.summa} kr</p>
+                <p style={{ margin:"4px 0 0",fontSize:13,color:"#8e8e93" }}>{trak.typ==='halv'?'Halvdag':'Heldag'} · skattefritt</p>
+              </div>
+            ):(
+              <button onClick={()=>setSteg("traktamente")}
+                style={{ width:"100%",height:56,background:"rgba(255,255,255,0.05)",border:"1px dashed rgba(255,255,255,0.15)",borderRadius:12,display:"flex",alignItems:"center",justifyContent:"center",gap:8,cursor:"pointer",fontFamily:"inherit",color:"rgba(255,255,255,0.4)",fontWeight:500,fontSize:15 }}>
+                <span className="material-symbols-outlined" style={{ fontSize:18 }}>payments</span>
+                Lägg till traktamente
+              </button>
+            )}
+          </div>
+
+          {/* Totalt idag */}
+          <div style={{ background:"rgba(52,199,89,0.1)",borderRadius:16,padding:24,border:"1px solid rgba(52,199,89,0.2)" }}>
+            <p style={{ ...secHead,marginBottom:8,color:"#34c759" }}>Totalt idag</p>
+            <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+              <span style={{ fontSize:40,fontWeight:700,color:"#34c759",lineHeight:1 }}>{fmt(totMin)}</span>
+              <div style={{ width:40,height:40,borderRadius:"50%",background:"#34c759",display:"flex",alignItems:"center",justifyContent:"center" }}>
+                <span className="material-symbols-outlined" style={{ color:"#003911",fontSize:22 }}>done_all</span>
+              </div>
+            </div>
+          </div>
         </div>
-      </div>
+      </main>
 
-      <div style={bottom}>
-        <button style={{ ...btn.primary }} onClick={async ()=>{
+      {/* Allt stämmer — fixed */}
+      <div style={{ position:"fixed",bottom:96,left:0,width:"100%",padding:"0 24px",zIndex:40,boxSizing:"border-box" }}>
+        <button onClick={async ()=>{
           await supabase.from("arbetsdag").upsert({
             medarbetare_id: medarbetare.id,
             datum: new Date().toISOString().split("T")[0],
@@ -1469,10 +1481,11 @@ export default function Arbetsrapport() {
             bekraftad_tid: new Date().toISOString(),
           });
           setSteg("klar");
-        }}>
+        }} style={{ width:"100%",height:56,background:"#34c759",color:"#fff",border:"none",borderRadius:16,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 20px rgba(52,199,89,0.3)" }}>
           Allt stämmer
         </button>
       </div>
+
       <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
     </div>
   );
