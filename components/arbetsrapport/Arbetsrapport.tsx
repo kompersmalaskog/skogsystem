@@ -646,62 +646,61 @@ export default function Arbetsrapport() {
 
   /* ─── HEM (morgon/dag/meny unified) ─── */
   if(steg==="morgon"||steg==="dag"||steg==="meny") return (
-    <div style={shell}><style>{css}</style>
-      <div style={{ ...topBar,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+    <div style={{ minHeight:"100vh",background:"#000",color:"#e5e2e0",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
+      <style>{css}</style>
+
+      {/* Top bar */}
+      <header style={{ position:"fixed",top:0,width:"100%",height:64,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",zIndex:50,display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",boxSizing:"border-box" }}>
         <span style={{ fontSize:13,fontWeight:500,letterSpacing:"0.1em",color:"#adc6ff" }}>{datumStr.toUpperCase()}</span>
         <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:22 }}>sync</span>
-      </div>
+      </header>
 
-      <div style={{ flex:1,overflowY:"auto",paddingBottom:100 }}>
+      <main style={{ paddingTop:96,paddingBottom:128,paddingLeft:24,paddingRight:24,flex:1,width:"100%",boxSizing:"border-box" }}>
+
         {/* Hero */}
-        <div style={{ marginBottom:28,animation:"fadeUp 0.5s ease both" }}>
-          <h1 style={{ fontSize:32,fontWeight:700,letterSpacing:"-0.02em",margin:"0 0 4px" }}>God morgon, {förnamn}</h1>
+        <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
+          <h1 style={{ fontSize:32,fontWeight:700,letterSpacing:"-0.02em",color:"#fff",margin:"0 0 4px" }}>God morgon, {förnamn}</h1>
           <p style={{ margin:0,fontSize:15,color:"#8e8e93" }}>{datumStr}</p>
-        </div>
+        </section>
 
-        {isWorking ? (
-          /* ── Aktivt pass ── */
-          <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:24,animation:"fadeUp 0.5s ease 0.05s both" }}>
-            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:16 }}>
-              <div style={{ width:8,height:8,borderRadius:"50%",background:"#adc6ff",boxShadow:"0 0 8px #adc6ff",animation:"pulseDot 2s infinite" }} />
-              <span style={{ ...secHead,margin:0 }}>Aktivt pass</span>
-            </div>
-            <p style={{ margin:"0 0 4px",fontSize:40,fontWeight:700 }}>{dagData[idagKey]?.start_tid?.slice(0,5) || start}</p>
-            <p style={{ margin:"0 0 16px",fontSize:14,color:"#8e8e93" }}>Startat</p>
-            {(maskinNamn||dagensObjekt)&&<div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:20 }}>
-              {maskinNamn&&<div style={{ background:"rgba(255,255,255,0.06)",padding:"6px 12px",borderRadius:20,fontSize:13,color:"#fff" }}>{maskinNamn}</div>}
-              {(dagensObjekt||dagData[idagKey]?.objekt_namn)&&<div style={{ background:"rgba(255,255,255,0.06)",padding:"6px 12px",borderRadius:20,fontSize:13,color:"#fff" }}>{dagensObjekt||dagData[idagKey]?.objekt_namn}</div>}
-            </div>}
-            <button onClick={()=>setSteg("kväll")} style={{ width:"100%",height:50,background:"rgba(255,69,58,0.12)",color:"#ff453a",border:"none",borderRadius:12,fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-              Avsluta pass
-            </button>
-          </section>
-        ) : (
-          /* ── Inget pass ── */
-          <>
-            <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:24,animation:"fadeUp 0.5s ease 0.05s both" }}>
-              <p style={{ margin:"0 0 4px",fontSize:17,fontWeight:600 }}>Inget pass registrerat</p>
-              <p style={{ margin:"0 0 20px",fontSize:14,color:"#8e8e93" }}>Startar automatiskt när maskinen loggar in</p>
-              <button onClick={()=>{setStart(new Date().toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}));setSteg("manuellDag");}} style={btn.primary}>
-                Starta pass
+        {/* Shift Status Card */}
+        <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:32,position:"relative",overflow:"hidden",animation:"fadeUp 0.5s ease 0.05s both" }}>
+          <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
+            {isWorking && <div style={{ width:8,height:8,borderRadius:"50%",background:"#adc6ff",boxShadow:"0 0 8px #adc6ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />}
+            <h2 style={{ margin:0,color:"#fff",fontWeight:600,fontSize:17 }}>
+              {isWorking ? `Pågående sedan ${dagData[idagKey]?.start_tid?.slice(0,5) || '—'}` : 'Inget pass registrerat'}
+            </h2>
+          </div>
+          <p style={{ fontSize:14,color:"#8e8e93",margin:"0 0 24px",lineHeight:1.6 }}>
+            {isWorking ? 'Avslutas automatiskt vid utloggning från maskinen' : 'Startar automatiskt när maskinen loggar in'}
+          </p>
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+            {isWorking ? (
+              <button onClick={()=>setSteg("kväll")} style={{ fontSize:14,fontWeight:500,color:"#ff453a",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
+                Avsluta pass
               </button>
-            </section>
-          </>
-        )}
+            ) : (
+              <button onClick={()=>{setStart(new Date().toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}));setSteg("manuellDag");}} style={{ fontSize:14,fontWeight:500,color:"#adc6ff",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
+                Starta manuellt
+              </button>
+            )}
+            <span className="material-symbols-outlined" style={{ color:"rgba(194,198,214,0.3)",fontSize:24 }}>precision_manufacturing</span>
+          </div>
+        </section>
 
         {/* Löneunderlag-notis */}
         {månadsKlar&&!lönSkickat&&(
-          <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:16,marginBottom:24,cursor:"pointer" }}>
+          <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:16,marginBottom:24,cursor:"pointer",animation:"fadeUp 0.4s ease" }}>
             <p style={{ margin:"0 0 6px",fontSize:13,fontWeight:500,color:C.orange }}>Månaden är slut</p>
-            <p style={{ margin:"0 0 8px",fontSize:15,fontWeight:600 }}>Granska löneunderlaget för {månadsNamn()}</p>
+            <p style={{ margin:"0 0 8px",fontSize:15,fontWeight:600,color:"#fff" }}>Granska löneunderlaget för {månadsNamn()}</p>
             <span style={{ fontSize:14,color:"#adc6ff",fontWeight:500 }}>Öppna →</span>
           </div>
         )}
 
-        {/* Avvikelse-knappar */}
+        {/* Rapportera avvikelse */}
         <section style={{ animation:"fadeUp 0.5s ease 0.1s both" }}>
           <h3 style={secHead}>Rapportera avvikelse</h3>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
+          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
             {[
               {id:"sjuk",label:"Sjukfrånvaro",icon:"medical_services"},
               {id:"traktamente",label:"Traktamente",icon:"directions_car"},
@@ -713,27 +712,32 @@ export default function Arbetsrapport() {
                 else if(s.id==="traktamente") setSteg("traktamente");
                 else if(s.id==="semester"){setDagTyp("semester");setSteg("bekräftaFrånvaro");}
                 else {setDagTyp("annat");setSteg("manuellDag");}
-              }} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 14px",cursor:"pointer",fontFamily:"inherit" }}>
+              }} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
                 <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
-                <span style={{ color:"#fff",fontWeight:600,fontSize:14 }}>{s.label}</span>
+                <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
               </button>
             ))}
           </div>
         </section>
 
-        {/* Maskin & objekt */}
-        {!isWorking&&<section style={{ marginTop:40,paddingTop:24,borderTop:"1px solid rgba(255,255,255,0.05)" }}>
-          <h3 style={secHead}>Maskinstatus</h3>
-          <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginBottom:20 }}>
-            {maskinNamn||medarbetare?.maskin_id ? <>
-              {maskinNamn&&<div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500 }}>{maskinNamn}</div>}
-              {medarbetare?.maskin_id&&<div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500 }}>{medarbetare.maskin_id}</div>}
-            </> : <p style={{ margin:0,fontSize:13,color:"#636366" }}>Ingen maskin inloggad</p>}
+        {/* Maskin & objekt metadata */}
+        <section style={{ marginTop:48,paddingTop:32,borderTop:"1px solid rgba(255,255,255,0.05)",animation:"fadeUp 0.5s ease 0.15s both" }}>
+          <div style={{ marginBottom:24 }}>
+            <h3 style={secHead}>Maskinstatus</h3>
+            <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
+              {maskinNamn || medarbetare?.maskin_id ? <>
+                {maskinNamn && <div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{maskinNamn}</div>}
+                {medarbetare?.maskin_id && <div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{medarbetare.maskin_id}</div>}
+              </> : <p style={{ margin:0,fontSize:13,color:"#636366" }}>Ingen maskin inloggad</p>}
+            </div>
           </div>
-          <h3 style={secHead}>Plats</h3>
-          <p style={{ margin:0,fontSize:13,fontWeight:500 }}>{dagensObjekt||dagData[idagKey]?.objekt_namn||'Inget objekt valt'}</p>
-        </section>}
-      </div>
+          <div>
+            <h3 style={secHead}>Plats</h3>
+            <p style={{ margin:0,fontSize:13,fontWeight:500,color:"#fff" }}>{dagensObjekt || dagData[idagKey]?.objekt_namn || 'Inget objekt valt'}</p>
+          </div>
+        </section>
+      </main>
+
       <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
     </div>
   );
