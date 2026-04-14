@@ -402,6 +402,7 @@ export default function Arbetsrapport() {
   const [lönSkickat, setLönSkickat] = useState(false);
   const [lönVy, setLönVy] = useState<'översikt'|'detaljer'>('översikt');
   const [sparatToast, setSparatToast] = useState(false);
+  const [extraTidData, setExtraTidData] = useState<any[]>([]);
   const [lönSparar, setLönSparar] = useState(false);
   const [lönFel, setLönFel] = useState("");
   const [månadsKlar, setMånadsKlar] = useState(false);
@@ -456,8 +457,11 @@ export default function Arbetsrapport() {
             .then(r => { if(r.data?.namn) setMaskinNamn(r.data.namn); });
         }
         // Fetch historik for this medarbetare
-        supabase.from("arbetsdag").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(10)
+        supabase.from("arbetsdag").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(60)
           .then(res => { if(res.data) setHistorik(res.data); });
+        // Fetch extra_tid for löneunderlag
+        supabase.from("extra_tid").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(60)
+          .then(res => { if(res.data) setExtraTidData(res.data); });
       }
       if(avt.data) setGsAvtal(avt.data);
       if(obj.data) setObjektLista(obj.data.map(o => ({id:o.objekt_id, namn:o.object_name||o.objekt_id, ägare:o.skogsagare||''})));
@@ -904,10 +908,16 @@ export default function Arbetsrapport() {
     const lönePeriod = `${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,"0")}`;
     const månadsHistorik = historik.filter(d => d.datum && d.datum.startsWith(lönePeriod));
 
-    // Beräkna från faktiska dagar i filtrerad historik
+    // Extra tid filtrerad på månad
+    const månadsExtraTid = extraTidData.filter(e => e.datum && e.datum.startsWith(lönePeriod));
+    const extraTidMin = månadsExtraTid.reduce((a,e) => a + (e.minuter || 0), 0);
+    const debiterbarExtraTid = månadsExtraTid.filter(e => e.debiterbar);
+
+    // Beräkna från faktiska dagar i filtrerad historik + extra tid
     const arbetsdagar = månadsHistorik.length || 21;
-    const jobbadMin2 = månadsHistorik.reduce((a,d) => a + (d.arbetad_min || 0), 0);
-    const jobbadH = månadsHistorik.length > 0 ? Math.round(jobbadMin2/60*10)/10 : 0;
+    const jobbadMin2 = månadsHistorik.reduce((a,d) => a + (d.arbetad_min || 0), 0) + extraTidMin;
+    const extraTidH = Math.round(extraTidMin/60*10)/10;
+    const jobbadH = månadsHistorik.length > 0 || extraTidMin > 0 ? Math.round(jobbadMin2/60*10)/10 : 0;
     const målH = arbetsdagar * 8;
     const övH = Math.max(0, jobbadH - målH);
     const övKr = Math.round(övH * timlon * otFaktor);
@@ -1095,6 +1105,34 @@ export default function Arbetsrapport() {
                 {objektEntries.length===0&&<p style={{ color:"#8b90a0",fontSize:14,padding:20 }}>Inga objekt denna period</p>}
               </div>
             </section>
+
+            {/* Debiterbar tid */}
+            {debiterbarExtraTid.length>0&&(
+              <section style={{ marginBottom:32 }}>
+                <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Debiterbar tid</h2>
+                <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
+                  {debiterbarExtraTid.map((e,i) => {
+                    const objNamn = e.objekt_id ? (objektLista.find(o=>o.id===e.objekt_id)?.namn || e.objekt_id) : '–';
+                    const h = Math.floor((e.minuter||0)/60), m = (e.minuter||0)%60;
+                    const tidStr = h > 0 ? `${h} tim ${m > 0 ? m + ' min' : ''}` : `${m} min`;
+                    return (
+                      <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",alignItems:"flex-start",gap:16 }}>
+                        <div style={{ width:40,height:40,borderRadius:"50%",background:"rgba(255,149,0,0.15)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                          <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>receipt_long</span>
+                        </div>
+                        <div style={{ flex:1,minWidth:0 }}>
+                          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4 }}>
+                            <p style={{ margin:0,fontSize:14,fontWeight:600 }}>{objNamn}</p>
+                            <span style={{ fontSize:14,fontWeight:600,flexShrink:0,marginLeft:8 }}>{tidStr}</span>
+                          </div>
+                          <p style={{ margin:0,fontSize:12,color:"#8b90a0" }}>{e.datum}{e.kommentar ? ` · ${e.kommentar}` : ''}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
           </main>
           {bottomNav}
         </div>
@@ -1137,6 +1175,7 @@ export default function Arbetsrapport() {
                 ["Jobbat",`${jobbadH} tim`],
                 ["Mål",`${målH} tim`],
                 ...(övH > 0 ? [["Övertid",`${övH} tim`]] : []),
+                ...(extraTidH > 0 ? [["Extra tid",`${extraTidH} tim`]] : []),
                 ["Traktamente",`${trakDagar} dagar`],
                 ["Körersättning",`${löneErsKr} kr`],
               ].map(([l,v])=>(
@@ -1514,6 +1553,8 @@ export default function Arbetsrapport() {
             medarbetare_id: medarbetare.id,
             datum: new Date().toISOString().split("T")[0],
             start_tid: start, slut_tid: slut, rast_min: rast,
+            arbetad_min: arbMin + totEx,
+            extra_tid_min: totEx,
             km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
             maskin_id: medarbetare.maskin_id,
             traktamente: trak, bekraftad: true,
