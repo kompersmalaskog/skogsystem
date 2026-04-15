@@ -659,6 +659,38 @@ export default function Arbetsrapport() {
   const isWorking = !!dagData[idagKey];
   const förnamn = medarbetare?.namn?.split(' ')[0] || '';
 
+  // Vila-beräkningar för startsidan
+  const vilaVarningar: {typ:'röd'|'orange';text:string}[] = [];
+  const tidigastStart = (() => {
+    // Kolla dygnsvila: senaste arbetsdag med slut_tid
+    const senaste = [...årsData].filter(r=>r.slut_tid).sort((a,b)=>b.datum.localeCompare(a.datum))[0];
+    if(!senaste) return null;
+    const slutDt = new Date(`${senaste.datum}T${senaste.slut_tid}`);
+    const nuDt = new Date();
+    const vilaTim = (nuDt.getTime()-slutDt.getTime())/3600000;
+    if(vilaTim<11) vilaVarningar.push({typ:'röd',text:`Du har bara vilat ${Math.round(vilaTim*10)/10}h sedan igår — dygnsviolan kräver 11h`});
+    else if(vilaTim<12) vilaVarningar.push({typ:'orange',text:`Kort dygnsvila: ${Math.round(vilaTim*10)/10}h sedan igår`});
+    // Beräkna tidigast start imorgon
+    const tidigast = new Date(slutDt.getTime()+11*3600000);
+    return `${String(tidigast.getHours()).padStart(2,'0')}:${String(tidigast.getMinutes()).padStart(2,'0')}`;
+  })();
+  // Veckovila: kolla senaste 7 dagarna
+  (() => {
+    const nu2 = new Date();
+    const senaste7: boolean[] = [];
+    for(let i=0;i<7;i++){
+      const d=new Date(nu2); d.setDate(nu2.getDate()-i);
+      const k=d.toISOString().split('T')[0];
+      senaste7.push(!!årsData.find(r=>r.datum===k&&r.start_tid));
+    }
+    let maxLedigt=0,led=0;
+    for(const jobbat of senaste7){
+      if(!jobbat) led++; else led=0;
+      maxLedigt=Math.max(maxLedigt,led);
+    }
+    if(maxLedigt<2) vilaVarningar.push({typ:'orange',text:'Du saknar veckovila — 36h krävs per 7 dagar'});
+  })();
+
   const input = { width:"100%",minHeight:52,padding:"14px 16px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,background:"rgba(255,255,255,0.06)",outline:"none",fontFamily:"inherit",color:"#fff" };
 
   // === ARBETSDAG TOAST (DOM element) — must be before any early return ===
@@ -750,6 +782,14 @@ export default function Arbetsrapport() {
             <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>chevron_right</span>
           </div>
         )}
+
+        {/* Vila-varningar */}
+        {vilaVarningar.map((v,i)=>(
+          <div key={i} style={{ background:v.typ==='röd'?"rgba(255,69,58,0.08)":"rgba(255,159,10,0.08)",border:`1px solid ${v.typ==='röd'?"rgba(255,69,58,0.25)":"rgba(255,159,10,0.25)"}`,borderRadius:12,padding:"14px 16px",marginBottom:12,display:"flex",alignItems:"center",gap:10 }}>
+            <span className="material-symbols-outlined" style={{ color:v.typ==='röd'?"#ff453a":"#ff9f0a",fontSize:20 }}>warning</span>
+            <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>{v.text}</span>
+          </div>
+        ))}
 
         {/* Hero */}
         <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
@@ -1186,6 +1226,76 @@ export default function Arbetsrapport() {
                 <div style={{ height:"100%",width:`${Math.min(100,årsÖvH/250*100)}%`,background:årsBarFärg,borderRadius:2,transition:"width 0.5s" }} />
               </div>
               <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>{årsKvar} tim kvar</p>
+            </div>
+          </section>
+
+          {/* Dygnsvila senaste 7 dagar */}
+          <section style={{ marginBottom:32 }}>
+            <h3 style={secHead}>Dygnsvila senaste 7 dagar</h3>
+            <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+              {(()=>{
+                const sortDagar=[...årsData].filter(r=>r.slut_tid).sort((a,b)=>b.datum.localeCompare(a.datum)).slice(0,7);
+                if(sortDagar.length<2) return <p style={{ padding:"14px 0",margin:0,fontSize:14,color:"#8e8e93" }}>Inte tillräckligt med data</p>;
+                const rader: {datum:string;vila:number}[] = [];
+                for(let i=0;i<sortDagar.length-1;i++){
+                  const d1=sortDagar[i], d2=sortDagar[i+1];
+                  const slut2=new Date(`${d2.datum}T${d2.slut_tid}`);
+                  const start1=d1.start_tid?new Date(`${d1.datum}T${d1.start_tid}`):null;
+                  if(!start1) continue;
+                  const vila=(start1.getTime()-slut2.getTime())/3600000;
+                  if(vila>0) rader.push({datum:d1.datum,vila:Math.round(vila*10)/10});
+                }
+                return rader.map((r,i)=>{
+                  const ok=r.vila>=11;
+                  const d=new Date(r.datum);
+                  const label=`${dagNamn[d.getDay()].slice(0,3)} ${d.getDate()} ${månNamn2[d.getMonth()]}`;
+                  return (
+                    <div key={i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:i<rader.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
+                      <span style={{ fontSize:14,color:"#8e8e93",textTransform:"capitalize" }}>{label}</span>
+                      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                        <span style={{ fontSize:14,fontWeight:600,color:ok?"#fff":"#ff453a" }}>{r.vila}h</span>
+                        <span style={{ fontSize:12,color:ok?"#34c759":"#ff453a" }}>{ok?"✓":"⚠"}</span>
+                      </div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+          </section>
+
+          {/* Veckovila */}
+          <section style={{ marginBottom:32 }}>
+            <h3 style={secHead}>Veckovila</h3>
+            <div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+              {(()=>{
+                // Hitta längsta sammanhängande ledighet i timmar senaste 7 dagarna
+                const nu3=new Date();
+                let maxVilaH=0;
+                const senaste: {datum:string;start:string|null;slut:string|null}[] = [];
+                for(let i=0;i<7;i++){
+                  const d=new Date(nu3); d.setDate(nu3.getDate()-i);
+                  const k=d.toISOString().split('T')[0];
+                  const ad=årsData.find(r=>r.datum===k);
+                  senaste.push({datum:k,start:ad?.start_tid||null,slut:ad?.slut_tid||null});
+                }
+                // Enkel beräkning: räkna dagar utan jobb × 24, plus luckor mellan dagar
+                let ledH=0;
+                for(const d of senaste.reverse()){
+                  if(!d.start) ledH+=24;
+                  else { maxVilaH=Math.max(maxVilaH,ledH); ledH=0; }
+                }
+                maxVilaH=Math.max(maxVilaH,ledH);
+                const ok=maxVilaH>=36;
+                return (
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                    <span style={{ fontSize:14,color:"#8e8e93" }}>Längsta sammanhängande</span>
+                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                      <span style={{ fontSize:14,fontWeight:600,color:ok?"#fff":"#ff453a" }}>{Math.round(maxVilaH)}h</span>
+                      <span style={{ fontSize:12,color:ok?"#34c759":"#ff453a" }}>{ok?"✓":"⚠"}</span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </section>
 
@@ -1818,6 +1928,18 @@ export default function Arbetsrapport() {
         }} style={{ width:"100%",height:60,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:19,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:32 }}>
           Bekräfta
         </button>
+
+        {/* Tidigast start imorgon */}
+        {slut&&(()=>{
+          const [sh,sm]=(slut as string).split(':').map(Number);
+          const tidigast=new Date(nu.getFullYear(),nu.getMonth(),nu.getDate(),sh,sm);
+          tidigast.setHours(tidigast.getHours()+11);
+          const tid=`${String(tidigast.getHours()).padStart(2,'0')}:${String(tidigast.getMinutes()).padStart(2,'0')}`;
+          if(tidigast.getHours()>=5&&tidigast.getHours()<=9) return (
+            <p style={{ margin:"16px 0 0",fontSize:13,color:"#8e8e93",textAlign:"center" }}>Du kan starta maskinen tidigast kl {tid} imorgon för att hålla dygnsviolan</p>
+          );
+          return null;
+        })()}
 
         {/* Länkrader */}
         <div style={{ display:"flex",flexDirection:"column",marginTop:24 }}>
