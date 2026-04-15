@@ -1481,8 +1481,8 @@ export default function Arbetsrapport() {
               vvKeys=vvKeys.filter(k=>k>=vStart&&k<=vSlut);
             }
 
-            const vvData=vvKeys.map(k=>({veckoNr:k,...vvMap.get(k)!}));
-            const vvHarProblem=vvData.some(v=>v.h<36);
+            const vvData=vvKeys.map(k=>({veckoNr:k,pågår:k===veckoNrNu,...vvMap.get(k)!}));
+            const vvHarProblem=vvData.some(v=>!v.pågår&&v.h<36);
 
             // Export
             const exportPDF = () => {
@@ -1609,9 +1609,14 @@ export default function Arbetsrapport() {
               ):(
                 <div>
                   {vvData.map((v,i)=>{
-                    const ok=v.h>=36;
                     const fVH2=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};
                     const fDv=(d:string)=>{const dt=new Date(d);return `${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`;};
+                    if(v.pågår) return (
+                      <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:"1px solid rgba(255,255,255,0.06)" }}>
+                        <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>Vecka {v.veckoNr} — pågår</p>
+                      </div>
+                    );
+                    const ok=v.h>=36;
                     return (
                     <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:`1px solid ${ok?"rgba(255,255,255,0.06)":"rgba(255,69,58,0.2)"}` }}>
                       <p style={{ margin:"0 0 4px",fontSize:13,fontWeight:600,color:"#8e8e93" }}>Vecka {v.veckoNr}</p>
