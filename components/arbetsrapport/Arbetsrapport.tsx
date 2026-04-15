@@ -669,7 +669,7 @@ export default function Arbetsrapport() {
     // Kolla dygnsvila: senaste arbetsdag med slut_tid
     const senaste = [...årsData].filter(r=>r.slut_tid).sort((a,b)=>b.datum.localeCompare(a.datum))[0];
     if(!senaste) return null;
-    const slutDt = new Date(`${senaste.datum}T${senaste.slut_tid}`);
+    const slutDt = new Date(`${senaste.datum}T${senaste.slut_tid.slice(0,5)}`);
     const nuDt = new Date();
     const vilaTim = (nuDt.getTime()-slutDt.getTime())/3600000;
     if(vilaTim<11) vilaVarningar.push({typ:'röd',text:`Du har bara vilat ${Math.round(vilaTim*10)/10}h sedan igår — dygnsviolan kräver 11h`});
@@ -1125,8 +1125,10 @@ export default function Arbetsrapport() {
     const sorterad = [...årsData].filter(r=>r.slut_tid&&r.start_tid).sort((a,b)=>a.datum.localeCompare(b.datum));
     for(let i=0;i<sorterad.length-1;i++){
       const dag1=sorterad[i], dag2=sorterad[i+1];
-      const d1=new Date(`${dag1.datum}T${dag1.slut_tid}`);
-      const d2=new Date(`${dag2.datum}T${dag2.start_tid}`);
+      const dagarGap=Math.round((new Date(dag2.datum).getTime()-new Date(dag1.datum).getTime())/864e5);
+      if(dagarGap>7) continue;
+      const d1=new Date(`${dag1.datum}T${dag1.slut_tid.slice(0,5)}`);
+      const d2=new Date(`${dag2.datum}T${dag2.start_tid.slice(0,5)}`);
       const vila=(d2.getTime()-d1.getTime())/3600000;
       if(vila>0&&vila<11) varningar.push({typ:'röd',text:`Dygnsvila bruten ${dag1.datum.slice(5)}: bara ${Math.round(vila*10)/10}h vila`});
     }
@@ -1240,13 +1242,14 @@ export default function Arbetsrapport() {
             const allVila: {datum:string;vila:number;label:string;månad:number}[] = [];
             for(let i=0;i<sortAsc.length-1;i++){
               const dag1=sortAsc[i], dag2=sortAsc[i+1];
-              const slutDt=new Date(`${dag1.datum}T${dag1.slut_tid}`);
-              const startDt=new Date(`${dag2.datum}T${dag2.start_tid}`);
               const d1=new Date(dag1.datum), d2n=new Date(dag2.datum);
-              const dagarMellan=Math.round((d2n.getTime()-d1.getTime())/864e5)-1;
-              let vila=(startDt.getTime()-slutDt.getTime())/3600000;
-              if(dagarMellan>0) vila=dagarMellan*24+(startDt.getHours()+startDt.getMinutes()/60)+(24-slutDt.getHours()-slutDt.getMinutes()/60);
-              if(vila<=0) continue;
+              const dagarMellan=Math.round((d2n.getTime()-d1.getTime())/864e5);
+              // Hoppa över om mer än 7 dagars gap — ledig period, inte relevant
+              if(dagarMellan>7) continue;
+              const slutDt=new Date(`${dag1.datum}T${dag1.slut_tid.slice(0,5)}`);
+              const startDt=new Date(`${dag2.datum}T${dag2.start_tid.slice(0,5)}`);
+              const vila=(startDt.getTime()-slutDt.getTime())/3600000;
+              if(vila<=0||vila>200) continue; // sanity check
               const dt=new Date(dag2.datum);
               allVila.push({datum:dag2.datum,vila:Math.round(vila*10)/10,label:`${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`,månad:dt.getMonth()});
             }
@@ -1286,14 +1289,24 @@ export default function Arbetsrapport() {
                   const dt=new Date(vStart); dt.setDate(vStart.getDate()+d);
                   const k=dt.toISOString().split('T')[0];
                   const ad=årsData.find(r=>r.datum===k);
-                  if(ad?.start_tid&&ad?.slut_tid) vDagar.push({start:new Date(`${k}T${ad.start_tid}`),slut:new Date(`${k}T${ad.slut_tid}`)});
+                  if(ad?.start_tid&&ad?.slut_tid) vDagar.push({start:new Date(`${k}T${ad.start_tid.slice(0,5)}`),slut:new Date(`${k}T${ad.slut_tid.slice(0,5)}`)});
                 }
                 if(vDagar.length===0){veckor.push({nr:w,maxH:168});continue;}
                 vDagar.sort((a,b)=>a.start.getTime()-b.start.getTime());
-                let maxV=(vDagar[0].start.getTime()-new Date(vStart).setHours(0,0,0,0))/3600000;
-                for(let i=0;i<vDagar.length-1;i++) maxV=Math.max(maxV,(vDagar[i+1].start.getTime()-vDagar[i].slut.getTime())/3600000);
-                const vSlut=new Date(vStart);vSlut.setDate(vStart.getDate()+7);vSlut.setHours(0,0,0,0);
-                maxV=Math.max(maxV,(vSlut.getTime()-vDagar[vDagar.length-1].slut.getTime())/3600000);
+                // Beräkna längsta lucka mellan pass inom veckan
+                let maxV=0;
+                for(let i=0;i<vDagar.length-1;i++){
+                  const gap=(vDagar[i+1].start.getTime()-vDagar[i].slut.getTime())/3600000;
+                  if(gap>0&&gap<168) maxV=Math.max(maxV,gap);
+                }
+                // Vila före första passet (från veckostart 00:00)
+                const vStartMid=new Date(vStart.getFullYear(),vStart.getMonth(),vStart.getDate(),0,0,0);
+                const förePass=(vDagar[0].start.getTime()-vStartMid.getTime())/3600000;
+                if(förePass>0&&förePass<168) maxV=Math.max(maxV,förePass);
+                // Vila efter sista passet (till veckoslut)
+                const vSlutMid=new Date(vStart.getFullYear(),vStart.getMonth(),vStart.getDate()+7,0,0,0);
+                const efterPass=(vSlutMid.getTime()-vDagar[vDagar.length-1].slut.getTime())/3600000;
+                if(efterPass>0&&efterPass<168) maxV=Math.max(maxV,efterPass);
                 veckor.push({nr:w,maxH:Math.round(maxV*10)/10});
               }
               return veckor;
@@ -1341,18 +1354,6 @@ export default function Arbetsrapport() {
                   <button onClick={()=>setVilaMånad(m=>(m+1)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>chevron_right</span></button>
                 </div>
               )}
-
-              {/* Summering */}
-              <div style={{ display:"flex",gap:12,marginBottom:16 }}>
-                <div style={{ flex:1,background:"#1c1c1e",borderRadius:10,padding:"12px 14px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                  <p style={{ margin:0,fontSize:11,color:"#8e8e93" }}>Uppfyller kravet</p>
-                  <p style={{ margin:"4px 0 0",fontSize:18,fontWeight:700,color:"#34c759" }}>{okCount} <span style={{ fontSize:12,fontWeight:400,color:"#8e8e93" }}>av {filtVila.length}</span></p>
-                </div>
-                <div style={{ flex:1,background:"#1c1c1e",borderRadius:10,padding:"12px 14px",border:`1px solid ${brott>0?"rgba(255,69,58,0.2)":"rgba(255,255,255,0.06)"}` }}>
-                  <p style={{ margin:0,fontSize:11,color:"#8e8e93" }}>Brott</p>
-                  <p style={{ margin:"4px 0 0",fontSize:18,fontWeight:700,color:brott>0?"#ff453a":"#fff" }}>{brott}</p>
-                </div>
-              </div>
 
               {/* Årsvy: per månad */}
               {vilaPeriod==='år'?(
