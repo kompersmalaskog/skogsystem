@@ -1206,16 +1206,16 @@ export default function Arbetsrapport() {
             <h3 style={secHead}>Summering</h3>
             <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
               {[
-                {label:"Idag",val:idagH>0?`${idagH}h`:'—',diff:idagH>0?fmtDiff(idagDiff):null,diffColor:idagDiff>=0?"#34c759":"#ff453a"},
-                {label:"Veckan",val:`${Math.round(veckoTot*10)/10}h`,diff:`av 40h`,diffColor:"#8e8e93"},
-                {label:"Månaden",val:`${månJobbatH}h`,diff:fmtDiff(månDiff),diffColor:månDiff>=0?"#34c759":"#ff453a"},
-                {label:"Året",val:`${årsÖvH}h övertid`,diff:`av 250h tak`,diffColor:"#8e8e93"},
+                ...(idagH>0?[{label:"Idag",val:`${idagH}h`}]:[]),
+                {label:"Veckan",val:`${Math.round(veckoTot*10)/10}h`,sub:`av 40h`},
+                {label:"Månaden",val:`${månJobbatH}h`,sub:`av ${månMålH}h`},
+                {label:"Året",val:`${Math.round(årsMin/60*10)/10}h`,sub:'totalt'},
               ].map((r,i,arr)=>(
                 <div key={r.label} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<arr.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
                   <span style={{ fontSize:15,color:"#8e8e93" }}>{r.label}</span>
                   <div style={{ display:"flex",alignItems:"baseline",gap:8 }}>
                     <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{r.val}</span>
-                    {r.diff&&<span style={{ fontSize:12,fontWeight:500,color:r.diffColor }}>{r.diff}</span>}
+                    {'sub' in r&&<span style={{ fontSize:12,fontWeight:500,color:"#8e8e93" }}>{(r as any).sub}</span>}
                   </div>
                 </div>
               ))}
