@@ -1222,6 +1222,82 @@ export default function Arbetsrapport() {
             </div>
           </section>
 
+          {/* Semester */}
+          {(()=>{
+            const semTotalt = medarbetare?.semester_dagar ?? 25;
+            const semSparat = medarbetare?.semester_sparat ?? 0;
+            // Intjäningsår: 1 apr förra året → 31 mar i år (eller aktuellt)
+            const årNu=nu.getFullYear();
+            const ijStart = nu.getMonth()>=3 ? `${årNu}-04-01` : `${årNu-1}-04-01`;
+            const semAnvänt = årsData.filter(d=>d.datum>=ijStart&&d.dag_typ==='semester').length;
+            const semKvar = semTotalt + semSparat - semAnvänt;
+            const semPct = semTotalt>0?Math.min(100,semAnvänt/(semTotalt+semSparat)*100):0;
+            return (
+              <section style={{ marginBottom:24 }}>
+                <h3 style={secHead}>Semester</h3>
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
+                    <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{semKvar} <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>dagar kvar</span></span>
+                  </div>
+                  <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:12,overflow:"hidden" }}>
+                    <div style={{ height:"100%",width:`${semPct}%`,background:"#adc6ff",borderRadius:2 }} />
+                  </div>
+                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                    {[
+                      ["Totalt",`${semTotalt} dagar`],
+                      ...(semSparat>0?[["Sparat från förra året",`${semSparat} dagar`]]:[]),
+                      ["Använt",`${semAnvänt} dagar`],
+                    ].map(([l,v])=>(
+                      <div key={l as string} style={{ display:"flex",justifyContent:"space-between" }}>
+                        <span style={{ fontSize:13,color:"#8e8e93" }}>{l}</span>
+                        <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
+
+          {/* ATK */}
+          {(()=>{
+            const atkFaktor = medarbetare?.atk_faktor ?? (gsAvtal?.atk_faktor ?? 0);
+            if(!atkFaktor) return null;
+            const årsJobbatH = Math.round(årsMin/60*10)/10;
+            const atkIntjänat = Math.round(årsJobbatH*atkFaktor*10)/10;
+            const atkAnvänt = årsData.filter(d=>d.dag_typ==='atk').length * 8;
+            const atkKvar = Math.round((atkIntjänat-atkAnvänt)*10)/10;
+            return (
+              <section style={{ marginBottom:24 }}>
+                <h3 style={secHead}>ATK</h3>
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16 }}>
+                    <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{atkKvar}h <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>kvar</span></span>
+                  </div>
+                  <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:16 }}>
+                    {[
+                      ["Intjänat",`${atkIntjänat}h`],
+                      ["Använt",`${atkAnvänt}h`],
+                    ].map(([l,v])=>(
+                      <div key={l as string} style={{ display:"flex",justifyContent:"space-between" }}>
+                        <span style={{ fontSize:13,color:"#8e8e93" }}>{l}</span>
+                        <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display:"flex",gap:8,paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
+                    <button onClick={()=>{setDagTyp("atk");setSteg("bekräftaFrånvaro");}} style={{ flex:1,height:40,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Ta ledigt</button>
+                    <button onClick={async()=>{
+                      await supabase.from("atk_begaran").insert({medarbetare_id:medarbetare.id,typ:"utbetalning",timmar:atkKvar,datum:new Date().toISOString().split('T')[0],status:"begärd"});
+                      alert("Begäran om utbetalning skickad till chefen");
+                    }} style={{ flex:1,height:40,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Betala ut</button>
+                    <button style={{ flex:1,height:40,background:"rgba(255,255,255,0.04)",border:"none",borderRadius:10,color:"#8e8e93",fontSize:13,fontWeight:500,fontFamily:"inherit" }}>Spara</button>
+                  </div>
+                </div>
+              </section>
+            );
+          })()}
+
           {/* Övertid året — progress bar */}
           <section style={{ marginBottom:32 }}>
             <h3 style={secHead}>Övertid {nu.getFullYear()}</h3>
@@ -2368,11 +2444,20 @@ export default function Arbetsrapport() {
             <path d={dagTyp==="sjuk"?"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z":"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"} fill="#8e8e93"/>
           </svg>
         </div>
-        <h1 style={{ fontSize:28,fontWeight:700,margin:"0 0 10px" }}>{dagTyp==="sjuk"?"Krya på dig":"Hoppas barnet mår bättre"}</h1>
-        <p style={{ fontSize:16,color:C.label }}>{dagTyp==="sjuk"?"Sjukanmälan":"VAB"} registreras för {datumStr}</p>
+        <h1 style={{ fontSize:28,fontWeight:700,margin:"0 0 10px" }}>{dagTyp==="sjuk"?"Krya på dig":dagTyp==="atk"?"ATK-dag":dagTyp==="semester"?"Semester":"Hoppas barnet mår bättre"}</h1>
+        <p style={{ fontSize:16,color:C.label }}>{dagTyp==="sjuk"?"Sjukanmälan":dagTyp==="atk"?"ATK":dagTyp==="semester"?"Semester":"VAB"} registreras för {datumStr}</p>
       </div>
       <div style={bottom}>
-        <button style={btn.primary} onClick={()=>setSteg("klarFrånvaro")}>Bekräfta</button>
+        <button style={btn.primary} onClick={async()=>{
+          await supabase.from("arbetsdag").upsert({
+            medarbetare_id:medarbetare.id,
+            datum:new Date().toISOString().split("T")[0],
+            dag_typ:dagTyp,
+            bekraftad:true,
+            bekraftad_tid:new Date().toISOString(),
+          });
+          setSteg("klarFrånvaro");
+        }}>Bekräfta</button>
         <button style={{ ...btn.textBack, marginTop:2 }} onClick={()=>setSteg("morgon")}>Ångra och gå tillbaka</button>
       </div>
     </div>
@@ -2384,7 +2469,7 @@ export default function Arbetsrapport() {
       <div style={mid}>
         <div style={{ animation:"scalePop 0.4s ease",marginBottom:28 }}><CheckCircle/></div>
         <h1 style={{ fontSize:28,fontWeight:700,margin:"0 0 10px" }}>Registrerat</h1>
-        <p style={{ fontSize:16,color:C.label }}>{dagTyp==="sjuk"?"Sjukanmälan":"VAB"} för {datumStr}</p>
+        <p style={{ fontSize:16,color:C.label }}>{dagTyp==="sjuk"?"Sjukanmälan":dagTyp==="atk"?"ATK":dagTyp==="semester"?"Semester":"VAB"} för {datumStr}</p>
       </div>
       <div style={bottom}><button style={btn.secondary} onClick={()=>setSteg("morgon")}>Tillbaka</button></div>
     </div>
