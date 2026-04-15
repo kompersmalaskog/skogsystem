@@ -1315,9 +1315,32 @@ export default function Arbetsrapport() {
 
           {/* Dygnsvila med periodväljare */}
           {(()=>{
+            // Beräkna anledning för dagar i ett gap
+            const rödaDagarÅr=getRödaDagar(nu.getFullYear());
+            const getAnledning=(slutDatum:string,startDatum:string)=>{
+              const d1=new Date(slutDatum),d2=new Date(startDatum);
+              const delar:string[]=[];
+              let harHelg=false;
+              // Kolla varje dag mellan (exklusivt slutdagen, inklusivt mellandagar)
+              const cur=new Date(d1);cur.setDate(cur.getDate()+1);
+              while(cur<d2){
+                const k=cur.toISOString().split('T')[0];
+                const dow=cur.getDay();
+                const ad=årsData.find(r=>r.datum===k);
+                if(ad?.dag_typ==='sjuk'&&!delar.includes('Sjuk')) delar.push('Sjuk');
+                else if(ad?.dag_typ==='vab'&&!delar.includes('VAB')) delar.push('VAB');
+                else if(ad?.dag_typ==='semester'&&!delar.includes('Semester')) delar.push('Semester');
+                else if(ad?.dag_typ==='atk'&&!delar.includes('ATK')) delar.push('ATK');
+                else if(rödaDagarÅr[k]&&!delar.includes(rödaDagarÅr[k])) delar.push(rödaDagarÅr[k]);
+                else if((dow===0||dow===6)&&!harHelg){harHelg=true;delar.unshift('Helg');}
+                cur.setDate(cur.getDate()+1);
+              }
+              return delar.length>0?delar.join(' + '):'';
+            };
+
             // Beräkna alla viloperioder för hela året
             const sortAsc=[...årsData].filter(r=>r.slut_tid&&r.start_tid).sort((a,b)=>a.datum.localeCompare(b.datum));
-            const allVila: {datum:string;vila:number;label:string;månad:number;slutDatum:string;slutTid:string;startDatum:string;startTid:string;ledig:boolean}[] = [];
+            const allVila: {datum:string;vila:number;label:string;månad:number;slutDatum:string;slutTid:string;startDatum:string;startTid:string;ledig:boolean;anledning:string}[] = [];
             for(let i=0;i<sortAsc.length-1;i++){
               const dag1=sortAsc[i], dag2=sortAsc[i+1];
               const d1=new Date(dag1.datum), d2n=new Date(dag2.datum);
@@ -1328,9 +1351,10 @@ export default function Arbetsrapport() {
               const startDt=new Date(`${dag2.datum}T${stT}`);
               const vila=(startDt.getTime()-slutDt.getTime())/3600000;
               if(vila<=0||vila>400) continue;
-              const dt1=new Date(dag1.datum), dt2=new Date(dag2.datum);
+              const dt2=new Date(dag2.datum);
               const fmtD=(d:Date)=>`${dagNamn[d.getDay()].slice(0,3)} ${d.getDate()} ${månNamn2[d.getMonth()]}`;
-              allVila.push({datum:dag2.datum,vila:Math.round(vila*10)/10,label:fmtD(dt2),månad:dt2.getMonth(),slutDatum:dag1.datum,slutTid:sT,startDatum:dag2.datum,startTid:stT,ledig:dagarMellan>1});
+              const anledning=dagarMellan>1?getAnledning(dag1.datum,dag2.datum):'';
+              allVila.push({datum:dag2.datum,vila:Math.round(vila*10)/10,label:fmtD(dt2),månad:dt2.getMonth(),slutDatum:dag1.datum,slutTid:sT,startDatum:dag2.datum,startTid:stT,ledig:dagarMellan>1,anledning});
             }
             const vilaRev=[...allVila].reverse();
 
@@ -1363,7 +1387,7 @@ export default function Arbetsrapport() {
 
             // Bygg alla luckor mellan på-varandra-följande pass
             const sortAsc2=[...årsData].filter(r=>r.slut_tid&&r.start_tid).sort((a,b)=>a.datum.localeCompare(b.datum));
-            const allGaps:{veckoNr:number;slutDatum:string;slutTid:string;startDatum:string;startTid:string;h:number}[]=[];
+            const allGaps:{veckoNr:number;slutDatum:string;slutTid:string;startDatum:string;startTid:string;h:number;anledning:string}[]=[];
             for(let i=0;i<sortAsc2.length-1;i++){
               const d1=sortAsc2[i],d2=sortAsc2[i+1];
               const sT=d1.slut_tid.slice(0,5),stT=d2.start_tid.slice(0,5);
@@ -1371,9 +1395,10 @@ export default function Arbetsrapport() {
               const startDt=new Date(`${d2.datum}T${stT}`);
               const h=(startDt.getTime()-slutDt.getTime())/36e5;
               if(h<=0||h>500) continue;
-              // Tilldela till veckan där luckan börjar
               const vNr=getVeckoNr(slutDt);
-              allGaps.push({veckoNr:vNr,slutDatum:d1.datum,slutTid:sT,startDatum:d2.datum,startTid:stT,h:Math.round(h*10)/10});
+              const dagarM=Math.round((new Date(d2.datum).getTime()-new Date(d1.datum).getTime())/864e5);
+              const anl=dagarM>1?getAnledning(d1.datum,d2.datum):'';
+              allGaps.push({veckoNr:vNr,slutDatum:d1.datum,slutTid:sT,startDatum:d2.datum,startTid:stT,h:Math.round(h*10)/10,anledning:anl});
             }
 
             // Per vecka: hitta längsta luckan
@@ -1404,14 +1429,14 @@ export default function Arbetsrapport() {
               const fDe=(d:string)=>{const dt=new Date(d);return `${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`;};
               let html=`<html><head><title>Viloperioder</title><style>body{font-family:Inter,system-ui,sans-serif;padding:32px;font-size:13px;color:#222}h1{font-size:18px;margin-bottom:4px}h2{font-size:14px;margin-top:24px;color:#666}table{width:100%;border-collapse:collapse;margin-top:8px}th{text-align:left;padding:8px 12px;background:#f5f5f5;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#666;border-bottom:1px solid #ddd}td{padding:8px 12px;border-bottom:1px solid #eee}.warn{color:#d32f2f;font-weight:600}.ok{color:#2e7d32}</style></head><body>`;
               html+=`<h1>${medarbetare?.namn||''}</h1><p style="color:#666;margin:0 0 24px">Viloperioder — ${periodLabel}</p>`;
-              html+=`<h2>Dygnsvila</h2><table><tr><th>Slutade</th><th>Startade igen</th><th>Vila</th><th>Status</th></tr>`;
+              html+=`<h2>Dygnsvila</h2><table><tr><th>Slutade</th><th>Startade igen</th><th>Vila</th><th>Anledning</th><th>Status</th></tr>`;
               for(const r of [...filtVila].reverse()){
                 const ok=r.vila>=11;
-                html+=`<tr><td>${fDe(r.slutDatum)} ${r.slutTid}</td><td>${fDe(r.startDatum)} ${r.startTid}</td><td>${fVH(r.vila)}</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 11h'}</td></tr>`;
+                html+=`<tr><td>${fDe(r.slutDatum)} ${r.slutTid}</td><td>${fDe(r.startDatum)} ${r.startTid}</td><td>${fVH(r.vila)}</td><td>${r.anledning||'—'}</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 11h'}</td></tr>`;
               }
               html+=`</table>`;
-              html+=`<h2>Veckovila</h2><table><tr><th>Vecka</th><th>Slutade</th><th>Startade igen</th><th>Vila</th><th>Status</th></tr>`;
-              vvData.forEach(v=>{const ok=v.h>=36;const fVH2=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};html+=`<tr><td>Vecka ${v.veckoNr}</td><td>${fDe(v.slutDatum)} ${v.slutTid}</td><td>${fDe(v.startDatum)} ${v.startTid}</td><td>${fVH2(v.h)}</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 36h'}</td></tr>`;});
+              html+=`<h2>Veckovila</h2><table><tr><th>Vecka</th><th>Slutade</th><th>Startade igen</th><th>Vila</th><th>Anledning</th><th>Status</th></tr>`;
+              vvData.forEach(v=>{const ok=v.h>=36;const fVH2=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};html+=`<tr><td>Vecka ${v.veckoNr}</td><td>${fDe(v.slutDatum)} ${v.slutTid}</td><td>${fDe(v.startDatum)} ${v.startTid}</td><td>${fVH2(v.h)}</td><td>${v.anledning||'—'}</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 36h'}</td></tr>`;});
               html+=`</table></body></html>`;
               const w=window.open('','','width=700,height=900');
               if(w){w.document.write(html);w.document.close();w.document.title='Viloperioder';setTimeout(()=>w.print(),300);}
@@ -1434,7 +1459,7 @@ export default function Arbetsrapport() {
                     {ok&&<span style={{ color:"#34c759",fontSize:13 }}>✓</span>}
                     {!ok&&<span style={{ fontSize:12,color:"#ff453a" }}>(kräver 11h)</span>}
                   </div>
-                  {r.ledig&&<p style={{ margin:"6px 0 0",fontSize:11,color:"#636366" }}>Ledig period</p>}
+                  {r.anledning&&<p style={{ margin:"6px 0 0",fontSize:12,color:"#8e8e93" }}>{r.anledning}</p>}
                 </div>
               );
             };
@@ -1536,6 +1561,7 @@ export default function Arbetsrapport() {
                         {ok&&<span style={{ color:"#34c759",fontSize:13 }}>✓</span>}
                         {!ok&&<span style={{ fontSize:12,color:"#ff453a" }}>(kräver 36h)</span>}
                       </div>
+                      {v.anledning&&<p style={{ margin:"6px 0 0",fontSize:12,color:"#8e8e93" }}>{v.anledning}</p>}
                     </div>
                     );
                   })}
