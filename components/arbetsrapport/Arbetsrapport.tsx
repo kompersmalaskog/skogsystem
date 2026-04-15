@@ -996,6 +996,7 @@ export default function Arbetsrapport() {
   /* ─── MIN TID ─── */
   if(steg==="mintid") {
     const nu = new Date();
+    const dagKort = ['SÖN','MÅN','TIS','ONS','TOR','FRE','LÖR'];
     const dagNamn = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
     const månNamn2 = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
 
@@ -1012,8 +1013,14 @@ export default function Arbetsrapport() {
       const ad=årsData.find(r=>r.datum===k);
       const h=ad ? Math.round((ad.arbetad_min||0)/60*10)/10 : 0;
       veckoTot+=h;
-      veckoDagar.push({datum:k,dag:dagNamn[d.getDay()],h});
+      veckoDagar.push({datum:k,dag:dagNamn[d.getDay()],dagKort:dagKort[d.getDay()],h});
     }
+    const maxH = Math.max(...veckoDagar.map(d=>d.h),1);
+
+    // Idag
+    const idagAd = årsData.find(r=>r.datum===nu.toISOString().split('T')[0]);
+    const idagH = idagAd ? Math.round((idagAd.arbetad_min||0)/60*10)/10 : 0;
+    const idagDiff = idagH - 8;
 
     // Månad
     const månStart = `${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,'0')}-01`;
@@ -1098,6 +1105,9 @@ export default function Arbetsrapport() {
     if(årsÖvH>230) varningar.push({typ:'röd',text:`${årsKvar}h kvar till max 250h övertid`});
     else if(årsÖvH>200) varningar.push({typ:'orange',text:'Du närmar dig övertidstaket (250h)'});
 
+    const fmtDiff = (h: number) => { const abs=Math.abs(h); const hh=Math.floor(abs); const mm=Math.round((abs-hh)*60); return `${h>=0?'+':'−'}${hh}h${mm>0?` ${mm}min`:''}`; };
+    const månDiff = månJobbatH - månMålH;
+
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",paddingBottom:120 }}>
         <style>{css}</style>
@@ -1107,9 +1117,9 @@ export default function Arbetsrapport() {
 
         <main style={{ paddingTop:88,paddingLeft:20,paddingRight:20 }}>
 
-          {/* Varningar */}
-          {varningar.length>0?(
-            <section style={{ marginBottom:32 }}>
+          {/* Varningar — bara om det finns */}
+          {varningar.length>0&&(
+            <section style={{ marginBottom:24 }}>
               {varningar.map((v,i)=>(
                 <div key={i} style={{ background:v.typ==='röd'?"rgba(255,69,58,0.08)":"rgba(255,159,10,0.08)",border:`1px solid ${v.typ==='röd'?"rgba(255,69,58,0.25)":"rgba(255,159,10,0.25)"}`,borderRadius:12,padding:"14px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:10 }}>
                   <span className="material-symbols-outlined" style={{ color:v.typ==='röd'?"#ff453a":"#ff9f0a",fontSize:20 }}>warning</span>
@@ -1117,69 +1127,60 @@ export default function Arbetsrapport() {
                 </div>
               ))}
             </section>
-          ):(
-            <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:24 }}>
-              <span className="material-symbols-outlined" style={{ color:"#34c759",fontSize:16 }}>check_circle</span>
-              <span style={{ fontSize:13,color:"#34c759",fontWeight:500 }}>Allt ser bra ut</span>
-            </div>
           )}
 
-          {/* Veckan */}
+          {/* Stapeldiagram — veckan */}
           <section style={{ marginBottom:32 }}>
             <h3 style={secHead}>Vecka {veckoNr}</h3>
             <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
-                <span style={{ fontSize:28,fontWeight:700,color:veckoTot>=40?"#34c759":"#fff" }}>{Math.round(veckoTot*10)/10}h</span>
-                <span style={{ fontSize:14,color:"#8e8e93" }}>av 40h</span>
+              <div style={{ display:"flex",alignItems:"flex-end",justifyContent:"space-between",height:120,gap:6,marginBottom:8 }}>
+                {veckoDagar.map(d=>(
+                  <div key={d.datum} style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",height:"100%" }}>
+                    {d.h>0&&<span style={{ fontSize:10,fontWeight:600,color:"#adc6ff",marginBottom:4 }}>{d.h}</span>}
+                    <div style={{ flex:1,display:"flex",alignItems:"flex-end",width:"100%" }}>
+                      <div style={{ width:"100%",height:`${d.h>0?Math.max(8,d.h/maxH*100):8}%`,background:d.h>0?"#adc6ff":"rgba(255,255,255,0.08)",borderRadius:4,transition:"height 0.4s ease" }} />
+                    </div>
+                  </div>
+                ))}
               </div>
-              <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:16,overflow:"hidden" }}>
-                <div style={{ height:"100%",width:`${Math.min(100,veckoTot/40*100)}%`,background:veckoTot>=40?"#34c759":"#adc6ff",borderRadius:2,transition:"width 0.5s" }} />
+              <div style={{ display:"flex",justifyContent:"space-between" }}>
+                {veckoDagar.map(d=>(
+                  <div key={d.datum+'l'} style={{ flex:1,textAlign:"center" }}>
+                    <span style={{ fontSize:9,fontWeight:600,color:d.h>0?"#8e8e93":"rgba(255,255,255,0.15)",letterSpacing:"0.05em" }}>{(d as any).dagKort}</span>
+                  </div>
+                ))}
               </div>
-              {veckoDagar.filter(d=>d.h>0).map(d=>(
-                <div key={d.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
-                  <span style={{ fontSize:14,color:"#8e8e93",textTransform:"capitalize" }}>{d.dag}</span>
-                  <span style={{ fontSize:14,fontWeight:600,color:"#fff" }}>{d.h}h</span>
-                </div>
-              ))}
-              {veckoDagar.every(d=>d.h===0)&&<p style={{ margin:0,fontSize:14,color:"rgba(255,255,255,0.2)" }}>Ingen data ännu</p>}
             </div>
           </section>
 
-          {/* Månaden */}
+          {/* Summering */}
           <section style={{ marginBottom:32 }}>
-            <h3 style={secHead}>Månaden</h3>
-            <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+            <h3 style={secHead}>Summering</h3>
+            <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
               {[
-                ["Jobbat",`${månJobbatH}h`],
-                ["Mål",`${månMålH}h`],
-                ["Övertid",`${månÖvH}h`],
-              ].map(([l,v])=>(
-                <div key={l as string} style={{ display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
-                  <span style={{ fontSize:15,color:"#8e8e93" }}>{l}</span>
-                  <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{v}</span>
+                {label:"Idag",val:idagH>0?`${idagH}h`:'—',diff:idagH>0?fmtDiff(idagDiff):null,diffColor:idagDiff>=0?"#34c759":"#ff453a"},
+                {label:"Veckan",val:`${Math.round(veckoTot*10)/10}h`,diff:`av 40h`,diffColor:"#8e8e93"},
+                {label:"Månaden",val:`${månJobbatH}h`,diff:fmtDiff(månDiff),diffColor:månDiff>=0?"#34c759":"#ff453a"},
+                {label:"Året",val:`${årsÖvH}h övertid`,diff:`av 250h tak`,diffColor:"#8e8e93"},
+              ].map((r,i,arr)=>(
+                <div key={r.label} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<arr.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
+                  <span style={{ fontSize:15,color:"#8e8e93" }}>{r.label}</span>
+                  <div style={{ display:"flex",alignItems:"baseline",gap:8 }}>
+                    <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{r.val}</span>
+                    {r.diff&&<span style={{ fontSize:12,fontWeight:500,color:r.diffColor }}>{r.diff}</span>}
+                  </div>
                 </div>
               ))}
             </div>
           </section>
 
-          {/* Kvartalet */}
+          {/* Övertid året — progress bar */}
           <section style={{ marginBottom:32 }}>
-            <h3 style={secHead}>Kvartal {kvartal+1}</h3>
-            <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-              <div style={{ display:"flex",justifyContent:"space-between",padding:"10px 0" }}>
-                <span style={{ fontSize:15,color:"#8e8e93" }}>Övertid ackumulerat</span>
-                <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{kvÖvH}h</span>
-              </div>
-            </div>
-          </section>
-
-          {/* Året */}
-          <section style={{ marginBottom:32 }}>
-            <h3 style={secHead}>Året {nu.getFullYear()}</h3>
+            <h3 style={secHead}>Övertid {nu.getFullYear()}</h3>
             <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
                 <span style={{ fontSize:28,fontWeight:700,color:årsBarFärg }}>{årsÖvH}h</span>
-                <span style={{ fontSize:14,color:"#8e8e93" }}>av 250h övertid</span>
+                <span style={{ fontSize:14,color:"#8e8e93" }}>av 250h</span>
               </div>
               <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:8,overflow:"hidden" }}>
                 <div style={{ height:"100%",width:`${Math.min(100,årsÖvH/250*100)}%`,background:årsBarFärg,borderRadius:2,transition:"width 0.5s" }} />
@@ -1188,14 +1189,10 @@ export default function Arbetsrapport() {
             </div>
           </section>
 
-          {/* Löneunderlag-länk */}
-          <section style={{ marginTop:16,paddingTop:24,borderTop:"1px solid rgba(255,255,255,0.05)" }}>
-            <button onClick={()=>setSteg("lön")} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"16px 20px",cursor:"pointer",fontFamily:"inherit" }}>
-              <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-                <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>payments</span>
-                <span style={{ fontSize:15,fontWeight:500,color:"#fff" }}>Löneunderlag</span>
-              </div>
-              <ChevronRight/>
+          {/* Löneunderlag */}
+          <section style={{ paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.05)" }}>
+            <button onClick={()=>setSteg("lön")} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"none",border:"none",padding:"12px 0",cursor:"pointer",fontFamily:"inherit" }}>
+              <span style={{ fontSize:15,fontWeight:500,color:"#adc6ff" }}>Löneunderlag →</span>
             </button>
           </section>
 
