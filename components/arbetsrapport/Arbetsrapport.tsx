@@ -136,7 +136,6 @@ function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => v
         {icon:"today",key:"morgon",label:"Dag"},
         {icon:"calendar_month",key:"kalender",label:"Kalender"},
         {icon:"bar_chart",key:"mintid",label:"Min tid"},
-        {icon:"payments",key:"lön",label:"Löneunderlag"},
         {icon:"settings",key:"inst",label:"Inställningar"},
       ].map(n=>(
         <button key={n.key} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#adc6ff":"#8b90a0",background:"none",border:"none",cursor:"pointer",fontFamily:"'Inter',sans-serif",borderRadius:12,height:48,width:64,padding:0 }}>
@@ -1119,12 +1118,10 @@ export default function Arbetsrapport() {
               ))}
             </section>
           ):(
-            <section style={{ marginBottom:32 }}>
-              <div style={{ background:"rgba(52,199,89,0.08)",border:"1px solid rgba(52,199,89,0.2)",borderRadius:12,padding:"14px 16px",display:"flex",alignItems:"center",gap:10 }}>
-                <span className="material-symbols-outlined" style={{ color:"#34c759",fontSize:20 }}>check_circle</span>
-                <span style={{ fontSize:14,fontWeight:500,color:"#34c759" }}>Allt ser bra ut</span>
-              </div>
-            </section>
+            <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:24 }}>
+              <span className="material-symbols-outlined" style={{ color:"#34c759",fontSize:16 }}>check_circle</span>
+              <span style={{ fontSize:13,color:"#34c759",fontWeight:500 }}>Allt ser bra ut</span>
+            </div>
           )}
 
           {/* Veckan */}
@@ -1138,12 +1135,13 @@ export default function Arbetsrapport() {
               <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:16,overflow:"hidden" }}>
                 <div style={{ height:"100%",width:`${Math.min(100,veckoTot/40*100)}%`,background:veckoTot>=40?"#34c759":"#adc6ff",borderRadius:2,transition:"width 0.5s" }} />
               </div>
-              {veckoDagar.map(d=>(
+              {veckoDagar.filter(d=>d.h>0).map(d=>(
                 <div key={d.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
                   <span style={{ fontSize:14,color:"#8e8e93",textTransform:"capitalize" }}>{d.dag}</span>
-                  <span style={{ fontSize:14,fontWeight:600,color:d.h>0?"#fff":"rgba(255,255,255,0.2)" }}>{d.h>0?`${d.h}h`:'—'}</span>
+                  <span style={{ fontSize:14,fontWeight:600,color:"#fff" }}>{d.h}h</span>
                 </div>
               ))}
+              {veckoDagar.every(d=>d.h===0)&&<p style={{ margin:0,fontSize:14,color:"rgba(255,255,255,0.2)" }}>Ingen data ännu</p>}
             </div>
           </section>
 
@@ -1188,6 +1186,17 @@ export default function Arbetsrapport() {
               </div>
               <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>{årsKvar} tim kvar</p>
             </div>
+          </section>
+
+          {/* Löneunderlag-länk */}
+          <section style={{ marginTop:16,paddingTop:24,borderTop:"1px solid rgba(255,255,255,0.05)" }}>
+            <button onClick={()=>setSteg("lön")} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.06)",borderRadius:12,padding:"16px 20px",cursor:"pointer",fontFamily:"inherit" }}>
+              <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+                <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>payments</span>
+                <span style={{ fontSize:15,fontWeight:500,color:"#fff" }}>Löneunderlag</span>
+              </div>
+              <ChevronRight/>
+            </button>
           </section>
 
         </main>
