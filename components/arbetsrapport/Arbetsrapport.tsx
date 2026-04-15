@@ -1664,9 +1664,9 @@ export default function Arbetsrapport() {
   /* ─── LÖNEUNDERLAG ─── */
   if(steg==="lön"){
     const timlon = gsAvtal?.timlon_kr ?? 185;
-    const otFaktor = gsAvtal?.overtid_faktor ?? 1.5;
-    const frikm2 = gsAvtal?.km_grans_per_dag ?? 120;
-    const kmErs2 = gsAvtal?.km_ersattning_kr ?? 2.90;
+    const overtidKrPerTim = gsAvtal?.overtid_vardag_kr ?? 54.94;
+    const frikm2 = gsAvtal?.km_grans_per_dag ?? 60;
+    const kmErs2 = gsAvtal?.km_ersattning_kr ?? 27.50;
     const trakHel = gsAvtal?.traktamente_hel_kr ?? 300;
 
     // Filtrera historik på aktuell månad
@@ -1686,10 +1686,10 @@ export default function Arbetsrapport() {
     const jobbadH = månadsHistorik.length > 0 || extraTidMin > 0 ? Math.round(jobbadMin2/60*10)/10 : 0;
     const målH = arbetsdagar * 8;
     const övH = Math.max(0, jobbadH - målH);
-    const övKr = Math.round(övH * timlon * otFaktor);
+    const övKr = Math.round(övH * overtidKrPerTim);
     const totalKm = månadsHistorik.reduce((a,d) => a + (d.km_totalt || d.km_morgon || 0) + (d.km_kvall || 0), 0);
     const löneErsKm = Math.max(0, totalKm - frikm2*arbetsdagar);
-    const löneErsKr = Math.round(löneErsKm * kmErs2);
+    const löneErsKr = Math.round(löneErsKm * kmErs2 / 10); // kmErs2 är kr/mil, dela med 10 för kr/km
     const trakDagar = månadsHistorik.filter(d => d.traktamente).length;
     const trakKr = trakDagar * trakHel;
     const redigeringar = Object.entries(redDagar);
@@ -2103,34 +2103,75 @@ export default function Arbetsrapport() {
     <div style={shell}><style>{css}</style>
       <div style={topBar}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <BackBtn onClick={()=>setSteg("morgon")}/>
+          <BackBtn onClick={()=>setSteg("inst")}/>
           <div>
             <h1 style={{ margin:0,fontSize:26,fontWeight:700 }}>Mitt avtal</h1>
-            <p style={{ margin:"4px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'GS-avtalet'}</p>
+            <p style={{ margin:"4px 0 0",fontSize:13,color:C.label }}>{gsAvtal?.namn || 'Skogsavtalet 2025-2027'}</p>
           </div>
         </div>
       </div>
-      <div style={{ flex:1,overflowY:"auto",paddingTop:16 }}>
+      <div style={{ flex:1,overflowY:"auto",paddingTop:16,paddingBottom:100 }}>
         {[
-          {rubrik:"Arbetstid",rader:[["Ordinarie arbetstid","40 tim / vecka"],["Månadsschema","Beräknas per kalendermånad"]]},
-          {rubrik:"Övertid",rader:[["Övertid vardagar",`+ ${Math.round(((gsAvtal?.overtid_faktor ?? 1.5)-1)*100)}% av timlön`],["Övertid helg / röd dag","+ 100% av timlön"],["Max övertid / år","200 timmar"]]},
-          {rubrik:"Körersättning",rader:[["Gräns",`${gsAvtal?.km_grans_per_dag ?? 120} km / dag (tur & retur)`],["Ersättning över gränsen",`${gsAvtal?.km_ersattning_kr ?? 2.90} kr / km`]]},
-          {rubrik:"Traktamente",rader:[["Heldagstraktamente",`${gsAvtal?.traktamente_hel_kr ?? 300} kr / dag skattefritt`],["Halvdagstraktamente",`${gsAvtal?.traktamente_halv_kr ?? 150} kr / dag skattefritt`]]},
-          {rubrik:"ATK",rader:[["Intjäning","Baserat på jobbade timmar"],["Utbetalning","En gång per kvartal"]]},
-          {rubrik:"Semester",rader:[["Semesterdagar","25 dagar / år"],["Intjäningsår","1 april – 31 mars"]]},
+          {rubrik:"Avtalsperiod",rader:[
+            ["Avtal",gsAvtal?.namn||"Skogsavtalet 2025-2027"],
+            ["Gäller","1 apr 2025 – 31 mar 2027"],
+          ]},
+          {rubrik:"Övertid",rader:[
+            ["Övertidsersättning",`${gsAvtal?.overtid_vardag_kr??54.94} kr/tim`],
+            ["Max övertid",`${gsAvtal?.max_overtid_ar??250} tim/år`],
+          ]},
+          {rubrik:"OB-ersättning",rader:[
+            ["Mån-fre kväll/natt (17-06:30)",`${gsAvtal?.ob_kvall_kr??43.77} kr/tim`],
+            ["Nattarbete (00-05)",`${gsAvtal?.ob_natt_kr??56.82} kr/tim`],
+            ["Lördag",`${gsAvtal?.ob_lordag_kr??68.95} kr/tim`],
+            ["Söndag",`${gsAvtal?.ob_sondag_kr??103.38} kr/tim`],
+          ]},
+          {rubrik:"Färdmedel & färdtid",rader:[
+            ["Färdmedelsersättning",`${gsAvtal?.km_ersattning_kr??27.50} kr/mil`],
+            ["Km-gräns",`${gsAvtal?.km_grans_per_dag??60} km/dag`],
+            ["Färdtidsersättning (>60 km)",`${gsAvtal?.fardtid_kr??10.49} kr/mil`],
+          ]},
+          {rubrik:"ATK",rader:[
+            ["Avsättning",`${gsAvtal?.atk_procent??3.62}% (uttagsår ${gsAvtal?.atk_period??'2025-2026'})`],
+            ["Nästa period",`${gsAvtal?.atk_procent_nasta??3.92}%`],
+            ["Ledig tid",`${gsAvtal?.atk_ledig_tim??65.2} tim/år`],
+            ["Pension-tillägg","+20%"],
+          ]},
+          {rubrik:"Traktamente",rader:[
+            ["Heldag",`${gsAvtal?.traktamente_hel_kr??300} kr`],
+            ["Halvdag",`${gsAvtal?.traktamente_halv_kr??150} kr`],
+          ]},
+          {rubrik:"Sjuklön",rader:[
+            ["Ersättning","80% av lön efter karens"],
+          ]},
+          {rubrik:"Semester",rader:[
+            ["Semesterdagar","25 dagar/år"],
+            ["Intjäningsår","1 april – 31 mars"],
+            ["Ersättning tidsbegränsad","13%"],
+          ]},
+          {rubrik:"Helglön (timavlönade)",rader:[
+            ["Dagar","Nyårsdagen, Trettondagen, Långfredagen, Annandag påsk, 1 maj, Kristi himmelf., Nationaldagen, Midsommarafton, Julafton, Juldagen, Annandag jul, Nyårsafton"],
+          ]},
+          {rubrik:"Övriga tillägg",rader:[
+            ["Skifttillägg",`${gsAvtal?.skifttillagg_kr??8.00} kr/tim`],
+            ["Bortovaro >12h",`${gsAvtal?.bortovaro_kr??8.03} kr/tim`],
+          ]},
         ].map(({rubrik,rader})=>(
           <div key={rubrik} style={{ marginBottom:20 }}>
             <Label>{rubrik}</Label>
             <Card style={{ padding:"4px 20px" }}>
               {rader.map(([l,v],i,arr)=>(
-                <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
-                  <span style={{ fontSize:15,color:C.label }}>{l}</span>
-                  <span style={{ fontSize:15,fontWeight:600,textAlign:"right",maxWidth:"55%" }}>{v}</span>
+                <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"13px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
+                  <span style={{ fontSize:14,color:C.label,flex:1 }}>{l}</span>
+                  <span style={{ fontSize:14,fontWeight:600,textAlign:"right",maxWidth:"55%",marginLeft:12 }}>{v}</span>
                 </div>
               ))}
             </Card>
           </div>
         ))}
+        <button onClick={()=>window.open('/avtal/skogsavtalet-2025-2027.pdf','_blank')} style={{ width:"100%",height:48,background:"#2a2a2a",border:"none",borderRadius:12,color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit",marginBottom:16 }}>
+          Läs hela avtalet →
+        </button>
         <div style={{ background:"rgba(10,132,255,0.08)",borderRadius:14,padding:"14px 16px",marginBottom:24,border:"1px solid rgba(10,132,255,0.15)" }}>
           <p style={{ margin:0,fontSize:13,color:C.blue,fontWeight:500 }}>Värdena hämtas från Supabase och uppdateras automatiskt om avtalet ändras.</p>
         </div>
