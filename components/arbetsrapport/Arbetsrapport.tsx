@@ -2220,7 +2220,8 @@ export default function Arbetsrapport() {
         {/* Tidigast start imorgon */}
         {slut&&(()=>{
           const [sh,sm]=(slut as string).split(':').map(Number);
-          const tidigast=new Date(nu.getFullYear(),nu.getMonth(),nu.getDate(),sh,sm);
+          const _nu=new Date();
+          const tidigast=new Date(_nu.getFullYear(),_nu.getMonth(),_nu.getDate(),sh,sm);
           tidigast.setHours(tidigast.getHours()+11);
           const tid=`${String(tidigast.getHours()).padStart(2,'0')}:${String(tidigast.getMinutes()).padStart(2,'0')}`;
           if(tidigast.getHours()>=5&&tidigast.getHours()<=9) return (
