@@ -452,6 +452,9 @@ export default function Arbetsrapport() {
   const [visaRedMaskinVäljare, setVisaRedMaskinVäljare] = useState(false);
   const [visaRedRastPicker, setVisaRedRastPicker] = useState(false);
   const [visaHelÅrVila, setVisaHelÅrVila] = useState(false);
+  const [vilaPeriod, setVilaPeriod] = useState<'7d'|'30d'|'månad'|'år'>('7d');
+  const [vilaMånad, setVilaMånad] = useState(new Date().getMonth());
+  const [vilaÅrExpand, setVilaÅrExpand] = useState<number|null>(null);
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
 
@@ -1230,130 +1233,206 @@ export default function Arbetsrapport() {
             </div>
           </section>
 
-          {/* Dygnsvila — korrekt: slut_tid dag X → start_tid dag X+1 */}
+          {/* Dygnsvila med periodväljare */}
           {(()=>{
+            // Beräkna alla viloperioder för hela året
             const sortAsc=[...årsData].filter(r=>r.slut_tid&&r.start_tid).sort((a,b)=>a.datum.localeCompare(b.datum));
-            const allViloperioder: {datum:string;vila:number;label:string}[] = [];
+            const allVila: {datum:string;vila:number;label:string;månad:number}[] = [];
             for(let i=0;i<sortAsc.length-1;i++){
               const dag1=sortAsc[i], dag2=sortAsc[i+1];
               const slutDt=new Date(`${dag1.datum}T${dag1.slut_tid}`);
               const startDt=new Date(`${dag2.datum}T${dag2.start_tid}`);
-              // Räkna hela lediga dagar emellan
               const d1=new Date(dag1.datum), d2n=new Date(dag2.datum);
               const dagarMellan=Math.round((d2n.getTime()-d1.getTime())/864e5)-1;
               let vila=(startDt.getTime()-slutDt.getTime())/3600000;
               if(dagarMellan>0) vila=dagarMellan*24+(startDt.getHours()+startDt.getMinutes()/60)+(24-slutDt.getHours()-slutDt.getMinutes()/60);
               if(vila<=0) continue;
               const dt=new Date(dag2.datum);
-              const label=`${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`;
-              allViloperioder.push({datum:dag2.datum,vila:Math.round(vila*10)/10,label});
+              allVila.push({datum:dag2.datum,vila:Math.round(vila*10)/10,label:`${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`,månad:dt.getMonth()});
             }
-            const vilaReversed=[...allViloperioder].reverse();
-            const nu30=new Date(); nu30.setDate(nu30.getDate()-30);
-            const senaste30=vilaReversed.filter(r=>r.datum>=nu30.toISOString().split('T')[0]);
-            const visade=visaHelÅrVila?vilaReversed:senaste30;
-            return (
-            <section style={{ marginBottom:32 }}>
-              <h3 style={secHead}>Dygnsvila</h3>
-              <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                {visade.length===0?<p style={{ padding:"14px 0",margin:0,fontSize:14,color:"#8e8e93" }}>Inte tillräckligt med data</p>:
-                visade.map((r,i)=>{
-                  const ok=r.vila>=11;
-                  return (
-                    <div key={i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:i<visade.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
-                      <span style={{ fontSize:14,color:"#8e8e93",textTransform:"capitalize" }}>{r.label}</span>
-                      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                        <span style={{ fontSize:14,fontWeight:600,color:ok?"#fff":"#ff453a" }}>{r.vila}h</span>
-                        <span style={{ fontSize:12,color:ok?"#34c759":"#ff453a" }}>{ok?"✓":"⚠"}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {!visaHelÅrVila&&vilaReversed.length>senaste30.length&&(
-                <button onClick={()=>setVisaHelÅrVila(true)} style={{ width:"100%",marginTop:8,background:"none",border:"none",color:"#adc6ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:"8px 0" }}>Visa hela året ({vilaReversed.length} perioder)</button>
-              )}
-              {visaHelÅrVila&&(
-                <button onClick={()=>setVisaHelÅrVila(false)} style={{ width:"100%",marginTop:8,background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:"8px 0" }}>Visa senaste 30 dagarna</button>
-              )}
-            </section>
-            );
-          })()}
+            const vilaRev=[...allVila].reverse();
 
-          {/* Veckovila — rullande 7-dagarsperioder, senaste 4 veckorna */}
-          <section style={{ marginBottom:32 }}>
-            <h3 style={secHead}>Veckovila</h3>
-            <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-              {(()=>{
-                const nu4=new Date();
-                const veckor: {vecka:number;maxVilaH:number}[] = [];
-                for(let w=0;w<4;w++){
-                  const vStart=new Date(nu4); vStart.setDate(nu4.getDate()-((nu4.getDay()+6)%7)-w*7);
-                  // Hitta alla arbetsdagar i denna vecka
-                  const veckaDagar: {start:Date;slut:Date}[] = [];
-                  for(let d=0;d<7;d++){
-                    const dt=new Date(vStart); dt.setDate(vStart.getDate()+d);
-                    const k=dt.toISOString().split('T')[0];
-                    const ad=årsData.find(r=>r.datum===k);
-                    if(ad?.start_tid&&ad?.slut_tid) veckaDagar.push({start:new Date(`${k}T${ad.start_tid}`),slut:new Date(`${k}T${ad.slut_tid}`)});
-                  }
-                  if(veckaDagar.length===0){ veckor.push({vecka:w,maxVilaH:168}); continue; }
-                  // Beräkna max vila = längsta lucka mellan pass (inkl före första och efter sista)
-                  veckaDagar.sort((a,b)=>a.start.getTime()-b.start.getTime());
-                  let maxV=0;
-                  // Vila före första passet
-                  const vStartMs=new Date(vStart).setHours(0,0,0,0);
-                  maxV=Math.max(maxV,(veckaDagar[0].start.getTime()-vStartMs)/3600000);
-                  // Vila mellan pass
-                  for(let i=0;i<veckaDagar.length-1;i++){
-                    maxV=Math.max(maxV,(veckaDagar[i+1].start.getTime()-veckaDagar[i].slut.getTime())/3600000);
-                  }
-                  // Vila efter sista passet
-                  const vSlutMs=new Date(vStart); vSlutMs.setDate(vStart.getDate()+7); vSlutMs.setHours(0,0,0,0);
-                  maxV=Math.max(maxV,(vSlutMs.getTime()-veckaDagar[veckaDagar.length-1].slut.getTime())/3600000);
-                  veckor.push({vecka:w,maxVilaH:Math.round(maxV*10)/10});
+            // Filter baserat på vald period
+            const nu5=new Date();
+            let filtVila=vilaRev;
+            let periodLabel='';
+            if(vilaPeriod==='7d'){
+              const cutoff=new Date(nu5); cutoff.setDate(nu5.getDate()-7);
+              filtVila=vilaRev.filter(r=>r.datum>=cutoff.toISOString().split('T')[0]);
+              periodLabel='senaste 7 dagarna';
+            } else if(vilaPeriod==='30d'){
+              const cutoff=new Date(nu5); cutoff.setDate(nu5.getDate()-30);
+              filtVila=vilaRev.filter(r=>r.datum>=cutoff.toISOString().split('T')[0]);
+              periodLabel='senaste 30 dagarna';
+            } else if(vilaPeriod==='månad'){
+              const mp=`${nu5.getFullYear()}-${String(vilaMånad+1).padStart(2,'0')}`;
+              filtVila=vilaRev.filter(r=>r.datum.startsWith(mp));
+              periodLabel=`${['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'][vilaMånad]} ${nu5.getFullYear()}`;
+            } else {
+              filtVila=vilaRev;
+              periodLabel=`${nu5.getFullYear()}`;
+            }
+            const brott=filtVila.filter(r=>r.vila<11).length;
+            const okCount=filtVila.filter(r=>r.vila>=11).length;
+
+            // Veckovila för perioden
+            const beräknaVeckovila = () => {
+              const veckor: {nr:number;maxH:number}[] = [];
+              const antalV = vilaPeriod==='7d'?1:vilaPeriod==='30d'?4:vilaPeriod==='månad'?5:Math.ceil((Math.floor((nu5.getTime()-new Date(nu5.getFullYear(),0,1).getTime())/864e5))/7);
+              for(let w=0;w<Math.min(antalV,52);w++){
+                const vStart=new Date(nu5); vStart.setDate(nu5.getDate()-((nu5.getDay()+6)%7)-w*7);
+                const vDagar: {start:Date;slut:Date}[] = [];
+                for(let d=0;d<7;d++){
+                  const dt=new Date(vStart); dt.setDate(vStart.getDate()+d);
+                  const k=dt.toISOString().split('T')[0];
+                  const ad=årsData.find(r=>r.datum===k);
+                  if(ad?.start_tid&&ad?.slut_tid) vDagar.push({start:new Date(`${k}T${ad.start_tid}`),slut:new Date(`${k}T${ad.slut_tid}`)});
                 }
-                const veckoNrStart=Math.ceil((Math.floor((nu4.getTime()-new Date(nu4.getFullYear(),0,1).getTime())/864e5)+new Date(nu4.getFullYear(),0,1).getDay()+1)/7);
-                return veckor.map((v,i)=>{
-                  const ok=v.maxVilaH>=36;
-                  const vNr=veckoNrStart-v.vecka;
-                  return (
-                    <div key={i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:i<veckor.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
-                      <span style={{ fontSize:14,color:"#8e8e93" }}>Vecka {vNr}</span>
-                      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                        <span style={{ fontSize:14,fontWeight:600,color:ok?"#fff":"#ff453a" }}>{v.maxVilaH}h</span>
-                        <span style={{ fontSize:12,color:ok?"#34c759":"#ff453a" }}>{ok?"✓":"⚠"}</span>
-                      </div>
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          </section>
+                if(vDagar.length===0){veckor.push({nr:w,maxH:168});continue;}
+                vDagar.sort((a,b)=>a.start.getTime()-b.start.getTime());
+                let maxV=(vDagar[0].start.getTime()-new Date(vStart).setHours(0,0,0,0))/3600000;
+                for(let i=0;i<vDagar.length-1;i++) maxV=Math.max(maxV,(vDagar[i+1].start.getTime()-vDagar[i].slut.getTime())/3600000);
+                const vSlut=new Date(vStart);vSlut.setDate(vStart.getDate()+7);vSlut.setHours(0,0,0,0);
+                maxV=Math.max(maxV,(vSlut.getTime()-vDagar[vDagar.length-1].slut.getTime())/3600000);
+                veckor.push({nr:w,maxH:Math.round(maxV*10)/10});
+              }
+              return veckor;
+            };
+            const veckoVilaData = vilaPeriod!=='år' ? beräknaVeckovila().slice(0,vilaPeriod==='7d'?1:4) : [];
+            const veckoNrNu=Math.ceil((Math.floor((nu5.getTime()-new Date(nu5.getFullYear(),0,1).getTime())/864e5)+new Date(nu5.getFullYear(),0,1).getDay()+1)/7);
 
-          {/* Exportera + Löneunderlag */}
-          <section style={{ paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.05)",display:"flex",flexDirection:"column",gap:12 }}>
-            <button onClick={()=>{
-              // Generera enkel text-PDF via print
-              const sortAsc2=[...årsData].filter(r=>r.slut_tid&&r.start_tid).sort((a,b)=>a.datum.localeCompare(b.datum));
-              let txt=`Viloperioder ${nu.getFullYear()} — ${medarbetare?.namn||''}\n\n`;
-              for(let i=0;i<sortAsc2.length-1;i++){
-                const d1=sortAsc2[i],d2=sortAsc2[i+1];
-                const slutDt=new Date(`${d1.datum}T${d1.slut_tid}`);
-                const startDt=new Date(`${d2.datum}T${d2.start_tid}`);
-                const vila=Math.round((startDt.getTime()-slutDt.getTime())/3600000*10)/10;
-                if(vila>0) txt+=`${d2.datum}: ${vila}h vila ${vila>=11?'✓':'⚠ UNDER 11h'}\n`;
+            // Årsvy: sammanfattning per månad
+            const årsMånader = vilaPeriod==='år' ? Array.from({length:12},(_,m)=>{
+              const mv=allVila.filter(r=>r.månad===m);
+              const mBrott=mv.filter(r=>r.vila<11).length;
+              return {månad:m,antal:mv.length,brott:mBrott};
+            }).filter(m=>m.antal>0) : [];
+
+            // Export
+            const exportPDF = () => {
+              let txt=`Viloperioder ${medarbetare?.namn||''} — ${periodLabel}\n\n`;
+              txt+=`${okCount} av ${filtVila.length} dagar uppfyller kravet (11h)\n`;
+              if(brott>0) txt+=`${brott} brott mot dygnsviloregeln\n`;
+              txt+='\n';
+              for(const r of [...filtVila].reverse()) txt+=`${r.datum}: ${r.vila}h vila ${r.vila>=11?'✓':'⚠ UNDER 11h'}\n`;
+              if(veckoVilaData.length>0){
+                txt+='\nVeckovila:\n';
+                veckoVilaData.forEach((v,i)=>txt+=`Vecka ${veckoNrNu-v.nr}: ${v.maxH}h ${v.maxH>=36?'✓':'⚠ UNDER 36h'}\n`);
               }
               const w=window.open('','','width=600,height=800');
               if(w){w.document.write(`<pre style="font-family:monospace;font-size:12px;padding:20px">${txt}</pre>`);w.document.title='Viloperioder';w.print();}
-            }} style={{ display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",padding:"12px 0",cursor:"pointer",fontFamily:"inherit" }}>
-              <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>print</span>
-              <span style={{ fontSize:15,fontWeight:500,color:"#8e8e93" }}>Exportera viloperioder (PDF)</span>
-            </button>
-            <button onClick={()=>setSteg("lön")} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"none",border:"none",padding:"12px 0",cursor:"pointer",fontFamily:"inherit" }}>
-              <span style={{ fontSize:15,fontWeight:500,color:"#adc6ff" }}>Löneunderlag →</span>
-            </button>
-          </section>
+            };
+
+            return (<>
+            <section style={{ marginBottom:24 }}>
+              <h3 style={secHead}>Dygnsvila</h3>
+              {/* Flikrad */}
+              <div style={{ display:"flex",gap:0,marginBottom:16,background:"rgba(255,255,255,0.06)",borderRadius:8,padding:2 }}>
+                {([['7d','7 dagar'],['30d','30 dagar'],['månad','Månad'],['år','År']] as const).map(([k,l])=>(
+                  <button key={k} onClick={()=>setVilaPeriod(k)} style={{ flex:1,padding:"8px 0",borderRadius:6,border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:vilaPeriod===k?"rgba(255,255,255,0.12)":"transparent",color:vilaPeriod===k?"#fff":"#8e8e93" }}>{l}</button>
+                ))}
+              </div>
+
+              {/* Månadsnavigation */}
+              {vilaPeriod==='månad'&&(
+                <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:16,marginBottom:16 }}>
+                  <button onClick={()=>setVilaMånad(m=>(m-1+12)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>chevron_left</span></button>
+                  <span style={{ fontSize:15,fontWeight:600,color:"#fff",minWidth:120,textAlign:"center",textTransform:"capitalize" }}>{periodLabel}</span>
+                  <button onClick={()=>setVilaMånad(m=>(m+1)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>chevron_right</span></button>
+                </div>
+              )}
+
+              {/* Summering */}
+              <div style={{ display:"flex",gap:12,marginBottom:16 }}>
+                <div style={{ flex:1,background:"#1c1c1e",borderRadius:10,padding:"12px 14px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                  <p style={{ margin:0,fontSize:11,color:"#8e8e93" }}>Uppfyller kravet</p>
+                  <p style={{ margin:"4px 0 0",fontSize:18,fontWeight:700,color:"#34c759" }}>{okCount} <span style={{ fontSize:12,fontWeight:400,color:"#8e8e93" }}>av {filtVila.length}</span></p>
+                </div>
+                <div style={{ flex:1,background:"#1c1c1e",borderRadius:10,padding:"12px 14px",border:`1px solid ${brott>0?"rgba(255,69,58,0.2)":"rgba(255,255,255,0.06)"}` }}>
+                  <p style={{ margin:0,fontSize:11,color:"#8e8e93" }}>Brott</p>
+                  <p style={{ margin:"4px 0 0",fontSize:18,fontWeight:700,color:brott>0?"#ff453a":"#fff" }}>{brott}</p>
+                </div>
+              </div>
+
+              {/* Årsvy: per månad */}
+              {vilaPeriod==='år'?(
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                  {årsMånader.map((m,i)=>{
+                    const mNamn=['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'][m.månad];
+                    const expanded=vilaÅrExpand===m.månad;
+                    return (
+                      <div key={m.månad}>
+                        <div onClick={()=>setVilaÅrExpand(expanded?null:m.månad)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<årsMånader.length-1&&!expanded?"1px solid rgba(255,255,255,0.04)":"none",cursor:"pointer" }}>
+                          <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>{mNamn}</span>
+                          <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                            <span style={{ fontSize:13,color:m.brott>0?"#ff453a":"#8e8e93" }}>{m.antal} dagar{m.brott>0?` · ${m.brott} varning${m.brott>1?'ar':''}`:' ✓'}</span>
+                            <span className="material-symbols-outlined" style={{ fontSize:16,color:"#8e8e93",transition:"transform 0.2s",transform:expanded?"rotate(180deg)":"" }}>expand_more</span>
+                          </div>
+                        </div>
+                        {expanded&&allVila.filter(r=>r.månad===m.månad).map((r,j)=>{
+                          const ok2=r.vila>=11;
+                          return (
+                            <div key={j} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0 10px 16px",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
+                              <span style={{ fontSize:13,color:"#636366",textTransform:"capitalize" }}>{r.label}</span>
+                              <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                                <span style={{ fontSize:13,fontWeight:600,color:ok2?"#fff":"#ff453a" }}>{r.vila}h</span>
+                                <span style={{ fontSize:11,color:ok2?"#34c759":"#ff453a" }}>{ok2?"✓":"⚠"}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                  {årsMånader.length===0&&<p style={{ padding:"14px 0",margin:0,fontSize:14,color:"#8e8e93" }}>Ingen data</p>}
+                </div>
+              ):(
+                /* Dag-lista */
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                  {filtVila.length===0?<p style={{ padding:"14px 0",margin:0,fontSize:14,color:"#8e8e93" }}>Ingen data för perioden</p>:
+                  filtVila.map((r,i)=>(
+                    <div key={i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:i<filtVila.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
+                      <span style={{ fontSize:14,color:"#8e8e93",textTransform:"capitalize" }}>{r.label}</span>
+                      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                        <span style={{ fontSize:14,fontWeight:600,color:r.vila>=11?"#fff":"#ff453a" }}>{r.vila}h</span>
+                        <span style={{ fontSize:12,color:r.vila>=11?"#34c759":"#ff453a" }}>{r.vila>=11?"✓":"⚠"}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Veckovila */}
+            {veckoVilaData.length>0&&(
+              <section style={{ marginBottom:24 }}>
+                <h3 style={secHead}>Veckovila</h3>
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                  {veckoVilaData.map((v,i)=>(
+                    <div key={i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:i<veckoVilaData.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
+                      <span style={{ fontSize:14,color:"#8e8e93" }}>Vecka {veckoNrNu-v.nr}</span>
+                      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                        <span style={{ fontSize:14,fontWeight:600,color:v.maxH>=36?"#fff":"#ff453a" }}>{v.maxH}h</span>
+                        <span style={{ fontSize:12,color:v.maxH>=36?"#34c759":"#ff453a" }}>{v.maxH>=36?"✓":"⚠"}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Export + Löneunderlag */}
+            <section style={{ paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.05)",display:"flex",flexDirection:"column",gap:12 }}>
+              <button onClick={exportPDF} style={{ display:"flex",alignItems:"center",gap:8,width:"100%",background:"none",border:"none",padding:"12px 0",cursor:"pointer",fontFamily:"inherit" }}>
+                <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>print</span>
+                <span style={{ fontSize:15,fontWeight:500,color:"#8e8e93" }}>Exportera PDF →</span>
+              </button>
+              <button onClick={()=>setSteg("lön")} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"none",border:"none",padding:"12px 0",cursor:"pointer",fontFamily:"inherit" }}>
+                <span style={{ fontSize:15,fontWeight:500,color:"#adc6ff" }}>Löneunderlag →</span>
+              </button>
+            </section>
+            </>);
+          })()}
 
         </main>
         <BottomNavBar aktiv="mintid" onNav={s=>setSteg(s)} />
