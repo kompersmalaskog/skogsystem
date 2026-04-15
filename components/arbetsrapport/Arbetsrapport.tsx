@@ -457,6 +457,7 @@ export default function Arbetsrapport() {
   const [vilaÅrExpand, setVilaÅrExpand] = useState<number|null>(null);
   const [visaAllaDygnsvila, setVisaAllaDygnsvila] = useState(false);
   const [visaAllaVeckovila, setVisaAllaVeckovila] = useState(false);
+  const [minTidFlik, setMinTidFlik] = useState<'översikt'|'saldon'|'vila'|'lön'>('översikt');
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
 
@@ -1159,14 +1160,19 @@ export default function Arbetsrapport() {
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",paddingBottom:120 }}>
         <style>{css}</style>
-        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 24px",height:64 }}>
-          <h1 style={{ margin:0,fontSize:20,fontWeight:700,color:"#fff" }}>Min tid</h1>
+        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:"0 24px",paddingTop:16 }}>
+          <h1 style={{ margin:"0 0 12px",fontSize:20,fontWeight:700,color:"#fff" }}>Min tid</h1>
+          <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.06)",borderRadius:8,padding:2,marginBottom:12 }}>
+            {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila'],['lön','Löneunderlag']] as const).map(([k,l])=>(
+              <button key={k} onClick={()=>{if(k==='lön'){setSteg('lön');return;}setMinTidFlik(k);}} style={{ flex:1,padding:"7px 0",borderRadius:6,border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:minTidFlik===k?"rgba(255,255,255,0.12)":"transparent",color:minTidFlik===k?"#fff":"#8e8e93" }}>{l}</button>
+            ))}
+          </div>
         </header>
 
-        <main style={{ paddingTop:88,paddingLeft:20,paddingRight:20 }}>
+        <main style={{ paddingTop:110,paddingLeft:20,paddingRight:20 }}>
 
-          {/* Varningar — bara om det finns */}
-          {varningar.length>0&&(
+          {/* Varningar — bara på översikt */}
+          {minTidFlik==='översikt'&&varningar.length>0&&(
             <section style={{ marginBottom:24 }}>
               {varningar.map((v,i)=>(
                 <div key={i} style={{ background:v.typ==='röd'?"rgba(255,69,58,0.08)":"rgba(255,159,10,0.08)",border:`1px solid ${v.typ==='röd'?"rgba(255,69,58,0.25)":"rgba(255,159,10,0.25)"}`,borderRadius:12,padding:"14px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:10 }}>
@@ -1177,6 +1183,7 @@ export default function Arbetsrapport() {
             </section>
           )}
 
+          {minTidFlik==='översikt'&&<>
           {/* Stapeldiagram — veckan */}
           <section style={{ marginBottom:32 }}>
             <h3 style={secHead}>Vecka {veckoNr}</h3>
@@ -1222,6 +1229,9 @@ export default function Arbetsrapport() {
             </div>
           </section>
 
+          </>}
+
+          {minTidFlik==='saldon'&&<>
           {/* Semester */}
           {(()=>{
             const semTotalt = medarbetare?.semester_dagar ?? 25;
@@ -1298,6 +1308,9 @@ export default function Arbetsrapport() {
             );
           })()}
 
+          </>}
+
+          {minTidFlik==='översikt'&&<>
           {/* Övertid året — progress bar */}
           <section style={{ marginBottom:32 }}>
             <h3 style={secHead}>Övertid {nu.getFullYear()}</h3>
@@ -1313,6 +1326,9 @@ export default function Arbetsrapport() {
             </div>
           </section>
 
+          </>}
+
+          {minTidFlik==='vila'&&<>
           {/* Dygnsvila med periodväljare */}
           {(()=>{
             // Beräkna anledning för dagar i ett gap
@@ -1578,12 +1594,10 @@ export default function Arbetsrapport() {
                 <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>print</span>
                 <span style={{ fontSize:15,fontWeight:500,color:"#8e8e93" }}>Exportera PDF →</span>
               </button>
-              <button onClick={()=>setSteg("lön")} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"none",border:"none",padding:"12px 0",cursor:"pointer",fontFamily:"inherit" }}>
-                <span style={{ fontSize:15,fontWeight:500,color:"#adc6ff" }}>Löneunderlag →</span>
-              </button>
             </section>
             </>);
           })()}
+          </>}
 
         </main>
         <BottomNavBar aktiv="mintid" onNav={s=>setSteg(s)} />
