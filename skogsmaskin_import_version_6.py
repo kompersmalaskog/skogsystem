@@ -1921,6 +1921,126 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
         logger.error(f"  Fel vid sparande till {table}: {e}")
         return 0
 
+def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
+    """Skapa arbetsdag-rader automatiskt från fakt_tid och skift.
+    Skriver inte över rader där bekraftad = true."""
+    try:
+        # Hämta medarbetare → maskin_id mapping
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/medarbetare?select=id,maskin_id,namn&aktiv=eq.true&roll=eq.förare",
+            headers=SUPABASE_HEADERS, timeout=30
+        )
+        if resp.status_code != 200:
+            return
+        medarbetare = resp.json()
+        maskin_to_medarb = {}
+        for m in medarbetare:
+            if m.get('maskin_id'):
+                maskin_to_medarb[m['maskin_id']] = m['id']
+
+        # Bygg skift-lookup: (maskin_id, datum) → (start_time, end_time)
+        skift_lookup = {}
+        for s in skift:
+            if s.get('datum') and s.get('maskin_id') and s.get('inloggning_tid'):
+                key = (s['maskin_id'], str(s['datum']))
+                start = s['inloggning_tid']
+                end = s.get('utloggning_tid')
+                if key not in skift_lookup:
+                    skift_lookup[key] = {'start': start, 'end': end}
+                else:
+                    # Behåll tidigaste start och senaste slut
+                    if start < skift_lookup[key]['start']:
+                        skift_lookup[key]['start'] = start
+                    if end and (not skift_lookup[key]['end'] or end > skift_lookup[key]['end']):
+                        skift_lookup[key]['end'] = end
+
+        # Aggregera per (maskin_id, datum)
+        dag_agg = {}
+        for row in tid_rows:
+            maskin = row.get('maskin_id')
+            datum = row.get('datum')
+            if not maskin or not datum:
+                continue
+            datum_str = str(datum)
+            key = (maskin, datum_str)
+            if key not in dag_agg:
+                dag_agg[key] = {'engine': 0, 'rast': 0, 'objekt_id': None}
+            dag_agg[key]['engine'] += row.get('engine_time_sek', 0) or 0
+            dag_agg[key]['rast'] += row.get('rast_sek', 0) or 0
+            if not dag_agg[key]['objekt_id'] and row.get('objekt_id'):
+                dag_agg[key]['objekt_id'] = row['objekt_id']
+
+        arbetsdag_rows = []
+        for (maskin, datum_str), agg in dag_agg.items():
+            medarb_id = maskin_to_medarb.get(maskin)
+            if not medarb_id:
+                continue
+            if agg['engine'] <= 0:
+                continue
+
+            # Start/slut-tid från skift om tillgängligt
+            sk = skift_lookup.get((maskin, datum_str))
+            if sk and sk['start']:
+                start_dt = sk['start'] if isinstance(sk['start'], datetime) else parse_datetime(str(sk['start']))
+                start_tid = start_dt.strftime('%H:%M') if start_dt else '07:00'
+            else:
+                start_tid = '07:00'
+
+            engine_h = agg['engine'] / 3600
+            # Beräkna sluttid
+            start_h, start_m = map(int, start_tid.split(':'))
+            end_minutes = start_h * 60 + start_m + int(engine_h * 60)
+            end_h = min(end_minutes // 60, 23)
+            end_m = end_minutes % 60
+            slut_tid = f'{end_h:02d}:{end_m:02d}'
+
+            rast_min = int(agg['rast'] / 60)
+            arbetad_min = int(engine_h * 60) - rast_min
+
+            arbetsdag_rows.append({
+                'medarbetare_id': medarb_id,
+                'datum': datum_str,
+                'maskin_id': maskin,
+                'dagtyp': 'Produktion',
+                'start_tid': start_tid,
+                'slut_tid': slut_tid,
+                'rast_min': max(rast_min, 0),
+                'arbetad_min': max(arbetad_min, 0),
+                'bekraftad': False,
+                'objekt_id': agg['objekt_id'],
+            })
+
+        if not arbetsdag_rows:
+            return
+
+        # Upsert — ON CONFLICT (medarbetare_id, datum) DO UPDATE bara om bekraftad = false
+        # Supabase REST API kan inte göra conditional update, så vi:
+        # 1. Hämta befintliga bekräftade rader
+        # 2. Filtrera bort dem
+        # 3. Upsert resten
+        datum_list = list(set(r['datum'] for r in arbetsdag_rows))
+        medarb_list = list(set(r['medarbetare_id'] for r in arbetsdag_rows))
+
+        bekraftade = set()
+        for mid in medarb_list:
+            check = requests.get(
+                f"{SUPABASE_URL}/rest/v1/arbetsdag?medarbetare_id=eq.{mid}&bekraftad=eq.true&select=medarbetare_id,datum",
+                headers=SUPABASE_HEADERS, timeout=30
+            )
+            if check.status_code == 200:
+                for row in check.json():
+                    bekraftade.add((row['medarbetare_id'], row['datum']))
+
+        # Filtrera bort bekräftade
+        to_upsert = [r for r in arbetsdag_rows if (r['medarbetare_id'], r['datum']) not in bekraftade]
+
+        if to_upsert:
+            n = upsert_data('arbetsdag', to_upsert, ['medarbetare_id', 'datum'])
+            if n > 0:
+                logger.info(f"  Arbetsdag: {n} dagar skapade/uppdaterade")
+    except Exception as e:
+        logger.warning(f"  Arbetsdag: kunde inte skapa ({e})")
+
 def save_mom_to_supabase(data: Dict) -> bool:
     """Spara MOM-data till Supabase"""
     try:
@@ -2019,6 +2139,10 @@ def save_mom_to_supabase(data: Dict) -> bool:
             if rows:
                 if upsert_data('fakt_tid', rows, ['datum', 'maskin_id', 'objekt_id']) == 0:
                     fel.append('fakt_tid')
+
+        # Arbetsdag — skapa automatiskt från fakt_tid + skift
+        if rows:
+            _create_arbetsdag(rows, data.get('skift', []))
 
         # Produktion - upsert pa monitoring_start, samma period i flera filer blockeras
         if data.get('produktion'):
