@@ -1731,18 +1731,42 @@ export default function Arbetsrapport() {
 
     // Build weekly breakdown from historik — filtered to current month
     const månadsPrefix = lönePeriod; // "YYYY-MM"
-    const veckoData: Record<number, { dagar: {datum:string;min:number}[]; sumH:number }> = {};
+    const löneRödaDagar = getRödaDagar(nu.getFullYear());
+    const veckoData: Record<number, { dagar: {datum:string;min:number;rödDag?:string}[]; sumH:number; helglönH:number }> = {};
     historik.filter(d => d.datum && d.datum.startsWith(månadsPrefix)).forEach(d => {
       const date = new Date(d.datum);
-      // ISO week: getDay()=0 is Sun, we want Mon=1
       const dayOfYear = Math.floor((date.getTime() - new Date(date.getFullYear(),0,1).getTime()) / 86400000);
       const weekNum = Math.ceil((dayOfYear + new Date(date.getFullYear(),0,1).getDay()) / 7);
-      if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0 };
+      if(!veckoData[weekNum]) veckoData[weekNum] = { dagar:[], sumH:0, helglönH:0 };
       const m = d.arbetad_min || 0;
       veckoData[weekNum].dagar.push({ datum:d.datum, min:m });
       veckoData[weekNum].sumH += m/60;
     });
+    // Add röda dagar to weeks
+    const lönÅr=nu.getFullYear(), lönMån=nu.getMonth();
+    const dIMlön=new Date(lönÅr,lönMån+1,0).getDate();
+    for(let d=1;d<=dIMlön;d++){
+      const dt=new Date(lönÅr,lönMån,d);
+      const k=dt.toISOString().split('T')[0];
+      if(!k.startsWith(månadsPrefix)) continue;
+      const rödNamn=löneRödaDagar[k];
+      if(!rödNamn) continue;
+      const dayOfYear=Math.floor((dt.getTime()-new Date(lönÅr,0,1).getTime())/86400000);
+      const weekNum=Math.ceil((dayOfYear+new Date(lönÅr,0,1).getDay())/7);
+      if(!veckoData[weekNum]) veckoData[weekNum]={dagar:[],sumH:0,helglönH:0};
+      // Lägg till röd dag om den inte redan finns som arbetsdag
+      if(!veckoData[weekNum].dagar.find(x=>x.datum===k)){
+        veckoData[weekNum].dagar.push({datum:k,min:0,rödDag:rödNamn});
+      }
+      // Helglön: röd dag på vardag
+      const dow=dt.getDay();
+      if(dow!==0&&dow!==6) veckoData[weekNum].helglönH+=8;
+    }
+    // Sort dagar within each week
+    Object.values(veckoData).forEach(w=>w.dagar.sort((a,b)=>a.datum.localeCompare(b.datum)));
     const sortedWeeks = Object.entries(veckoData).sort(([a],[b]) => Number(a)-Number(b));
+    const totalHelglönH = Object.values(veckoData).reduce((a,w)=>a+w.helglönH,0);
+    const totalHelglönDagar = Math.round(totalHelglönH/8);
 
     // Build objekt/maskin aggregation — filtered to current month
     const maskinAgg: Record<string,{namn:string;maskin:string;dagar:number}> = {};
@@ -1810,17 +1834,24 @@ export default function Arbetsrapport() {
                       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16 }}>
                         <h3 style={{ margin:0,fontSize:15,fontWeight:600,color:"#e2e2e2" }}>Vecka {weekNum} <span style={{ color:"#8b90a0",fontWeight:400,fontSize:14 }}>{rangeStr}</span></h3>
                         <div style={{ display:"flex",alignItems:"baseline",gap:4 }}>
-                          <span style={{ fontSize:24,fontWeight:700,color:"#adc6ff" }}>{Math.round(week.sumH*10)/10}</span>
-                          <span style={{ fontSize:12,color:"#8b90a0" }}>tim</span>
+                          <span style={{ fontSize:24,fontWeight:700,color:"#adc6ff" }}>{Math.round(week.sumH*10)/10}{week.helglönH>0?` + ${week.helglönH}`:''}</span>
+                          <span style={{ fontSize:12,color:"#8b90a0" }}>tim{week.helglönH>0?' (inkl helglön)':''}</span>
                         </div>
                       </div>
                       <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
-                        {week.dagar.sort((a,b)=>a.datum.localeCompare(b.datum)).map(dag => {
+                        {week.dagar.map(dag => {
                           const dt = new Date(dag.datum);
                           const h = Math.round(dag.min/60*10)/10;
+                          const dagLabel = dagNamn[dt.getDay()].charAt(0).toUpperCase()+dagNamn[dt.getDay()].slice(1)+' '+dt.getDate()+' '+månNamn[dt.getMonth()];
+                          if(dag.rödDag) return (
+                            <div key={dag.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
+                              <span style={{ fontSize:14,color:"#ff453a" }}>{dagLabel}</span>
+                              <span style={{ fontSize:13,fontWeight:500,color:"#ff453a" }}>{dag.rödDag}</span>
+                            </div>
+                          );
                           return (
                             <div key={dag.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
-                              <span style={{ fontSize:14 }}>{dagNamn[dt.getDay()].charAt(0).toUpperCase()+dagNamn[dt.getDay()].slice(1)} {dt.getDate()} {månNamn[dt.getMonth()]}</span>
+                              <span style={{ fontSize:14 }}>{dagLabel}</span>
                               <div style={{ display:"flex",alignItems:"center",gap:12 }}>
                                 <span style={{ fontSize:14,fontWeight:500 }}>{h} tim</span>
                                 <div style={{ width:6,height:6,borderRadius:"50%",background:"#fff" }} />
@@ -1943,6 +1974,7 @@ export default function Arbetsrapport() {
                 ...(övH > 0 ? [["Övertid",`${övH} tim`]] : []),
                 ...(extraTidH > 0 ? [["Extra tid",`${extraTidH} tim`]] : []),
                 ["Traktamente",`${trakDagar} dagar`],
+                ...(totalHelglönH>0?[["Helglön",`${totalHelglönDagar} dagar (${totalHelglönH}h)`]]:[]),
                 ["Körersättning",`${löneErsKr} kr`],
               ].map(([l,v])=>(
                 <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
