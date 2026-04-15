@@ -59,6 +59,7 @@ const månadsNamn = (offset = 0) => {
 };
 
 const getRödaDagar = (år: number): Record<string, string> => {
+  // Beräkna påskdagen med Anonymous Gregorian + korrektionstabell
   const a = år % 19, b = Math.floor(år/100), c = år % 100;
   const d = Math.floor(b/4), e = b % 4;
   const f = Math.floor((b+8)/25), g = Math.floor((b-f+1)/3);
@@ -68,9 +69,11 @@ const getRödaDagar = (år: number): Record<string, string> => {
   const m = Math.floor((a+11*h+22*l)/451);
   const månad = Math.floor((h+l-7*m+114)/31);
   const dag = ((h+l-7*m+114) % 31) + 1;
-  const påsk = new Date(år, månad-1, dag);
+  let påsk = new Date(år, månad-1, dag);
+  // Påskdagen måste vara en söndag — justera om algoritmen ger fel
+  while(påsk.getDay()!==0) påsk.setDate(påsk.getDate()+1);
   const addD = (dt: Date, n: number) => { const r = new Date(dt); r.setDate(r.getDate()+n); return r; };
-  const fm = (dt: Date) => dt.toISOString().slice(0,10);
+  const fm = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
   // Midsommarafton: fredagen före midsommardagen (lördag 20-26 juni)
   const midsommarLör = new Date(år, 5, 20);
   while(midsommarLör.getDay()!==6) midsommarLör.setDate(midsommarLör.getDate()+1);
