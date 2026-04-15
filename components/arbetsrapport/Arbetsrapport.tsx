@@ -1306,30 +1306,41 @@ export default function Arbetsrapport() {
 
             // Export
             const exportPDF = () => {
-              let txt=`${medarbetare?.namn||''} — Viloperioder ${periodLabel}\n\n`;
-              txt+='DYGNSVILA\n';
-              for(const r of [...filtVila].reverse()) txt+=`${r.slutDatum} ${r.slutTid} → ${r.startDatum} ${r.startTid}: ${r.vila}h ${r.vila>=11?'✓':'⚠ UNDER 11h'}${r.ledig?' (ledig period)':''}\n`;
-              txt+=`\nVECKOVILA\n`;
-              vvData.forEach(v=>txt+=`Vecka ${veckoNrNu-v.nr}: ${v.maxH}h ${v.maxH>=36?'✓':'⚠ UNDER 36h'}\n`);
+              const fVH=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};
+              const fDe=(d:string)=>{const dt=new Date(d);return `${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`;};
+              let html=`<html><head><title>Viloperioder</title><style>body{font-family:Inter,system-ui,sans-serif;padding:32px;font-size:13px;color:#222}h1{font-size:18px;margin-bottom:4px}h2{font-size:14px;margin-top:24px;color:#666}table{width:100%;border-collapse:collapse;margin-top:8px}th{text-align:left;padding:8px 12px;background:#f5f5f5;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;color:#666;border-bottom:1px solid #ddd}td{padding:8px 12px;border-bottom:1px solid #eee}.warn{color:#d32f2f;font-weight:600}.ok{color:#2e7d32}</style></head><body>`;
+              html+=`<h1>${medarbetare?.namn||''}</h1><p style="color:#666;margin:0 0 24px">Viloperioder — ${periodLabel}</p>`;
+              html+=`<h2>Dygnsvila</h2><table><tr><th>Slutade</th><th>Startade igen</th><th>Vila</th><th>Status</th></tr>`;
+              for(const r of [...filtVila].reverse()){
+                const ok=r.vila>=11;
+                html+=`<tr><td>${fDe(r.slutDatum)} ${r.slutTid}</td><td>${fDe(r.startDatum)} ${r.startTid}</td><td>${fVH(r.vila)}</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 11h'}</td></tr>`;
+              }
+              html+=`</table>`;
+              html+=`<h2>Veckovila</h2><table><tr><th>Vecka</th><th>Längsta vila</th><th>Status</th></tr>`;
+              vvData.forEach(v=>{const ok=v.maxH>=36;html+=`<tr><td>Vecka ${veckoNrNu-v.nr}</td><td>${v.maxH}h</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 36h'}</td></tr>`;});
+              html+=`</table></body></html>`;
               const w=window.open('','','width=700,height=900');
-              if(w){w.document.write(`<pre style="font-family:monospace;font-size:12px;padding:24px;line-height:1.6">${txt}</pre>`);w.document.title='Viloperioder';w.print();}
+              if(w){w.document.write(html);w.document.close();w.document.title='Viloperioder';setTimeout(()=>w.print(),300);}
             };
 
             // Render en vilorad med klockslag
-            const VilaRad = ({r,i,tot}:{r:typeof allVila[0];i:number;tot:number}) => {
+            const fmtVilaH = (h:number) => { const hh=Math.floor(h); const mm=Math.round((h-hh)*60); return mm>0?`${hh}h ${mm}min`:`${hh}h`; };
+            const fD=(d:Date)=>`${dagNamn[d.getDay()].slice(0,3)} ${d.getDate()} ${månNamn2[d.getMonth()]}`;
+            const VilaKort = ({r}:{r:typeof allVila[0]}) => {
               const ok=r.vila>=11;
               const d1=new Date(r.slutDatum),d2=new Date(r.startDatum);
-              const fD=(d:Date)=>`${dagNamn[d.getDay()].slice(0,3)} ${d.getDate()} ${månNamn2[d.getMonth()]}`;
               return (
-                <div key={i} style={{ padding:"12px 0",borderBottom:i<tot-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                    <span style={{ fontSize:13,color:"#8e8e93" }}><span style={{textTransform:"capitalize"}}>{fD(d1)}</span> {r.slutTid} → <span style={{textTransform:"capitalize"}}>{fD(d2)}</span> {r.startTid}</span>
-                    <div style={{ display:"flex",alignItems:"center",gap:6,flexShrink:0,marginLeft:8 }}>
-                      <span style={{ fontSize:14,fontWeight:600,color:ok?"#fff":"#ff453a" }}>{r.vila}h</span>
-                      <span style={{ fontSize:12,color:ok?"#34c759":"#ff453a" }}>{ok?"✓":"⚠"}</span>
-                    </div>
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:`1px solid ${ok?"rgba(255,255,255,0.06)":"rgba(255,69,58,0.2)"}` }}>
+                  <p style={{ margin:"0 0 6px",fontSize:14,fontWeight:600,color:"#fff",textTransform:"capitalize" }}>{fD(d1)}</p>
+                  <p style={{ margin:"0 0 2px",fontSize:13,color:"#8e8e93" }}>Slutade kl {r.slutTid}</p>
+                  <p style={{ margin:"0 0 10px",fontSize:13,color:"#8e8e93" }}>Startade igen: <span style={{ textTransform:"capitalize" }}>{fD(d2)}</span> kl {r.startTid}</p>
+                  <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                    {!ok&&<span style={{ color:"#ff453a",fontSize:13 }}>⚠</span>}
+                    <span style={{ fontSize:14,fontWeight:600,color:ok?"#34c759":"#ff453a" }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
+                    {ok&&<span style={{ color:"#34c759",fontSize:13 }}>✓</span>}
+                    {!ok&&<span style={{ fontSize:12,color:"#ff453a" }}>(kräver 11h)</span>}
                   </div>
-                  {r.ledig&&<span style={{ fontSize:11,color:"#636366" }}>Ledig period</span>}
+                  {r.ledig&&<p style={{ margin:"6px 0 0",fontSize:11,color:"#636366" }}>Ledig period</p>}
                 </div>
               );
             };
@@ -1364,7 +1375,7 @@ export default function Arbetsrapport() {
                     </div>
                   ):(
                     <>
-                      {brott.map((r,i)=><VilaRad key={i} r={r} i={i} tot={brott.length} />)}
+                      {brott.map((r,i)=><VilaKort key={i} r={r} />)}
                       <div style={{ padding:"10px 0 14px",borderTop:"1px solid rgba(255,255,255,0.04)" }}>
                         <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#adc6ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla {filtVila.length} perioder →</button>
                       </div>
@@ -1387,19 +1398,17 @@ export default function Arbetsrapport() {
                             <span className="material-symbols-outlined" style={{ fontSize:16,color:"#8e8e93",transform:exp?"rotate(180deg)":"",transition:"transform 0.2s" }}>expand_more</span>
                           </div>
                         </div>
-                        {exp&&<div style={{ paddingLeft:12 }}>{x.mv.map((r,j)=><VilaRad key={j} r={r} i={j} tot={x.mv.length} />)}</div>}
+                        {exp&&<div style={{ padding:"8px 0" }}>{x.mv.map((r,j)=><VilaKort key={j} r={r} />)}</div>}
                       </div>);
                     });
                   })()}
                 </div>
               ):(
-                /* Expanderad lista med klockslag */
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                  {filtVila.length===0?<p style={{ padding:"14px 0",margin:0,fontSize:14,color:"#8e8e93" }}>Ingen data för perioden</p>:
-                  filtVila.map((r,i)=><VilaRad key={i} r={r} i={i} tot={filtVila.length} />)}
-                  <div style={{ padding:"10px 0 14px",borderTop:"1px solid rgba(255,255,255,0.04)" }}>
-                    <button onClick={()=>setVisaAllaDygnsvila(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Dölj detaljer</button>
-                  </div>
+                /* Expanderad lista med kort */
+                <div>
+                  {filtVila.length===0?<div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}><p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Ingen data för perioden</p></div>:
+                  filtVila.map((r,i)=><VilaKort key={i} r={r} />)}
+                  <button onClick={()=>setVisaAllaDygnsvila(false)} style={{ width:"100%",marginTop:4,background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:"8px 0" }}>Dölj detaljer</button>
                 </div>
               )}
             </section>
