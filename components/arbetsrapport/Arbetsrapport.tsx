@@ -1281,28 +1281,46 @@ export default function Arbetsrapport() {
             const brott=filtVila.filter(r=>r.vila<11);
             const harProblem=brott.length>0;
 
-            // Veckovila
-            const veckoNrNu=Math.ceil((Math.floor((nu5.getTime()-new Date(nu5.getFullYear(),0,1).getTime())/864e5)+new Date(nu5.getFullYear(),0,1).getDay()+1)/7);
-            const beräknaVV = (antal:number) => {
-              const res:{nr:number;maxH:number}[]=[];
-              for(let w=0;w<antal;w++){
-                const vs=new Date(nu5);vs.setDate(nu5.getDate()-((nu5.getDay()+6)%7)-w*7);
-                const vd:{s:Date;e:Date}[]=[];
-                for(let d=0;d<7;d++){const dt=new Date(vs);dt.setDate(vs.getDate()+d);const k=dt.toISOString().split('T')[0];const ad=årsData.find(r=>r.datum===k);if(ad?.start_tid&&ad?.slut_tid)vd.push({s:new Date(`${k}T${ad.start_tid.slice(0,5)}`),e:new Date(`${k}T${ad.slut_tid.slice(0,5)}`)});}
-                if(!vd.length){res.push({nr:w,maxH:168});continue;}
-                vd.sort((a,b)=>a.s.getTime()-b.s.getTime());
-                let mx=0;const t0=new Date(vs.getFullYear(),vs.getMonth(),vs.getDate(),0,0,0).getTime();
-                mx=Math.max(mx,(vd[0].s.getTime()-t0)/36e5);
-                for(let i=0;i<vd.length-1;i++){const g=(vd[i+1].s.getTime()-vd[i].e.getTime())/36e5;if(g>0&&g<168)mx=Math.max(mx,g);}
-                const t7=new Date(vs.getFullYear(),vs.getMonth(),vs.getDate()+7,0,0,0).getTime();
-                const ef=(t7-vd[vd.length-1].e.getTime())/36e5;if(ef>0&&ef<168)mx=Math.max(mx,ef);
-                res.push({nr:w,maxH:Math.round(mx*10)/10});
-              }
-              return res;
-            };
-            const vvAntal=vilaPeriod==='7d'?1:vilaPeriod==='30d'?4:vilaPeriod==='månad'?5:20;
-            const vvData=beräknaVV(vvAntal);
-            const vvHarProblem=vvData.some(v=>v.maxH<36);
+            // Veckovila — beräkna längsta lucka mellan pass per vecka
+            const getVeckoNr=(d:Date)=>Math.ceil((Math.floor((d.getTime()-new Date(d.getFullYear(),0,1).getTime())/864e5)+new Date(d.getFullYear(),0,1).getDay()+1)/7);
+            const veckoNrNu=getVeckoNr(nu5);
+
+            // Bygg alla luckor mellan på-varandra-följande pass
+            const sortAsc2=[...årsData].filter(r=>r.slut_tid&&r.start_tid).sort((a,b)=>a.datum.localeCompare(b.datum));
+            const allGaps:{veckoNr:number;slutDatum:string;slutTid:string;startDatum:string;startTid:string;h:number}[]=[];
+            for(let i=0;i<sortAsc2.length-1;i++){
+              const d1=sortAsc2[i],d2=sortAsc2[i+1];
+              const sT=d1.slut_tid.slice(0,5),stT=d2.start_tid.slice(0,5);
+              const slutDt=new Date(`${d1.datum}T${sT}`);
+              const startDt=new Date(`${d2.datum}T${stT}`);
+              const h=(startDt.getTime()-slutDt.getTime())/36e5;
+              if(h<=0||h>500) continue;
+              // Tilldela till veckan där luckan börjar
+              const vNr=getVeckoNr(slutDt);
+              allGaps.push({veckoNr:vNr,slutDatum:d1.datum,slutTid:sT,startDatum:d2.datum,startTid:stT,h:Math.round(h*10)/10});
+            }
+
+            // Per vecka: hitta längsta luckan
+            const vvMap=new Map<number,typeof allGaps[0]>();
+            for(const g of allGaps){
+              const prev=vvMap.get(g.veckoNr);
+              if(!prev||g.h>prev.h) vvMap.set(g.veckoNr,g);
+            }
+
+            // Filtrera veckor baserat på period
+            let vvKeys=[...vvMap.keys()].sort((a,b)=>b-a);
+            if(vilaPeriod==='7d') vvKeys=vvKeys.filter(k=>k>=veckoNrNu-1);
+            else if(vilaPeriod==='30d') vvKeys=vvKeys.filter(k=>k>=veckoNrNu-4);
+            else if(vilaPeriod==='månad'){
+              // Hitta veckor som hör till vald månad
+              const mStart=new Date(nu5.getFullYear(),vilaMånad,1);
+              const mSlut=new Date(nu5.getFullYear(),vilaMånad+1,0);
+              const vStart=getVeckoNr(mStart),vSlut=getVeckoNr(mSlut);
+              vvKeys=vvKeys.filter(k=>k>=vStart&&k<=vSlut);
+            }
+
+            const vvData=vvKeys.map(k=>({veckoNr:k,...vvMap.get(k)!}));
+            const vvHarProblem=vvData.some(v=>v.h<36);
 
             // Export
             const exportPDF = () => {
@@ -1316,8 +1334,8 @@ export default function Arbetsrapport() {
                 html+=`<tr><td>${fDe(r.slutDatum)} ${r.slutTid}</td><td>${fDe(r.startDatum)} ${r.startTid}</td><td>${fVH(r.vila)}</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 11h'}</td></tr>`;
               }
               html+=`</table>`;
-              html+=`<h2>Veckovila</h2><table><tr><th>Vecka</th><th>Längsta vila</th><th>Status</th></tr>`;
-              vvData.forEach(v=>{const ok=v.maxH>=36;html+=`<tr><td>Vecka ${veckoNrNu-v.nr}</td><td>${v.maxH}h</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 36h'}</td></tr>`;});
+              html+=`<h2>Veckovila</h2><table><tr><th>Vecka</th><th>Slutade</th><th>Startade igen</th><th>Vila</th><th>Status</th></tr>`;
+              vvData.forEach(v=>{const ok=v.h>=36;const fVH2=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};html+=`<tr><td>Vecka ${v.veckoNr}</td><td>${fDe(v.slutDatum)} ${v.slutTid}</td><td>${fDe(v.startDatum)} ${v.startTid}</td><td>${fVH2(v.h)}</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 36h'}</td></tr>`;});
               html+=`</table></body></html>`;
               const w=window.open('','','width=700,height=900');
               if(w){w.document.write(html);w.document.close();w.document.title='Viloperioder';setTimeout(()=>w.print(),300);}
@@ -1427,16 +1445,24 @@ export default function Arbetsrapport() {
                   </div>
                 </div>
               ):(
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                  {vvData.map((v,i)=>(
-                    <div key={i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 0",borderBottom:i<vvData.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
-                      <span style={{ fontSize:14,color:"#8e8e93" }}>Vecka {veckoNrNu-v.nr}</span>
-                      <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                        <span style={{ fontSize:14,fontWeight:600,color:v.maxH>=36?"#fff":"#ff453a" }}>{v.maxH}h</span>
-                        <span style={{ fontSize:12,color:v.maxH>=36?"#34c759":"#ff453a" }}>{v.maxH>=36?"✓":"⚠"}</span>
+                <div>
+                  {vvData.map((v,i)=>{
+                    const ok=v.h>=36;
+                    const fVH2=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};
+                    const fDv=(d:string)=>{const dt=new Date(d);return `${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`;};
+                    return (
+                    <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:`1px solid ${ok?"rgba(255,255,255,0.06)":"rgba(255,69,58,0.2)"}` }}>
+                      <p style={{ margin:"0 0 4px",fontSize:13,fontWeight:600,color:"#8e8e93" }}>Vecka {v.veckoNr}</p>
+                      <p style={{ margin:"0 0 2px",fontSize:13,color:"#8e8e93" }}><span style={{textTransform:"capitalize"}}>{fDv(v.slutDatum)}</span> {v.slutTid} → <span style={{textTransform:"capitalize"}}>{fDv(v.startDatum)}</span> {v.startTid}</p>
+                      <div style={{ display:"flex",alignItems:"center",gap:6,marginTop:8 }}>
+                        {!ok&&<span style={{ color:"#ff453a",fontSize:13 }}>⚠</span>}
+                        <span style={{ fontSize:14,fontWeight:600,color:ok?"#34c759":"#ff453a" }}>Veckovila: {fVH2(v.h)}</span>
+                        {ok&&<span style={{ color:"#34c759",fontSize:13 }}>✓</span>}
+                        {!ok&&<span style={{ fontSize:12,color:"#ff453a" }}>(kräver 36h)</span>}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                   <div style={{ padding:"10px 0 14px",borderTop:"1px solid rgba(255,255,255,0.04)" }}>
                     <button onClick={()=>setVisaAllaVeckovila(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Dölj detaljer</button>
                   </div>
