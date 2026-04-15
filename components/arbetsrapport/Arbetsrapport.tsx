@@ -458,7 +458,8 @@ export default function Arbetsrapport() {
   const [visaAllaDygnsvila, setVisaAllaDygnsvila] = useState(false);
   const [visaAllaVeckovila, setVisaAllaVeckovila] = useState(false);
   const [minTidFlik, setMinTidFlik] = useState<'översikt'|'saldon'|'vila'|'lön'>('översikt');
-  const [atkVal, setAtkVal] = useState<'ledigt'|'utbetala'|'spara'|null>(null);
+  const [atkVal, setAtkVal] = useState<'ledig'|'kontant'|'pension'|null>(null);
+  const [atkValSparat, setAtkValSparat] = useState<any>(null);
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
 
@@ -488,6 +489,9 @@ export default function Arbetsrapport() {
         const årStart = `${new Date().getFullYear()}-01-01`;
         supabase.from("arbetsdag").select("*").eq("medarbetare_id", med.data.id).gte("datum", årStart).order("datum",{ascending:true})
           .then(res => { if(res.data) setÅrsData(res.data); });
+        // Fetch ATK-val
+        supabase.from("atk_val").select("*").eq("medarbetare_id", med.data.id).eq("period", String(new Date().getFullYear())).single()
+          .then(res => { if(res.data) setAtkValSparat(res.data); });
         // Fetch extra_tid for löneunderlag
         supabase.from("extra_tid").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(60)
           .then(res => { if(res.data) setExtraTidData(res.data); });
@@ -1277,10 +1281,16 @@ export default function Arbetsrapport() {
             const atkAnväntH = atkAnväntDagar * 8;
             const atkKvar = Math.round((atkTotalt-atkAnväntH)*10)/10;
             const atkPct = atkTotalt>0?Math.min(100,atkAnväntH/atkTotalt*100):0;
+            const atkDagar = Math.round(atkKvar/8*10)/10;
+            const timlon2 = gsAvtal?.timlon_kr ?? 185;
+            const atkKr = Math.round(atkKvar*timlon2);
+            const årNu2 = nu.getFullYear();
+            const harValt = !!atkValSparat;
             return (
               <section style={{ marginBottom:24 }}>
                 <h3 style={secHead}>ATK</h3>
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+                {/* Saldo */}
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)",marginBottom:harValt?0:12 }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
                     <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{atkKvar}h <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>kvar</span></span>
                   </div>
@@ -1288,10 +1298,7 @@ export default function Arbetsrapport() {
                     <div style={{ height:"100%",width:`${atkPct}%`,background:"#adc6ff",borderRadius:2 }} />
                   </div>
                   <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-                    {[
-                      ["Totalt",`${atkTotalt}h`],
-                      ["Använt",`${atkAnväntH}h`],
-                    ].map(([l,v])=>(
+                    {[["Totalt",`${atkTotalt}h`],["Använt",`${atkAnväntH}h`]].map(([l,v])=>(
                       <div key={l as string} style={{ display:"flex",justifyContent:"space-between" }}>
                         <span style={{ fontSize:13,color:"#8e8e93" }}>{l}</span>
                         <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{v}</span>
@@ -1299,6 +1306,49 @@ export default function Arbetsrapport() {
                     ))}
                   </div>
                 </div>
+
+                {/* Val — efter bekräftelse */}
+                {harValt&&(
+                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,marginTop:8,border:"1px solid rgba(52,199,89,0.2)" }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                      <span style={{ color:"#34c759",fontSize:14 }}>✓</span>
+                      <span style={{ fontSize:14,color:"#fff" }}>
+                        {atkValSparat.val==='ledig'?`Du valde ledig tid: ${atkDagar} dagar`:atkValSparat.val==='kontant'?`Utbetalas juni ${årNu2}: ≈ ${atkKr.toLocaleString('sv-SE')} kr`:`Avsatt till pension: ≈ ${atkKr.toLocaleString('sv-SE')} kr`}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Val — ej gjort */}
+                {!harValt&&(
+                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,159,10,0.25)" }}>
+                    <p style={{ margin:"0 0 16px",fontSize:14,fontWeight:600,color:"#ff9f0a" }}>Välj för ditt ATK {årNu2}</p>
+                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16 }}>
+                      {([
+                        {k:'ledig' as const,label:'Ledig tid',sub:`= ${atkDagar} dagar`},
+                        {k:'kontant' as const,label:'Pengar',sub:`≈ ${atkKr.toLocaleString('sv-SE')} kr`,sub2:'före skatt'},
+                        {k:'pension' as const,label:'Pension',sub:`≈ ${atkKr.toLocaleString('sv-SE')} kr`,sub2:'till pension'},
+                      ]).map(o=>(
+                        <button key={o.k} onClick={()=>setAtkVal(o.k)} style={{ background:atkVal===o.k?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:atkVal===o.k?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"14px 8px",cursor:"pointer",fontFamily:"inherit",textAlign:"center" }}>
+                          <p style={{ margin:0,fontSize:13,fontWeight:600,color:atkVal===o.k?"#adc6ff":"#fff" }}>{o.label}</p>
+                          <p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>{o.sub}</p>
+                          {'sub2' in o&&<p style={{ margin:"2px 0 0",fontSize:11,color:"#636366" }}>{(o as any).sub2}</p>}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      disabled={!atkVal}
+                      onClick={async()=>{
+                        if(!atkVal) return;
+                        const row={medarbetare_id:medarbetare.id,period:String(årNu2),val:atkVal,timmar:atkKvar,belopp:atkVal!=='ledig'?atkKr:null,datum_valt:new Date().toISOString(),status:'bekräftad'};
+                        await supabase.from("atk_val").upsert(row);
+                        setAtkValSparat(row);
+                      }}
+                      style={{ width:"100%",height:48,background:atkVal?"#2a2a2a":"rgba(255,255,255,0.04)",border:"none",borderRadius:12,color:atkVal?"#fff":"#636366",fontSize:15,fontWeight:600,cursor:atkVal?"pointer":"default",fontFamily:"inherit",opacity:atkVal?1:0.5 }}>
+                      Bekräfta val
+                    </button>
+                  </div>
+                )}
               </section>
             );
           })()}
