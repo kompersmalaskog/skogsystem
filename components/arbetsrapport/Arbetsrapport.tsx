@@ -1065,16 +1065,21 @@ export default function Arbetsrapport() {
     const veckStart = new Date(nu); veckStart.setDate(nu.getDate()-dagIdx);
     const veckSlut = new Date(veckStart); veckSlut.setDate(veckStart.getDate()+6);
     const veckoNr = Math.ceil((Math.floor((nu.getTime()-new Date(nu.getFullYear(),0,1).getTime())/864e5)+new Date(nu.getFullYear(),0,1).getDay()+1)/7);
+    const rödaDagarVecka = getRödaDagar(nu.getFullYear());
     const veckoDagar: {datum:string;dag:string;h:number}[] = [];
     let veckoTot = 0;
+    let veckoArbDagar = 0;
     for(let i=0;i<7;i++){
       const d=new Date(veckStart); d.setDate(veckStart.getDate()+i);
-      const k=d.toISOString().split('T')[0];
+      const k=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
       const ad=årsData.find(r=>r.datum===k);
       const h=ad ? Math.round((ad.arbetad_min||0)/60*10)/10 : 0;
       veckoTot+=h;
+      const dow=d.getDay();
+      if(dow!==0&&dow!==6&&!rödaDagarVecka[k]) veckoArbDagar++;
       veckoDagar.push({datum:k,dag:dagNamn[d.getDay()],dagKort:dagKort[d.getDay()],h});
     }
+    const veckoMålH = veckoArbDagar * 8;
     const maxH = Math.max(...veckoDagar.map(d=>d.h),1);
 
     // Idag
@@ -1094,7 +1099,7 @@ export default function Arbetsrapport() {
     for(let d=1;d<=dIM;d++){
       const dt=new Date(nu.getFullYear(),nu.getMonth(),d);
       const dow=dt.getDay();
-      const k=dt.toISOString().split('T')[0];
+      const k=`${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       if(dow!==0&&dow!==6&&!rödaDagar2[k]) månArbDagar++;
     }
     const månMålH = månArbDagar*8;
@@ -1112,7 +1117,7 @@ export default function Arbetsrapport() {
       for(let d=1;d<=dagar;d++){
         const dt=new Date(nu.getFullYear(),m,d);
         const dow=dt.getDay();
-        const k=dt.toISOString().split('T')[0];
+        const k=`${nu.getFullYear()}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         if(dow!==0&&dow!==6&&!rödaDagar2[k]) kvArbDagar++;
       }
     }
@@ -1130,7 +1135,7 @@ export default function Arbetsrapport() {
       for(let d=1;d<=dIM2;d++){
         const dt=new Date(nu.getFullYear(),m,d);
         const dow=dt.getDay();
-        const k=dt.toISOString().split('T')[0];
+        const k=`${nu.getFullYear()}-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
         if(dow!==0&&dow!==6&&!rödaDagar2[k]) mArbD++;
       }
       const mMålMin=mArbD*480;
@@ -1233,7 +1238,7 @@ export default function Arbetsrapport() {
             <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
               {[
                 ...(idagH>0?[{label:"Idag",val:`${idagH}h`}]:[]),
-                {label:"Veckan",val:`${Math.round(veckoTot*10)/10}h`,sub:`av 40h`},
+                {label:"Veckan",val:`${Math.round(veckoTot*10)/10}h`,sub:`av ${veckoMålH}h`},
                 {label:"Månaden",val:`${månJobbatH}h`,sub:månÖvH>0?`av ${månMålH}h (${månÖvH}h övertid)`:`av ${månMålH}h`},
                 {label:"Året",val:`${Math.round(årsMin/60*10)/10}h`,sub:'totalt'},
               ].map((r,i,arr)=>(
