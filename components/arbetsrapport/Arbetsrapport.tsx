@@ -135,6 +135,7 @@ function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => v
       {[
         {icon:"today",key:"morgon",label:"Dag"},
         {icon:"calendar_month",key:"kalender",label:"Kalender"},
+        {icon:"bar_chart",key:"mintid",label:"Min tid"},
         {icon:"payments",key:"lön",label:"Löneunderlag"},
         {icon:"settings",key:"inst",label:"Inställningar"},
       ].map(n=>(
@@ -412,6 +413,7 @@ export default function Arbetsrapport() {
   const [lönVy, setLönVy] = useState<'översikt'|'detaljer'>('översikt');
   const [sparatToast, setSparatToast] = useState(false);
   const [extraTidData, setExtraTidData] = useState<any[]>([]);
+  const [årsData, setÅrsData] = useState<any[]>([]);
   const [lönSparar, setLönSparar] = useState(false);
   const [lönFel, setLönFel] = useState("");
   const [månadsKlar, setMånadsKlar] = useState(false);
@@ -475,6 +477,10 @@ export default function Arbetsrapport() {
         // Fetch historik for this medarbetare
         supabase.from("arbetsdag").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(60)
           .then(res => { if(res.data) setHistorik(res.data); });
+        // Fetch year data for Min tid
+        const årStart = `${new Date().getFullYear()}-01-01`;
+        supabase.from("arbetsdag").select("*").eq("medarbetare_id", med.data.id).gte("datum", årStart).order("datum",{ascending:true})
+          .then(res => { if(res.data) setÅrsData(res.data); });
         // Fetch extra_tid for löneunderlag
         supabase.from("extra_tid").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(60)
           .then(res => { if(res.data) setExtraTidData(res.data); });
@@ -984,6 +990,208 @@ export default function Arbetsrapport() {
             Klar, starta dagen
           </button>
         </div>
+      </div>
+    );
+  }
+
+  /* ─── MIN TID ─── */
+  if(steg==="mintid") {
+    const nu = new Date();
+    const dagNamn = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
+    const månNamn2 = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+
+    // Vecka: hitta mån-sön för aktuell vecka
+    const dagIdx = (nu.getDay()+6)%7; // 0=mån
+    const veckStart = new Date(nu); veckStart.setDate(nu.getDate()-dagIdx);
+    const veckSlut = new Date(veckStart); veckSlut.setDate(veckStart.getDate()+6);
+    const veckoNr = Math.ceil((Math.floor((nu.getTime()-new Date(nu.getFullYear(),0,1).getTime())/864e5)+new Date(nu.getFullYear(),0,1).getDay()+1)/7);
+    const veckoDagar: {datum:string;dag:string;h:number}[] = [];
+    let veckoTot = 0;
+    for(let i=0;i<7;i++){
+      const d=new Date(veckStart); d.setDate(veckStart.getDate()+i);
+      const k=d.toISOString().split('T')[0];
+      const ad=årsData.find(r=>r.datum===k);
+      const h=ad ? Math.round((ad.arbetad_min||0)/60*10)/10 : 0;
+      veckoTot+=h;
+      veckoDagar.push({datum:k,dag:dagNamn[d.getDay()],h});
+    }
+
+    // Månad
+    const månStart = `${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,'0')}-01`;
+    const månData = årsData.filter(r=>r.datum>=månStart);
+    const månJobbatMin = månData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    const månJobbatH = Math.round(månJobbatMin/60*10)/10;
+    // Räkna arbetsdagar i månaden
+    const dIM = new Date(nu.getFullYear(),nu.getMonth()+1,0).getDate();
+    const rödaDagar2 = getRödaDagar(nu.getFullYear());
+    let månArbDagar=0;
+    for(let d=1;d<=dIM;d++){
+      const dt=new Date(nu.getFullYear(),nu.getMonth(),d);
+      const dow=dt.getDay();
+      const k=dt.toISOString().split('T')[0];
+      if(dow!==0&&dow!==6&&!rödaDagar2[k]) månArbDagar++;
+    }
+    const månMålH = månArbDagar*8;
+    const månÖvH = Math.max(0,månJobbatH-månMålH);
+
+    // Kvartal
+    const kvartal = Math.floor(nu.getMonth()/3);
+    const kvStart = `${nu.getFullYear()}-${String(kvartal*3+1).padStart(2,'0')}-01`;
+    const kvData = årsData.filter(r=>r.datum>=kvStart);
+    const kvMin = kvData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    // Räkna kvartalets arbetsdagar
+    let kvArbDagar=0;
+    for(let m=kvartal*3;m<kvartal*3+3;m++){
+      const dagar=new Date(nu.getFullYear(),m+1,0).getDate();
+      for(let d=1;d<=dagar;d++){
+        const dt=new Date(nu.getFullYear(),m,d);
+        const dow=dt.getDay();
+        const k=dt.toISOString().split('T')[0];
+        if(dow!==0&&dow!==6&&!rödaDagar2[k]) kvArbDagar++;
+      }
+    }
+    const kvÖvH = Math.max(0,Math.round(kvMin/60*10)/10-kvArbDagar*8);
+
+    // År — övertid
+    const årsMin = årsData.reduce((a,d)=>a+(d.arbetad_min||0),0);
+    // Räkna årets arbetsdagar hittills
+    let årsArbDagar=0;
+    for(let m=0;m<=nu.getMonth();m++){
+      const dagar=m===nu.getMonth()?nu.getDate():new Date(nu.getFullYear(),m+1,0).getDate();
+      for(let d=1;d<=dagar;d++){
+        const dt=new Date(nu.getFullYear(),m,d);
+        const dow=dt.getDay();
+        const k=dt.toISOString().split('T')[0];
+        if(dow!==0&&dow!==6&&!rödaDagar2[k]) årsArbDagar++;
+      }
+    }
+    const årsÖvH = Math.max(0,Math.round(årsMin/60*10)/10-årsArbDagar*8);
+    const årsKvar = Math.max(0,250-årsÖvH);
+    const årsBarFärg = årsÖvH>230?"#ff453a":årsÖvH>200?"#ff9f0a":"#34c759";
+
+    // Varningar
+    const varningar: {typ:'röd'|'orange';text:string}[] = [];
+    // Dygnsvila
+    const sorterad = [...årsData].filter(r=>r.slut_tid&&r.start_tid).sort((a,b)=>a.datum.localeCompare(b.datum));
+    for(let i=0;i<sorterad.length-1;i++){
+      const dag1=sorterad[i], dag2=sorterad[i+1];
+      const d1=new Date(`${dag1.datum}T${dag1.slut_tid}`);
+      const d2=new Date(`${dag2.datum}T${dag2.start_tid}`);
+      const vila=(d2.getTime()-d1.getTime())/3600000;
+      if(vila>0&&vila<11) varningar.push({typ:'röd',text:`Dygnsvila bruten ${dag1.datum.slice(5)}: bara ${Math.round(vila*10)/10}h vila`});
+    }
+    // Veckovila — senaste 7 dagarna
+    const senaste7 = [];
+    for(let i=0;i<7;i++){
+      const d=new Date(nu); d.setDate(nu.getDate()-i);
+      const k=d.toISOString().split('T')[0];
+      const ad=årsData.find(r=>r.datum===k);
+      senaste7.push({datum:k,jobbat:!!(ad?.start_tid)});
+    }
+    // Kolla om det finns 36h ledigt (minst 1.5 dagar i rad utan jobb)
+    let maxLedigt=0, ledigt=0;
+    for(const d of senaste7){
+      if(!d.jobbat) ledigt++; else ledigt=0;
+      maxLedigt=Math.max(maxLedigt,ledigt);
+    }
+    if(maxLedigt<2) varningar.push({typ:'orange',text:'Ingen veckovila senaste 7 dagarna'});
+    // Övertidstak
+    if(årsÖvH>230) varningar.push({typ:'röd',text:`${årsKvar}h kvar till max 250h övertid`});
+    else if(årsÖvH>200) varningar.push({typ:'orange',text:'Du närmar dig övertidstaket (250h)'});
+
+    return (
+      <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",paddingBottom:120 }}>
+        <style>{css}</style>
+        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 24px",height:64 }}>
+          <h1 style={{ margin:0,fontSize:20,fontWeight:700,color:"#fff" }}>Min tid</h1>
+        </header>
+
+        <main style={{ paddingTop:88,paddingLeft:20,paddingRight:20 }}>
+
+          {/* Varningar */}
+          {varningar.length>0?(
+            <section style={{ marginBottom:32 }}>
+              {varningar.map((v,i)=>(
+                <div key={i} style={{ background:v.typ==='röd'?"rgba(255,69,58,0.08)":"rgba(255,159,10,0.08)",border:`1px solid ${v.typ==='röd'?"rgba(255,69,58,0.25)":"rgba(255,159,10,0.25)"}`,borderRadius:12,padding:"14px 16px",marginBottom:8,display:"flex",alignItems:"center",gap:10 }}>
+                  <span className="material-symbols-outlined" style={{ color:v.typ==='röd'?"#ff453a":"#ff9f0a",fontSize:20 }}>warning</span>
+                  <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>{v.text}</span>
+                </div>
+              ))}
+            </section>
+          ):(
+            <section style={{ marginBottom:32 }}>
+              <div style={{ background:"rgba(52,199,89,0.08)",border:"1px solid rgba(52,199,89,0.2)",borderRadius:12,padding:"14px 16px",display:"flex",alignItems:"center",gap:10 }}>
+                <span className="material-symbols-outlined" style={{ color:"#34c759",fontSize:20 }}>check_circle</span>
+                <span style={{ fontSize:14,fontWeight:500,color:"#34c759" }}>Allt ser bra ut</span>
+              </div>
+            </section>
+          )}
+
+          {/* Veckan */}
+          <section style={{ marginBottom:32 }}>
+            <h3 style={secHead}>Vecka {veckoNr}</h3>
+            <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
+                <span style={{ fontSize:28,fontWeight:700,color:veckoTot>=40?"#34c759":"#fff" }}>{Math.round(veckoTot*10)/10}h</span>
+                <span style={{ fontSize:14,color:"#8e8e93" }}>av 40h</span>
+              </div>
+              <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:16,overflow:"hidden" }}>
+                <div style={{ height:"100%",width:`${Math.min(100,veckoTot/40*100)}%`,background:veckoTot>=40?"#34c759":"#adc6ff",borderRadius:2,transition:"width 0.5s" }} />
+              </div>
+              {veckoDagar.map(d=>(
+                <div key={d.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
+                  <span style={{ fontSize:14,color:"#8e8e93",textTransform:"capitalize" }}>{d.dag}</span>
+                  <span style={{ fontSize:14,fontWeight:600,color:d.h>0?"#fff":"rgba(255,255,255,0.2)" }}>{d.h>0?`${d.h}h`:'—'}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Månaden */}
+          <section style={{ marginBottom:32 }}>
+            <h3 style={secHead}>Månaden</h3>
+            <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+              {[
+                ["Jobbat",`${månJobbatH}h`],
+                ["Mål",`${månMålH}h`],
+                ["Övertid",`${månÖvH}h`],
+              ].map(([l,v])=>(
+                <div key={l as string} style={{ display:"flex",justifyContent:"space-between",padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.04)" }}>
+                  <span style={{ fontSize:15,color:"#8e8e93" }}>{l}</span>
+                  <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Kvartalet */}
+          <section style={{ marginBottom:32 }}>
+            <h3 style={secHead}>Kvartal {kvartal+1}</h3>
+            <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",padding:"10px 0" }}>
+                <span style={{ fontSize:15,color:"#8e8e93" }}>Övertid ackumulerat</span>
+                <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{kvÖvH}h</span>
+              </div>
+            </div>
+          </section>
+
+          {/* Året */}
+          <section style={{ marginBottom:32 }}>
+            <h3 style={secHead}>Året {nu.getFullYear()}</h3>
+            <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
+                <span style={{ fontSize:28,fontWeight:700,color:årsBarFärg }}>{årsÖvH}h</span>
+                <span style={{ fontSize:14,color:"#8e8e93" }}>av 250h övertid</span>
+              </div>
+              <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:8,overflow:"hidden" }}>
+                <div style={{ height:"100%",width:`${Math.min(100,årsÖvH/250*100)}%`,background:årsBarFärg,borderRadius:2,transition:"width 0.5s" }} />
+              </div>
+              <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>{årsKvar} tim kvar</p>
+            </div>
+          </section>
+
+        </main>
+        <BottomNavBar aktiv="mintid" onNav={s=>setSteg(s)} />
       </div>
     );
   }
