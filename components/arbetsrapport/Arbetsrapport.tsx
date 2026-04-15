@@ -1272,64 +1272,31 @@ export default function Arbetsrapport() {
 
           {/* ATK */}
           {(()=>{
-            const atkFaktor = medarbetare?.atk_faktor ?? (gsAvtal?.atk_faktor ?? 0.03);
-            const årsJobbatH = Math.round(årsMin/60*10)/10;
-            const atkIntjänat = Math.round(årsJobbatH*atkFaktor*10)/10;
+            const atkTotalt = medarbetare?.atk_timmar ?? Math.round((årsMin/60)*(gsAvtal?.atk_faktor??0.03)*10)/10;
             const atkAnväntDagar = årsData.filter(d=>d.dag_typ==='atk').length;
             const atkAnväntH = atkAnväntDagar * 8;
-            const atkKvar = Math.round((atkIntjänat-atkAnväntH)*10)/10;
-            const atkPct = atkIntjänat>0?Math.min(100,atkAnväntH/atkIntjänat*100):0;
-            const atkKvarDagar = Math.round(atkKvar/8*10)/10;
-            const timlon = gsAvtal?.timlon_kr ?? 185;
-            const atkKrBrutto = Math.round(atkKvar*timlon);
+            const atkKvar = Math.round((atkTotalt-atkAnväntH)*10)/10;
+            const atkPct = atkTotalt>0?Math.min(100,atkAnväntH/atkTotalt*100):0;
             return (
               <section style={{ marginBottom:24 }}>
                 <h3 style={secHead}>ATK</h3>
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:`1px solid ${!atkVal?"rgba(255,159,10,0.25)":"rgba(255,255,255,0.06)"}` }}>
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
                     <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{atkKvar}h <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>kvar</span></span>
                   </div>
-                  <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:16,overflow:"hidden" }}>
+                  <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:12,overflow:"hidden" }}>
                     <div style={{ height:"100%",width:`${atkPct}%`,background:"#adc6ff",borderRadius:2 }} />
                   </div>
-                  <div style={{ display:"flex",flexDirection:"column",gap:8,marginBottom:16 }}>
+                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
                     {[
-                      ["Intjänat",`${atkIntjänat}h`],
-                      ["Använt",`${atkAnväntH}h (${atkAnväntDagar} dagar)`],
+                      ["Totalt",`${atkTotalt}h`],
+                      ["Använt",`${atkAnväntH}h`],
                     ].map(([l,v])=>(
                       <div key={l as string} style={{ display:"flex",justifyContent:"space-between" }}>
                         <span style={{ fontSize:13,color:"#8e8e93" }}>{l}</span>
                         <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{v}</span>
                       </div>
                     ))}
-                  </div>
-
-                  {/* Val */}
-                  <div style={{ paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
-                    {!atkVal&&<p style={{ margin:"0 0 12px",fontSize:13,fontWeight:500,color:"#ff9f0a" }}>Välj vad du vill göra med din ATK</p>}
-                    <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.06)",borderRadius:8,padding:2,marginBottom:12 }}>
-                      {([['ledigt','Ta ledigt'],['utbetala','Betala ut'],['spara','Spara']] as const).map(([k,l])=>(
-                        <button key={k} onClick={()=>setAtkVal(k)} style={{ flex:1,padding:"8px 0",borderRadius:6,border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:atkVal===k?"rgba(255,255,255,0.12)":"transparent",color:atkVal===k?"#fff":"#8e8e93" }}>{l}</button>
-                      ))}
-                    </div>
-                    {atkVal==='ledigt'&&(
-                      <div>
-                        <p style={{ margin:"0 0 12px",fontSize:14,color:"#fff" }}>= {atkKvarDagar} dagar ledigt</p>
-                        <button onClick={()=>{setDagTyp("atk");setSteg("bekräftaFrånvaro");}} style={{ width:"100%",height:44,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Registrera ATK-dag →</button>
-                      </div>
-                    )}
-                    {atkVal==='utbetala'&&(
-                      <div>
-                        <p style={{ margin:"0 0 12px",fontSize:14,color:"#fff" }}>≈ {atkKrBrutto.toLocaleString('sv-SE')} kr (före skatt)</p>
-                        <button onClick={async()=>{
-                          await supabase.from("atk_begaran").insert({medarbetare_id:medarbetare.id,typ:"utbetalning",timmar:atkKvar,datum:new Date().toISOString().split('T')[0],status:"begärd"});
-                          alert("Begäran om utbetalning skickad till chefen");
-                        }} style={{ width:"100%",height:44,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Skicka begäran →</button>
-                      </div>
-                    )}
-                    {atkVal==='spara'&&(
-                      <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Sparas till nästa period</p>
-                    )}
                   </div>
                 </div>
               </section>
