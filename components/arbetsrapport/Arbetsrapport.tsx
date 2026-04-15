@@ -71,6 +71,10 @@ const getRödaDagar = (år: number): Record<string, string> => {
   const påsk = new Date(år, månad-1, dag);
   const addD = (dt: Date, n: number) => { const r = new Date(dt); r.setDate(r.getDate()+n); return r; };
   const fm = (dt: Date) => dt.toISOString().slice(0,10);
+  // Midsommarafton: fredagen före midsommardagen (lördag 20-26 juni)
+  const midsommarLör = new Date(år, 5, 20);
+  while(midsommarLör.getDay()!==6) midsommarLör.setDate(midsommarLör.getDate()+1);
+  const midsommarAfton = addD(midsommarLör, -1);
   return {
     [`${år}-01-01`]: 'Nyårsdagen',
     [`${år}-01-06`]: 'Trettondedag jul',
@@ -80,6 +84,7 @@ const getRödaDagar = (år: number): Record<string, string> => {
     [`${år}-05-01`]: 'Första maj',
     [fm(addD(påsk,39))]: 'Kristi himmelsfärd',
     [`${år}-06-06`]: 'Nationaldagen',
+    [fm(midsommarAfton)]: 'Midsommarafton',
     [fm(addD(påsk,49))]: 'Pingstdagen',
     [`${år}-12-24`]: 'Julafton',
     [`${år}-12-25`]: 'Juldagen',
@@ -1843,12 +1848,15 @@ export default function Arbetsrapport() {
                           const dt = new Date(dag.datum);
                           const h = Math.round(dag.min/60*10)/10;
                           const dagLabel = dagNamn[dt.getDay()].charAt(0).toUpperCase()+dagNamn[dt.getDay()].slice(1)+' '+dt.getDate()+' '+månNamn[dt.getMonth()];
-                          if(dag.rödDag) return (
+                          if(dag.rödDag) {
+                            const dow=dt.getDay();
+                            const ärVardag=dow!==0&&dow!==6;
+                            return (
                             <div key={dag.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
                               <span style={{ fontSize:14,color:"#ff453a" }}>{dagLabel}</span>
-                              <span style={{ fontSize:13,fontWeight:500,color:"#ff453a" }}>{dag.rödDag}</span>
+                              <span style={{ fontSize:13,fontWeight:500,color:ärVardag?"#ff453a":"#636366" }}>{dag.rödDag}{ärVardag?' — Helglön 8h':''}</span>
                             </div>
-                          );
+                          );}
                           return (
                             <div key={dag.datum} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid rgba(255,255,255,0.03)" }}>
                               <span style={{ fontSize:14 }}>{dagLabel}</span>
