@@ -1922,11 +1922,12 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
         return 0
 
 def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
-    """Skapa arbetsdag-rader automatiskt från fakt_tid och skift.
-    Använder operator_medarbetare för att koppla operator_id → medarbetare_id.
+    """Skapa arbetsdag-rader från skift (start/sluttid) + rast från fakt_tid.
+    Aggregerar per (medarbetare_id, datum) — en person som kör flera maskiner
+    samma dag får en rad med huvudmaskinen (den med mest tid).
     Skriver inte över rader där bekraftad = true."""
     try:
-        # Hämta operator_id → medarbetare_id mapping
+        # 1. Hämta operator_id → medarbetare_id
         resp = requests.get(
             f"{SUPABASE_URL}/rest/v1/operator_medarbetare?select=operator_id,medarbetare_id",
             headers=SUPABASE_HEADERS, timeout=30
@@ -1938,73 +1939,77 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
             if row.get('operator_id') and row.get('medarbetare_id'):
                 op_to_medarb[row['operator_id']] = row['medarbetare_id']
 
-        if not op_to_medarb:
-            return
+        # 2. Hämta operatörsnamn från dim_operator (för loggning)
+        op_resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/dim_operator?select=operator_id,operator_namn",
+            headers=SUPABASE_HEADERS, timeout=30
+        )
+        op_namn = {}
+        if op_resp.status_code == 200:
+            for row in op_resp.json():
+                if row.get('operator_id') and row.get('operator_namn'):
+                    op_namn[row['operator_id']] = row['operator_namn']
 
-        # Bygg skift-lookup: (maskin_id, datum) → (start_time, end_time)
-        skift_lookup = {}
-        for s in skift:
-            if s.get('datum') and s.get('maskin_id') and s.get('inloggning_tid'):
-                key = (s['maskin_id'], str(s['datum']))
-                start = s['inloggning_tid']
-                end = s.get('utloggning_tid')
-                if key not in skift_lookup:
-                    skift_lookup[key] = {'start': start, 'end': end}
-                else:
-                    if start < skift_lookup[key]['start']:
-                        skift_lookup[key]['start'] = start
-                    if end and (not skift_lookup[key]['end'] or end > skift_lookup[key]['end']):
-                        skift_lookup[key]['end'] = end
+        # 3. Bygg rast-lookup från fakt_tid: (operator_id, datum) → rast_sek
+        rast_lookup = {}
+        objekt_lookup = {}
+        for row in tid_rows:
+            op_id = row.get('operator_id')
+            datum = str(row.get('datum', ''))
+            if op_id and datum:
+                key = (op_id, datum)
+                rast_lookup[key] = rast_lookup.get(key, 0) + (row.get('rast_sek', 0) or 0)
+                if not objekt_lookup.get(key) and row.get('objekt_id'):
+                    objekt_lookup[key] = row['objekt_id']
 
-        # Aggregera per (operator_id, maskin_id, datum)
+        # 4. Aggregera skift per (medarbetare_id, datum) — MIN(start), MAX(slut)
         dag_agg = {}
         logged_unknown = set()
-        for row in tid_rows:
-            maskin = row.get('maskin_id')
-            datum = row.get('datum')
-            operator_id = row.get('operator_id')
-            if not maskin or not datum:
+        for s in skift:
+            op_id = s.get('operator_id')
+            maskin = s.get('maskin_id')
+            datum = s.get('datum')
+            inl = s.get('inloggning_tid')
+            utl = s.get('utloggning_tid')
+            if not op_id or not maskin or not datum or not inl:
                 continue
 
-            # Slå upp medarbetare via operator_id
-            medarb_id = op_to_medarb.get(operator_id) if operator_id else None
+            medarb_id = op_to_medarb.get(op_id)
             if not medarb_id:
-                if operator_id and operator_id not in logged_unknown:
-                    logger.info(f"  Okänd operatör: {operator_id} på {maskin}")
-                    logged_unknown.add(operator_id)
+                if op_id not in logged_unknown:
+                    namn = op_namn.get(op_id, '?')
+                    logger.info(f"  Ny operatör: {op_id} {namn} på {maskin} — behöver kopplas")
+                    logged_unknown.add(op_id)
                 continue
 
             datum_str = str(datum)
-            key = (medarb_id, maskin, datum_str)
-            if key not in dag_agg:
-                dag_agg[key] = {'engine': 0, 'rast': 0, 'objekt_id': None}
-            dag_agg[key]['engine'] += row.get('engine_time_sek', 0) or 0
-            dag_agg[key]['rast'] += row.get('rast_sek', 0) or 0
-            if not dag_agg[key]['objekt_id'] and row.get('objekt_id'):
-                dag_agg[key]['objekt_id'] = row['objekt_id']
+            key = (medarb_id, datum_str)
+            inl_dt = inl if isinstance(inl, datetime) else parse_datetime(str(inl))
+            utl_dt = utl if isinstance(utl, datetime) else (parse_datetime(str(utl)) if utl else None)
+            sek = int((utl_dt - inl_dt).total_seconds()) if utl_dt and inl_dt else 0
 
+            if key not in dag_agg:
+                dag_agg[key] = {'start': inl_dt, 'end': utl_dt, 'op_id': op_id, 'maskin_sek': {}}
+            else:
+                if inl_dt and (not dag_agg[key]['start'] or inl_dt < dag_agg[key]['start']):
+                    dag_agg[key]['start'] = inl_dt
+                if utl_dt and (not dag_agg[key]['end'] or utl_dt > dag_agg[key]['end']):
+                    dag_agg[key]['end'] = utl_dt
+            dag_agg[key]['maskin_sek'][maskin] = dag_agg[key]['maskin_sek'].get(maskin, 0) + sek
+
+        # 5. Bygg arbetsdag-rader (en per medarbetare+datum)
         arbetsdag_rows = []
-        for (medarb_id, maskin, datum_str), agg in dag_agg.items():
-            if agg['engine'] <= 0:
+        for (medarb_id, datum_str), agg in dag_agg.items():
+            if not agg['start']:
                 continue
 
-            # Start/slut-tid från skift om tillgängligt
-            sk = skift_lookup.get((maskin, datum_str))
-            if sk and sk['start']:
-                start_dt = sk['start'] if isinstance(sk['start'], datetime) else parse_datetime(str(sk['start']))
-                start_tid = start_dt.strftime('%H:%M') if start_dt else '07:00'
-            else:
-                start_tid = '07:00'
+            start_tid = agg['start'].strftime('%H:%M')
+            slut_tid = agg['end'].strftime('%H:%M') if agg['end'] else '16:00'
+            maskin = max(agg['maskin_sek'], key=agg['maskin_sek'].get) if agg['maskin_sek'] else None
 
-            engine_h = agg['engine'] / 3600
-            start_h, start_m = map(int, start_tid.split(':'))
-            end_minutes = start_h * 60 + start_m + int(engine_h * 60)
-            end_h = min(end_minutes // 60, 23)
-            end_m = end_minutes % 60
-            slut_tid = f'{end_h:02d}:{end_m:02d}'
-
-            rast_min = int(agg['rast'] / 60)
-            arbetad_min = int(engine_h * 60) - rast_min
+            rast_sek = rast_lookup.get((agg['op_id'], datum_str), 0)
+            rast_min = int(rast_sek / 60)
+            objekt_id = objekt_lookup.get((agg['op_id'], datum_str))
 
             arbetsdag_rows.append({
                 'medarbetare_id': medarb_id,
@@ -2014,15 +2019,14 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
                 'start_tid': start_tid,
                 'slut_tid': slut_tid,
                 'rast_min': max(rast_min, 0),
-                'arbetad_min': max(arbetad_min, 0),
                 'bekraftad': False,
-                'objekt_id': agg['objekt_id'],
+                'objekt_id': objekt_id,
             })
 
         if not arbetsdag_rows:
             return
 
-        # Filtrera bort bekräftade rader (bekraftad = true)
+        # 6. Filtrera bort bekräftade rader
         medarb_list = list(set(r['medarbetare_id'] for r in arbetsdag_rows))
         bekraftade = set()
         for mid in medarb_list:
