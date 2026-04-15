@@ -1110,20 +1110,26 @@ export default function Arbetsrapport() {
     }
     const kvÖvH = Math.max(0,Math.round(kvMin/60*10)/10-kvArbDagar*8);
 
-    // År — övertid
+    // År — övertid beräknad per månad
     const årsMin = årsData.reduce((a,d)=>a+(d.arbetad_min||0),0);
-    // Räkna årets arbetsdagar hittills
-    let årsArbDagar=0;
+    let årsÖvH = 0;
     for(let m=0;m<=nu.getMonth();m++){
-      const dagar=m===nu.getMonth()?nu.getDate():new Date(nu.getFullYear(),m+1,0).getDate();
-      for(let d=1;d<=dagar;d++){
+      const mp=`${nu.getFullYear()}-${String(m+1).padStart(2,'0')}`;
+      const mMin=årsData.filter(d=>d.datum&&d.datum.startsWith(mp)).reduce((a,d)=>a+(d.arbetad_min||0),0);
+      // Räkna vardagar i månaden
+      const dIM2=m===nu.getMonth()?nu.getDate():new Date(nu.getFullYear(),m+1,0).getDate();
+      let mArbD=0;
+      for(let d=1;d<=dIM2;d++){
         const dt=new Date(nu.getFullYear(),m,d);
         const dow=dt.getDay();
         const k=dt.toISOString().split('T')[0];
-        if(dow!==0&&dow!==6&&!rödaDagar2[k]) årsArbDagar++;
+        if(dow!==0&&dow!==6&&!rödaDagar2[k]) mArbD++;
       }
+      const mMålMin=mArbD*480;
+      const mÖv=Math.max(0,mMin-mMålMin);
+      årsÖvH+=mÖv/60;
     }
-    const årsÖvH = Math.max(0,Math.round(årsMin/60*10)/10-årsArbDagar*8);
+    årsÖvH=Math.round(årsÖvH*10)/10;
     const årsKvar = Math.max(0,250-årsÖvH);
     const årsBarFärg = årsÖvH>230?"#ff453a":årsÖvH>200?"#ff9f0a":"#34c759";
 
@@ -1220,7 +1226,7 @@ export default function Arbetsrapport() {
               {[
                 ...(idagH>0?[{label:"Idag",val:`${idagH}h`}]:[]),
                 {label:"Veckan",val:`${Math.round(veckoTot*10)/10}h`,sub:`av 40h`},
-                {label:"Månaden",val:`${månJobbatH}h`,sub:`av ${månMålH}h`},
+                {label:"Månaden",val:`${månJobbatH}h`,sub:månÖvH>0?`av ${månMålH}h (${månÖvH}h övertid)`:`av ${månMålH}h`},
                 {label:"Året",val:`${Math.round(årsMin/60*10)/10}h`,sub:'totalt'},
               ].map((r,i,arr)=>(
                 <div key={r.label} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<arr.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
