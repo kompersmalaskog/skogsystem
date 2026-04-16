@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
+import { expectedWorkMinutes } from "@/lib/roda-dagar";
 
 /* Design-tokens — matchar arbetsrapporten */
 const C = {
@@ -158,13 +159,15 @@ type ÖversiktData = {
   dagensInloggade: number;
   dagensBekraftade: number;
   vilobrottAntal: number;
-  månadensTimmar: { medarbetare: string; min: number }[];
+  förväntadeMin: number;
+  månadensÖvertid: { medarbetare: string; jobbade: number; övertid: number }[];
   momFiler: { filnamn: string; importerad_tid: string; maskin_id: string; status: string }[];
   laddar: boolean;
   fel: string | null;
 };
 
-const MÅL_MIN_PER_MÅNAD = 168 * 60; // ~168 tim/månad referens
+// Övertidstak per månad (kollektivavtal: 250h/år ≈ 21h/mån, vi använder 25h som progress-cap)
+const ÖVERTID_REFERENS_MIN = 25 * 60;
 
 function OversiktFlik() {
   const [data, setData] = useState<ÖversiktData>({
@@ -172,7 +175,8 @@ function OversiktFlik() {
     dagensInloggade: 0,
     dagensBekraftade: 0,
     vilobrottAntal: 0,
-    månadensTimmar: [],
+    förväntadeMin: 0,
+    månadensÖvertid: [],
     momFiler: [],
     laddar: true,
     fel: null,
@@ -183,8 +187,10 @@ function OversiktFlik() {
 
     (async () => {
       try {
-        const idag = new Date().toISOString().slice(0, 10);
+        const nu = new Date();
+        const idag = nu.toISOString().slice(0, 10);
         const månStart = idag.slice(0, 7) + "-01";
+        const förväntadeMin = expectedWorkMinutes(nu.getFullYear(), nu.getMonth());
 
         const [med, dagensRes, månadRes, momRes] = await Promise.all([
           supabase.from("medarbetare").select("id, namn", { count: "exact" }),
@@ -212,16 +218,22 @@ function OversiktFlik() {
           if (!d.medarbetare_id) continue;
           minMap[d.medarbetare_id] = (minMap[d.medarbetare_id] || 0) + (d.arbetad_min || 0);
         }
-        const månadensTimmar = Object.entries(minMap)
-          .map(([id, min]) => ({ medarbetare: namnMap.get(id) || id.slice(0, 8), min }))
-          .sort((a, b) => b.min - a.min);
+        const månadensÖvertid = Object.entries(minMap)
+          .map(([id, jobbade]) => ({
+            medarbetare: namnMap.get(id) || id.slice(0, 8),
+            jobbade,
+            övertid: Math.max(0, jobbade - förväntadeMin),
+          }))
+          .filter(r => r.övertid > 0)
+          .sort((a, b) => b.övertid - a.övertid);
 
         setData({
           antalMedarbetare: antal,
           dagensInloggade,
           dagensBekraftade,
           vilobrottAntal: 0, // Beräknas i steg 7 (Vilobrott-underflik)
-          månadensTimmar,
+          förväntadeMin,
+          månadensÖvertid,
           momFiler: momRes.data || [],
           laddar: false,
           fel: null,
@@ -257,28 +269,37 @@ function OversiktFlik() {
         />
       </div>
 
-      {/* Månadens timmar per förare */}
-      <p style={secHead}>Månadens timmar</p>
+      {/* Månadens övertid per förare */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+        <p style={{ ...secHead, margin: 0 }}>Månadens övertid</p>
+        <span style={{ fontSize: 11, color: C.label, fontWeight: 500 }}>
+          ref. {(data.förväntadeMin / 60).toFixed(0)} h normaltid
+        </span>
+      </div>
       <Card>
-        {data.månadensTimmar.length === 0 ? (
-          <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Inga arbetade timmar registrerade denna månad.</p>
+        {data.månadensÖvertid.length === 0 ? (
+          <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Ingen övertid registrerad denna månad.</p>
         ) : (
-          data.månadensTimmar.map((r, i) => {
-            const tim = r.min / 60;
-            const procent = Math.min(100, (r.min / MÅL_MIN_PER_MÅNAD) * 100);
-            const övertid = r.min > MÅL_MIN_PER_MÅNAD;
+          data.månadensÖvertid.map((r, i) => {
+            const övTim = r.övertid / 60;
+            const jobbTim = r.jobbade / 60;
+            const procent = Math.min(100, (r.övertid / ÖVERTID_REFERENS_MIN) * 100);
+            const överTak = r.övertid > ÖVERTID_REFERENS_MIN;
             return (
               <div key={i} style={{
                 display: "flex",
                 flexDirection: "column",
                 gap: 6,
                 padding: "10px 0",
-                borderBottom: i === data.månadensTimmar.length - 1 ? "none" : `1px solid ${C.line}`,
+                borderBottom: i === data.månadensÖvertid.length - 1 ? "none" : `1px solid ${C.line}`,
               }}>
-                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 14 }}>
                   <span style={{ color: C.text, fontWeight: 500 }}>{r.medarbetare}</span>
-                  <span style={{ color: övertid ? C.orange : C.text, fontWeight: 600 }}>
-                    {tim.toFixed(1)} h
+                  <span style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                    <span style={{ color: C.label, fontSize: 12 }}>{jobbTim.toFixed(1)} h jobbade</span>
+                    <span style={{ color: överTak ? C.red : C.orange, fontWeight: 700 }}>
+                      +{övTim.toFixed(1)} h
+                    </span>
                   </span>
                 </div>
                 <div style={{
@@ -290,7 +311,7 @@ function OversiktFlik() {
                   <div style={{
                     height: "100%",
                     width: `${procent}%`,
-                    background: övertid ? C.orange : C.green,
+                    background: överTak ? C.red : C.orange,
                     transition: "width 0.3s",
                   }} />
                 </div>
