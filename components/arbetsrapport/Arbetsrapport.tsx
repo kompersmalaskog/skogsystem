@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, CSSProperties, ReactNode } from "react";
+import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 
 const css = `
@@ -176,40 +176,111 @@ const CheckCircle = ({ color=C.green, size=80 }) => (
   </div>
 );
 
-/* Drum-roller */
-const Drum = ({ value, onChange, min=0, max=59, pad=2 }: { value: number; onChange: (v: number) => void; min?: number; max?: number; pad?: number }) => (
-  <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:6 }}>
-    <button style={{ width:52,height:40,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:"#fff" }} onClick={()=>onChange(value===max?min:value+1)}>▲</button>
-    <div style={{ width:60,height:52,background:"rgba(255,255,255,0.06)",borderRadius:12,fontSize:30,fontWeight:600,display:"flex",alignItems:"center",justifyContent:"center",color:"#fff" }}>{String(value).padStart(pad,"0")}</div>
-    <button style={{ width:52,height:40,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,fontSize:16,cursor:"pointer",color:"#fff" }} onClick={()=>onChange(value===min?max:value-1)}>▼</button>
-  </div>
-);
+/* iOS-stil scroll-wheel — snap-to-item, klick = välj, scroll = byt */
+const Wheel = ({ value, onChange, min=0, max=59, step=1, pad=2, width=64 }:
+  { value: number; onChange: (v: number) => void; min?: number; max?: number; step?: number; pad?: number; width?: number }) => {
+  const items = useMemo(() => {
+    const arr: number[] = [];
+    for (let i = min; i <= max; i += step) arr.push(i);
+    return arr;
+  }, [min, max, step]);
+  const ITEM_H = 36;
+  const VISIBLE = 5;
+  const PAD = ITEM_H * Math.floor(VISIBLE / 2);
+  const ref = useRef<HTMLDivElement>(null);
+  const scrollT = useRef<any>(null);
+  const ignoreNext = useRef(false);
 
-const TimePicker = ({ value, onChange, label }: { value: string; onChange: (v: string) => void; label: string }) => {
-  const [h,m] = value.split(":").map(Number);
+  const closestIdx = useMemo(() => {
+    let best = 0, bestDiff = Math.abs(items[0] - value);
+    for (let i = 1; i < items.length; i++) {
+      const d = Math.abs(items[i] - value);
+      if (d < bestDiff) { best = i; bestDiff = d; }
+    }
+    return best;
+  }, [items, value]);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const target = closestIdx * ITEM_H;
+    if (Math.abs(ref.current.scrollTop - target) > 1) {
+      ignoreNext.current = true;
+      ref.current.scrollTop = target;
+    }
+  }, [closestIdx]);
+
+  const handleScroll = () => {
+    if (!ref.current) return;
+    if (ignoreNext.current) { ignoreNext.current = false; return; }
+    clearTimeout(scrollT.current);
+    scrollT.current = setTimeout(() => {
+      if (!ref.current) return;
+      const idx = Math.round(ref.current.scrollTop / ITEM_H);
+      const clampedIdx = Math.max(0, Math.min(items.length - 1, idx));
+      const newVal = items[clampedIdx];
+      if (newVal !== value) onChange(newVal);
+    }, 130);
+  };
+
   return (
-    <div style={{ marginBottom:28 }}>
-      <Label style={{ textAlign:"center" }}>{label}</Label>
-      <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:10 }}>
-        <Drum value={h} onChange={v=>onChange(`${String(v).padStart(2,"0")}:${String(m).padStart(2,"0")}`)} max={23}/>
-        <span style={{ fontSize:28,fontWeight:300,color:C.label }}>:</span>
-        <Drum value={m} onChange={v=>onChange(`${String(h).padStart(2,"0")}:${String(v).padStart(2,"0")}`)} max={59}/>
+    <div style={{ position:"relative", width, height: VISIBLE * ITEM_H, overflow:"hidden" }}>
+      <div style={{ position:"absolute", left:0, right:0, top:PAD, height:ITEM_H, background:"rgba(255,255,255,0.06)", borderRadius:8, pointerEvents:"none" }}/>
+      <div style={{ position:"absolute", left:0, right:0, top:0, height:PAD, background:"linear-gradient(to bottom,#1c1c1e,rgba(28,28,30,0))", pointerEvents:"none", zIndex:2 }}/>
+      <div style={{ position:"absolute", left:0, right:0, bottom:0, height:PAD, background:"linear-gradient(to top,#1c1c1e,rgba(28,28,30,0))", pointerEvents:"none", zIndex:2 }}/>
+      <div ref={ref} onScroll={handleScroll} style={{
+        height:"100%", overflowY:"scroll",
+        scrollSnapType:"y mandatory",
+        WebkitOverflowScrolling:"touch",
+      }}>
+        <div style={{ height:PAD }}/>
+        {items.map((v, i) => (
+          <div
+            key={v}
+            onClick={() => { ref.current?.scrollTo({ top: i * ITEM_H, behavior:"smooth" }); }}
+            style={{
+              height: ITEM_H,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontSize:24, fontWeight:600, color:"#fff",
+              scrollSnapAlign:"center",
+              opacity: i === closestIdx ? 1 : 0.35,
+              transition: "opacity 0.15s",
+              cursor:"pointer",
+              userSelect:"none",
+              fontVariantNumeric:"tabular-nums",
+            }}
+          >{String(v).padStart(pad,"0")}</div>
+        ))}
+        <div style={{ height:PAD }}/>
       </div>
     </div>
   );
 };
 
-const MinPicker = ({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) => {
+const TimePicker = ({ value, onChange, label }: { value: string; onChange: (v: string) => void; label?: string }) => {
+  const [h,m] = value.split(":").map(Number);
+  const p2 = (n:number) => String(n).padStart(2,"0");
+  return (
+    <div style={{ marginBottom:28 }}>
+      {label && <Label style={{ textAlign:"center" }}>{label}</Label>}
+      <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:6 }}>
+        <Wheel value={h} onChange={v=>onChange(`${p2(v)}:${p2(m)}`)} min={0} max={23}/>
+        <span style={{ fontSize:30,fontWeight:600,color:"#fff",lineHeight:1 }}>:</span>
+        <Wheel value={m} onChange={v=>onChange(`${p2(h)}:${p2(v)}`)} min={0} max={55} step={5}/>
+      </div>
+    </div>
+  );
+};
+
+const MinPicker = ({ value, onChange, label }: { value: number; onChange: (v: number) => void; label?: string }) => {
   const h=Math.floor(value/60),m=value%60;
   return (
     <div style={{ marginBottom:28 }}>
-      <Label style={{ textAlign:"center" }}>{label}</Label>
-      <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:10 }}>
-        <Drum value={h} onChange={v=>onChange(v*60+m)} min={0} max={8} pad={1}/>
-        <span style={{ fontSize:13,color:C.label,fontWeight:600 }}>tim</span>
-        <span style={{ fontSize:28,fontWeight:300,color:C.label }}>:</span>
-        <Drum value={m} onChange={v=>onChange(h*60+v)} max={59}/>
-        <span style={{ fontSize:13,color:C.label,fontWeight:600 }}>min</span>
+      {label && <Label style={{ textAlign:"center" }}>{label}</Label>}
+      <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:6 }}>
+        <Wheel value={h} onChange={v=>onChange(v*60+m)} min={0} max={8} pad={1} width={48}/>
+        <span style={{ fontSize:13,color:C.label,fontWeight:600,marginLeft:2,marginRight:8 }}>tim</span>
+        <Wheel value={m} onChange={v=>onChange(h*60+v)} min={0} max={55} step={5}/>
+        <span style={{ fontSize:13,color:C.label,fontWeight:600,marginLeft:2 }}>min</span>
       </div>
     </div>
   );
@@ -244,8 +315,6 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
   const [deb,  setDeb]  = useState(initial?.deb  ?? false);
   const [obj,  setObj]  = useState(initial?.obj  ?? null);
   const [väljer, setVäljer] = useState(false);
-
-  const h=Math.floor(min/60),m=min%60;
 
   if(väljer) return (
     <div style={shell}>
@@ -290,33 +359,10 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
       <main style={{ paddingTop:96,paddingBottom:32,padding:"96px 16px 32px",maxWidth:512,margin:"0 auto" }}>
         <div style={{ display:"flex",flexDirection:"column",gap:24 }}>
 
-          {/* Tid-väljare */}
-          <section style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"1px solid rgba(255,255,255,0.06)" }}>
-            <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:32,padding:"16px 0" }}>
-              {/* Timmar */}
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                <button onClick={()=>setMin(min+60)} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:28 }}>keyboard_arrow_up</span>
-                </button>
-                <span style={{ fontSize:32,fontWeight:700,color:"#fff",padding:"8px 0" }}>{String(h).padStart(2,"0")}</span>
-                <button onClick={()=>setMin(Math.max(0,min-60))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:28 }}>keyboard_arrow_down</span>
-                </button>
-              </div>
-              <span style={{ fontSize:16,color:"#8e8e93",fontWeight:400 }}>tim</span>
-              {/* Minuter */}
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                <button onClick={()=>setMin(min+5)} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:28 }}>keyboard_arrow_up</span>
-                </button>
-                <span style={{ fontSize:32,fontWeight:700,color:"#fff",padding:"8px 0" }}>{String(m).padStart(2,"0")}</span>
-                <button onClick={()=>setMin(Math.max(0,min-5))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:28 }}>keyboard_arrow_down</span>
-                </button>
-              </div>
-              <span style={{ fontSize:16,color:"#8e8e93",fontWeight:400 }}>min</span>
-            </div>
-            <div style={{ marginTop:16,paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.04)",textAlign:"center" }}>
+          {/* Tid-väljare — iOS-stil scroll-wheels */}
+          <section style={{ background:"#1c1c1e",borderRadius:16,padding:"20px 16px",border:"1px solid rgba(255,255,255,0.06)" }}>
+            <MinPicker value={min} onChange={setMin}/>
+            <div style={{ marginTop:4,paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.04)",textAlign:"center" }}>
               <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#34c759" }}>Total tid: {fmt(min)}</p>
             </div>
           </section>
@@ -2738,57 +2784,24 @@ export default function Arbetsrapport() {
         <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Ändra arbetstid</h1></div></div>
         <div style={{ flex:1,overflowY:"auto",paddingTop:24 }}>
 
-          {/* Alla tre pickers på en rad */}
-          {(()=>{ const [rH,rM]=redStart.split(":").map(Number),[rEH,rEM]=redSlut.split(":").map(Number); const p2=(n:number)=>String(n).padStart(2,"0"); return (
-          <div style={{ background:C.card,borderRadius:16,padding:"20px 16px",marginBottom:16 }}>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
-              {/* Start — H : M */}
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                <span style={{ ...secHead,marginBottom:12,color:redStart!==(redDag.start||"00:00")?C.orange:"#8e8e93" }}>Start</span>
-                <div style={{ display:"flex",alignItems:"center",gap:2 }}>
-                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                    <button onClick={()=>setRedStart(`${p2((rH+1)%24)}:${p2(rM)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
-                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{p2(rH)}</span>
-                    <button onClick={()=>setRedStart(`${p2((rH-1+24)%24)}:${p2(rM)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
-                  </div>
-                  <span style={{ fontSize:20,color:"#636366",fontWeight:300 }}>:</span>
-                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                    <button onClick={()=>setRedStart(`${p2(rH)}:${p2((rM+1)%60)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
-                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{p2(rM)}</span>
-                    <button onClick={()=>setRedStart(`${p2(rH)}:${p2((rM-1+60)%60)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
-                  </div>
-                </div>
-              </div>
-              {/* Slut — H : M */}
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",borderLeft:"1px solid rgba(255,255,255,0.05)",borderRight:"1px solid rgba(255,255,255,0.05)" }}>
-                <span style={{ ...secHead,marginBottom:12,color:redSlut!==(redDag.slut||"00:00")?C.orange:"#8e8e93" }}>Slut</span>
-                <div style={{ display:"flex",alignItems:"center",gap:2 }}>
-                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                    <button onClick={()=>setRedSlut(`${p2((rEH+1)%24)}:${p2(rEM)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
-                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{p2(rEH)}</span>
-                    <button onClick={()=>setRedSlut(`${p2((rEH-1+24)%24)}:${p2(rEM)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
-                  </div>
-                  <span style={{ fontSize:20,color:"#636366",fontWeight:300 }}>:</span>
-                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                    <button onClick={()=>setRedSlut(`${p2(rEH)}:${p2((rEM+1)%60)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
-                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{p2(rEM)}</span>
-                    <button onClick={()=>setRedSlut(`${p2(rEH)}:${p2((rEM-1+60)%60)}`)} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
-                  </div>
-                </div>
-              </div>
-              {/* Rast — 5 min steg */}
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                <span style={{ ...secHead,marginBottom:12,color:redRast!==(redDag.rast||0)?C.orange:"#8e8e93" }}>Rast</span>
-                <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                  <button onClick={()=>setRedRast(Math.min(120,redRast+5))} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
-                  <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{redRast}</span>
-                  <span style={{ fontSize:10,color:"#8e8e93",marginTop:-2 }}>min</span>
-                  <button onClick={()=>setRedRast(Math.max(0,redRast-5))} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
-                </div>
+          {/* Start, Slut, Rast — iOS-stil scroll-wheels */}
+          <div style={{ background:C.card,borderRadius:16,padding:"20px 16px",marginBottom:16,display:"flex",flexDirection:"column",gap:18 }}>
+            <div>
+              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:redStart!==(redDag.start||"00:00")?C.orange:"#8e8e93" }}>Start</span>
+              <TimePicker value={redStart} onChange={setRedStart}/>
+            </div>
+            <div style={{ borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:18 }}>
+              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:redSlut!==(redDag.slut||"00:00")?C.orange:"#8e8e93" }}>Slut</span>
+              <TimePicker value={redSlut} onChange={setRedSlut}/>
+            </div>
+            <div style={{ borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:18 }}>
+              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:redRast!==(redDag.rast||0)?C.orange:"#8e8e93" }}>Rast</span>
+              <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8,marginBottom:28 }}>
+                <Wheel value={redRast} onChange={setRedRast} min={0} max={120} step={5}/>
+                <span style={{ fontSize:14,color:C.label,fontWeight:600 }}>min</span>
               </div>
             </div>
           </div>
-          ); })()}
 
           {/* Resultat */}
           <div style={{ textAlign:"center",padding:"18px 20px",background:"rgba(52,199,89,0.07)",borderRadius:14 }}>
@@ -3070,20 +3083,14 @@ export default function Arbetsrapport() {
           </div>
         )}
 
-        {/* Rast-picker — centrerad */}
+        {/* Rast-picker — centrerad iOS-stil wheel */}
         {visaRedRastPicker&&(
           <div onClick={()=>setVisaRedRastPicker(false)} style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center" }}>
             <div onClick={e=>e.stopPropagation()} style={{ background:"#1c1c1e",borderRadius:16,padding:24,width:240 }}>
               <p style={{ margin:"0 0 16px",fontSize:13,fontWeight:600,color:"#8e8e93",textAlign:"center" }}>Rast</p>
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                <button onClick={()=>setRedRast(Math.min(120,redRast+5))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:28 }}>keyboard_arrow_up</span>
-                </button>
-                <span style={{ fontSize:36,fontWeight:700,color:"#fff",padding:"4px 0" }}>{redRast}</span>
-                <span style={{ fontSize:11,color:"#8e8e93",marginTop:-4,marginBottom:4 }}>min</span>
-                <button onClick={()=>setRedRast(Math.max(0,redRast-5))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize:28 }}>keyboard_arrow_down</span>
-                </button>
+              <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8 }}>
+                <Wheel value={redRast} onChange={setRedRast} min={0} max={120} step={5}/>
+                <span style={{ fontSize:14,color:"#8e8e93",fontWeight:600 }}>min</span>
               </div>
               <button onClick={()=>setVisaRedRastPicker(false)} style={{ width:"100%",marginTop:16,height:44,background:"rgba(255,255,255,0.08)",border:"none",borderRadius:10,color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>Klar</button>
             </div>
