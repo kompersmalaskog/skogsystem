@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useMemo, CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { C, secHead, Card, btnPrimary, btnSecondary, ChevronRight } from "./design";
+import LonesystemUnderflik from "./LonesystemUnderflik";
 
 type Underflik = "underlag" | "system" | "atk" | "vila";
 
@@ -18,7 +19,7 @@ export default function LonFlik() {
     <>
       <UnderflikTabs aktiv={aktiv} onValj={setAktiv} />
       {aktiv === "underlag" && <Loneunderlag />}
-      {aktiv === "system"   && <KommerSnart label="Lönesystem"   steg={6} />}
+      {aktiv === "system"   && <LonesystemUnderflik />}
       {aktiv === "atk"      && <KommerSnart label="ATK-val"       steg={7} />}
       {aktiv === "vila"     && <KommerSnart label="Vilobrott"     steg={7} />}
     </>
