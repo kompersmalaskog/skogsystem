@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { expectedWorkMinutes } from "@/lib/roda-dagar";
 import { C, adminCss as css, secHead, Card } from "./design";
 import MedarbetareFlik from "./MedarbetareFlik";
+import AvtalFlik from "./AvtalFlik";
 
 const shell: CSSProperties = {
   minHeight: "100vh",
@@ -91,7 +92,7 @@ export default function AdminClient({ currentUser }: { currentUser: { id: string
       <main style={{ flex: 1, paddingTop: 16, animation: "fadeUp 0.25s ease-out" }} key={aktiv}>
         {aktiv === "oversikt"      && <OversiktFlik />}
         {aktiv === "medarbetare"   && <MedarbetareFlik />}
-        {aktiv === "avtal"         && <Placeholder label="Avtal" />}
+        {aktiv === "avtal"         && <AvtalFlik />}
         {aktiv === "lon"           && <Placeholder label="Lön" />}
         {aktiv === "installningar" && <Placeholder label="Inställningar" />}
       </main>
