@@ -67,7 +67,7 @@ type Arbetsdag = {
   km_totalt?: number | null;
   traktamente: any;
   bekraftad: boolean | null;
-  dag_typ?: string | null;
+  dagtyp?: string | null;
 };
 type ExtraTid = { medarbetare_id: string; datum: string; minuter: number | null };
 type Avtal = {
@@ -134,7 +134,7 @@ function Loneunderlag() {
         const [medRes, arbRes, exRes, avtRes] = await Promise.all([
           supabase.from("medarbetare").select("id, namn").order("namn"),
           supabase.from("arbetsdag")
-            .select("medarbetare_id, datum, arbetad_min, km_morgon, km_kvall, km_totalt, traktamente, bekraftad, dag_typ")
+            .select("medarbetare_id, datum, arbetad_min, km_morgon, km_kvall, km_totalt, traktamente, bekraftad, dagtyp")
             .gte("datum", periodStart).lte("datum", periodSlut),
           supabase.from("extra_tid")
             .select("medarbetare_id, datum, minuter")
@@ -429,11 +429,11 @@ function DetaljVy({
                       background: "rgba(255,159,10,0.15)", padding: "2px 5px", borderRadius: 4,
                     }}>OBEK.</span>
                   )}
-                  {d.dag_typ && (
+                  {d.dagtyp && (
                     <span style={{
                       fontSize: 9, fontWeight: 700, color: C.label,
                       background: "rgba(255,255,255,0.05)", padding: "2px 5px", borderRadius: 4,
-                    }}>{d.dag_typ}</span>
+                    }}>{d.dagtyp}</span>
                   )}
                 </div>
                 <div style={{ marginTop: 4, fontSize: 11, color: C.label, display: "flex", gap: 8, flexWrap: "wrap" }}>

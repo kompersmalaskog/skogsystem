@@ -1676,7 +1676,7 @@ export default function Arbetsrapport() {
             // Intjäningsår: 1 apr förra året → 31 mar i år (eller aktuellt)
             const årNu=nu.getFullYear();
             const ijStart = nu.getMonth()>=3 ? `${årNu}-04-01` : `${årNu-1}-04-01`;
-            const semAnvänt = årsData.filter(d=>d.datum>=ijStart&&d.dag_typ==='semester').length;
+            const semAnvänt = årsData.filter(d=>d.datum>=ijStart&&d.dagtyp==='semester').length;
             const semKvar = semTotalt + semSparat - semAnvänt;
             const semPct = semTotalt>0?Math.min(100,semAnvänt/(semTotalt+semSparat)*100):0;
             return (
@@ -1709,7 +1709,7 @@ export default function Arbetsrapport() {
           {/* ATK */}
           {(()=>{
             const atkTotalt = medarbetare?.atk_timmar ?? Math.round((årsMin/60)*(gsAvtal?.atk_faktor??0.03)*10)/10;
-            const atkAnväntDagar = årsData.filter(d=>d.dag_typ==='atk').length;
+            const atkAnväntDagar = årsData.filter(d=>d.dagtyp==='atk').length;
             const atkAnväntH = atkAnväntDagar * 8;
             const atkKvar = Math.round((atkTotalt-atkAnväntH)*10)/10;
             const atkPct = atkTotalt>0?Math.min(100,atkAnväntH/atkTotalt*100):0;
@@ -1773,7 +1773,7 @@ export default function Arbetsrapport() {
                       onClick={async()=>{
                         if(!atkVal) return;
                         const row={medarbetare_id:medarbetare.id,period:String(årNu2),val:atkVal,timmar:atkKvar,belopp:atkVal!=='ledig'?atkKr:null,datum_valt:new Date().toISOString(),status:'bekräftad'};
-                        await supabase.from("atk_val").upsert(row);
+                        await supabase.from("atk_val").upsert(row, { onConflict: 'medarbetare_id,period' });
                         setAtkValSparat(row);
                       }}
                       style={{ width:"100%",height:48,background:atkVal?"#2a2a2a":"rgba(255,255,255,0.04)",border:"none",borderRadius:12,color:atkVal?"#fff":"#636366",fontSize:15,fontWeight:600,cursor:atkVal?"pointer":"default",fontFamily:"inherit",opacity:atkVal?1:0.5 }}>
@@ -1820,10 +1820,10 @@ export default function Arbetsrapport() {
                 const k=cur.toISOString().split('T')[0];
                 const dow=cur.getDay();
                 const ad=årsData.find(r=>r.datum===k);
-                if(ad?.dag_typ==='sjuk'&&!delar.includes('Sjuk')) delar.push('Sjuk');
-                else if(ad?.dag_typ==='vab'&&!delar.includes('VAB')) delar.push('VAB');
-                else if(ad?.dag_typ==='semester'&&!delar.includes('Semester')) delar.push('Semester');
-                else if(ad?.dag_typ==='atk'&&!delar.includes('ATK')) delar.push('ATK');
+                if(ad?.dagtyp==='sjuk'&&!delar.includes('Sjuk')) delar.push('Sjuk');
+                else if(ad?.dagtyp==='vab'&&!delar.includes('VAB')) delar.push('VAB');
+                else if(ad?.dagtyp==='semester'&&!delar.includes('Semester')) delar.push('Semester');
+                else if(ad?.dagtyp==='atk'&&!delar.includes('ATK')) delar.push('ATK');
                 else if(rödaDagarÅr[k]&&!delar.includes(rödaDagarÅr[k])) delar.push(rödaDagarÅr[k]);
                 else if((dow===0||dow===6)&&!harHelg){harHelg=true;delar.unshift('Helg');}
                 cur.setDate(cur.getDate()+1);
@@ -3159,7 +3159,7 @@ export default function Arbetsrapport() {
           await supabase.from("arbetsdag").upsert({
             medarbetare_id:medarbetare.id,
             datum:new Date().toISOString().split("T")[0],
-            dag_typ:dagTyp,
+            dagtyp:dagTyp,
             bekraftad:true,
             bekraftad_tid:new Date().toISOString(),
           });

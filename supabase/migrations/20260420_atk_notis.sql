@@ -1,21 +1,39 @@
--- ATK-notisflöde: spara vem som godkände, kö-tabell + trigger som köar
--- notis när godkänt val återställs. 5-minuters debounce per (mottagare,
--- typ, medarbetare, period) — flera återställningar inom 5 min slås ihop.
+-- ATK-notisflöde + saknad atk_val-tabell.
+--
+-- Bakgrund: koden i components/arbetsrapport/Arbetsrapport.tsx har
+-- skrivit/läst från atk_val sedan dess införande, men tabellen
+-- existerade aldrig i prod. Alla anrop har silently failat (ingen
+-- error handling). Inget historiskt data finns att migrera.
 
-/* 1. Spåra vem som godkände och när */
-ALTER TABLE atk_val ADD COLUMN IF NOT EXISTS godkand_av text;
-ALTER TABLE atk_val ADD COLUMN IF NOT EXISTS godkand_at timestamptz;
+/* 1. Skapa atk_val-tabellen som koden förutsätter.
+   medarbetare_id är uuid eftersom medarbetare.id är uuid (samma
+   konvention som arbetsdag, extra_tid, fakt_timmar, franvaro,
+   operator_medarbetare). UNIQUE(medarbetare_id, period) krävs för
+   att upsert med onConflict ska fungera. */
+CREATE TABLE IF NOT EXISTS atk_val (
+  id              uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
+  medarbetare_id  uuid         NOT NULL,
+  period          text         NOT NULL,
+  val             text         NOT NULL,
+  timmar          numeric,
+  belopp          numeric,
+  datum_valt      timestamptz,
+  status          text         DEFAULT 'bekräftad',
+  godkand_av      uuid,
+  godkand_at      timestamptz,
+  UNIQUE (medarbetare_id, period)
+);
 
 /* 2. Notis-kö */
 CREATE TABLE IF NOT EXISTS notis_kö (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  mottagare_id text NOT NULL,
-  typ text NOT NULL,
-  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
-  skapad_at timestamptz NOT NULL DEFAULT now(),
-  skickas_at timestamptz NOT NULL,
-  skickad_at timestamptz,
-  fel_meddelande text
+  id              uuid         PRIMARY KEY DEFAULT gen_random_uuid(),
+  mottagare_id    uuid         NOT NULL,
+  typ             text         NOT NULL,
+  payload         jsonb        NOT NULL DEFAULT '{}'::jsonb,
+  skapad_at       timestamptz  NOT NULL DEFAULT now(),
+  skickas_at      timestamptz  NOT NULL,
+  skickad_at      timestamptz,
+  fel_meddelande  text
 );
 
 CREATE INDEX IF NOT EXISTS notis_ko_pending_idx
@@ -30,13 +48,13 @@ CREATE INDEX IF NOT EXISTS notis_ko_dedup_idx
 CREATE OR REPLACE FUNCTION kö_atk_återställning_notis()
 RETURNS TRIGGER AS $$
 DECLARE
-  v_andrare_id  text;
+  v_andrare_id  uuid;
   v_jwt_email   text;
   v_befintlig   uuid;
   v_skickas_at  timestamptz := now() + interval '5 minutes';
   v_payload     jsonb;
-  v_mottagare   text;
-  v_admin       text;
+  v_mottagare   uuid;
+  v_admin       uuid;
 BEGIN
   -- Bara godkand → bekräftad
   IF NOT (OLD.status = 'godkand' AND NEW.status = 'bekräftad') THEN
@@ -47,7 +65,7 @@ BEGIN
   BEGIN
     v_jwt_email := (current_setting('request.jwt.claims', true)::json)->>'email';
     IF v_jwt_email IS NOT NULL THEN
-      SELECT id::text INTO v_andrare_id
+      SELECT id INTO v_andrare_id
       FROM medarbetare WHERE epost = v_jwt_email LIMIT 1;
     END IF;
   EXCEPTION WHEN OTHERS THEN
@@ -58,12 +76,12 @@ BEGIN
     'medarbetare_id', NEW.medarbetare_id::text,
     'period', NEW.period,
     'val', NEW.val,
-    'andrare_id', v_andrare_id
+    'andrare_id', v_andrare_id::text
   );
 
   /* Bestäm mottagare. Om godkand_av finns och inte är samma person som ändrade
      → en mottagare. Annars → alla med roll IN ('chef','admin') (utom andraren). */
-  IF OLD.godkand_av IS NOT NULL AND OLD.godkand_av <> coalesce(v_andrare_id, '') THEN
+  IF OLD.godkand_av IS NOT NULL AND OLD.godkand_av IS DISTINCT FROM v_andrare_id THEN
     v_mottagare := OLD.godkand_av;
     SELECT id INTO v_befintlig FROM notis_kö
       WHERE mottagare_id = v_mottagare
@@ -81,9 +99,9 @@ BEGIN
   ELSE
     -- Fallback: alla chef/admin utom andraren
     FOR v_admin IN
-      SELECT id::text FROM medarbetare
+      SELECT id FROM medarbetare
       WHERE roll IN ('chef', 'admin')
-        AND id::text <> coalesce(v_andrare_id, '')
+        AND id IS DISTINCT FROM v_andrare_id
     LOOP
       SELECT id INTO v_befintlig FROM notis_kö
         WHERE mottagare_id = v_admin
