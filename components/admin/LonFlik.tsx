@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect, useMemo, CSSProperties } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { C, secHead, Card, btnPrimary, btnSecondary, ChevronRight } from "./design";
 import LonesystemUnderflik from "./LonesystemUnderflik";
@@ -7,6 +8,7 @@ import AtkUnderflik from "./AtkUnderflik";
 import VilobrottUnderflik from "./VilobrottUnderflik";
 
 type Underflik = "underlag" | "system" | "atk" | "vila";
+type CurrentUser = { id: string; namn?: string | null; roll: string };
 
 const UNDERFLIKAR: { key: Underflik; label: string }[] = [
   { key: "underlag", label: "Löneunderlag" },
@@ -15,14 +17,17 @@ const UNDERFLIKAR: { key: Underflik; label: string }[] = [
   { key: "vila",     label: "Vilobrott" },
 ];
 
-export default function LonFlik() {
-  const [aktiv, setAktiv] = useState<Underflik>("underlag");
+export default function LonFlik({ currentUser }: { currentUser: CurrentUser }) {
+  const sp = useSearchParams();
+  const förvaldUnderflik = (sp?.get("underflik") as Underflik | null);
+  const giltig = förvaldUnderflik && UNDERFLIKAR.some(u => u.key === förvaldUnderflik);
+  const [aktiv, setAktiv] = useState<Underflik>(giltig ? förvaldUnderflik! : "underlag");
   return (
     <>
       <UnderflikTabs aktiv={aktiv} onValj={setAktiv} />
       {aktiv === "underlag" && <Loneunderlag />}
       {aktiv === "system"   && <LonesystemUnderflik />}
-      {aktiv === "atk"      && <AtkUnderflik />}
+      {aktiv === "atk"      && <AtkUnderflik currentUser={currentUser} />}
       {aktiv === "vila"     && <VilobrottUnderflik />}
     </>
   );

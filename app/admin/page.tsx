@@ -5,6 +5,7 @@ import type { Viewport } from "next";
 import AdminClient from "@/components/admin/AdminClient";
 
 export const metadata = { title: "Admin" };
+export const dynamic = "force-dynamic";
 
 export const viewport: Viewport = {
   width: "device-width",

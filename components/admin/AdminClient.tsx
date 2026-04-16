@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useEffect, CSSProperties } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { expectedWorkMinutes } from "@/lib/roda-dagar";
 import { C, adminCss as css, secHead, Card } from "./design";
@@ -79,7 +80,10 @@ function BottomNav({ aktiv, onNav }: { aktiv: Tab; onNav: (t: Tab) => void }) {
 }
 
 export default function AdminClient({ currentUser }: { currentUser: { id: string; namn?: string | null; roll: string } }) {
-  const [aktiv, setAktiv] = useState<Tab>("oversikt");
+  const sp = useSearchParams();
+  const förvald = sp?.get("flik") as Tab | null;
+  const giltig = förvald && TABS.some(t => t.key === förvald);
+  const [aktiv, setAktiv] = useState<Tab>(giltig ? (förvald as Tab) : "oversikt");
   return (
     <div style={shell}>
       <style>{css}</style>
@@ -94,7 +98,7 @@ export default function AdminClient({ currentUser }: { currentUser: { id: string
         {aktiv === "oversikt"      && <OversiktFlik />}
         {aktiv === "medarbetare"   && <MedarbetareFlik />}
         {aktiv === "avtal"         && <AvtalFlik />}
-        {aktiv === "lon"           && <LonFlik />}
+        {aktiv === "lon"           && <LonFlik currentUser={currentUser} />}
         {aktiv === "installningar" && <Placeholder label="Inställningar" />}
       </main>
 

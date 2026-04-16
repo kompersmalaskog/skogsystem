@@ -1,7 +1,10 @@
 "use client";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { C, secHead, Card } from "./design";
+
+type CurrentUser = { id: string; namn?: string | null; roll: string };
 
 type Medarbetare = { id: string; namn: string | null };
 type AtkVal = {
@@ -29,13 +32,18 @@ const VAL_FÄRG: Record<string, string> = {
   pension: "#bf5af2",
 };
 
-export default function AtkUnderflik() {
-  const [period, setPeriod] = useState(AKTUELL_PERIOD);
+export default function AtkUnderflik({ currentUser }: { currentUser: CurrentUser }) {
+  const sp = useSearchParams();
+  const förvaldPeriod = sp?.get("period") || AKTUELL_PERIOD;
+  const förvaldMedId = sp?.get("medarbetare") || null;
+
+  const [period, setPeriod] = useState(förvaldPeriod);
   const [medarbetare, setMedarbetare] = useState<Medarbetare[]>([]);
   const [val, setVal] = useState<Record<string, AtkVal>>({});
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
   const [uppdaterar, setUppdaterar] = useState<string | null>(null);
+  const högdaRef = useRef<HTMLDivElement>(null);
 
   const ladda = async () => {
     setLaddar(true); setFel(null);
@@ -58,9 +66,21 @@ export default function AtkUnderflik() {
 
   useEffect(() => { ladda(); }, [period]);
 
+  // Scrolla till + highlighta förvald medarbetare när raderna är laddade
+  useEffect(() => {
+    if (!laddar && förvaldMedId && högdaRef.current) {
+      högdaRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [laddar, förvaldMedId]);
+
   const sättStatus = async (atkValId: string, status: string) => {
     setUppdaterar(atkValId);
-    await supabase.from("atk_val").update({ status }).eq("id", atkValId);
+    const patch: any = { status };
+    if (status === "godkand") {
+      patch.godkand_av = currentUser.id;
+      patch.godkand_at = new Date().toISOString();
+    }
+    await supabase.from("atk_val").update(patch).eq("id", atkValId);
     setUppdaterar(null);
     await ladda();
   };
@@ -146,11 +166,17 @@ export default function AtkUnderflik() {
                 {medVal.map((m, i) => {
                   const v = val[m.id];
                   const krävs_godkännande = v.val !== "ledig" && (v.status === "bekräftad" || !v.status);
+                  const är_förvald = m.id === förvaldMedId;
                   return (
-                    <div key={m.id} style={{
-                      padding: "14px 18px",
-                      borderBottom: i === medVal.length - 1 ? "none" : `1px solid ${C.line}`,
-                    }}>
+                    <div
+                      key={m.id}
+                      ref={är_förvald ? högdaRef : undefined}
+                      style={{
+                        padding: "14px 18px",
+                        borderBottom: i === medVal.length - 1 ? "none" : `1px solid ${C.line}`,
+                        background: är_förvald ? "rgba(173,198,255,0.08)" : "transparent",
+                        transition: "background 0.3s",
+                      }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>

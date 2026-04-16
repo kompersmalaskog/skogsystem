@@ -6,8 +6,8 @@ self.addEventListener('push', (event) => {
     body: data.body || '',
     icon: '/icon.png',
     badge: '/icon.png',
-    data: { url: data.url || '/arbetsrapport' },
-    tag: 'arbetsdag',
+    data: { url: data.url || '/' },
+    tag: data.tag || 'kompersmala',
     renotify: true,
   };
   event.waitUntil(self.registration.showNotification(title, options));
@@ -15,15 +15,25 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const url = event.notification.data?.url || '/arbetsrapport';
+  const targetUrl = event.notification.data?.url || '/';
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Försök hitta en befintlig flik på samma path och navigera dit
       for (const client of clientList) {
-        if (client.url.includes('/arbetsrapport') && 'focus' in client) {
-          return client.focus();
-        }
+        try {
+          const cu = new URL(client.url);
+          const tu = new URL(targetUrl, client.url);
+          if (cu.origin === tu.origin && cu.pathname === tu.pathname && 'focus' in client) {
+            return client.focus().then((c) => {
+              if (client.url !== tu.toString() && 'navigate' in client) {
+                return client.navigate(tu.toString());
+              }
+              return c;
+            });
+          }
+        } catch (_) { /* ignore */ }
       }
-      return clients.openWindow(url);
+      return clients.openWindow(targetUrl);
     })
   );
 });
