@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
+import { supabase } from '@/lib/supabase'
 
 function getDatum() {
   const now = new Date()
@@ -32,6 +33,8 @@ const adminApps = [
   { href: '/helikopter-v2', label: 'Helikopter 2', icon: 'helicopter' },
   { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: 'business_center' },
 ]
+
+const adminAppEntry = { href: '/admin', label: 'Admin', icon: 'shield' }
 
 function AppIcon({ href, label, icon, variant }: { href: string; label: string; icon: string; variant: 'production' | 'admin' }) {
   const gradientFrom = variant === 'production' ? '#80db7f' : '#adc6ff'
@@ -65,10 +68,20 @@ function AppIcon({ href, label, icon, variant }: { href: string; label: string; 
 
 export default function HomeClient() {
   const [datum, setDatum] = useState('')
+  const [roll, setRoll] = useState<string | null>(null)
 
   useEffect(() => {
     setDatum(getDatum())
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user?.email) return
+      supabase.from('medarbetare').select('roll').eq('epost', user.email).single()
+        .then(({ data }) => { if (data?.roll) setRoll(data.roll) })
+    })
   }, [])
+
+  const synligaAdminApps = (roll === 'chef' || roll === 'admin')
+    ? [...adminApps, adminAppEntry]
+    : adminApps
 
   return (
     <div style={{
@@ -123,7 +136,7 @@ export default function HomeClient() {
             display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
             gap: '24px 16px',
           }}>
-            {adminApps.map(app => (
+            {synligaAdminApps.map(app => (
               <AppIcon key={app.href} {...app} variant="admin" />
             ))}
           </div>
