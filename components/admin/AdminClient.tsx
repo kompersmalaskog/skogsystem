@@ -1,31 +1,9 @@
 "use client";
-import React, { useState, useEffect, CSSProperties, ReactNode } from "react";
+import React, { useState, useEffect, CSSProperties } from "react";
 import { supabase } from "@/lib/supabase";
 import { expectedWorkMinutes } from "@/lib/roda-dagar";
-
-/* Design-tokens — matchar arbetsrapporten */
-const C = {
-  bg: "#000",
-  card: "#1c1c1e",
-  label: "#8e8e93",
-  text: "#fff",
-  line: "rgba(255,255,255,0.08)",
-  blue: "#0a84ff",
-  green: "#34c759",
-  red: "#ff453a",
-  orange: "#ff9f0a",
-};
-
-const css = `
-  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  body { margin: 0; }
-  *::-webkit-scrollbar { display: none; }
-  * { scrollbar-width: none; -ms-overflow-style: none; }
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(8px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-`;
+import { C, adminCss as css, secHead, Card } from "./design";
+import MedarbetareFlik from "./MedarbetareFlik";
 
 const shell: CSSProperties = {
   minHeight: "100vh",
@@ -41,15 +19,6 @@ const shell: CSSProperties = {
 };
 
 const topBar: CSSProperties = { paddingTop: 24, paddingBottom: 12 };
-
-const secHead: CSSProperties = {
-  margin: "0 0 10px",
-  fontSize: 11,
-  fontWeight: 700,
-  color: "#636366",
-  textTransform: "uppercase",
-  letterSpacing: "0.15em",
-};
 
 type Tab = "oversikt" | "medarbetare" | "avtal" | "lon" | "installningar";
 
@@ -107,18 +76,6 @@ function BottomNav({ aktiv, onNav }: { aktiv: Tab; onNav: (t: Tab) => void }) {
   );
 }
 
-const Card = ({ children, style, onClick }: { children: ReactNode; style?: CSSProperties; onClick?: () => void }) => (
-  <div onClick={onClick} style={{
-    background: "#1c1c1e",
-    borderRadius: 12,
-    padding: "18px 20px",
-    marginBottom: 10,
-    border: "1px solid rgba(255,255,255,0.06)",
-    cursor: onClick ? "pointer" : "default",
-    ...style,
-  }}>{children}</div>
-);
-
 export default function AdminClient({ currentUser }: { currentUser: { id: string; namn?: string | null; roll: string } }) {
   const [aktiv, setAktiv] = useState<Tab>("oversikt");
   return (
@@ -133,7 +90,7 @@ export default function AdminClient({ currentUser }: { currentUser: { id: string
 
       <main style={{ flex: 1, paddingTop: 16, animation: "fadeUp 0.25s ease-out" }} key={aktiv}>
         {aktiv === "oversikt"      && <OversiktFlik />}
-        {aktiv === "medarbetare"   && <Placeholder label="Medarbetare" />}
+        {aktiv === "medarbetare"   && <MedarbetareFlik />}
         {aktiv === "avtal"         && <Placeholder label="Avtal" />}
         {aktiv === "lon"           && <Placeholder label="Lön" />}
         {aktiv === "installningar" && <Placeholder label="Inställningar" />}
