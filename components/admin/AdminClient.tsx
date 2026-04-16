@@ -1,5 +1,6 @@
 "use client";
-import React, { useState, CSSProperties, ReactNode } from "react";
+import React, { useState, useEffect, CSSProperties, ReactNode } from "react";
+import { supabase } from "@/lib/supabase";
 
 /* Design-tokens — matchar arbetsrapporten */
 const C = {
@@ -39,6 +40,15 @@ const shell: CSSProperties = {
 };
 
 const topBar: CSSProperties = { paddingTop: 24, paddingBottom: 12 };
+
+const secHead: CSSProperties = {
+  margin: "0 0 10px",
+  fontSize: 11,
+  fontWeight: 700,
+  color: "#636366",
+  textTransform: "uppercase",
+  letterSpacing: "0.15em",
+};
 
 type Tab = "oversikt" | "medarbetare" | "avtal" | "lon" | "installningar";
 
@@ -121,7 +131,7 @@ export default function AdminClient({ currentUser }: { currentUser: { id: string
       </div>
 
       <main style={{ flex: 1, paddingTop: 16, animation: "fadeUp 0.25s ease-out" }} key={aktiv}>
-        {aktiv === "oversikt"      && <Placeholder label="Översikt" />}
+        {aktiv === "oversikt"      && <OversiktFlik />}
         {aktiv === "medarbetare"   && <Placeholder label="Medarbetare" />}
         {aktiv === "avtal"         && <Placeholder label="Avtal" />}
         {aktiv === "lon"           && <Placeholder label="Lön" />}
@@ -138,5 +148,222 @@ function Placeholder({ label }: { label: string }) {
     <Card>
       <p style={{ margin: 0, fontSize: 15, color: C.label }}>{label} — kommer i nästa steg.</p>
     </Card>
+  );
+}
+
+/* ─── ÖVERSIKT ─── */
+
+type ÖversiktData = {
+  antalMedarbetare: number;
+  dagensInloggade: number;
+  dagensBekraftade: number;
+  vilobrottAntal: number;
+  månadensTimmar: { medarbetare: string; min: number }[];
+  momFiler: { filnamn: string; importerad_tid: string; maskin_id: string; status: string }[];
+  laddar: boolean;
+  fel: string | null;
+};
+
+const MÅL_MIN_PER_MÅNAD = 168 * 60; // ~168 tim/månad referens
+
+function OversiktFlik() {
+  const [data, setData] = useState<ÖversiktData>({
+    antalMedarbetare: 0,
+    dagensInloggade: 0,
+    dagensBekraftade: 0,
+    vilobrottAntal: 0,
+    månadensTimmar: [],
+    momFiler: [],
+    laddar: true,
+    fel: null,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const idag = new Date().toISOString().slice(0, 10);
+        const månStart = idag.slice(0, 7) + "-01";
+
+        const [med, dagensRes, månadRes, momRes] = await Promise.all([
+          supabase.from("medarbetare").select("id, namn", { count: "exact" }),
+          supabase.from("arbetsdag").select("medarbetare_id, bekraftad").eq("datum", idag),
+          supabase.from("arbetsdag").select("medarbetare_id, arbetad_min").gte("datum", månStart),
+          supabase.from("meta_importerade_filer")
+            .select("filnamn, importerad_tid, maskin_id, status")
+            .order("importerad_tid", { ascending: false })
+            .limit(5),
+        ]);
+
+        if (cancelled) return;
+
+        const namnMap = new Map<string, string>(
+          (med.data || []).map((m: any) => [m.id, m.namn || "—"])
+        );
+
+        const antal = med.count ?? (med.data?.length || 0);
+        const dagensRader = dagensRes.data || [];
+        const dagensInloggade = new Set(dagensRader.map((d: any) => d.medarbetare_id)).size;
+        const dagensBekraftade = dagensRader.filter((d: any) => d.bekraftad).length;
+
+        const minMap: Record<string, number> = {};
+        for (const d of (månadRes.data || [])) {
+          if (!d.medarbetare_id) continue;
+          minMap[d.medarbetare_id] = (minMap[d.medarbetare_id] || 0) + (d.arbetad_min || 0);
+        }
+        const månadensTimmar = Object.entries(minMap)
+          .map(([id, min]) => ({ medarbetare: namnMap.get(id) || id.slice(0, 8), min }))
+          .sort((a, b) => b.min - a.min);
+
+        setData({
+          antalMedarbetare: antal,
+          dagensInloggade,
+          dagensBekraftade,
+          vilobrottAntal: 0, // Beräknas i steg 7 (Vilobrott-underflik)
+          månadensTimmar,
+          momFiler: momRes.data || [],
+          laddar: false,
+          fel: null,
+        });
+      } catch (e: any) {
+        if (!cancelled) setData(d => ({ ...d, laddar: false, fel: e.message || String(e) }));
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, []);
+
+  if (data.laddar) {
+    return <Card><p style={{ margin: 0, color: C.label, fontSize: 14 }}>Laddar…</p></Card>;
+  }
+  if (data.fel) {
+    return <Card style={{ border: `1px solid ${C.red}` }}>
+      <p style={{ margin: 0, color: C.red, fontSize: 14 }}>Kunde inte ladda översikt: {data.fel}</p>
+    </Card>;
+  }
+
+  return (
+    <>
+      {/* KPI-kort */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+        <Kpi label="Medarbetare" value={String(data.antalMedarbetare)} />
+        <Kpi label="Inloggade idag" value={`${data.dagensInloggade} st`} />
+        <Kpi label="Bekräftade idag" value={`${data.dagensBekraftade} st`} />
+        <Kpi
+          label="Vilobrott vecka"
+          value={data.vilobrottAntal === 0 ? "0" : `${data.vilobrottAntal}`}
+          highlight={data.vilobrottAntal > 0}
+        />
+      </div>
+
+      {/* Månadens timmar per förare */}
+      <p style={secHead}>Månadens timmar</p>
+      <Card>
+        {data.månadensTimmar.length === 0 ? (
+          <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Inga arbetade timmar registrerade denna månad.</p>
+        ) : (
+          data.månadensTimmar.map((r, i) => {
+            const tim = r.min / 60;
+            const procent = Math.min(100, (r.min / MÅL_MIN_PER_MÅNAD) * 100);
+            const övertid = r.min > MÅL_MIN_PER_MÅNAD;
+            return (
+              <div key={i} style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                padding: "10px 0",
+                borderBottom: i === data.månadensTimmar.length - 1 ? "none" : `1px solid ${C.line}`,
+              }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
+                  <span style={{ color: C.text, fontWeight: 500 }}>{r.medarbetare}</span>
+                  <span style={{ color: övertid ? C.orange : C.text, fontWeight: 600 }}>
+                    {tim.toFixed(1)} h
+                  </span>
+                </div>
+                <div style={{
+                  height: 4,
+                  background: "rgba(255,255,255,0.08)",
+                  borderRadius: 2,
+                  overflow: "hidden",
+                }}>
+                  <div style={{
+                    height: "100%",
+                    width: `${procent}%`,
+                    background: övertid ? C.orange : C.green,
+                    transition: "width 0.3s",
+                  }} />
+                </div>
+              </div>
+            );
+          })
+        )}
+      </Card>
+
+      {/* Senaste MOM-filer */}
+      <p style={{ ...secHead, marginTop: 22 }}>Senast importerade MOM-filer</p>
+      <Card>
+        {data.momFiler.length === 0 ? (
+          <p style={{ margin: 0, color: C.label, fontSize: 14 }}>Inga importerade filer hittade.</p>
+        ) : (
+          data.momFiler.map((f, i) => (
+            <div key={i} style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 10,
+              padding: "10px 0",
+              borderBottom: i === data.momFiler.length - 1 ? "none" : `1px solid ${C.line}`,
+              fontSize: 13,
+            }}>
+              <div style={{ display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, flex: 1 }}>
+                <span style={{
+                  color: C.text,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}>{f.filnamn}</span>
+                <span style={{ color: C.label, fontSize: 11, marginTop: 2 }}>{f.maskin_id}</span>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <span style={{ color: f.status === "OK" ? C.green : C.red, fontSize: 11, fontWeight: 600 }}>
+                  {f.status}
+                </span>
+                <div style={{ color: C.label, fontSize: 11 }}>
+                  {f.importerad_tid ? new Date(f.importerad_tid).toLocaleString("sv-SE", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </Card>
+    </>
+  );
+}
+
+function Kpi({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div style={{
+      background: "#1c1c1e",
+      borderRadius: 12,
+      padding: 16,
+      border: highlight ? `1px solid ${C.red}` : "1px solid rgba(255,255,255,0.06)",
+    }}>
+      <p style={{
+        margin: 0,
+        fontSize: 11,
+        color: C.label,
+        fontWeight: 600,
+        textTransform: "uppercase",
+        letterSpacing: "0.1em",
+      }}>{label}</p>
+      <p style={{
+        margin: "8px 0 0",
+        fontSize: 26,
+        fontWeight: 700,
+        color: highlight ? C.red : C.text,
+        letterSpacing: "-0.02em",
+      }}>{value}</p>
+    </div>
   );
 }
