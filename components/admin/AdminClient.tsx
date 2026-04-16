@@ -5,6 +5,7 @@ import { expectedWorkMinutes } from "@/lib/roda-dagar";
 import { C, adminCss as css, secHead, Card } from "./design";
 import MedarbetareFlik from "./MedarbetareFlik";
 import AvtalFlik from "./AvtalFlik";
+import LonFlik from "./LonFlik";
 
 const shell: CSSProperties = {
   minHeight: "100vh",
@@ -93,7 +94,7 @@ export default function AdminClient({ currentUser }: { currentUser: { id: string
         {aktiv === "oversikt"      && <OversiktFlik />}
         {aktiv === "medarbetare"   && <MedarbetareFlik />}
         {aktiv === "avtal"         && <AvtalFlik />}
-        {aktiv === "lon"           && <Placeholder label="Lön" />}
+        {aktiv === "lon"           && <LonFlik />}
         {aktiv === "installningar" && <Placeholder label="Inställningar" />}
       </main>
 
