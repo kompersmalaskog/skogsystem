@@ -2449,22 +2449,6 @@ export default function Arbetsrapport() {
   /* ─── ÄNDRA ARBETSTID ─── */
   if(steg==="äTid"){
     const tAm=Math.max(0,tim(tS,tE)-tR),ä=tS!==start||tE!==slut||tR!==rast;
-    const TimeCol = ({label,value,onUp,onDown,changed}:{label:string;value:string;onUp:()=>void;onDown:()=>void;changed:boolean}) => (
-      <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-        <span style={{ ...secHead,marginBottom:16,color:changed?C.orange:"#8e8e93" }}>{label}</span>
-        <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
-          <button onClick={onUp} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
-            <span className="material-symbols-outlined" style={{ fontSize:30 }}>keyboard_arrow_up</span>
-          </button>
-          <div style={{ fontSize:36,fontWeight:700,color:"#fff",letterSpacing:"-0.03em" }}>{value}</div>
-          <button onClick={onDown} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#8e8e93" }}>
-            <span className="material-symbols-outlined" style={{ fontSize:30 }}>keyboard_arrow_down</span>
-          </button>
-        </div>
-      </div>
-    );
-    const [sH,sM]=tS.split(":").map(Number),[eH,eM]=tE.split(":").map(Number);
-    const pad=(n:number)=>String(n).padStart(2,"0");
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
         <style>{css}</style>
@@ -2478,52 +2462,21 @@ export default function Arbetsrapport() {
 
         <main style={{ flex:1,paddingTop:96,paddingLeft:16,paddingRight:16,paddingBottom:120,maxWidth:512,margin:"0 auto",width:"100%" }}>
 
-          {/* Time Picker Card */}
-          <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,marginBottom:24,border:"1px solid rgba(255,255,255,0.04)",boxShadow:"0 4px 24px rgba(0,0,0,0.4)" }}>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
-              {/* Start — H : M */}
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                <span style={{ ...secHead,marginBottom:12,color:tS!==start?C.orange:"#8e8e93" }}>Start</span>
-                <div style={{ display:"flex",alignItems:"center",gap:2 }}>
-                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                    <button onClick={()=>{const h=(sH+1)%24;setTS(`${pad(h)}:${pad(sM)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
-                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{pad(sH)}</span>
-                    <button onClick={()=>{const h=(sH-1+24)%24;setTS(`${pad(h)}:${pad(sM)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
-                  </div>
-                  <span style={{ fontSize:20,color:"#636366",fontWeight:300 }}>:</span>
-                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                    <button onClick={()=>{const m=(sM+1)%60;setTS(`${pad(sH)}:${pad(m)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
-                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{pad(sM)}</span>
-                    <button onClick={()=>{const m=(sM-1+60)%60;setTS(`${pad(sH)}:${pad(m)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
-                  </div>
-                </div>
-              </div>
-              {/* Slut — H : M */}
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",borderLeft:"1px solid rgba(255,255,255,0.05)",borderRight:"1px solid rgba(255,255,255,0.05)" }}>
-                <span style={{ ...secHead,marginBottom:12,color:tE!==slut?C.orange:"#8e8e93" }}>Slut</span>
-                <div style={{ display:"flex",alignItems:"center",gap:2 }}>
-                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                    <button onClick={()=>{const h=(eH+1)%24;setTE(`${pad(h)}:${pad(eM)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
-                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{pad(eH)}</span>
-                    <button onClick={()=>{const h=(eH-1+24)%24;setTE(`${pad(h)}:${pad(eM)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
-                  </div>
-                  <span style={{ fontSize:20,color:"#636366",fontWeight:300 }}>:</span>
-                  <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                    <button onClick={()=>{const m=(eM+1)%60;setTE(`${pad(eH)}:${pad(m)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
-                    <span style={{ fontSize:28,fontWeight:700,color:"#fff",width:28,textAlign:"center" }}>{pad(eM)}</span>
-                    <button onClick={()=>{const m=(eM-1+60)%60;setTE(`${pad(eH)}:${pad(m)}`);}} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
-                  </div>
-                </div>
-              </div>
-              {/* Rast — 5 min steg */}
-              <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                <span style={{ ...secHead,marginBottom:12,color:tR!==rast?C.orange:"#8e8e93" }}>Rast</span>
-                <div style={{ display:"flex",flexDirection:"column",alignItems:"center" }}>
-                  <button onClick={()=>setTR(Math.min(120,tR+5))} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_up</span></button>
-                  <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{tR}</span>
-                  <span style={{ fontSize:10,color:"#8e8e93",marginTop:-2 }}>min</span>
-                  <button onClick={()=>setTR(Math.max(0,tR-5))} style={{ background:"none",border:"none",cursor:"pointer",padding:2,color:"#8e8e93" }}><span className="material-symbols-outlined" style={{ fontSize:24 }}>keyboard_arrow_down</span></button>
-                </div>
+          {/* Time Picker Card — iOS-stil scroll-wheels */}
+          <div style={{ background:"#1c1c1e",borderRadius:16,padding:"20px 16px",marginBottom:24,border:"1px solid rgba(255,255,255,0.04)",boxShadow:"0 4px 24px rgba(0,0,0,0.4)",display:"flex",flexDirection:"column",gap:18 }}>
+            <div>
+              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:tS!==start?C.orange:"#8e8e93" }}>Start</span>
+              <TimePicker value={tS} onChange={setTS}/>
+            </div>
+            <div style={{ borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:18 }}>
+              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:tE!==slut?C.orange:"#8e8e93" }}>Slut</span>
+              <TimePicker value={tE} onChange={setTE}/>
+            </div>
+            <div style={{ borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:18 }}>
+              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:tR!==rast?C.orange:"#8e8e93" }}>Rast</span>
+              <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8,marginBottom:28 }}>
+                <Wheel value={tR} onChange={setTR} min={0} max={120} step={5}/>
+                <span style={{ fontSize:14,color:C.label,fontWeight:600 }}>min</span>
               </div>
             </div>
           </div>
