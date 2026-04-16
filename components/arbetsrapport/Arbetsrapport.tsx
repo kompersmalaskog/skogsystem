@@ -91,6 +91,34 @@ const hälsning = () => {
   return "God natt";
 };
 
+/* Klockslag HH:MM från Date */
+const nuKlock = () => {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+};
+
+/* ── Extra-aktiviteter ── */
+type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'annat';
+const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debDefault: boolean }[] = [
+  { typ:'rotben',      label:'Kapa rotben',         icon:'content_cut',   debDefault:false },
+  { typ:'reservdelar', label:'Hämta reservdelar',   icon:'build',         debDefault:false },
+  { typ:'markagare',   label:'Markägarbesök',       icon:'handshake',     debDefault:true  },
+  { typ:'service',     label:'Service / reparation',icon:'engineering',   debDefault:false },
+  { typ:'mote',        label:'Möte',                icon:'groups',        debDefault:false },
+  { typ:'annat',       label:'Annat',               icon:'more_horiz',    debDefault:false },
+];
+const aktLabel = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.label || 'Extra';
+const aktIcon  = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.icon  || 'more_horiz';
+
+/* Beräkna minuter mellan två tids-strängar HH:MM (eller HH:MM:SS) */
+const minutDiff = (start: string|null|undefined, slut: string|null|undefined) => {
+  if(!start) return 0;
+  const slutEff = slut || nuKlock();
+  const [sh,sm] = start.slice(0,5).split(':').map(Number);
+  const [eh,em] = slutEff.slice(0,5).split(':').map(Number);
+  return Math.max(0, eh*60+em - sh*60-sm);
+};
+
 /* ── Sub-komponenter ── */
 const BackBtn = ({ onClick }: { onClick: () => void; light?: boolean }) => (
   <button onClick={onClick} style={{ width:40,height:40,borderRadius:12,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
@@ -474,11 +502,24 @@ export default function Arbetsrapport() {
   const [vilaÅrExpand, setVilaÅrExpand] = useState<number|null>(null);
   const [visaAllaDygnsvila, setVisaAllaDygnsvila] = useState(false);
   const [visaAllaVeckovila, setVisaAllaVeckovila] = useState(false);
-  const [minTidFlik, setMinTidFlik] = useState<'översikt'|'saldon'|'vila'|'lön'>('översikt');
+  const [minTidFlik, setMinTidFlik] = useState<'översikt'|'saldon'|'vila'|'monster'|'lön'>('översikt');
   const [atkVal, setAtkVal] = useState<'ledig'|'kontant'|'pension'|null>(null);
   const [atkValSparat, setAtkValSparat] = useState<any>(null);
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
+
+  // Extra-aktiviteter — pågående + ny aktivitet
+  const [pagaendeAktiviteter, setPagaendeAktiviteter] = useState<any[]>([]);
+  const [valjAktivitet, setValjAktivitet] = useState<{kalla:'morgon'|'kvall'|'under_dagen'} | null>(null);
+  const [valdAkt, setValdAkt] = useState<typeof AKTIVITETER[number] | null>(null);
+  const [aktAnnatText, setAktAnnatText] = useState("");
+  const [aktDeb, setAktDeb] = useState(false);
+  const [aktObjekt, setAktObjekt] = useState<any>(null);
+  const [aktVisaObjekt, setAktVisaObjekt] = useState(false);
+  const [stoppaSlutTid, setStoppaSlutTid] = useState(nuKlock());
+  const [stoppaTarget, setStoppaTarget] = useState<any>(null);
+  const [tidslinjeDatum, setTidslinjeDatum] = useState<string|null>(null);
+  const [extraDagData, setExtraDagData] = useState<Record<string, any[]>>({});
 
   useEffect(() => {
     Promise.all([
@@ -509,9 +550,15 @@ export default function Arbetsrapport() {
         // Fetch ATK-val
         supabase.from("atk_val").select("*").eq("medarbetare_id", med.data.id).eq("period", String(new Date().getFullYear())).single()
           .then(res => { if(res.data) setAtkValSparat(res.data); });
-        // Fetch extra_tid for löneunderlag
-        supabase.from("extra_tid").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(60)
-          .then(res => { if(res.data) setExtraTidData(res.data); });
+        // Fetch extra_tid for löneunderlag + pågående
+        supabase.from("extra_tid").select("*").eq("medarbetare_id", med.data.id).order("datum",{ascending:false}).limit(200)
+          .then(res => {
+            if(res.data) {
+              setExtraTidData(res.data);
+              const idagStr = new Date().toISOString().split("T")[0];
+              setPagaendeAktiviteter(res.data.filter((e:any) => e.start_tid && !e.slut_tid && e.datum === idagStr));
+            }
+          });
       }
       if(avt.data) setGsAvtal(avt.data);
       if(obj.data) setObjektLista(obj.data.map(o => ({id:o.objekt_id, namn:o.object_name||o.objekt_id, ägare:o.skogsagare||''})));
@@ -585,13 +632,32 @@ export default function Arbetsrapport() {
         const objNamn = objektLista.find((o: any) => o.id === row.objekt_id)?.namn || row.objekt_id || '';
         const startTid = row.start_tid ? row.start_tid.slice(0, 5) : '';
 
-        // Ny rad → start-notis
+        // Ny rad → start-notis + auto-stoppa pågående extra-aktiviteter
         if (!knownIds.has(row.id) && !localStorage.getItem(startKey)) {
           knownIds.add(row.id);
           knownSlut[row.id] = row.slut_tid || null;
           setArbetsdagToast({ typ: 'start', maskin, objekt: objNamn, start: startTid });
           localStorage.setItem(startKey, '1');
           setTimeout(() => setArbetsdagToast(null), 10000);
+          // Auto-stoppa pågående aktiviteter på maskinstart
+          if (startTid) {
+            const { data: opna } = await supabase.from('extra_tid')
+              .select('id, aktivitet_typ, start_tid')
+              .eq('medarbetare_id', medarbetare.id)
+              .eq('datum', today)
+              .is('slut_tid', null);
+            if (opna && opna.length > 0) {
+              const startSec = startTid + ':00';
+              for (const o of opna) {
+                const min = minutDiff(o.start_tid, startSec);
+                await supabase.from('extra_tid').update({ slut_tid: startSec, minuter: min }).eq('id', o.id);
+              }
+              setPagaendeAktiviteter([]);
+              // Refresh extra_tid lista
+              supabase.from("extra_tid").select("*").eq("medarbetare_id", medarbetare.id).order("datum",{ascending:false}).limit(200)
+                .then(res => { if(res.data) setExtraTidData(res.data); });
+            }
+          }
           return;
         }
 
@@ -666,6 +732,23 @@ export default function Arbetsrapport() {
             };
           }
           setDagData(map);
+        }
+      });
+    // Hämta extra_tid för månaden — gruppera per datum
+    supabase.from('extra_tid')
+      .select('*')
+      .eq('medarbetare_id', medarbetare.id)
+      .gte('datum', förstadag)
+      .lte('datum', sistadag)
+      .order('start_tid', { ascending: true })
+      .then(res => {
+        if (res.data) {
+          const map: Record<string, any[]> = {};
+          for (const r of res.data) {
+            if (!map[r.datum]) map[r.datum] = [];
+            map[r.datum].push(r);
+          }
+          setExtraDagData(map);
         }
       });
   }, [medarbetare, kalÅr, kalMånad, maskinNamnMap, objektLista]);
@@ -784,6 +867,303 @@ export default function Arbetsrapport() {
     />
   );
 
+  /* ─── VÄLJ AKTIVITET — stora kort ─── */
+  const startaAktivitet = async (akt: typeof AKTIVITETER[number]) => {
+    if(akt.typ === 'annat') {
+      // För "annat" → visa val-vyn med textfält
+      setValdAkt(akt);
+      setAktAnnatText("");
+      setAktDeb(akt.debDefault);
+      setAktObjekt(dagensObjekt ? objektLista.find(o=>o.id===dagensObjekt) : null);
+      setSteg("bekraftaAktivitet");
+      return;
+    }
+    // Direkt-start för övriga (ett klick)
+    const startTid = nuKlock();
+    const datum = new Date().toISOString().split("T")[0];
+    const objId = dagensObjekt || valtObjektId || dagData[datum]?.objekt_id || null;
+    const { data } = await supabase.from("extra_tid").insert({
+      medarbetare_id: medarbetare.id,
+      datum,
+      start_tid: startTid + ":00",
+      slut_tid: null,
+      minuter: 0,
+      aktivitet_typ: akt.typ,
+      aktivitet_text: null,
+      objekt_id: objId,
+      debiterbar: akt.debDefault,
+      kalla: valjAktivitet?.kalla || 'under_dagen',
+      kommentar: akt.label,
+    }).select().single();
+    if(data) {
+      setPagaendeAktiviteter(p => [...p, data]);
+      setExtraTidData(d => [data, ...d]);
+    }
+    setValjAktivitet(null);
+    setSteg(valjAktivitet?.kalla === 'kvall' ? "kväll" : "morgon");
+  };
+
+  if(steg==="valjAktivitet") return (
+    <div style={shell}>
+      <style>{css}</style>
+      <div style={topBar}>
+        <div style={{ display:"flex",alignItems:"center",gap:14 }}>
+          <BackBtn onClick={()=>{setValjAktivitet(null);setSteg(valjAktivitet?.kalla==='kvall'?"kväll":"morgon");}}/>
+          <div>
+            <h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Vad gör du?</h1>
+            <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>Starttid sätts till nu ({nuKlock()})</p>
+          </div>
+        </div>
+      </div>
+      <div style={{ flex:1,paddingTop:16,overflowY:"auto",paddingBottom:32 }}>
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+          {AKTIVITETER.map(a=>(
+            <button key={a.typ}
+              onClick={()=>startaAktivitet(a)}
+              style={{
+                aspectRatio:"1/1",
+                background:"#1c1c1e",
+                border:"1px solid rgba(255,255,255,0.06)",
+                borderRadius:16,
+                display:"flex",
+                flexDirection:"column",
+                alignItems:"center",
+                justifyContent:"center",
+                gap:12,
+                cursor:"pointer",
+                fontFamily:"inherit",
+                padding:16,
+              }}>
+              <span className="material-symbols-outlined" style={{ fontSize:40,color:"#adc6ff" }}>{a.icon}</span>
+              <span style={{ fontSize:15,fontWeight:600,color:"#fff",textAlign:"center",lineHeight:1.2 }}>{a.label}</span>
+              {a.debDefault&&<span style={{ fontSize:10,color:C.green,fontWeight:600 }}>DEBITERBAR</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ─── BEKRÄFTA AKTIVITET (för "Annat" eller manuell ändring) ─── */
+  if(steg==="bekraftaAktivitet" && valdAkt) {
+    if(aktVisaObjekt) return (
+      <div style={shell}><style>{css}</style>
+        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setAktVisaObjekt(false)}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Välj objekt</h1></div></div>
+        <div style={{ flex:1,paddingTop:16,overflowY:"auto" }}>
+          {objektLista.map(o=>(
+            <Card key={o.id} onClick={()=>{setAktObjekt(o);setAktVisaObjekt(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:aktObjekt?.id===o.id?"rgba(0,122,255,0.06)":"#1c1c1e" }}>
+              <div><p style={{ margin:0,fontSize:16,fontWeight:600 }}>{o.namn}</p><p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{o.ägare}</p></div>
+              {aktObjekt?.id===o.id&&<div style={{ width:22,height:22,borderRadius:"50%",background:C.blue,display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+    const klart = valdAkt.typ !== 'annat' || aktAnnatText.trim().length > 0;
+    return (
+      <div style={shell}>
+        <style>{css}</style>
+        <div style={topBar}>
+          <div style={{ display:"flex",alignItems:"center",gap:14 }}>
+            <BackBtn onClick={()=>{setValdAkt(null);setSteg("valjAktivitet");}}/>
+            <div>
+              <h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>{valdAkt.label}</h1>
+              <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>Starttid: {nuKlock()}</p>
+            </div>
+          </div>
+        </div>
+        <div style={{ flex:1,overflowY:"auto",paddingTop:16,paddingBottom:120 }}>
+          {valdAkt.typ === 'annat' && (
+            <div style={{ marginBottom:20 }}>
+              <Label>Beskriv vad du gör</Label>
+              <input
+                placeholder="T.ex. röjde sten på vägen"
+                value={aktAnnatText}
+                onChange={e=>setAktAnnatText(e.target.value)}
+                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:"#1c1c1e",outline:"none",fontFamily:"inherit",color:"#fff",boxSizing:"border-box" }}
+                autoFocus
+              />
+            </div>
+          )}
+          <Card style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+            <div>
+              <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Debiterbar</p>
+              <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>Faktureras kunden</p>
+            </div>
+            <div onClick={()=>{setAktDeb(v=>!v); if(aktDeb) setAktObjekt(null);}}
+              style={{ width:51,height:31,borderRadius:16,background:aktDeb?C.green:"rgba(120,120,128,0.2)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
+              <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:aktDeb?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
+            </div>
+          </Card>
+          {aktDeb && (
+            <Card onClick={()=>setAktVisaObjekt(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+              <div>
+                <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Objekt</p>
+                <p style={{ margin:"2px 0 0",fontSize:13,color:aktObjekt?C.blue:C.label }}>{aktObjekt?aktObjekt.namn:"Välj objekt"}</p>
+              </div>
+              <ChevronRight/>
+            </Card>
+          )}
+        </div>
+        <div style={bottom}>
+          <button
+            style={{ ...btn.primary,opacity:klart?1:0.35 }}
+            disabled={!klart}
+            onClick={async ()=>{
+              const startTid = nuKlock();
+              const datum = new Date().toISOString().split("T")[0];
+              const objId = aktDeb ? (aktObjekt?.id || null) : (dagensObjekt || valtObjektId || dagData[datum]?.objekt_id || null);
+              const { data } = await supabase.from("extra_tid").insert({
+                medarbetare_id: medarbetare.id,
+                datum,
+                start_tid: startTid + ":00",
+                slut_tid: null,
+                minuter: 0,
+                aktivitet_typ: valdAkt.typ,
+                aktivitet_text: valdAkt.typ === 'annat' ? aktAnnatText : null,
+                objekt_id: objId,
+                debiterbar: aktDeb,
+                kalla: valjAktivitet?.kalla || 'under_dagen',
+                kommentar: valdAkt.typ === 'annat' ? aktAnnatText : valdAkt.label,
+              }).select().single();
+              if(data) {
+                setPagaendeAktiviteter(p => [...p, data]);
+                setExtraTidData(d => [data, ...d]);
+              }
+              const kalla = valjAktivitet?.kalla;
+              setValdAkt(null); setAktObjekt(null); setAktDeb(false); setAktAnnatText(""); setValjAktivitet(null);
+              setSteg(kalla==='kvall'?"kväll":"morgon");
+            }}
+          >Starta</button>
+          <button style={btn.textBack} onClick={()=>{setValdAkt(null);setSteg("valjAktivitet");}}>Avbryt</button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ─── STOPPA AKTIVITET ─── */
+  if(steg==="stoppaAktivitet" && stoppaTarget) {
+    const minuter = minutDiff(stoppaTarget.start_tid, stoppaSlutTid + ':00');
+    return (
+      <div style={shell}>
+        <style>{css}</style>
+        <div style={topBar}>
+          <div style={{ display:"flex",alignItems:"center",gap:14 }}>
+            <BackBtn onClick={()=>{setStoppaTarget(null);setSteg("morgon");}}/>
+            <div>
+              <h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Stoppa {aktLabel(stoppaTarget.aktivitet_typ).toLowerCase()}</h1>
+              <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>Startade {(stoppaTarget.start_tid||'').slice(0,5)}</p>
+            </div>
+          </div>
+        </div>
+        <div style={{ flex:1,paddingTop:24,overflowY:"auto" }}>
+          <Label>Sluttid</Label>
+          <div style={{ background:"#1c1c1e",borderRadius:16,padding:"20px 16px",marginBottom:24 }}>
+            <TimePicker value={stoppaSlutTid} onChange={setStoppaSlutTid}/>
+          </div>
+          <div style={{ textAlign:"center",padding:20,background:"rgba(52,199,89,0.07)",borderRadius:14 }}>
+            <Label>Tid</Label>
+            <p style={{ margin:0,fontSize:36,fontWeight:700,color:C.green }}>{fmt(minuter)}</p>
+          </div>
+        </div>
+        <div style={bottom}>
+          <button style={btn.primary} onClick={async()=>{
+            await supabase.from("extra_tid").update({
+              slut_tid: stoppaSlutTid + ':00',
+              minuter,
+            }).eq("id", stoppaTarget.id);
+            setPagaendeAktiviteter(p => p.filter(x=>x.id!==stoppaTarget.id));
+            setExtraTidData(d => d.map(x => x.id===stoppaTarget.id ? {...x, slut_tid:stoppaSlutTid+':00', minuter} : x));
+            setStoppaTarget(null);
+            setSteg("morgon");
+          }}>Spara</button>
+          <button style={btn.textBack} onClick={()=>{setStoppaTarget(null);setSteg("morgon");}}>Avbryt</button>
+        </div>
+      </div>
+    );
+  }
+
+  /* ─── TIDSLINJE FÖR EN DAG ─── */
+  if(steg==="tidslinje" && tidslinjeDatum) {
+    const dag = dagData[tidslinjeDatum];
+    const extra = (extraDagData[tidslinjeDatum] || []).slice().sort((a,b)=>(a.start_tid||'').localeCompare(b.start_tid||''));
+    type Hand = { typ:'maskin'|'extra'; start:string; slut:string; label:string; sub?:string; minuter:number; debiterbar?:boolean };
+    const händelser: Hand[] = [];
+    if(dag?.start_tid && dag?.slut_tid) {
+      const objNamn = objektLista.find(o=>o.id===dag.objekt_id)?.namn || dag.objekt_namn || dag.maskin_id || 'Maskin';
+      händelser.push({
+        typ:'maskin',
+        start:dag.start_tid.slice(0,5),
+        slut:dag.slut_tid.slice(0,5),
+        label:`Maskin — ${objNamn}`,
+        sub: dag.maskin_namn || dag.maskin_id,
+        minuter: dag.arbMin||0,
+      });
+    }
+    for(const e of extra) {
+      händelser.push({
+        typ:'extra',
+        start:(e.start_tid||'').slice(0,5),
+        slut:(e.slut_tid||'').slice(0,5)||'pågår',
+        label: aktLabel(e.aktivitet_typ),
+        sub: e.aktivitet_text || (e.objekt_id ? (objektLista.find(o=>o.id===e.objekt_id)?.namn || '') : ''),
+        minuter: e.minuter||0,
+        debiterbar: e.debiterbar,
+      });
+    }
+    händelser.sort((a,b)=>a.start.localeCompare(b.start));
+    const totMaskin = dag?.arbMin||0;
+    const totExtra = extra.reduce((a,e)=>a+(e.minuter||0),0);
+    const datDate = new Date(tidslinjeDatum);
+    const datLabel = `${["sön","mån","tis","ons","tor","fre","lör"][datDate.getDay()]} ${datDate.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][datDate.getMonth()]}`;
+    return (
+      <div style={shell}>
+        <style>{css}</style>
+        <div style={topBar}>
+          <div style={{ display:"flex",alignItems:"center",gap:14 }}>
+            <BackBtn onClick={()=>{setTidslinjeDatum(null);setSteg("kalender");}}/>
+            <div>
+              <p style={{ margin:0,fontSize:13,color:C.label,textTransform:"capitalize" }}>{datLabel}</p>
+              <h1 style={{ margin:"4px 0 0",fontSize:24,fontWeight:700 }}>Tidslinje</h1>
+            </div>
+          </div>
+        </div>
+        <div style={{ flex:1,overflowY:"auto",paddingTop:16,paddingBottom:32 }}>
+          {/* Summering */}
+          <Card style={{ padding:"16px 20px" }}>
+            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:8 }}>
+              <span style={{ fontSize:14,color:C.label }}>Maskin</span>
+              <span style={{ fontSize:14,fontWeight:600 }}>{fmt(totMaskin)}</span>
+            </div>
+            {totExtra>0&&(
+              <div style={{ display:"flex",justifyContent:"space-between" }}>
+                <span style={{ fontSize:14,color:C.label }}>Extra tid</span>
+                <span style={{ fontSize:14,fontWeight:600,color:C.orange }}>+ {fmt(totExtra)}</span>
+              </div>
+            )}
+          </Card>
+          {/* Lista händelser */}
+          <div style={{ marginTop:16 }}>
+            {händelser.length===0?(
+              <Card><p style={{ margin:0,fontSize:14,color:C.label,textAlign:"center" }}>Inga händelser denna dag</p></Card>
+            ):händelser.map((h,i)=>(
+              <Card key={i} style={{ display:"flex",alignItems:"flex-start",gap:14 }}>
+                <div style={{ minWidth:90,fontSize:14,color:C.label,fontWeight:500,fontVariantNumeric:"tabular-nums" }}>
+                  {h.start}–{h.slut}
+                </div>
+                <div style={{ flex:1 }}>
+                  <p style={{ margin:0,fontSize:15,fontWeight:600,color:h.typ==='maskin'?'#fff':C.orange }}>{h.label}</p>
+                  {h.sub&&<p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{h.sub}</p>}
+                  <p style={{ margin:"6px 0 0",fontSize:12,fontWeight:500,color:C.label }}>{fmt(h.minuter)}{h.debiterbar?' · debiterbar':''}</p>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   /* ─── HEM (morgon/dag/meny unified) ─── */
   if(steg==="morgon"||steg==="dag"||steg==="meny") return (
     <div style={{ minHeight:"100vh",background:"#000",color:"#e5e2e0",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
@@ -819,6 +1199,30 @@ export default function Arbetsrapport() {
             <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>{v.text}</span>
           </div>
         ))}
+
+        {/* Pågående extra-aktiviteter */}
+        {pagaendeAktiviteter.map(p => (
+          <div key={p.id} style={{ background:"rgba(52,199,89,0.08)",border:"1px solid rgba(52,199,89,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,animation:"fadeUp 0.3s ease" }}>
+            <div style={{ display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0 }}>
+              <span className="material-symbols-outlined" style={{ color:"#34c759",fontSize:20 }}>{aktIcon(p.aktivitet_typ)}</span>
+              <div style={{ minWidth:0 }}>
+                <p style={{ margin:0,fontSize:14,fontWeight:600,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>Pågående: {p.aktivitet_text || aktLabel(p.aktivitet_typ)}</p>
+                <p style={{ margin:"2px 0 0",fontSize:12,color:C.label }}>sedan {(p.start_tid||'').slice(0,5)} · {fmt(minutDiff(p.start_tid, null))}</p>
+              </div>
+            </div>
+            <button onClick={()=>{setStoppaTarget(p);setStoppaSlutTid(nuKlock());setSteg("stoppaAktivitet");}}
+              style={{ flexShrink:0,padding:"8px 14px",background:"rgba(255,255,255,0.1)",border:"none",borderRadius:10,color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+              Stoppa nu
+            </button>
+          </div>
+        ))}
+
+        {/* + Extra tid (diskret knapp) */}
+        <button onClick={()=>{setValjAktivitet({kalla:'morgon'});setSteg("valjAktivitet");}}
+          style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,color:"#adc6ff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+          <span className="material-symbols-outlined" style={{ fontSize:16 }}>add</span>
+          Extra tid
+        </button>
 
         {/* Hero */}
         <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
@@ -922,7 +1326,7 @@ export default function Arbetsrapport() {
               );
             })()}
           </div>
-        </section>}
+        </section>
 
         {/* Objektväljare */}
         {visaObjektVäljare&&(
@@ -1195,9 +1599,9 @@ export default function Arbetsrapport() {
         <style>{css}</style>
         <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:"0 24px",paddingTop:16 }}>
           <h1 style={{ margin:"0 0 12px",fontSize:20,fontWeight:700,color:"#fff" }}>Min tid</h1>
-          <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.06)",borderRadius:8,padding:2,marginBottom:12 }}>
-            {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila'],['lön','Löneunderlag']] as const).map(([k,l])=>(
-              <button key={k} onClick={()=>{if(k==='lön'){setSteg('lön');return;}setMinTidFlik(k);}} style={{ flex:1,padding:"7px 0",borderRadius:6,border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:minTidFlik===k?"rgba(255,255,255,0.12)":"transparent",color:minTidFlik===k?"#fff":"#8e8e93" }}>{l}</button>
+          <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.06)",borderRadius:8,padding:2,marginBottom:12,overflowX:"auto" }}>
+            {([['översikt','Översikt'],['saldon','Saldon'],['vila','Vila'],['monster','Mönster'],['lön','Löneunderlag']] as const).map(([k,l])=>(
+              <button key={k} onClick={()=>{if(k==='lön'){setSteg('lön');return;}setMinTidFlik(k);}} style={{ flex:1,minWidth:60,padding:"7px 8px",borderRadius:6,border:"none",fontSize:12,fontWeight:600,cursor:"pointer",fontFamily:"inherit",background:minTidFlik===k?"rgba(255,255,255,0.12)":"transparent",color:minTidFlik===k?"#fff":"#8e8e93",whiteSpace:"nowrap" }}>{l}</button>
             ))}
           </div>
         </header>
@@ -1677,6 +2081,100 @@ export default function Arbetsrapport() {
           })()}
           </>}
 
+          {minTidFlik==='monster'&&(()=>{
+            // Senaste 30 dagarna av extra_tid
+            const nu30 = new Date();
+            const cutoff = new Date(nu30); cutoff.setDate(nu30.getDate()-30);
+            const cutoffStr = cutoff.toISOString().split('T')[0];
+            const senaste30 = extraTidData.filter(e => e.datum && e.datum >= cutoffStr);
+            // Dagar med data (unika datum för arbetsdagar)
+            const arbDagar30 = new Set(årsData.filter(d => d.datum && d.datum >= cutoffStr && d.start_tid).map(d => d.datum)).size || 1;
+            // Per typ
+            type Stat = { typ:string; antal:number; minTot:number; medel:number; deb:number; kall:Record<string,number> };
+            const perTyp = new Map<string, Stat>();
+            for(const e of senaste30) {
+              const t = e.aktivitet_typ || 'annat';
+              if(!perTyp.has(t)) perTyp.set(t, { typ:t, antal:0, minTot:0, medel:0, deb:0, kall:{morgon:0,kvall:0,under_dagen:0} });
+              const s = perTyp.get(t)!;
+              s.antal++;
+              s.minTot += e.minuter || 0;
+              if(e.debiterbar) s.deb++;
+              if(e.kalla) s.kall[e.kalla] = (s.kall[e.kalla]||0)+1;
+            }
+            perTyp.forEach(s => { s.medel = s.antal>0 ? Math.round(s.minTot/s.antal) : 0; });
+            const stats = Array.from(perTyp.values()).sort((a,b)=>b.minTot-a.minTot);
+            const totMin = senaste30.reduce((a,e)=>a+(e.minuter||0),0);
+            return (
+              <>
+                {/* Sammanfattning */}
+                <section style={{ marginBottom:24 }}>
+                  <h3 style={secHead}>Senaste 30 dagarna</h3>
+                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+                    <p style={{ margin:0,fontSize:28,fontWeight:700,color:"#fff" }}>{Math.round(totMin/60*10)/10}h <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>extra tid totalt</span></p>
+                    <p style={{ margin:"6px 0 0",fontSize:13,color:"#8e8e93" }}>{senaste30.length} aktiviteter över {arbDagar30} arbetsdagar</p>
+                  </div>
+                </section>
+                {/* Per typ */}
+                {stats.length === 0 ? (
+                  <Card><p style={{ margin:0,fontSize:14,color:C.label,textAlign:"center" }}>Ingen extra tid registrerad senaste 30 dagarna</p></Card>
+                ) : (
+                  <section>
+                    <h3 style={secHead}>Per aktivitet</h3>
+                    {stats.map(s => {
+                      const pct = Math.round(s.antal/arbDagar30*100);
+                      const kallEntries: [string, number][] = Object.entries(s.kall) as [string, number][];
+                      const dominantKall = kallEntries.sort((a,b)=>b[1]-a[1])[0];
+                      const kallText = dominantKall && dominantKall[1]>0
+                        ? (dominantKall[0]==='morgon'?'oftast på morgonen':dominantKall[0]==='kvall'?'oftast på kvällen':'oftast under dagen')
+                        : '';
+                      return (
+                        <Card key={s.typ} style={{ padding:"16px 18px" }}>
+                          <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:8 }}>
+                            <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:22 }}>{aktIcon(s.typ)}</span>
+                            <div style={{ flex:1 }}>
+                              <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#fff" }}>{aktLabel(s.typ)}</p>
+                              <p style={{ margin:"2px 0 0",fontSize:12,color:C.label }}>{pct}% av dagarna · snitt {fmt(s.medel)}</p>
+                            </div>
+                            <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{Math.round(s.minTot/60*10)/10}h</span>
+                          </div>
+                          {/* Bar */}
+                          <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden",marginBottom:6 }}>
+                            <div style={{ height:"100%",width:`${Math.min(100,pct)}%`,background:"#adc6ff",borderRadius:2 }}/>
+                          </div>
+                          <p style={{ margin:0,fontSize:12,color:C.label }}>
+                            {s.antal} gånger{s.deb>0?` · ${s.deb} debiterbar${s.deb>1?'a':''}`:''}{kallText?` · ${kallText}`:''}
+                          </p>
+                        </Card>
+                      );
+                    })}
+                    {/* Stapeldiagram fördelning */}
+                    <h3 style={{ ...secHead,marginTop:24 }}>Fördelning</h3>
+                    <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+                      <div style={{ display:"flex",height:24,borderRadius:6,overflow:"hidden" }}>
+                        {stats.map((s,i) => {
+                          const w = totMin>0 ? (s.minTot/totMin*100) : 0;
+                          const färger = ["#adc6ff","#34c759","#ff9f0a","#ff453a","#bf5af2","#64d2ff"];
+                          return <div key={s.typ} title={aktLabel(s.typ)} style={{ width:`${w}%`,background:färger[i%färger.length] }}/>;
+                        })}
+                      </div>
+                      <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginTop:12 }}>
+                        {stats.map((s,i) => {
+                          const färger = ["#adc6ff","#34c759","#ff9f0a","#ff453a","#bf5af2","#64d2ff"];
+                          return (
+                            <div key={s.typ} style={{ display:"flex",alignItems:"center",gap:6 }}>
+                              <div style={{ width:10,height:10,borderRadius:2,background:färger[i%färger.length] }}/>
+                              <span style={{ fontSize:11,color:"#8e8e93" }}>{aktLabel(s.typ)}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </section>
+                )}
+              </>
+            );
+          })()}
+
         </main>
         <BottomNavBar aktiv="mintid" onNav={s=>setSteg(s)} />
       </div>
@@ -1928,10 +2426,46 @@ export default function Arbetsrapport() {
               </div>
             </section>
 
-            {/* Debiterbar tid */}
+            {/* Extra tid per aktivitet */}
+            {månadsExtraTid.length>0&&(()=>{
+              type AggExtra = { typ:string; minTot:number; deb:boolean; antal:number; poster:any[] };
+              const grupper = new Map<string, AggExtra>();
+              for(const e of månadsExtraTid) {
+                const key = (e.aktivitet_typ || 'annat') + '|' + (e.debiterbar ? '1' : '0');
+                if(!grupper.has(key)) grupper.set(key, { typ: e.aktivitet_typ || 'annat', minTot:0, deb: !!e.debiterbar, antal:0, poster:[] });
+                const g = grupper.get(key)!;
+                g.minTot += e.minuter||0;
+                g.antal++;
+                g.poster.push(e);
+              }
+              const grupperArr = Array.from(grupper.values()).sort((a,b)=>b.minTot-a.minTot);
+              return (
+                <section style={{ marginBottom:32 }}>
+                  <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Extra tid per aktivitet</h2>
+                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",marginBottom:12 }}>
+                    {grupperArr.map((g,i) => {
+                      const h = Math.floor(g.minTot/60), m = g.minTot%60;
+                      const tidStr = h > 0 ? `${h} tim${m > 0 ? ' ' + m + ' min' : ''}` : `${m} min`;
+                      return (
+                        <div key={i} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<grupperArr.length-1?"1px solid rgba(255,255,255,0.04)":"none" }}>
+                          <div style={{ display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0 }}>
+                            <span className="material-symbols-outlined" style={{ color:g.deb?"#ff9f0a":"#8e8e93",fontSize:18 }}>{aktIcon(g.typ)}</span>
+                            <span style={{ fontSize:14,color:"#fff" }}>{aktLabel(g.typ)}{g.deb?'':''}</span>
+                            {g.deb&&<span style={{ fontSize:10,fontWeight:700,color:"#ff9f0a",letterSpacing:"0.05em" }}>DEB</span>}
+                          </div>
+                          <span style={{ fontSize:14,fontWeight:600,color:"#fff" }}>{tidStr}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })()}
+
+            {/* Debiterbar tid — detaljerad lista */}
             {debiterbarExtraTid.length>0&&(
               <section style={{ marginBottom:32 }}>
-                <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Debiterbar tid</h2>
+                <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Debiterbar tid (detaljer)</h2>
                 <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
                   {debiterbarExtraTid.map((e,i) => {
                     const objNamn = e.objekt_id ? (objektLista.find(o=>o.id===e.objekt_id)?.namn || e.objekt_id) : '–';
@@ -1940,14 +2474,14 @@ export default function Arbetsrapport() {
                     return (
                       <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",alignItems:"flex-start",gap:16 }}>
                         <div style={{ width:40,height:40,borderRadius:"50%",background:"rgba(255,149,0,0.15)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
-                          <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>receipt_long</span>
+                          <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>{aktIcon(e.aktivitet_typ)}</span>
                         </div>
                         <div style={{ flex:1,minWidth:0 }}>
                           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:4 }}>
-                            <p style={{ margin:0,fontSize:14,fontWeight:600 }}>{objNamn}</p>
+                            <p style={{ margin:0,fontSize:14,fontWeight:600 }}>{aktLabel(e.aktivitet_typ)} · {objNamn}</p>
                             <span style={{ fontSize:14,fontWeight:600,flexShrink:0,marginLeft:8 }}>{tidStr}</span>
                           </div>
-                          <p style={{ margin:0,fontSize:12,color:"#8b90a0" }}>{e.datum}{e.kommentar ? ` · ${e.kommentar}` : ''}</p>
+                          <p style={{ margin:0,fontSize:12,color:"#8b90a0" }}>{e.datum}{e.aktivitet_text ? ` · ${e.aktivitet_text}` : (e.kommentar ? ` · ${e.kommentar}` : '')}</p>
                         </div>
                       </div>
                     );
@@ -2356,24 +2890,49 @@ export default function Arbetsrapport() {
           {ändring&&<p style={{ margin:"12px 0 0",fontSize:13,fontWeight:600,color:C.orange }}>Arbetstid ändrad</p>}
         </div>
 
+        {/* Pågående extra-aktivitet — måste avslutas innan bekräfta */}
+        {pagaendeAktiviteter.length>0&&(
+          <div style={{ marginTop:20,background:"rgba(255,159,10,0.08)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"14px 16px",display:"flex",flexDirection:"column",gap:10 }}>
+            <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+              <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>warning</span>
+              <span style={{ fontSize:14,fontWeight:600,color:"#fff" }}>Du har {pagaendeAktiviteter.length} pågående aktivitet{pagaendeAktiviteter.length>1?"er":""}</span>
+            </div>
+            {pagaendeAktiviteter.map(p=>(
+              <button key={p.id} onClick={()=>{setStoppaTarget(p);setStoppaSlutTid(nuKlock());setSteg("stoppaAktivitet");}}
+                style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:"rgba(255,255,255,0.04)",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+                <span style={{ fontSize:13,color:"#fff",fontWeight:500 }}>{p.aktivitet_text || aktLabel(p.aktivitet_typ)} sedan {(p.start_tid||'').slice(0,5)}</span>
+                <span style={{ fontSize:12,color:"#adc6ff",fontWeight:600 }}>Stoppa →</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Bekräfta */}
-        <button onClick={async ()=>{
-          await supabase.from("arbetsdag").upsert({
-            medarbetare_id: medarbetare.id,
-            datum: new Date().toISOString().split("T")[0],
-            start_tid: start, slut_tid: slut, rast_min: rast,
-            arbetad_min: arbMin + totEx,
-            extra_tid_min: totEx,
-            km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
-            maskin_id: medarbetare.maskin_id,
-            objekt_id: valtObjektId || dagData[idagKey]?.objekt_id || null,
-            traktamente: trak, bekraftad: true,
-            bekraftad_tid: new Date().toISOString(),
-          });
-          setSteg("klar");
-          setTimeout(()=>setSteg("morgon"),3000);
-        }} style={{ width:"100%",height:60,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:19,fontWeight:700,cursor:"pointer",fontFamily:"inherit",marginTop:32 }}>
+        <button
+          disabled={pagaendeAktiviteter.length>0}
+          onClick={async ()=>{
+            await supabase.from("arbetsdag").upsert({
+              medarbetare_id: medarbetare.id,
+              datum: new Date().toISOString().split("T")[0],
+              start_tid: start, slut_tid: slut, rast_min: rast,
+              arbetad_min: arbMin + totEx,
+              extra_tid_min: totEx,
+              km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
+              maskin_id: medarbetare.maskin_id,
+              objekt_id: valtObjektId || dagData[idagKey]?.objekt_id || null,
+              traktamente: trak, bekraftad: true,
+              bekraftad_tid: new Date().toISOString(),
+            });
+            setSteg("klar");
+            setTimeout(()=>setSteg("morgon"),3000);
+          }} style={{ width:"100%",height:60,background:pagaendeAktiviteter.length>0?"#2a2a2a":"#34c759",color:pagaendeAktiviteter.length>0?"#636366":"#fff",border:"none",borderRadius:14,fontSize:19,fontWeight:700,cursor:pagaendeAktiviteter.length>0?"not-allowed":"pointer",fontFamily:"inherit",marginTop:pagaendeAktiviteter.length>0?16:32 }}>
           Bekräfta
+        </button>
+
+        {/* Diskret länk: lade du något efter arbetspasset? */}
+        <button onClick={()=>{setValjAktivitet({kalla:'kvall'});setSteg("valjAktivitet");}}
+          style={{ marginTop:14,padding:"10px 0",background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",textAlign:"center" }}>
+          + Lade du något efter arbetspasset?
         </button>
 
         {/* Tidigast start imorgon */}
@@ -3093,6 +3652,16 @@ export default function Arbetsrapport() {
 
         <main style={{ flex:1,padding:"0 16px 128px",overflowY:"auto" }}>
 
+          {/* Extra-tid summa för månaden */}
+          {(() => {
+            const månExtraMin = Object.entries(extraDagData)
+              .filter(([d])=>d.startsWith(`${kalÅr}-${String(kalMånad+1).padStart(2,'0')}`))
+              .reduce((a,[,arr])=>a + arr.reduce((s:number,e:any)=>s+(e.minuter||0),0), 0);
+            return månExtraMin > 0 ? (
+              <p style={{ margin:"8px 4px 0",fontSize:12,color:"#34c759",fontWeight:600 }}>+ {Math.round(månExtraMin/60*10)/10}h extra (utöver maskin)</p>
+            ) : null;
+          })()}
+
           {/* Summary card */}
           <section style={{ marginTop:16,marginBottom:32 }}>
             <div style={{ background:"#1c1c1e",borderRadius:12,padding:24 }}>
@@ -3140,10 +3709,18 @@ export default function Arbetsrapport() {
                 const datum=`${kalÅr}-${String(kalMånad+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
                 const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
                 const helgNamn = rödaDagar[k] || '';
+                const harExtra = (extraDagData[datum]||[]).length > 0;
+                const klickbarMedExtra = klickbar || harExtra;
 
                 return (
                   <div key={i}
-                    onClick={()=>{ if(klickbar){
+                    onClick={()=>{ if(klickbarMedExtra){
+                      // Om det finns extra-tid: visa tidslinje. Annars normal redigering.
+                      if(harExtra) {
+                        setTidslinjeDatum(datum);
+                        setSteg("tidslinje");
+                        return;
+                      }
                       const d2=dagData[k];
                       setRedDag({...d2,datum});
                       setRedStart(d2?.start_tid||"00:00");
@@ -3156,7 +3733,7 @@ export default function Arbetsrapport() {
                       setRedVy("översikt");
                       setSteg("redigera");
                     } }}
-                    style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:klickbar?"pointer":"default",padding:"8px 0" }}>
+                    style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:klickbarMedExtra?"pointer":"default",padding:"8px 0" }}>
                     {/* Ring: idag=blå, redigerad=gul, idag har prioritet */}
                     {isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #adc6ff",borderRadius:"50%" }} />}
                     {erRedigerad && !isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #f5c518",borderRadius:"50%" }} />}
@@ -3169,10 +3746,17 @@ export default function Arbetsrapport() {
                     }}>{d}</span>
                     {/* Helgdag namn */}
                     {helgNamn && <span style={{ fontSize:8,color:s==="röd"?"#FF3B30":"#8b90a0",marginTop:1,lineHeight:1.2,maxWidth:44,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{helgNamn}</span>}
-                    {/* Status dot: bekräftad=vit, saknas=röd */}
-                    {(s==="ok"||s==="saknas")&&!helgNamn&&(
-                      <div style={{ width:4,height:4,borderRadius:"50%",background:dotFärg[s],marginTop:4 }}/>
-                    )}
+                    {/* Status dot: bekräftad=vit, saknas=röd, + grön punkt om extra tid */}
+                    {((s==="ok"||s==="saknas")&&!helgNamn)||harExtra?(
+                      <div style={{ display:"flex",gap:3,marginTop:4 }}>
+                        {(s==="ok"||s==="saknas")&&!helgNamn&&(
+                          <div style={{ width:4,height:4,borderRadius:"50%",background:dotFärg[s] }}/>
+                        )}
+                        {harExtra&&(
+                          <div style={{ width:4,height:4,borderRadius:"50%",background:"#34c759" }}/>
+                        )}
+                      </div>
+                    ):null}
                   </div>
                 );
               })}
@@ -3190,6 +3774,10 @@ export default function Arbetsrapport() {
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:12,height:12,borderRadius:"50%",background:"#ff9f0a" }} />
                 <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Saknas</span>
+              </div>
+              <div style={{ display:"flex",alignItems:"center",gap:16 }}>
+                <div style={{ width:12,height:12,borderRadius:"50%",background:"#34c759" }} />
+                <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Extra tid (klicka för tidslinje)</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:20,height:20,border:"2px solid #f5c518",borderRadius:"50%" }} />
