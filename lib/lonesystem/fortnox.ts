@@ -111,11 +111,15 @@ export class FortnoxClient {
     return res.json() as Promise<T>;
   }
 
-  async testConnection(): Promise<{ ok: boolean; meddelande: string }> {
+  async testConnection(): Promise<{ ok: boolean; meddelande: string; employees?: ExternEmployee[] }> {
     try {
-      const data = await this.fetchApi<any>("/companyinformation");
-      const namn = data?.CompanyInformation?.CompanyName || "OK";
-      return { ok: true, meddelande: `Ansluten till ${namn}` };
+      const data = await this.fetchApi<any>("/employees?limit=3");
+      const anställda = (data.Employees || []).map((e: any) => ({
+        externt_id: e.EmployeeId,
+        namn: [e.FirstName, e.LastName].filter(Boolean).join(" ") || e.EmployeeId,
+        anstallningsnummer: e.EmployeeId,
+      }));
+      return { ok: true, meddelande: `Ansluten — ${anställda.length} anställda hämtade.`, employees: anställda };
     } catch (e: any) {
       return { ok: false, meddelande: e.message || String(e) };
     }
