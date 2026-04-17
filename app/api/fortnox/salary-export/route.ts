@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
-import { beräknaExport, type ExportSammanfattning } from "@/lib/lonesystem/loneberakning";
+import { beräknaExport, arbetsperiodFrånLöneperiod } from "@/lib/lonesystem/loneberakning";
 
 /**
  * POST /api/fortnox/salary-export
  * Body: { period: "2026-04", medarbetare_ids?: string[], dry_run?: boolean }
+ *
+ * period = LÖNEPERIOD (en månad efter arbetstiden).
+ * Löneperiod mars 2026 → arbetstid februari 2026.
  *
  * dry_run=true: returnerar beräkningar utan att skicka till Fortnox.
  * dry_run=false (default): skickar salary transactions till Fortnox.
@@ -21,16 +24,18 @@ export async function POST(req: NextRequest) {
     }
 
     const supabase = serverSupabase();
-    const [å, m] = period.split("-").map(Number);
-    const periodStart = period + "-01";
-    const periodSlut = new Date(å, m, 0).toISOString().slice(0, 10);
+    // Löneperiod → arbetsperiod (en månad bakåt)
+    const arbetsperiod = arbetsperiodFrånLöneperiod(period);
+    const [aÅ, aM] = arbetsperiod.split("-").map(Number);
+    const arbStart = arbetsperiod + "-01";
+    const arbSlut = new Date(aÅ, aM, 0).toISOString().slice(0, 10);
 
     // Ladda data
     const [medRes, arbRes, maskinRes, mappRes, loggRes] = await Promise.all([
       supabase.from("medarbetare").select("id, namn").order("namn"),
       supabase.from("arbetsdag")
-        .select("medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad")
-        .gte("datum", periodStart).lte("datum", periodSlut),
+        .select("medarbetare_id, datum, arbetad_min, maskin_id, km_totalt, bekraftad, dagtyp")
+        .gte("datum", arbStart).lte("datum", arbSlut),
       supabase.from("maskiner").select("maskin_id, typ"),
       supabase.from("medarbetare_lonesystem")
         .select("medarbetare_id, anstallningsnummer"),
@@ -82,7 +87,7 @@ export async function POST(req: NextRequest) {
       if (dagar.length === 0) continue;
 
       const anstNr = anstMap[med.id] || "";
-      const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period);
+      const export_ = beräknaExport(med.id, med.namn, anstNr, dagar, maskinTypMap, period); // period = löneperiod
 
       let status = "utkast";
       if (redanSkickad.has(med.id)) status = "skickat";
@@ -96,6 +101,7 @@ export async function POST(req: NextRequest) {
         ok: true,
         dry_run: true,
         period,
+        arbetsperiod,
         medarbetare: resultat,
         totalt_rader: resultat.reduce((s, r) => s + r.rader.length, 0),
       });

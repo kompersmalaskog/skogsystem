@@ -1,6 +1,11 @@
 /**
  * Löneexport-beräkning för Fortnox.
  *
+ * VIKTIGT: Löneperiod i Fortnox ligger en månad efter arbetstiden.
+ * Löneperiod mars 2026 = arbetstid februari 2026.
+ * Funktionen arbetar med "arbetsperiod" (YYYY-MM) — anroparen
+ * ansvarar för att skicka rätt arbetsperiod baserat på vald löneperiod.
+ *
  * Skickar ANTAL (timmar, veckor, mil) + löneartkod.
  * Fortnox multiplicerar med sats per anställd.
  *
@@ -8,6 +13,12 @@
  *   Gemensamma: 11 timlön, 136 vältlappar, 821 färdtidsersättning
  *   Skördare:   1355 premielön, 1435 övertid betald 4
  *   Skotare:    1354 premielön 1, 1436 övertid betald 5
+ *
+ * Övertid:
+ *   Ordinarie tid = antal arbetsdagar × 8h
+ *   Övertid = totalt jobbat - ordinarie
+ *   Timlön = ordinarie (inte totalt!)
+ *   En rad per månad med Date = löneperiodens första dag.
  */
 
 type ArbetsdagInput = {
@@ -16,6 +27,7 @@ type ArbetsdagInput = {
   maskin_id: string | null;
   km_totalt: number | null;
   bekraftad: boolean | null;
+  dagtyp: string | null;
 };
 
 type MaskinTypMap = Record<string, "skordare" | "skotare">;
@@ -23,8 +35,8 @@ type MaskinTypMap = Record<string, "skordare" | "skotare">;
 export type FortnoxRad = {
   EmployeeId: string;
   SalaryCode: string;
-  Number: string;     // antal (timmar, veckor, mil) — Fortnox multiplicerar med sats
-  Date: string;        // YYYY-MM-DD
+  Number: string;     // antal — Fortnox multiplicerar med sats
+  Date: string;        // YYYY-MM-DD (löneperiodens 1:a)
   beskrivning: string; // intern — skickas inte till Fortnox
 };
 
@@ -34,12 +46,15 @@ export type ExportSammanfattning = {
   anstallningsnummer: string;
   rader: FortnoxRad[];
   varningar: string[];
+  arbetsdagar: number;
+  ordinarie_h: number;
   timlon_h: number;
   premielon_skordare_h: number;
   premielon_skotare_h: number;
   overtid_h: number;
   valtlappar_veckor: number;
   kor_mil: number;
+  obekraftade: number;
 };
 
 function isoVecka(d: Date): number {
@@ -54,11 +69,14 @@ function isoVecka(d: Date): number {
   return 1 + Math.ceil((firstThursday - target.getTime()) / 604800000);
 }
 
-function måndag(d: Date): string {
-  const dt = new Date(d);
-  const day = dt.getDay();
-  dt.setDate(dt.getDate() - ((day + 6) % 7));
-  return dt.toISOString().slice(0, 10);
+/**
+ * Beräkna arbetsperiod (månad bakåt) från löneperiod.
+ * Löneperiod "2026-03" → arbetsperiod "2026-02".
+ */
+export function arbetsperiodFrånLöneperiod(loneperiod: string): string {
+  const [å, m] = loneperiod.split("-").map(Number);
+  const d = new Date(å, m - 2, 1); // m-1 = löneperiod (0-indexed), minus 1 = föregående
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
 export function beräknaExport(
@@ -67,9 +85,9 @@ export function beräknaExport(
   anstallningsnummer: string,
   dagar: ArbetsdagInput[],
   maskinTypMap: MaskinTypMap,
-  period: string, // YYYY-MM
+  loneperiod: string,  // YYYY-MM — löneperioden (en månad efter arbetstiden)
 ): ExportSammanfattning {
-  const periodStart = period + "-01";
+  const loneperiodStart = loneperiod + "-01"; // Date på Fortnox-transaktionerna
   const varningar: string[] = [];
   const rader: FortnoxRad[] = [];
 
@@ -79,109 +97,99 @@ export function beräknaExport(
 
   const eid = anstallningsnummer || "SAKNAS";
 
-  // ── 1. TIMLÖN (kod 11) ──
+  // Filtrera bort frånvarodagar (sjuk, semester, vab, atk)
+  const FRANVARO = new Set(["sjuk", "semester", "vab", "atk"]);
+  const produktionsDagar = dagar.filter(d => !d.dagtyp || !FRANVARO.has(d.dagtyp));
+  const antalArbetsdagar = produktionsDagar.length;
+  const ordinarie = antalArbetsdagar * 8; // timmar
+
+  // Räkna obekräftade
+  let obekraftade = 0;
+
+  // Timmar per maskintyp
   let totalH = 0;
   let skordareH = 0;
   let skotareH = 0;
 
-  for (const d of dagar) {
+  for (const d of produktionsDagar) {
     const h = (d.arbetad_min || 0) / 60;
     totalH += h;
     const typ = d.maskin_id ? maskinTypMap[d.maskin_id] : null;
     if (typ === "skordare") skordareH += h;
     else if (typ === "skotare") skotareH += h;
-    else {
-      // Okänd maskintyp — räkna som timlön men varna
-      if (d.maskin_id) varningar.push(`Dag ${d.datum}: maskin_id ${d.maskin_id} saknar typ i maskiner-tabellen.`);
+    else if (d.maskin_id) {
+      varningar.push(`Dag ${d.datum}: maskin ${d.maskin_id} saknar typ.`);
     }
-    if (!d.bekraftad) varningar.push(`Dag ${d.datum}: ej bekräftad.`);
+    if (!d.bekraftad) obekraftade++;
   }
 
   totalH = Math.round(totalH * 100) / 100;
   skordareH = Math.round(skordareH * 100) / 100;
   skotareH = Math.round(skotareH * 100) / 100;
 
-  if (totalH > 0) {
-    rader.push({ EmployeeId: eid, SalaryCode: "11", Number: totalH.toFixed(2), Date: periodStart, beskrivning: `Timlön ${period}` });
+  // Övertid = totalt - ordinarie
+  const overtidH = Math.round(Math.max(0, totalH - ordinarie) * 100) / 100;
+
+  // Timlön = ordinarie (inte totalt!)
+  // Premielön = ordinarie fördelat per maskintyp proportionellt
+  const timlonH = Math.round(Math.min(totalH, ordinarie) * 100) / 100;
+  const premieSkordare = totalH > 0 ? Math.round(timlonH * (skordareH / totalH) * 100) / 100 : 0;
+  const premieSkotare = totalH > 0 ? Math.round(timlonH * (skotareH / totalH) * 100) / 100 : 0;
+
+  // ── 1. TIMLÖN (kod 11) ──
+  if (timlonH > 0) {
+    rader.push({ EmployeeId: eid, SalaryCode: "11", Number: timlonH.toFixed(2), Date: loneperiodStart, beskrivning: `Timlön: ${timlonH}h ordinarie (${antalArbetsdagar} dagar × 8h)` });
   }
 
-  // ── 2. PREMIELÖN (kod 1354/1355) ──
-  if (skordareH > 0) {
-    rader.push({ EmployeeId: eid, SalaryCode: "1355", Number: skordareH.toFixed(2), Date: periodStart, beskrivning: `Premielön skördare ${period}` });
+  // ── 2. PREMIELÖN (kod 1354/1355) — fördelat proportionellt ──
+  if (premieSkordare > 0) {
+    rader.push({ EmployeeId: eid, SalaryCode: "1355", Number: premieSkordare.toFixed(2), Date: loneperiodStart, beskrivning: `Premielön skördare: ${premieSkordare}h` });
   }
-  if (skotareH > 0) {
-    rader.push({ EmployeeId: eid, SalaryCode: "1354", Number: skotareH.toFixed(2), Date: periodStart, beskrivning: `Premielön skotare ${period}` });
-  }
-
-  // ── 3. ÖVERTID per vecka (kod 1435/1436) ──
-  // Gruppera per ISO-vecka
-  const veckor = new Map<number, { dagar: ArbetsdagInput[]; monday: string }>();
-  for (const d of dagar) {
-    const dt = new Date(d.datum);
-    const v = isoVecka(dt);
-    if (!veckor.has(v)) veckor.set(v, { dagar: [], monday: måndag(dt) });
-    veckor.get(v)!.dagar.push(d);
+  if (premieSkotare > 0) {
+    rader.push({ EmployeeId: eid, SalaryCode: "1354", Number: premieSkotare.toFixed(2), Date: loneperiodStart, beskrivning: `Premielön skotare: ${premieSkotare}h` });
   }
 
-  let totalOvertidH = 0;
-  for (const [vecka, { dagar: vDagar, monday }] of veckor) {
-    // Daglig övertid: sum(max(0, h - 8)) per dag
-    const dagligOt = vDagar.reduce((s, d) => s + Math.max(0, (d.arbetad_min || 0) / 60 - 8), 0);
-    // Veckovis övertid: max(0, sum(h) - 38)
-    const veckoTotal = vDagar.reduce((s, d) => s + (d.arbetad_min || 0) / 60, 0);
-    const veckovisOt = Math.max(0, veckoTotal - 38);
-    // Använd max (det som ger mest enligt avtalet)
-    const övertid = Math.round(Math.max(dagligOt, veckovisOt) * 100) / 100;
-
-    if (övertid > 0) {
-      totalOvertidH += övertid;
-      // Dominant maskintyp denna vecka
-      let vSkordare = 0, vSkotare = 0;
-      for (const d of vDagar) {
-        const typ = d.maskin_id ? maskinTypMap[d.maskin_id] : null;
-        if (typ === "skordare") vSkordare += d.arbetad_min || 0;
-        else vSkotare += d.arbetad_min || 0;
-      }
-      const overtidKod = vSkordare >= vSkotare ? "1435" : "1436";
-      rader.push({
-        EmployeeId: eid,
-        SalaryCode: overtidKod,
-        Number: övertid.toFixed(2),
-        Date: monday,
-        beskrivning: `Övertid v${vecka} (${övertid.toFixed(1)}h, ${overtidKod === "1435" ? "skördare" : "skotare"})`,
-      });
-    }
+  // ── 3. ÖVERTID (kod 1435/1436) — en rad per månad ──
+  if (overtidH > 0) {
+    // Dominant maskintyp för hela perioden
+    const overtidKod = skordareH >= skotareH ? "1435" : "1436";
+    rader.push({
+      EmployeeId: eid,
+      SalaryCode: overtidKod,
+      Number: overtidH.toFixed(2),
+      Date: loneperiodStart,
+      beskrivning: `Övertid: ${overtidH}h (${totalH}h totalt - ${ordinarie}h ordinarie)`,
+    });
   }
 
-  // ── 4. VÄLTLAPPAR (kod 136): 1 timme per vecka med minst 1 arbetsdag ──
+  // ── 4. VÄLTLAPPAR (kod 136): antal veckor med minst 1 arbetsdag ──
+  const veckor = new Set<number>();
+  for (const d of produktionsDagar) veckor.add(isoVecka(new Date(d.datum)));
   const vältVeckor = veckor.size;
   if (vältVeckor > 0) {
     rader.push({
-      EmployeeId: eid,
-      SalaryCode: "136",
-      Number: vältVeckor.toFixed(0),
-      Date: periodStart,
-      beskrivning: `Vältlappar mm: ${vältVeckor} veckor`,
+      EmployeeId: eid, SalaryCode: "136", Number: vältVeckor.toFixed(0),
+      Date: loneperiodStart, beskrivning: `Vältlappar: ${vältVeckor} veckor`,
     });
   }
 
   // ── 5. KÖRERSÄTTNING (kod 821): mil över 60 km/dag ──
   let totalMil = 0;
-  for (const d of dagar) {
+  for (const d of produktionsDagar) {
     const km = d.km_totalt || 0;
-    if (km > 60) {
-      totalMil += (km - 60) * 2 / 10;
-    }
+    if (km > 60) totalMil += (km - 60) * 2 / 10;
   }
   totalMil = Math.round(totalMil * 100) / 100;
   if (totalMil > 0) {
     rader.push({
-      EmployeeId: eid,
-      SalaryCode: "821",
-      Number: totalMil.toFixed(2),
-      Date: periodStart,
-      beskrivning: `Färdtidsersättning skattefri: ${totalMil.toFixed(1)} mil`,
+      EmployeeId: eid, SalaryCode: "821", Number: totalMil.toFixed(2),
+      Date: loneperiodStart, beskrivning: `Färdtidsersättning: ${totalMil} mil`,
     });
+  }
+
+  // Obekräftade varning
+  if (obekraftade > 0) {
+    varningar.push(`${obekraftade} av ${antalArbetsdagar} dagar är ej bekräftade.`);
   }
 
   return {
@@ -190,11 +198,14 @@ export function beräknaExport(
     anstallningsnummer,
     rader,
     varningar,
-    timlon_h: totalH,
-    premielon_skordare_h: skordareH,
-    premielon_skotare_h: skotareH,
-    overtid_h: Math.round(totalOvertidH * 100) / 100,
+    arbetsdagar: antalArbetsdagar,
+    ordinarie_h: ordinarie,
+    timlon_h: timlonH,
+    premielon_skordare_h: premieSkordare,
+    premielon_skotare_h: premieSkotare,
+    overtid_h: overtidH,
     valtlappar_veckor: vältVeckor,
     kor_mil: totalMil,
+    obekraftade,
   };
 }

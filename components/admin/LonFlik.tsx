@@ -386,7 +386,8 @@ function Loneunderlag() {
                   Skicka till Fortnox?
                 </p>
                 <p style={{ margin: "0 0 12px", fontSize: 13, color: C.label }}>
-                  {fortnoxData.medarbetare.length} medarbetare, {fortnoxData.totalt_rader} lönerader för {månadsLabel(period)}.
+                  Löneperiod {månadsLabel(period)} (arbetstid {fortnoxData.arbetsperiod ? månadsLabel(fortnoxData.arbetsperiod) : "—"}).
+                  {" "}{fortnoxData.medarbetare.length} medarbetare, {fortnoxData.totalt_rader} lönerader.
                 </p>
                 {fortnoxData.medarbetare.filter((m: any) => m.varningar?.length > 0).length > 0 && (
                   <div style={{ marginBottom: 12, padding: 10, background: "rgba(255,159,10,0.1)", borderRadius: 8, fontSize: 12, color: C.orange }}>
@@ -559,7 +560,8 @@ function FortnoxExportSektion({
     return (
       <Card>
         <p style={{ margin: "0 0 12px", fontSize: 13, color: C.label }}>
-          Beräkna lönerader (timlön, premielön, övertid, vältlappar, körersättning) och förhandsgranska innan du skickar till Fortnox.
+          Löneperiod {månadsLabel(period)} = arbetstid föregående månad.
+          Beräkna lönerader och förhandsgranska innan du skickar till Fortnox.
         </p>
         <button onClick={onFörhandsgranska} disabled={fortnoxLaddar} style={{ ...btnSecondary, opacity: fortnoxLaddar ? 0.5 : 1 }}>
           {fortnoxLaddar ? "Beräknar…" : "Förhandsgranska Fortnox-export"}
@@ -577,6 +579,7 @@ function FortnoxExportSektion({
   }
 
   const medarbetare = fortnoxData.medarbetare || [];
+  const arbetsperiodLabel = fortnoxData.arbetsperiod ? månadsLabel(fortnoxData.arbetsperiod) : "—";
 
   return (
     <>
@@ -599,6 +602,13 @@ function FortnoxExportSektion({
           )}
         </Card>
       )}
+
+      {/* Periodinfo */}
+      <Card style={{ padding: "12px 18px", background: "rgba(10,132,255,0.06)", border: "1px solid rgba(10,132,255,0.15)" }}>
+        <p style={{ margin: 0, fontSize: 13, color: C.blue }}>
+          Löneperiod <strong>{månadsLabel(period)}</strong> — arbetstid <strong>{arbetsperiodLabel}</strong>
+        </p>
+      </Card>
 
       {/* Per medarbetare — Fortnox-rader */}
       <Card style={{ padding: 0 }}>
@@ -623,6 +633,7 @@ function FortnoxExportSektion({
               </div>
             )}
             <div style={{ fontSize: 12, color: C.label, display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {m.arbetsdagar > 0 && <span>{m.arbetsdagar}d × 8h = {m.ordinarie_h}h ord.</span>}
               {m.timlon_h > 0 && <span>Timlön: {m.timlon_h}h</span>}
               {(m.premielon_skordare_h > 0 || m.premielon_skotare_h > 0) && (
                 <span>Premie: {m.premielon_skordare_h > 0 ? `${m.premielon_skordare_h}h skö` : ""}{m.premielon_skordare_h > 0 && m.premielon_skotare_h > 0 ? " + " : ""}{m.premielon_skotare_h > 0 ? `${m.premielon_skotare_h}h sko` : ""}</span>
