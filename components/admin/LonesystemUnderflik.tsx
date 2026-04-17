@@ -65,13 +65,21 @@ export default function LonesystemUnderflik() {
     setFel(null);
     setTestResultat(null);
     try {
-      const [kopplingRes, medRes, artiklarRes] = await Promise.all([
-        supabase.from("lonesystem_koppling").select("*").eq("system_typ", system).maybeSingle(),
+      // Fortnox-status hämtas via server-route (tokens är krypterade i DB)
+      const [statusRes, kopplingRes, medRes, artiklarRes] = await Promise.all([
+        system === "fortnox" ? fetch("/api/fortnox/status").then(r => r.json()) : Promise.resolve(null),
+        supabase.from("lonesystem_koppling").select("id, system_typ, aktiv, senast_synkad, skapad, token_utgar").eq("system_typ", system).maybeSingle(),
         supabase.from("medarbetare").select("id, namn").order("namn"),
         supabase.from("lonesystem_artikelmappning").select("*"),
       ]);
 
-      const k = (kopplingRes.data as Koppling) || null;
+      const k = kopplingRes.data as Koppling | null;
+      // Merge status-API:ns connected-flag med DB-raden
+      if (k && statusRes) {
+        k.aktiv = statusRes.connected;
+        k.token_utgar = statusRes.token_utgar || k.token_utgar;
+        k.senast_synkad = statusRes.senast_synkad || k.senast_synkad;
+      }
       setKoppling(k);
       setMedarbetare(medRes.data || []);
 
@@ -102,10 +110,8 @@ export default function LonesystemUnderflik() {
     setTestar(true);
     setTestResultat(null);
     try {
-      const res = await fetch("/api/lonesystem/test", {
+      const res = await fetch("/api/fortnox/test", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ system_typ: valdSystem }),
       });
       const data = await res.json();
       setTestResultat(data);

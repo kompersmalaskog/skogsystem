@@ -1,7 +1,10 @@
-import type { SystemTyp } from "./types";
+/**
+ * Klient-säkra exports — inga node:crypto-beroenden.
+ * Server-funktioner importeras DIREKT från './server' i API-routes.
+ */
+export type { SystemTyp, Koppling, ExternEmployee } from "./types";
+export { SYSTEM_LABELS } from "./types";
 
 export const IMPLEMENTERADE: SystemTyp[] = ["fortnox", "csv"];
 
-export * from "./types";
-export { FortnoxClient, buildFortnoxAuthUrl, exchangeFortnoxCode, refreshFortnoxToken } from "./fortnox";
-export { getFortnoxClient, hämtaKoppling, hämtaKopplingDekrypterad, sparaTokens, rensaTokens } from "./server";
+import type { SystemTyp } from "./types";
