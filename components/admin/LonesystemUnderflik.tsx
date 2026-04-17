@@ -32,9 +32,6 @@ export default function LonesystemUnderflik() {
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
 
-  // Form-state för credentials
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
   const [sparar, setSparar] = useState(false);
 
   // Test
@@ -76,8 +73,6 @@ export default function LonesystemUnderflik() {
 
       const k = (kopplingRes.data as Koppling) || null;
       setKoppling(k);
-      setClientId(k?.api_client_id || "");
-      setClientSecret(k?.api_client_secret || "");
       setMedarbetare(medRes.data || []);
 
       const artMap: Record<string, Artikelmappning> = {};
@@ -103,31 +98,6 @@ export default function LonesystemUnderflik() {
 
   useEffect(() => { ladda(valdSystem); }, [valdSystem]);
 
-  const sparaKoppling = async () => {
-    setSparar(true);
-    setFel(null);
-    try {
-      if (koppling) {
-        await supabase.from("lonesystem_koppling").update({
-          api_client_id: clientId || null,
-          api_client_secret: clientSecret || null,
-        }).eq("id", koppling.id);
-      } else {
-        await supabase.from("lonesystem_koppling").insert({
-          system_typ: valdSystem,
-          api_client_id: clientId || null,
-          api_client_secret: clientSecret || null,
-          aktiv: false,
-        });
-      }
-      await ladda(valdSystem);
-    } catch (e: any) {
-      setFel(e.message || String(e));
-    } finally {
-      setSparar(false);
-    }
-  };
-
   const testaAnslutning = async () => {
     setTestar(true);
     setTestResultat(null);
@@ -146,17 +116,12 @@ export default function LonesystemUnderflik() {
     }
   };
 
-  const koppla = () => { window.location.href = "/api/lonesystem/fortnox/auth"; };
+  const koppla = () => { window.location.href = "/api/fortnox/auth"; };
 
   const koppla_ifrån = async () => {
     if (!koppling) return;
     if (!confirm("Verkligen koppla ifrån? Tokens raderas.")) return;
-    await supabase.from("lonesystem_koppling").update({
-      access_token: null,
-      refresh_token: null,
-      token_utgar: null,
-      aktiv: false,
-    }).eq("id", koppling.id);
+    await fetch("/api/fortnox/disconnect", { method: "POST" });
     await ladda(valdSystem);
   };
 
@@ -188,7 +153,7 @@ export default function LonesystemUnderflik() {
   };
 
   const stödjs = IMPLEMENTERADE.includes(valdSystem);
-  const ansluten = !!koppling?.access_token;
+  const ansluten = !!koppling?.aktiv;
 
   return (
     <>
@@ -261,23 +226,19 @@ export default function LonesystemUnderflik() {
         )}
       </Card>
 
-      {/* Credentials (för OAuth-system) */}
-      {valdSystem !== "csv" && (
-        <>
-          <p style={{ ...secHead, marginTop: 22 }}>API-credentials</p>
-          <Card>
-            <Field label="Client ID" value={clientId} onChange={setClientId} placeholder="Från lönesystemets utvecklarportal" />
-            <Field label="Client Secret" value={clientSecret} onChange={setClientSecret} placeholder="Från lönesystemets utvecklarportal" type="password" />
-            <button onClick={sparaKoppling} disabled={sparar} style={{ ...btnSecondary, marginTop: 8, opacity: sparar ? 0.5 : 1 }}>
-              {sparar ? "Sparar…" : "Spara credentials"}
-            </button>
-          </Card>
-        </>
+      {/* Credentials-info (hanteras via env-vars, inte UI) */}
+      {valdSystem === "fortnox" && (
+        <Card style={{ marginTop: 18 }}>
+          <p style={{ margin: 0, fontSize: 12, color: C.label }}>
+            Credentials konfigureras via miljövariabler (FORTNOX_CLIENT_ID, FORTNOX_CLIENT_SECRET).
+            Tokens krypteras med AES-256-GCM innan de sparas i databasen.
+          </p>
+        </Card>
       )}
 
       {/* Anslut-knappar */}
       <div style={{ marginTop: 18, display: "flex", flexDirection: "column", gap: 10 }}>
-        {valdSystem === "fortnox" && !ansluten && koppling?.api_client_id && (
+        {valdSystem === "fortnox" && !ansluten && (
           <button onClick={koppla} style={btnPrimary}>Anslut till Fortnox</button>
         )}
         {ansluten && (

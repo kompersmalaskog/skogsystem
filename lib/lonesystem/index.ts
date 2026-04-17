@@ -1,22 +1,7 @@
-import type { LonesystemAdapter, Koppling, SystemTyp } from "./types";
-import { FortnoxAdapter } from "./fortnox";
-import {
-  VismaAdapter, HogiaAdapter, KontekAdapter,
-  CronaAdapter, AgdaAdapter, CsvAdapter,
-} from "./stubs";
-
-export function getAdapter(koppling: Koppling): LonesystemAdapter {
-  switch (koppling.system_typ) {
-    case "fortnox": return new FortnoxAdapter(koppling);
-    case "visma":   return new VismaAdapter(koppling);
-    case "hogia":   return new HogiaAdapter(koppling);
-    case "kontek":  return new KontekAdapter(koppling);
-    case "crona":   return new CronaAdapter(koppling);
-    case "agda":    return new AgdaAdapter(koppling);
-    case "csv":     return new CsvAdapter(koppling);
-  }
-}
+import type { SystemTyp } from "./types";
 
 export const IMPLEMENTERADE: SystemTyp[] = ["fortnox", "csv"];
 
 export * from "./types";
+export { FortnoxClient, buildFortnoxAuthUrl, exchangeFortnoxCode, refreshFortnoxToken } from "./fortnox";
+export { getFortnoxClient, hämtaKoppling, hämtaKopplingDekrypterad, sparaTokens, rensaTokens } from "./server";
