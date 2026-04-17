@@ -120,6 +120,11 @@ function Loneunderlag() {
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
   const [valdMedId, setValdMedId] = useState<string | null>(null);
+  const [fortnoxData, setFortnoxData] = useState<any>(null);
+  const [fortnoxLaddar, setFortnoxLaddar] = useState(false);
+  const [visaBekräftelse, setVisaBekräftelse] = useState(false);
+  const [skickar, setSkickar] = useState(false);
+  const [exportResultat, setExportResultat] = useState<any>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -337,19 +342,100 @@ function Loneunderlag() {
             ))}
           </Card>
 
-          {/* Export */}
-          <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 10 }}>
-            <button
-              disabled
-              title="Lönesystem kopplas i steg 6"
-              style={{ ...btnPrimary, opacity: 0.4, cursor: "not-allowed" }}
-            >
-              Skicka till lönesystem (kommer i steg 6)
-            </button>
+          {/* Fortnox export */}
+          <p style={{ ...secHead, marginTop: 28 }}>Fortnox-export</p>
+          <FortnoxExportSektion
+            period={period}
+            fortnoxData={fortnoxData}
+            fortnoxLaddar={fortnoxLaddar}
+            onFörhandsgranska={async () => {
+              setFortnoxLaddar(true); setExportResultat(null);
+              try {
+                const res = await fetch("/api/fortnox/salary-export", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ period, dry_run: true }),
+                });
+                setFortnoxData(await res.json());
+              } catch (e: any) {
+                setFortnoxData({ ok: false, meddelande: e.message });
+              } finally { setFortnoxLaddar(false); }
+            }}
+            onSkicka={() => setVisaBekräftelse(true)}
+            exportResultat={exportResultat}
+          />
+
+          <div style={{ marginTop: 16 }}>
             <button onClick={exporteraCSV} style={btnSecondary}>
               Exportera CSV
             </button>
           </div>
+
+          {/* Bekräftelsedialog */}
+          {visaBekräftelse && fortnoxData?.medarbetare && (
+            <div onClick={() => setVisaBekräftelse(false)} style={{
+              position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+              background: "rgba(0,0,0,0.7)", zIndex: 100,
+              display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+            }}>
+              <div onClick={e => e.stopPropagation()} style={{
+                background: "#1c1c1e", borderRadius: 16, padding: 24,
+                width: "100%", maxWidth: 440, maxHeight: "80vh", overflow: "auto",
+              }}>
+                <p style={{ margin: "0 0 16px", fontSize: 17, fontWeight: 700, color: C.text, textAlign: "center" }}>
+                  Skicka till Fortnox?
+                </p>
+                <p style={{ margin: "0 0 12px", fontSize: 13, color: C.label }}>
+                  {fortnoxData.medarbetare.length} medarbetare, {fortnoxData.totalt_rader} lönerader för {månadsLabel(period)}.
+                </p>
+                {fortnoxData.medarbetare.filter((m: any) => m.varningar?.length > 0).length > 0 && (
+                  <div style={{ marginBottom: 12, padding: 10, background: "rgba(255,159,10,0.1)", borderRadius: 8, fontSize: 12, color: C.orange }}>
+                    ⚠ Det finns varningar — granska innan du skickar.
+                  </div>
+                )}
+                {fortnoxData.medarbetare.map((m: any, i: number) => (
+                  <div key={i} style={{ padding: "8px 0", borderBottom: `1px solid ${C.line}`, fontSize: 13 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}>
+                      <span style={{ color: C.text, fontWeight: 500 }}>{m.namn}</span>
+                      <span style={{ color: m.status === "skickat" ? C.green : C.text }}>{m.rader.length} rader</span>
+                    </div>
+                    {m.status === "skickat" && <span style={{ fontSize: 11, color: C.green }}>Redan skickat</span>}
+                    {!m.anstallningsnummer && <span style={{ fontSize: 11, color: C.red }}>Saknar anst.nr</span>}
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                  <button onClick={() => setVisaBekräftelse(false)} style={{ ...btnSecondary, flex: 1 }}>Avbryt</button>
+                  <button
+                    onClick={async () => {
+                      setSkickar(true);
+                      try {
+                        const res = await fetch("/api/fortnox/salary-export", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ period }),
+                        });
+                        setExportResultat(await res.json());
+                      } catch (e: any) {
+                        setExportResultat({ ok: false, meddelande: e.message });
+                      } finally {
+                        setSkickar(false);
+                        setVisaBekräftelse(false);
+                        // Refresh förhandsgranskning
+                        const res2 = await fetch("/api/fortnox/salary-export", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ period, dry_run: true }),
+                        });
+                        setFortnoxData(await res2.json());
+                      }
+                    }}
+                    disabled={skickar}
+                    style={{ ...btnPrimary, flex: 1, background: C.green, opacity: skickar ? 0.5 : 1 }}
+                  >{skickar ? "Skickar…" : "Skicka till Fortnox"}</button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
     </>
@@ -448,5 +534,148 @@ function DetaljVy({
         })}
       </Card>
     </>
+  );
+}
+
+/* ─── FORTNOX EXPORT SEKTION ─── */
+
+const LONEART_LABELS: Record<string, string> = {
+  "11": "Timlön", "136": "Vältlappar mm", "821": "Färdtidsersättning",
+  "1354": "Premielön skotare", "1355": "Premielön skördare",
+  "1435": "Övertid skördare", "1436": "Övertid skotare",
+};
+
+function FortnoxExportSektion({
+  period, fortnoxData, fortnoxLaddar, onFörhandsgranska, onSkicka, exportResultat,
+}: {
+  period: string;
+  fortnoxData: any;
+  fortnoxLaddar: boolean;
+  onFörhandsgranska: () => void;
+  onSkicka: () => void;
+  exportResultat: any;
+}) {
+  if (!fortnoxData) {
+    return (
+      <Card>
+        <p style={{ margin: "0 0 12px", fontSize: 13, color: C.label }}>
+          Beräkna lönerader (timlön, premielön, övertid, vältlappar, körersättning) och förhandsgranska innan du skickar till Fortnox.
+        </p>
+        <button onClick={onFörhandsgranska} disabled={fortnoxLaddar} style={{ ...btnSecondary, opacity: fortnoxLaddar ? 0.5 : 1 }}>
+          {fortnoxLaddar ? "Beräknar…" : "Förhandsgranska Fortnox-export"}
+        </button>
+      </Card>
+    );
+  }
+
+  if (!fortnoxData.ok) {
+    return (
+      <Card style={{ border: `1px solid ${C.red}` }}>
+        <p style={{ margin: 0, color: C.red, fontSize: 14 }}>{fortnoxData.meddelande || "Kunde inte beräkna."}</p>
+      </Card>
+    );
+  }
+
+  const medarbetare = fortnoxData.medarbetare || [];
+
+  return (
+    <>
+      {/* Export-resultat */}
+      {exportResultat && (
+        <Card style={{
+          border: `1px solid ${exportResultat.ok ? "rgba(52,199,89,0.3)" : "rgba(255,69,58,0.3)"}`,
+          background: exportResultat.ok ? "rgba(52,199,89,0.06)" : "rgba(255,69,58,0.06)",
+          marginBottom: 12,
+        }}>
+          <p style={{ margin: 0, fontSize: 14, fontWeight: 600, color: exportResultat.ok ? C.green : C.red }}>
+            {exportResultat.ok
+              ? `✓ ${exportResultat.skickade} lönerader skickade till Fortnox.`
+              : `Fel: ${exportResultat.meddelande || `${exportResultat.fel} fel uppstod.`}`}
+          </p>
+          {exportResultat.felMeddelanden?.length > 0 && (
+            <ul style={{ margin: "8px 0 0", paddingLeft: 18, fontSize: 12, color: C.red }}>
+              {exportResultat.felMeddelanden.map((f: string, i: number) => <li key={i}>{f}</li>)}
+            </ul>
+          )}
+        </Card>
+      )}
+
+      {/* Per medarbetare — Fortnox-rader */}
+      <Card style={{ padding: 0 }}>
+        {medarbetare.map((m: any, mi: number) => (
+          <div key={mi} style={{
+            padding: "14px 18px",
+            borderBottom: mi === medarbetare.length - 1 ? "none" : `1px solid ${C.line}`,
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>{m.namn}</span>
+              <StatusBadge status={m.status} />
+            </div>
+            {!m.anstallningsnummer && (
+              <p style={{ margin: "0 0 6px", fontSize: 11, color: C.red }}>⚠ Anställningsnummer saknas</p>
+            )}
+            {m.varningar?.length > 0 && (
+              <div style={{ marginBottom: 6 }}>
+                {m.varningar.slice(0, 3).map((v: string, i: number) => (
+                  <p key={i} style={{ margin: 0, fontSize: 11, color: C.orange }}>{v}</p>
+                ))}
+                {m.varningar.length > 3 && <p style={{ margin: 0, fontSize: 11, color: C.label }}>…och {m.varningar.length - 3} till</p>}
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: C.label, display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {m.timlon_h > 0 && <span>Timlön: {m.timlon_h}h</span>}
+              {(m.premielon_skordare_h > 0 || m.premielon_skotare_h > 0) && (
+                <span>Premie: {m.premielon_skordare_h > 0 ? `${m.premielon_skordare_h}h skö` : ""}{m.premielon_skordare_h > 0 && m.premielon_skotare_h > 0 ? " + " : ""}{m.premielon_skotare_h > 0 ? `${m.premielon_skotare_h}h sko` : ""}</span>
+              )}
+              {m.overtid_h > 0 && <span style={{ color: C.orange }}>ÖT: {m.overtid_h}h</span>}
+              {m.valtlappar_veckor > 0 && <span>Vält: {m.valtlappar_veckor}v</span>}
+              {m.kor_mil > 0 && <span>Kör: {m.kor_mil} mil</span>}
+            </div>
+            {/* Detaljerade rader */}
+            <div style={{ marginTop: 6 }}>
+              {(m.rader || []).map((r: any, ri: number) => (
+                <div key={ri} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, padding: "2px 0", color: C.label }}>
+                  <span>{LONEART_LABELS[r.SalaryCode] || r.SalaryCode} ({r.SalaryCode})</span>
+                  <span style={{ color: C.text, fontWeight: 500 }}>{r.Number}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </Card>
+
+      {/* Knappar */}
+      <div style={{ marginTop: 16, display: "flex", gap: 10 }}>
+        <button onClick={onFörhandsgranska} disabled={fortnoxLaddar} style={{ ...btnSecondary, flex: 1, opacity: fortnoxLaddar ? 0.5 : 1 }}>
+          {fortnoxLaddar ? "Beräknar…" : "Uppdatera"}
+        </button>
+        <button
+          onClick={onSkicka}
+          disabled={medarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer)}
+          style={{
+            ...btnPrimary,
+            flex: 1,
+            background: C.green,
+            opacity: medarbetare.every((m: any) => m.status === "skickat" || !m.anstallningsnummer) ? 0.4 : 1,
+          }}
+        >Skicka till Fortnox</button>
+      </div>
+    </>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const cfg: Record<string, { bg: string; fg: string; text: string }> = {
+    utkast:  { bg: "rgba(255,255,255,0.06)", fg: C.label, text: "UTKAST" },
+    skickat: { bg: "rgba(52,199,89,0.15)", fg: C.green, text: "SKICKAT" },
+    fel:     { bg: "rgba(255,69,58,0.15)", fg: C.red, text: "FEL" },
+  };
+  const c = cfg[status] || cfg.utkast;
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 700, color: c.fg,
+      background: c.bg, padding: "2px 7px", borderRadius: 5,
+      textTransform: "uppercase", letterSpacing: "0.05em",
+    }}>{c.text}</span>
   );
 }
