@@ -4,10 +4,9 @@ import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
 /**
  * GET /api/fortnox/debug-saldon?id=07
  *
- * Dumpar rå data för att felsöka saldo-uträkningen:
- *   - Alla Vacation*/ATK*/ATF*/Saved-fält från /3/employees/{id}
- *   - gs_avtal: alla rader + kolumnnycklar på första raden
- *
+ * Dumpar rå data för att felsöka saldo-uträkningen.
+ * Hämtar fält som matchar /vacation|atk|atf|saved/i från Fortnox-employee
+ * och alla rader + kolumnnycklar från gs_avtal.
  * Tas bort när saldon-fliken visar rätt värden.
  */
 export async function GET(req: NextRequest) {
