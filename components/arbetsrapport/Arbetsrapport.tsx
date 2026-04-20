@@ -42,6 +42,10 @@ const css = `
     from { opacity: 0; }
     to   { opacity: 1; }
   }
+  @keyframes sheetSlideUp {
+    from { transform: translateY(100%); }
+    to   { transform: translateY(0); }
+  }
   @keyframes pulseDot {
     0%,100% { opacity: 1; transform: scale(1); }
     50%     { opacity: 0.4; transform: scale(0.7); }
@@ -1703,71 +1707,7 @@ export default function Arbetsrapport() {
           );
         })()}
 
-        {/* Inline-panel: Starta extra arbete */}
-        {visaExtraPanel&&(()=>{
-          const typer = EXTRA_ARBETE_TYPER.map(t => AKTIVITETER.find(x => x.typ === t)!);
-          return (
-            <section style={{ marginBottom:24,background:"#1c1c1e",borderRadius:16,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin:"0 0 12px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Vad ska du göra?</p>
-              {typer.map(t=>(
-                <div key={t.typ} onClick={()=>setKvAvTyp(t.typ)}
-                  style={{ background:kvAvTyp===t.typ?"rgba(0,122,255,0.15)":"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.typ?"1px solid rgba(0,122,255,0.3)":"1px solid rgba(255,255,255,0.06)" }}>
-                  <span style={{ fontSize:15,fontWeight:500,color:"#fff" }}>{t.label}</span>
-                  {kvAvTyp===t.typ
-                    ?<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
-                    :<div style={{ width:20,height:20,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.15)" }}/>
-                  }
-                </div>
-              ))}
-              <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:12,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:"1px solid rgba(255,255,255,0.06)" }}>
-                <div>
-                  <p style={{ margin:0,fontSize:14,fontWeight:600,color:"#fff" }}>Objekt</p>
-                  <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?"#0a84ff":"rgba(255,255,255,0.5)" }}>{kvAvObj?kvAvObj.namn:"Välj objekt"}</p>
-                </div>
-                <ChevronRight/>
-              </div>
-              <div style={{ marginTop:6,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
-                <p style={{ margin:0,fontSize:14,fontWeight:600,color:"#fff" }}>Debiterbar</p>
-                <div onClick={()=>setKvAvDeb(v=>!v)}
-                  style={{ width:46,height:28,borderRadius:14,background:kvAvDeb?"#34c759":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
-                  <div style={{ width:24,height:24,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?20:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
-                </div>
-              </div>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:16 }}>
-                <button
-                  onClick={()=>{ setVisaExtraPanel(false); setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false); }}
-                  style={{ padding:"14px",background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-                  Avbryt
-                </button>
-                <button
-                  disabled={!kvAvTyp}
-                  onClick={async ()=>{
-                    const startTid = nuKlock();
-                    const datum = new Date().toISOString().split("T")[0];
-                    const { data } = await supabase.from("extra_tid").insert({
-                      medarbetare_id: medarbetare.id, datum,
-                      start_tid: startTid + ":00", slut_tid: null, minuter: 0,
-                      aktivitet_typ: kvAvTyp, aktivitet_text: null,
-                      objekt_id: kvAvObj?.id || null,
-                      debiterbar: kvAvDeb,
-                      kalla: (dagData[idagKey]?.slut_tid || dagData[idagKey]?.bekraftad) ? 'kvall' : 'morgon',
-                      kommentar: null,
-                    }).select().single();
-                    if (data) {
-                      setPagaendeAktiviteter(p => [...p, data]);
-                      setExtraTidData(d => [data, ...d]);
-                    }
-                    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(100);
-                    setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false);
-                    setVisaExtraPanel(false);
-                  }}
-                  style={{ padding:"14px",background:kvAvTyp?"#0a84ff":"rgba(10,132,255,0.3)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:kvAvTyp?"pointer":"not-allowed",fontFamily:"inherit" }}>
-                  Starta
-                </button>
-              </div>
-            </section>
-          );
-        })()}
+        {/* Bottom sheet för Starta extra arbete renderas utanför main (nedan) */}
 
         {/* Löneunderlag-notis */}
         {månadsKlar&&!lönSkickat&&(
@@ -1862,6 +1802,76 @@ export default function Arbetsrapport() {
       </main>
 
       <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
+
+      {/* Bottom sheet: Starta extra arbete */}
+      {visaExtraPanel && (()=>{
+        const typer = EXTRA_ARBETE_TYPER.map(t => AKTIVITETER.find(x => x.typ === t)!);
+        const stäng = () => { setVisaExtraPanel(false); setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false); };
+        return (
+          <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1500,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
+            <div onClick={e=>e.stopPropagation()}
+              style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"20px 20px 0 0",padding:"10px 20px 28px",maxHeight:"85vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)",boxShadow:"0 -8px 32px rgba(0,0,0,0.5)" }}>
+              {/* Drag-handle */}
+              <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
+                <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+              </div>
+              <p style={{ margin:"0 0 12px",fontSize:22,fontWeight:700,color:"#fff" }}>Starta extra arbete</p>
+              <p style={{ margin:"0 0 16px",fontSize:13,color:"rgba(255,255,255,0.6)" }}>Vad ska du göra?</p>
+              {typer.map(t=>(
+                <div key={t.typ} onClick={()=>setKvAvTyp(t.typ)}
+                  style={{ background:kvAvTyp===t.typ?"rgba(10,132,255,0.15)":"rgba(255,255,255,0.04)",borderRadius:12,padding:"14px 16px",marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.typ?"1px solid rgba(10,132,255,0.35)":"1px solid rgba(255,255,255,0.06)" }}>
+                  <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{t.label}</span>
+                  {kvAvTyp===t.typ
+                    ? <div style={{ width:22,height:22,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="11" height="9" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
+                    : <div style={{ width:22,height:22,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.18)" }}/>
+                  }
+                </div>
+              ))}
+              <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:14,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:"1px solid rgba(255,255,255,0.06)" }}>
+                <div>
+                  <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#fff" }}>Objekt</p>
+                  <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?"#0a84ff":"rgba(255,255,255,0.5)" }}>{kvAvObj?kvAvObj.namn:"Välj objekt"}</p>
+                </div>
+                <ChevronRight/>
+              </div>
+              <div style={{ marginTop:6,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"14px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
+                <div>
+                  <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#fff" }}>Debiterbar</p>
+                  <p style={{ margin:"2px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Faktureras kunden</p>
+                </div>
+                <div onClick={()=>setKvAvDeb(v=>!v)}
+                  style={{ width:51,height:31,borderRadius:16,background:kvAvDeb?"#34c759":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
+                  <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
+                </div>
+              </div>
+              <button
+                disabled={!kvAvTyp}
+                onClick={async ()=>{
+                  const startTid = nuKlock();
+                  const datum = new Date().toISOString().split("T")[0];
+                  const { data } = await supabase.from("extra_tid").insert({
+                    medarbetare_id: medarbetare.id, datum,
+                    start_tid: startTid + ":00", slut_tid: null, minuter: 0,
+                    aktivitet_typ: kvAvTyp, aktivitet_text: null,
+                    objekt_id: kvAvObj?.id || null,
+                    debiterbar: kvAvDeb,
+                    kalla: (dagData[idagKey]?.slut_tid || dagData[idagKey]?.bekraftad) ? 'kvall' : 'morgon',
+                    kommentar: null,
+                  }).select().single();
+                  if (data) {
+                    setPagaendeAktiviteter(p => [...p, data]);
+                    setExtraTidData(d => [data, ...d]);
+                  }
+                  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(100);
+                  stäng();
+                }}
+                style={{ width:"100%",marginTop:20,padding:"18px",background:kvAvTyp?"#0a84ff":"rgba(10,132,255,0.3)",color:"#fff",border:"none",borderRadius:14,fontSize:17,fontWeight:700,cursor:kvAvTyp?"pointer":"not-allowed",fontFamily:"inherit" }}>
+                Starta
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Bekräftelse-overlay efter Bekräfta dagen ✓ */}
       {bekräftelseVisa && (
