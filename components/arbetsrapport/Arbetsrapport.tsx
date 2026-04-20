@@ -1773,6 +1773,40 @@ export default function Arbetsrapport() {
       <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
 
       {/* Bottom sheet: Starta extra arbete */}
+      {/* Objekt-väljare (stackad ovanpå Starta extra-sheet:en) */}
+      {visaExtraPanel && kvAvVäljer && (
+        <div onClick={()=>setKvAvVäljer(false)}
+          style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1600,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"20px 20px 0 0",padding:"10px 0 20px",maxHeight:"85vh",display:"flex",flexDirection:"column",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)",boxShadow:"0 -8px 32px rgba(0,0,0,0.5)" }}>
+            <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
+              <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+            </div>
+            <div style={{ padding:"0 20px 12px",display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+              <p style={{ margin:0,fontSize:20,fontWeight:700,color:"#fff" }}>Välj objekt</p>
+              <button onClick={()=>setKvAvVäljer(false)} style={{ background:"none",border:"none",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Avbryt</button>
+            </div>
+            <div style={{ flex:1,overflowY:"auto",padding:"0 8px 0" }}>
+              {objektLista.length === 0 ? (
+                <p style={{ margin:"32px 20px",textAlign:"center",fontSize:14,color:"rgba(255,255,255,0.5)" }}>Inga objekt tillgängliga</p>
+              ) : objektLista.map(o=>{
+                const valt = kvAvObj?.id === o.id;
+                return (
+                  <button key={o.id} onClick={()=>{ setKvAvObj(o); setKvAvVäljer(false); }}
+                    style={{ display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"14px 14px",background:valt?"rgba(10,132,255,0.1)":"none",border:"none",borderRadius:10,cursor:"pointer",fontFamily:"inherit",textAlign:"left",marginBottom:2 }}>
+                    <div style={{ minWidth:0,flex:1 }}>
+                      <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{o.namn}</p>
+                      {o.ägare && <p style={{ margin:"2px 0 0",fontSize:12,color:"rgba(255,255,255,0.5)",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{o.ägare}</p>}
+                    </div>
+                    {valt && <span className="material-symbols-outlined" style={{ fontSize:22,color:"#0a84ff",flexShrink:0,marginLeft:8 }}>check</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {visaExtraPanel && (()=>{
         const typer = EXTRA_ARBETE_TYPER.map(t => AKTIVITETER.find(x => x.typ === t)!);
         const stäng = () => { setVisaExtraPanel(false); setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false); };
@@ -1813,30 +1847,36 @@ export default function Arbetsrapport() {
                   <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
                 </div>
               </div>
-              <button
-                disabled={!kvAvTyp}
-                onClick={async ()=>{
-                  const startTid = nuKlock();
-                  const datum = new Date().toISOString().split("T")[0];
-                  const { data } = await supabase.from("extra_tid").insert({
-                    medarbetare_id: medarbetare.id, datum,
-                    start_tid: startTid + ":00", slut_tid: null, minuter: 0,
-                    aktivitet_typ: kvAvTyp, aktivitet_text: null,
-                    objekt_id: kvAvObj?.id || null,
-                    debiterbar: kvAvDeb,
-                    kalla: (dagData[idagKey]?.slut_tid || dagData[idagKey]?.bekraftad) ? 'kvall' : 'morgon',
-                    kommentar: null,
-                  }).select().single();
-                  if (data) {
-                    setPagaendeAktiviteter(p => [...p, data]);
-                    setExtraTidData(d => [data, ...d]);
-                  }
-                  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(100);
-                  stäng();
-                }}
-                style={{ width:"100%",marginTop:20,padding:"18px",background:kvAvTyp?"#0a84ff":"rgba(10,132,255,0.3)",color:"#fff",border:"none",borderRadius:14,fontSize:17,fontWeight:700,cursor:kvAvTyp?"pointer":"not-allowed",fontFamily:"inherit" }}>
-                Starta
-              </button>
+              {(()=>{
+                const kräverObjekt = kvAvDeb && !kvAvObj;
+                const kanStarta = !!kvAvTyp && !kräverObjekt;
+                return (
+                  <button
+                    disabled={!kanStarta}
+                    onClick={async ()=>{
+                      const startTid = nuKlock();
+                      const datum = new Date().toISOString().split("T")[0];
+                      const { data } = await supabase.from("extra_tid").insert({
+                        medarbetare_id: medarbetare.id, datum,
+                        start_tid: startTid + ":00", slut_tid: null, minuter: 0,
+                        aktivitet_typ: kvAvTyp, aktivitet_text: null,
+                        objekt_id: kvAvObj?.id || null,
+                        debiterbar: kvAvDeb,
+                        kalla: (dagData[idagKey]?.slut_tid || dagData[idagKey]?.bekraftad) ? 'kvall' : 'morgon',
+                        kommentar: null,
+                      }).select().single();
+                      if (data) {
+                        setPagaendeAktiviteter(p => [...p, data]);
+                        setExtraTidData(d => [data, ...d]);
+                      }
+                      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(100);
+                      stäng();
+                    }}
+                    style={{ width:"100%",marginTop:20,padding:"18px",background:kanStarta?"#0a84ff":"rgba(10,132,255,0.3)",color:"#fff",border:"none",borderRadius:14,fontSize:17,fontWeight:700,cursor:kanStarta?"pointer":"not-allowed",fontFamily:"inherit" }}>
+                    {kräverObjekt ? "Välj objekt först" : "Starta"}
+                  </button>
+                );
+              })()}
             </div>
           </div>
         );
