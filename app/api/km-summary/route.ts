@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
     const [medRes, arbRes, avtalRes] = await Promise.all([
       supabase.from("medarbetare").select("hem_lat, hem_lng").eq("id", medId).maybeSingle(),
       supabase.from("arbetsdag")
-        .select("datum, km_morgon, km_kvall, km_totalt, objekt_id")
+        .select("id, datum, km_morgon, km_kvall, km_totalt, objekt_id")
         .eq("medarbetare_id", medId)
         .gte("datum", fromDate).lte("datum", toDate),
       supabase.from("gs_avtal").select("km_grans_per_dag")
@@ -92,6 +92,15 @@ export async function GET(req: NextRequest) {
             if (res.source === "ors") orsAnrop++;
             dagensKm = res.km * 2; // tur och retur
             source = res.source;
+            // Spara tillbaka i arbetsdag så nästa request läser direkt från DB.
+            // Endast om km_morgon fortfarande saknas (ingen manuell inmatning).
+            if (d.id && (m1 === 0 && m2 === 0 && mt === 0)) {
+              await supabase
+                .from("arbetsdag")
+                .update({ km_morgon: res.km, km_kvall: res.km })
+                .eq("id", d.id)
+                .or("km_morgon.is.null,km_morgon.eq.0");
+            }
           }
         } else {
           source = "saknar_objekt_koord";

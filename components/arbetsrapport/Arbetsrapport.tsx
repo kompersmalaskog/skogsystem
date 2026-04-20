@@ -696,6 +696,10 @@ export default function Arbetsrapport() {
       console.log('[km-auto kalender]', { km, source, totalTurRetur, redKm, hemLat: hLat, hemLng: hLng, objLat: oLat, objLng: oLng, objekt_id: redDag.objekt_id, datum: redDag.datum });
       setRedKmBerakning(totalTurRetur);
       setRedKm(prev => prev === 0 ? totalTurRetur : prev);
+      // Spara tillbaka i arbetsdag om DB-värdena saknas — nästa öppning slipper ORS-anropet.
+      if (redDag.id && (redDag.km_morgon||0) === 0 && (redDag.km_kvall||0) === 0 && (redDag.km_totalt||0) === 0) {
+        supabase.from('arbetsdag').update({ km_morgon: km, km_kvall: km }).eq('id', redDag.id).then(() => {});
+      }
     })();
     return () => { cancelled = true; };
   }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.hem_lat, medarbetare?.hem_lng, objektLista]);
@@ -851,6 +855,7 @@ export default function Arbetsrapport() {
           const map: Record<string, any> = {};
           for (const r of res.data) {
             map[r.datum] = {
+              id: r.id,
               status: r.bekraftad ? 'ok' : 'saknas',
               arbMin: r.arbetad_min || 0,
               km: r.km_totalt || 0,
