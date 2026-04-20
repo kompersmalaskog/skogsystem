@@ -1437,8 +1437,9 @@ export default function Arbetsrapport() {
           </div>
         ))}
 
-        {/* Starta extra tid — en-knapps-start. Detaljer fylls i vid Stoppa. */}
-        {isWorking && !dagData[idagKey]?.slut_tid && pagaendeAktiviteter.length===0&&(
+        {/* Starta extra tid — visas när ingen timer pågår och dagen ej bekräftats.
+            Även före arbetsdag (ingen MOM-start) — föraren kan starta redan kl 06. */}
+        {!dagData[idagKey]?.slut_tid && !dagData[idagKey]?.bekraftad && pagaendeAktiviteter.length===0 && (
           <button onClick={async ()=>{
             const startTid = nuKlock();
             const { data } = await supabase.from("extra_tid").insert({
@@ -1619,12 +1620,20 @@ export default function Arbetsrapport() {
                   {sammanRad("Körning", `${totKm} km`, öppnaKm)}
                   {harErsKr && sammanRad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
                 </div>
-                {/* Extra tid-rader för idag — klickbara för att redigera typ/objekt/deb/kommentar */}
+                {/* Extra tid-rader för idag — klickbara för att redigera typ/objekt/deb/kommentar.
+                    Prefix Morgon/Kväll/Extra avgörs av tid relative till arbetsdag. */}
                 {(()=>{
                   const extraIdag = (extraTidData || [])
                     .filter((e: any) => e.datum === idagKey && e.slut_tid)
                     .sort((a: any, b: any) => (a.start_tid||'').localeCompare(b.start_tid||''));
                   if (extraIdag.length === 0) return null;
+                  const arbSt = dagData[idagKey]?.start_tid;
+                  const arbEn = dagData[idagKey]?.slut_tid;
+                  const prefixFör = (e: any): string => {
+                    if (arbSt && e.slut_tid && e.slut_tid <= arbSt) return "Morgon";
+                    if (arbEn && e.start_tid && e.start_tid >= arbEn) return "Kväll";
+                    return "Extra";
+                  };
                   return (
                     <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10,display:"flex",flexDirection:"column",gap:6 }}>
                       {extraIdag.map((e: any) => {
@@ -1639,7 +1648,7 @@ export default function Arbetsrapport() {
                             setKvAvBesk(e.kommentar || "");
                             setEfterStoppSheet(e);
                           }} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:"pointer",gap:8 }}>
-                            <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15,flexShrink:0 }}>Extra</span>
+                            <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15,flexShrink:0 }}>{prefixFör(e)}</span>
                             <div style={{ display:"flex",alignItems:"center",gap:4,minWidth:0 }}>
                               <span style={{ color:"#fff",fontSize:15,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{värde}</span>
                               <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.25)",flexShrink:0 }}>chevron_right</span>
