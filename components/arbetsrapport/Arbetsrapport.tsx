@@ -483,16 +483,6 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
 ═══════════════════════════════════════════════════════ */
 export default function Arbetsrapport() {
   const [steg,  setSteg]   = useState("morgon");
-  // Step-historik för universell bakåt-pil. Uppdateras i useEffect på [steg].
-  const stegHistRef = useRef<string[]>([]);
-  const stegCurrRef = useRef<string>("morgon");
-  const isBackRef   = useRef(false);
-  const goBack = () => {
-    const prev = stegHistRef.current.pop();
-    isBackRef.current = true;
-    if (prev && prev !== steg) setSteg(prev);
-    else setSteg("morgon");
-  };
   const [kmM,   setKmM]    = useState<{km:number}|null>(null);
   const [kmK,   setKmK]    = useState<{km:number}|null>(null);
   const [kmBerakning, setKmBerakning] = useState<number|null>(null);
@@ -536,6 +526,8 @@ export default function Arbetsrapport() {
   const [visaExtraPanel, setVisaExtraPanel] = useState(false);
   const [visaÖvrigt, setVisaÖvrigt] = useState(false);
   const [bekräftelseVisa, setBekräftelseVisa] = useState(false);
+  const [visaTiderSheet, setVisaTiderSheet] = useState(false);
+  const [visaKmSheet, setVisaKmSheet] = useState(false);
   const [extraTidData, setExtraTidData] = useState<any[]>([]);
   const [årsData, setÅrsData] = useState<any[]>([]);
   const [lönSparar, setLönSparar] = useState(false);
@@ -693,21 +685,6 @@ export default function Arbetsrapport() {
     // arbetsdag har ingen objekt_id — dagensObjekt hämtas separat om det behövs
   }, []);
 
-  // Logga gs_avtal-värden vid laddning så vi kan verifiera att fardtid_kr_per_mil
-  // och km_grans_per_dag kommer fram till klienten.
-  useEffect(() => {
-    if (!gsAvtal) return;
-    console.log('[gs_avtal] aktiv rad:', {
-      id: gsAvtal.id,
-      namn: gsAvtal.namn,
-      giltigt_fran: gsAvtal.giltigt_fran,
-      giltigt_till: gsAvtal.giltigt_till,
-      km_grans_per_dag: gsAvtal.km_grans_per_dag,
-      fardtid_kr_per_mil: gsAvtal.fardtid_kr_per_mil,
-      km_ersattning_kr: gsAvtal.km_ersattning_kr,
-    });
-  }, [gsAvtal]);
-
   // Automatisk km-beräkning (hem → trakt) när kvällsvyn öppnas. Hämtar
   // vägavstånd från /api/routing (ORS + cache, fallback haversine×1.4).
   // Fyller kmM/kmK bara om föraren inte redan skrivit in ett värde manuellt.
@@ -730,7 +707,6 @@ export default function Arbetsrapport() {
       if (cancelled || !res) return;
       const { km, source } = res;
       const totalTurRetur = km * 2;
-      console.log('[km-auto kväll]', { km, source, totalTurRetur, kmM, kmK, hemLat: hLat, hemLng: hLng, objLat: oLat, objLng: oLng, objekt_id: objId });
       setKmBerakning(totalTurRetur);
       if (kmM == null) setKmM({ km });
       if (kmK == null) setKmK({ km });
@@ -752,7 +728,6 @@ export default function Arbetsrapport() {
       .then(r => r.json())
       .then(j => {
         if (cancelled || !j?.ok) return;
-        console.log('[km-chain kalender]', { datum: redDag.datum, totalKm: j.totalKm, segments: j.segments, orsAnrop: j.orsAnrop });
         setRedKmChain(j.segments || []);
         setRedKmBerakning(j.totalKm);
         setRedKm(prev => prev === 0 ? j.totalKm : prev);
@@ -808,22 +783,6 @@ export default function Arbetsrapport() {
     if (steg === "manuellKväll") setMSlut(nuKlock5());
   }, [steg]);
 
-  // Spåra steg-historik för goBack. Skippa push när transitionen kom från back-knappen.
-  useEffect(() => {
-    if (isBackRef.current) {
-      isBackRef.current = false;
-      stegCurrRef.current = steg;
-      return;
-    }
-    if (stegCurrRef.current !== steg) {
-      stegHistRef.current.push(stegCurrRef.current);
-      if (stegHistRef.current.length > 30) stegHistRef.current.shift();
-      stegCurrRef.current = steg;
-    }
-  }, [steg]);
-
-  // Global overlay (bakåt/stäng) är borttagen. Varje sekundärvy har sin egen
-  // BackBtn i topBar. Kalender och Min tid är bottom-tab-primära — inget back.
 
   // Hämta månadens km-summa (med auto-beräkning för dagar som saknar km i DB)
   // när kalendervyn öppnas eller månaden ändras.
@@ -837,7 +796,6 @@ export default function Arbetsrapport() {
       .then(r => r.json())
       .then(j => {
         if (cancelled || !j?.ok) return;
-        console.log('[km-summary]', { month, totalKm: j.totalKm, ersattningsKm: j.ersattningsKm, orsAnrop: j.orsAnrop, dagar: j.dagar });
         setKmSummary({ totalKm: j.totalKm, ersattningsKm: j.ersattningsKm });
       })
       .catch(() => {});
@@ -1355,7 +1313,6 @@ export default function Arbetsrapport() {
             setExtraTidData(d => d.map(x => x.id===stoppaTarget.id ? {...x, slut_tid:stoppaSlutTid+':00', minuter} : x));
             setStoppaTarget(null);
             // Efter stopp: till morgon (en-skärms-vyn visar rätt tillstånd automatiskt).
-            isBackRef.current = true;
             setSteg("morgon");
           }}>Klar</button>
           <button style={btn.textBack} onClick={()=>{setStoppaTarget(null);setSteg("morgon");}}>Avbryt</button>
@@ -1558,7 +1515,6 @@ export default function Arbetsrapport() {
             ) : pagaendeAktiviteter.length===0 ? (
               <button onClick={async ()=>{
                 const nuT = nuKlock();
-                console.log('[Starta manuellt] klick', { nuT, idagKey, medarbetare_id: medarbetare?.id });
                 if (!medarbetare?.id) { console.warn('[Starta manuellt] medarbetare saknas'); return; }
                 setStart(nuT);
                 const { data, error } = await supabase.from("arbetsdag").upsert({
@@ -1568,7 +1524,6 @@ export default function Arbetsrapport() {
                   maskin_id: medarbetare.maskin_id || null,
                   // arbetad_min är generated (slut_tid - start_tid - rast_min) — sätts ej manuellt
                 }, { onConflict: 'medarbetare_id,datum' }).select().single();
-                console.log('[Starta manuellt] upsert', { data, error });
                 if (error) { console.error('[Starta manuellt] supabase-fel', error); return; }
                 if (data) {
                   setDagData(d => ({ ...d, [idagKey]: {
@@ -1589,7 +1544,6 @@ export default function Arbetsrapport() {
                     objekt_id: data.objekt_id || null,
                     objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || null,
                   }}));
-                  console.log('[Starta manuellt] dagData uppdaterat för', idagKey);
                   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
                 }
               }} style={{ width:"100%",padding:"12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.25)",background:"transparent",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
@@ -1617,19 +1571,25 @@ export default function Arbetsrapport() {
           const harErsKr = ersKr > 0;
           const harKmBlock = harKm;
           const harObjBlock = !!(dagObjNamn || maskinNamnLång);
-          const sammanRad = (label: string, value: string) => (
-            <div key={label} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+          const sammanRad = (label: string, value: string, onClick?: () => void) => (
+            <div key={label} onClick={onClick}
+              style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:onClick?"pointer":"default" }}>
               <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{label}</span>
-              <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{value}</span>
+              <div style={{ display:"flex",alignItems:"center",gap:4 }}>
+                <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{value}</span>
+                {onClick && <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.25)" }}>chevron_right</span>}
+              </div>
             </div>
           );
+          const öppnaTider = () => { setTS(start); setTE(slut); setTR(rast); setVisaTiderSheet(true); };
+          const öppnaKm    = () => { setTMK(kmM?.km||0); setTKK(kmK?.km||0); setVisaKmSheet(true); };
           return (
             <section style={{ marginBottom:32 }}>
               <div style={{ background:"#1c1c1e",borderRadius:16,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
                 <p style={{ margin:"0 0 12px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
                 <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
-                  {sammanRad("Arbetstid", `${start} → ${slut}`)}
-                  {sammanRad("Rast", `${rast} min`)}
+                  {sammanRad("Arbetstid", `${start} → ${slut}`, öppnaTider)}
+                  {sammanRad("Rast", `${rast} min`, öppnaTider)}
                   {sammanRad("Total", fmt(arbMin))}
                 </div>
                 {harObjBlock&&(
@@ -1640,7 +1600,7 @@ export default function Arbetsrapport() {
                 )}
                 {harKmBlock&&(
                   <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
-                    {sammanRad("Körning", `${totKm} km`)}
+                    {sammanRad("Körning", `${totKm} km`, öppnaKm)}
                     {harErsKr && sammanRad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
                   </div>
                 )}
@@ -1875,6 +1835,128 @@ export default function Arbetsrapport() {
                 style={{ width:"100%",marginTop:20,padding:"18px",background:kvAvTyp?"#0a84ff":"rgba(10,132,255,0.3)",color:"#fff",border:"none",borderRadius:14,fontSize:17,fontWeight:700,cursor:kvAvTyp?"pointer":"not-allowed",fontFamily:"inherit" }}>
                 Starta
               </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Bottom sheet: Ändra tider */}
+      {visaTiderSheet && (()=>{
+        const tAm = Math.max(0, tim(tS, tE) - tR);
+        const stäng = () => setVisaTiderSheet(false);
+        const ändrat = tS !== start || tE !== slut || tR !== rast;
+        return (
+          <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1500,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
+            <div onClick={e=>e.stopPropagation()}
+              style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"20px 20px 0 0",padding:"10px 20px 28px",maxHeight:"92vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)",boxShadow:"0 -8px 32px rgba(0,0,0,0.5)" }}>
+              <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
+                <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+              </div>
+              <p style={{ margin:"0 0 16px",fontSize:22,fontWeight:700,color:"#fff" }}>Ändra tider</p>
+              <div style={{ background:"rgba(255,255,255,0.04)",borderRadius:14,padding:"16px 12px",display:"flex",flexDirection:"column",gap:16 }}>
+                <div>
+                  <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:6,color:tS!==start?C.orange:"rgba(255,255,255,0.5)" }}>Start</span>
+                  <TimePicker value={tS} onChange={setTS}/>
+                </div>
+                <div style={{ borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:14 }}>
+                  <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:6,color:tE!==slut?C.orange:"rgba(255,255,255,0.5)" }}>Slut</span>
+                  <TimePicker value={tE} onChange={setTE}/>
+                </div>
+                <div style={{ borderTop:"1px solid rgba(255,255,255,0.06)",paddingTop:14 }}>
+                  <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:tR!==rast?C.orange:"rgba(255,255,255,0.5)" }}>Rast</span>
+                  <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8 }}>
+                    <Wheel value={tR} onChange={setTR} min={0} max={120} step={5}/>
+                    <span style={{ fontSize:14,color:"rgba(255,255,255,0.5)",fontWeight:600 }}>min</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(52,199,89,0.08)",borderRadius:12,display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
+                <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15,fontWeight:500 }}>Total arbetstid</span>
+                <span style={{ color:"#34c759",fontSize:24,fontWeight:700 }}>{fmt(tAm)}</span>
+              </div>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginTop:16 }}>
+                <button onClick={stäng}
+                  style={{ padding:"16px",background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+                  Avbryt
+                </button>
+                <button
+                  onClick={async ()=>{
+                    if (ändrat) {
+                      setStart(tS); setSlut(tE); setRast(tR);
+                      if (dagData[idagKey]?.id) {
+                        await supabase.from("arbetsdag").update({ start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR }).eq("id", dagData[idagKey].id);
+                        setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR, start: tS, slut: tE, rast: tR } }));
+                      }
+                    }
+                    stäng();
+                  }}
+                  style={{ padding:"16px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+                  Spara
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Bottom sheet: Ändra km */}
+      {visaKmSheet && (()=>{
+        const ny = tMK + tKK;
+        const över = Math.max(0, ny - frikm);
+        const mil = över > 0 ? Math.ceil(över/10) : 0;
+        const kr = Math.round(mil * fardtidPerMil * 100) / 100;
+        const stäng = () => setVisaKmSheet(false);
+        const KmInput = ({label, value, onChange}: {label: string; value: number; onChange: (v:number)=>void}) => (
+          <div style={{ flex:1,background:"rgba(255,255,255,0.04)",borderRadius:14,padding:"14px 16px",border:"1px solid rgba(255,255,255,0.06)" }}>
+            <p style={{ margin:"0 0 10px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>{label}</p>
+            <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+              <button onClick={()=>onChange(Math.max(0, value-10))} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.08)",border:"none",color:"#fff",fontSize:20,cursor:"pointer" }}>−</button>
+              <span style={{ fontSize:28,fontWeight:700,color:"#fff",fontVariantNumeric:"tabular-nums" }}>{value}</span>
+              <button onClick={()=>onChange(Math.min(999, value+10))} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.08)",border:"none",color:"#fff",fontSize:20,cursor:"pointer" }}>+</button>
+            </div>
+            <p style={{ margin:"6px 0 0",textAlign:"center",fontSize:12,color:"rgba(255,255,255,0.4)" }}>km</p>
+          </div>
+        );
+        return (
+          <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1500,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
+            <div onClick={e=>e.stopPropagation()}
+              style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"20px 20px 0 0",padding:"10px 20px 28px",maxHeight:"85vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)",boxShadow:"0 -8px 32px rgba(0,0,0,0.5)" }}>
+              <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
+                <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+              </div>
+              <p style={{ margin:"0 0 16px",fontSize:22,fontWeight:700,color:"#fff" }}>Ändra km</p>
+              <div style={{ display:"flex",gap:10 }}>
+                <KmInput label="Morgon" value={tMK} onChange={setTMK}/>
+                <KmInput label="Kväll"  value={tKK} onChange={setTKK}/>
+              </div>
+              <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(52,199,89,0.08)",borderRadius:12 }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
+                  <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Totalt</span>
+                  <span style={{ color:"#34c759",fontSize:24,fontWeight:700 }}>{ny} km</span>
+                </div>
+                {över > 0
+                  ? <p style={{ margin:"8px 0 0",fontSize:13,color:"#34c759",fontWeight:500 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
+                  : <p style={{ margin:"8px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>
+                }
+              </div>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginTop:16 }}>
+                <button onClick={stäng}
+                  style={{ padding:"16px",background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+                  Avbryt
+                </button>
+                <button
+                  onClick={async ()=>{
+                    setKmM({km:tMK}); setKmK({km:tKK});
+                    if (dagData[idagKey]?.id) {
+                      await supabase.from("arbetsdag").update({ km_morgon: tMK, km_kvall: tKK }).eq("id", dagData[idagKey].id);
+                      setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], km_morgon: tMK, km_kvall: tKK, km: tMK+tKK, km_totalt: tMK+tKK } }));
+                    }
+                    stäng();
+                  }}
+                  style={{ padding:"16px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+                  Spara
+                </button>
+              </div>
             </div>
           </div>
         );
@@ -3440,145 +3522,6 @@ export default function Arbetsrapport() {
 
 
 
-  /* ─── ÄNDRA ARBETSTID ─── */
-  if(steg==="äTid"){
-    const tAm=Math.max(0,tim(tS,tE)-tR),ä=tS!==start||tE!==slut||tR!==rast;
-    return (
-      <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
-        <style>{css}</style>
-        {/* Header */}
-        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
-          <button onClick={()=>setSteg("morgon")} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
-            <span className="material-symbols-outlined" style={{ color:"#34c759" }}>arrow_back</span>
-          </button>
-          <h1 style={{ margin:"0 16px",fontSize:18,fontWeight:700,color:"#fff",letterSpacing:"-0.02em" }}>Arbetstid</h1>
-        </header>
-
-        <main style={{ flex:1,paddingTop:96,paddingLeft:16,paddingRight:16,paddingBottom:120,maxWidth:512,margin:"0 auto",width:"100%" }}>
-
-          {/* Time Picker Card — iOS-stil scroll-wheels */}
-          <div style={{ background:"#1c1c1e",borderRadius:16,padding:"20px 16px",marginBottom:24,border:"1px solid rgba(255,255,255,0.04)",boxShadow:"0 4px 24px rgba(0,0,0,0.4)",display:"flex",flexDirection:"column",gap:18 }}>
-            <div>
-              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:tS!==start?C.orange:"#8e8e93" }}>Start</span>
-              <TimePicker value={tS} onChange={setTS}/>
-            </div>
-            <div style={{ borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:18 }}>
-              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:tE!==slut?C.orange:"#8e8e93" }}>Slut</span>
-              <TimePicker value={tE} onChange={setTE}/>
-            </div>
-            <div style={{ borderTop:"1px solid rgba(255,255,255,0.05)",paddingTop:18 }}>
-              <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:tR!==rast?C.orange:"#8e8e93" }}>Rast</span>
-              <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8,marginBottom:28 }}>
-                <Wheel value={tR} onChange={setTR} min={0} max={120} step={5}/>
-                <span style={{ fontSize:14,color:C.label,fontWeight:600 }}>min</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Total */}
-          <div style={{ borderRadius:16,padding:32,marginBottom:32,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",textAlign:"center",background:"rgba(52,199,89,0.1)" }}>
-            <span style={{ fontSize:11,fontWeight:600,letterSpacing:"0.15em",textTransform:"uppercase",color:"#34c759",opacity:0.8,marginBottom:8 }}>Total arbetstid</span>
-            <div style={{ fontSize:40,fontWeight:800,color:"#34c759",letterSpacing:"-0.03em" }}>{fmt(tAm)}</div>
-          </div>
-
-          {/* Kommentar */}
-          {ä&&<div style={{ marginBottom:32 }}>
-            <label style={{ ...secHead,display:"block",marginBottom:8,marginLeft:4 }}>Kommentar</label>
-            <input placeholder="Kommentar till ändring" value={anledn} onChange={e=>setAnledn(e.target.value)}
-              style={{ width:"100%",height:56,background:"#1c1c1e",border:"1px solid rgba(255,255,255,0.05)",borderRadius:12,padding:"0 16px",color:"#fff",fontSize:16,outline:"none",fontFamily:"inherit",boxSizing:"border-box" }}/>
-          </div>}
-        </main>
-
-        {/* Fixed Save */}
-        <div style={{ width:"100%",padding:"0 16px 24px",boxSizing:"border-box",marginTop:"auto" }}>
-          <button style={{ width:"100%",height:56,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 20px rgba(52,199,89,0.2)",opacity:(ä&&!anledn)?0.35:1 }}
-            disabled={ä&&!anledn}
-            onClick={()=>{if(ä){setStart(tS);setSlut(tE);setRast(tR);setÄ(anledn);}setSteg("morgon");}}>
-            {ä?"Spara":"Tillbaka"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  /* ─── ÄNDRA KM ─── */
-  if(steg==="äKm"){
-    const ny=tMK+tKK,ä=tMK!==(kmM?.km||0)||tKK!==(kmK?.km||0);
-    const KmDigits = ({value,onChange,label}:{value:number;onChange:(v:number)=>void;label:string}) => {
-      const h=Math.floor(value/100),t=Math.floor((value%100)/10),e=value%10;
-      const Dig = ({v,add}:{v:number;add:number}) => (
-        <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:4 }}>
-          <button onClick={()=>onChange(Math.min(999,value+add))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#636366",fontSize:28,fontFamily:"inherit",lineHeight:1 }}>
-            <span className="material-symbols-outlined" style={{ fontSize:30 }}>expand_less</span>
-          </button>
-          <span style={{ fontSize:36,fontWeight:700,color:"#fff",letterSpacing:"-0.03em",width:32,textAlign:"center" }}>{v}</span>
-          <button onClick={()=>onChange(Math.max(0,value-add))} style={{ background:"none",border:"none",cursor:"pointer",padding:4,color:"#636366",fontSize:28,fontFamily:"inherit",lineHeight:1 }}>
-            <span className="material-symbols-outlined" style={{ fontSize:30 }}>expand_more</span>
-          </button>
-        </div>
-      );
-      return (
-        <section style={{ marginBottom:40 }}>
-          <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>{label}</h2>
-          <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"0.5px solid rgba(255,255,255,0.06)" }}>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:32 }}>
-              <Dig v={h} add={100}/><Dig v={t} add={10}/><Dig v={e} add={1}/>
-            </div>
-            <div style={{ marginTop:16,textAlign:"center" }}>
-              <span style={{ ...secHead,margin:0 }}>km</span>
-            </div>
-          </div>
-        </section>
-      );
-    };
-    return (
-      <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column",paddingBottom:160 }}>
-        <style>{css}</style>
-        {/* Header */}
-        <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:56 }}>
-          <button onClick={()=>setSteg("morgon")} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
-            <span className="material-symbols-outlined" style={{ color:"#34c759" }}>arrow_back</span>
-          </button>
-          <h1 style={{ flex:1,textAlign:"center",margin:0,fontSize:20,fontWeight:600,color:"#fff",letterSpacing:"-0.02em" }}>Körning</h1>
-          <div style={{ width:24 }}/>
-        </header>
-
-        <main style={{ marginTop:80,padding:"0 20px",flex:1 }}>
-          <KmDigits value={tMK} onChange={setTMK} label="Morgon"/>
-          <KmDigits value={tKK} onChange={setTKK} label="Kväll"/>
-
-          {/* Totalt */}
-          <section>
-            <h2 style={{ ...secHead,marginBottom:16,marginLeft:4 }}>Totalt</h2>
-            <div style={{ background:"rgba(52,199,89,0.1)",borderRadius:16,border:"1px solid rgba(52,199,89,0.2)",padding:32,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center" }}>
-              <div style={{ fontSize:44,fontWeight:800,color:"#34c759",letterSpacing:"-0.03em" }}>{ny} km</div>
-              <p style={{ margin:"8px 0 0",fontSize:11,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",color:"rgba(52,199,89,0.6)" }}>Dagens körsträcka</p>
-              {(()=>{ const över=Math.max(0,ny-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
-                return över>0
-                  ? <p style={{ margin:"8px 0 0",fontSize:14,color:"#34c759",fontWeight:600 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
-                  : <p style={{ margin:"8px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>;
-              })()}
-            </div>
-          </section>
-
-          {ä&&<div style={{ marginTop:24 }}>
-            <Label>Anledning <span style={{ color:C.red }}>*</span></Label>
-            <input placeholder="Kommentar" value={anledn} onChange={e=>setAnledn(e.target.value)} style={input}/>
-          </div>}
-        </main>
-
-        {/* Spara — fixed */}
-        <div style={{ position:"fixed",bottom:0,left:0,width:"100%",padding:"16px 20px 36px",zIndex:40,boxSizing:"border-box",background:"linear-gradient(to top,#000 60%,transparent)" }}>
-          <button style={{ width:"100%",height:56,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",opacity:(ä&&!anledn)?0.35:1 }}
-            disabled={ä&&!anledn}
-            onClick={()=>{if(ä){setKmM({km:tMK});setKmK({km:tKK});}setSteg("morgon");}}>
-            {ä?"Spara":"Tillbaka"}
-          </button>
-        </div>
-
-      </div>
-    );
-  }
 
 
   /* ─── FRÅNVARO ─── */
