@@ -1559,6 +1559,11 @@ export default function Arbetsrapport() {
           const idagArb: any = dagData[idagKey];
           if (!idagArb?.slut_tid) return null;
           const redanBekräftad = !!idagArb?.bekraftad;
+          const varBekräftad   = !!idagArb?.bekraftad_tid;
+          const ändradSedan    = varBekräftad && !redanBekräftad;
+          const bekräftadTidKort = idagArb?.bekraftad_tid
+            ? new Date(idagArb.bekraftad_tid).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})
+            : '';
           const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
           const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
           const datumRubrik = `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
@@ -1586,7 +1591,20 @@ export default function Arbetsrapport() {
           return (
             <section style={{ marginBottom:32 }}>
               <div style={{ background:"#1c1c1e",borderRadius:16,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-                <p style={{ margin:"0 0 12px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
+                <p style={{ margin:"0 0 6px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
+                {redanBekräftad && (
+                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:18,color:"#34c759" }}>check_circle</span>
+                    <span style={{ fontSize:13,color:"#34c759",fontWeight:500 }}>Bekräftad{bekräftadTidKort?` kl ${bekräftadTidKort}`:''}</span>
+                  </div>
+                )}
+                {ändradSedan && (
+                  <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:18,color:"#ff9f0a" }}>edit</span>
+                    <span style={{ fontSize:13,color:"#ff9f0a",fontWeight:500 }}>Ändrad — ej bekräftad</span>
+                  </div>
+                )}
+                {!redanBekräftad && !ändradSedan && <div style={{ height:6 }} />}
                 <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
                   {sammanRad("Arbetstid", `${start} → ${slut}`, öppnaTider)}
                   {sammanRad("Rast", `${rast} min`, öppnaTider)}
@@ -1615,28 +1633,41 @@ export default function Arbetsrapport() {
                     {[{k:'inget',l:'Inget',v:null},{k:'halv',l:`Halv · ${halvKr}`,v:{summa:halvKr}},{k:'hel',l:`Hel · ${helKr}`,v:{summa:helKr}}].map(opt=>{
                       const valt = opt.v === null ? !trak : (trak?.summa === (opt.v as any)?.summa);
                       return (
-                        <button key={opt.k} onClick={()=>{ setTrak(opt.v as any); setTrakÖppen(false); }}
+                        <button key={opt.k} onClick={async ()=>{
+                          setTrak(opt.v as any); setTrakÖppen(false);
+                          if (dagData[idagKey]?.id) {
+                            const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
+                            const payload: any = { traktamente: !!opt.v };
+                            if (bryterBekräftelse) payload.bekraftad = false;
+                            await supabase.from("arbetsdag").update(payload).eq("id", dagData[idagKey].id);
+                            if (bryterBekräftelse) setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: false, traktamente: !!opt.v } }));
+                            else setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], traktamente: !!opt.v } }));
+                          }
+                        }}
                           style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 6px",color:valt?"#adc6ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>{opt.l}</button>
                       );
                     })}
                   </div>
                 )}
               </div>
-              {!redanBekräftad && pagaendeAktiviteter.length===0 && (
+              {/* Primärknapp: Bekräfta / Bekräfta igen / Ändra rapport */}
+              {pagaendeAktiviteter.length===0 && (redanBekräftad ? (
+                <button onClick={()=>setVisaTiderSheet(false)}
+                  style={{ width:"100%",marginTop:16,padding:"18px",background:"#2c2c2e",color:"#fff",border:"none",borderRadius:14,fontSize:16,fontWeight:600,cursor:"default",fontFamily:"inherit" }}>
+                  Ändra rapport
+                </button>
+              ) : (
                 <button
                   onClick={async ()=>{
                     const nuT = nuKlock();
                     const nuTS = nuT + ":00";
-                    // Säkerställ att passet är avslutat. Om slut_tid saknas (skyddsnät —
-                    // kortet visas normalt bara när slut finns), använd nuvarande tid.
                     const effektivSlut = slut || nuT;
-                    // Stoppa ev pågående extra_tid-rader: dagen kan inte vara bekräftad
-                    // OCH ha pågående aktiviteter samtidigt.
                     for (const p of pagaendeAktiviteter) {
                       const min = minutDiff(p.start_tid, nuTS);
                       await supabase.from("extra_tid").update({ slut_tid: nuTS, minuter: min }).eq("id", p.id);
                     }
                     if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
+                    const nuBekrIso = new Date().toISOString();
                     // arbetad_min och km_totalt är generated columns — skickas inte.
                     await supabase.from("arbetsdag").upsert({
                       medarbetare_id: medarbetare.id,
@@ -1646,28 +1677,24 @@ export default function Arbetsrapport() {
                       maskin_id: medarbetare.maskin_id,
                       objekt_id: dagObjId,
                       traktamente: trak, bekraftad: true,
-                      bekraftad_tid: new Date().toISOString(),
+                      bekraftad_tid: nuBekrIso,
                     }, { onConflict: 'medarbetare_id,datum' });
                     setSlut(effektivSlut.slice(0,5));
-                    setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true, slut_tid: effektivSlut } }));
+                    setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true, bekraftad_tid: nuBekrIso, slut_tid: effektivSlut } }));
                     if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(200);
                     setBekräftelseVisa(true);
                     setTimeout(() => setBekräftelseVisa(false), 2000);
                   }}
                   style={{ width:"100%",marginTop:16,padding:"20px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
-                  Bekräfta dagen ✓
+                  {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen ✓"}
                 </button>
-              )}
-              {!redanBekräftad && pagaendeAktiviteter.length===0 && (
+              ))}
+              {/* + Extra arbete — synlig även när dagen är bekräftad, föraren kan glömt nåt */}
+              {pagaendeAktiviteter.length===0 && (
                 <button onClick={()=>setVisaExtraPanel(true)}
                   style={{ width:"100%",marginTop:10,padding:"18px",background:"transparent",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",borderRadius:14,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                   + Extra arbete
                 </button>
-              )}
-              {redanBekräftad && (
-                <div style={{ marginTop:16,padding:"16px",background:"rgba(52,199,89,0.1)",borderRadius:14,textAlign:"center",color:"#34c759",fontSize:16,fontWeight:600 }}>
-                  ✓ Dagen är bekräftad
-                </div>
               )}
             </section>
           );
@@ -1926,8 +1953,12 @@ export default function Arbetsrapport() {
                     if (ändrat) {
                       setStart(tS); setSlut(tE); setRast(tR);
                       if (dagData[idagKey]?.id) {
-                        await supabase.from("arbetsdag").update({ start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR }).eq("id", dagData[idagKey].id);
-                        setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR, start: tS, slut: tE, rast: tR } }));
+                        // Om dagen var bekräftad, rasera bekräftelsen så status visar "Ändrad"
+                        const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
+                        const payload: any = { start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR };
+                        if (bryterBekräftelse) payload.bekraftad = false;
+                        await supabase.from("arbetsdag").update(payload).eq("id", dagData[idagKey].id);
+                        setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR, start: tS, slut: tE, rast: tR, ...(bryterBekräftelse ? { bekraftad: false } : {}) } }));
                       }
                     }
                     stäng();
@@ -1990,8 +2021,11 @@ export default function Arbetsrapport() {
                   onClick={async ()=>{
                     setKmM({km:tMK}); setKmK({km:tKK});
                     if (dagData[idagKey]?.id) {
-                      await supabase.from("arbetsdag").update({ km_morgon: tMK, km_kvall: tKK }).eq("id", dagData[idagKey].id);
-                      setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], km_morgon: tMK, km_kvall: tKK, km: tMK+tKK, km_totalt: tMK+tKK } }));
+                      const bryterBekräftelse = !!dagData[idagKey]?.bekraftad;
+                      const payload: any = { km_morgon: tMK, km_kvall: tKK };
+                      if (bryterBekräftelse) payload.bekraftad = false;
+                      await supabase.from("arbetsdag").update(payload).eq("id", dagData[idagKey].id);
+                      setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], km_morgon: tMK, km_kvall: tKK, km: tMK+tKK, km_totalt: tMK+tKK, ...(bryterBekräftelse ? { bekraftad: false } : {}) } }));
                     }
                     stäng();
                   }}
