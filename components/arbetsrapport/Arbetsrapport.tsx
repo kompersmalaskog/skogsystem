@@ -818,45 +818,8 @@ export default function Arbetsrapport() {
     }
   }, [steg]);
 
-  // Global overlay: bakåt-pil (uppe vänster) + stäng (uppe höger).
-  // Samma position som TopBar:s hemknapp (left/right:12, top:10, 36×36).
-  // Sätter body[data-hide-home] så TopBar döljer hemknappen när overlay är aktiv.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (steg === "morgon") return;
-
-    document.body.setAttribute("data-hide-home", "1");
-
-    const mk = (side: "left"|"right", iconName: string, iconColor: string, onClick: ()=>void, ariaLabel: string) => {
-      const btn = document.createElement("button");
-      btn.setAttribute("aria-label", ariaLabel);
-      btn.setAttribute("data-arbrapp-chrome", side);
-      Object.assign(btn.style, {
-        position: "fixed", top: "10px", [side]: "12px",
-        width: "36px", height: "36px", borderRadius: "10px",
-        background: "rgba(255,255,255,0.08)", border: "none",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        cursor: "pointer", zIndex: "1001",
-      });
-      const icon = document.createElement("span");
-      icon.className = "material-symbols-outlined";
-      Object.assign(icon.style, { color: iconColor, fontSize: "22px" });
-      icon.textContent = iconName;
-      btn.appendChild(icon);
-      btn.onclick = onClick;
-      document.body.appendChild(btn);
-      return btn;
-    };
-
-    const back  = mk("left",  "arrow_back", "#fff",                  goBack,                                                "Tillbaka");
-    const close = mk("right", "close",      "rgba(255,255,255,0.7)", () => { isBackRef.current = true; setSteg("morgon"); }, "Stäng");
-
-    return () => {
-      back.remove();
-      close.remove();
-      document.body.removeAttribute("data-hide-home");
-    };
-  }, [steg]);
+  // Global overlay (bakåt/stäng) är borttagen. Varje sekundärvy har sin egen
+  // BackBtn i topBar. Kalender och Min tid är bottom-tab-primära — inget back.
 
   // Hämta månadens km-summa (med auto-beräkning för dagar som saknar km i DB)
   // när kalendervyn öppnas eller månaden ändras.
