@@ -1533,14 +1533,15 @@ export default function Arbetsrapport() {
               )}
             </div>
           )}
-          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12 }}>
+          <div>
             {isWorking ? (
               <button onClick={async ()=>{
                 const nuT = nuKlock();
                 setSlut(nuT);
                 await supabase.from("arbetsdag").update({ slut_tid: nuT + ":00" }).eq("id", dagData[idagKey]?.id);
                 setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
-              }} style={{ width:"100%",padding:"12px",borderRadius:10,border:"1px solid rgba(255,69,58,0.4)",background:"transparent",color:"#ff453a",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+                if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
+              }} style={{ width:"100%",padding:"12px",borderRadius:10,border:"1px solid rgba(255,69,58,0.45)",background:"rgba(255,69,58,0.05)",color:"#ff453a",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                 Avsluta pass
               </button>
             ) : pagaendeAktiviteter.length===0 ? (
