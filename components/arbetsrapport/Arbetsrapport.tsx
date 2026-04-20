@@ -3634,13 +3634,16 @@ export default function Arbetsrapport() {
             </Card>
           )}
 
-          {/* Körning — separat kort med morgon/kväll/total */}
+          {/* Körning — separat kort med morgon/kväll/total + färdtidsersättning */}
           {redDag?.start_tid&&(()=>{
             // Om DB saknar split (båda 0/null) faller vi tillbaka till redKm/2 för
             // att visa den beräknade enkel-väg-delningen. Annars DB-värdena.
             const harSplit = (redDag.km_morgon||0) > 0 || (redDag.km_kvall||0) > 0;
             const morgonVisa = harSplit ? (redDag.km_morgon||0) : Math.round(redKm/2);
             const kvallVisa  = harSplit ? (redDag.km_kvall||0)  : redKm - Math.round(redKm/2);
+            const över = Math.max(0, redKm - frikm);
+            const mil  = över>0 ? Math.ceil(över/10) : 0;
+            const kr   = Math.round(mil*fardtidPerMil*100)/100;
             return (
               <Card onClick={()=>setRedVy("km")} style={{ padding:"16px 20px" }}>
                 <p style={{ margin:"0 0 10px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Körning</p>
@@ -3657,24 +3660,20 @@ export default function Arbetsrapport() {
                   <span style={{ color:"#fff",fontSize:17,fontWeight:700 }}>{redKm} km</span>
                 </div>
                 {redKmBerakning!=null&&(
-                  <p style={{ margin:"10px 0 0",fontSize:12,color:"rgba(255,255,255,0.4)" }}>Beräknat vägavstånd</p>
+                  <p style={{ margin:"8px 0 0",fontSize:12,color:"rgba(255,255,255,0.4)" }}>Beräknat vägavstånd</p>
+                )}
+                {över>0&&(
+                  <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:10,paddingTop:10 }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+                      <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Färdtidsersättning</span>
+                      <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{kr.toFixed(2).replace('.',',')} kr</span>
+                    </div>
+                    <p style={{ margin:"2px 0 0",fontSize:12,color:"rgba(255,255,255,0.4)" }}>
+                      {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr
+                    </p>
+                  </div>
                 )}
               </Card>
-            );
-          })()}
-
-          {/* Färdtidsersättning — info under Körning-kortet */}
-          {redDag?.start_tid&&redKm>frikm&&(()=>{
-            const över = redKm - frikm;
-            const mil  = Math.ceil(över/10);
-            const kr   = Math.round(mil*fardtidPerMil*100)/100;
-            return (
-              <div style={{ marginTop:4,marginBottom:14,padding:"0 4px" }}>
-                <p style={{ margin:"0 0 4px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Färdtidsersättning</p>
-                <p style={{ margin:0,fontSize:15,color:"#fff",lineHeight:1.4 }}>
-                  {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr
-                </p>
-              </div>
             );
           })()}
 
