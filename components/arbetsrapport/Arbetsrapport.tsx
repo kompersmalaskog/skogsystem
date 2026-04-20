@@ -136,6 +136,24 @@ const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['reservdelar','service','markagare',
 const aktLabel = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.label || 'Extra';
 const aktIcon  = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.icon  || 'more_horiz';
 
+/** Sekunder mellan start_tid (HH:MM eller HH:MM:SS) och nu. Returnerar 0 om start saknas. */
+const sekDiff = (start: string|null|undefined): number => {
+  if (!start) return 0;
+  const p = start.split(':').map(Number);
+  const sh = p[0]||0, sm = p[1]||0, ss = p[2]||0;
+  const now = new Date();
+  const startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), sh, sm, ss).getTime();
+  return Math.max(0, Math.floor((now.getTime() - startMs) / 1000));
+};
+
+/** Formatera sekunder som HH:MM:SS. */
+const fmtHMS = (sek: number): string => {
+  const h = Math.floor(sek / 3600);
+  const m = Math.floor((sek % 3600) / 60);
+  const s = sek % 60;
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+};
+
 /* Beräkna minuter mellan två tids-strängar HH:MM (eller HH:MM:SS) */
 const minutDiff = (start: string|null|undefined, slut: string|null|undefined) => {
   if(!start) return 0;
@@ -735,12 +753,14 @@ export default function Arbetsrapport() {
     }
   }, [steg, valtObjektId, objektLista.length]);
 
-  // Tickar var 30:e sekund så live-timers i pågående-kort räknas om.
+  // Tickar varje sekund så pågående-aktivitetens HH:MM:SS-timer uppdateras live.
+  // Re-render:en triggas bara när pagaendeAktiviteter är non-tom för att spara batteri.
   const [, setNuTick] = useState(0);
   useEffect(() => {
-    const iv = setInterval(() => setNuTick(t => t + 1), 30000);
+    if (pagaendeAktiviteter.length === 0) return;
+    const iv = setInterval(() => setNuTick(t => t + 1), 1000);
     return () => clearInterval(iv);
-  }, []);
+  }, [pagaendeAktiviteter.length]);
 
   // Sätt mStart/mSlut till aktuell tid (avrundad till 5 min) när manuell-dag-
   // vyerna öppnas. Gör att defaulten inte blir stale om appen legat öppen.
@@ -1451,29 +1471,30 @@ export default function Arbetsrapport() {
           </div>
         ))}
 
-        {/* Pågående extra-aktiviteter */}
+        {/* Pågående extra-aktiviteter — stora kort med live-timer */}
         {pagaendeAktiviteter.map(p => (
-          <div key={p.id} style={{ background:"rgba(52,199,89,0.08)",border:"1px solid rgba(52,199,89,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:12,animation:"fadeUp 0.3s ease" }}>
-            <div style={{ display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0 }}>
-              <span className="material-symbols-outlined" style={{ color:"#34c759",fontSize:20 }}>{aktIcon(p.aktivitet_typ)}</span>
-              <div style={{ minWidth:0 }}>
-                <p style={{ margin:0,fontSize:14,fontWeight:600,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>Pågående: {p.aktivitet_text || aktLabel(p.aktivitet_typ)}</p>
-                <p style={{ margin:"2px 0 0",fontSize:12,color:C.label }}>sedan {(p.start_tid||'').slice(0,5)} · {fmt(minutDiff(p.start_tid, null))}</p>
-              </div>
+          <div key={p.id} style={{ background:"rgba(255,69,58,0.08)",border:"1px solid rgba(255,69,58,0.25)",borderRadius:16,padding:"20px 20px 18px",marginBottom:14,animation:"fadeUp 0.3s ease" }}>
+            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:16 }}>
+              <div style={{ width:10,height:10,borderRadius:"50%",background:"#ff453a",boxShadow:"0 0 8px #ff453a",animation:"pulseDot 2s infinite" }} />
+              <span style={{ fontSize:16,fontWeight:700,color:"#fff" }}>Pågående: {p.aktivitet_text || aktLabel(p.aktivitet_typ)}</span>
             </div>
+            <p style={{ margin:"0 0 4px",fontSize:14,color:C.label }}>Startad {(p.start_tid||'').slice(0,5)}</p>
+            <p style={{ margin:"0 0 16px",fontSize:32,fontWeight:700,color:"#fff",fontVariantNumeric:"tabular-nums",letterSpacing:"-0.01em" }}>⏱ {fmtHMS(sekDiff(p.start_tid))}</p>
             <button onClick={()=>{setStoppaTarget(p);setStoppaSlutTid(nuKlock());setSteg("stoppaAktivitet");}}
-              style={{ flexShrink:0,padding:"8px 14px",background:"rgba(255,255,255,0.1)",border:"none",borderRadius:10,color:"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-              Stoppa nu
+              style={{ width:"100%",padding:"16px",background:"#ff453a",border:"none",borderRadius:12,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+              Stoppa aktivitet
             </button>
           </div>
         ))}
 
-        {/* Starta extra arbete (diskret knapp) */}
-        <button onClick={()=>setSteg("startaExtraArbete")}
-          style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,color:"#adc6ff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-          <span className="material-symbols-outlined" style={{ fontSize:16 }}>add</span>
-          Starta extra arbete
-        </button>
+        {/* Starta extra arbete — göms när aktivitet pågår */}
+        {pagaendeAktiviteter.length===0&&(
+          <button onClick={()=>setSteg("startaExtraArbete")}
+            style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,color:"#adc6ff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+            <span className="material-symbols-outlined" style={{ fontSize:16 }}>add</span>
+            Starta extra arbete
+          </button>
+        )}
 
         {/* Hero */}
         <section style={{ marginBottom:40,animation:"fadeUp 0.5s ease both" }}>
@@ -1497,11 +1518,11 @@ export default function Arbetsrapport() {
               <button onClick={()=>setSteg("kväll")} style={{ fontSize:14,fontWeight:500,color:"#ff453a",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
                 Avsluta pass
               </button>
-            ) : (
+            ) : pagaendeAktiviteter.length===0 ? (
               <button onClick={()=>{setStart(new Date().toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}));setSteg("manuellDag");}} style={{ fontSize:14,fontWeight:500,color:"#adc6ff",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
                 Starta manuellt
               </button>
-            )}
+            ) : <span />}
             <span className="material-symbols-outlined" style={{ color:"rgba(194,198,214,0.3)",fontSize:24 }}>precision_manufacturing</span>
           </div>
         </section>
@@ -3114,6 +3135,8 @@ export default function Arbetsrapport() {
                 setPagaendeAktiviteter(p => [...p, data]);
                 setExtraTidData(d => [data, ...d]);
               }
+              // Haptisk feedback så föraren vet att aktiviteten startade
+              if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(100);
               // Återställ formuläret så nästa gång börjar rent
               setKvAvTyp(null); setKvAvBesk(""); setKvAvDeb(false); setKvAvObj(null);
               // Dag-vyn visar pågående aktivitet med timer
