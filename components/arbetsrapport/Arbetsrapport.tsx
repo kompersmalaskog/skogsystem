@@ -3619,23 +3619,6 @@ export default function Arbetsrapport() {
                   <ChevronRight/>
                 </div>
               </div>
-              <div onClick={()=>setRedVy("km")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:C.label }}>Körning</span>
-                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:600,color:redKm!==redDag.km?C.orange:C.ink }}>
-                    {redKm} km{(redDag.km_morgon>0||redDag.km_kvall>0)?` (M ${redDag.km_morgon||0} · K ${redDag.km_kvall||0})`:''}
-                  </span>
-                  <ChevronRight/>
-                </div>
-              </div>
-              {/* Färdtidsersättning — info-rad under Körning */}
-              <div style={{ padding:"0 0 14px",borderBottom:redDag.extra>0?`1px solid ${C.line}`:"none" }}>
-                {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
-                  return över>0
-                    ? <p style={{ margin:0,fontSize:13,color:"#34c759" }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
-                    : <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>;
-                })()}
-              </div>
               {redDag.extra>0&&(
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.trak?`1px solid ${C.line}`:"none" }}>
                   <span style={{ fontSize:16,color:C.label }}>Extra tid</span>
@@ -3650,6 +3633,43 @@ export default function Arbetsrapport() {
               )}
             </Card>
           )}
+
+          {/* Körning — separat kort med morgon/kväll/total */}
+          {redDag?.start_tid&&(
+            <Card onClick={()=>setRedVy("km")} style={{ padding:"16px 20px" }}>
+              <p style={{ margin:"0 0 10px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Körning</p>
+              <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+                <span style={{ color:"#fff",fontSize:15 }}>Morgon</span>
+                <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{redDag.km_morgon||0} km</span>
+              </div>
+              <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+                <span style={{ color:"#fff",fontSize:15 }}>Kväll</span>
+                <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{redDag.km_kvall||0} km</span>
+              </div>
+              <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
+                <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>Totalt</span>
+                <span style={{ color:"#fff",fontSize:17,fontWeight:700 }}>{redKm} km</span>
+              </div>
+              {redKmBerakning!=null&&(
+                <p style={{ margin:"10px 0 0",fontSize:12,color:"rgba(255,255,255,0.4)" }}>Beräknat vägavstånd</p>
+              )}
+            </Card>
+          )}
+
+          {/* Färdtidsersättning — info under Körning-kortet */}
+          {redDag?.start_tid&&redKm>frikm&&(()=>{
+            const över = redKm - frikm;
+            const mil  = Math.ceil(över/10);
+            const kr   = Math.round(mil*fardtidPerMil*100)/100;
+            return (
+              <div style={{ marginTop:4,marginBottom:14,padding:"0 4px" }}>
+                <p style={{ margin:"0 0 4px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Färdtidsersättning</p>
+                <p style={{ margin:0,fontSize:15,color:"#fff",lineHeight:1.4 }}>
+                  {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Anledning — visas om något ändrats */}
           {harÄndrat&&(
