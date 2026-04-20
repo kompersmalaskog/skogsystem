@@ -485,6 +485,7 @@ export default function Arbetsrapport() {
   const [redRast,  setRedRast]  = useState(30);
   const [redKm,    setRedKm]    = useState(0);
   const [redKmBerakning, setRedKmBerakning] = useState<number|null>(null);
+  const [redKmChain, setRedKmChain] = useState<{fromLabel:string;toLabel:string;km:number;source:string}[]|null>(null);
   const [redAnl,   setRedAnl]   = useState("");
   const [redVy,    setRedVy]    = useState("översikt");
   const [redDagar, setRedDagar] = useState<Record<string, {start:string;slut:string;rast:number;km:number;anl:string}>>({});
@@ -693,34 +694,28 @@ export default function Arbetsrapport() {
     return () => { cancelled = true; };
   }, [steg, medarbetare?.id, medarbetare?.hem_lat, medarbetare?.hem_lng, valtObjektId, dagData, objektLista]);
 
-  // Automatisk km-beräkning för kalenderns redigera-vy. Triggas när en dag öppnas
-  // och körs asynkront mot /api/routing. Auto-fyller redKm endast om det är 0.
+  // Hämta km-kedja för en specifik dag när kalenderns redigera-vy öppnas.
+  // /api/km-chain bygger hem → obj1 → obj2 → ... → hem från arbetsdag-raderna
+  // och returnerar varje segment. Idag finns alltid 1 objekt per dag (UNIQUE
+  // constraint), men infrastrukturen stödjer flera.
   useEffect(() => {
     if (steg !== "redigera" || !redDag) return;
-    const obj = objektLista.find(o => o.id === redDag.objekt_id);
-    const hLat = medarbetare?.hem_lat, hLng = medarbetare?.hem_lng;
-    const oLat = obj?.lat, oLng = obj?.lng;
-    if (hLat == null || hLng == null || oLat == null || oLng == null) {
-      if (redDag.objekt_id) console.warn('km-beräkning (kalender): koordinater saknas', { datum: redDag.datum, hLat, hLng, oLat, oLng, objekt_id: redDag.objekt_id });
-      setRedKmBerakning(null);
-      return;
-    }
+    if (!medarbetare?.id || !redDag.datum) return;
+    setRedKmChain(null);
+    setRedKmBerakning(null);
     let cancelled = false;
-    (async () => {
-      const res = await hämtaVägKm(Number(hLat), Number(hLng), Number(oLat), Number(oLng));
-      if (cancelled || !res) return;
-      const { km, source } = res;
-      const totalTurRetur = km * 2;
-      console.log('[km-auto kalender]', { km, source, totalTurRetur, redKm, hemLat: hLat, hemLng: hLng, objLat: oLat, objLng: oLng, objekt_id: redDag.objekt_id, datum: redDag.datum });
-      setRedKmBerakning(totalTurRetur);
-      setRedKm(prev => prev === 0 ? totalTurRetur : prev);
-      // Spara tillbaka i arbetsdag om DB-värdena saknas — nästa öppning slipper ORS-anropet.
-      if (redDag.id && (redDag.km_morgon||0) === 0 && (redDag.km_kvall||0) === 0 && (redDag.km_totalt||0) === 0) {
-        supabase.from('arbetsdag').update({ km_morgon: km, km_kvall: km }).eq('id', redDag.id).then(() => {});
-      }
-    })();
+    fetch(`/api/km-chain?medarbetare_id=${encodeURIComponent(medarbetare.id)}&datum=${redDag.datum}`)
+      .then(r => r.json())
+      .then(j => {
+        if (cancelled || !j?.ok) return;
+        console.log('[km-chain kalender]', { datum: redDag.datum, totalKm: j.totalKm, segments: j.segments, orsAnrop: j.orsAnrop });
+        setRedKmChain(j.segments || []);
+        setRedKmBerakning(j.totalKm);
+        setRedKm(prev => prev === 0 ? j.totalKm : prev);
+      })
+      .catch(() => {});
     return () => { cancelled = true; };
-  }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.hem_lat, medarbetare?.hem_lng, objektLista]);
+  }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.id]);
 
   // Sätt mStart/mSlut till aktuell tid (avrundad till 5 min) när manuell-dag-
   // vyerna öppnas. Gör att defaulten inte blir stale om appen legat öppen.
@@ -3700,30 +3695,49 @@ export default function Arbetsrapport() {
             </Card>
           )}
 
-          {/* Körning — separat kort med morgon/kväll/total + färdtidsersättning */}
+          {/* Körning — separat kort med morgon/kväll/total (eller segment-kedja) + färdtidsersättning */}
           {redDag?.start_tid&&(()=>{
-            // Om DB saknar split (båda 0/null) faller vi tillbaka till redKm/2 för
-            // att visa den beräknade enkel-väg-delningen. Annars DB-värdena.
-            const harSplit = (redDag.km_morgon||0) > 0 || (redDag.km_kvall||0) > 0;
-            const morgonVisa = harSplit ? (redDag.km_morgon||0) : Math.round(redKm/2);
-            const kvallVisa  = harSplit ? (redDag.km_kvall||0)  : redKm - Math.round(redKm/2);
             const över = Math.max(0, redKm - frikm);
             const mil  = över>0 ? Math.ceil(över/10) : 0;
             const kr   = Math.round(mil*fardtidPerMil*100)/100;
+            const segs = redKmChain || [];
+            const harFlerObjekt = segs.length > 2;
+
+            // Radformat gemensamt för både 1-objekt- och multi-objekt-vyerna
+            const rad = (label: string, value: string, bold=false) => (
+              <div key={label} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+                <span style={{ color:"#fff",fontSize:15,fontWeight:bold?600:400 }}>{label}</span>
+                <span style={{ color:"#fff",fontSize:bold?17:15,fontWeight:bold?700:600 }}>{value}</span>
+              </div>
+            );
+
             return (
               <Card onClick={()=>setRedVy("km")} style={{ padding:"16px 20px" }}>
                 <p style={{ margin:"0 0 10px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Körning</p>
-                <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
-                  <span style={{ color:"#fff",fontSize:15 }}>Morgon</span>
-                  <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{morgonVisa} km</span>
-                </div>
-                <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
-                  <span style={{ color:"#fff",fontSize:15 }}>Kväll</span>
-                  <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{kvallVisa} km</span>
-                </div>
-                <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                  <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>Totalt</span>
-                  <span style={{ color:"#fff",fontSize:17,fontWeight:700 }}>{redKm} km</span>
+
+                {harFlerObjekt ? (
+                  // Multi-objekt: visa varje segment som egen rad
+                  segs.map((s, i) => {
+                    const label = i === 0            ? `Morgon (→ ${s.toLabel})`
+                                : i === segs.length-1 ? `Kväll (${s.fromLabel} →)`
+                                :                       `Flytt (${s.fromLabel} → ${s.toLabel})`;
+                    return rad(label, `${s.km} km`);
+                  })
+                ) : segs.length === 2 ? (
+                  // 1-objekt via chain: segment[0] = morgon, segment[1] = kväll
+                  <>{rad("Morgon", `${segs[0].km} km`)}{rad("Kväll", `${segs[1].km} km`)}</>
+                ) : (
+                  // Fallback: DB-split eller redKm/2
+                  (()=>{
+                    const harSplit = (redDag.km_morgon||0) > 0 || (redDag.km_kvall||0) > 0;
+                    const morgonVisa = harSplit ? (redDag.km_morgon||0) : Math.round(redKm/2);
+                    const kvallVisa  = harSplit ? (redDag.km_kvall||0)  : redKm - Math.round(redKm/2);
+                    return <>{rad("Morgon", `${morgonVisa} km`)}{rad("Kväll", `${kvallVisa} km`)}</>;
+                  })()
+                )}
+
+                <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:10 }}>
+                  {rad("Totalt", `${redKm} km`, true)}
                 </div>
                 {redKmBerakning!=null&&(
                   <p style={{ margin:"8px 0 0",fontSize:12,color:"rgba(255,255,255,0.4)" }}>Beräknat vägavstånd</p>

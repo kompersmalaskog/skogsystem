@@ -1,18 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { haversine } from "@/utils/geo";
+import { bygKedjaKm, Point } from "@/lib/routing";
 
 /**
  * GET /api/km-summary?medarbetare_id=&month=YYYY-MM
  *
- * Räknar ut total körsträcka och km-över-gräns för en medarbetare i en
- * given månad. För varje arbetsdag:
- *   - Om km_morgon/km_kvall/km_totalt finns i DB → använd.
- *   - Annars: räkna fram hem→objekt via route_cache eller ORS
- *     (max 5 ORS-anrop per request, övriga faller till haversine × 1.4).
- *
- * Svar: { totalKm: number, ersattningsKm: number, orsAnrop: number,
- *         berakningar: { datum, objekt_id, km, source }[] }
+ * Räknar total körsträcka och km-över-gräns för månaden. Per dag byggs
+ * körkedjan [hem, obj1, obj2, ..., objN, hem] om DB saknar km-värden;
+ * annars används DB-värdena rakt av. Max 5 ORS-anrop totalt per request.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -26,92 +21,113 @@ export async function GET(req: NextRequest) {
     const [y, m] = month.split("-").map(Number);
     const fromDate = `${month}-01`;
     const toDate = new Date(y, m, 0).toISOString().slice(0, 10);
+    const idag = new Date().toISOString().slice(0, 10);
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!,
     );
-    const idag = new Date().toISOString().slice(0, 10);
 
     const [medRes, arbRes, avtalRes] = await Promise.all([
       supabase.from("medarbetare").select("hem_lat, hem_lng").eq("id", medId).maybeSingle(),
       supabase.from("arbetsdag")
-        .select("id, datum, km_morgon, km_kvall, km_totalt, objekt_id")
+        .select("id, datum, start_tid, km_morgon, km_kvall, km_totalt, objekt_id")
         .eq("medarbetare_id", medId)
         .gte("datum", fromDate).lte("datum", toDate),
       supabase.from("gs_avtal").select("km_grans_per_dag")
         .lte("giltigt_fran", idag)
         .or(`giltigt_till.is.null,giltigt_till.gte.${idag}`)
         .order("giltigt_fran", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .limit(1).maybeSingle(),
     ]);
 
     const hemLat = medRes.data?.hem_lat;
     const hemLng = medRes.data?.hem_lng;
-    const arbetsdagar = arbRes.data || [];
+    const rader = (arbRes.data || []) as any[];
     const frikm = avtalRes.data?.km_grans_per_dag ?? 60;
 
-    const objektIds = Array.from(new Set(
-      arbetsdagar.filter((d: any) => d.objekt_id).map((d: any) => d.objekt_id as string)
-    ));
+    // Slå upp alla objekt-koordinater
+    const objektIds = Array.from(new Set(rader.filter(r => r.objekt_id).map(r => r.objekt_id as string)));
     const objMap: Record<string, { lat:number|null; lng:number|null }> = {};
     if (objektIds.length > 0) {
       const { data: objekt } = await supabase
-        .from("dim_objekt")
-        .select("objekt_id, latitude, longitude")
+        .from("dim_objekt").select("objekt_id, latitude, longitude")
         .in("objekt_id", objektIds);
-      for (const o of objekt || []) {
-        objMap[o.objekt_id] = { lat: o.latitude, lng: o.longitude };
-      }
+      for (const o of objekt || []) objMap[o.objekt_id] = { lat: o.latitude, lng: o.longitude };
     }
 
+    // Gruppera rader per datum
+    const perDatum = new Map<string, any[]>();
+    for (const r of rader) {
+      if (!perDatum.has(r.datum)) perDatum.set(r.datum, []);
+      perDatum.get(r.datum)!.push(r);
+    }
+
+    const MAX_ORS = 5;
     let totalKm = 0;
     let ersattningsKm = 0;
     let orsAnrop = 0;
-    const MAX_ORS = 5;
-    const berakningar: { datum:string; objekt_id:string|null; km:number; source:string }[] = [];
+    const berakningar: { datum:string; km:number; source:string; segments:number }[] = [];
 
-    for (const d of arbetsdagar as any[]) {
-      const m1 = Number(d.km_morgon) || 0;
-      const m2 = Number(d.km_kvall) || 0;
-      const mt = Number(d.km_totalt) || 0;
+    for (const [datum, dagRader] of perDatum) {
+      dagRader.sort((a: any, b: any) => (a.start_tid || "").localeCompare(b.start_tid || ""));
+
+      // DB-summa: om något värde finns, använd det
+      let dbSumma = 0;
+      for (const r of dagRader) {
+        const mk = (Number(r.km_morgon) || 0) + (Number(r.km_kvall) || 0);
+        if (mk > 0) dbSumma += mk;
+        else if ((Number(r.km_totalt) || 0) > 0) dbSumma += Number(r.km_totalt);
+      }
+
       let dagensKm = 0;
       let source = "db";
+      let segCount = 0;
 
-      if (m1 + m2 > 0) {
-        dagensKm = m1 + m2;
-      } else if (mt > 0) {
-        dagensKm = mt;
-      } else if (d.objekt_id && hemLat != null && hemLng != null) {
-        const o = objMap[d.objekt_id];
-        if (o?.lat != null && o?.lng != null) {
-          const allowOrs = orsAnrop < MAX_ORS;
-          const res = await getEnkelKm(supabase, Number(hemLat), Number(hemLng), Number(o.lat), Number(o.lng), allowOrs);
-          if (res) {
-            if (res.source === "ors") orsAnrop++;
-            dagensKm = res.km * 2; // tur och retur
-            source = res.source;
-            // Spara tillbaka i arbetsdag så nästa request läser direkt från DB.
-            // Endast om km_morgon fortfarande saknas (ingen manuell inmatning).
-            if (d.id && (m1 === 0 && m2 === 0 && mt === 0)) {
-              await supabase
-                .from("arbetsdag")
-                .update({ km_morgon: res.km, km_kvall: res.km })
-                .eq("id", d.id)
+      if (dbSumma > 0) {
+        dagensKm = dbSumma;
+      } else if (hemLat != null && hemLng != null) {
+        // Bygg unik objektsekvens (samma objekt i följd räknas en gång)
+        const sekvens: string[] = [];
+        for (const r of dagRader) {
+          if (!r.objekt_id) continue;
+          if (sekvens[sekvens.length - 1] !== r.objekt_id) sekvens.push(r.objekt_id);
+        }
+        if (sekvens.length > 0) {
+          const hem: Point = { lat: Number(hemLat), lng: Number(hemLng), label: "Hem" };
+          const punkter: (Point | null)[] = [hem];
+          for (const oid of sekvens) {
+            const o = objMap[oid];
+            punkter.push(o?.lat != null && o?.lng != null ? { lat: Number(o.lat), lng: Number(o.lng), label: oid } : null);
+          }
+          punkter.push(hem);
+          const budget = Math.max(0, MAX_ORS - orsAnrop);
+          const chain = await bygKedjaKm(supabase, punkter, budget);
+          orsAnrop += chain.orsAnrop;
+          dagensKm = chain.totalKm;
+          segCount = chain.segments.length;
+          source = chain.segments.length > 0 ? chain.segments[chain.segments.length - 1].source : "chain";
+
+          // Spara tillbaka för 1-objekt-1-rad-dagar så nästa request läser DB
+          if (sekvens.length === 1 && dagRader.length === 1 && chain.segments.length === 2) {
+            const r0 = dagRader[0];
+            if ((Number(r0.km_morgon) || 0) === 0 && (Number(r0.km_kvall) || 0) === 0 && (Number(r0.km_totalt) || 0) === 0 && r0.id) {
+              await supabase.from("arbetsdag")
+                .update({ km_morgon: chain.segments[0].km, km_kvall: chain.segments[1].km })
+                .eq("id", r0.id)
                 .or("km_morgon.is.null,km_morgon.eq.0");
             }
           }
         } else {
-          source = "saknar_objekt_koord";
+          source = "inga_objekt";
         }
       } else {
-        source = d.objekt_id ? "saknar_hem_koord" : "saknar_objekt";
+        source = "saknar_hem_koord";
       }
 
       totalKm += dagensKm;
       ersattningsKm += Math.max(0, dagensKm - frikm);
-      berakningar.push({ datum: d.datum, objekt_id: d.objekt_id || null, km: dagensKm, source });
+      berakningar.push({ datum, km: dagensKm, source, segments: segCount });
     }
 
     return NextResponse.json({
@@ -119,52 +135,10 @@ export async function GET(req: NextRequest) {
       totalKm: Math.round(totalKm),
       ersattningsKm: Math.round(ersattningsKm),
       orsAnrop,
-      dagar: arbetsdagar.length,
+      dagar: perDatum.size,
       berakningar,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e?.message || String(e) }, { status: 500 });
   }
-}
-
-function round3(v: number): number { return Math.round(v * 1000) / 1000; }
-
-async function getEnkelKm(
-  supabase: any,
-  fLat: number, fLng: number, tLat: number, tLng: number,
-  allowOrs: boolean,
-): Promise<{ km:number; source:string } | null> {
-  const fL = round3(fLat), fLn = round3(fLng), tL = round3(tLat), tLn = round3(tLng);
-
-  const { data: hit } = await supabase
-    .from("route_cache")
-    .select("distance_km")
-    .eq("from_lat", fL).eq("from_lng", fLn)
-    .eq("to_lat", tL).eq("to_lng", tLn)
-    .maybeSingle();
-  if (hit) return { km: hit.distance_km, source: "cache" };
-
-  const key = process.env.ORS_API_KEY;
-  if (allowOrs && key) {
-    try {
-      const url = `https://api.openrouteservice.org/v2/directions/driving-car?start=${fLn},${fL}&end=${tLn},${tL}`;
-      const r = await fetch(url, { headers: { Authorization: key, Accept: "application/geo+json" } });
-      if (r.ok) {
-        const body: any = await r.json();
-        const meters = body?.features?.[0]?.properties?.summary?.distance;
-        if (Number.isFinite(meters)) {
-          const km = Math.round(meters / 1000);
-          await supabase.from("route_cache").upsert(
-            { from_lat: fL, from_lng: fLn, to_lat: tL, to_lng: tLn, distance_km: km },
-            { onConflict: "from_lat,from_lng,to_lat,to_lng" },
-          );
-          return { km, source: "ors" };
-        }
-      }
-    } catch (e: any) {
-      console.warn("[km-summary] ORS-fel", e?.message || String(e));
-    }
-  }
-
-  return { km: Math.round(haversine(fLat, fLng, tLat, tLng) * 1.4), source: "fallback" };
 }
