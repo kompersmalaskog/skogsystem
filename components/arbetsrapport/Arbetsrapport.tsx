@@ -515,6 +515,7 @@ export default function Arbetsrapport() {
   const [sparatToast, setSparatToast] = useState(false);
   const [pamOpen, setPamOpen] = useState<null | 'obekraftad' | 'pagaende' | 'dagligTid'>(null);
   const [pushEnhetsNamn, setPushEnhetsNamn] = useState<string | null>(null);
+  const [visaExtraPanel, setVisaExtraPanel] = useState(false);
   const [extraTidData, setExtraTidData] = useState<any[]>([]);
   const [årsData, setÅrsData] = useState<any[]>([]);
   const [lönSparar, setLönSparar] = useState(false);
@@ -1143,10 +1144,10 @@ export default function Arbetsrapport() {
           objekt_id: e.obj?.id ?? null,
           kommentar: e.besk,
         });
-        setSteg("kväll");
+        setSteg("morgon");
       }}
-      onTaBort={()=>{setExtra([]);setSteg("kväll");}}
-      onAvbryt={()=>setSteg("kväll")}
+      onTaBort={()=>{setExtra([]);setSteg("morgon");}}
+      onAvbryt={()=>setSteg("morgon")}
     />
   );
 
@@ -1471,7 +1472,7 @@ export default function Arbetsrapport() {
           <div onClick={()=>{
             const d=dagData[igårKey];
             setStart(d.start_tid||"06:00");setSlut(d.slut_tid||"16:00");setRast(d.rast_min||30);
-            setSteg("kväll");
+            setSteg("morgon");
           }} style={{ background:"rgba(255,159,10,0.06)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",animation:"fadeUp 0.3s ease" }}>
             <div style={{ display:"flex",alignItems:"center",gap:10 }}>
               <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>warning</span>
@@ -1507,7 +1508,7 @@ export default function Arbetsrapport() {
 
         {/* Starta extra arbete — göms när aktivitet pågår */}
         {pagaendeAktiviteter.length===0&&(
-          <button onClick={()=>setSteg("startaExtraArbete")}
+          <button onClick={()=>(()=>{setVisaExtraPanel(true);setSteg("morgon");})()}
             style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,color:"#adc6ff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
             <span className="material-symbols-outlined" style={{ fontSize:16 }}>add</span>
             Starta extra arbete
@@ -1533,7 +1534,13 @@ export default function Arbetsrapport() {
           </p>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
             {isWorking ? (
-              <button onClick={()=>setSteg("kväll")} style={{ fontSize:14,fontWeight:500,color:"#ff453a",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
+              <button onClick={async ()=>{
+                // Markera maskin-passet som avslutat i DB så sammanfattningen visas i dag-vyn.
+                const nuT = nuKlock();
+                setSlut(nuT);
+                await supabase.from("arbetsdag").update({ slut_tid: nuT + ":00" }).eq("id", dagData[idagKey]?.id);
+                setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
+              }} style={{ fontSize:14,fontWeight:500,color:"#ff453a",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
                 Avsluta pass
               </button>
             ) : pagaendeAktiviteter.length===0 ? (
@@ -1544,6 +1551,164 @@ export default function Arbetsrapport() {
             <span className="material-symbols-outlined" style={{ color:"rgba(194,198,214,0.3)",fontSize:24 }}>precision_manufacturing</span>
           </div>
         </section>
+
+        {/* Dagssammanfattning + Bekräfta — när maskin-passet är avslutat */}
+        {(()=>{
+          const idagArb: any = dagData[idagKey];
+          if (!idagArb?.slut_tid) return null;
+          const redanBekräftad = !!idagArb?.bekraftad;
+          const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
+          const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
+          const datumRubrik = `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
+          const dagObjId = valtObjektId || idagArb?.objekt_id || null;
+          const dagObjNamn = dagObjId ? (objektLista.find(o => o.id === dagObjId)?.namn || dagObjId) : '';
+          const maskinNamnLång = maskinNamn || maskinNamnMap[medarbetare?.maskin_id] || medarbetare?.maskin_id || '';
+          const helKr  = gsAvtal?.traktamente_hel_kr  ?? 300;
+          const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
+          const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
+          const harErsKr = ersKr > 0;
+          const harKmBlock = harKm;
+          const harObjBlock = !!(dagObjNamn || maskinNamnLång);
+          const sammanRad = (label: string, value: string) => (
+            <div key={label} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+              <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{label}</span>
+              <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{value}</span>
+            </div>
+          );
+          return (
+            <section style={{ marginBottom:32 }}>
+              <div style={{ background:"#1c1c1e",borderRadius:16,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                <p style={{ margin:"0 0 12px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
+                <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
+                  {sammanRad("Arbetstid", `${start} → ${slut}`)}
+                  {sammanRad("Rast", `${rast} min`)}
+                  {sammanRad("Total", fmt(arbMin))}
+                </div>
+                {harObjBlock&&(
+                  <div style={{ paddingBottom:10,borderBottom:harKmBlock?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:harKmBlock?10:0 }}>
+                    {maskinNamnLång && sammanRad("Maskin", maskinNamnLång)}
+                    {dagObjNamn     && sammanRad("Objekt", dagObjNamn)}
+                  </div>
+                )}
+                {harKmBlock&&(
+                  <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
+                    {sammanRad("Körning", `${totKm} km`)}
+                    {harErsKr && sammanRad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
+                  </div>
+                )}
+                <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
+                  <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Traktamente</span>
+                  <div style={{ display:"flex",alignItems:"center",gap:4 }}>
+                    <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{trak?.summa ? `${trak.summa} kr` : "Inget"}</span>
+                    <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",transform:trakÖppen?"rotate(90deg)":"none",transition:"transform 0.2s" }}>chevron_right</span>
+                  </div>
+                </div>
+                {trakÖppen&&(
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10 }}>
+                    {[{k:'inget',l:'Inget',v:null},{k:'halv',l:`Halv · ${halvKr}`,v:{summa:halvKr}},{k:'hel',l:`Hel · ${helKr}`,v:{summa:helKr}}].map(opt=>{
+                      const valt = opt.v === null ? !trak : (trak?.summa === (opt.v as any)?.summa);
+                      return (
+                        <button key={opt.k} onClick={()=>{ setTrak(opt.v as any); setTrakÖppen(false); }}
+                          style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 6px",color:valt?"#adc6ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>{opt.l}</button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              {!redanBekräftad && pagaendeAktiviteter.length===0 && (
+                <button
+                  onClick={async ()=>{
+                    await supabase.from("arbetsdag").upsert({
+                      medarbetare_id: medarbetare.id,
+                      datum: new Date().toISOString().split("T")[0],
+                      start_tid: start, slut_tid: slut, rast_min: rast,
+                      arbetad_min: arbMin + totEx, extra_tid_min: totEx,
+                      km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
+                      maskin_id: medarbetare.maskin_id,
+                      objekt_id: dagObjId,
+                      traktamente: trak, bekraftad: true,
+                      bekraftad_tid: new Date().toISOString(),
+                    });
+                    setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true } }));
+                  }}
+                  style={{ width:"100%",marginTop:16,padding:"20px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+                  Bekräfta dagen ✓
+                </button>
+              )}
+              {redanBekräftad && (
+                <div style={{ marginTop:16,padding:"16px",background:"rgba(52,199,89,0.1)",borderRadius:14,textAlign:"center",color:"#34c759",fontSize:16,fontWeight:600 }}>
+                  ✓ Dagen är bekräftad
+                </div>
+              )}
+            </section>
+          );
+        })()}
+
+        {/* Inline-panel: Starta extra arbete */}
+        {visaExtraPanel&&(()=>{
+          const typer = EXTRA_ARBETE_TYPER.map(t => AKTIVITETER.find(x => x.typ === t)!);
+          return (
+            <section style={{ marginBottom:24,background:"#1c1c1e",borderRadius:16,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+              <p style={{ margin:"0 0 12px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Vad ska du göra?</p>
+              {typer.map(t=>(
+                <div key={t.typ} onClick={()=>setKvAvTyp(t.typ)}
+                  style={{ background:kvAvTyp===t.typ?"rgba(0,122,255,0.15)":"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",marginBottom:6,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.typ?"1px solid rgba(0,122,255,0.3)":"1px solid rgba(255,255,255,0.06)" }}>
+                  <span style={{ fontSize:15,fontWeight:500,color:"#fff" }}>{t.label}</span>
+                  {kvAvTyp===t.typ
+                    ?<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
+                    :<div style={{ width:20,height:20,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.15)" }}/>
+                  }
+                </div>
+              ))}
+              <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:12,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:"1px solid rgba(255,255,255,0.06)" }}>
+                <div>
+                  <p style={{ margin:0,fontSize:14,fontWeight:600,color:"#fff" }}>Objekt</p>
+                  <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?"#0a84ff":"rgba(255,255,255,0.5)" }}>{kvAvObj?kvAvObj.namn:"Välj objekt"}</p>
+                </div>
+                <ChevronRight/>
+              </div>
+              <div style={{ marginTop:6,background:"rgba(255,255,255,0.04)",borderRadius:12,padding:"12px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
+                <p style={{ margin:0,fontSize:14,fontWeight:600,color:"#fff" }}>Debiterbar</p>
+                <div onClick={()=>setKvAvDeb(v=>!v)}
+                  style={{ width:46,height:28,borderRadius:14,background:kvAvDeb?"#34c759":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
+                  <div style={{ width:24,height:24,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?20:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
+                </div>
+              </div>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginTop:16 }}>
+                <button
+                  onClick={()=>{ setVisaExtraPanel(false); setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false); }}
+                  style={{ padding:"14px",background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+                  Avbryt
+                </button>
+                <button
+                  disabled={!kvAvTyp}
+                  onClick={async ()=>{
+                    const startTid = nuKlock();
+                    const datum = new Date().toISOString().split("T")[0];
+                    const { data } = await supabase.from("extra_tid").insert({
+                      medarbetare_id: medarbetare.id, datum,
+                      start_tid: startTid + ":00", slut_tid: null, minuter: 0,
+                      aktivitet_typ: kvAvTyp, aktivitet_text: null,
+                      objekt_id: kvAvObj?.id || null,
+                      debiterbar: kvAvDeb,
+                      kalla: (dagData[idagKey]?.slut_tid || dagData[idagKey]?.bekraftad) ? 'kvall' : 'morgon',
+                      kommentar: null,
+                    }).select().single();
+                    if (data) {
+                      setPagaendeAktiviteter(p => [...p, data]);
+                      setExtraTidData(d => [data, ...d]);
+                    }
+                    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(100);
+                    setKvAvTyp(null); setKvAvObj(null); setKvAvDeb(false);
+                    setVisaExtraPanel(false);
+                  }}
+                  style={{ padding:"14px",background:kvAvTyp?"#0a84ff":"rgba(10,132,255,0.3)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:kvAvTyp?"pointer":"not-allowed",fontFamily:"inherit" }}>
+                  Starta
+                </button>
+              </div>
+            </section>
+          );
+        })()}
 
         {/* Löneunderlag-notis */}
         {månadsKlar&&!lönSkickat&&(
@@ -3190,242 +3355,7 @@ export default function Arbetsrapport() {
     />
   );
 
-  /* ─── STARTA EXTRA ARBETE – morgon eller kväll, samma vy ─── */
-  if(steg==="startaExtraArbete"){
-    const typer = EXTRA_ARBETE_TYPER.map(t => {
-      const a = AKTIVITETER.find(x => x.typ === t)!;
-      return { id: a.typ, label: a.label };
-    });
 
-    if(kvAvVäljer) return (
-      <div style={shell}><style>{css}</style>
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setKvAvVäljer(false)}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Välj objekt</h1></div></div>
-        <div style={{ flex:1,paddingTop:16 }}>
-          {objektLista.map(o=>(
-            <Card key={o.id} onClick={()=>{setKvAvObj(o);setKvAvVäljer(false);}} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",background:kvAvObj?.id===o.id?"rgba(0,122,255,0.06)":C.card }}>
-              <div><p style={{ margin:0,fontSize:16,fontWeight:600 }}>{o.namn}</p><p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>{o.ägare}</p></div>
-              {kvAvObj?.id===o.id&&<div style={{ width:22,height:22,borderRadius:"50%",background:C.blue,display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
-            </Card>
-          ))}
-        </div>
-      </div>
-    );
-
-    return (
-      <div style={darkShell}><style>{css}</style>
-        <div style={topBar}>
-          <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>Starta extra arbete</h1>
-          <p style={{ margin:0,fontSize:15,color:C.darkLabel }}>Tid utanför maskinen</p>
-        </div>
-
-        <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
-
-          <Label style={{ color:C.darkLabel }}>Vad ska du göra?</Label>
-          {typer.map(t=>(
-            <div key={t.id} onClick={()=>setKvAvTyp(t.id)}
-              style={{ background:kvAvTyp===t.id?"rgba(0,122,255,0.15)":C.darkCard,borderRadius:14,padding:"16px 18px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.id?"1px solid rgba(0,122,255,0.3)":"1px solid rgba(255,255,255,0.06)" }}>
-              <span style={{ fontSize:16,fontWeight:500 }}>{t.label}</span>
-              {kvAvTyp===t.id
-                ?<div style={{ width:22,height:22,borderRadius:"50%",background:C.blue,display:"flex",alignItems:"center",justifyContent:"center" }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
-                :<div style={{ width:22,height:22,borderRadius:"50%",border:"1.5px solid rgba(255,255,255,0.15)" }}/>
-              }
-            </div>
-          ))}
-
-          {/* Objekt — alltid synlig, pre-fylld med dagens objekt */}
-          <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:16,background:C.darkCard,borderRadius:14,padding:"14px 18px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer" }}>
-            <div>
-              <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Objekt</p>
-              <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?C.blue:C.darkLabel }}>{kvAvObj?kvAvObj.namn:"Välj objekt"}</p>
-            </div>
-            <ChevronRight light/>
-          </div>
-
-          {/* Debiterbar-toggle */}
-          <div style={{ background:C.darkCard,borderRadius:14,padding:"14px 18px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
-            <div>
-              <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Debiterbar</p>
-              <p style={{ margin:"2px 0 0",fontSize:13,color:C.darkLabel }}>Faktureras kunden</p>
-            </div>
-            <div onClick={()=>setKvAvDeb(v=>!v)}
-              style={{ width:51,height:31,borderRadius:16,background:kvAvDeb?C.green:"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
-              <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
-            </div>
-          </div>
-        </div>
-
-        <div style={bottom}>
-          <button
-            style={{ ...btn.primary,opacity:kvAvTyp?1:0.35 }}
-            disabled={!kvAvTyp}
-            onClick={async ()=>{
-              const startTid = nuKlock();
-              const datum = new Date().toISOString().split("T")[0];
-              const { data } = await supabase.from("extra_tid").insert({
-                medarbetare_id: medarbetare.id,
-                datum,
-                start_tid: startTid + ":00",
-                slut_tid: null,
-                minuter: 0,
-                aktivitet_typ: kvAvTyp,
-                aktivitet_text: null,
-                objekt_id: kvAvObj?.id || null,
-                debiterbar: kvAvDeb,
-                // Hör aktiviteten hemma i morgon- eller kvällsflödet?
-                kalla: (dagData[idagKey]?.slut_tid || dagData[idagKey]?.bekraftad) ? 'kvall' : 'morgon',
-                kommentar: null,
-              }).select().single();
-              if (data) {
-                setPagaendeAktiviteter(p => [...p, data]);
-                setExtraTidData(d => [data, ...d]);
-              }
-              // Haptisk feedback så föraren vet att aktiviteten startade
-              if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(100);
-              // Återställ formuläret så nästa gång börjar rent
-              setKvAvTyp(null); setKvAvBesk(""); setKvAvDeb(false); setKvAvObj(null);
-              // Dag-vyn visar pågående aktivitet med timer
-              isBackRef.current = true;
-              setSteg("morgon");
-            }}>
-            Starta
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  /* ─── KVÄLL — minimal redesign ─── */
-  if(steg==="kväll") {
-    const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
-    const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
-    const datumRubrik = `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
-
-    // Hämta idag-raden från alla tillgängliga källor — dagData (kalender-månaden)
-    // och historik (senaste 60 dagar). Antingen kan missa om användaren byter månad.
-    const idagArb: any = dagData[idagKey] || historik.find((d: any) => d.datum === idagKey);
-    const finnsDagData = !!idagArb;
-    const dagObjId = valtObjektId || idagArb?.objekt_id || null;
-    const dagObjNamn = dagObjId ? (objektLista.find(o => o.id === dagObjId)?.namn || dagObjId) : '';
-    const maskinNamnLång = maskinNamn || maskinNamnMap[medarbetare?.maskin_id] || medarbetare?.maskin_id || '';
-
-    const helKr  = gsAvtal?.traktamente_hel_kr  ?? 300;
-    const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
-    const harTidsblock = finnsDagData;
-    const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
-    const harErsKr = ersKr > 0;
-    const harKmBlock = harKm;
-    const harObjBlock = !!(dagObjNamn || maskinNamnLång);
-
-    const rad = (label: string, value: string, extraStyle?: any) => (
-      <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",...extraStyle }}>
-        <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{label}</span>
-        <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{value}</span>
-      </div>
-    );
-
-    return (
-      <div style={shell}><style>{css}</style>
-        <div style={topBar} />
-
-        <div style={{ flex:1,display:"flex",flexDirection:"column",overflowY:"auto",paddingBottom:100 }}>
-
-          {/* Sammanfattningskort */}
-          <div style={{ background:"#1c1c1e",borderRadius:16,padding:"20px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
-            <p style={{ margin:"0 0 12px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
-
-            {harTidsblock&&(
-              <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
-                {rad("Arbetstid", `${start} → ${slut}`)}
-                {rad("Rast", `${rast} min`)}
-                {rad("Total", fmt(arbMin))}
-              </div>
-            )}
-
-            {harObjBlock&&(
-              <div style={{ paddingBottom:10,borderBottom:harKmBlock?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:harKmBlock?10:0 }}>
-                {maskinNamnLång && rad("Maskin", maskinNamnLång)}
-                {dagObjNamn     && rad("Objekt", dagObjNamn)}
-              </div>
-            )}
-
-            {harKmBlock&&(
-              <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
-                {rad("Körning", `${totKm} km`)}
-                {harErsKr && rad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
-              </div>
-            )}
-
-            {/* Traktamente — inline toggle */}
-            <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
-              <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Traktamente</span>
-              <div style={{ display:"flex",alignItems:"center",gap:4 }}>
-                <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{trak?.summa ? `${trak.summa} kr` : "Inget"}</span>
-                <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",transform:trakÖppen?"rotate(90deg)":"none",transition:"transform 0.2s" }}>chevron_right</span>
-              </div>
-            </div>
-            {trakÖppen&&(
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10 }}>
-                {[
-                  { key:'inget', label:'Inget',           val: null },
-                  { key:'halv',  label:`Halv · ${halvKr}`, val: { summa: halvKr } },
-                  { key:'hel',   label:`Hel · ${helKr}`,   val: { summa: helKr } },
-                ].map(opt=>{
-                  const valt = opt.val === null ? !trak : (trak?.summa === (opt.val as any)?.summa);
-                  return (
-                    <button key={opt.key}
-                      onClick={()=>{ setTrak(opt.val as any); setTrakÖppen(false); }}
-                      style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 6px",color:valt?"#adc6ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Stor grön bekräfta-knapp */}
-          <button
-            onClick={async ()=>{
-              await supabase.from("arbetsdag").upsert({
-                medarbetare_id: medarbetare.id,
-                datum: new Date().toISOString().split("T")[0],
-                start_tid: start, slut_tid: slut, rast_min: rast,
-                arbetad_min: arbMin + totEx,
-                extra_tid_min: totEx,
-                km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
-                maskin_id: medarbetare.maskin_id,
-                objekt_id: dagObjId,
-                traktamente: trak, bekraftad: true,
-                bekraftad_tid: new Date().toISOString(),
-              });
-              setSteg("klar");
-              setTimeout(()=>setSteg("morgon"),3000);
-            }}
-            style={{ width:"100%",marginTop:24,padding:"20px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
-            Bekräfta dagen ✓
-          </button>
-
-          {/* Extra arbete — outline-knapp med undertext */}
-          <button
-            onClick={()=>setSteg("startaExtraArbete")}
-            style={{ width:"100%",marginTop:12,padding:"20px",background:"transparent",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",borderRadius:14,fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-            Extra arbete
-          </button>
-          <p style={{ margin:"4px 0 0",textAlign:"center",fontSize:12,color:"rgba(255,255,255,0.4)" }}>Service, markägarmöte, flytt...</p>
-
-          {/* Ändra tider — ensam textlänk, centrerad */}
-          <div style={{ display:"flex",justifyContent:"center",marginTop:20 }}>
-            <button onClick={()=>setSteg("manuellKväll")}
-              style={{ background:"none",border:"none",padding:"8px 4px",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
-              Ändra tider
-            </button>
-          </div>
-        </div>
-
-        <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
-      </div>
-    );
-  }
 
   /* ─── ÄNDRA ARBETSTID ─── */
   if(steg==="äTid"){
@@ -3435,7 +3365,7 @@ export default function Arbetsrapport() {
         <style>{css}</style>
         {/* Header */}
         <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
-          <button onClick={()=>setSteg("kväll")} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
+          <button onClick={()=>setSteg("morgon")} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
             <span className="material-symbols-outlined" style={{ color:"#34c759" }}>arrow_back</span>
           </button>
           <h1 style={{ margin:"0 16px",fontSize:18,fontWeight:700,color:"#fff",letterSpacing:"-0.02em" }}>Arbetstid</h1>
@@ -3480,7 +3410,7 @@ export default function Arbetsrapport() {
         <div style={{ width:"100%",padding:"0 16px 24px",boxSizing:"border-box",marginTop:"auto" }}>
           <button style={{ width:"100%",height:56,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 4px 20px rgba(52,199,89,0.2)",opacity:(ä&&!anledn)?0.35:1 }}
             disabled={ä&&!anledn}
-            onClick={()=>{if(ä){setStart(tS);setSlut(tE);setRast(tR);setÄ(anledn);}setSteg("kväll");}}>
+            onClick={()=>{if(ä){setStart(tS);setSlut(tE);setRast(tR);setÄ(anledn);}setSteg("morgon");}}>
             {ä?"Spara":"Tillbaka"}
           </button>
         </div>
@@ -3523,7 +3453,7 @@ export default function Arbetsrapport() {
         <style>{css}</style>
         {/* Header */}
         <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:56 }}>
-          <button onClick={()=>setSteg("kväll")} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
+          <button onClick={()=>setSteg("morgon")} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
             <span className="material-symbols-outlined" style={{ color:"#34c759" }}>arrow_back</span>
           </button>
           <h1 style={{ flex:1,textAlign:"center",margin:0,fontSize:20,fontWeight:600,color:"#fff",letterSpacing:"-0.02em" }}>Körning</h1>
@@ -3558,7 +3488,7 @@ export default function Arbetsrapport() {
         <div style={{ position:"fixed",bottom:0,left:0,width:"100%",padding:"16px 20px 36px",zIndex:40,boxSizing:"border-box",background:"linear-gradient(to top,#000 60%,transparent)" }}>
           <button style={{ width:"100%",height:56,background:"#34c759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",opacity:(ä&&!anledn)?0.35:1 }}
             disabled={ä&&!anledn}
-            onClick={()=>{if(ä){setKmM({km:tMK});setKmK({km:tKK});}setSteg("kväll");}}>
+            onClick={()=>{if(ä){setKmM({km:tMK});setKmK({km:tKK});}setSteg("morgon");}}>
             {ä?"Spara":"Tillbaka"}
           </button>
         </div>
@@ -3567,42 +3497,6 @@ export default function Arbetsrapport() {
     );
   }
 
-  /* ─── TRAKTAMENTE ─── */
-  if(steg==="traktamente") {
-    const helKr = gsAvtal?.traktamente_hel_kr ?? 300;
-    const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
-    const backTo = isWorking?"kväll":"morgon";
-    return (
-    <div style={shell}><style>{css}</style>
-      <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg(backTo)}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Traktamente</h1></div></div>
-      <div style={{ flex:1,paddingTop:16 }}>
-        <p style={{ margin:"0 0 24px",fontSize:14,color:C.label }}>Skattefritt enligt Skatteverket</p>
-
-        {/* Heldagstraktamente */}
-        <Card onClick={()=>{setTrak({summa:helKr,typ:'hel'});setSteg(backTo);}}
-          style={{ display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:trak?.typ==='hel'?"1px solid rgba(52,199,89,0.3)":"1px solid rgba(255,255,255,0.06)",background:trak?.typ==='hel'?"rgba(52,199,89,0.06)":"#1c1c1e" }}>
-          <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Heldagstraktamente</p>
-            <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>Övernattning, borta hela dagen</p>
-          </div>
-          <p style={{ margin:0,fontSize:20,fontWeight:700 }}>{helKr} kr</p>
-        </Card>
-
-        {/* Halvdagstraktamente */}
-        <Card onClick={()=>{setTrak({summa:halvKr,typ:'halv'});setSteg(backTo);}}
-          style={{ display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",border:trak?.typ==='halv'?"1px solid rgba(52,199,89,0.3)":"1px solid rgba(255,255,255,0.06)",background:trak?.typ==='halv'?"rgba(52,199,89,0.06)":"#1c1c1e" }}>
-          <div>
-            <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Halvdagstraktamente</p>
-            <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>Borta mer än 6 timmar</p>
-          </div>
-          <p style={{ margin:0,fontSize:20,fontWeight:700 }}>{halvKr} kr</p>
-        </Card>
-
-        {trak&&<button onClick={()=>{setTrak(null);setSteg(backTo);}} style={{ ...btn.textBack,marginTop:16,color:C.red }}>Ta bort traktamente</button>}
-      </div>
-      <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
-    </div>
-  );}
 
   /* ─── FRÅNVARO ─── */
   if(steg==="bekräftaFrånvaro") return (
@@ -3707,7 +3601,7 @@ export default function Arbetsrapport() {
         </div>
       </div>
       <div style={bottom}>
-        <button style={btn.primary} onClick={()=>{setSlut(mSlut);setRast(mRast);setSteg("kväll");}}>Spara och fortsätt</button>
+        <button style={btn.primary} onClick={()=>{setSlut(mSlut);setRast(mRast);setSteg("morgon");}}>Spara och fortsätt</button>
       </div>
     </div>
   );
