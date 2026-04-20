@@ -1598,12 +1598,11 @@ export default function Arbetsrapport() {
                     {dagObjNamn     && sammanRad("Objekt", dagObjNamn)}
                   </div>
                 )}
-                {harKmBlock&&(
-                  <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
-                    {sammanRad("Körning", `${totKm} km`, öppnaKm)}
-                    {harErsKr && sammanRad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
-                  </div>
-                )}
+                {/* Körning — alltid synlig efter avslutat pass, klickbar för manuell input */}
+                <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
+                  {sammanRad("Körning", `${totKm} km`, öppnaKm)}
+                  {harErsKr && sammanRad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
+                </div>
                 <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
                   <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Traktamente</span>
                   <div style={{ display:"flex",alignItems:"center",gap:4 }}>
@@ -1714,7 +1713,9 @@ export default function Arbetsrapport() {
           </section>
         )}
 
-        {/* Maskin & objekt metadata */}
+
+        {/* Maskinstatus & Plats — startsidans metadata, göms när pass avslutats eller bekräftats */}
+        {!dagData[idagKey]?.slut_tid && !dagData[idagKey]?.bekraftad && (
         <section style={{ marginTop:48,paddingTop:32,borderTop:"1px solid rgba(255,255,255,0.05)",animation:"fadeUp 0.5s ease 0.15s both" }}>
           <div style={{ marginBottom:24 }}>
             <h3 style={secHead}>Maskinstatus</h3>
@@ -1743,6 +1744,7 @@ export default function Arbetsrapport() {
             })()}
           </div>
         </section>
+        )}
 
         {/* Objektväljare */}
         {visaObjektVäljare&&(
