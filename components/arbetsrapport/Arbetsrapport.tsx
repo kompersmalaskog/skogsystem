@@ -3048,117 +3048,83 @@ export default function Arbetsrapport() {
     );
   }
 
-  /* ─── KVÄLL ─── */
-  if(steg==="kväll") return (
-    <div style={shell}><style>{css}</style>
-      <div style={topBar} />
+  /* ─── KVÄLL — minimal redesign ─── */
+  if(steg==="kväll") {
+    const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
+    const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
+    const datumRubrik = `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
+    const dagObjId = valtObjektId || dagData[idagKey]?.objekt_id || null;
+    const dagObjNamn = dagObjId ? (objektLista.find(o => o.id === dagObjId)?.namn || dagObjId) : '';
+    const maskinNamnLång = maskinNamn || maskinNamnMap[medarbetare?.maskin_id] || medarbetare?.maskin_id || '';
 
-      <div style={{ flex:1,display:"flex",flexDirection:"column",justifyContent:"center",overflowY:"auto",paddingBottom:100 }}>
+    return (
+      <div style={shell}><style>{css}</style>
+        <div style={topBar} />
 
-        {/* Sammanfattningskort */}
-        <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"1px solid rgba(255,255,255,0.06)" }}>
-          <p style={{ margin:"0 0 6px",fontSize:44,fontWeight:800,color:"#fff",lineHeight:1 }}>{fmt(arbMin)}</p>
-          <p style={{ margin:0,fontSize:16,color:"#8e8e93" }}>{start} – {slut} · {rast} min rast</p>
-          {totKm>0&&(
-            <div style={{ paddingTop:16,marginTop:16,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin:0,fontSize:20,fontWeight:600,color:"#fff" }}>{totKm} km</p>
-              {kmBerakning!=null&&kmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {kmBerakning} km (vägavstånd)</p>}
-              {ersKm>0
-                ? <p style={{ margin:"4px 0 0",fontSize:13,color:C.green }}>Färdtidsersättning: {ersKm} km över {frikm} km = {milPåbörjade} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {ersKr.toFixed(2).replace('.',',')} kr</p>
-                : <p style={{ margin:"4px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>
-              }
-            </div>
-          )}
-          {extra.length>0&&(
-            <div style={{ paddingTop:16,marginTop:16,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Extra tid: <span style={{ color:"#fff",fontWeight:600 }}>{fmt(totEx)}</span></p>
-            </div>
-          )}
-          {trak&&(
-            <div style={{ paddingTop:16,marginTop:extra.length>0?0:16,borderTop:extra.length>0?"none":"1px solid rgba(255,255,255,0.06)" }}>
-              <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Traktamente: <span style={{ color:"#fff",fontWeight:600 }}>{trak.summa} kr</span></p>
-            </div>
-          )}
-          {ändring&&<p style={{ margin:"12px 0 0",fontSize:13,fontWeight:600,color:C.orange }}>Arbetstid ändrad</p>}
-        </div>
+        <div style={{ flex:1,display:"flex",flexDirection:"column",overflowY:"auto",paddingBottom:100 }}>
 
-        {/* Pågående extra-aktivitet — måste avslutas innan bekräfta */}
-        {pagaendeAktiviteter.length>0&&(
-          <div style={{ marginTop:20,background:"rgba(255,159,10,0.08)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"14px 16px",display:"flex",flexDirection:"column",gap:10 }}>
-            <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-              <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>warning</span>
-              <span style={{ fontSize:14,fontWeight:600,color:"#fff" }}>Du har {pagaendeAktiviteter.length} pågående aktivitet{pagaendeAktiviteter.length>1?"er":""}</span>
+          {/* Sammanfattningskort */}
+          <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"1px solid rgba(255,255,255,0.06)" }}>
+            <p style={{ margin:"0 0 20px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
+
+            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
+              <span style={{ fontSize:15,color:"#fff" }}>{start} → {slut}</span>
+              <span style={{ fontSize:15,color:"rgba(255,255,255,0.6)" }}>Rast: {rast} min</span>
             </div>
-            {pagaendeAktiviteter.map(p=>(
-              <button key={p.id} onClick={()=>{setStoppaTarget(p);setStoppaSlutTid(nuKlock());setSteg("stoppaAktivitet");}}
-                style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:"rgba(255,255,255,0.04)",border:"none",borderRadius:8,cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
-                <span style={{ fontSize:13,color:"#fff",fontWeight:500 }}>{p.aktivitet_text || aktLabel(p.aktivitet_typ)} sedan {(p.start_tid||'').slice(0,5)}</span>
-                <span style={{ fontSize:12,color:"#adc6ff",fontWeight:600 }}>Stoppa →</span>
+            <p style={{ margin:"0 0 20px",fontSize:15,color:"#fff" }}>Arbetstid: {fmt(arbMin)}</p>
+
+            {(dagObjNamn||maskinNamnLång)&&(
+              <div style={{ marginBottom:20 }}>
+                {dagObjNamn    && <p style={{ margin:"0 0 4px",fontSize:15,color:"#fff" }}>Objekt: {dagObjNamn}</p>}
+                {maskinNamnLång && <p style={{ margin:0,fontSize:15,color:"#fff" }}>Maskin: {maskinNamnLång}</p>}
+              </div>
+            )}
+
+            {totKm>0&&<p style={{ margin:"0 0 4px",fontSize:15,color:"#fff" }}>Körning: {totKm} km</p>}
+            {ersKr>0&&<p style={{ margin:0,fontSize:15,color:"#fff" }}>Färdtidsersättning: {ersKr.toFixed(2).replace('.',',')} kr</p>}
+          </div>
+
+          {/* Stor grön bekräfta-knapp */}
+          <button
+            onClick={async ()=>{
+              await supabase.from("arbetsdag").upsert({
+                medarbetare_id: medarbetare.id,
+                datum: new Date().toISOString().split("T")[0],
+                start_tid: start, slut_tid: slut, rast_min: rast,
+                arbetad_min: arbMin + totEx,
+                extra_tid_min: totEx,
+                km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
+                maskin_id: medarbetare.maskin_id,
+                objekt_id: dagObjId,
+                traktamente: trak, bekraftad: true,
+                bekraftad_tid: new Date().toISOString(),
+              });
+              setSteg("klar");
+              setTimeout(()=>setSteg("morgon"),3000);
+            }}
+            style={{ width:"100%",marginTop:24,padding:"20px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+            Bekräfta dagen ✓
+          </button>
+
+          {/* Tre textlänkar — horisontellt */}
+          <div style={{ display:"flex",justifyContent:"center",gap:24,marginTop:20,flexWrap:"wrap" }}>
+            {[
+              {label:"Lägg till aktivitet", onClick:()=>setSteg("kvällAvvikelse")},
+              {label:"Ändra tider",         onClick:()=>setSteg("manuellKväll")},
+              {label:"Traktamente",         onClick:()=>setSteg("traktamente")},
+            ].map(l=>(
+              <button key={l.label} onClick={l.onClick}
+                style={{ background:"none",border:"none",padding:"8px 4px",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
+                {l.label}
               </button>
             ))}
           </div>
-        )}
-
-        {/* Bekräfta */}
-        <button
-          disabled={pagaendeAktiviteter.length>0}
-          onClick={async ()=>{
-            await supabase.from("arbetsdag").upsert({
-              medarbetare_id: medarbetare.id,
-              datum: new Date().toISOString().split("T")[0],
-              start_tid: start, slut_tid: slut, rast_min: rast,
-              arbetad_min: arbMin + totEx,
-              extra_tid_min: totEx,
-              km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
-              maskin_id: medarbetare.maskin_id,
-              objekt_id: valtObjektId || dagData[idagKey]?.objekt_id || null,
-              traktamente: trak, bekraftad: true,
-              bekraftad_tid: new Date().toISOString(),
-            });
-            setSteg("klar");
-            setTimeout(()=>setSteg("morgon"),3000);
-          }} style={{ width:"100%",height:60,background:pagaendeAktiviteter.length>0?"#2a2a2a":"#34c759",color:pagaendeAktiviteter.length>0?"#636366":"#fff",border:"none",borderRadius:14,fontSize:19,fontWeight:700,cursor:pagaendeAktiviteter.length>0?"not-allowed":"pointer",fontFamily:"inherit",marginTop:pagaendeAktiviteter.length>0?16:32 }}>
-          Bekräfta
-        </button>
-
-        {/* Diskret länk: lade du något efter arbetspasset? */}
-        <button onClick={()=>{setValjAktivitet({kalla:'kvall'});setSteg("valjAktivitet");}}
-          style={{ marginTop:14,padding:"10px 0",background:"none",border:"none",color:"#8e8e93",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",textAlign:"center" }}>
-          + Lade du något efter arbetspasset?
-        </button>
-
-        {/* Tidigast start imorgon */}
-        {slut&&(()=>{
-          const [sh,sm]=(slut as string).split(':').map(Number);
-          const _nu=new Date();
-          const tidigast=new Date(_nu.getFullYear(),_nu.getMonth(),_nu.getDate(),sh,sm);
-          tidigast.setHours(tidigast.getHours()+11);
-          const tid=`${String(tidigast.getHours()).padStart(2,'0')}:${String(tidigast.getMinutes()).padStart(2,'0')}`;
-          if(tidigast.getHours()>=5&&tidigast.getHours()<=9) return (
-            <p style={{ margin:"16px 0 0",fontSize:13,color:"#8e8e93",textAlign:"center" }}>Du kan starta maskinen tidigast kl {tid} imorgon för att hålla dygnsviolan</p>
-          );
-          return null;
-        })()}
-
-        {/* Länkrader */}
-        <div style={{ display:"flex",flexDirection:"column",marginTop:24 }}>
-          {[
-            {label:"Ändra arbetstid",action:()=>{setTS(start);setTE(slut);setTR(rast);setAnledn("");setSteg("äTid");}},
-            {label:"Ändra körning",action:()=>{setTMK(kmM?.km||0);setTKK(kmK?.km||0);setAnledn("");setSteg("äKm");}},
-            {label:extra.length>0?"Ändra extra tid":"Lägg till fler aktiviteter",action:()=>setSteg("extraTid")},
-            {label:trak?"Ändra traktamente":"Lägg till traktamente",action:()=>setSteg("traktamente")},
-          ].map(l=>(
-            <button key={l.label} onClick={l.action} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"none",border:"none",borderBottom:"1px solid rgba(255,255,255,0.04)",color:"#8e8e93",fontSize:16,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:"16px 0",textAlign:"left" }}>
-              <span>{l.label}</span>
-              <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.15)" }}>chevron_right</span>
-            </button>
-          ))}
         </div>
-      </div>
 
-      <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
-    </div>
-  );
+        <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
+      </div>
+    );
+  }
 
   /* ─── ÄNDRA ARBETSTID ─── */
   if(steg==="äTid"){
