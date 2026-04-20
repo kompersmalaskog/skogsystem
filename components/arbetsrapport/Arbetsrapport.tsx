@@ -3,13 +3,15 @@ import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode }
 import { supabase } from "@/lib/supabase";
 import { getRödaDagar } from "@/lib/roda-dagar";
 
-/** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback. */
-async function hämtaVägKm(fLat: number, fLng: number, tLat: number, tLng: number): Promise<number|null> {
+/** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
+ *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
+async function hämtaVägKm(fLat: number, fLng: number, tLat: number, tLng: number): Promise<{km:number; source:string}|null> {
   try {
     const r = await fetch(`/api/routing?fromLat=${fLat}&fromLng=${fLng}&toLat=${tLat}&toLng=${tLng}`);
     if (!r.ok) return null;
     const j = await r.json();
-    return typeof j?.km === "number" ? j.km : null;
+    if (typeof j?.km !== "number") return null;
+    return { km: j.km, source: j.source || 'unknown' };
   } catch {
     return null;
   }
@@ -659,9 +661,12 @@ export default function Arbetsrapport() {
     }
     let cancelled = false;
     (async () => {
-      const km = await hämtaVägKm(Number(hLat), Number(hLng), Number(oLat), Number(oLng));
-      if (cancelled || km == null) return;
-      setKmBerakning(km);
+      const res = await hämtaVägKm(Number(hLat), Number(hLng), Number(oLat), Number(oLng));
+      if (cancelled || !res) return;
+      const { km, source } = res;
+      const totalTurRetur = km * 2;
+      console.log('[km-auto kväll]', { km, source, totalTurRetur, kmM, kmK, hemLat: hLat, hemLng: hLng, objLat: oLat, objLng: oLng, objekt_id: objId });
+      setKmBerakning(totalTurRetur);
       if (kmM == null) setKmM({ km });
       if (kmK == null) setKmK({ km });
     })();
@@ -682,10 +687,13 @@ export default function Arbetsrapport() {
     }
     let cancelled = false;
     (async () => {
-      const km = await hämtaVägKm(Number(hLat), Number(hLng), Number(oLat), Number(oLng));
-      if (cancelled || km == null) return;
-      setRedKmBerakning(km);
-      setRedKm(prev => prev === 0 ? km : prev);
+      const res = await hämtaVägKm(Number(hLat), Number(hLng), Number(oLat), Number(oLng));
+      if (cancelled || !res) return;
+      const { km, source } = res;
+      const totalTurRetur = km * 2;
+      console.log('[km-auto kalender]', { km, source, totalTurRetur, redKm, hemLat: hLat, hemLng: hLng, objLat: oLat, objLng: oLng, objekt_id: redDag.objekt_id, datum: redDag.datum });
+      setRedKmBerakning(totalTurRetur);
+      setRedKm(prev => prev === 0 ? totalTurRetur : prev);
     })();
     return () => { cancelled = true; };
   }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.hem_lat, medarbetare?.hem_lng, objektLista]);
