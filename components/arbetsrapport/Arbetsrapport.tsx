@@ -444,6 +444,16 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
 ═══════════════════════════════════════════════════════ */
 export default function Arbetsrapport() {
   const [steg,  setSteg]   = useState("morgon");
+  // Step-historik för universell bakåt-pil. Uppdateras i useEffect på [steg].
+  const stegHistRef = useRef<string[]>([]);
+  const stegCurrRef = useRef<string>("morgon");
+  const isBackRef   = useRef(false);
+  const goBack = () => {
+    const prev = stegHistRef.current.pop();
+    isBackRef.current = true;
+    if (prev && prev !== steg) setSteg(prev);
+    else setSteg("morgon");
+  };
   const [kmM,   setKmM]    = useState<{km:number}|null>(null);
   const [kmK,   setKmK]    = useState<{km:number}|null>(null);
   const [kmBerakning, setKmBerakning] = useState<number|null>(null);
@@ -717,6 +727,53 @@ export default function Arbetsrapport() {
   useEffect(() => {
     if (steg === "manuellDag")   setMStart(nuKlock5());
     if (steg === "manuellKväll") setMSlut(nuKlock5());
+  }, [steg]);
+
+  // Spåra steg-historik för goBack. Skippa push när transitionen kom från back-knappen.
+  useEffect(() => {
+    if (isBackRef.current) {
+      isBackRef.current = false;
+      stegCurrRef.current = steg;
+      return;
+    }
+    if (stegCurrRef.current !== steg) {
+      stegHistRef.current.push(stegCurrRef.current);
+      if (stegHistRef.current.length > 30) stegHistRef.current.shift();
+      stegCurrRef.current = steg;
+    }
+  }, [steg]);
+
+  // Global overlay: bakåt-pil (uppe vänster) + stäng (uppe höger).
+  // Injiceras i document.body så den fungerar oavsett vilken vy som renderas.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (steg === "morgon") return;
+
+    const mk = (side: "left"|"right", iconName: string, color: string, onClick: ()=>void, ariaLabel: string) => {
+      const btn = document.createElement("button");
+      btn.setAttribute("aria-label", ariaLabel);
+      btn.setAttribute("data-arbrapp-chrome", side);
+      Object.assign(btn.style, {
+        position: "fixed", top: "0", [side]: "0", padding: "16px",
+        zIndex: "1000", background: "none", border: "none", cursor: "pointer",
+      });
+      const icon = document.createElement("span");
+      icon.className = "material-symbols-outlined";
+      Object.assign(icon.style, { color, fontSize: "24px" });
+      icon.textContent = iconName;
+      btn.appendChild(icon);
+      btn.onclick = onClick;
+      document.body.appendChild(btn);
+      return btn;
+    };
+
+    const back  = mk("left",  "arrow_back", "#fff",                    goBack,                         "Tillbaka");
+    const close = mk("right", "close",      "rgba(255,255,255,0.6)",   () => { isBackRef.current = true; setSteg("morgon"); }, "Stäng");
+
+    return () => {
+      back.remove();
+      close.remove();
+    };
   }, [steg]);
 
   // Hämta månadens km-summa (med auto-beräkning för dagar som saknar km i DB)
@@ -3082,11 +3139,13 @@ export default function Arbetsrapport() {
           <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"1px solid rgba(255,255,255,0.06)" }}>
             <p style={{ margin:"0 0 20px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
 
-            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
-              <span style={{ fontSize:15,color:"#fff" }}>{start} → {slut}</span>
-              <span style={{ fontSize:15,color:"rgba(255,255,255,0.6)" }}>Rast: {rast} min</span>
-            </div>
-            <p style={{ margin:"0 0 20px",fontSize:15,color:"#fff" }}>Arbetstid: {fmt(arbMin)}</p>
+            <p style={{ margin:"0 0 6px",fontSize:15,color:"#fff" }}>{start} → {slut}</p>
+            {arbMin>0&&(
+              <div style={{ display:"flex",justifyContent:"space-between",marginBottom:20 }}>
+                <span style={{ fontSize:15,color:"#fff" }}>Arbetstid: {fmt(arbMin)}</span>
+                <span style={{ fontSize:15,color:"rgba(255,255,255,0.6)" }}>Rast: {rast} min</span>
+              </div>
+            )}
 
             {(dagObjNamn||maskinNamnLång)&&(
               <div style={{ marginBottom:20 }}>
