@@ -466,7 +466,6 @@ export default function Arbetsrapport() {
   const [trak,  setTrak]   = useState<{summa:number}|null>(null);
   const [trakÖppen, setTrakÖppen] = useState(false);
   const [dagTyp,setDagTyp] = useState("normal");
-  const [avvikelseKm,  setAvvikelseKm]  = useState(0);
   const [avTyp,  setAvTyp]  = useState(null);
   const [avBesk, setAvBesk] = useState("");
   const [avDeb,  setAvDeb]  = useState(false);
@@ -1577,10 +1576,8 @@ export default function Arbetsrapport() {
     </div>
   );
 
-  /* ─── AVVIKELSE – GPS märkte längre rutt ─── */
+  /* ─── AVVIKELSE – registrera aktivitet på vägen till maskinen ─── */
   if(steg==="avvikelse"){
-    const normalKm = 72;
-    const faktiskKm = normalKm + avvikelseKm;
     const typer = [
       {id:"reservdelar", label:"Hämta reservdelar"},
       {id:"objekt",      label:"Kollat på ett objekt"},
@@ -1609,24 +1606,6 @@ export default function Arbetsrapport() {
         </div>
 
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
-
-          {/* GPS-avvikelse-kort */}
-          <div style={{ background:"rgba(255,149,0,0.08)",borderRadius:16,padding:"18px 20px",marginBottom:20,border:"1px solid rgba(255,149,0,0.2)" }}>
-            <p style={{ margin:"0 0 12px",fontSize:12,fontWeight:700,color:C.orange,textTransform:"none",letterSpacing:"0" }}>GPS märkte längre rutt</p>
-            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:8 }}>
-              <span style={{ fontSize:15,color:C.label }}>Normalrutt hem → maskin</span>
-              <span style={{ fontSize:15,fontWeight:600 }}>{normalKm} km</span>
-            </div>
-            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:12 }}>
-              <span style={{ fontSize:15,color:C.label }}>Faktisk körning idag</span>
-              <span style={{ fontSize:15,fontWeight:600,color:C.orange }}>{faktiskKm} km</span>
-            </div>
-            <div style={{ height:1,background:"rgba(255,149,0,0.15)",marginBottom:12 }}/>
-            <div style={{ display:"flex",justifyContent:"space-between" }}>
-              <span style={{ fontSize:15,fontWeight:600 }}>Extra</span>
-              <span style={{ fontSize:15,fontWeight:700,color:C.orange }}>+{avvikelseKm} km</span>
-            </div>
-          </div>
 
           {/* Vad gjorde du? */}
           <Label>Vad gjorde du på vägen?</Label>
