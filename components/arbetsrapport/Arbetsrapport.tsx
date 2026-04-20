@@ -615,6 +615,21 @@ export default function Arbetsrapport() {
     // arbetsdag har ingen objekt_id — dagensObjekt hämtas separat om det behövs
   }, []);
 
+  // Logga gs_avtal-värden vid laddning så vi kan verifiera att fardtid_kr_per_mil
+  // och km_grans_per_dag kommer fram till klienten.
+  useEffect(() => {
+    if (!gsAvtal) return;
+    console.log('[gs_avtal] aktiv rad:', {
+      id: gsAvtal.id,
+      namn: gsAvtal.namn,
+      giltigt_fran: gsAvtal.giltigt_fran,
+      giltigt_till: gsAvtal.giltigt_till,
+      km_grans_per_dag: gsAvtal.km_grans_per_dag,
+      fardtid_kr_per_mil: gsAvtal.fardtid_kr_per_mil,
+      km_ersattning_kr: gsAvtal.km_ersattning_kr,
+    });
+  }, [gsAvtal]);
+
   // Automatisk km-beräkning (hem → trakt) när kvällsvyn öppnas. Fyller kmM/kmK
   // bara om föraren inte redan skrivit in ett värde manuellt.
   useEffect(() => {
@@ -3557,12 +3572,22 @@ export default function Arbetsrapport() {
                   <ChevronRight/>
                 </div>
               </div>
-              <div onClick={()=>setRedVy("km")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.extra>0?`1px solid ${C.line}`:"none",cursor:"pointer" }}>
+              <div onClick={()=>setRedVy("km")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",cursor:"pointer" }}>
                 <span style={{ fontSize:16,color:C.label }}>Körning</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:600,color:redKm!==redDag.km?C.orange:C.ink }}>{redKm} km</span>
+                  <span style={{ fontSize:16,fontWeight:600,color:redKm!==redDag.km?C.orange:C.ink }}>
+                    {redKm} km{(redDag.km_morgon>0||redDag.km_kvall>0)?` (M ${redDag.km_morgon||0} · K ${redDag.km_kvall||0})`:''}
+                  </span>
                   <ChevronRight/>
                 </div>
+              </div>
+              {/* Färdtidsersättning — info-rad under Körning */}
+              <div style={{ padding:"0 0 14px",borderBottom:redDag.extra>0?`1px solid ${C.line}`:"none" }}>
+                {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
+                  return över>0
+                    ? <p style={{ margin:0,fontSize:13,color:"#34c759" }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
+                    : <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>;
+                })()}
               </div>
               {redDag.extra>0&&(
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.trak?`1px solid ${C.line}`:"none" }}>
