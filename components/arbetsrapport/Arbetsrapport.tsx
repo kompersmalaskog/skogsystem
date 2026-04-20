@@ -3635,26 +3635,33 @@ export default function Arbetsrapport() {
           )}
 
           {/* Körning — separat kort med morgon/kväll/total */}
-          {redDag?.start_tid&&(
-            <Card onClick={()=>setRedVy("km")} style={{ padding:"16px 20px" }}>
-              <p style={{ margin:"0 0 10px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Körning</p>
-              <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
-                <span style={{ color:"#fff",fontSize:15 }}>Morgon</span>
-                <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{redDag.km_morgon||0} km</span>
-              </div>
-              <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
-                <span style={{ color:"#fff",fontSize:15 }}>Kväll</span>
-                <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{redDag.km_kvall||0} km</span>
-              </div>
-              <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
-                <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>Totalt</span>
-                <span style={{ color:"#fff",fontSize:17,fontWeight:700 }}>{redKm} km</span>
-              </div>
-              {redKmBerakning!=null&&(
-                <p style={{ margin:"10px 0 0",fontSize:12,color:"rgba(255,255,255,0.4)" }}>Beräknat vägavstånd</p>
-              )}
-            </Card>
-          )}
+          {redDag?.start_tid&&(()=>{
+            // Om DB saknar split (båda 0/null) faller vi tillbaka till redKm/2 för
+            // att visa den beräknade enkel-väg-delningen. Annars DB-värdena.
+            const harSplit = (redDag.km_morgon||0) > 0 || (redDag.km_kvall||0) > 0;
+            const morgonVisa = harSplit ? (redDag.km_morgon||0) : Math.round(redKm/2);
+            const kvallVisa  = harSplit ? (redDag.km_kvall||0)  : redKm - Math.round(redKm/2);
+            return (
+              <Card onClick={()=>setRedVy("km")} style={{ padding:"16px 20px" }}>
+                <p style={{ margin:"0 0 10px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Körning</p>
+                <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+                  <span style={{ color:"#fff",fontSize:15 }}>Morgon</span>
+                  <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{morgonVisa} km</span>
+                </div>
+                <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+                  <span style={{ color:"#fff",fontSize:15 }}>Kväll</span>
+                  <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{kvallVisa} km</span>
+                </div>
+                <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
+                  <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>Totalt</span>
+                  <span style={{ color:"#fff",fontSize:17,fontWeight:700 }}>{redKm} km</span>
+                </div>
+                {redKmBerakning!=null&&(
+                  <p style={{ margin:"10px 0 0",fontSize:12,color:"rgba(255,255,255,0.4)" }}>Beräknat vägavstånd</p>
+                )}
+              </Card>
+            );
+          })()}
 
           {/* Färdtidsersättning — info under Körning-kortet */}
           {redDag?.start_tid&&redKm>frikm&&(()=>{
