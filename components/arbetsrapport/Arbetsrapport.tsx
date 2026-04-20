@@ -3015,11 +3015,8 @@ export default function Arbetsrapport() {
     />
   );
 
-  /* ─── KVÄLL AVVIKELSE – GPS märkte längre hemkörning ─── */
+  /* ─── KVÄLL AVVIKELSE – registrera aktivitet på vägen hem ─── */
   if(steg==="kvällAvvikelse"){
-    const normalKm = 75;
-    const faktiskKm = 98;
-    const avvKm = faktiskKm - normalKm;
     const typer = [
       {id:"reservdelar", label:"Hämta reservdelar"},
       {id:"objekt",      label:"Kollat på ett objekt"},
@@ -3048,24 +3045,6 @@ export default function Arbetsrapport() {
         </div>
 
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
-          {/* GPS-avvikelse-kort */}
-          <div style={{ background:"rgba(255,149,0,0.1)",borderRadius:16,padding:"18px 20px",marginBottom:20,border:"1px solid rgba(255,149,0,0.25)" }}>
-            <p style={{ margin:"0 0 12px",fontSize:12,fontWeight:700,color:C.orange,textTransform:"none",letterSpacing:"0" }}>GPS märkte längre hemkörning</p>
-            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:8 }}>
-              <span style={{ fontSize:15,color:C.darkLabel }}>Normalrutt maskin → hem</span>
-              <span style={{ fontSize:15,fontWeight:600 }}>{normalKm} km</span>
-            </div>
-            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:12 }}>
-              <span style={{ fontSize:15,color:C.darkLabel }}>Faktisk körning idag</span>
-              <span style={{ fontSize:15,fontWeight:600,color:C.orange }}>{faktiskKm} km</span>
-            </div>
-            <div style={{ height:1,background:"rgba(255,149,0,0.2)",marginBottom:12 }}/>
-            <div style={{ display:"flex",justifyContent:"space-between" }}>
-              <span style={{ fontSize:15,fontWeight:600 }}>Extra</span>
-              <span style={{ fontSize:15,fontWeight:700,color:C.orange }}>+{avvKm} km</span>
-            </div>
-          </div>
-
           <Label style={{ color:C.darkLabel }}>Vad gjorde du på vägen hem?</Label>
           {typer.map(t=>(
             <div key={t.id} onClick={()=>setKvAvTyp(t.id)}
