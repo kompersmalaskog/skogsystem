@@ -1432,7 +1432,7 @@ export default function Arbetsrapport() {
               setEfterStoppSheet(uppdaterad);
             }}
               style={{ width:"100%",padding:"16px",background:"#ff453a",border:"none",borderRadius:12,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
-              Stoppa aktivitet
+              Stoppa
             </button>
           </div>
         ))}
@@ -1619,6 +1619,37 @@ export default function Arbetsrapport() {
                   {sammanRad("Körning", `${totKm} km`, öppnaKm)}
                   {harErsKr && sammanRad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
                 </div>
+                {/* Extra tid-rader för idag — klickbara för att redigera typ/objekt/deb/kommentar */}
+                {(()=>{
+                  const extraIdag = (extraTidData || [])
+                    .filter((e: any) => e.datum === idagKey && e.slut_tid)
+                    .sort((a: any, b: any) => (a.start_tid||'').localeCompare(b.start_tid||''));
+                  if (extraIdag.length === 0) return null;
+                  return (
+                    <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10,display:"flex",flexDirection:"column",gap:6 }}>
+                      {extraIdag.map((e: any) => {
+                        const typLabel = e.aktivitet_typ ? aktLabel(e.aktivitet_typ) : '';
+                        const tidStr = `${(e.start_tid||'').slice(0,5)}–${(e.slut_tid||'').slice(0,5)}`;
+                        const värde = `${typLabel?typLabel+' ':''}${tidStr} (${fmt(e.minuter||0)})`;
+                        return (
+                          <div key={e.id} onClick={()=>{
+                            setKvAvTyp(e.aktivitet_typ || null);
+                            setKvAvObj(e.objekt_id ? objektLista.find(o => o.id === e.objekt_id) || null : null);
+                            setKvAvDeb(!!e.debiterbar);
+                            setKvAvBesk(e.kommentar || "");
+                            setEfterStoppSheet(e);
+                          }} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:"pointer",gap:8 }}>
+                            <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15,flexShrink:0 }}>Extra</span>
+                            <div style={{ display:"flex",alignItems:"center",gap:4,minWidth:0 }}>
+                              <span style={{ color:"#fff",fontSize:15,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{värde}</span>
+                              <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.25)",flexShrink:0 }}>chevron_right</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
                 <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
                   <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Traktamente</span>
                   <div style={{ display:"flex",alignItems:"center",gap:4 }}>
@@ -2060,6 +2091,38 @@ export default function Arbetsrapport() {
       })()}
 
       {/* Bekräftelse-overlay efter Bekräfta dagen ✓ */}
+      {/* Timer-fullskärm: aktiv pågående-timer tar över hela vyn */}
+      {pagaendeAktiviteter.length > 0 && !efterStoppSheet && (()=>{
+        const p = pagaendeAktiviteter[0];
+        const label = p.aktivitet_typ ? aktLabel(p.aktivitet_typ) : 'Extra';
+        return (
+          <div style={{ position:"fixed",inset:0,background:"#000",zIndex:1400,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px" }}>
+            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
+              <div style={{ width:10,height:10,borderRadius:"50%",background:"#ff453a",boxShadow:"0 0 10px #ff453a",animation:"pulseDot 2s infinite" }} />
+              <p style={{ margin:0,fontSize:17,fontWeight:600,color:"#fff" }}>Pågående: {label}</p>
+            </div>
+            <p style={{ margin:"0 0 32px",fontSize:14,color:"rgba(255,255,255,0.55)" }}>Startad {(p.start_tid||'').slice(0,5)}</p>
+            <p style={{ margin:"0 0 48px",fontSize:72,fontWeight:700,color:"#fff",fontVariantNumeric:"tabular-nums",letterSpacing:"-0.02em",lineHeight:1 }}>{fmtHMS(sekDiff(p.start_tid))}</p>
+            <button onClick={async ()=>{
+              const nuT = nuKlock() + ":00";
+              const min = minutDiff(p.start_tid, nuT);
+              const { data } = await supabase.from("extra_tid").update({ slut_tid: nuT, minuter: min }).eq("id", p.id).select().single();
+              const uppdaterad = data || { ...p, slut_tid: nuT, minuter: min };
+              setPagaendeAktiviteter(arr => arr.filter(x => x.id !== p.id));
+              setExtraTidData(arr => arr.map(x => x.id === p.id ? uppdaterad : x));
+              if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
+              setKvAvTyp(uppdaterad.aktivitet_typ || null);
+              setKvAvObj(uppdaterad.objekt_id ? objektLista.find(o => o.id === uppdaterad.objekt_id) || null : null);
+              setKvAvDeb(!!uppdaterad.debiterbar);
+              setKvAvBesk(uppdaterad.kommentar || "");
+              setEfterStoppSheet(uppdaterad);
+            }} style={{ width:"min(90%,360px)",padding:"22px",background:"#ff453a",border:"none",borderRadius:16,color:"#fff",fontSize:19,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 8px 32px rgba(255,69,58,0.35)" }}>
+              Stoppa
+            </button>
+          </div>
+        );
+      })()}
+
       {bekräftelseVisa && (
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:2000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
           <div style={{ width:120,height:120,borderRadius:"50%",background:"#34C759",display:"flex",alignItems:"center",justifyContent:"center",animation:"checkPop 0.5s cubic-bezier(0.2,0.8,0.3,1.2)",boxShadow:"0 0 60px rgba(52,199,89,0.4)" }}>
