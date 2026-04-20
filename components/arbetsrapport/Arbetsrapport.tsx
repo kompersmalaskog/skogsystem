@@ -452,6 +452,7 @@ export default function Arbetsrapport() {
   const [redSlut,  setRedSlut]  = useState("16:00");
   const [redRast,  setRedRast]  = useState(30);
   const [redKm,    setRedKm]    = useState(0);
+  const [redKmBerakning, setRedKmBerakning] = useState<number|null>(null);
   const [redAnl,   setRedAnl]   = useState("");
   const [redVy,    setRedVy]    = useState("översikt");
   const [redDagar, setRedDagar] = useState<Record<string, {start:string;slut:string;rast:number;km:number;anl:string}>>({});
@@ -3387,6 +3388,7 @@ export default function Arbetsrapport() {
           <div style={{ textAlign:"center",padding:20,background:"rgba(52,199,89,0.07)",borderRadius:14 }}>
             <Label>Körning</Label>
             <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{redKm} km</p>
+            {redKmBerakning!=null&&redKmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {redKmBerakning} km (enkel väg)</p>}
             {redKm>frikm&&<p style={{ margin:"8px 0 0",fontSize:15,color:C.green,fontWeight:600 }}>+{redKm-frikm} km ger ersättning</p>}
           </div>
         </div>
@@ -3817,7 +3819,18 @@ export default function Arbetsrapport() {
                       setRedStart(d2?.start_tid||"00:00");
                       setRedSlut(d2?.slut_tid||"00:00");
                       setRedRast(d2?.rast_min||0);
-                      setRedKm(d2?.km_totalt||0);
+                      // Auto-beräkna km hem→trakt om koordinater finns
+                      const befintligKm = d2?.km_totalt || 0;
+                      const obj = objektLista.find(o => o.id === d2?.objekt_id);
+                      const hLat = medarbetare?.hem_lat, hLng = medarbetare?.hem_lng;
+                      let berakning: number | null = null;
+                      if (hLat != null && hLng != null && obj?.lat != null && obj?.lng != null) {
+                        berakning = vägKm(Number(hLat), Number(hLng), Number(obj.lat), Number(obj.lng));
+                      } else if (d2?.objekt_id) {
+                        console.warn('km-beräkning (kalender): koordinater saknas', { datum, hLat, hLng, oLat: obj?.lat, oLng: obj?.lng, objekt_id: d2.objekt_id });
+                      }
+                      setRedKmBerakning(berakning);
+                      setRedKm(befintligKm > 0 ? befintligKm : (berakning ?? 0));
                       setRedAnl("");
                       setRedObjektId(d2?.objekt_id||null);
                       setRedMaskinId(d2?.maskin_id||null);
