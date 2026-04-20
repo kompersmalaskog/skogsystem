@@ -294,12 +294,12 @@ def main():
         resp = requests.post(f"{app_url}/api/mom-import", json={}, timeout=30)
         if resp.status_code == 200:
             result = resp.json()
-            print(f"  ✓ {result.get('created', 0)} arbetsdagar skapade, {result.get('skipped', 0)} redan fanns")
+            print(f"  OK: {result.get('created', 0)} arbetsdagar skapade, {result.get('skipped', 0)} redan fanns")
         else:
-            print(f"  ⚠ mom-import API svarade {resp.status_code}: {resp.text[:200]}")
+            print(f"  VARNING: mom-import API svarade {resp.status_code}: {resp.text[:200]}")
     except Exception as e:
-        print(f"  ⚠ Kunde inte nå mom-import API: {e}")
-        print(f"    (Appen kanske inte körs — kör manuellt: POST {app_url}/api/mom-import)")
+        print(f"  VARNING: Kunde inte na mom-import API: {e}")
+        print(f"    (Appen kanske inte kors - kor manuellt: POST {app_url}/api/mom-import)")
 
 if __name__ == "__main__":
     main()

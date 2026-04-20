@@ -525,6 +525,7 @@ export default function Arbetsrapport() {
   const [pushEnhetsNamn, setPushEnhetsNamn] = useState<string | null>(null);
   const [visaÖvrigt, setVisaÖvrigt] = useState(false);
   const [efterStoppSheet, setEfterStoppSheet] = useState<any | null>(null);
+  const [heldagsMeddelande, setHeldagsMeddelande] = useState<{text:string;emoji?:string;typ:string}|null>(null);
   const [bekräftelseVisa, setBekräftelseVisa] = useState(false);
   const [visaTiderSheet, setVisaTiderSheet] = useState(false);
   const [visaKmSheet, setVisaKmSheet] = useState(false);
@@ -1588,7 +1589,14 @@ export default function Arbetsrapport() {
             : '';
           const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
           const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
-          const datumRubrik = `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
+          const dagTypRubrik: Record<string,string> = {
+            utbildning:'Utbildning', service:'Service', möte:'Möte', annat:'Annat arbete',
+            sjuk:'Sjukdag', vab:'VAB', semester:'Semester', ledig:'Ledig',
+          };
+          const typPrefix = idagArb?.dagtyp && idagArb.dagtyp !== 'normal' ? dagTypRubrik[idagArb.dagtyp] : '';
+          const datumRubrik = typPrefix
+            ? `${typPrefix} — ${dagNamnLång} ${idag.getDate()} ${månNamnLång}`
+            : `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
           const dagObjId = valtObjektId || idagArb?.objekt_id || null;
           const dagObjNamn = dagObjId ? (objektLista.find(o => o.id === dagObjId)?.namn || dagObjId) : '';
           const maskinNamnLång = maskinNamn || maskinNamnMap[medarbetare?.maskin_id] || medarbetare?.maskin_id || '';
@@ -1780,37 +1788,54 @@ export default function Arbetsrapport() {
             {visaÖvrigt && (
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12,animation:"fadeUp 0.25s ease" }}>
                 {[
-                  {id:"sjuk",       label:"Sjukfrånvaro", icon:"medical_services"},
-                  {id:"vab",        label:"VAB",          icon:"child_care"},
-                  {id:"utbildning", label:"Utbildning",   icon:"school"},
-                  {id:"service",    label:"Service",      icon:"build"},
-                  {id:"möte",       label:"Möte",         icon:"groups"},
-                  {id:"annat",      label:"Annat",        icon:"more_horiz"},
+                  {id:"sjuk",       label:"Sjukfrånvaro", icon:"medical_services", heldag:true, msg:{text:"Krya på dig!", emoji:"🤒"}},
+                  {id:"vab",        label:"VAB",          icon:"child_care",       heldag:true, msg:{text:"VAB registrerad"}},
+                  {id:"semester",   label:"Semester",     icon:"beach_access",     heldag:true, msg:{text:"Ledig dag"}},
+                  {id:"ledig",      label:"Ledig",        icon:"home",             heldag:true, msg:{text:"Ledig dag"}},
+                  {id:"utbildning", label:"Utbildning",   icon:"school",           heldag:false},
+                  {id:"service",    label:"Service",      icon:"build",            heldag:false},
+                  {id:"möte",       label:"Möte",         icon:"groups",           heldag:false},
+                  {id:"annat",      label:"Annat",        icon:"more_horiz",       heldag:false},
                 ].map(s=>(
                   <button key={s.id} onClick={async ()=>{
-                    // Persistera valet direkt — ingen navigering till en separat vy
                     const nuT = nuKlock();
-                    const { data } = await supabase.from("arbetsdag").upsert({
+                    const nuIso = new Date().toISOString();
+                    // Heldagstyper: bekräftas direkt, ingen tid krävs
+                    // Timertyper: skapas med start_tid, pågående tills föraren avslutar
+                    const payload: any = {
                       medarbetare_id: medarbetare.id,
                       datum: idagKey,
                       dagtyp: s.id,
-                      start_tid: nuT + ":00",
-                    }, { onConflict: 'medarbetare_id,datum' }).select().single();
+                    };
+                    if (s.heldag) {
+                      payload.bekraftad = true;
+                      payload.bekraftad_tid = nuIso;
+                    } else {
+                      payload.start_tid = nuT + ":00";
+                    }
+                    const { data } = await supabase.from("arbetsdag").upsert(payload, { onConflict: 'medarbetare_id,datum' }).select().single();
                     if (data) {
                       setDagTyp(s.id);
                       setDagData(d => ({ ...d, [idagKey]: {
                         ...(d[idagKey] || {}),
                         id: data.id,
-                        status: 'saknas',
+                        status: data.bekraftad ? 'ok' : 'saknas',
                         dagtyp: data.dagtyp,
                         start_tid: data.start_tid,
-                        start: (data.start_tid||'').slice(0,5),
-                        slut_tid: null,
+                        start: data.start_tid ? data.start_tid.slice(0,5) : '',
+                        slut_tid: data.slut_tid || null,
+                        slut: data.slut_tid ? data.slut_tid.slice(0,5) : '',
+                        bekraftad: !!data.bekraftad,
+                        bekraftad_tid: data.bekraftad_tid,
                         arbMin: 0,
                         km: 0, km_morgon: 0, km_kvall: 0, km_totalt: 0,
                       }}));
                       setVisaÖvrigt(false);
-                      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
+                      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
+                      if (s.heldag) {
+                        setHeldagsMeddelande({ typ: s.id, text: s.msg!.text, emoji: s.msg!.emoji });
+                        setTimeout(() => setHeldagsMeddelande(null), 2500);
+                      }
                     }
                   }}
                     style={{ height:52,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 12px",cursor:"pointer",fontFamily:"inherit" }}>
@@ -2130,6 +2155,19 @@ export default function Arbetsrapport() {
       })()}
 
       {/* Bekräftelse-overlay efter Bekräfta dagen ✓ */}
+      {/* Heldagstyp-meddelande (Sjuk/VAB/Semester/Ledig) — auto-stänger efter 2.5s */}
+      {heldagsMeddelande && (
+        <div style={{ position:"fixed",inset:0,background:"#000",zIndex:2100,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"dimIn 0.2s ease",padding:"24px" }}>
+          {heldagsMeddelande.emoji && (
+            <p style={{ margin:"0 0 24px",fontSize:96,lineHeight:1,animation:"checkPop 0.5s cubic-bezier(0.2,0.8,0.3,1.2)" }}>{heldagsMeddelande.emoji}</p>
+          )}
+          <p style={{ margin:"0 0 16px",fontSize:32,fontWeight:700,color:"#fff",textAlign:"center",letterSpacing:"-0.01em" }}>{heldagsMeddelande.text}</p>
+          <p style={{ margin:0,fontSize:15,color:"rgba(255,255,255,0.5)" }}>
+            {["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()]} {idag.getDate()} {["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()]}
+          </p>
+        </div>
+      )}
+
       {/* Timer-fullskärm: aktiv pågående-timer tar över hela vyn */}
       {pagaendeAktiviteter.length > 0 && !efterStoppSheet && (()=>{
         const p = pagaendeAktiviteter[0];
@@ -4276,10 +4314,10 @@ export default function Arbetsrapport() {
     const statusFärg=(d)=>{
       const k=dagKey(d);
       const dag=dagData[k];
-      // Kolla data FÖRST — oavsett helg eller vardag
+      // Frånvaro/non-normal dagtyp tar prioritet så färgen syns direkt
+      if (dag?.dagtyp && dag.dagtyp !== 'normal') return dag.dagtyp;
       if(dag?.start_tid) return "ok";
       if(dag) return "saknas";
-      // Sedan röda dagar och helger
       if(rödaDagar[k]) return "röd";
       const date=new Date(kalÅr,kalMånad,d);
       const dow=date.getDay();
@@ -4288,7 +4326,17 @@ export default function Arbetsrapport() {
       return "tom";
     };
 
-    const dotFärg: Record<string,string> = {ok:"#fff",saknas:"#ff9f0a"};
+    const dotFärg: Record<string,string> = {
+      ok:"#fff", saknas:"#ff9f0a",
+      sjuk:"#ff453a",       // röd
+      vab:"#ff9f0a",         // orange
+      semester:"#0a84ff",    // blå
+      ledig:"#0a84ff",       // blå (samma som semester)
+      utbildning:"#ffd60a",  // gul
+      service:"#8e8e93",     // grå
+      möte:"#adc6ff",        // ljusblå
+      annat:"#8e8e93",       // grå
+    };
 
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>

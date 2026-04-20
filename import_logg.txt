@@ -1,0 +1,345 @@
+2026-04-02 19:11:15,037 - INFO - ============================================================
+2026-04-02 19:11:15,038 - INFO - AUTO IMPORT WATCH — Startar
+2026-04-02 19:11:15,038 - INFO - Bevakar: C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer\Inkommande
+2026-04-02 19:11:15,038 - INFO - MOM-script: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\skogsmaskin_import_version_6.py
+2026-04-02 19:11:15,039 - INFO - HPR-script: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\import_hpr.py
+2026-04-02 19:11:15,039 - INFO - Logg: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\import_logg.txt
+2026-04-02 19:11:15,039 - INFO - Python: C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe
+2026-04-02 19:11:15,040 - INFO - ============================================================
+2026-04-02 19:11:15,042 - INFO - Hittade 24 befintliga .mom-filer — kör import
+2026-04-02 19:11:15,042 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-02 19:11:15,305 - ERROR - MOM-import avslutades med kod 1
+2026-04-02 19:11:15,305 - WARNING -   stderr:     ^^^^
+2026-04-02 19:11:15,306 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-02 19:11:15,306 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-02 19:11:15,306 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-02 19:11:15,306 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-02 19:11:15,306 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-02)
+2026-04-02 19:11:18,018 - INFO - Vercel API svar: 200
+2026-04-02 19:11:18,022 - INFO - Hittade 26 befintliga .hpr-filer — kör HPR-import
+2026-04-02 19:11:18,023 - INFO - Startar HPR-import: import_hpr.py
+2026-04-02 19:15:03,211 - INFO - ============================================================
+2026-04-02 19:15:03,212 - INFO - AUTO IMPORT WATCH — Startar
+2026-04-02 19:15:03,212 - INFO - Bevakar: C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer\Inkommande
+2026-04-02 19:15:03,212 - INFO - MOM-script: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\skogsmaskin_import_version_6.py
+2026-04-02 19:15:03,212 - INFO - HPR-script: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\import_hpr.py
+2026-04-02 19:15:03,212 - INFO - Logg: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\import_logg.txt
+2026-04-02 19:15:03,212 - INFO - Python: C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\python.exe
+2026-04-02 19:15:03,213 - INFO - ============================================================
+2026-04-02 19:15:03,214 - INFO - Hittade 24 befintliga .mom-filer — kör import
+2026-04-02 19:15:03,214 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-02 19:15:03,448 - ERROR - MOM-import avslutades med kod 1
+2026-04-02 19:15:03,448 - WARNING -   stderr:     ^^^^
+2026-04-02 19:15:03,448 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-02 19:15:03,448 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-02 19:15:03,448 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-02 19:15:03,448 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-02 19:15:03,449 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-02)
+2026-04-02 19:15:05,105 - INFO - Vercel API svar: 200
+2026-04-02 19:15:05,110 - INFO - Hittade 26 befintliga .hpr-filer — kör HPR-import
+2026-04-02 19:15:05,111 - INFO - Startar HPR-import: import_hpr.py
+2026-04-02 19:21:18,080 - ERROR - HPR-import timeout (>600s)
+2026-04-02 19:21:18,083 - INFO - Övervakning aktiv — väntar på nya filer...
+2026-04-02 19:25:05,141 - ERROR - HPR-import timeout (>600s)
+2026-04-02 19:25:05,144 - INFO - Övervakning aktiv — väntar på nya filer...
+2026-04-02 19:27:26,417 - INFO - ============================================================
+2026-04-02 19:27:26,417 - INFO - AUTO IMPORT WATCH — Startar
+2026-04-02 19:27:26,417 - INFO - Bevakar: C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer\Inkommande
+2026-04-02 19:27:26,418 - INFO - MOM-script: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\skogsmaskin_import_version_6.py
+2026-04-02 19:27:26,418 - INFO - HPR-script: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\import_hpr.py
+2026-04-02 19:27:26,418 - INFO - Logg: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\import_logg.txt
+2026-04-02 19:27:26,418 - INFO - Python: C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\python.exe
+2026-04-02 19:27:26,419 - INFO - ============================================================
+2026-04-02 19:27:26,420 - INFO - Hittade 24 befintliga .mom-filer — kör import
+2026-04-02 19:27:26,420 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-02 19:29:07,413 - ERROR - MOM-import avslutades med kod 3221225786
+2026-04-02 19:39:53,132 - INFO - ============================================================
+2026-04-02 19:39:53,132 - INFO - AUTO IMPORT WATCH — Startar
+2026-04-02 19:39:53,133 - INFO - Bevakar: C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer\Inkommande
+2026-04-02 19:39:53,133 - INFO - MOM-script: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\skogsmaskin_import_version_6.py
+2026-04-02 19:39:53,133 - INFO - HPR-script: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\import_hpr.py
+2026-04-02 19:39:53,134 - INFO - Logg: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\import_logg.txt
+2026-04-02 19:39:53,134 - INFO - Python: C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\python.exe
+2026-04-02 19:39:53,134 - INFO - ============================================================
+2026-04-02 19:39:53,136 - INFO - Befintliga filer i Inkommande:
+2026-04-02 19:39:53,136 - INFO -   .mom: 24 st
+2026-04-02 19:39:53,137 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-10.mom
+2026-04-02 19:39:53,137 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-10.mom
+2026-04-02 19:39:53,137 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-11.mom
+2026-04-02 19:39:53,137 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-11.mom
+2026-04-02 19:39:53,137 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-04-02 1128.mom
+2026-04-02 19:39:53,138 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-04-02 1128.mom
+2026-04-02 19:39:53,138 - INFO -     - Björn_Martinsson_Svinhult_A-230326-154953.mom
+2026-04-02 19:39:53,138 - INFO -     - Björn_Martinsson_Svinhult_A-230326-154953.mom
+2026-04-02 19:39:53,138 - INFO -     - Kjell_Erik_Lindström_Steglehylte-130326-123830.mom
+2026-04-02 19:39:53,139 - INFO -     - Kjell_Erik_Lindström_Steglehylte-130326-123830.mom
+2026-04-02 19:39:53,139 - INFO -     - Rödby 26 S-P RP -25_PONS20SDJAA270231_20260320060933.mom
+2026-04-02 19:39:53,139 - INFO -     - Rödby 26 S-P RP -25_PONS20SDJAA270231_20260320060933.mom
+2026-04-02 19:39:53,139 - INFO -     - Rödby_2_6_S_P_RP__25-250326-091255.mom
+2026-04-02 19:39:53,140 - INFO -     - Rödby_2_6_S_P_RP__25-250326-091255.mom
+2026-04-02 19:39:53,140 - INFO -     - Steglehylte gallring 2025 2026-04-02 1707.mom
+2026-04-02 19:39:53,140 - INFO -     - Steglehylte gallring 2025 2026-04-02 1707.mom
+2026-04-02 19:39:53,140 - INFO -     - Steglehylte_gallring_2025-040326-094841.mom
+2026-04-02 19:39:53,141 - INFO -     - Steglehylte_gallring_2025-040326-094841.mom
+2026-04-02 19:39:53,141 - INFO -     - Åkarp_1_33_Bjurbrant__25-130226-122913.mom
+2026-04-02 19:39:53,141 - INFO -     - Åkarp_1_33_Bjurbrant__25-130226-122913.mom
+2026-04-02 19:39:53,141 - INFO -     - Ålshult_AU_2025-120126-142501.mom
+2026-04-02 19:39:53,141 - INFO -     - Ålshult_AU_2025-120126-142501.mom
+2026-04-02 19:39:53,142 - INFO -     - Ålshult_AU_2025_grot-180326-130934.mom
+2026-04-02 19:39:53,142 - INFO -     - Ålshult_AU_2025_grot-180326-130934.mom
+2026-04-02 19:39:53,142 - INFO -   .hpr: 18 st
+2026-04-02 19:39:53,142 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-10.hpr
+2026-04-02 19:39:53,142 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-10.hpr
+2026-04-02 19:39:53,142 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-11.hpr
+2026-04-02 19:39:53,142 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-11.hpr
+2026-04-02 19:39:53,142 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-04-02 1031.hpr
+2026-04-02 19:39:53,142 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-04-02 1031.hpr
+2026-04-02 19:39:53,142 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-04-02 1127.hpr
+2026-04-02 19:39:53,142 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-04-02 1127.hpr
+2026-04-02 19:39:53,142 - INFO -     - Steglehylte gallring 2025 2026-04-02 1332.hpr
+2026-04-02 19:39:53,143 - INFO -     - Steglehylte gallring 2025 2026-04-02 1332.hpr
+2026-04-02 19:39:53,143 - INFO -     - Steglehylte gallring 2025 2026-04-02 1431.hpr
+2026-04-02 19:39:53,143 - INFO -     - Steglehylte gallring 2025 2026-04-02 1431.hpr
+2026-04-02 19:39:53,143 - INFO -     - Steglehylte gallring 2025 2026-04-02 1531.hpr
+2026-04-02 19:39:53,143 - INFO -     - Steglehylte gallring 2025 2026-04-02 1531.hpr
+2026-04-02 19:39:53,143 - INFO -     - Steglehylte gallring 2025 2026-04-02 1631.hpr
+2026-04-02 19:39:53,143 - INFO -     - Steglehylte gallring 2025 2026-04-02 1631.hpr
+2026-04-02 19:39:53,143 - INFO -     - Steglehylte gallring 2025 2026-04-02 1707.hpr
+2026-04-02 19:39:53,143 - INFO -     - Steglehylte gallring 2025 2026-04-02 1707.hpr
+2026-04-02 19:39:53,143 - INFO - Kör MOM-import för 24 filer...
+2026-04-02 19:39:53,143 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-02 19:41:31,721 - INFO - MOM-import klar (OK)
+2026-04-02 19:41:31,722 - WARNING -   stderr: 2026-04-02 19:41:31,597 - INFO - SAMMANFATTNING
+2026-04-02 19:41:31,722 - WARNING -   stderr: 2026-04-02 19:41:31,598 - INFO - ==================================================
+2026-04-02 19:41:31,722 - WARNING -   stderr: 2026-04-02 19:41:31,598 - INFO - Processade: 10
+2026-04-02 19:41:31,722 - WARNING -   stderr: 2026-04-02 19:41:31,598 - INFO - Fel/hoppade: 19
+2026-04-02 19:41:31,722 - WARNING -   stderr: 2026-04-02 19:41:31,598 - INFO - ==================================================
+2026-04-02 19:41:31,723 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-02)
+2026-04-02 19:41:34,845 - INFO - Vercel API svar: 200
+2026-04-02 19:41:34,848 - INFO - Kör HPR-import för 18 filer...
+2026-04-02 19:41:34,848 - INFO - Startar HPR-import: import_hpr.py
+2026-04-02 19:48:24,143 - ERROR - HPR-import avslutades med kod 3221225786
+2026-04-02 19:55:08,102 - INFO - ============================================================
+2026-04-02 19:55:08,102 - INFO - AUTO IMPORT WATCH — Startar
+2026-04-02 19:55:08,102 - INFO - Bevakar: C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer\Inkommande
+2026-04-02 19:55:08,102 - INFO - MOM-script: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\skogsmaskin_import_version_6.py
+2026-04-02 19:55:08,102 - INFO - HPR-script: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\import_hpr.py
+2026-04-02 19:55:08,102 - INFO - Logg: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude\import_logg.txt
+2026-04-02 19:55:08,102 - INFO - Python: C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\python.exe
+2026-04-02 19:55:08,102 - INFO - ============================================================
+2026-04-02 19:55:08,104 - INFO - Befintliga filer i Inkommande:
+2026-04-02 19:55:08,104 - INFO -   .mom: 20 st
+2026-04-02 19:55:08,104 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-10.mom
+2026-04-02 19:55:08,104 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-10.mom
+2026-04-02 19:55:08,104 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-11.mom
+2026-04-02 19:55:08,104 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-11.mom
+2026-04-02 19:55:08,104 - INFO -     - Björn_Martinsson_Svinhult_A-230326-154953.mom
+2026-04-02 19:55:08,104 - INFO -     - Björn_Martinsson_Svinhult_A-230326-154953.mom
+2026-04-02 19:55:08,104 - INFO -     - Kjell_Erik_Lindström_Steglehylte-130326-123830.mom
+2026-04-02 19:55:08,104 - INFO -     - Kjell_Erik_Lindström_Steglehylte-130326-123830.mom
+2026-04-02 19:55:08,104 - INFO -     - Rödby 26 S-P RP -25_PONS20SDJAA270231_20260320060933.mom
+2026-04-02 19:55:08,104 - INFO -     - Rödby 26 S-P RP -25_PONS20SDJAA270231_20260320060933.mom
+2026-04-02 19:55:08,104 - INFO -     - Rödby_2_6_S_P_RP__25-250326-091255.mom
+2026-04-02 19:55:08,104 - INFO -     - Rödby_2_6_S_P_RP__25-250326-091255.mom
+2026-04-02 19:55:08,104 - INFO -     - Steglehylte_gallring_2025-040326-094841.mom
+2026-04-02 19:55:08,104 - INFO -     - Steglehylte_gallring_2025-040326-094841.mom
+2026-04-02 19:55:08,104 - INFO -     - Åkarp_1_33_Bjurbrant__25-130226-122913.mom
+2026-04-02 19:55:08,104 - INFO -     - Åkarp_1_33_Bjurbrant__25-130226-122913.mom
+2026-04-02 19:55:08,105 - INFO -     - Ålshult_AU_2025-120126-142501.mom
+2026-04-02 19:55:08,105 - INFO -     - Ålshult_AU_2025-120126-142501.mom
+2026-04-02 19:55:08,105 - INFO -     - Ålshult_AU_2025_grot-180326-130934.mom
+2026-04-02 19:55:08,105 - INFO -     - Ålshult_AU_2025_grot-180326-130934.mom
+2026-04-02 19:55:08,105 - INFO -   .hpr: 4 st
+2026-04-02 19:55:08,105 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-10.hpr
+2026-04-02 19:55:08,105 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-10.hpr
+2026-04-02 19:55:08,105 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-11.hpr
+2026-04-02 19:55:08,105 - INFO -     - Björn Martinsson Svinhult Au 2025 2026-03-11.hpr
+2026-04-02 19:55:08,105 - INFO - Kör MOM-import för 20 filer...
+2026-04-02 19:55:08,105 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-02 19:55:17,093 - INFO - MOM-import klar (OK)
+2026-04-02 19:55:17,094 - WARNING -   stderr: 2026-04-02 19:55:16,936 - INFO - SAMMANFATTNING
+2026-04-02 19:55:17,094 - WARNING -   stderr: 2026-04-02 19:55:16,936 - INFO - ==================================================
+2026-04-02 19:55:17,094 - WARNING -   stderr: 2026-04-02 19:55:16,936 - INFO - Processade: 0
+2026-04-02 19:55:17,094 - WARNING -   stderr: 2026-04-02 19:55:16,936 - INFO - Fel/hoppade: 19
+2026-04-02 19:55:17,094 - WARNING -   stderr: 2026-04-02 19:55:16,936 - INFO - ==================================================
+2026-04-02 19:55:17,094 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-02)
+2026-04-02 19:55:19,450 - INFO - Vercel API svar: 200
+2026-04-02 19:55:19,454 - INFO - Kör HPR-import för 4 filer...
+2026-04-02 19:55:19,454 - INFO - Startar HPR-import: import_hpr.py
+2026-04-02 19:59:20,480 - ERROR - HPR-import avslutades med kod 3221225786
+2026-04-02 19:59:20,480 - WARNING -   stderr: 2026-04-02 19:59:07,996 - INFO - [60/174] Krampamåla AU 2025_PONS20SDJAA270231_20260213085849.hpr
+2026-04-02 19:59:20,480 - WARNING -   stderr: 2026-04-02 19:59:10,423 - INFO -   Raderade 1 gamla HPR-filer för objekt
+2026-04-02 19:59:20,480 - WARNING -   stderr: 2026-04-02 19:59:14,984 - INFO -   ✓ 2565 stammar importerade
+2026-04-02 19:59:20,481 - WARNING -   stderr: 2026-04-02 19:59:14,984 - INFO - [61/174] Krampamåla AU 2025_PONS20SDJAA270231_20260213153121.hpr
+2026-04-02 19:59:20,481 - WARNING -   stderr: 2026-04-02 19:59:17,536 - INFO -   Raderade 1 gamla HPR-filer för objekt
+2026-04-05 16:52:46,212 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 0728.hpr
+2026-04-05 16:52:46,215 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 16:52:51,216 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 17:02:51,349 - ERROR - HPR-import timeout (>600s)
+2026-04-05 17:02:51,350 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 0928.hpr
+2026-04-05 17:02:51,350 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 17:02:56,351 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 17:12:56,407 - ERROR - HPR-import timeout (>600s)
+2026-04-05 17:12:56,408 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-04 1401.mom
+2026-04-05 17:12:56,408 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 17:13:01,410 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-05 17:13:01,909 - ERROR - MOM-import avslutades med kod 1
+2026-04-05 17:13:01,909 - WARNING -   stderr:     ^^^^
+2026-04-05 17:13:01,909 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-05 17:13:01,909 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-05 17:13:01,910 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-05 17:13:01,910 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-05 17:13:01,910 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-05)
+2026-04-05 17:13:03,775 - INFO - Vercel API svar: 200
+2026-04-05 17:13:03,779 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 0828.hpr
+2026-04-05 17:13:03,779 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 17:13:08,780 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 17:23:08,814 - ERROR - HPR-import timeout (>600s)
+2026-04-05 17:23:08,815 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 1028.hpr
+2026-04-05 17:23:08,816 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 17:23:13,816 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 17:33:13,866 - ERROR - HPR-import timeout (>600s)
+2026-04-05 17:33:13,867 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 1128.hpr
+2026-04-05 17:33:13,867 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 17:33:18,867 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 17:43:18,926 - ERROR - HPR-import timeout (>600s)
+2026-04-05 17:43:18,927 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-04 0926.hpr
+2026-04-05 17:43:18,927 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 17:43:23,928 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 17:53:24,018 - ERROR - HPR-import timeout (>600s)
+2026-04-05 17:53:24,019 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-04 0826.hpr
+2026-04-05 17:53:24,019 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 17:53:29,020 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 18:03:29,105 - ERROR - HPR-import timeout (>600s)
+2026-04-05 18:03:29,105 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-04 0802.mom
+2026-04-05 18:03:29,105 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 18:03:34,106 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-05 18:03:34,437 - ERROR - MOM-import avslutades med kod 1
+2026-04-05 18:03:34,438 - WARNING -   stderr:     ^^^^
+2026-04-05 18:03:34,438 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-05 18:03:34,438 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-05 18:03:34,438 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-05 18:03:34,438 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-05 18:03:34,438 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-05)
+2026-04-05 18:03:37,589 - INFO - Vercel API svar: 200
+2026-04-05 18:03:37,592 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-04 1326.hpr
+2026-04-05 18:03:37,592 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 18:03:42,593 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 18:13:42,679 - ERROR - HPR-import timeout (>600s)
+2026-04-05 18:13:42,680 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 1607.mom
+2026-04-05 18:13:42,680 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 18:13:47,681 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-05 18:13:47,897 - ERROR - MOM-import avslutades med kod 1
+2026-04-05 18:13:47,897 - WARNING -   stderr:     ^^^^
+2026-04-05 18:13:47,897 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-05 18:13:47,898 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-05 18:13:47,898 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-05 18:13:47,898 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-05 18:13:47,898 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-05)
+2026-04-05 18:13:51,051 - INFO - Vercel API svar: 200
+2026-04-05 18:13:51,054 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-04 1026.hpr
+2026-04-05 18:13:51,054 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 18:13:56,055 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 18:23:56,100 - ERROR - HPR-import timeout (>600s)
+2026-04-05 18:23:56,101 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-04 1401.hpr
+2026-04-05 18:23:56,101 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 18:24:01,102 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 18:34:01,169 - ERROR - HPR-import timeout (>600s)
+2026-04-05 18:34:01,169 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-04 0802.hpr
+2026-04-05 18:34:01,170 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 18:34:06,170 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 18:44:06,200 - ERROR - HPR-import timeout (>600s)
+2026-04-05 18:44:06,201 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 1328.hpr
+2026-04-05 18:44:06,201 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 18:44:11,201 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 18:54:11,257 - ERROR - HPR-import timeout (>600s)
+2026-04-05 18:54:11,258 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 1607.hpr
+2026-04-05 18:54:11,258 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 18:54:16,259 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 19:04:16,304 - ERROR - HPR-import timeout (>600s)
+2026-04-05 19:04:16,305 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 1228.hpr
+2026-04-05 19:04:16,305 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 19:04:21,306 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 19:14:21,351 - ERROR - HPR-import timeout (>600s)
+2026-04-05 19:14:21,352 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 1428.hpr
+2026-04-05 19:14:21,352 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 19:14:26,353 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 19:24:26,405 - ERROR - HPR-import timeout (>600s)
+2026-04-05 19:24:26,406 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-04 1226.hpr
+2026-04-05 19:24:26,406 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 19:24:31,407 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 19:34:31,450 - ERROR - HPR-import timeout (>600s)
+2026-04-05 19:34:31,450 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-03 1528.hpr
+2026-04-05 19:34:31,450 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 19:34:36,451 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 19:44:36,487 - ERROR - HPR-import timeout (>600s)
+2026-04-05 19:44:36,488 - INFO - Ny fil detekterad: Hössjömåla Gallring 25 2026-04-04 1126.hpr
+2026-04-05 19:44:36,488 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-05 19:44:41,488 - INFO - Startar HPR-import: import_hpr.py
+2026-04-05 19:54:41,541 - ERROR - HPR-import timeout (>600s)
+2026-04-06 17:00:06,986 - INFO - Ny fil detekterad: Rödby_2_6_S_P_RP__25-250326-091255.mom
+2026-04-06 17:00:06,988 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-06 17:00:11,992 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-06 17:00:15,871 - ERROR - MOM-import avslutades med kod 1
+2026-04-06 17:00:15,871 - WARNING -   stderr:     ^^^^
+2026-04-06 17:00:15,872 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-06 17:00:15,872 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-06 17:00:15,872 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-06 17:00:15,872 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-06 17:00:15,873 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-06)
+2026-04-06 17:00:23,088 - INFO - Vercel API svar: 200
+2026-04-06 17:02:21,320 - INFO - Ny fil detekterad: Rödby_2_6_S_P_RP__25-250326-091255.mom
+2026-04-06 17:02:21,320 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-06 17:02:26,321 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-06 17:02:26,586 - ERROR - MOM-import avslutades med kod 1
+2026-04-06 17:02:26,586 - WARNING -   stderr:     ^^^^
+2026-04-06 17:02:26,587 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-06 17:02:26,587 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-06 17:02:26,587 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-06 17:02:26,587 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-06 17:02:26,589 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-06)
+2026-04-06 17:02:28,600 - INFO - Vercel API svar: 200
+2026-04-07 15:58:49,437 - INFO - Ny fil detekterad: Rödby_2_6_S_P_RP__25-250326-091255.mom
+2026-04-07 15:58:49,445 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-07 15:58:54,446 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-07 15:58:57,639 - ERROR - MOM-import avslutades med kod 1
+2026-04-07 15:58:57,639 - WARNING -   stderr:     ^^^^
+2026-04-07 15:58:57,640 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-07 15:58:57,640 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-07 15:58:57,640 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-07 15:58:57,640 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-07 15:58:57,641 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-07)
+2026-04-07 15:59:00,027 - INFO - Vercel API svar: 200
+2026-04-07 17:17:51,910 - INFO - Ny fil detekterad: Björn_Martinsson_Svinhult_A-230326-154953.mom
+2026-04-07 17:17:51,910 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-07 17:17:56,911 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-07 17:18:00,949 - ERROR - MOM-import avslutades med kod 1
+2026-04-07 17:18:00,949 - WARNING -   stderr:     ^^^^
+2026-04-07 17:18:00,949 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-07 17:18:00,949 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-07 17:18:00,949 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-07 17:18:00,949 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-07 17:18:00,949 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-07)
+2026-04-07 17:18:04,836 - INFO - Vercel API svar: 200
+2026-04-08 16:40:22,857 - INFO - Ny fil detekterad: Rödby_2_6_S_P_RP__25-250326-091255.mom
+2026-04-08 16:40:22,864 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-08 16:40:27,865 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-08 16:40:31,930 - ERROR - MOM-import avslutades med kod 1
+2026-04-08 16:40:31,931 - WARNING -   stderr:     ^^^^
+2026-04-08 16:40:31,931 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-08 16:40:31,931 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-08 16:40:31,931 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-08 16:40:31,931 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-08 16:40:31,932 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-08)
+2026-04-08 16:40:36,313 - INFO - Vercel API svar: 200
+2026-04-08 19:10:10,925 - INFO - Ny fil detekterad: Björn_Martinsson_Svinhult_A-230326-154953.mom
+2026-04-08 19:10:10,926 - INFO - Väntar 5s för att filen ska skrivas klart...
+2026-04-08 19:10:15,926 - INFO - Startar MOM-import: skogsmaskin_import_version_6.py
+2026-04-08 19:10:20,272 - ERROR - MOM-import avslutades med kod 1
+2026-04-08 19:10:20,274 - WARNING -   stderr:     ^^^^
+2026-04-08 19:10:20,274 - WARNING -   stderr:   File "C:\Users\lindq\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+2026-04-08 19:10:20,274 - WARNING -   stderr:     return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+2026-04-08 19:10:20,275 - WARNING -   stderr:            ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-04-08 19:10:20,275 - WARNING -   stderr: UnicodeEncodeError: 'charmap' codec can't encode characters in position 6-66: character maps to <undefined>
+2026-04-08 19:10:20,275 - INFO - Notifierar Vercel API: https://skogsystem.vercel.app/api/mom-import (datum=2026-04-08)
+2026-04-08 19:10:24,820 - INFO - Vercel API svar: 200
