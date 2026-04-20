@@ -1478,12 +1478,29 @@ export default function Arbetsrapport() {
               ? <div style={{ width:8,height:8,borderRadius:"50%",background:"#adc6ff",boxShadow:"0 0 8px #adc6ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />
               : <span style={{ fontSize:18,lineHeight:1 }}>⏳</span>
             }
-            <h2 style={{ margin:0,color:"#fff",fontWeight:600,fontSize:17 }}>
-              {isWorking ? `Pågående sedan ${dagData[idagKey]?.start_tid?.slice(0,5) || '—'}` : 'Väntar på maskin'}
-            </h2>
+            {(()=>{
+              const typ = dagData[idagKey]?.dagtyp;
+              const startKort = dagData[idagKey]?.start_tid?.slice(0,5) || '—';
+              const dagTypVisa: Record<string,string> = {
+                sjuk: 'Sjukdag', vab: 'VAB', semester: 'Semester', atk: 'ATK',
+                utbildning: 'Utbildning pågår', service: 'Service pågår',
+                möte: 'Möte pågår', annat: 'Annat arbete pågår',
+              };
+              const rubrik = !isWorking
+                ? 'Väntar på maskin'
+                : (typ && typ !== 'normal' && dagTypVisa[typ])
+                  ? dagTypVisa[typ]
+                  : `Pågående sedan ${startKort}`;
+              return <h2 style={{ margin:0,color:"#fff",fontWeight:600,fontSize:17 }}>{rubrik}</h2>;
+            })()}
           </div>
           <p style={{ fontSize:13,color:"rgba(255,255,255,0.5)",margin:isWorking?"0 0 16px":"0 0 14px",lineHeight:1.5 }}>
-            {isWorking ? 'Avslutas automatiskt vid utloggning från maskinen' : 'Startar automatiskt vid inloggning'}
+            {!isWorking
+              ? 'Startar automatiskt vid inloggning'
+              : (dagData[idagKey]?.dagtyp && dagData[idagKey]?.dagtyp !== 'normal')
+                ? `Startad ${(dagData[idagKey]?.start_tid||'').slice(0,5)}`
+                : 'Avslutas automatiskt vid utloggning från maskinen'
+            }
           </p>
           {isWorking && ((maskinNamn || medarbetare?.maskin_id) || (dagData[idagKey]?.objekt_id)) && (
             <div style={{ display:"flex",flexDirection:"column",gap:4,marginBottom:16,paddingBottom:16,borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
@@ -1758,14 +1775,39 @@ export default function Arbetsrapport() {
             {visaÖvrigt && (
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12,animation:"fadeUp 0.25s ease" }}>
                 {[
-                  {id:"sjuk",       label:"Sjukfrånvaro", icon:"medical_services", next:"bekräftaFrånvaro"},
-                  {id:"vab",        label:"VAB",          icon:"child_care",       next:"bekräftaFrånvaro"},
-                  {id:"utbildning", label:"Utbildning",   icon:"school",           next:"manuellDag"},
-                  {id:"service",    label:"Service",      icon:"build",            next:"manuellDag"},
-                  {id:"möte",       label:"Möte",         icon:"groups",           next:"manuellDag"},
-                  {id:"annat",      label:"Annat",        icon:"more_horiz",       next:"manuellDag"},
+                  {id:"sjuk",       label:"Sjukfrånvaro", icon:"medical_services"},
+                  {id:"vab",        label:"VAB",          icon:"child_care"},
+                  {id:"utbildning", label:"Utbildning",   icon:"school"},
+                  {id:"service",    label:"Service",      icon:"build"},
+                  {id:"möte",       label:"Möte",         icon:"groups"},
+                  {id:"annat",      label:"Annat",        icon:"more_horiz"},
                 ].map(s=>(
-                  <button key={s.id} onClick={()=>{setDagTyp(s.id);setSteg(s.next);}}
+                  <button key={s.id} onClick={async ()=>{
+                    // Persistera valet direkt — ingen navigering till en separat vy
+                    const nuT = nuKlock();
+                    const { data } = await supabase.from("arbetsdag").upsert({
+                      medarbetare_id: medarbetare.id,
+                      datum: idagKey,
+                      dagtyp: s.id,
+                      start_tid: nuT + ":00",
+                    }, { onConflict: 'medarbetare_id,datum' }).select().single();
+                    if (data) {
+                      setDagTyp(s.id);
+                      setDagData(d => ({ ...d, [idagKey]: {
+                        ...(d[idagKey] || {}),
+                        id: data.id,
+                        status: 'saknas',
+                        dagtyp: data.dagtyp,
+                        start_tid: data.start_tid,
+                        start: (data.start_tid||'').slice(0,5),
+                        slut_tid: null,
+                        arbMin: 0,
+                        km: 0, km_morgon: 0, km_kvall: 0, km_totalt: 0,
+                      }}));
+                      setVisaÖvrigt(false);
+                      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
+                    }
+                  }}
                     style={{ height:52,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 12px",cursor:"pointer",fontFamily:"inherit" }}>
                     <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>{s.icon}</span>
                     <span style={{ color:"#fff",fontWeight:500,fontSize:14 }}>{s.label}</span>
@@ -3744,27 +3786,33 @@ export default function Arbetsrapport() {
     );
   }
 
-  if(steg==="manuellPågår") return (
+  if(steg==="manuellPågår") {
+    const dagTypVisa: Record<string,string> = {
+      utbildning:'Utbildning pågår', service:'Service pågår', möte:'Möte pågår', annat:'Annat arbete pågår',
+    };
+    const statusText = dagTypVisa[dagTyp] || 'Arbetsdag startad';
+    return (
     <div style={shell}><style>{css}</style>
-      <div style={{ ...topBar,display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
+      <div style={topBar}>
         <p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p>
-        <button onClick={()=>setSteg("morgon")} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.1)",border:"none",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
-          <svg width="16" height="12" viewBox="0 0 16 12" fill="none"><path d="M0 1h16M0 6h16M0 11h16" stroke="#fff" strokeWidth="1.8" strokeLinecap="round"/></svg>
-        </button>
       </div>
       <div style={mid}>
         <div style={{ width:10,height:10,borderRadius:"50%",background:C.blue,marginBottom:28,animation:"pulseDot 2s infinite" }}/>
         <p style={{ fontSize:72,fontWeight:600,margin:0,letterSpacing:"-3px" }}>{start}</p>
-        <p style={{ fontSize:16,color:C.label,margin:"10px 0 24px" }}>Arbetsdag startad</p>
-        <div style={{ background:"rgba(255,255,255,0.06)",borderRadius:12,padding:"12px 24px" }}>
-          <p style={{ margin:0,fontSize:15,fontWeight:600 }}>{mBesk}</p>
-        </div>
+        <p style={{ fontSize:16,color:C.label,margin:"10px 0 24px" }}>{statusText}</p>
+        {mBesk && (
+          <div style={{ background:"rgba(255,255,255,0.06)",borderRadius:12,padding:"12px 24px" }}>
+            <p style={{ margin:0,fontSize:15,fontWeight:600 }}>{mBesk}</p>
+          </div>
+        )}
       </div>
       <div style={bottom}>
         <button style={btn.secondary} onClick={()=>{setKmM({km:72});setKmK({km:72});setSteg("manuellKväll");}}>Avsluta dagen →</button>
       </div>
+      <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
     </div>
-  );
+    );
+  }
 
   if(steg==="manuellKväll") return (
     <div style={shell}><style>{css}</style>
