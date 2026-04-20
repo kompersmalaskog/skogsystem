@@ -2,7 +2,18 @@
 import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { getRödaDagar } from "@/lib/roda-dagar";
-import { vägKm } from "@/utils/geo";
+
+/** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback. */
+async function hämtaVägKm(fLat: number, fLng: number, tLat: number, tLng: number): Promise<number|null> {
+  try {
+    const r = await fetch(`/api/routing?fromLat=${fLat}&fromLng=${fLng}&toLat=${tLat}&toLng=${tLng}`);
+    if (!r.ok) return null;
+    const j = await r.json();
+    return typeof j?.km === "number" ? j.km : null;
+  } catch {
+    return null;
+  }
+}
 
 const css = `
   @keyframes fadeUp {
@@ -630,8 +641,9 @@ export default function Arbetsrapport() {
     });
   }, [gsAvtal]);
 
-  // Automatisk km-beräkning (hem → trakt) när kvällsvyn öppnas. Fyller kmM/kmK
-  // bara om föraren inte redan skrivit in ett värde manuellt.
+  // Automatisk km-beräkning (hem → trakt) när kvällsvyn öppnas. Hämtar
+  // vägavstånd från /api/routing (ORS + cache, fallback haversine×1.4).
+  // Fyller kmM/kmK bara om föraren inte redan skrivit in ett värde manuellt.
   useEffect(() => {
     if (steg !== "kväll") return;
     if (!medarbetare) return;
@@ -645,11 +657,38 @@ export default function Arbetsrapport() {
       setKmBerakning(null);
       return;
     }
-    const km = vägKm(Number(hLat), Number(hLng), Number(oLat), Number(oLng));
-    setKmBerakning(km);
-    if (kmM == null) setKmM({ km });
-    if (kmK == null) setKmK({ km });
+    let cancelled = false;
+    (async () => {
+      const km = await hämtaVägKm(Number(hLat), Number(hLng), Number(oLat), Number(oLng));
+      if (cancelled || km == null) return;
+      setKmBerakning(km);
+      if (kmM == null) setKmM({ km });
+      if (kmK == null) setKmK({ km });
+    })();
+    return () => { cancelled = true; };
   }, [steg, medarbetare?.id, medarbetare?.hem_lat, medarbetare?.hem_lng, valtObjektId, dagData, objektLista]);
+
+  // Automatisk km-beräkning för kalenderns redigera-vy. Triggas när en dag öppnas
+  // och körs asynkront mot /api/routing. Auto-fyller redKm endast om det är 0.
+  useEffect(() => {
+    if (steg !== "redigera" || !redDag) return;
+    const obj = objektLista.find(o => o.id === redDag.objekt_id);
+    const hLat = medarbetare?.hem_lat, hLng = medarbetare?.hem_lng;
+    const oLat = obj?.lat, oLng = obj?.lng;
+    if (hLat == null || hLng == null || oLat == null || oLng == null) {
+      if (redDag.objekt_id) console.warn('km-beräkning (kalender): koordinater saknas', { datum: redDag.datum, hLat, hLng, oLat, oLng, objekt_id: redDag.objekt_id });
+      setRedKmBerakning(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const km = await hämtaVägKm(Number(hLat), Number(hLng), Number(oLat), Number(oLng));
+      if (cancelled || km == null) return;
+      setRedKmBerakning(km);
+      setRedKm(prev => prev === 0 ? km : prev);
+    })();
+    return () => { cancelled = true; };
+  }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.hem_lat, medarbetare?.hem_lng, objektLista]);
 
   // Lazy-hämta semester- och ATK-saldo från Fortnox när Saldon-fliken öppnas
   useEffect(() => {
@@ -2989,7 +3028,7 @@ export default function Arbetsrapport() {
           {totKm>0&&(
             <div style={{ paddingTop:16,marginTop:16,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
               <p style={{ margin:0,fontSize:20,fontWeight:600,color:"#fff" }}>{totKm} km</p>
-              {kmBerakning!=null&&kmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {kmBerakning} km (enkel väg)</p>}
+              {kmBerakning!=null&&kmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {kmBerakning} km (vägavstånd)</p>}
               {ersKm>0
                 ? <p style={{ margin:"4px 0 0",fontSize:13,color:C.green }}>Färdtidsersättning: {ersKm} km över {frikm} km = {milPåbörjade} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {ersKr.toFixed(2).replace('.',',')} kr</p>
                 : <p style={{ margin:"4px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>
@@ -3419,7 +3458,7 @@ export default function Arbetsrapport() {
           <div style={{ textAlign:"center",padding:20,background:"rgba(52,199,89,0.07)",borderRadius:14 }}>
             <Label>Körning</Label>
             <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{redKm} km</p>
-            {redKmBerakning!=null&&redKmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {redKmBerakning} km (enkel väg)</p>}
+            {redKmBerakning!=null&&redKmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {redKmBerakning} km (vägavstånd)</p>}
             {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
               return över>0
                 ? <p style={{ margin:"8px 0 0",fontSize:15,color:C.green,fontWeight:600 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
@@ -3864,18 +3903,8 @@ export default function Arbetsrapport() {
                       setRedStart(d2?.start_tid||"00:00");
                       setRedSlut(d2?.slut_tid||"00:00");
                       setRedRast(d2?.rast_min||0);
-                      // Auto-beräkna km hem→trakt om koordinater finns
-                      const befintligKm = d2?.km_totalt || 0;
-                      const obj = objektLista.find(o => o.id === d2?.objekt_id);
-                      const hLat = medarbetare?.hem_lat, hLng = medarbetare?.hem_lng;
-                      let berakning: number | null = null;
-                      if (hLat != null && hLng != null && obj?.lat != null && obj?.lng != null) {
-                        berakning = vägKm(Number(hLat), Number(hLng), Number(obj.lat), Number(obj.lng));
-                      } else if (d2?.objekt_id) {
-                        console.warn('km-beräkning (kalender): koordinater saknas', { datum, hLat, hLng, oLat: obj?.lat, oLng: obj?.lng, objekt_id: d2.objekt_id });
-                      }
-                      setRedKmBerakning(berakning);
-                      setRedKm(befintligKm > 0 ? befintligKm : (berakning ?? 0));
+                      setRedKm(d2?.km_totalt||0);
+                      setRedKmBerakning(null); // nollställs; fylls av useEffect nedan
                       setRedAnl("");
                       setRedObjektId(d2?.objekt_id||null);
                       setRedMaskinId(d2?.maskin_id||null);
