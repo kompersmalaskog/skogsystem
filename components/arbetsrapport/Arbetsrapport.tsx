@@ -516,6 +516,8 @@ export default function Arbetsrapport() {
   const [pamOpen, setPamOpen] = useState<null | 'obekraftad' | 'pagaende' | 'dagligTid'>(null);
   const [pushEnhetsNamn, setPushEnhetsNamn] = useState<string | null>(null);
   const [visaExtraPanel, setVisaExtraPanel] = useState(false);
+  const [visaÖvrigt, setVisaÖvrigt] = useState(false);
+  const [bekräftelseVisa, setBekräftelseVisa] = useState(false);
   const [extraTidData, setExtraTidData] = useState<any[]>([]);
   const [årsData, setÅrsData] = useState<any[]>([]);
   const [lönSparar, setLönSparar] = useState(false);
@@ -1525,25 +1527,43 @@ export default function Arbetsrapport() {
         {/* Shift Status Card — döljs efter bekräftning och när pass redan avslutats
             (då finns sammanfattningen i stället). */}
         {!dagData[idagKey]?.bekraftad && !dagData[idagKey]?.slut_tid && (
-        <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:32,position:"relative",overflow:"hidden",animation:"fadeUp 0.5s ease 0.05s both" }}>
-          <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
-            {isWorking && <div style={{ width:8,height:8,borderRadius:"50%",background:"#adc6ff",boxShadow:"0 0 8px #adc6ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />}
+        <section style={{ background:isWorking?"#1c1c1e":"rgba(255,255,255,0.04)",borderRadius:16,padding:"20px 24px",marginBottom:32,position:"relative",overflow:"hidden",animation:"fadeUp 0.5s ease 0.05s both",border:isWorking?"1px solid rgba(255,255,255,0.06)":"1px solid rgba(255,255,255,0.05)" }}>
+          <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:isWorking?12:4 }}>
+            {isWorking
+              ? <div style={{ width:8,height:8,borderRadius:"50%",background:"#adc6ff",boxShadow:"0 0 8px #adc6ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />
+              : <span style={{ fontSize:18,lineHeight:1 }}>⏳</span>
+            }
             <h2 style={{ margin:0,color:"#fff",fontWeight:600,fontSize:17 }}>
-              {isWorking ? `Pågående sedan ${dagData[idagKey]?.start_tid?.slice(0,5) || '—'}` : 'Inget pass registrerat'}
+              {isWorking ? `Pågående sedan ${dagData[idagKey]?.start_tid?.slice(0,5) || '—'}` : 'Väntar på maskin'}
             </h2>
           </div>
-          <p style={{ fontSize:14,color:"#8e8e93",margin:"0 0 24px",lineHeight:1.6 }}>
-            {isWorking ? 'Avslutas automatiskt vid utloggning från maskinen' : 'Startar automatiskt när maskinen loggar in'}
+          <p style={{ fontSize:13,color:"rgba(255,255,255,0.5)",margin:isWorking?"0 0 16px":"0 0 14px",lineHeight:1.5 }}>
+            {isWorking ? 'Avslutas automatiskt vid utloggning från maskinen' : 'Startar automatiskt vid inloggning'}
           </p>
-          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+          {isWorking && ((maskinNamn || medarbetare?.maskin_id) || (dagData[idagKey]?.objekt_id)) && (
+            <div style={{ display:"flex",flexDirection:"column",gap:4,marginBottom:16,paddingBottom:16,borderBottom:"1px solid rgba(255,255,255,0.06)" }}>
+              {(maskinNamn || medarbetare?.maskin_id) && (
+                <div style={{ display:"flex",justifyContent:"space-between" }}>
+                  <span style={{ fontSize:13,color:"rgba(255,255,255,0.5)" }}>Maskin</span>
+                  <span style={{ fontSize:14,color:"#fff",fontWeight:500 }}>{maskinNamn || medarbetare?.maskin_id}</span>
+                </div>
+              )}
+              {dagData[idagKey]?.objekt_id && (
+                <div style={{ display:"flex",justifyContent:"space-between" }}>
+                  <span style={{ fontSize:13,color:"rgba(255,255,255,0.5)" }}>Objekt</span>
+                  <span style={{ fontSize:14,color:"#fff",fontWeight:500 }}>{objektLista.find(o => o.id === dagData[idagKey]?.objekt_id)?.namn || dagData[idagKey]?.objekt_id}</span>
+                </div>
+              )}
+            </div>
+          )}
+          <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",gap:12 }}>
             {isWorking ? (
               <button onClick={async ()=>{
-                // Markera maskin-passet som avslutat i DB så sammanfattningen visas i dag-vyn.
                 const nuT = nuKlock();
                 setSlut(nuT);
                 await supabase.from("arbetsdag").update({ slut_tid: nuT + ":00" }).eq("id", dagData[idagKey]?.id);
                 setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
-              }} style={{ fontSize:14,fontWeight:500,color:"#ff453a",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
+              }} style={{ width:"100%",padding:"12px",borderRadius:10,border:"1px solid rgba(255,69,58,0.4)",background:"transparent",color:"#ff453a",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                 Avsluta pass
               </button>
             ) : pagaendeAktiviteter.length===0 ? (
@@ -1583,11 +1603,10 @@ export default function Arbetsrapport() {
                   console.log('[Starta manuellt] dagData uppdaterat för', idagKey);
                   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
                 }
-              }} style={{ fontSize:14,fontWeight:500,color:"#adc6ff",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
+              }} style={{ width:"100%",padding:"12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.25)",background:"transparent",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                 Starta manuellt
               </button>
             ) : <span />}
-            <span className="material-symbols-outlined" style={{ color:"rgba(194,198,214,0.3)",fontSize:24 }}>precision_manufacturing</span>
           </div>
         </section>
         )}
@@ -1778,40 +1797,34 @@ export default function Arbetsrapport() {
           </div>
         )}
 
-        {/* Frånvaro + Arbete utan maskin — göms när en arbetsdag pågår eller är bekräftad */}
-        {!isWorking && !dagData[idagKey]?.bekraftad && (<>
-          <section style={{ animation:"fadeUp 0.5s ease 0.1s both",marginBottom:32 }}>
-            <h3 style={secHead}>Frånvaro</h3>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-              {[
-                {id:"sjuk",label:"Sjukfrånvaro",icon:"medical_services"},
-                {id:"vab",label:"VAB",icon:"child_care"},
-              ].map(s=>(
-                <button key={s.id} onClick={()=>{setDagTyp(s.id);setSteg("bekräftaFrånvaro");}} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
-                  <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
-                  <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
-                </button>
-              ))}
-            </div>
+        {/* Frånvaro & övrigt — kollapsbar sektion längst ner, edge-cases */}
+        {!isWorking && !dagData[idagKey]?.bekraftad && (
+          <section style={{ marginTop:40,marginBottom:16,animation:"fadeUp 0.5s ease 0.15s both" }}>
+            <button onClick={()=>setVisaÖvrigt(v=>!v)}
+              style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 4px",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit" }}>
+              <span style={{ fontSize:14,fontWeight:500,color:"rgba(255,255,255,0.5)",letterSpacing:"0.02em" }}>Frånvaro & övrigt</span>
+              <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",transform:visaÖvrigt?"rotate(90deg)":"none",transition:"transform 0.2s" }}>chevron_right</span>
+            </button>
+            {visaÖvrigt && (
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12,animation:"fadeUp 0.25s ease" }}>
+                {[
+                  {id:"sjuk",       label:"Sjukfrånvaro", icon:"medical_services", next:"bekräftaFrånvaro"},
+                  {id:"vab",        label:"VAB",          icon:"child_care",       next:"bekräftaFrånvaro"},
+                  {id:"utbildning", label:"Utbildning",   icon:"school",           next:"manuellDag"},
+                  {id:"service",    label:"Service",      icon:"build",            next:"manuellDag"},
+                  {id:"möte",       label:"Möte",         icon:"groups",           next:"manuellDag"},
+                  {id:"annat",      label:"Annat",        icon:"more_horiz",       next:"manuellDag"},
+                ].map(s=>(
+                  <button key={s.id} onClick={()=>{setDagTyp(s.id);setSteg(s.next);}}
+                    style={{ height:52,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 12px",cursor:"pointer",fontFamily:"inherit" }}>
+                    <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>{s.icon}</span>
+                    <span style={{ color:"#fff",fontWeight:500,fontSize:14 }}>{s.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </section>
-
-          <section style={{ animation:"fadeUp 0.5s ease 0.15s both" }}>
-            <h3 style={secHead}>Arbete utan maskin</h3>
-            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-              {[
-                {id:"utbildning",label:"Utbildning",icon:"school"},
-                {id:"service",label:"Service",icon:"build"},
-                {id:"möte",label:"Möte",icon:"groups"},
-                {id:"annat",label:"Annat arbete",icon:"more_horiz"},
-              ].map(s=>(
-                <button key={s.id} onClick={()=>{setDagTyp(s.id);setSteg("manuellDag");}} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
-                  <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
-                  <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
-                </button>
-              ))}
-            </div>
-          </section>
-        </>)}
+        )}
 
         {/* Maskin & objekt metadata */}
         <section style={{ marginTop:48,paddingTop:32,borderTop:"1px solid rgba(255,255,255,0.05)",animation:"fadeUp 0.5s ease 0.15s both" }}>
