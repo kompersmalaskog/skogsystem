@@ -5,8 +5,11 @@ import { getFortnoxClient, serverSupabase } from "@/lib/lonesystem/server";
  * GET /api/fortnox/employee-details?medarbetare_id=<uuid>
  *
  * Hämtar semester- och ATK-saldo från Fortnox för given medarbetare.
- * Slår upp anställningsnummer i medarbetare_lonesystem, frågar
- * /3/employees/{anst_nr} i Fortnox och läser atk_ledig_tim från gs_avtal.
+ * Semester: VacationDaysPaid + VacationDaysSaved - VacationDaysRegisteredPaid.
+ * ATK: ATKValue (kr). Timmar = saldo / timlön (Fortnox HourlyPay,
+ * fallback till gs_avtal.timlon_kr). Om timlön saknas returneras timmar=null.
+ * gs_avtal-raden som väljs är den där giltigt_fran <= idag och
+ * (giltigt_till IS NULL OR giltigt_till >= idag).
  */
 export async function GET(req: NextRequest) {
   try {
@@ -20,6 +23,7 @@ export async function GET(req: NextRequest) {
     }
 
     const supabase = serverSupabase();
+    const idag = new Date().toISOString().slice(0, 10);
 
     const [mappRes, avtalRes] = await Promise.all([
       supabase
@@ -29,11 +33,18 @@ export async function GET(req: NextRequest) {
         .maybeSingle(),
       supabase
         .from("gs_avtal")
-        .select("atk_ledig_tim")
+        .select("*")
+        .lte("giltigt_fran", idag)
+        .or(`giltigt_till.is.null,giltigt_till.gte.${idag}`)
         .order("giltigt_fran", { ascending: false })
         .limit(1)
         .maybeSingle(),
     ]);
+
+    const avtal = avtalRes.data;
+    console.log("[employee-details] gs_avtal vald:", avtal
+      ? { id: avtal.id, namn: avtal.namn, giltigt_fran: avtal.giltigt_fran, giltigt_till: avtal.giltigt_till, timlon_kr: avtal.timlon_kr }
+      : null);
 
     const anstNr = mappRes.data?.anstallningsnummer;
     if (!anstNr) {
@@ -66,18 +77,25 @@ export async function GET(req: NextRequest) {
 
     const betalda = numeriskt(emp.VacationDaysPaid);
     const obetalda = numeriskt(emp.VacationDaysUnpaid);
-    const sparade = sumSparade(emp);
+    const sparade = numeriskt(emp.VacationDaysSaved);
+    const uttagna = numeriskt(emp.VacationDaysRegisteredPaid);
+    const kvar = Math.max(0, Math.round((betalda + sparade - uttagna) * 10) / 10);
 
     const saldoKr = numeriskt(emp.ATKValue);
-    const timmar = numeriskt(avtalRes.data?.atk_ledig_tim);
-    const timlon = numeriskt(emp.HourlyPay);
+    const timlonFortnox = numeriskt(emp.HourlyPay);
+    const timlonAvtal = numeriskt(avtal?.timlon_kr);
+    const timlon = timlonFortnox > 0 ? timlonFortnox : timlonAvtal;
+    const timmar = timlon > 0 ? Math.round((saldoKr / timlon) * 10) / 10 : null;
 
     return NextResponse.json({
       ok: true,
       anstallningsnummer: anstNr,
-      semester: { betalda, obetalda, sparade },
+      semester: { betalda, obetalda, sparade, uttagna, kvar },
       atk: { saldo_kr: saldoKr, timmar },
       lon: { timlon },
+      gs_avtal_vald: avtal
+        ? { id: avtal.id, namn: avtal.namn, giltigt_fran: avtal.giltigt_fran, giltigt_till: avtal.giltigt_till }
+        : null,
     });
   } catch (e: any) {
     return NextResponse.json(
@@ -91,21 +109,4 @@ function numeriskt(v: any): number {
   if (v == null || v === "") return 0;
   const n = typeof v === "number" ? v : parseFloat(String(v));
   return Number.isFinite(n) ? n : 0;
-}
-
-// Summerar alla Fortnox-fält som heter VacationDaysSaved*, Saved1..Saved6+.
-// Vi vet inte exakt shape – stöd både platta fält och ev. nested array.
-function sumSparade(emp: any): number {
-  let total = 0;
-  for (const [k, v] of Object.entries(emp)) {
-    if (!k.startsWith("VacationDaysSaved")) continue;
-    if (Array.isArray(v)) {
-      for (const item of v) total += numeriskt((item as any)?.Days ?? item);
-    } else if (v && typeof v === "object") {
-      for (const inner of Object.values(v as any)) total += numeriskt(inner);
-    } else {
-      total += numeriskt(v);
-    }
-  }
-  return Math.round(total * 10) / 10;
 }

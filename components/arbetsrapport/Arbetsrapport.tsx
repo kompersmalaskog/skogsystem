@@ -506,8 +506,8 @@ export default function Arbetsrapport() {
   const [atkVal, setAtkVal] = useState<'ledig'|'kontant'|'pension'|null>(null);
   const [atkValSparat, setAtkValSparat] = useState<any>(null);
   const [fortnoxSaldo, setFortnoxSaldo] = useState<{
-    semester:{betalda:number;obetalda:number;sparade:number};
-    atk:{saldo_kr:number;timmar:number};
+    semester:{betalda:number;obetalda:number;sparade:number;uttagna:number;kvar:number};
+    atk:{saldo_kr:number;timmar:number|null};
     lon:{timlon:number};
   } | null>(null);
   const [fortnoxSaldoStatus, setFortnoxSaldoStatus] = useState<'idle'|'loading'|'ok'|'error'>('idle');
@@ -534,7 +534,7 @@ export default function Arbetsrapport() {
           ? supabase.from("medarbetare").select("*").eq("epost", user.email).single()
           : supabase.from("medarbetare").select("*").limit(1).single()
       ),
-      supabase.from("gs_avtal").select("*").order("giltigt_fran",{ascending:false}).limit(1).single(),
+      (()=>{ const idag=new Date().toISOString().slice(0,10); return supabase.from("gs_avtal").select("*").lte("giltigt_fran",idag).or(`giltigt_till.is.null,giltigt_till.gte.${idag}`).order("giltigt_fran",{ascending:false}).limit(1).maybeSingle(); })(),
       supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare").order("object_name"),
     ]).then(([med, avt, obj]) => {
       if(med.data) {
@@ -1702,12 +1702,10 @@ export default function Arbetsrapport() {
             const betalda = fortnoxSaldo?.semester.betalda ?? 0;
             const obetalda = fortnoxSaldo?.semester.obetalda ?? 0;
             const sparade = fortnoxSaldo?.semester.sparade ?? 0;
-            const årNu=nu.getFullYear();
-            const ijStart = nu.getMonth()>=3 ? `${årNu}-04-01` : `${årNu-1}-04-01`;
-            const semAnvänt = årsData.filter(d=>d.datum>=ijStart&&d.dagtyp==='semester').length;
+            const uttagna = fortnoxSaldo?.semester.uttagna ?? 0;
+            const semKvar = fortnoxSaldo?.semester.kvar ?? 0;
             const semTotalt = betalda + sparade;
-            const semKvar = Math.max(0, semTotalt - semAnvänt);
-            const semPct = semTotalt>0?Math.min(100,semAnvänt/semTotalt*100):0;
+            const semPct = semTotalt>0?Math.min(100,uttagna/semTotalt*100):0;
 
             return (
               <section style={{ marginBottom:24 }}>
@@ -1729,7 +1727,7 @@ export default function Arbetsrapport() {
                         ["Betalda",`${betalda} dagar`],
                         ...(obetalda>0?[["Obetalda",`${obetalda} dagar`]]:[]),
                         ...(sparade>0?[["Sparade",`${sparade} dagar`]]:[]),
-                        ["Använt i år",`${semAnvänt} dagar`],
+                        ["Uttagna",`${uttagna} dagar`],
                       ].map(([l,v])=>(
                         <div key={l as string} style={{ display:"flex",justifyContent:"space-between" }}>
                           <span style={{ fontSize:13,color:"#8e8e93" }}>{l}</span>
@@ -1749,13 +1747,13 @@ export default function Arbetsrapport() {
             const fel    = fortnoxSaldoStatus==='error';
 
             const atkKr    = fortnoxSaldo?.atk.saldo_kr ?? 0;
-            const atkTimmar = fortnoxSaldo?.atk.timmar ?? (gsAvtal?.atk_ledig_tim ?? 0);
-            const atkDagar = Math.round(atkTimmar/8*10)/10;
+            const atkTimmar = fortnoxSaldo?.atk.timmar ?? null;
+            const atkDagar = atkTimmar!=null ? Math.round(atkTimmar/8*10)/10 : null;
             const årNu2 = nu.getFullYear();
             const harValt = !!atkValSparat;
 
             // ATK-valperiod: 1-15 maj
-            const maj1  = new Date(årNu2, 4, 1);       // maj = månad 4 (0-indexerad)
+            const maj1  = new Date(årNu2, 4, 1);
             const maj15 = new Date(årNu2, 4, 15, 23, 59, 59);
             const föreValperiod = nu < maj1;
             const iValperiod    = nu >= maj1 && nu <= maj15;
@@ -1771,19 +1769,15 @@ export default function Arbetsrapport() {
                   ):fel?(
                     <p style={{ margin:0,fontSize:14,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
                   ):(<>
-                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16 }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:atkTimmar!=null?16:0 }}>
                       <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{atkKr.toLocaleString('sv-SE')} <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>kr</span></span>
                     </div>
-                    <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                    {atkTimmar!=null&&(
                       <div style={{ display:"flex",justifyContent:"space-between" }}>
-                        <span style={{ fontSize:13,color:"#8e8e93" }}>Saldo (Fortnox)</span>
-                        <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{atkKr.toLocaleString('sv-SE')} kr</span>
-                      </div>
-                      <div style={{ display:"flex",justifyContent:"space-between" }}>
-                        <span style={{ fontSize:13,color:"#8e8e93" }}>Ledig tid i avtal</span>
+                        <span style={{ fontSize:13,color:"#8e8e93" }}>Motsvarar</span>
                         <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{atkTimmar}h ({atkDagar} dagar)</span>
                       </div>
-                    </div>
+                    )}
                   </>)}
                 </div>
 
@@ -1819,7 +1813,7 @@ export default function Arbetsrapport() {
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                       <span style={{ color:"#34c759",fontSize:14 }}>✓</span>
                       <span style={{ fontSize:14,color:"#fff" }}>
-                        {atkValSparat.val==='ledig'?`Du valde ledig tid: ${atkDagar} dagar`:atkValSparat.val==='kontant'?`Utbetalas juni ${årNu2}: ≈ ${atkKr.toLocaleString('sv-SE')} kr`:`Avsatt till pension: ≈ ${atkKr.toLocaleString('sv-SE')} kr`}
+                        {atkValSparat.val==='ledig'?`Du valde ledig tid${atkDagar!=null?`: ${atkDagar} dagar`:''}`:atkValSparat.val==='kontant'?`Utbetalas juni ${årNu2}: ≈ ${atkKr.toLocaleString('sv-SE')} kr`:`Avsatt till pension: ≈ ${atkKr.toLocaleString('sv-SE')} kr`}
                       </span>
                     </div>
                   </div>
@@ -1830,7 +1824,7 @@ export default function Arbetsrapport() {
                     <p style={{ margin:"0 0 16px",fontSize:14,fontWeight:600,color:"#ff9f0a" }}>Välj för ditt ATK {årNu2}</p>
                     <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16 }}>
                       {([
-                        {k:'ledig' as const,label:'Ledig tid',sub:`= ${atkDagar} dagar`},
+                        {k:'ledig' as const,label:'Ledig tid',sub:atkDagar!=null?`= ${atkDagar} dagar`:''},
                         {k:'kontant' as const,label:'Pengar',sub:`≈ ${atkKr.toLocaleString('sv-SE')} kr`,sub2:'före skatt'},
                         {k:'pension' as const,label:'Pension',sub:`≈ ${atkKr.toLocaleString('sv-SE')} kr`,sub2:'till pension'},
                       ]).map(o=>(
@@ -1845,7 +1839,7 @@ export default function Arbetsrapport() {
                       disabled={!atkVal}
                       onClick={async()=>{
                         if(!atkVal) return;
-                        const row={medarbetare_id:medarbetare.id,period:String(årNu2),val:atkVal,timmar:atkTimmar,belopp:atkVal!=='ledig'?atkKr:null,datum_valt:new Date().toISOString(),status:'bekräftad'};
+                        const row={medarbetare_id:medarbetare.id,period:String(årNu2),val:atkVal,timmar:atkTimmar ?? 0,belopp:atkVal!=='ledig'?atkKr:null,datum_valt:new Date().toISOString(),status:'bekräftad'};
                         await supabase.from("atk_val").upsert(row, { onConflict: 'medarbetare_id,period' });
                         setAtkValSparat(row);
                       }}
