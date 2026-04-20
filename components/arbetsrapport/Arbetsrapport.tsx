@@ -1058,8 +1058,9 @@ export default function Arbetsrapport() {
   // Vila-beräkningar för startsidan
   const vilaVarningar: {typ:'röd'|'orange';text:string}[] = [];
   const tidigastStart = (() => {
-    // Kolla dygnsvila: senaste arbetsdag med slut_tid
-    const senaste = [...årsData].filter(r=>r.slut_tid).sort((a,b)=>b.datum.localeCompare(a.datum))[0];
+    // Kolla dygnsvila: senaste arbetsdag med slut_tid — exkludera idag
+    // (annars räknas dagens nyss-avslutade pass som "sedan igår").
+    const senaste = [...årsData].filter(r=>r.slut_tid && r.datum < idagKey).sort((a,b)=>b.datum.localeCompare(a.datum))[0];
     if(!senaste) return null;
     const slutDt = new Date(`${senaste.datum}T${senaste.slut_tid.slice(0,5)}`);
     const nuDt = new Date();
@@ -1521,7 +1522,9 @@ export default function Arbetsrapport() {
           <p style={{ margin:0,fontSize:15,color:"#8e8e93" }}>{datumStr}</p>
         </section>
 
-        {/* Shift Status Card */}
+        {/* Shift Status Card — döljs efter bekräftning och när pass redan avslutats
+            (då finns sammanfattningen i stället). */}
+        {!dagData[idagKey]?.bekraftad && !dagData[idagKey]?.slut_tid && (
         <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:32,position:"relative",overflow:"hidden",animation:"fadeUp 0.5s ease 0.05s both" }}>
           <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
             {isWorking && <div style={{ width:8,height:8,borderRadius:"50%",background:"#adc6ff",boxShadow:"0 0 8px #adc6ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />}
@@ -1587,6 +1590,7 @@ export default function Arbetsrapport() {
             <span className="material-symbols-outlined" style={{ color:"rgba(194,198,214,0.3)",fontSize:24 }}>precision_manufacturing</span>
           </div>
         </section>
+        )}
 
         {/* Dagssammanfattning + Bekräfta — när maskin-passet är avslutat */}
         {(()=>{
@@ -1654,19 +1658,31 @@ export default function Arbetsrapport() {
               {!redanBekräftad && pagaendeAktiviteter.length===0 && (
                 <button
                   onClick={async ()=>{
+                    const nuT = nuKlock();
+                    const nuTS = nuT + ":00";
+                    // Säkerställ att passet är avslutat. Om slut_tid saknas (skyddsnät —
+                    // kortet visas normalt bara när slut finns), använd nuvarande tid.
+                    const effektivSlut = slut || nuT;
+                    // Stoppa ev pågående extra_tid-rader: dagen kan inte vara bekräftad
+                    // OCH ha pågående aktiviteter samtidigt.
+                    for (const p of pagaendeAktiviteter) {
+                      const min = minutDiff(p.start_tid, nuTS);
+                      await supabase.from("extra_tid").update({ slut_tid: nuTS, minuter: min }).eq("id", p.id);
+                    }
+                    if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
                     // arbetad_min och km_totalt är generated columns — skickas inte.
-                    // extra_tid_min finns inte i arbetsdag-tabellen, räknas från extra_tid-rader.
                     await supabase.from("arbetsdag").upsert({
                       medarbetare_id: medarbetare.id,
                       datum: new Date().toISOString().split("T")[0],
-                      start_tid: start, slut_tid: slut, rast_min: rast,
+                      start_tid: start, slut_tid: effektivSlut, rast_min: rast,
                       km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
                       maskin_id: medarbetare.maskin_id,
                       objekt_id: dagObjId,
                       traktamente: trak, bekraftad: true,
                       bekraftad_tid: new Date().toISOString(),
                     }, { onConflict: 'medarbetare_id,datum' });
-                    setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true } }));
+                    setSlut(effektivSlut.slice(0,5));
+                    setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true, slut_tid: effektivSlut } }));
                   }}
                   style={{ width:"100%",marginTop:16,padding:"20px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
                   Bekräfta dagen ✓
