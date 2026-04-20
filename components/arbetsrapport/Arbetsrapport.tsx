@@ -1437,9 +1437,10 @@ export default function Arbetsrapport() {
           </div>
         ))}
 
-        {/* Starta extra tid — visas när ingen timer pågår och dagen ej bekräftats.
-            Även före arbetsdag (ingen MOM-start) — föraren kan starta redan kl 06. */}
-        {!dagData[idagKey]?.slut_tid && !dagData[idagKey]?.bekraftad && pagaendeAktiviteter.length===0 && (
+        {/* Starta extra tid — visas i alla lägen utom när en timer redan pågår
+            eller dagen är bekräftad. Täcker morgon före MOM, under pass och
+            kvällsarbete efter pass (t.ex. köra hem, hämta reservdelar). */}
+        {!dagData[idagKey]?.bekraftad && pagaendeAktiviteter.length===0 && (
           <button onClick={async ()=>{
             const startTid = nuKlock();
             const { data } = await supabase.from("extra_tid").insert({
@@ -1727,28 +1728,7 @@ export default function Arbetsrapport() {
                   {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen ✓"}
                 </button>
               ))}
-              {/* + Starta extra tid — synlig även när dagen är bekräftad (glömd aktivitet) */}
-              {pagaendeAktiviteter.length===0 && (
-                <button onClick={async ()=>{
-                  const startTid = nuKlock();
-                  const { data } = await supabase.from("extra_tid").insert({
-                    medarbetare_id: medarbetare.id,
-                    datum: idagKey,
-                    start_tid: startTid + ":00",
-                    slut_tid: null,
-                    minuter: 0,
-                    kalla: (dagData[idagKey]?.slut_tid || dagData[idagKey]?.bekraftad) ? 'kvall' : 'morgon',
-                  }).select().single();
-                  if (data) {
-                    setPagaendeAktiviteter(p => [...p, data]);
-                    setExtraTidData(d => [data, ...d]);
-                  }
-                  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
-                }}
-                  style={{ width:"100%",marginTop:10,padding:"18px",background:"transparent",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",borderRadius:14,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-                  + Starta extra tid
-                </button>
-              )}
+              {/* "+ Starta extra tid" lever nu högst upp i dag-vyn som enda ingång */}
             </section>
           );
         })()}
