@@ -813,12 +813,13 @@ export default function Arbetsrapport() {
   const idag=new Date();
   const datumStr=`${["Sön","Mån","Tis","Ons","Tor","Fre","Lör"][idag.getDay()]} ${idag.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][idag.getMonth()]}`;
 
-  const frikm = gsAvtal?.km_grans_per_dag ?? 120;
-  const kmErs = gsAvtal?.km_ersattning_kr ?? 2.90;
+  const frikm = gsAvtal?.km_grans_per_dag ?? 60;
+  const fardtidPerMil = gsAvtal?.fardtid_kr_per_mil ?? 10.49;
   const arbMin = Math.max(0,tim(start,slut)-rast);
   const totKm  = (kmM?.km||0)+(kmK?.km||0);
-  const ersKm  = Math.max(0,totKm-frikm);
-  const ersKr  = ersKm*kmErs;
+  const ersKm  = Math.max(0,totKm-frikm);                          // km över gränsen
+  const milPåbörjade = ersKm>0 ? Math.ceil(ersKm/10) : 0;          // påbörjade mil
+  const ersKr  = Math.round(milPåbörjade*fardtidPerMil*100)/100;   // färdtidsersättning kr
   const totEx  = extra.reduce((a,e)=>a+e.min,0);
   const totMin = arbMin+totEx;
   const idagKey = new Date().toISOString().split('T')[0];
@@ -2974,7 +2975,10 @@ export default function Arbetsrapport() {
             <div style={{ paddingTop:16,marginTop:16,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
               <p style={{ margin:0,fontSize:20,fontWeight:600,color:"#fff" }}>{totKm} km</p>
               {kmBerakning!=null&&kmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {kmBerakning} km (enkel väg)</p>}
-              {ersKm>0&&<p style={{ margin:"4px 0 0",fontSize:13,color:C.green }}>+{ersKm} km · {ersKr.toFixed(0)} kr ersättning</p>}
+              {ersKm>0
+                ? <p style={{ margin:"4px 0 0",fontSize:13,color:C.green }}>Färdtidsersättning: {ersKm} km över {frikm} km = {milPåbörjade} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {ersKr.toFixed(2).replace('.',',')} kr</p>
+                : <p style={{ margin:"4px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>
+              }
             </div>
           )}
           {extra.length>0&&(
@@ -3181,7 +3185,11 @@ export default function Arbetsrapport() {
             <div style={{ background:"rgba(52,199,89,0.1)",borderRadius:16,border:"1px solid rgba(52,199,89,0.2)",padding:32,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center" }}>
               <div style={{ fontSize:44,fontWeight:800,color:"#34c759",letterSpacing:"-0.03em" }}>{ny} km</div>
               <p style={{ margin:"8px 0 0",fontSize:11,fontWeight:700,letterSpacing:"0.15em",textTransform:"uppercase",color:"rgba(52,199,89,0.6)" }}>Dagens körsträcka</p>
-              {ny>frikm&&<p style={{ margin:"8px 0 0",fontSize:14,color:"#34c759",fontWeight:600 }}>+{ny-frikm} km ger ersättning</p>}
+              {(()=>{ const över=Math.max(0,ny-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
+                return över>0
+                  ? <p style={{ margin:"8px 0 0",fontSize:14,color:"#34c759",fontWeight:600 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
+                  : <p style={{ margin:"8px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>;
+              })()}
             </div>
           </section>
 
@@ -3397,7 +3405,11 @@ export default function Arbetsrapport() {
             <Label>Körning</Label>
             <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{redKm} km</p>
             {redKmBerakning!=null&&redKmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {redKmBerakning} km (enkel väg)</p>}
-            {redKm>frikm&&<p style={{ margin:"8px 0 0",fontSize:15,color:C.green,fontWeight:600 }}>+{redKm-frikm} km ger ersättning</p>}
+            {(()=>{ const över=Math.max(0,redKm-frikm); const mil=över>0?Math.ceil(över/10):0; const kr=Math.round(mil*fardtidPerMil*100)/100;
+              return över>0
+                ? <p style={{ margin:"8px 0 0",fontSize:15,color:C.green,fontWeight:600 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} påbörjade mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
+                : <p style={{ margin:"8px 0 0",fontSize:13,color:"#8e8e93" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>;
+            })()}
           </div>
         </div>
         <div style={bottom}><button style={btn.primary} onClick={()=>setRedVy("översikt")}>Klar</button></div>
