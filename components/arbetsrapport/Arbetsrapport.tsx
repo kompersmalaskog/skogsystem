@@ -1604,8 +1604,13 @@ export default function Arbetsrapport() {
           const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
           const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
           const harErsKr = ersKr > 0;
-          const harKmBlock = harKm;
-          const harObjBlock = !!(dagObjNamn || maskinNamnLång);
+          // Utbildning/service kör en förenklad variant: ingen körning, ingen traktamente, rubrik byts till dagtypen.
+          const erTimerDag = idagArb?.dagtyp === 'utbildning' || idagArb?.dagtyp === 'service';
+          const arbetstidLabel = erTimerDag ? (idagArb.dagtyp === 'utbildning' ? 'Utbildning' : 'Service') : 'Arbetstid';
+          const platsText = erTimerDag ? (idagArb?.kommentar || null) : null;
+          const harPlatsBlock = !!platsText;
+          const harKmBlock = harKm && !erTimerDag;
+          const harObjBlock = !!(dagObjNamn || maskinNamnLång) && !erTimerDag;
           const sammanRad = (label: string, value: string, onClick?: () => void) => (
             <div key={label} onClick={onClick}
               style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:onClick?"pointer":"default" }}>
@@ -1635,22 +1640,29 @@ export default function Arbetsrapport() {
                   </div>
                 )}
                 {!redanBekräftad && !ändradSedan && <div style={{ height:6 }} />}
-                <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
-                  {sammanRad("Arbetstid", `${start} → ${slut}`, öppnaTider)}
+                <div style={{ paddingBottom:10,borderBottom:(harPlatsBlock||harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harPlatsBlock||harObjBlock||harKmBlock)?10:0 }}>
+                  {sammanRad(arbetstidLabel, `${start} → ${slut}`, öppnaTider)}
                   {sammanRad("Rast", `${rast} min`, öppnaTider)}
                   {sammanRad("Total", fmt(arbMin))}
                 </div>
+                {harPlatsBlock && (
+                  <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
+                    {sammanRad("Plats", platsText!)}
+                  </div>
+                )}
                 {harObjBlock&&(
                   <div style={{ paddingBottom:10,borderBottom:harKmBlock?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:harKmBlock?10:0 }}>
                     {maskinNamnLång && sammanRad("Maskin", maskinNamnLång)}
                     {dagObjNamn     && sammanRad("Objekt", dagObjNamn)}
                   </div>
                 )}
-                {/* Körning — alltid synlig efter avslutat pass, klickbar för manuell input */}
-                <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
-                  {sammanRad("Körning", `${totKm} km`, öppnaKm)}
-                  {harErsKr && sammanRad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
-                </div>
+                {/* Körning — alltid synlig efter avslutat pass för maskinpass (ej utbildning/service) */}
+                {!erTimerDag && (
+                  <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
+                    {sammanRad("Körning", `${totKm} km`, öppnaKm)}
+                    {harErsKr && sammanRad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
+                  </div>
+                )}
                 {/* Extra tid-rader för idag — klickbara för att redigera typ/objekt/deb/kommentar.
                     Prefix Morgon/Kväll/Extra avgörs av tid relative till arbetsdag. */}
                 {(()=>{
@@ -1690,6 +1702,7 @@ export default function Arbetsrapport() {
                     </div>
                   );
                 })()}
+                {!erTimerDag && (
                 <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
                   <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Traktamente</span>
                   <div style={{ display:"flex",alignItems:"center",gap:4 }}>
@@ -1697,7 +1710,8 @@ export default function Arbetsrapport() {
                     <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",transform:trakÖppen?"rotate(90deg)":"none",transition:"transform 0.2s" }}>chevron_right</span>
                   </div>
                 </div>
-                {trakÖppen&&(
+                )}
+                {!erTimerDag && trakÖppen&&(
                   <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10 }}>
                     {[{k:'inget',l:'Inget',v:null},{k:'halv',l:`Halv · ${halvKr}`,v:{summa:halvKr}},{k:'hel',l:`Hel · ${helKr}`,v:{summa:helKr}}].map(opt=>{
                       const valt = opt.v === null ? !trak : (trak?.summa === (opt.v as any)?.summa);
