@@ -505,6 +505,12 @@ export default function Arbetsrapport() {
   const [minTidFlik, setMinTidFlik] = useState<'översikt'|'saldon'|'vila'|'monster'|'lön'>('översikt');
   const [atkVal, setAtkVal] = useState<'ledig'|'kontant'|'pension'|null>(null);
   const [atkValSparat, setAtkValSparat] = useState<any>(null);
+  const [fortnoxSaldo, setFortnoxSaldo] = useState<{
+    semester:{betalda:number;obetalda:number;sparade:number};
+    atk:{saldo_kr:number;timmar:number};
+    lon:{timlon:number};
+  } | null>(null);
+  const [fortnoxSaldoStatus, setFortnoxSaldoStatus] = useState<'idle'|'loading'|'ok'|'error'>('idle');
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
 
@@ -597,6 +603,25 @@ export default function Arbetsrapport() {
     // Hämta dagens objekt via dim_objekt (senaste aktiva objekt för maskin)
     // arbetsdag har ingen objekt_id — dagensObjekt hämtas separat om det behövs
   }, []);
+
+  // Lazy-hämta semester- och ATK-saldo från Fortnox när Saldon-fliken öppnas
+  useEffect(() => {
+    if (minTidFlik !== 'saldon') return;
+    if (!medarbetare?.id) return;
+    if (fortnoxSaldoStatus === 'loading' || fortnoxSaldoStatus === 'ok') return;
+    setFortnoxSaldoStatus('loading');
+    fetch(`/api/fortnox/employee-details?medarbetare_id=${encodeURIComponent(medarbetare.id)}`)
+      .then(r => r.json())
+      .then(json => {
+        if (json?.ok) {
+          setFortnoxSaldo({ semester: json.semester, atk: json.atk, lon: json.lon });
+          setFortnoxSaldoStatus('ok');
+        } else {
+          setFortnoxSaldoStatus('error');
+        }
+      })
+      .catch(() => setFortnoxSaldoStatus('error'));
+  }, [minTidFlik, medarbetare?.id]);
 
   // === ARBETSDAG-NOTIS (start + avslut) ===
   const [arbetsdagToast, setArbetsdagToast] = useState<{
@@ -1671,36 +1696,48 @@ export default function Arbetsrapport() {
           {minTidFlik==='saldon'&&<>
           {/* Semester */}
           {(()=>{
-            const semTotalt = medarbetare?.semester_dagar ?? 25;
-            const semSparat = medarbetare?.semester_sparat ?? 0;
-            // Intjäningsår: 1 apr förra året → 31 mar i år (eller aktuellt)
+            const laddar = fortnoxSaldoStatus==='loading' || fortnoxSaldoStatus==='idle';
+            const fel    = fortnoxSaldoStatus==='error';
+
+            const betalda = fortnoxSaldo?.semester.betalda ?? 0;
+            const obetalda = fortnoxSaldo?.semester.obetalda ?? 0;
+            const sparade = fortnoxSaldo?.semester.sparade ?? 0;
             const årNu=nu.getFullYear();
             const ijStart = nu.getMonth()>=3 ? `${årNu}-04-01` : `${årNu-1}-04-01`;
             const semAnvänt = årsData.filter(d=>d.datum>=ijStart&&d.dagtyp==='semester').length;
-            const semKvar = semTotalt + semSparat - semAnvänt;
-            const semPct = semTotalt>0?Math.min(100,semAnvänt/(semTotalt+semSparat)*100):0;
+            const semTotalt = betalda + sparade;
+            const semKvar = Math.max(0, semTotalt - semAnvänt);
+            const semPct = semTotalt>0?Math.min(100,semAnvänt/semTotalt*100):0;
+
             return (
               <section style={{ marginBottom:24 }}>
                 <h3 style={secHead}>Semester</h3>
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
-                    <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{semKvar} <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>dagar kvar</span></span>
-                  </div>
-                  <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:12,overflow:"hidden" }}>
-                    <div style={{ height:"100%",width:`${semPct}%`,background:"#adc6ff",borderRadius:2 }} />
-                  </div>
-                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-                    {[
-                      ["Totalt",`${semTotalt} dagar`],
-                      ...(semSparat>0?[["Sparat från förra året",`${semSparat} dagar`]]:[]),
-                      ["Använt",`${semAnvänt} dagar`],
-                    ].map(([l,v])=>(
-                      <div key={l as string} style={{ display:"flex",justifyContent:"space-between" }}>
-                        <span style={{ fontSize:13,color:"#8e8e93" }}>{l}</span>
-                        <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{v}</span>
-                      </div>
-                    ))}
-                  </div>
+                  {laddar?(
+                    <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Hämtar saldo…</p>
+                  ):fel?(
+                    <p style={{ margin:0,fontSize:14,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
+                  ):(<>
+                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
+                      <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{semKvar} <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>dagar kvar</span></span>
+                    </div>
+                    <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:12,overflow:"hidden" }}>
+                      <div style={{ height:"100%",width:`${semPct}%`,background:"#adc6ff",borderRadius:2 }} />
+                    </div>
+                    <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                      {[
+                        ["Betalda",`${betalda} dagar`],
+                        ...(obetalda>0?[["Obetalda",`${obetalda} dagar`]]:[]),
+                        ...(sparade>0?[["Sparade",`${sparade} dagar`]]:[]),
+                        ["Använt i år",`${semAnvänt} dagar`],
+                      ].map(([l,v])=>(
+                        <div key={l as string} style={{ display:"flex",justifyContent:"space-between" }}>
+                          <span style={{ fontSize:13,color:"#8e8e93" }}>{l}</span>
+                          <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>)}
                 </div>
               </section>
             );
@@ -1708,40 +1745,77 @@ export default function Arbetsrapport() {
 
           {/* ATK */}
           {(()=>{
-            const atkTotalt = medarbetare?.atk_timmar ?? Math.round((årsMin/60)*(gsAvtal?.atk_faktor??0.03)*10)/10;
-            const atkAnväntDagar = årsData.filter(d=>d.dagtyp==='atk').length;
-            const atkAnväntH = atkAnväntDagar * 8;
-            const atkKvar = Math.round((atkTotalt-atkAnväntH)*10)/10;
-            const atkPct = atkTotalt>0?Math.min(100,atkAnväntH/atkTotalt*100):0;
-            const atkDagar = Math.round(atkKvar/8*10)/10;
-            const timlon2 = gsAvtal?.timlon_kr ?? 185;
-            const atkKr = Math.round(atkKvar*timlon2);
+            const laddar = fortnoxSaldoStatus==='loading' || fortnoxSaldoStatus==='idle';
+            const fel    = fortnoxSaldoStatus==='error';
+
+            const atkKr    = fortnoxSaldo?.atk.saldo_kr ?? 0;
+            const atkTimmar = fortnoxSaldo?.atk.timmar ?? (gsAvtal?.atk_ledig_tim ?? 0);
+            const atkDagar = Math.round(atkTimmar/8*10)/10;
             const årNu2 = nu.getFullYear();
             const harValt = !!atkValSparat;
+
+            // ATK-valperiod: 1-15 maj
+            const maj1  = new Date(årNu2, 4, 1);       // maj = månad 4 (0-indexerad)
+            const maj15 = new Date(årNu2, 4, 15, 23, 59, 59);
+            const föreValperiod = nu < maj1;
+            const iValperiod    = nu >= maj1 && nu <= maj15;
+            const efterValperiod = nu > maj15;
+
             return (
               <section style={{ marginBottom:24 }}>
                 <h3 style={secHead}>ATK</h3>
                 {/* Saldo */}
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)",marginBottom:harValt?0:12 }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:12 }}>
-                    <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{atkKvar}h <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>kvar</span></span>
-                  </div>
-                  <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:12,overflow:"hidden" }}>
-                    <div style={{ height:"100%",width:`${atkPct}%`,background:"#adc6ff",borderRadius:2 }} />
-                  </div>
-                  <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
-                    {[["Totalt",`${atkTotalt}h`],["Använt",`${atkAnväntH}h`]].map(([l,v])=>(
-                      <div key={l as string} style={{ display:"flex",justifyContent:"space-between" }}>
-                        <span style={{ fontSize:13,color:"#8e8e93" }}>{l}</span>
-                        <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{v}</span>
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)",marginBottom:12 }}>
+                  {laddar?(
+                    <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Hämtar saldo…</p>
+                  ):fel?(
+                    <p style={{ margin:0,fontSize:14,color:"#ff9f0a" }}>Kunde inte hämta saldo</p>
+                  ):(<>
+                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16 }}>
+                      <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{atkKr.toLocaleString('sv-SE')} <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>kr</span></span>
+                    </div>
+                    <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
+                      <div style={{ display:"flex",justifyContent:"space-between" }}>
+                        <span style={{ fontSize:13,color:"#8e8e93" }}>Saldo (Fortnox)</span>
+                        <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{atkKr.toLocaleString('sv-SE')} kr</span>
                       </div>
-                    ))}
-                  </div>
+                      <div style={{ display:"flex",justifyContent:"space-between" }}>
+                        <span style={{ fontSize:13,color:"#8e8e93" }}>Ledig tid i avtal</span>
+                        <span style={{ fontSize:13,fontWeight:600,color:"#fff" }}>{atkTimmar}h ({atkDagar} dagar)</span>
+                      </div>
+                    </div>
+                  </>)}
                 </div>
 
-                {/* Val — efter bekräftelse */}
-                {harValt&&(
-                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,marginTop:8,border:"1px solid rgba(52,199,89,0.2)" }}>
+                {/* ATK-val — beror på datum */}
+                {föreValperiod&&(
+                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+                    <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>ATK-val öppnar 1 maj</p>
+                  </div>
+                )}
+
+                {efterValperiod&&harValt&&(
+                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(52,199,89,0.2)" }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                      <span style={{ fontSize:16 }}>✅</span>
+                      <span style={{ fontSize:14,color:"#fff" }}>
+                        Ditt val: {atkValSparat.val==='ledig'?'Ledig tid':atkValSparat.val==='kontant'?'Pengar':'Pension'}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {efterValperiod&&!harValt&&(
+                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,159,10,0.3)" }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                      <span style={{ fontSize:16 }}>⚠️</span>
+                      <span style={{ fontSize:14,color:"#fff" }}>Inget val gjort — kontakta chef</span>
+                    </div>
+                  </div>
+                )}
+
+                {iValperiod&&harValt&&(
+                  <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(52,199,89,0.2)" }}>
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                       <span style={{ color:"#34c759",fontSize:14 }}>✓</span>
                       <span style={{ fontSize:14,color:"#fff" }}>
@@ -1751,8 +1825,7 @@ export default function Arbetsrapport() {
                   </div>
                 )}
 
-                {/* Val — ej gjort */}
-                {!harValt&&(
+                {iValperiod&&!harValt&&(
                   <div style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,159,10,0.25)" }}>
                     <p style={{ margin:"0 0 16px",fontSize:14,fontWeight:600,color:"#ff9f0a" }}>Välj för ditt ATK {årNu2}</p>
                     <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:16 }}>
@@ -1772,7 +1845,7 @@ export default function Arbetsrapport() {
                       disabled={!atkVal}
                       onClick={async()=>{
                         if(!atkVal) return;
-                        const row={medarbetare_id:medarbetare.id,period:String(årNu2),val:atkVal,timmar:atkKvar,belopp:atkVal!=='ledig'?atkKr:null,datum_valt:new Date().toISOString(),status:'bekräftad'};
+                        const row={medarbetare_id:medarbetare.id,period:String(årNu2),val:atkVal,timmar:atkTimmar,belopp:atkVal!=='ledig'?atkKr:null,datum_valt:new Date().toISOString(),status:'bekräftad'};
                         await supabase.from("atk_val").upsert(row, { onConflict: 'medarbetare_id,period' });
                         setAtkValSparat(row);
                       }}
