@@ -3128,16 +3128,18 @@ export default function Arbetsrapport() {
     const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
     const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
     const datumRubrik = `${dagNamnLång} ${idag.getDate()} ${månNamnLång}`;
-    const dagObjId = valtObjektId || dagData[idagKey]?.objekt_id || null;
+
+    // Hämta idag-raden från alla tillgängliga källor — dagData (kalender-månaden)
+    // och historik (senaste 60 dagar). Antingen kan missa om användaren byter månad.
+    const idagArb: any = dagData[idagKey] || historik.find((d: any) => d.datum === idagKey);
+    const finnsDagData = !!idagArb;
+    const dagObjId = valtObjektId || idagArb?.objekt_id || null;
     const dagObjNamn = dagObjId ? (objektLista.find(o => o.id === dagObjId)?.namn || dagObjId) : '';
     const maskinNamnLång = maskinNamn || maskinNamnMap[medarbetare?.maskin_id] || medarbetare?.maskin_id || '';
 
     const helKr  = gsAvtal?.traktamente_hel_kr  ?? 300;
     const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
-    const harStartSlut = start !== slut;
-    const harArbetstid = arbMin > 0;
-    const harRast = rast > 0;
-    const harTidsblock = harStartSlut || harArbetstid || harRast;
+    const harTidsblock = finnsDagData;
     const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
     const harErsKr = ersKr > 0;
     const harKmBlock = harKm;
@@ -3162,16 +3164,16 @@ export default function Arbetsrapport() {
 
             {harTidsblock&&(
               <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
-                {harStartSlut && rad("Arbetstid", `${start} → ${slut}`)}
-                {harRast      && rad("Rast", `${rast} min`)}
-                {harArbetstid && rad("Total", fmt(arbMin))}
+                {rad("Arbetstid", `${start} → ${slut}`)}
+                {rad("Rast", `${rast} min`)}
+                {rad("Total", fmt(arbMin))}
               </div>
             )}
 
             {harObjBlock&&(
               <div style={{ paddingBottom:10,borderBottom:harKmBlock?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:harKmBlock?10:0 }}>
-                {dagObjNamn     && rad("Objekt", dagObjNamn)}
                 {maskinNamnLång && rad("Maskin", maskinNamnLång)}
+                {dagObjNamn     && rad("Objekt", dagObjNamn)}
               </div>
             )}
 
