@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { getRödaDagar } from "@/lib/roda-dagar";
+import { vägKm } from "@/utils/geo";
 
 const css = `
   @keyframes fadeUp {
@@ -421,8 +422,9 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
 ═══════════════════════════════════════════════════════ */
 export default function Arbetsrapport() {
   const [steg,  setSteg]   = useState("morgon");
-  const [kmM,   setKmM]    = useState(null);
-  const [kmK,   setKmK]    = useState(null);
+  const [kmM,   setKmM]    = useState<{km:number}|null>(null);
+  const [kmK,   setKmK]    = useState<{km:number}|null>(null);
+  const [kmBerakning, setKmBerakning] = useState<number|null>(null);
   const [extra, setExtra]  = useState([]);
   const [start, setStart]  = useState("06:12");
   const [slut,  setSlut]   = useState("16:45");
@@ -535,7 +537,7 @@ export default function Arbetsrapport() {
           : supabase.from("medarbetare").select("*").limit(1).single()
       ),
       (()=>{ const idag=new Date().toISOString().slice(0,10); return supabase.from("gs_avtal").select("*").lte("giltigt_fran",idag).or(`giltigt_till.is.null,giltigt_till.gte.${idag}`).order("giltigt_fran",{ascending:false}).limit(1).maybeSingle(); })(),
-      supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare").order("object_name"),
+      supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare, latitude, longitude").order("object_name"),
     ]).then(([med, avt, obj]) => {
       if(med.data) {
         setMedarbetare(med.data);
@@ -567,7 +569,7 @@ export default function Arbetsrapport() {
           });
       }
       if(avt.data) setGsAvtal(avt.data);
-      if(obj.data) setObjektLista(obj.data.map(o => ({id:o.objekt_id, namn:o.object_name||o.objekt_id, ägare:o.skogsagare||''})));
+      if(obj.data) setObjektLista(obj.data.map(o => ({id:o.objekt_id, namn:o.object_name||o.objekt_id, ägare:o.skogsagare||'', lat:o.latitude, lng:o.longitude})));
     });
     // Hämta maskinnamn-lookup
     supabase.from("dim_maskin").select("maskin_id, tillverkare, modell").then(res => {
@@ -603,6 +605,27 @@ export default function Arbetsrapport() {
     // Hämta dagens objekt via dim_objekt (senaste aktiva objekt för maskin)
     // arbetsdag har ingen objekt_id — dagensObjekt hämtas separat om det behövs
   }, []);
+
+  // Automatisk km-beräkning (hem → trakt) när kvällsvyn öppnas. Fyller kmM/kmK
+  // bara om föraren inte redan skrivit in ett värde manuellt.
+  useEffect(() => {
+    if (steg !== "kväll") return;
+    if (!medarbetare) return;
+    const idagKey = new Date().toISOString().split('T')[0];
+    const objId = valtObjektId || dagData[idagKey]?.objekt_id;
+    const obj = objektLista.find(o => o.id === objId);
+    const hLat = medarbetare.hem_lat, hLng = medarbetare.hem_lng;
+    const oLat = obj?.lat, oLng = obj?.lng;
+    if (hLat == null || hLng == null || oLat == null || oLng == null) {
+      console.warn('km-beräkning: koordinater saknas', { hLat, hLng, oLat, oLng, objId });
+      setKmBerakning(null);
+      return;
+    }
+    const km = vägKm(Number(hLat), Number(hLng), Number(oLat), Number(oLng));
+    setKmBerakning(km);
+    if (kmM == null) setKmM({ km });
+    if (kmK == null) setKmK({ km });
+  }, [steg, medarbetare?.id, medarbetare?.hem_lat, medarbetare?.hem_lng, valtObjektId, dagData, objektLista]);
 
   // Lazy-hämta semester- och ATK-saldo från Fortnox när Saldon-fliken öppnas
   useEffect(() => {
@@ -2941,6 +2964,7 @@ export default function Arbetsrapport() {
           {totKm>0&&(
             <div style={{ paddingTop:16,marginTop:16,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
               <p style={{ margin:0,fontSize:20,fontWeight:600,color:"#fff" }}>{totKm} km</p>
+              {kmBerakning!=null&&kmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {kmBerakning} km (enkel väg)</p>}
               {ersKm>0&&<p style={{ margin:"4px 0 0",fontSize:13,color:C.green }}>+{ersKm} km · {ersKr.toFixed(0)} kr ersättning</p>}
             </div>
           )}
