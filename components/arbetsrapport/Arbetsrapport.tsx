@@ -28,6 +28,20 @@ const css = `
     60%  { transform: scale(1.04); }
     100% { transform: scale(1);    opacity: 1; }
   }
+  @keyframes checkPop {
+    0%   { transform: scale(0);    opacity: 0; }
+    50%  { transform: scale(1.1);  opacity: 1; }
+    70%  { transform: scale(0.95); }
+    100% { transform: scale(1);    opacity: 1; }
+  }
+  @keyframes checkDraw {
+    from { stroke-dashoffset: 60; }
+    to   { stroke-dashoffset: 0; }
+  }
+  @keyframes dimIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
   @keyframes pulseDot {
     0%,100% { opacity: 1; transform: scale(1); }
     50%     { opacity: 0.4; transform: scale(0.7); }
@@ -1702,6 +1716,9 @@ export default function Arbetsrapport() {
                     }, { onConflict: 'medarbetare_id,datum' });
                     setSlut(effektivSlut.slice(0,5));
                     setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true, slut_tid: effektivSlut } }));
+                    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(200);
+                    setBekräftelseVisa(true);
+                    setTimeout(() => setBekräftelseVisa(false), 2000);
                   }}
                   style={{ width:"100%",marginTop:16,padding:"20px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
                   Bekräfta dagen ✓
@@ -1881,6 +1898,18 @@ export default function Arbetsrapport() {
       </main>
 
       <BottomNavBar aktiv="morgon" onNav={s=>setSteg(s)} />
+
+      {/* Bekräftelse-overlay efter Bekräfta dagen ✓ */}
+      {bekräftelseVisa && (
+        <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:2000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
+          <div style={{ width:120,height:120,borderRadius:"50%",background:"#34C759",display:"flex",alignItems:"center",justifyContent:"center",animation:"checkPop 0.5s cubic-bezier(0.2,0.8,0.3,1.2)",boxShadow:"0 0 60px rgba(52,199,89,0.4)" }}>
+            <svg width="56" height="56" viewBox="0 0 52 52">
+              <path d="M14 27 L23 36 L38 18" stroke="#fff" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" strokeDasharray="60" style={{ animation:"checkDraw 0.4s 0.2s both ease-out" }}/>
+            </svg>
+          </div>
+          <p style={{ margin:"32px 0 0",fontSize:22,fontWeight:700,color:"#fff",letterSpacing:"-0.01em" }}>Dagen bekräftad ✓</p>
+        </div>
+      )}
     </div>
   );
 
