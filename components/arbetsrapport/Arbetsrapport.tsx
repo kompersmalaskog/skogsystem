@@ -112,6 +112,14 @@ const nuKlock = () => {
   return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 };
 
+/** Nu-tid avrundad nedåt till närmsta 5-minuters-intervall ("HH:MM"). */
+const nuKlock5 = () => {
+  const d = new Date();
+  const h = String(d.getHours()).padStart(2,'0');
+  const m = String(Math.floor(d.getMinutes()/5)*5).padStart(2,'0');
+  return `${h}:${m}`;
+};
+
 /* ── Extra-aktiviteter ── */
 type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'annat';
 const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debDefault: boolean }[] = [
@@ -488,7 +496,7 @@ export default function Arbetsrapport() {
   const [anledn,setAnledn]=useState("");
 
   // manuell dag
-  const [mStart,setMStart]=useState("07:00"),[mSlut,setMSlut]=useState("16:00"),[mRast,setMRast]=useState(30),[mBesk,setMBesk]=useState("");
+  const [mStart,setMStart]=useState(()=>nuKlock5()),[mSlut,setMSlut]=useState(()=>nuKlock5()),[mRast,setMRast]=useState(30),[mBesk,setMBesk]=useState("");
 
   // historik redigering
   const [redDag,setRedDag]=useState(null);
@@ -703,6 +711,13 @@ export default function Arbetsrapport() {
     })();
     return () => { cancelled = true; };
   }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.hem_lat, medarbetare?.hem_lng, objektLista]);
+
+  // Sätt mStart/mSlut till aktuell tid (avrundad till 5 min) när manuell-dag-
+  // vyerna öppnas. Gör att defaulten inte blir stale om appen legat öppen.
+  useEffect(() => {
+    if (steg === "manuellDag")   setMStart(nuKlock5());
+    if (steg === "manuellKväll") setMSlut(nuKlock5());
+  }, [steg]);
 
   // Hämta månadens km-summa (med auto-beräkning för dagar som saknar km i DB)
   // när kalendervyn öppnas eller månaden ändras.
