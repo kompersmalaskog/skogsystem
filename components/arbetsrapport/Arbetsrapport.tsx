@@ -463,7 +463,8 @@ export default function Arbetsrapport() {
   const [rast,  setRast]   = useState(30);
   const [ändring,setÄ]     = useState(null);
   const [betald,setBetald] = useState(0);
-  const [trak,  setTrak]   = useState(null);
+  const [trak,  setTrak]   = useState<{summa:number}|null>(null);
+  const [trakÖppen, setTrakÖppen] = useState(false);
   const [dagTyp,setDagTyp] = useState("normal");
   const [avvikelseKm,  setAvvikelseKm]  = useState(0);
   const [avTyp,  setAvTyp]  = useState(null);
@@ -3131,6 +3132,24 @@ export default function Arbetsrapport() {
     const dagObjNamn = dagObjId ? (objektLista.find(o => o.id === dagObjId)?.namn || dagObjId) : '';
     const maskinNamnLång = maskinNamn || maskinNamnMap[medarbetare?.maskin_id] || medarbetare?.maskin_id || '';
 
+    const helKr  = gsAvtal?.traktamente_hel_kr  ?? 300;
+    const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
+    const harStartSlut = start !== slut;
+    const harArbetstid = arbMin > 0;
+    const harRast = rast > 0;
+    const harTidsblock = harStartSlut || harArbetstid || harRast;
+    const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
+    const harErsKr = ersKr > 0;
+    const harKmBlock = harKm;
+    const harObjBlock = !!(dagObjNamn || maskinNamnLång);
+
+    const rad = (label: string, value: string, extraStyle?: any) => (
+      <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",...extraStyle }}>
+        <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{label}</span>
+        <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{value}</span>
+      </div>
+    );
+
     return (
       <div style={shell}><style>{css}</style>
         <div style={topBar} />
@@ -3138,26 +3157,57 @@ export default function Arbetsrapport() {
         <div style={{ flex:1,display:"flex",flexDirection:"column",overflowY:"auto",paddingBottom:100 }}>
 
           {/* Sammanfattningskort */}
-          <div style={{ background:"#1c1c1e",borderRadius:16,padding:24,border:"1px solid rgba(255,255,255,0.06)" }}>
-            <p style={{ margin:"0 0 20px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
+          <div style={{ background:"#1c1c1e",borderRadius:16,padding:"20px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+            <p style={{ margin:"0 0 12px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
 
-            <p style={{ margin:"0 0 6px",fontSize:15,color:"#fff" }}>{start} → {slut}</p>
-            {arbMin>0&&(
-              <div style={{ display:"flex",justifyContent:"space-between",marginBottom:20 }}>
-                <span style={{ fontSize:15,color:"#fff" }}>Arbetstid: {fmt(arbMin)}</span>
-                <span style={{ fontSize:15,color:"rgba(255,255,255,0.6)" }}>Rast: {rast} min</span>
+            {harTidsblock&&(
+              <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
+                {harStartSlut && rad("Arbetstid", `${start} → ${slut}`)}
+                {harRast      && rad("Rast", `${rast} min`)}
+                {harArbetstid && rad("Total", fmt(arbMin))}
               </div>
             )}
 
-            {(dagObjNamn||maskinNamnLång)&&(
-              <div style={{ marginBottom:20 }}>
-                {dagObjNamn    && <p style={{ margin:"0 0 4px",fontSize:15,color:"#fff" }}>Objekt: {dagObjNamn}</p>}
-                {maskinNamnLång && <p style={{ margin:0,fontSize:15,color:"#fff" }}>Maskin: {maskinNamnLång}</p>}
+            {harObjBlock&&(
+              <div style={{ paddingBottom:10,borderBottom:harKmBlock?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:harKmBlock?10:0 }}>
+                {dagObjNamn     && rad("Objekt", dagObjNamn)}
+                {maskinNamnLång && rad("Maskin", maskinNamnLång)}
               </div>
             )}
 
-            {totKm>0&&<p style={{ margin:"0 0 4px",fontSize:15,color:"#fff" }}>Körning: {totKm} km</p>}
-            {ersKr>0&&<p style={{ margin:0,fontSize:15,color:"#fff" }}>Färdtidsersättning: {ersKr.toFixed(2).replace('.',',')} kr</p>}
+            {harKmBlock&&(
+              <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
+                {rad("Körning", `${totKm} km`)}
+                {harErsKr && rad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
+              </div>
+            )}
+
+            {/* Traktamente — inline toggle */}
+            <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
+              <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Traktamente</span>
+              <div style={{ display:"flex",alignItems:"center",gap:4 }}>
+                <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{trak?.summa ? `${trak.summa} kr` : "Inget"}</span>
+                <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",transform:trakÖppen?"rotate(90deg)":"none",transition:"transform 0.2s" }}>chevron_right</span>
+              </div>
+            </div>
+            {trakÖppen&&(
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10 }}>
+                {[
+                  { key:'inget', label:'Inget',           val: null },
+                  { key:'halv',  label:`Halv · ${halvKr}`, val: { summa: halvKr } },
+                  { key:'hel',   label:`Hel · ${helKr}`,   val: { summa: helKr } },
+                ].map(opt=>{
+                  const valt = opt.val === null ? !trak : (trak?.summa === (opt.val as any)?.summa);
+                  return (
+                    <button key={opt.key}
+                      onClick={()=>{ setTrak(opt.val as any); setTrakÖppen(false); }}
+                      style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 6px",color:valt?"#adc6ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Stor grön bekräfta-knapp */}
@@ -3182,25 +3232,20 @@ export default function Arbetsrapport() {
             Bekräfta dagen ✓
           </button>
 
-          {/* Fortsätt arbetsdagen — outline-knapp */}
+          {/* Fortsätt arbetsdagen — outline-knapp med undertext */}
           <button
             onClick={()=>setSteg("kvällAvvikelse")}
             style={{ width:"100%",marginTop:12,padding:"20px",background:"transparent",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",borderRadius:14,fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
             Fortsätt arbetsdagen
           </button>
+          <p style={{ margin:"4px 0 0",textAlign:"center",fontSize:12,color:"rgba(255,255,255,0.4)" }}>Service, markägarmöte, flytt...</p>
 
-          {/* Tre textlänkar — horisontellt */}
-          <div style={{ display:"flex",justifyContent:"center",gap:24,marginTop:20,flexWrap:"wrap" }}>
-            {[
-              {label:"Lägg till aktivitet", onClick:()=>setSteg("kvällAvvikelse")},
-              {label:"Ändra tider",         onClick:()=>setSteg("manuellKväll")},
-              {label:"Traktamente",         onClick:()=>setSteg("traktamente")},
-            ].map(l=>(
-              <button key={l.label} onClick={l.onClick}
-                style={{ background:"none",border:"none",padding:"8px 4px",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
-                {l.label}
-              </button>
-            ))}
+          {/* Ändra tider — ensam textlänk, centrerad */}
+          <div style={{ display:"flex",justifyContent:"center",marginTop:20 }}>
+            <button onClick={()=>setSteg("manuellKväll")}
+              style={{ background:"none",border:"none",padding:"8px 4px",color:"rgba(255,255,255,0.6)",fontSize:14,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
+              Ändra tider
+            </button>
           </div>
         </div>
 
