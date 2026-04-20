@@ -513,6 +513,8 @@ export default function Arbetsrapport() {
   const [lönSkickat, setLönSkickat] = useState(false);
   const [lönVy, setLönVy] = useState<'översikt'|'detaljer'>('översikt');
   const [sparatToast, setSparatToast] = useState(false);
+  const [pamOpen, setPamOpen] = useState<null | 'obekraftad' | 'pagaende' | 'dagligTid'>(null);
+  const [pushEnhetsNamn, setPushEnhetsNamn] = useState<string | null>(null);
   const [extraTidData, setExtraTidData] = useState<any[]>([]);
   const [årsData, setÅrsData] = useState<any[]>([]);
   const [lönSparar, setLönSparar] = useState(false);
@@ -737,6 +739,22 @@ export default function Arbetsrapport() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.id]);
+
+  // Hämta push-enhetsnamn för aktuell enhet när Inställningar öppnas.
+  useEffect(() => {
+    if (steg !== "inst") return;
+    if (!medarbetare?.id) return;
+    if (typeof navigator === "undefined" || !('serviceWorker' in navigator)) { setPushEnhetsNamn(null); return; }
+    (async () => {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration();
+        const sub = reg ? await reg.pushManager.getSubscription() : null;
+        if (!sub) { setPushEnhetsNamn(null); return; }
+        const { data } = await supabase.from("push_subscriptions").select("device_name").eq("endpoint", sub.endpoint).maybeSingle();
+        setPushEnhetsNamn(data?.device_name || "Denna enhet");
+      } catch { setPushEnhetsNamn(null); }
+    })();
+  }, [steg, medarbetare?.id]);
 
   // Pre-fyll "Starta extra arbete"-vyns Objekt-val med dagens aktiva objekt.
   // Om föraren ska till ett annat objekt ändrar hen manuellt.
@@ -2933,6 +2951,132 @@ export default function Arbetsrapport() {
           </div>
           <ChevronRight/>
         </Card>
+
+        {/* Påminnelser */}
+        <div style={{ marginTop:32 }}><Label>Påminnelser</Label></div>
+        {(() => {
+          const uppdatera = async (field: string, value: any) => {
+            await supabase.from("medarbetare").update({ [field]: value }).eq("id", medarbetare.id);
+            setMedarbetare((m: any) => ({ ...m, [field]: value }));
+            setSparatToast(true); setTimeout(() => setSparatToast(false), 1800);
+          };
+
+          const togglePush = async (on: boolean) => {
+            await uppdatera("push_aktiv", on);
+            if (typeof navigator === "undefined" || !('serviceWorker' in navigator)) return;
+            try {
+              if (on) {
+                const reg = await navigator.serviceWorker.register('/sw.js');
+                await navigator.serviceWorker.ready;
+                let sub = await reg.pushManager.getSubscription();
+                if (!sub) {
+                  const perm = await Notification.requestPermission();
+                  if (perm !== "granted") return;
+                  const vapid = "BGe21_FkdZWkOiaLTWE2GXADsaA08uC2eRGglHIyJ85rL35YkrkUY1L3jTJ7fGvAQlDRjJsH3AMMeX62B63hr34";
+                  const base64 = (vapid + "=".repeat((4 - vapid.length % 4) % 4)).replace(/-/g,'+').replace(/_/g,'/');
+                  const raw = window.atob(base64);
+                  const appKey = new Uint8Array(raw.length);
+                  for (let i = 0; i < raw.length; i++) appKey[i] = raw.charCodeAt(i);
+                  sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: appKey });
+                }
+                const deviceName = (navigator.userAgent || '').slice(0, 120);
+                await fetch('/api/push/subscribe', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ medarbetare_id: medarbetare.id, subscription: sub.toJSON(), device_name: deviceName }),
+                });
+                setPushEnhetsNamn(deviceName);
+              } else {
+                const reg = await navigator.serviceWorker.getRegistration();
+                const sub = reg ? await reg.pushManager.getSubscription() : null;
+                if (sub) {
+                  await supabase.from("push_subscriptions").delete().eq("endpoint", sub.endpoint);
+                  await sub.unsubscribe();
+                }
+                setPushEnhetsNamn(null);
+              }
+            } catch (e) { console.warn('[push-toggle]', e); }
+          };
+
+          const obekraftad = medarbetare?.pamin_obekraftad_min ?? 30;
+          const pagaende   = medarbetare?.pamin_pagaende_min  ?? 180;
+          const dagligAkt  = medarbetare?.daglig_pamin_aktiv  ?? true;
+          const dagligTid  = (medarbetare?.daglig_pamin_tid  || '18:00').slice(0,5);
+          const pushOn     = medarbetare?.push_aktiv         ?? true;
+
+          const Rad = ({ rubrik, undertext, value, onClick, right }: any) => (
+            <div onClick={onClick} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:onClick?"pointer":"default" }}>
+              <div>
+                <p style={{ margin:0,fontSize:16,fontWeight:500,color:"#fff" }}>{rubrik}</p>
+                {undertext && <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{undertext}</p>}
+              </div>
+              <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                {value && <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{value}</span>}
+                {right || (onClick && <ChevronRight/>)}
+              </div>
+            </div>
+          );
+
+          const Toggle = ({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) => (
+            <div onClick={()=>onChange(!on)}
+              style={{ width:51,height:31,borderRadius:16,background:on?C.green:"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
+              <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:on?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
+            </div>
+          );
+
+          const OptionGrid = ({ opts, selected, onPick, cols=4 }: any) => (
+            <div style={{ display:"grid",gridTemplateColumns:`repeat(${cols},1fr)`,gap:6,padding:"10px 0 14px" }}>
+              {opts.map((o: any) => {
+                const valt = o.v === selected;
+                return (
+                  <button key={o.l} onClick={()=>onPick(o.v)}
+                    style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 4px",color:valt?"#adc6ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+                    {o.l}
+                  </button>
+                );
+              })}
+            </div>
+          );
+
+          return (
+            <Card style={{ padding:"4px 20px" }}>
+              <Rad rubrik="Obekräftad dag" undertext="Påminn mig efter · efter maskin loggat ut"
+                value={`${obekraftad} min`}
+                onClick={()=>setPamOpen(pamOpen==='obekraftad'?null:'obekraftad')}/>
+              {pamOpen==='obekraftad' && <OptionGrid
+                opts={[{l:'15 min',v:15},{l:'30 min',v:30},{l:'60 min',v:60},{l:'2 tim',v:120}]}
+                selected={obekraftad}
+                onPick={(v:number)=>{ uppdatera("pamin_obekraftad_min", v); setPamOpen(null); }}/>}
+
+              <Rad rubrik="Pågående aktivitet" undertext="Om jag glömt stoppa"
+                value={pagaende<60?`${pagaende} min`:`${pagaende/60} tim`}
+                onClick={()=>setPamOpen(pamOpen==='pagaende'?null:'pagaende')}/>
+              {pamOpen==='pagaende' && <OptionGrid
+                opts={[{l:'1 tim',v:60},{l:'2 tim',v:120},{l:'3 tim',v:180},{l:'5 tim',v:300}]}
+                selected={pagaende}
+                onPick={(v:number)=>{ uppdatera("pamin_pagaende_min", v); setPamOpen(null); }}/>}
+
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
+                <div onClick={()=>dagligAkt && setPamOpen(pamOpen==='dagligTid'?null:'dagligTid')} style={{ flex:1,cursor:dagligAkt?"pointer":"default" }}>
+                  <p style={{ margin:0,fontSize:16,fontWeight:500,color:"#fff" }}>Daglig påminnelse</p>
+                  <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{dagligAkt?`Kl ${dagligTid} · om dagen inte bekräftats`:'Avstängd'}</p>
+                </div>
+                <Toggle on={dagligAkt} onChange={v=>uppdatera("daglig_pamin_aktiv", v)}/>
+              </div>
+              {pamOpen==='dagligTid' && dagligAkt && <OptionGrid cols={6}
+                opts={['16:00','17:00','18:00','19:00','20:00','21:00'].map(t=>({l:t,v:t}))}
+                selected={dagligTid}
+                onPick={(v:string)=>{ uppdatera("daglig_pamin_tid", v); setPamOpen(null); }}/>}
+
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
+                <div>
+                  <p style={{ margin:0,fontSize:16,fontWeight:500,color:"#fff" }}>Push-notiser</p>
+                  <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{pushOn ? (pushEnhetsNamn ? `Aktiverad · ${pushEnhetsNamn.slice(0,40)}` : 'Aktiverad ✓') : 'Avstängd'}</p>
+                </div>
+                <Toggle on={pushOn} onChange={togglePush}/>
+              </div>
+            </Card>
+          );
+        })()}
 
         <div style={{ marginTop:48, paddingTop:24, borderTop:"1px solid rgba(255,255,255,0.08)" }}>
           <button
