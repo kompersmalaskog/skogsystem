@@ -739,22 +739,28 @@ export default function Arbetsrapport() {
   }, [steg]);
 
   // Global overlay: bakåt-pil (uppe vänster) + stäng (uppe höger).
-  // Injiceras i document.body så den fungerar oavsett vilken vy som renderas.
+  // Samma position som TopBar:s hemknapp (left/right:12, top:10, 36×36).
+  // Sätter body[data-hide-home] så TopBar döljer hemknappen när overlay är aktiv.
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (steg === "morgon") return;
 
-    const mk = (side: "left"|"right", iconName: string, color: string, onClick: ()=>void, ariaLabel: string) => {
+    document.body.setAttribute("data-hide-home", "1");
+
+    const mk = (side: "left"|"right", iconName: string, iconColor: string, onClick: ()=>void, ariaLabel: string) => {
       const btn = document.createElement("button");
       btn.setAttribute("aria-label", ariaLabel);
       btn.setAttribute("data-arbrapp-chrome", side);
       Object.assign(btn.style, {
-        position: "fixed", top: "0", [side]: "0", padding: "16px",
-        zIndex: "1000", background: "none", border: "none", cursor: "pointer",
+        position: "fixed", top: "10px", [side]: "12px",
+        width: "36px", height: "36px", borderRadius: "10px",
+        background: "rgba(255,255,255,0.08)", border: "none",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        cursor: "pointer", zIndex: "1001",
       });
       const icon = document.createElement("span");
       icon.className = "material-symbols-outlined";
-      Object.assign(icon.style, { color, fontSize: "24px" });
+      Object.assign(icon.style, { color: iconColor, fontSize: "22px" });
       icon.textContent = iconName;
       btn.appendChild(icon);
       btn.onclick = onClick;
@@ -762,12 +768,13 @@ export default function Arbetsrapport() {
       return btn;
     };
 
-    const back  = mk("left",  "arrow_back", "#fff",                    goBack,                         "Tillbaka");
-    const close = mk("right", "close",      "rgba(255,255,255,0.6)",   () => { isBackRef.current = true; setSteg("morgon"); }, "Stäng");
+    const back  = mk("left",  "arrow_back", "#fff",                  goBack,                                                "Tillbaka");
+    const close = mk("right", "close",      "rgba(255,255,255,0.7)", () => { isBackRef.current = true; setSteg("morgon"); }, "Stäng");
 
     return () => {
       back.remove();
       close.remove();
+      document.body.removeAttribute("data-hide-home");
     };
   }, [steg]);
 
@@ -3173,6 +3180,13 @@ export default function Arbetsrapport() {
             }}
             style={{ width:"100%",marginTop:24,padding:"20px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
             Bekräfta dagen ✓
+          </button>
+
+          {/* Fortsätt arbetsdagen — outline-knapp */}
+          <button
+            onClick={()=>setSteg("kvällAvvikelse")}
+            style={{ width:"100%",marginTop:12,padding:"20px",background:"transparent",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",borderRadius:14,fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+            Fortsätt arbetsdagen
           </button>
 
           {/* Tre textlänkar — horisontellt */}

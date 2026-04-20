@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 
 const pageNames: Record<string, string> = {
   '/': 'Kompersmåla Skog',
@@ -26,6 +27,18 @@ export default function TopBar() {
   const isHome = pathname === '/'
   const pageName = pageNames[pathname] || (pathname.startsWith('/maskin-service/') ? 'Maskinservice' : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
 
+  // Undersida-vyer (t.ex. Arbetsrapport-interna steg) sätter body[data-hide-home]
+  // för att dölja hemknappen när de har egen bakåt-navigation.
+  const [hideHome, setHideHome] = useState(false)
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const check = () => setHideHome(document.body.hasAttribute('data-hide-home'))
+    check()
+    const mo = new MutationObserver(check)
+    mo.observe(document.body, { attributes: true, attributeFilter: ['data-hide-home'] })
+    return () => mo.disconnect()
+  }, [])
+
   if (isHome) return null
 
   return (
@@ -45,8 +58,8 @@ export default function TopBar() {
       zIndex: 1000,
       fontFamily: "-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,sans-serif",
     }}>
-      {/* Hem-knapp */}
-      {!isHome ? (
+      {/* Hem-knapp — dold när underliggande vy har egen bakåtpil */}
+      {!isHome && !hideHome ? (
         <Link href="/" style={{
           position: 'absolute',
           left: 12,
