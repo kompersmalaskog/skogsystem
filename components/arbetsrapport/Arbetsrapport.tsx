@@ -717,6 +717,21 @@ export default function Arbetsrapport() {
     return () => { cancelled = true; };
   }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.id]);
 
+  // Pre-fyll kvällAvvikelse-vyns Objekt-val med dagens aktiva objekt.
+  // Om föraren ska till ett annat objekt ändrar hen manuellt.
+  useEffect(() => {
+    if (steg !== "kvällAvvikelse") return;
+    if (kvAvObj) return;
+    const idagArb = dagData[idagKey] || historik.find((d: any) => d.datum === idagKey);
+    const objId = valtObjektId || idagArb?.objekt_id;
+    if (!objId) return;
+    const o = objektLista.find(x => x.id === objId);
+    if (o) {
+      setKvAvObj(o);
+      setKvAvDeb(true);
+    }
+  }, [steg, valtObjektId, objektLista.length]);
+
   // Sätt mStart/mSlut till aktuell tid (avrundad till 5 min) när manuell-dag-
   // vyerna öppnas. Gör att defaulten inte blir stale om appen legat öppen.
   useEffect(() => {
@@ -3016,15 +3031,35 @@ export default function Arbetsrapport() {
       </div>
     );
 
+    const radSumm = (label: string, value: string, onClick?: ()=>void) => (
+      <div onClick={onClick} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:onClick?"pointer":"default",alignItems:"center" }}>
+        <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{label}</span>
+        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+          <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{value}</span>
+          {onClick && <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)" }}>chevron_right</span>}
+        </div>
+      </div>
+    );
+
     return (
       <div style={darkShell}><style>{css}</style>
         <div style={topBar}>
-          <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>{hälsning()}, {förnamn}</h1>
-          <p style={{ margin:0,fontSize:15,color:C.darkLabel }}>Du är nästan klar för dagen</p>
+          <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>Fortsätt arbetsdagen</h1>
+          <p style={{ margin:0,fontSize:15,color:C.darkLabel }}>Välj vad du ska göra</p>
         </div>
 
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
-          <Label style={{ color:C.darkLabel }}>Vad gjorde du på vägen hem?</Label>
+
+          {/* Hittills idag */}
+          <div style={{ background:C.darkCard,borderRadius:16,padding:"16px 20px",marginBottom:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+            <p style={{ margin:"0 0 8px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Hittills idag</p>
+            {arbMin>0         && radSumm("Arbetstid", fmt(arbMin))}
+            {radSumm("Körning", `${totKm} km`, ()=>{ setTMK(kmM?.km||0); setTKK(kmK?.km||0); setAnledn(""); setSteg("äKm"); })}
+            {ersKm>0          && radSumm("Km med ersättning", `${ersKm} km`)}
+            {ersKr>0          && radSumm("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
+          </div>
+
+          <Label style={{ color:C.darkLabel }}>Aktivitet</Label>
           {typer.map(t=>(
             <div key={t.id} onClick={()=>setKvAvTyp(t.id)}
               style={{ background:kvAvTyp===t.id?"rgba(0,122,255,0.15)":C.darkCard,borderRadius:14,padding:"16px 18px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.id?"1px solid rgba(0,122,255,0.3)":"1px solid rgba(255,255,255,0.06)" }}>
@@ -3037,44 +3072,68 @@ export default function Arbetsrapport() {
           ))}
 
           {kvAvTyp&&<>
-            <div style={{ marginTop:16,marginBottom:12 }}>
-              <Label style={{ color:C.darkLabel }}>Kommentar</Label>
-              <input
-                placeholder="Kommentar"
-                value={kvAvBesk} onChange={e=>setKvAvBesk(e.target.value)}
-                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:"rgba(255,255,255,0.08)",outline:"none",fontFamily:"inherit",color:"#fff" }}/>
-            </div>
-
-            <div style={{ background:C.darkCard,borderRadius:14,padding:"14px 18px",marginBottom:kvAvDeb?8:0,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
-              <div>
-                <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Debiterbar</p>
-                <p style={{ margin:"2px 0 0",fontSize:13,color:C.darkLabel }}>Faktureras kunden</p>
-              </div>
-              <div onClick={()=>{setKvAvDeb(v=>!v);if(kvAvDeb)setKvAvObj(null);}}
-                style={{ width:51,height:31,borderRadius:16,background:kvAvDeb?C.green:"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
-                <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
-              </div>
-            </div>
-
-            {kvAvDeb&&<div onClick={()=>setKvAvVäljer(true)} style={{ background:C.darkCard,borderRadius:14,padding:"14px 18px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer" }}>
+            {/* Objekt — alltid synlig, pre-fylld med dagens objekt */}
+            <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:16,background:C.darkCard,borderRadius:14,padding:"14px 18px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer" }}>
               <div>
                 <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Objekt</p>
                 <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?C.blue:C.darkLabel }}>{kvAvObj?kvAvObj.namn:"Välj objekt"}</p>
               </div>
               <ChevronRight light/>
-            </div>}
+            </div>
+
+            {/* Debiterbar-toggle */}
+            <div style={{ background:C.darkCard,borderRadius:14,padding:"14px 18px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
+              <div>
+                <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Debiterbar</p>
+                <p style={{ margin:"2px 0 0",fontSize:13,color:C.darkLabel }}>Faktureras kunden</p>
+              </div>
+              <div onClick={()=>setKvAvDeb(v=>!v)}
+                style={{ width:51,height:31,borderRadius:16,background:kvAvDeb?C.green:"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
+                <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
+              </div>
+            </div>
+
+            <div style={{ marginTop:12,marginBottom:12 }}>
+              <Label style={{ color:C.darkLabel }}>Kommentar (valfri)</Label>
+              <input
+                placeholder="Kommentar"
+                value={kvAvBesk} onChange={e=>setKvAvBesk(e.target.value)}
+                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:"rgba(255,255,255,0.08)",outline:"none",fontFamily:"inherit",color:"#fff" }}/>
+            </div>
           </>}
         </div>
 
         <div style={bottom}>
           <button
-            style={{ ...btn.primary,opacity:(kvAvTyp&&kvAvBesk&&(!kvAvDeb||kvAvObj))?1:0.35 }}
-            disabled={!kvAvTyp||!kvAvBesk||(kvAvDeb&&!kvAvObj)}
-            onClick={()=>{
-              if(kvAvDeb&&kvAvObj) setExtra(e=>[...e,{besk:kvAvBesk,min:60,deb:true,obj:kvAvObj}]);
-              setSteg("kväll");
+            style={{ ...btn.primary,opacity:kvAvTyp?1:0.35 }}
+            disabled={!kvAvTyp}
+            onClick={async ()=>{
+              const startTid = nuKlock();
+              const datum = new Date().toISOString().split("T")[0];
+              const { data } = await supabase.from("extra_tid").insert({
+                medarbetare_id: medarbetare.id,
+                datum,
+                start_tid: startTid + ":00",
+                slut_tid: null,
+                minuter: 0,
+                aktivitet_typ: kvAvTyp,
+                aktivitet_text: kvAvBesk || null,
+                objekt_id: kvAvObj?.id || null,
+                debiterbar: kvAvDeb,
+                kalla: 'kvall',
+                kommentar: kvAvBesk || null,
+              }).select().single();
+              if (data) {
+                setPagaendeAktiviteter(p => [...p, data]);
+                setExtraTidData(d => [data, ...d]);
+              }
+              // Återställ formuläret så nästa gång börjar rent
+              setKvAvTyp(null); setKvAvBesk(""); setKvAvDeb(false); setKvAvObj(null);
+              // Gå till dag-vyn där pågående aktivitet visas med timer
+              isBackRef.current = true;
+              setSteg("morgon");
             }}>
-            Vidare till kvällssammanfattning
+            Starta aktivitet
           </button>
         </div>
       </div>
