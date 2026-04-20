@@ -1544,7 +1544,43 @@ export default function Arbetsrapport() {
                 Avsluta pass
               </button>
             ) : pagaendeAktiviteter.length===0 ? (
-              <button onClick={()=>{setStart(new Date().toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'}));setSteg("manuellDag");}} style={{ fontSize:14,fontWeight:500,color:"#adc6ff",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
+              <button onClick={async ()=>{
+                const nuT = nuKlock();
+                console.log('[Starta manuellt] klick', { nuT, idagKey, medarbetare_id: medarbetare?.id });
+                if (!medarbetare?.id) { console.warn('[Starta manuellt] medarbetare saknas'); return; }
+                setStart(nuT);
+                const { data, error } = await supabase.from("arbetsdag").upsert({
+                  medarbetare_id: medarbetare.id,
+                  datum: idagKey,
+                  start_tid: nuT + ":00",
+                  maskin_id: medarbetare.maskin_id || null,
+                  arbetad_min: 0,
+                }, { onConflict: 'medarbetare_id,datum' }).select().single();
+                console.log('[Starta manuellt] upsert', { data, error });
+                if (error) { console.error('[Starta manuellt] supabase-fel', error); return; }
+                if (data) {
+                  setDagData(d => ({ ...d, [idagKey]: {
+                    ...(d[idagKey] || {}),
+                    id: data.id,
+                    status: 'saknas',
+                    arbMin: 0,
+                    km: 0, km_morgon: 0, km_kvall: 0, km_totalt: 0,
+                    trak: !!data.traktamente,
+                    start_tid: data.start_tid,
+                    start: (data.start_tid||'').slice(0,5),
+                    slut_tid: null,
+                    slut: '',
+                    rast_min: 0,
+                    rast: 0,
+                    maskin_id: data.maskin_id,
+                    maskin_namn: maskinNamnMap[data.maskin_id] || data.maskin_id || null,
+                    objekt_id: data.objekt_id || null,
+                    objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || null,
+                  }}));
+                  console.log('[Starta manuellt] dagData uppdaterat för', idagKey);
+                  if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
+                }
+              }} style={{ fontSize:14,fontWeight:500,color:"#adc6ff",background:"none",border:"none",cursor:"pointer",padding:0,fontFamily:"inherit" }}>
                 Starta manuellt
               </button>
             ) : <span />}
