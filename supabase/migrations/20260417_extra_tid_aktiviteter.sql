@@ -10,7 +10,7 @@ ALTER TABLE extra_tid ADD COLUMN IF NOT EXISTS kalla text;
 DO $$ BEGIN
   ALTER TABLE extra_tid ADD CONSTRAINT extra_tid_aktivitet_typ_check
     CHECK (aktivitet_typ IS NULL OR aktivitet_typ IN
-      ('rotben','reservdelar','markagare','service','mote','annat'));
+      ('rotben','reservdelar','markagare','service','mote','flytt','annat'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN
