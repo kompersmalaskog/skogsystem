@@ -18,6 +18,13 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
+function deviceName(): string {
+  if (typeof navigator === 'undefined') return '';
+  const ua = navigator.userAgent || '';
+  const platform = (navigator as any).userAgentData?.platform || navigator.platform || '';
+  return `${platform} · ${ua}`.slice(0, 120);
+}
+
 export default function PushRegister() {
   useEffect(() => {
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
@@ -27,36 +34,37 @@ export default function PushRegister() {
         const reg = await navigator.serviceWorker.register('/sw.js');
         await navigator.serviceWorker.ready;
 
-        // Check if already subscribed
-        const existing = await reg.pushManager.getSubscription();
-        if (existing) return;
+        // Återanvänd existerande prenumeration om den finns, annars skapa ny
+        let subscription = await reg.pushManager.getSubscription();
+        if (!subscription) {
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') return;
+          subscription = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+          });
+        }
 
-        // Ask permission
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') return;
-
-        // Subscribe
-        const subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-        });
-
-        // Save to Supabase — find current medarbetare
+        // Koppla till inloggad medarbetare
         const { data: { user } } = await supabase.auth.getUser();
         if (!user?.email) return;
-
         const { data: med } = await supabase
           .from('medarbetare')
           .select('id')
           .eq('epost', user.email)
           .single();
+        if (!med) return;
 
-        if (med) {
-          await supabase
-            .from('medarbetare')
-            .update({ push_subscription: JSON.stringify(subscription) })
-            .eq('id', med.id);
-        }
+        // Upsert i push_subscriptions via server-route (unik på endpoint)
+        await fetch('/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            medarbetare_id: med.id,
+            subscription: subscription.toJSON(),
+            device_name: deviceName(),
+          }),
+        });
       } catch (e) {
         console.error('Push registration failed:', e);
       }
