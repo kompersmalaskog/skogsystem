@@ -1506,8 +1506,8 @@ export default function Arbetsrapport() {
           </div>
         ))}
 
-        {/* Starta extra arbete — göms när aktivitet pågår */}
-        {pagaendeAktiviteter.length===0&&(
+        {/* Starta extra arbete — visas bara under pågående pass (ingen sammanfattning ännu) */}
+        {isWorking && !dagData[idagKey]?.slut_tid && pagaendeAktiviteter.length===0&&(
           <button onClick={()=>(()=>{setVisaExtraPanel(true);setSteg("morgon");})()}
             style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,color:"#adc6ff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
             <span className="material-symbols-outlined" style={{ fontSize:16 }}>add</span>
@@ -1672,6 +1672,12 @@ export default function Arbetsrapport() {
                   Bekräfta dagen ✓
                 </button>
               )}
+              {!redanBekräftad && pagaendeAktiviteter.length===0 && (
+                <button onClick={()=>setVisaExtraPanel(true)}
+                  style={{ width:"100%",marginTop:10,padding:"18px",background:"transparent",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",borderRadius:14,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+                  + Extra arbete
+                </button>
+              )}
               {redanBekräftad && (
                 <div style={{ marginTop:16,padding:"16px",background:"rgba(52,199,89,0.1)",borderRadius:14,textAlign:"center",color:"#34c759",fontSize:16,fontWeight:600 }}>
                   ✓ Dagen är bekräftad
@@ -1756,39 +1762,40 @@ export default function Arbetsrapport() {
           </div>
         )}
 
-        {/* Frånvaro */}
-        <section style={{ animation:"fadeUp 0.5s ease 0.1s both",marginBottom:32 }}>
-          <h3 style={secHead}>Frånvaro</h3>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-            {[
-              {id:"sjuk",label:"Sjukfrånvaro",icon:"medical_services"},
-              {id:"vab",label:"VAB",icon:"child_care"},
-            ].map(s=>(
-              <button key={s.id} onClick={()=>{setDagTyp(s.id);setSteg("bekräftaFrånvaro");}} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
-                <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
-                <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
-              </button>
-            ))}
-          </div>
-        </section>
+        {/* Frånvaro + Arbete utan maskin — göms när en arbetsdag pågår eller är bekräftad */}
+        {!isWorking && !dagData[idagKey]?.bekraftad && (<>
+          <section style={{ animation:"fadeUp 0.5s ease 0.1s both",marginBottom:32 }}>
+            <h3 style={secHead}>Frånvaro</h3>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+              {[
+                {id:"sjuk",label:"Sjukfrånvaro",icon:"medical_services"},
+                {id:"vab",label:"VAB",icon:"child_care"},
+              ].map(s=>(
+                <button key={s.id} onClick={()=>{setDagTyp(s.id);setSteg("bekräftaFrånvaro");}} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
+                  <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
+                  <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
 
-        {/* Arbete utan maskin */}
-        <section style={{ animation:"fadeUp 0.5s ease 0.15s both" }}>
-          <h3 style={secHead}>Arbete utan maskin</h3>
-          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
-            {[
-              {id:"utbildning",label:"Utbildning",icon:"school"},
-              {id:"service",label:"Service",icon:"build"},
-              {id:"möte",label:"Möte",icon:"groups"},
-              {id:"annat",label:"Annat arbete",icon:"more_horiz"},
-            ].map(s=>(
-              <button key={s.id} onClick={()=>{setDagTyp(s.id);setSteg("manuellDag");}} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
-                <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
-                <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
-              </button>
-            ))}
-          </div>
-        </section>
+          <section style={{ animation:"fadeUp 0.5s ease 0.15s both" }}>
+            <h3 style={secHead}>Arbete utan maskin</h3>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12 }}>
+              {[
+                {id:"utbildning",label:"Utbildning",icon:"school"},
+                {id:"service",label:"Service",icon:"build"},
+                {id:"möte",label:"Möte",icon:"groups"},
+                {id:"annat",label:"Annat arbete",icon:"more_horiz"},
+              ].map(s=>(
+                <button key={s.id} onClick={()=>{setDagTyp(s.id);setSteg("manuellDag");}} style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:10,padding:"0 16px",cursor:"pointer",fontFamily:"inherit" }}>
+                  <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:20 }}>{s.icon}</span>
+                  <span style={{ color:"#fff",fontWeight:600,fontSize:15 }}>{s.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </>)}
 
         {/* Maskin & objekt metadata */}
         <section style={{ marginTop:48,paddingTop:32,borderTop:"1px solid rgba(255,255,255,0.05)",animation:"fadeUp 0.5s ease 0.15s both" }}>
