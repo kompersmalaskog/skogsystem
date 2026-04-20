@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode } from "react";
 import { supabase } from "@/lib/supabase";
 import { getRödaDagar } from "@/lib/roda-dagar";
+import { formatObjektNamn } from "@/utils/formatObjektNamn";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -587,10 +588,10 @@ export default function Arbetsrapport() {
         // object_name är ibland en autogenererad timestamp-sträng (yymmddHHMMSS).
         // Faller då tillbaka till "Skogsägare · Huvudtyp" så föraren ser ett vettigt namn.
         const n = (o.object_name || '').trim();
-        const namn = n && !/^\d{10,}$/.test(n)
+        const raw = n && !/^\d{10,}$/.test(n)
           ? n
           : ([o.skogsagare, o.huvudtyp].filter(Boolean).join(' · ') || o.objekt_id);
-        return { id:o.objekt_id, namn, ägare:o.skogsagare||'', lat:o.latitude, lng:o.longitude };
+        return { id:o.objekt_id, namn:formatObjektNamn(raw), ägare:o.skogsagare||'', lat:o.latitude, lng:o.longitude };
       }));
     });
     // Hämta maskinnamn-lookup
@@ -3615,7 +3616,7 @@ export default function Arbetsrapport() {
               <div onClick={()=>setVisaRedObjektVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
                 <span style={{ fontSize:16,color:C.label }}>Objekt</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(redDag.objekt_namn||redDag.objekt_id||"—");})()}</span>
+                  <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(formatObjektNamn(redDag.objekt_namn)||redDag.objekt_id||"—");})()}</span>
                   <ChevronRight/>
                 </div>
               </div>
