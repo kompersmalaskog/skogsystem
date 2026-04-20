@@ -1554,7 +1554,7 @@ export default function Arbetsrapport() {
                   datum: idagKey,
                   start_tid: nuT + ":00",
                   maskin_id: medarbetare.maskin_id || null,
-                  arbetad_min: 0,
+                  // arbetad_min är generated (slut_tid - start_tid - rast_min) — sätts ej manuellt
                 }, { onConflict: 'medarbetare_id,datum' }).select().single();
                 console.log('[Starta manuellt] upsert', { data, error });
                 if (error) { console.error('[Starta manuellt] supabase-fel', error); return; }
@@ -1654,17 +1654,18 @@ export default function Arbetsrapport() {
               {!redanBekräftad && pagaendeAktiviteter.length===0 && (
                 <button
                   onClick={async ()=>{
+                    // arbetad_min och km_totalt är generated columns — skickas inte.
+                    // extra_tid_min finns inte i arbetsdag-tabellen, räknas från extra_tid-rader.
                     await supabase.from("arbetsdag").upsert({
                       medarbetare_id: medarbetare.id,
                       datum: new Date().toISOString().split("T")[0],
                       start_tid: start, slut_tid: slut, rast_min: rast,
-                      arbetad_min: arbMin + totEx, extra_tid_min: totEx,
                       km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
                       maskin_id: medarbetare.maskin_id,
                       objekt_id: dagObjId,
                       traktamente: trak, bekraftad: true,
                       bekraftad_tid: new Date().toISOString(),
-                    });
+                    }, { onConflict: 'medarbetare_id,datum' });
                     setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true } }));
                   }}
                   style={{ width:"100%",marginTop:16,padding:"20px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
@@ -3941,14 +3942,19 @@ export default function Arbetsrapport() {
               disabled={!redAnl}
               onClick={async ()=>{
                 try {
+                  // arbetad_min + km_totalt är generated columns — räknas från rast_min
+                  // resp. km_morgon+km_kvall. Splittar redKm jämt mellan morgon/kväll.
+                  const halvKm = Math.round(redKm / 2);
                   const { error } = await supabase.from("arbetsdag").upsert({
                     medarbetare_id: medarbetare.id,
                     datum: redDag.datum,
                     start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
-                    arbetad_min: Math.max(0, tim(redStart,redSlut)-redRast),
-                    km_totalt: redKm, objekt_id: redObjektId || redDag.objekt_id || null, maskin_id: redMaskinId || redDag.maskin_id || null, redigerad: true,
+                    km_morgon: halvKm, km_kvall: redKm - halvKm,
+                    objekt_id: redObjektId || redDag.objekt_id || null,
+                    maskin_id: redMaskinId || redDag.maskin_id || null,
+                    redigerad: true,
                     redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
-                  });
+                  }, { onConflict: 'medarbetare_id,datum' });
                   if(error) throw error;
                   setRedDagar(r=>({...r,[redDag.datum]:{start:redStart,slut:redSlut,rast:redRast,km:redKm,anl:redAnl}}));
                   setSteg("kalender");
