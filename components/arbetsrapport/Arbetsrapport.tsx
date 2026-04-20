@@ -528,6 +528,7 @@ export default function Arbetsrapport() {
     lon:{timlon:number};
   } | null>(null);
   const [fortnoxSaldoStatus, setFortnoxSaldoStatus] = useState<'idle'|'loading'|'ok'|'error'>('idle');
+  const [kmSummary, setKmSummary] = useState<{totalKm:number;ersattningsKm:number}|null>(null);
   const [maskinNamn, setMaskinNamn] = useState<string | null>(null);
   const [maskinNamnMap, setMaskinNamnMap] = useState<Record<string, string>>({});
 
@@ -698,6 +699,25 @@ export default function Arbetsrapport() {
     })();
     return () => { cancelled = true; };
   }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.hem_lat, medarbetare?.hem_lng, objektLista]);
+
+  // Hämta månadens km-summa (med auto-beräkning för dagar som saknar km i DB)
+  // när kalendervyn öppnas eller månaden ändras.
+  useEffect(() => {
+    if (steg !== "kalender") return;
+    if (!medarbetare?.id) return;
+    const month = `${kalÅr}-${String(kalMånad+1).padStart(2,'0')}`;
+    let cancelled = false;
+    setKmSummary(null);
+    fetch(`/api/km-summary?medarbetare_id=${encodeURIComponent(medarbetare.id)}&month=${month}`)
+      .then(r => r.json())
+      .then(j => {
+        if (cancelled || !j?.ok) return;
+        console.log('[km-summary]', { month, totalKm: j.totalKm, ersattningsKm: j.ersattningsKm, orsAnrop: j.orsAnrop, dagar: j.dagar });
+        setKmSummary({ totalKm: j.totalKm, ersattningsKm: j.ersattningsKm });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [steg, medarbetare?.id, kalÅr, kalMånad]);
 
   // Lazy-hämta semester- och ATK-saldo från Fortnox när Saldon-fliken öppnas
   useEffect(() => {
@@ -3827,10 +3847,9 @@ export default function Arbetsrapport() {
     // Total jobbad tid denna månad
     const jobbadMin = Object.values(dagData).reduce((a: number, d: any) => a + (d.arbMin || 0), 0);
     const jobbadH = Math.round(jobbadMin / 60 * 10) / 10;
-    // km per dag: prioritera km_totalt, annars morgon+kväll, annars legacy km
-    const dagensKm = (d: any) => d.km_totalt || ((d.km_morgon || 0) + (d.km_kvall || 0)) || d.km || 0;
-    const totalKm = Object.values(dagData).reduce((a: number, d: any) => a + dagensKm(d), 0);
-    const ersKm   = Object.values(dagData).reduce((a: number, d: any) => a + Math.max(0, dagensKm(d) - frikm), 0);
+    // km hämtas från /api/km-summary som fyller ut saknade DB-värden via ORS
+    const totalKm = kmSummary?.totalKm ?? 0;
+    const ersKm   = kmSummary?.ersattningsKm ?? 0;
     const övH = Math.max(0, jobbadH-målH);
 
     const statusFärg=(d)=>{
