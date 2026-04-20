@@ -1744,13 +1744,16 @@ export default function Arbetsrapport() {
           </div>
         )}
 
-        {/* Frånvaro & övrigt — kollapsbar sektion längst ner, edge-cases */}
+        {/* Frånvaro & övrigt — klickbart kort, expandera för val */}
         {!isWorking && !dagData[idagKey]?.bekraftad && (
-          <section style={{ marginTop:40,marginBottom:16,animation:"fadeUp 0.5s ease 0.15s both" }}>
+          <section style={{ marginTop:32,marginBottom:16,animation:"fadeUp 0.5s ease 0.15s both" }}>
             <button onClick={()=>setVisaÖvrigt(v=>!v)}
-              style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 4px",background:"none",border:"none",cursor:"pointer",fontFamily:"inherit" }}>
-              <span style={{ fontSize:14,fontWeight:500,color:"rgba(255,255,255,0.5)",letterSpacing:"0.02em" }}>Frånvaro & övrigt</span>
-              <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)",transform:visaÖvrigt?"rotate(90deg)":"none",transition:"transform 0.2s" }}>chevron_right</span>
+              style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 20px",background:"#1c1c1e",borderRadius:16,border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+              <div>
+                <p style={{ margin:0,fontSize:16,fontWeight:600,color:"#fff" }}>Frånvaro & övrigt</p>
+                <p style={{ margin:"3px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Sjuk, VAB, semester, utbildning…</p>
+              </div>
+              <span className="material-symbols-outlined" style={{ fontSize:22,color:"rgba(255,255,255,0.45)",transform:visaÖvrigt?"rotate(90deg)":"none",transition:"transform 0.2s",flexShrink:0,marginLeft:12 }}>chevron_right</span>
             </button>
             {visaÖvrigt && (
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12,animation:"fadeUp 0.25s ease" }}>
