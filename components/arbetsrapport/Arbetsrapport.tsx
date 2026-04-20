@@ -3827,7 +3827,10 @@ export default function Arbetsrapport() {
     // Total jobbad tid denna månad
     const jobbadMin = Object.values(dagData).reduce((a: number, d: any) => a + (d.arbMin || 0), 0);
     const jobbadH = Math.round(jobbadMin / 60 * 10) / 10;
-    const totalKm = Object.values(dagData).reduce((a: number, d: any) => a + (d.km_morgon || 0) + (d.km_kvall || 0) + (d.km_totalt || d.km || 0), 0);
+    // km per dag: prioritera km_totalt, annars morgon+kväll, annars legacy km
+    const dagensKm = (d: any) => d.km_totalt || ((d.km_morgon || 0) + (d.km_kvall || 0)) || d.km || 0;
+    const totalKm = Object.values(dagData).reduce((a: number, d: any) => a + dagensKm(d), 0);
+    const ersKm   = Object.values(dagData).reduce((a: number, d: any) => a + Math.max(0, dagensKm(d) - frikm), 0);
     const övH = Math.max(0, jobbadH-målH);
 
     const statusFärg=(d)=>{
@@ -3882,7 +3885,8 @@ export default function Arbetsrapport() {
                   ["Arbetsdagar",`${arbetsdagar} dagar`],
                   ["Mål",`${målH} tim`],
                   ["Jobbat",`${jobbadH} tim`],
-                  ["Körning",`${totalKm} km`],
+                  ["Körning",`${totalKm.toLocaleString('sv-SE')} km`],
+                  ["Km med ersättning",`${ersKm.toLocaleString('sv-SE')} km`],
                 ].map(([label,val])=>(
                   <div key={label as string} style={{ display:"flex",flexDirection:"column" }}>
                     <span style={{ color:"#8b90a0",fontSize:11,fontWeight:500,letterSpacing:"0.05em",textTransform:"uppercase" as const }}>{label}</span>
