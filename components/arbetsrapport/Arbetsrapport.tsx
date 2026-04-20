@@ -121,15 +121,18 @@ const nuKlock5 = () => {
 };
 
 /* ── Extra-aktiviteter ── */
-type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'annat';
+type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'flytt'|'annat';
 const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debDefault: boolean }[] = [
-  { typ:'rotben',      label:'Kapa rotben',         icon:'content_cut',   debDefault:false },
-  { typ:'reservdelar', label:'Hämta reservdelar',   icon:'build',         debDefault:false },
-  { typ:'markagare',   label:'Markägarbesök',       icon:'handshake',     debDefault:true  },
-  { typ:'service',     label:'Service / reparation',icon:'engineering',   debDefault:false },
-  { typ:'mote',        label:'Möte',                icon:'groups',        debDefault:false },
-  { typ:'annat',       label:'Annat',               icon:'more_horiz',    debDefault:false },
+  { typ:'rotben',      label:'Kapa rotben',         icon:'content_cut',     debDefault:false },
+  { typ:'reservdelar', label:'Hämta reservdelar',   icon:'build',           debDefault:false },
+  { typ:'markagare',   label:'Markägarmöte',        icon:'handshake',       debDefault:true  },
+  { typ:'service',     label:'Service',             icon:'engineering',     debDefault:false },
+  { typ:'mote',        label:'Möte',                icon:'groups',          debDefault:false },
+  { typ:'flytt',       label:'Flytt av maskin',     icon:'local_shipping',  debDefault:true  },
+  { typ:'annat',       label:'Annat',               icon:'more_horiz',      debDefault:false },
 ];
+/** Typer som visas i "Starta extra arbete"-vyn (morgon + kväll). */
+const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['reservdelar','service','markagare','flytt','annat'];
 const aktLabel = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.label || 'Extra';
 const aktIcon  = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.icon  || 'more_horiz';
 
@@ -717,10 +720,10 @@ export default function Arbetsrapport() {
     return () => { cancelled = true; };
   }, [steg, redDag?.datum, redDag?.objekt_id, medarbetare?.id]);
 
-  // Pre-fyll kvällAvvikelse-vyns Objekt-val med dagens aktiva objekt.
+  // Pre-fyll "Starta extra arbete"-vyns Objekt-val med dagens aktiva objekt.
   // Om föraren ska till ett annat objekt ändrar hen manuellt.
   useEffect(() => {
-    if (steg !== "kvällAvvikelse") return;
+    if (steg !== "startaExtraArbete") return;
     if (kvAvObj) return;
     const idagArb = dagData[idagKey] || historik.find((d: any) => d.datum === idagKey);
     const objId = valtObjektId || idagArb?.objekt_id;
@@ -731,6 +734,13 @@ export default function Arbetsrapport() {
       setKvAvDeb(true);
     }
   }, [steg, valtObjektId, objektLista.length]);
+
+  // Tickar var 30:e sekund så live-timers i pågående-kort räknas om.
+  const [, setNuTick] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => setNuTick(t => t + 1), 30000);
+    return () => clearInterval(iv);
+  }, []);
 
   // Sätt mStart/mSlut till aktuell tid (avrundad till 5 min) när manuell-dag-
   // vyerna öppnas. Gör att defaulten inte blir stale om appen legat öppen.
@@ -1310,7 +1320,13 @@ export default function Arbetsrapport() {
             setPagaendeAktiviteter(p => p.filter(x=>x.id!==stoppaTarget.id));
             setExtraTidData(d => d.map(x => x.id===stoppaTarget.id ? {...x, slut_tid:stoppaSlutTid+':00', minuter} : x));
             setStoppaTarget(null);
-            setSteg("morgon");
+            // Om maskin-passet redan är avslutat (slut_tid satt eller dagen bekräftad)
+            // → tillbaka till kvällsvyn så föraren ser uppdaterad sammanfattning.
+            // Annars → dag-vyn redo att starta maskin eller nästa extra arbete.
+            const d = dagData[idagKey];
+            const efterMaskinPass = !!(d?.slut_tid || d?.bekraftad);
+            isBackRef.current = true;
+            setSteg(efterMaskinPass ? "kväll" : "morgon");
           }}>Spara</button>
           <button style={btn.textBack} onClick={()=>{setStoppaTarget(null);setSteg("morgon");}}>Avbryt</button>
         </div>
@@ -1452,11 +1468,11 @@ export default function Arbetsrapport() {
           </div>
         ))}
 
-        {/* + Extra tid (diskret knapp) */}
-        <button onClick={()=>{setValjAktivitet({kalla:'morgon'});setSteg("valjAktivitet");}}
+        {/* Starta extra arbete (diskret knapp) */}
+        <button onClick={()=>setSteg("startaExtraArbete")}
           style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",padding:"8px 14px",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:10,color:"#adc6ff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
           <span className="material-symbols-outlined" style={{ fontSize:16 }}>add</span>
-          Extra tid
+          Starta extra arbete
         </button>
 
         {/* Hero */}
@@ -3009,13 +3025,12 @@ export default function Arbetsrapport() {
     />
   );
 
-  /* ─── KVÄLL AVVIKELSE – registrera aktivitet på vägen hem ─── */
-  if(steg==="kvällAvvikelse"){
-    const typer = [
-      {id:"reservdelar", label:"Hämta reservdelar"},
-      {id:"objekt",      label:"Kollat på ett objekt"},
-      {id:"annat",       label:"Annat"},
-    ];
+  /* ─── STARTA EXTRA ARBETE – morgon eller kväll, samma vy ─── */
+  if(steg==="startaExtraArbete"){
+    const typer = EXTRA_ARBETE_TYPER.map(t => {
+      const a = AKTIVITETER.find(x => x.typ === t)!;
+      return { id: a.typ, label: a.label };
+    });
 
     if(kvAvVäljer) return (
       <div style={shell}><style>{css}</style>
@@ -3031,35 +3046,16 @@ export default function Arbetsrapport() {
       </div>
     );
 
-    const radSumm = (label: string, value: string, onClick?: ()=>void) => (
-      <div onClick={onClick} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:onClick?"pointer":"default",alignItems:"center" }}>
-        <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{label}</span>
-        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-          <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{value}</span>
-          {onClick && <span className="material-symbols-outlined" style={{ fontSize:18,color:"rgba(255,255,255,0.3)" }}>chevron_right</span>}
-        </div>
-      </div>
-    );
-
     return (
       <div style={darkShell}><style>{css}</style>
         <div style={topBar}>
-          <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>Fortsätt arbetsdagen</h1>
-          <p style={{ margin:0,fontSize:15,color:C.darkLabel }}>Välj vad du ska göra</p>
+          <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>Starta extra arbete</h1>
+          <p style={{ margin:0,fontSize:15,color:C.darkLabel }}>Tid utanför maskinen</p>
         </div>
 
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
 
-          {/* Hittills idag */}
-          <div style={{ background:C.darkCard,borderRadius:16,padding:"16px 20px",marginBottom:20,border:"1px solid rgba(255,255,255,0.06)" }}>
-            <p style={{ margin:"0 0 8px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Hittills idag</p>
-            {arbMin>0         && radSumm("Arbetstid", fmt(arbMin))}
-            {radSumm("Körning", `${totKm} km`, ()=>{ setTMK(kmM?.km||0); setTKK(kmK?.km||0); setAnledn(""); setSteg("äKm"); })}
-            {ersKm>0          && radSumm("Km med ersättning", `${ersKm} km`)}
-            {ersKr>0          && radSumm("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
-          </div>
-
-          <Label style={{ color:C.darkLabel }}>Aktivitet</Label>
+          <Label style={{ color:C.darkLabel }}>Vad ska du göra?</Label>
           {typer.map(t=>(
             <div key={t.id} onClick={()=>setKvAvTyp(t.id)}
               style={{ background:kvAvTyp===t.id?"rgba(0,122,255,0.15)":C.darkCard,borderRadius:14,padding:"16px 18px",marginBottom:8,cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",border:kvAvTyp===t.id?"1px solid rgba(0,122,255,0.3)":"1px solid rgba(255,255,255,0.06)" }}>
@@ -3071,36 +3067,26 @@ export default function Arbetsrapport() {
             </div>
           ))}
 
-          {kvAvTyp&&<>
-            {/* Objekt — alltid synlig, pre-fylld med dagens objekt */}
-            <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:16,background:C.darkCard,borderRadius:14,padding:"14px 18px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer" }}>
-              <div>
-                <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Objekt</p>
-                <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?C.blue:C.darkLabel }}>{kvAvObj?kvAvObj.namn:"Välj objekt"}</p>
-              </div>
-              <ChevronRight light/>
+          {/* Objekt — alltid synlig, pre-fylld med dagens objekt */}
+          <div onClick={()=>setKvAvVäljer(true)} style={{ marginTop:16,background:C.darkCard,borderRadius:14,padding:"14px 18px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer" }}>
+            <div>
+              <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Objekt</p>
+              <p style={{ margin:"2px 0 0",fontSize:13,color:kvAvObj?C.blue:C.darkLabel }}>{kvAvObj?kvAvObj.namn:"Välj objekt"}</p>
             </div>
+            <ChevronRight light/>
+          </div>
 
-            {/* Debiterbar-toggle */}
-            <div style={{ background:C.darkCard,borderRadius:14,padding:"14px 18px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
-              <div>
-                <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Debiterbar</p>
-                <p style={{ margin:"2px 0 0",fontSize:13,color:C.darkLabel }}>Faktureras kunden</p>
-              </div>
-              <div onClick={()=>setKvAvDeb(v=>!v)}
-                style={{ width:51,height:31,borderRadius:16,background:kvAvDeb?C.green:"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
-                <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
-              </div>
+          {/* Debiterbar-toggle */}
+          <div style={{ background:C.darkCard,borderRadius:14,padding:"14px 18px",marginBottom:8,display:"flex",justifyContent:"space-between",alignItems:"center",border:"1px solid rgba(255,255,255,0.06)" }}>
+            <div>
+              <p style={{ margin:0,fontSize:16,fontWeight:600 }}>Debiterbar</p>
+              <p style={{ margin:"2px 0 0",fontSize:13,color:C.darkLabel }}>Faktureras kunden</p>
             </div>
-
-            <div style={{ marginTop:12,marginBottom:12 }}>
-              <Label style={{ color:C.darkLabel }}>Kommentar (valfri)</Label>
-              <input
-                placeholder="Kommentar"
-                value={kvAvBesk} onChange={e=>setKvAvBesk(e.target.value)}
-                style={{ width:"100%",padding:"15px 16px",fontSize:16,border:"none",borderRadius:12,background:"rgba(255,255,255,0.08)",outline:"none",fontFamily:"inherit",color:"#fff" }}/>
+            <div onClick={()=>setKvAvDeb(v=>!v)}
+              style={{ width:51,height:31,borderRadius:16,background:kvAvDeb?C.green:"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
+              <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s",boxShadow:"0 2px 4px rgba(0,0,0,0.2)" }}/>
             </div>
-          </>}
+          </div>
         </div>
 
         <div style={bottom}>
@@ -3117,11 +3103,12 @@ export default function Arbetsrapport() {
                 slut_tid: null,
                 minuter: 0,
                 aktivitet_typ: kvAvTyp,
-                aktivitet_text: kvAvBesk || null,
+                aktivitet_text: null,
                 objekt_id: kvAvObj?.id || null,
                 debiterbar: kvAvDeb,
-                kalla: 'kvall',
-                kommentar: kvAvBesk || null,
+                // Hör aktiviteten hemma i morgon- eller kvällsflödet?
+                kalla: (dagData[idagKey]?.slut_tid || dagData[idagKey]?.bekraftad) ? 'kvall' : 'morgon',
+                kommentar: null,
               }).select().single();
               if (data) {
                 setPagaendeAktiviteter(p => [...p, data]);
@@ -3129,11 +3116,11 @@ export default function Arbetsrapport() {
               }
               // Återställ formuläret så nästa gång börjar rent
               setKvAvTyp(null); setKvAvBesk(""); setKvAvDeb(false); setKvAvObj(null);
-              // Gå till dag-vyn där pågående aktivitet visas med timer
+              // Dag-vyn visar pågående aktivitet med timer
               isBackRef.current = true;
               setSteg("morgon");
             }}>
-            Starta aktivitet
+            Starta
           </button>
         </div>
       </div>
@@ -3251,11 +3238,11 @@ export default function Arbetsrapport() {
             Bekräfta dagen ✓
           </button>
 
-          {/* Fortsätt arbetsdagen — outline-knapp med undertext */}
+          {/* Extra arbete — outline-knapp med undertext */}
           <button
-            onClick={()=>setSteg("kvällAvvikelse")}
+            onClick={()=>setSteg("startaExtraArbete")}
             style={{ width:"100%",marginTop:12,padding:"20px",background:"transparent",color:"#fff",border:"1px solid rgba(255,255,255,0.25)",borderRadius:14,fontSize:16,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-            Fortsätt arbetsdagen
+            Extra arbete
           </button>
           <p style={{ margin:"4px 0 0",textAlign:"center",fontSize:12,color:"rgba(255,255,255,0.4)" }}>Service, markägarmöte, flytt...</p>
 
