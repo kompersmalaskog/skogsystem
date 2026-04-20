@@ -538,7 +538,7 @@ export default function Arbetsrapport() {
           : supabase.from("medarbetare").select("*").limit(1).single()
       ),
       (()=>{ const idag=new Date().toISOString().slice(0,10); return supabase.from("gs_avtal").select("*").lte("giltigt_fran",idag).or(`giltigt_till.is.null,giltigt_till.gte.${idag}`).order("giltigt_fran",{ascending:false}).limit(1).maybeSingle(); })(),
-      supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare, latitude, longitude").order("object_name"),
+      supabase.from("dim_objekt").select("objekt_id, object_name, vo_nummer, skogsagare, huvudtyp, latitude, longitude").order("object_name"),
     ]).then(([med, avt, obj]) => {
       if(med.data) {
         setMedarbetare(med.data);
@@ -570,7 +570,15 @@ export default function Arbetsrapport() {
           });
       }
       if(avt.data) setGsAvtal(avt.data);
-      if(obj.data) setObjektLista(obj.data.map(o => ({id:o.objekt_id, namn:o.object_name||o.objekt_id, ägare:o.skogsagare||'', lat:o.latitude, lng:o.longitude})));
+      if(obj.data) setObjektLista(obj.data.map(o => {
+        // object_name är ibland en autogenererad timestamp-sträng (yymmddHHMMSS).
+        // Faller då tillbaka till "Skogsägare · Huvudtyp" så föraren ser ett vettigt namn.
+        const n = (o.object_name || '').trim();
+        const namn = n && !/^\d{10,}$/.test(n)
+          ? n
+          : ([o.skogsagare, o.huvudtyp].filter(Boolean).join(' · ') || o.objekt_id);
+        return { id:o.objekt_id, namn, ägare:o.skogsagare||'', lat:o.latitude, lng:o.longitude };
+      }));
     });
     // Hämta maskinnamn-lookup
     supabase.from("dim_maskin").select("maskin_id, tillverkare, modell").then(res => {
