@@ -1329,9 +1329,20 @@ export default function Arbetsrapport() {
           <div style={{ background:"#1c1c1e",borderRadius:16,padding:"20px 16px",marginBottom:24 }}>
             <TimePicker value={stoppaSlutTid} onChange={setStoppaSlutTid}/>
           </div>
-          <div style={{ textAlign:"center",padding:20,background:"rgba(52,199,89,0.07)",borderRadius:14 }}>
-            <Label>Tid</Label>
-            <p style={{ margin:0,fontSize:36,fontWeight:700,color:C.green }}>{fmt(minuter)}</p>
+          {/* Sammanfattningskort: start, slut, beräknad tid */}
+          <div style={{ background:"#1c1c1e",borderRadius:14,padding:"16px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+            <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+              <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Starttid</span>
+              <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{(stoppaTarget.start_tid||'').slice(0,5)}</span>
+            </div>
+            <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+              <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Sluttid</span>
+              <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{stoppaSlutTid}</span>
+            </div>
+            <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:10,display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
+              <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>Tid</span>
+              <span style={{ color:"#34c759",fontSize:22,fontWeight:700 }}>{fmt(minuter)}</span>
+            </div>
           </div>
         </div>
         <div style={bottom}>
@@ -1343,14 +1354,10 @@ export default function Arbetsrapport() {
             setPagaendeAktiviteter(p => p.filter(x=>x.id!==stoppaTarget.id));
             setExtraTidData(d => d.map(x => x.id===stoppaTarget.id ? {...x, slut_tid:stoppaSlutTid+':00', minuter} : x));
             setStoppaTarget(null);
-            // Om maskin-passet redan är avslutat (slut_tid satt eller dagen bekräftad)
-            // → tillbaka till kvällsvyn så föraren ser uppdaterad sammanfattning.
-            // Annars → dag-vyn redo att starta maskin eller nästa extra arbete.
-            const d = dagData[idagKey];
-            const efterMaskinPass = !!(d?.slut_tid || d?.bekraftad);
+            // Efter stopp: till morgon (en-skärms-vyn visar rätt tillstånd automatiskt).
             isBackRef.current = true;
-            setSteg(efterMaskinPass ? "kväll" : "morgon");
-          }}>Spara</button>
+            setSteg("morgon");
+          }}>Klar</button>
           <button style={btn.textBack} onClick={()=>{setStoppaTarget(null);setSteg("morgon");}}>Avbryt</button>
         </div>
       </div>
@@ -3617,7 +3624,7 @@ export default function Arbetsrapport() {
 
   /* ─── MANUELL DAG ─── */
   if(steg==="manuellDag"){
-    const titlar={service:"Service / Haveri",utbildning:"Utbildning",annat:"Annat arbete"};
+    const titlar: Record<string,string>={service:"Service",utbildning:"Utbildning",annat:"Annat arbete",möte:"Möte"};
     const platsh={service:"Kommentar",utbildning:"Kommentar",annat:"Kommentar"};
     return (
       <div style={shell}><style>{css}</style>
@@ -3635,7 +3642,7 @@ export default function Arbetsrapport() {
         <div style={bottom}>
           <button style={{ ...btn.primary,opacity:mBesk?1:0.35 }} disabled={!mBesk}
             onClick={()=>{setStart(mStart);setSlut("");setSteg("manuellPågår");}}>
-            Starta dagen
+            Starta arbetet
           </button>
         </div>
       </div>
