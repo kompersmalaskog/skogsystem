@@ -4701,7 +4701,9 @@ export default function PlannerPage() {
     { id: 'info', name: 'Info', desc: 'Objektinformation', icon: 'menu-info' },
     { id: 'settings', name: 'Inställningar', desc: 'Anpassa appen', icon: 'menu-settings' },
     { id: 'brandrisk', name: 'Brandrisk', desc: 'FWI, samråd, utrustning', icon: 'menu-brandrisk' },
-    { id: 'emergency', name: 'Nödläge', desc: 'SOS, position, sjukvård', icon: 'menu-emergency' },
+    // 'emergency' borttagen ur menyn — nås via nödprick i headern (commit 5). All
+    // emergency-logik (hitta närmsta sjukhus/vårdcentral, rad 4170, 13396) är orörd
+    // och kommer återanvändas när nödläge-vyn byggs separat.
     { id: 'briefing', name: 'Briefing', desc: 'Guidad traktgenomgång', icon: 'menu-briefing' },
     { id: 'briefing-checklist', name: 'Kvittering', desc: 'Kvittera markeringar', icon: 'menu-briefing-checklist' },
     { id: 'skotning', name: 'Skotning', desc: 'Utskotad volym', icon: 'menu-skotning' },
