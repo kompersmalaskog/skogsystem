@@ -40,8 +40,13 @@ export default function VolymPanel({ resultat, loading, onClose, korbarhetsResul
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 20px 12px' }}>
         <span style={{ fontSize: '17px', fontWeight: '600' }}>Volymberäkning</span>
-        <button type="button" onClick={onClose} aria-label="Stäng volymberäkning" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: '18px', flexShrink: 0 }}>
-          ✕
+        <button type="button" onClick={onClose} aria-label="Stäng volymberäkning" style={{ background: 'transparent', border: 'none', padding: '6px', borderRadius: '22px', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, transition: 'transform 0.12s' }} onPointerDown={e => (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.94)'} onPointerUp={e => (e.currentTarget as HTMLButtonElement).style.transform = ''} onPointerLeave={e => (e.currentTarget as HTMLButtonElement).style.transform = ''}>
+          <span style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+              <path d="M18 6 L6 18" />
+              <path d="M6 6 L18 18" />
+            </svg>
+          </span>
         </button>
       </div>
 

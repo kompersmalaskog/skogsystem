@@ -11259,10 +11259,12 @@ export default function PlannerPage() {
                   setMenuHeight(0);
                 }
               }}
+              className="press-scale"
               style={{
                 width: '44px',
                 height: '44px',
-                borderRadius: '50%',
+                padding: '6px',
+                borderRadius: '22px',
                 background: 'transparent',
                 border: 'none',
                 display: 'flex',
@@ -11270,10 +11272,18 @@ export default function PlannerPage() {
                 justifyContent: 'center',
                 cursor: 'pointer',
                 color: '#fff',
-                opacity: 0.75,
               }}
             >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <span style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: 'rgba(255,255,255,0.12)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 {showCamera || showColorPicker || subMenu ? (
                   <path d="M15 18 L9 12 L15 6" />
                 ) : (
@@ -11283,6 +11293,7 @@ export default function PlannerPage() {
                   </>
                 )}
               </svg>
+              </span>
             </button>
             
             <div style={{ 
