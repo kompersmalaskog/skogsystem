@@ -7602,7 +7602,15 @@ export default function PlannerPage() {
       WebkitTouchCallout: 'none',
       WebkitTapHighlightColor: 'transparent',
     }}>
-      
+      {/* === APPLE PRESS-FEEDBACK (alla knappar med .press-scale eller .press-row) === */}
+      <style>{`
+        .press-scale { transition: transform 0.12s cubic-bezier(0.32, 0.72, 0, 1); }
+        .press-scale:active { transform: scale(0.94); }
+        .press-row { transition: background 0.1s ease; }
+        .press-row:active { background: rgba(255,255,255,0.1) !important; }
+        .press-dim:active { filter: brightness(0.88); }
+      `}</style>
+
       {/* === MINIMAL HEADER === */}
       {!briefingMode && (
         <div style={{
@@ -7622,6 +7630,7 @@ export default function PlannerPage() {
           <Link
             href="/"
             aria-label="Hem"
+            className="press-scale"
             style={{
               pointerEvents: 'auto',
               width: '44px',
@@ -7682,6 +7691,7 @@ export default function PlannerPage() {
             type="button"
             onClick={() => { if (navigator.vibrate) navigator.vibrate([30, 20, 30]); alert('Nödläge kommer snart'); }}
             aria-label="Nödläge"
+            className="press-scale"
             style={{
               pointerEvents: 'auto',
               width: '44px',
@@ -7752,6 +7762,7 @@ export default function PlannerPage() {
           onClick={() => { if (navigator.vibrate) navigator.vibrate(10); setPlusMenuOpen(o => !o); }}
           aria-label={plusMenuOpen ? 'Stäng meny' : 'Öppna meny'}
           aria-expanded={plusMenuOpen}
+          className="press-dim"
           style={{
             position: 'fixed',
             bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)',
@@ -7901,6 +7912,7 @@ export default function PlannerPage() {
                       key={item.label}
                       type="button"
                       onClick={() => { if (navigator.vibrate) navigator.vibrate(8); item.action(); setPlusMenuOpen(false); }}
+                      className="press-row"
                       style={{
                         width: '100%',
                         minHeight: 56,
@@ -8860,6 +8872,7 @@ export default function PlannerPage() {
             }
           }}
           aria-label="Centrera kartan på objektet"
+          className="press-scale"
           style={{
             position: 'fixed',
             bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)',
