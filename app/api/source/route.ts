@@ -9,17 +9,48 @@ import { join } from 'path';
 const DEBUG_KEY = 'skogsystem-debug';
 
 // Nycklar som pekar på faktiska filsökvägar relativt repo-roten.
+// Kalender/Löneunderlag/Inställningar/MinTid är egna steg-vyer inom
+// Arbetsrapport.tsx — de pekar därför alla på samma källkodsfil.
 // Lägg till fler vid behov.
 const FIL_KARTA: Record<string, string> = {
+  // Huvudkomponent + vy-alias (alla bor i Arbetsrapport.tsx via `steg`)
   Arbetsrapport: 'components/arbetsrapport/Arbetsrapport.tsx',
-  TopBar: 'components/TopBar.tsx',
-  Notify: 'app/api/notify/route.ts',
-  Routing: 'app/api/routing/route.ts',
-  KmSummary: 'app/api/km-summary/route.ts',
-  KmChain: 'app/api/km-chain/route.ts',
-  AppState: 'app/api/app-state/route.ts',
-  Source: 'app/api/source/route.ts',
-  Status: 'STATUS.md',
+  Kalender:      'components/arbetsrapport/Arbetsrapport.tsx',
+  Loneunderlag:  'components/arbetsrapport/Arbetsrapport.tsx',
+  Installningar: 'components/arbetsrapport/Arbetsrapport.tsx',
+  MinTid:        'components/arbetsrapport/Arbetsrapport.tsx',
+
+  // Andra komponenter
+  TopBar:        'components/TopBar.tsx',
+  BottomNav:     'components/BottomNav.tsx',
+  PushRegister:  'components/PushRegister.tsx',
+  MapLibreMap:   'components/MapLibreMap.tsx',
+
+  // Admin-flikar
+  AdminClient:     'components/admin/AdminClient.tsx',
+  MedarbetareFlik: 'components/admin/MedarbetareFlik.tsx',
+  AvtalFlik:       'components/admin/AvtalFlik.tsx',
+  LonFlik:         'components/admin/LonFlik.tsx',
+  AtkUnderflik:    'components/admin/AtkUnderflik.tsx',
+  LonesystemUnderflik: 'components/admin/LonesystemUnderflik.tsx',
+  VilobrottUnderflik:  'components/admin/VilobrottUnderflik.tsx',
+
+  // API-routes som används av dag-vyn
+  Notify:     'app/api/notify/route.ts',
+  Routing:    'app/api/routing/route.ts',
+  KmSummary:  'app/api/km-summary/route.ts',
+  KmChain:    'app/api/km-chain/route.ts',
+  AppState:   'app/api/app-state/route.ts',
+  Source:     'app/api/source/route.ts',
+
+  // Fortnox
+  FortnoxEmployeeDetails: 'app/api/fortnox/employee-details/route.ts',
+  FortnoxDebugSaldon:     'app/api/fortnox/debug-saldon/route.ts',
+  FortnoxSalaryExport:    'app/api/fortnox/salary-export/route.ts',
+
+  // Meta
+  Status:     'STATUS.md',
+  Claude:     'CLAUDE.md',
 };
 
 export async function GET(req: NextRequest) {
@@ -31,10 +62,12 @@ export async function GET(req: NextRequest) {
 
   const fil = url.searchParams.get('file');
   if (!fil) {
-    const tillgängliga = Object.keys(FIL_KARTA).join(', ');
+    const rader = Object.entries(FIL_KARTA)
+      .map(([nyckel, sökväg]) => `  ${nyckel.padEnd(24)} → ${sökväg}`)
+      .join('\n');
     return new NextResponse(
-      `Ange ?file=<namn>. Tillgängliga: ${tillgängliga}`,
-      { status: 400, headers: { 'Content-Type': 'text/plain; charset=utf-8' } },
+      `Ange ?file=<namn>. Tillgängliga filer:\n\n${rader}\n\nAnvändning: /api/source?file=<namn>&key=skogsystem-debug\n`,
+      { status: 200, headers: { 'Content-Type': 'text/plain; charset=utf-8' } },
     );
   }
 
