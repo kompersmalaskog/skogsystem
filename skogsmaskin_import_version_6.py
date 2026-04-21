@@ -497,12 +497,16 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         dag_key = (datum, maskin_id, objekt_id_wt)
         tid_operator[dag_key] = f"{maskin_id}_{op_key}"
 
-        # Nyckla per unik entry (MonitoringStartTime) för deduplicering.
+        # Nyckla per unik entry (MonitoringStartTime + operator) för dedup.
         # Om samma entry (t.ex. en pågående arbetsperiod) förekommer i
         # flera filer, SKRIVS den över med senaste filens värde.
-        entry_key = (start_time, maskin_id, objekt_id_wt)
+        # Operator-ID i nyckeln krävs för att per-förare rast/tid ska
+        # bevaras när samma maskin körs av två förare samma dag/objekt.
+        entry_operator = f"{maskin_id}_{op_key}"
+        entry_key = (start_time, maskin_id, objekt_id_wt, entry_operator)
         entry = {
             'datum': datum,
+            'operator_id': entry_operator,
             'processing_sek': 0, 'terrain_sek': 0, 'other_work_sek': 0,
             'maintenance_sek': 0, 'disturbance_sek': 0, 'rast_sek': 0,
             'avbrott_sek': 0, 'kort_stopp_sek': 0, 'bransle_liter': 0,
@@ -618,7 +622,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         # Spara/skriv över entryn — senaste filens version vinner
         raw_tid_entries[entry_key] = entry
 
-    # Korta stopp – nyckling per entry (MonitoringStartTime) precis som ovan
+    # Korta stopp – nyckling per entry (MonitoringStartTime + operator)
     for short_down in find_all_elements(machine, 'IndividualShortDownTime', ns):
         duration = safe_int(get_text(short_down, 'MonitoringTimeLength', ns))
         start_time = get_text(short_down, 'MonitoringStartTime', ns)
@@ -631,9 +635,11 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         dag_key = (datum, maskin_id, short_objekt_id)
         tid_operator[dag_key] = f"{maskin_id}_{op_key}"
 
-        entry_key = (start_time, maskin_id, short_objekt_id)
+        short_operator = f"{maskin_id}_{op_key}"
+        entry_key = (start_time, maskin_id, short_objekt_id, short_operator)
         entry = raw_tid_entries.get(entry_key, {
             'datum': datum,
+            'operator_id': short_operator,
             'processing_sek': 0, 'terrain_sek': 0, 'other_work_sek': 0,
             'maintenance_sek': 0, 'disturbance_sek': 0, 'rast_sek': 0,
             'avbrott_sek': 0, 'kort_stopp_sek': 0, 'bransle_liter': 0,
@@ -643,7 +649,10 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         entry['kort_stopp_sek'] = duration
         raw_tid_entries[entry_key] = entry
 
-    # Aggregera dedupade entries per (datum, maskin_id, objekt_id)
+    # Aggregera dedupade entries per (datum, maskin_id, objekt_id, operator_id)
+    # — operator i nyckeln så att rast/tid stannar per förare när samma maskin
+    # delas av flera. Tidigare slogs allt ihop och "senaste operator" fick hela
+    # summan.
     raw_tid_agg = defaultdict(lambda: {
         'processing_sek': 0, 'terrain_sek': 0, 'other_work_sek': 0,
         'maintenance_sek': 0, 'disturbance_sek': 0, 'rast_sek': 0,
@@ -652,15 +661,21 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         'terrain_korstracka_m': 0, 'terrain_bransle_liter': 0.0
     })
     for entry_key, entry in raw_tid_entries.items():
-        start_time_str, maskin, objekt = entry_key
+        # entry_key kan vara (start_time, maskin, objekt, operator) eller
+        # gammal form (start_time, maskin, objekt) — tolerant mot båda.
+        if len(entry_key) == 4:
+            start_time_str, maskin, objekt, operator = entry_key
+        else:
+            start_time_str, maskin, objekt = entry_key
+            operator = entry.get('operator_id') or tid_operator.get((entry['datum'], maskin, objekt))
         datum = entry['datum']
-        dag_key = (datum, maskin, objekt)
+        dag_key = (datum, maskin, objekt, operator)
         for field in raw_tid_agg[dag_key]:
             raw_tid_agg[dag_key][field] += entry.get(field, 0) or 0
 
     # Konvertera till listor
     for key, values in raw_tid_agg.items():
-        datum, maskin, objekt = key
+        datum, maskin, objekt, operator = key
 
         # Beräkna tomgång: G0 = runtime - kort_stopp (MOM runtime är G15-inklusiv)
         runtime = values['processing_sek'] + values['terrain_sek'] + values['other_work_sek']
@@ -670,7 +685,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         data['tid'].append({
             'datum': datum,
             'maskin_id': maskin,
-            'operator_id': tid_operator.get(key),
+            'operator_id': operator,
             'objekt_id': objekt,
             **values,
             'tomgang_sek': tomgang,
@@ -2143,7 +2158,7 @@ def save_mom_to_supabase(data: Dict) -> bool:
                     logger.warning(f"  VARNING: Fallback G15h från EngineTime för {row.get('maskin_id')} {row.get('datum')} — WorkCategory saknas i MOM-fil (engine={row['engine_time_sek']}s → processing={fallback_sek}s)")
 
             if rows:
-                if upsert_data('fakt_tid', rows, ['datum', 'maskin_id', 'objekt_id']) == 0:
+                if upsert_data('fakt_tid', rows, ['datum', 'maskin_id', 'objekt_id', 'operator_id']) == 0:
                     fel.append('fakt_tid')
 
         # Arbetsdag — skapa automatiskt från fakt_tid + skift
