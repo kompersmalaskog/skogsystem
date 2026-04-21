@@ -161,6 +161,7 @@ document.querySelectorAll('.k-val[data-count]').forEach(function(el) {
   if (t === 'Br\\u00e4nsle/m\\u00b3') el.setAttribute('data-count', String(_kpiBransleM3));
   if (t === 'Lass/G15h') el.setAttribute('data-count', String(_kpiLassG15h));
   if (t === 'Utnyttjandegrad') el.setAttribute('data-count', String(_kpiUtnytt));
+  if (t === 'G15-timmar') el.setAttribute('data-count', String(_kpiG15));
 });
 
 setTimeout(function(){
@@ -1538,41 +1539,70 @@ export default function SkotareVy() {
                     })()}
                   </div>
                 </>) : (<>
-                  <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginTop: 24, marginBottom: 20 }}>Idag</div>
-                  <div className="hero" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-                    {[
-                      { label: 'Volym', val: d.vol, unit: 'm\u00b3sub', dec: 0 },
-                      { label: 'Lass', val: d.lass, unit: 'st', dec: 0 },
-                      { label: 'Medellast', val: d.medellast, unit: 'm\u00b3/lass', dec: 1 },
-                      { label: 'Medelavst\u00e5nd', val: d.medelavstand, unit: 'm', dec: 0 },
-                      { label: 'Utnyttjandegrad', val: d.utnyttj, unit: '%', dec: 1 },
-                      { label: 'Br\u00e4nsle', val: d.bransle, unit: 'liter', dec: 0 },
-                      { label: 'Br\u00e4nsle/m\u00b3', val: d.bransleLm3, unit: 'l/m\u00b3', dec: 1 },
-                      { label: 'Lass/G15h', val: d.lassG15h, unit: 'lass/h', dec: 1 },
-                    ].map((kpi, ki) => (
-                      <div key={ki} className="kpi">
-                        <div className="k-label">{kpi.label}</div>
-                        <div className="k-val">{kpi.val.toFixed(kpi.dec)}</div>
-                        <div className="k-unit">{kpi.unit}</div>
-                      </div>
-                    ))}
+                  {/* KPI ROW 1 */}
+                  <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 16 }}>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                      <div className="k-label">Volym</div>
+                      <div className="k-val">{d.vol.toLocaleString('sv')}</div>
+                      <div className="k-unit">m\u00b3sub</div>
+                    </div>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                      <div className="k-label">Lass</div>
+                      <div className="k-val">{d.lass}</div>
+                      <div className="k-unit">st</div>
+                    </div>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                      <div className="k-label">Medellast</div>
+                      <div className="k-val">{d.medellast.toFixed(1)}</div>
+                      <div className="k-unit">m\u00b3/lass</div>
+                    </div>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                      <div className="k-label">Medelavst\u00e5nd</div>
+                      <div className="k-val">{d.medelavstand}</div>
+                      <div className="k-unit">m</div>
+                    </div>
                   </div>
+                  {/* KPI ROW 2 */}
+                  <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 8 }}>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                      <div className="k-label">Utnyttjandegrad</div>
+                      <div className="k-val">{d.utnyttj.toFixed(1)}</div>
+                      <div className="k-unit">%</div>
+                    </div>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                      <div className="k-label">Br\u00e4nsle totalt</div>
+                      <div className="k-val">{d.bransle}</div>
+                      <div className="k-unit">liter</div>
+                    </div>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                      <div className="k-label">Br\u00e4nsle/m\u00b3</div>
+                      <div className="k-val">{d.bransleLm3.toFixed(1)}</div>
+                      <div className="k-unit">L/m\u00b3</div>
+                    </div>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                      <div className="k-label">Lass/G15h</div>
+                      <div className="k-val">{d.lassG15h.toFixed(1)}</div>
+                      <div className="k-unit">lass/h</div>
+                    </div>
+                  </div>
+
+                  {/* Aktiv förare & objekt */}
                   {d.operatorer.length > 0 && (
-                    <div className="card" style={{ marginBottom: 16 }}>
-                      <div className="card-h"><div className="card-t">Aktiva operat\u00f6rer</div></div>
+                    <div className="card" style={{ marginTop: 16 }}>
+                      <div className="card-h"><div className="card-t">Just nu</div></div>
                       <div className="card-b">
                         {d.operatorer.map((op, oi) => (
-                          <div key={oi} className="op-row">
-                            <div className="op-av" style={{ background: 'rgba(255,255,255,0.07)', color: 'rgba(255,255,255,0.6)' }}>
-                              {op.namn.split(' ').map(w => w[0]).join('').toUpperCase().substring(0, 2)}
+                          <div key={oi} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(90,255,140,0.1)', border: '1px solid rgba(90,255,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 500, color: 'rgba(90,255,140,0.8)', flexShrink: 0 }}>
+                              {op.namn.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
                             </div>
-                            <div className="op-info">
-                              <div className="op-name">{op.namn}</div>
-                              <div className="op-sub">{op.objekt}</div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 14, fontWeight: 500, color: '#e8e8e4' }}>{op.namn}</div>
+                              <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{op.objekt} \u00b7 start {op.start}</div>
                             </div>
-                            <div className="op-stats">
-                              <div><div className="op-sv">{op.lass}</div><div className="op-sl">lass</div></div>
-                              <div><div className="op-sv">{op.vol} m\u00b3</div><div className="op-sl">volym</div></div>
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 17, fontWeight: 500, color: '#e8e8e4' }}>{op.vol} m\u00b3</div>
+                              <div style={{ fontSize: 10, color: '#7a7a72' }}>{op.lass} lass</div>
                             </div>
                           </div>
                         ))}
@@ -1587,22 +1617,31 @@ export default function SkotareVy() {
           {/* ── OVERSIKT VIEW ── */}
           {activeView === 'oversikt' && (
             <div style={{ padding: '24px 28px 60px', maxWidth: 1400, margin: '0 auto', fontFamily: "'Geist', system-ui, sans-serif" }}>
-              {/* Hero KPIs */}
-              <div className="hero" style={{ gridTemplateColumns: 'repeat(5, 1fr)' }}>
+              {/* KPI ROW 1: Skotad volym (hero, span 2) + Antal lass + Medellast */}
+              <div className="hero" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
                 <div className="hero-main" style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.06)' }}>
                   <div className="hero-label">Skotad volym</div>
                   <div className="hero-val" id="hv" style={{ fontSize: 48 }}>0</div>
                   <div className="hero-unit">m\u00b3sub</div>
                 </div>
                 <div className="kpi"><div className="k-label">Antal lass</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">st</div></div>
-                <div className="kpi"><div className="k-label">G15-timmar</div><div className="k-val" style={{ fontSize: 32 }}>{dbData ? dbData.g15Timmar.toFixed(0) : '0'}</div><div className="k-unit">h</div></div>
-                <div className="kpi"><div className="k-label">Medelavst\u00e5nd</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">m</div></div>
-              </div>
-              <div className="hero" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
                 <div className="kpi"><div className="k-label">Medellast</div><div className="k-val" data-count="0" data-dec="1">0</div><div className="k-unit">m\u00b3/lass</div></div>
-                <div className="kpi"><div className="k-label">Lass/G15h</div><div className="k-val" data-count="0" data-dec="1">0</div><div className="k-unit">lass/h</div></div>
-                <div className="kpi"><div className="k-label">Br\u00e4nsle totalt</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">liter</div></div>
+              </div>
+              {/* KPI ROW 2: Lass/G15h (hero, span 2) + Utnyttjandegrad + Bränsle totalt */}
+              <div className="hero" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginTop: -8 }}>
+                <div className="kpi" style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.06)' }}>
+                  <div className="k-label">Lass/G15h</div>
+                  <div className="k-val" data-count="0" data-dec="1" style={{ fontSize: 48 }}>0</div>
+                  <div className="k-unit">lass/h</div>
+                </div>
                 <div className="kpi"><div className="k-label">Utnyttjandegrad</div><div className="k-val" data-count="0" data-dec="1">0</div><div className="k-unit">%</div></div>
+                <div className="kpi"><div className="k-label">Br\u00e4nsle totalt</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">liter</div></div>
+              </div>
+              {/* KPI ROW 3: Bränsle/m³ + Medelavstånd + G15-timmar */}
+              <div className="hero" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginTop: -8 }}>
+                <div className="kpi"><div className="k-label">Br\u00e4nsle/m\u00b3</div><div className="k-val" data-count="0" data-dec="2">0</div><div className="k-unit">L/m\u00b3</div></div>
+                <div className="kpi"><div className="k-label">Medelavst\u00e5nd</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">m</div></div>
+                <div className="kpi"><div className="k-label">G15-timmar</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">h</div></div>
               </div>
 
               {/* Operators + Time distribution */}
@@ -1695,8 +1734,13 @@ export default function SkotareVy() {
             const pk = db?.avbrottPerKategori || [];
             return (
               <div style={{ padding: '24px 28px 60px', maxWidth: 1400, margin: '0 auto', fontFamily: "'Geist', system-ui, sans-serif" }}>
-                <div className="hero" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
-                  <div className="kpi"><div className="k-label">Total avbrottstid</div><div className="k-val">{at?.timmar || 0}</div><div className="k-unit">timmar</div></div>
+                <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
+                <div className="hero" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+                  <div className="hero-main" style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.06)' }}>
+                    <div className="hero-label">Total avbrottstid</div>
+                    <div className="hero-val" style={{ fontSize: 48 }}>{at?.timmar || 0}<span style={{ fontSize: 24, color: '#888', marginLeft: 2 }}>h</span></div>
+                    <div className="hero-unit">timmar</div>
+                  </div>
                   <div className="kpi"><div className="k-label">Antal avbrott</div><div className="k-val">{at?.antal || 0}</div><div className="k-unit">st</div></div>
                   <div className="kpi"><div className="k-label">Snitt per avbrott</div><div className="k-val">{at?.snittMin || 0}</div><div className="k-unit">min</div></div>
                 </div>
