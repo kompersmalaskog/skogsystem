@@ -7664,7 +7664,17 @@ export default function PlannerPage() {
             letterSpacing: '-0.2px',
             textAlign: 'center',
           }}>
-            {valtObjekt?.namn || 'Inget objekt'}
+            {valtObjekt ? (
+              <>
+                <span>{valtObjekt.namn}</span>
+                {(valtObjekt.areal || valtObjekt.typ) && (
+                  <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.65)' }}>
+                    {valtObjekt.areal ? ` · ${valtObjekt.areal} ha` : ''}
+                    {valtObjekt.typ ? ` · ${valtObjekt.typ === 'slutavverkning' ? 'Slutavv.' : valtObjekt.typ === 'gallring' ? 'Gallring' : valtObjekt.typ}` : ''}
+                  </span>
+                )}
+              </>
+            ) : 'Inget objekt'}
           </div>
 
           {/* Nödläge-prick (diskret, klickas i commit 5) */}
