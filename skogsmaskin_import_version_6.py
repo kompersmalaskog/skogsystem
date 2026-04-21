@@ -733,12 +733,16 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
     # Beräkna min/max MonitoringStartTime per (operator, datum) från WorkTime-entries
     if not data['skift'] and raw_tid_entries:
         op_dag_times = defaultdict(list)  # (operator_id, datum) -> [datetime, ...]
-        for (start_time_str, mid, oid), entry in raw_tid_entries.items():
+        for ek, entry in raw_tid_entries.items():
+            if len(ek) == 4:
+                start_time_str, mid, oid, op_from_key = ek
+            else:
+                start_time_str, mid, oid = ek
+                op_from_key = None
             dt = parse_datetime(start_time_str)
             if not dt:
                 continue
-            dag_key_lookup = (dt.date(), mid, oid)
-            op_id = tid_operator.get(dag_key_lookup)
+            op_id = op_from_key or entry.get('operator_id') or tid_operator.get((dt.date(), mid, oid))
             if op_id:
                 duration_sek = 0
                 for f in ['processing_sek', 'terrain_sek', 'other_work_sek',
@@ -2113,12 +2117,18 @@ def save_mom_to_supabase(data: Dict) -> bool:
             _GLOBAL_TID_ENTRIES.update(data['tid_entries'])
             _GLOBAL_TID_OPERATORS.update(data.get('tid_operator', {}))
 
-            # Re-aggregera berörda (datum, maskin, objekt) från alla kända entries
+            # Re-aggregera berörda (datum, maskin, objekt, operator) — operator
+            # ingår i nyckeln så per-förare rast/tid bevaras när samma maskin
+            # delas av flera operatörer samma dag.
             affected_days = set()
             for entry_key, entry in data['tid_entries'].items():
-                start_time_str, maskin, objekt = entry_key
+                if len(entry_key) == 4:
+                    start_time_str, maskin, objekt, operator = entry_key
+                else:
+                    start_time_str, maskin, objekt = entry_key
+                    operator = entry.get('operator_id') or _GLOBAL_TID_OPERATORS.get((entry['datum'], maskin, objekt))
                 datum = entry['datum']
-                affected_days.add((datum, maskin, objekt))
+                affected_days.add((datum, maskin, objekt, operator))
 
             tid_fields = ['processing_sek', 'terrain_sek', 'other_work_sek',
                           'maintenance_sek', 'disturbance_sek', 'rast_sek',
@@ -2128,21 +2138,25 @@ def save_mom_to_supabase(data: Dict) -> bool:
 
             agg = defaultdict(lambda: {f: 0 for f in tid_fields})
             for ek, entry in _GLOBAL_TID_ENTRIES.items():
-                dag_key = (entry['datum'], ek[1], ek[2])
+                if len(ek) == 4:
+                    ek_operator = ek[3]
+                else:
+                    ek_operator = entry.get('operator_id') or _GLOBAL_TID_OPERATORS.get((entry['datum'], ek[1], ek[2]))
+                dag_key = (entry['datum'], ek[1], ek[2], ek_operator)
                 if dag_key in affected_days:
                     for f in tid_fields:
                         agg[dag_key][f] += (entry.get(f) or 0)
 
             rows = []
             for dag_key, values in agg.items():
-                datum, maskin, objekt = dag_key
+                datum, maskin, objekt, operator = dag_key
                 runtime = values['processing_sek'] + values['terrain_sek'] + values['other_work_sek']
                 g0 = runtime - values['kort_stopp_sek']
                 tomgang = max(0, values['engine_time_sek'] - g0)
                 rows.append({
                     'datum': datum,
                     'maskin_id': maskin,
-                    'operator_id': _GLOBAL_TID_OPERATORS.get(dag_key),
+                    'operator_id': operator,
                     'objekt_id': objekt,
                     **values,
                     'tomgang_sek': tomgang,
