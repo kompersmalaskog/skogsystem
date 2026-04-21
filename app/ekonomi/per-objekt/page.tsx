@@ -2,8 +2,7 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Viewport } from "next";
-import KommerSnart from "../KommerSnart";
-import EkonomiBottomNav from "../EkonomiBottomNav";
+import PerObjektClient from "./PerObjektClient";
 
 export const metadata = { title: "Ekonomi · Per objekt" };
 export const dynamic = "force-dynamic";
@@ -44,10 +43,5 @@ export default async function Page() {
     redirect("/arbetsrapport");
   }
 
-  return (
-    <>
-      <KommerSnart titel="Per objekt" underrubrik="Intäkt, kostnad och marginal per objekt — kommer snart." />
-      <EkonomiBottomNav />
-    </>
-  );
+  return <PerObjektClient />;
 }
