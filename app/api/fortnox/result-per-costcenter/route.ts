@@ -72,16 +72,17 @@ export async function GET(req: NextRequest) {
     const client = (await getFortnoxClient()) as any;
     const accessToken: string = client.accessToken;
 
-    // Fortnox helper — retry once på 401 (token refresh hanteras av getFortnoxClient men defensivt)
-    async function fortnoxGet(path: string): Promise<{ ok: boolean; status: number; body: any; rawText?: string }> {
-      const r = await fetch(`https://api.fortnox.se${path}`, {
+    // Fortnox helper — returnerar full diagnostik vid fel
+    async function fortnoxGet(path: string): Promise<{ ok: boolean; status: number; body: any; rawText?: string; url: string }> {
+      const url = `https://api.fortnox.se${path}`;
+      const r = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json" },
         cache: "no-store",
       });
       const text = await r.text();
       let body: any;
       try { body = JSON.parse(text); } catch { body = null; }
-      return { ok: r.ok, status: r.status, body, rawText: body == null ? text.slice(0, 500) : undefined };
+      return { ok: r.ok, status: r.status, body, rawText: body == null ? text.slice(0, 800) : undefined, url };
     }
 
     // 1) Kostnadsställen
@@ -91,7 +92,9 @@ export async function GET(req: NextRequest) {
         {
           ok: false,
           meddelande: `Fortnox /3/costcenters: HTTP ${ccRes.status}`,
+          url: ccRes.url,
           detalj: ccRes.body || ccRes.rawText,
+          tips: "Kör /api/fortnox/probe för att felsöka token + endpoint-varianter.",
         },
         { status: 502 },
       );
@@ -119,6 +122,7 @@ export async function GET(req: NextRequest) {
           kostnadsstalle: { kod: m.kostnadsstalle_kod, namn: namnFort },
           ok: false,
           fel: `Fortnox HTTP ${rRes.status}`,
+          url: rRes.url,
           detalj: rRes.body || rRes.rawText,
         });
         continue;

@@ -59,6 +59,8 @@ const FIL_KARTA: Record<string, string> = {
   FortnoxEmployeeDetails: 'app/api/fortnox/employee-details/route.ts',
   FortnoxDebugSaldon:     'app/api/fortnox/debug-saldon/route.ts',
   FortnoxSalaryExport:    'app/api/fortnox/salary-export/route.ts',
+  FortnoxResultPerCC:     'app/api/fortnox/result-per-costcenter/route.ts',
+  FortnoxProbe:           'app/api/fortnox/probe/route.ts',
 
   // Meta
   Status:     'STATUS.md',
