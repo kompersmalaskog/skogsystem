@@ -8846,34 +8846,6 @@ export default function PlannerPage() {
         </button>
       )}
 
-      {/* === ÅNGRA-KNAPP === */}
-      {showUndo && history.length > 0 && !briefingMode && (
-        <button
-          onClick={undo}
-          style={{
-            position: 'absolute',
-            top: '120px',
-            right: '15px',
-            width: '40px',
-            height: '40px',
-            borderRadius: '12px',
-            border: 'none',
-            background: 'rgba(28,28,30,0.8)',
-            color: '#fff',
-            fontSize: '18px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 4px 15px rgba(0,0,0,0.4)',
-            zIndex: 120,
-            backdropFilter: 'blur(10px)',
-          }}
-        >
-          ↩️
-        </button>
-      )}
-      
       {/* === FLYTTA-INDIKATOR === */}
       {draggingMarker && hasMoved && (
         <div style={{
