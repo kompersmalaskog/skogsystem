@@ -6,6 +6,9 @@ import { join } from 'path';
 // Använd endast för utveckling — inga auth-skydd förutom statisk nyckel.
 // Begränsat till en whitelist för att undvika att hela repot kan läckas.
 
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 const DEBUG_KEY = 'skogsystem-debug';
 
 // Nycklar som pekar på faktiska filsökvägar relativt repo-roten.
@@ -34,6 +37,15 @@ const FIL_KARTA: Record<string, string> = {
   AtkUnderflik:    'components/admin/AtkUnderflik.tsx',
   LonesystemUnderflik: 'components/admin/LonesystemUnderflik.tsx',
   VilobrottUnderflik:  'components/admin/VilobrottUnderflik.tsx',
+
+  // Ekonomi
+  EkonomiClient:       'app/ekonomi/EkonomiClient.tsx',
+  EkonomiPage:         'app/ekonomi/page.tsx',
+  InstallningarClient: 'app/ekonomi/installningar/InstallningarClient.tsx',
+  InstallningarPage:   'app/ekonomi/installningar/page.tsx',
+
+  // Hem
+  HomeClient: 'app/HomeClient.tsx',
 
   // API-routes som används av dag-vyn
   Notify:     'app/api/notify/route.ts',

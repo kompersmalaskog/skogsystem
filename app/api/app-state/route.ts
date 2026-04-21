@@ -3,6 +3,10 @@ import { createClient } from '@supabase/supabase-js';
 
 // Enkel debug-nyckel. INTE för produktionsanvändning — bypass:ar appens
 // vanliga auth. Byt / roadmappa bort när extern diagnostik inte behövs längre.
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
 const DEBUG_KEY = 'skogsystem-debug';
 
 function idag() {
