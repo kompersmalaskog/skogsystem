@@ -571,6 +571,9 @@ export default function Arbetsrapport() {
   const [visaRedObjektVäljare, setVisaRedObjektVäljare] = useState(false);
   const [visaRedMaskinVäljare, setVisaRedMaskinVäljare] = useState(false);
   const [visaRedRastPicker, setVisaRedRastPicker] = useState(false);
+  const [visaRedKmSheet, setVisaRedKmSheet] = useState(false);
+  const [redTmpKmM, setRedTmpKmM] = useState(0);
+  const [redTmpKmK, setRedTmpKmK] = useState(0);
   const [visaHelÅrVila, setVisaHelÅrVila] = useState(false);
   const [vilaPeriod, setVilaPeriod] = useState<'7d'|'30d'|'månad'|'år'>('7d');
   const [vilaMånad, setVilaMånad] = useState(new Date().getMonth());
@@ -3863,7 +3866,14 @@ export default function Arbetsrapport() {
   /* ─── REDIGERA HISTORIK ─── */
   if(steg==="redigera"&&redDag){
     const redArbMin = Math.max(0, tim(redStart,redSlut)-redRast);
-    const harÄndrat = redStart!==(redDag.start||"00:00")||redSlut!==(redDag.slut||"00:00")||redRast!==(redDag.rast||0)||redKm!==(redDag.km||0)||(redObjektId&&redObjektId!==(redDag.objekt_id||null));
+    // Jämför mot snake_case-fälten i redDag — tidigare använde vi camelCase
+    // (redDag.start etc.) som alltid var undefined, vilket gjorde harÄndrat=true
+    // direkt när dagvyn öppnades. Det dolda anledning-fältet dök då upp omotiverat.
+    const redStartOrig = redDag.start_tid||"00:00";
+    const redSlutOrig  = redDag.slut_tid||"00:00";
+    const redRastOrig  = redDag.rast_min||0;
+    const redKmOrig    = redDag.km_totalt||0;
+    const harÄndrat = redStart!==redStartOrig||redSlut!==redSlutOrig||redRast!==redRastOrig||redKm!==redKmOrig||(redObjektId&&redObjektId!==(redDag.objekt_id||null));
 
     if(redVy==="tid") return (
       <div style={shell}><style>{css}</style>{timerBanner}
@@ -4030,36 +4040,32 @@ export default function Arbetsrapport() {
             </Card>
           ):!harData?null:(
             <Card style={{ padding:"4px 20px" }}>
+              {/* Arbetstid — visar tidsintervall (HH:MM → HH:MM), klickbar */}
               <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
                 <span style={{ fontSize:16,color:"#fff" }}>Arbetstid</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:600,color:(redStart!==(redDag.start||"00:00")||redSlut!==(redDag.slut||"00:00")||redRast!==(redDag.rast||0))?C.orange:"#fff" }}>{fmt(redArbMin)}</span>
+                  <span style={{ fontSize:16,fontWeight:500,color:(redStart!==redStartOrig||redSlut!==redSlutOrig)?C.orange:"#fff" }}>{redStart} → {redSlut}</span>
                   <ChevronRight/>
                 </div>
+              </div>
+              {/* Rast — klickbar */}
+              <div onClick={()=>setVisaRedRastPicker(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
+                <span style={{ fontSize:16,color:"#fff" }}>Rast</span>
+                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                  <span style={{ fontSize:16,fontWeight:500,color:redRast!==redRastOrig?"#ff9f0a":"#fff" }}>{redRast} min</span>
+                  <ChevronRight/>
+                </div>
+              </div>
+              {/* Total — härledd, ej klickbar */}
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
+                <span style={{ fontSize:16,color:"#fff" }}>Total</span>
+                <span style={{ fontSize:16,fontWeight:600,color:"#fff" }}>{fmt(redArbMin)}</span>
               </div>
               {/* Maskin — klickbar */}
               <div onClick={()=>setVisaRedMaskinVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
                 <span style={{ fontSize:16,color:"#fff" }}>Maskin</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
                   <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{(()=>{const m=redMaskinId?maskinNamnMap[redMaskinId]:null; return m||redDag.maskin_namn||redDag.maskin_id||"—";})()}</span>
-                  <ChevronRight/>
-                </div>
-              </div>
-              {/* Start + Slut */}
-              {[
-                ["Start", tidKort(redDag.start_tid)],
-                ["Slut", tidKort(redDag.slut_tid)],
-              ].map(([l,v])=>(
-                <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
-                  <span style={{ fontSize:16,color:"#fff" }}>{l}</span>
-                  <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{v}</span>
-                </div>
-              ))}
-              {/* Rast — klickbar */}
-              <div onClick={()=>setVisaRedRastPicker(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:"#fff" }}>Rast</span>
-                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:500,color:redRast!==(redDag.rast_min||0)?"#ff9f0a":"#fff" }}>{redRast} min</span>
                   <ChevronRight/>
                 </div>
               </div>
@@ -4123,17 +4129,27 @@ export default function Arbetsrapport() {
             const kr   = Math.round(mil*fardtidPerMil*100)/100;
             const segs = redKmChain || [];
             const harFlerObjekt = segs.length > 2;
+            const öppnaKmSheet = () => {
+              const harSplit = (redDag.km_morgon||0) > 0 || (redDag.km_kvall||0) > 0;
+              const m = harSplit ? (redDag.km_morgon||0) : Math.round(redKm/2);
+              const k = harSplit ? (redDag.km_kvall||0)  : redKm - Math.round(redKm/2);
+              setRedTmpKmM(m); setRedTmpKmK(k);
+              setVisaRedKmSheet(true);
+            };
 
             // Radformat gemensamt för både 1-objekt- och multi-objekt-vyerna
-            const rad = (label: string, value: string, bold=false) => (
-              <div key={label} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+            const rad = (label: string, value: string, bold=false, onClick?: () => void) => (
+              <div key={label} onClick={onClick} style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",alignItems:"center",cursor:onClick?"pointer":"default" }}>
                 <span style={{ color:"#fff",fontSize:15,fontWeight:bold?600:400 }}>{label}</span>
-                <span style={{ color:"#fff",fontSize:bold?17:15,fontWeight:bold?700:600 }}>{value}</span>
+                <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                  <span style={{ color:"#fff",fontSize:bold?17:15,fontWeight:bold?700:600 }}>{value}</span>
+                  {onClick && <span className="material-symbols-outlined" style={{ fontSize:16,color:"rgba(255,255,255,0.35)" }}>chevron_right</span>}
+                </div>
               </div>
             );
 
             return (
-              <Card onClick={()=>setRedVy("km")} style={{ padding:"16px 20px" }}>
+              <Card style={{ padding:"16px 20px" }}>
                 <p style={{ margin:"0 0 10px",fontSize:13,color:"#fff",fontWeight:500 }}>Körning</p>
 
                 {harFlerObjekt ? (
@@ -4142,23 +4158,23 @@ export default function Arbetsrapport() {
                     const label = i === 0            ? `Morgon (→ ${s.toLabel})`
                                 : i === segs.length-1 ? `Kväll (${s.fromLabel} →)`
                                 :                       `Flytt (${s.fromLabel} → ${s.toLabel})`;
-                    return rad(label, `${s.km} km`);
+                    return rad(label, `${s.km} km`, false, öppnaKmSheet);
                   })
                 ) : segs.length === 2 ? (
                   // 1-objekt via chain: segment[0] = morgon, segment[1] = kväll
-                  <>{rad("Morgon", `${segs[0].km} km`)}{rad("Kväll", `${segs[1].km} km`)}</>
+                  <>{rad("Morgon", `${segs[0].km} km`, false, öppnaKmSheet)}{rad("Kväll", `${segs[1].km} km`, false, öppnaKmSheet)}</>
                 ) : (
                   // Fallback: DB-split eller redKm/2
                   (()=>{
                     const harSplit = (redDag.km_morgon||0) > 0 || (redDag.km_kvall||0) > 0;
                     const morgonVisa = harSplit ? (redDag.km_morgon||0) : Math.round(redKm/2);
                     const kvallVisa  = harSplit ? (redDag.km_kvall||0)  : redKm - Math.round(redKm/2);
-                    return <>{rad("Morgon", `${morgonVisa} km`)}{rad("Kväll", `${kvallVisa} km`)}</>;
+                    return <>{rad("Morgon", `${morgonVisa} km`, false, öppnaKmSheet)}{rad("Kväll", `${kvallVisa} km`, false, öppnaKmSheet)}</>;
                   })()
                 )}
 
                 <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:10 }}>
-                  {rad("Totalt", `${redKm} km`, true)}
+                  {rad("Totalt", `${redKm} km`, true, öppnaKmSheet)}
                 </div>
                 {redKmBerakning!=null&&(
                   <p style={{ margin:"8px 0 0",fontSize:12,color:"#fff" }}>Beräknat vägavstånd</p>
@@ -4288,6 +4304,67 @@ export default function Arbetsrapport() {
             </div>
           </div>
         )}
+
+        {/* Km-sheet — bottom sheet för att ändra morgon/kväll-km. Klickbar från Körning-kortet. */}
+        {visaRedKmSheet && (()=>{
+          const ny = redTmpKmM + redTmpKmK;
+          const över = Math.max(0, ny - frikm);
+          const mil = över > 0 ? Math.ceil(över/10) : 0;
+          const kr = Math.round(mil * fardtidPerMil * 100) / 100;
+          const stäng = () => setVisaRedKmSheet(false);
+          const KmInp = ({label, value, onChange}: {label: string; value: number; onChange: (v:number)=>void}) => (
+            <div style={{ flex:1,background:"rgba(255,255,255,0.04)",borderRadius:14,padding:"14px 16px",border:"1px solid rgba(255,255,255,0.06)" }}>
+              <p style={{ margin:"0 0 10px",fontSize:13,color:"#fff",fontWeight:500 }}>{label}</p>
+              <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
+                <button onClick={()=>onChange(Math.max(0, value-10))} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.08)",border:"none",color:"#fff",fontSize:20,cursor:"pointer" }}>−</button>
+                <span style={{ fontSize:28,fontWeight:700,color:"#fff",fontVariantNumeric:"tabular-nums" }}>{value}</span>
+                <button onClick={()=>onChange(Math.min(999, value+10))} style={{ width:36,height:36,borderRadius:10,background:"rgba(255,255,255,0.08)",border:"none",color:"#fff",fontSize:20,cursor:"pointer" }}>+</button>
+              </div>
+              <p style={{ margin:"6px 0 0",textAlign:"center",fontSize:12,color:"#fff" }}>km</p>
+            </div>
+          );
+          return (
+            <div onClick={stäng} style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",zIndex:1500,display:"flex",alignItems:"flex-end",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
+              <div onClick={e=>e.stopPropagation()}
+                style={{ width:"100%",maxWidth:560,background:"#1c1c1e",borderRadius:"20px 20px 0 0",padding:"10px 20px 28px",maxHeight:"85vh",overflowY:"auto",animation:"sheetSlideUp 0.28s cubic-bezier(0.2,0.8,0.2,1)",boxShadow:"0 -8px 32px rgba(0,0,0,0.5)" }}>
+                <div style={{ display:"flex",justifyContent:"center",padding:"6px 0 14px" }}>
+                  <div style={{ width:40,height:5,borderRadius:3,background:"rgba(255,255,255,0.2)" }} />
+                </div>
+                <p style={{ margin:"0 0 16px",fontSize:22,fontWeight:700,color:"#fff" }}>Ändra km</p>
+                <div style={{ display:"flex",gap:10 }}>
+                  <KmInp label="Morgon" value={redTmpKmM} onChange={setRedTmpKmM}/>
+                  <KmInp label="Kväll"  value={redTmpKmK} onChange={setRedTmpKmK}/>
+                </div>
+                <div style={{ marginTop:16,padding:"18px 20px",background:"rgba(52,199,89,0.08)",borderRadius:12 }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
+                    <span style={{ color:"#fff",fontSize:15 }}>Totalt</span>
+                    <span style={{ color:"#34c759",fontSize:24,fontWeight:700 }}>{ny} km</span>
+                  </div>
+                  {över > 0
+                    ? <p style={{ margin:"8px 0 0",fontSize:13,color:"#34c759",fontWeight:500 }}>Färdtidsersättning: {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr = {kr.toFixed(2).replace('.',',')} kr</p>
+                    : <p style={{ margin:"8px 0 0",fontSize:13,color:"#fff" }}>Ingen färdtidsersättning (≤ {frikm} km)</p>
+                  }
+                </div>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 2fr",gap:8,marginTop:16 }}>
+                  <button onClick={stäng}
+                    style={{ padding:"16px",background:"rgba(255,255,255,0.06)",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+                    Avbryt
+                  </button>
+                  <button
+                    onClick={() => {
+                      setRedKm(ny);
+                      // Uppdatera lokal redDag med ny split så att visningen stämmer direkt
+                      setRedDag((d:any) => ({ ...d, km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_totalt: ny }));
+                      stäng();
+                    }}
+                    style={{ padding:"16px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
+                    Klar
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   }
