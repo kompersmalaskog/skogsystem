@@ -171,7 +171,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
 
       {/* Header */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid #222' }}>
-        <div style={{ fontSize: '11px', color: '#8e8e93', letterSpacing: '0.5px', marginBottom: '4px', textTransform: 'none' }}>
+        <div style={{ fontSize: '13px', color: '#a8a8ad', letterSpacing: '0.5px', marginBottom: '4px', textTransform: 'none' }}>
           Kompersmåla Skog
         </div>
         <div style={{ fontSize: '24px', fontWeight: '600' }}>
@@ -193,11 +193,13 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
         ].map((f) => (
           <button
             key={f.key}
+            type="button"
             onClick={() => setFilter(f.key as any)}
+            aria-pressed={filter === f.key}
             style={{
               padding: '8px 16px',
               borderRadius: '20px',
-              border: filter === f.key ? '1px solid #fff' : '1px solid #333',
+              border: filter === f.key ? '1px solid #fff' : '1px solid #555',
               background: filter === f.key ? '#fff' : 'transparent',
               color: filter === f.key ? '#000' : '#fff',
               fontSize: '13px',
@@ -216,13 +218,15 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
         borderBottom: '1px solid #222',
       }}>
         <button
+          type="button"
           onClick={() => setActiveTab('oplanerade')}
+          aria-pressed={activeTab === 'oplanerade'}
           style={{
             flex: 1,
             padding: '16px',
             background: 'none',
             border: 'none',
-            color: activeTab === 'oplanerade' ? '#fff' : '#666',
+            color: activeTab === 'oplanerade' ? '#fff' : '#a8a8ad',
             fontSize: '14px',
             fontWeight: '500',
             cursor: 'pointer',
@@ -232,13 +236,15 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
           Oplanerade ({oplanerade.length})
         </button>
         <button
+          type="button"
           onClick={() => setActiveTab('planerade')}
+          aria-pressed={activeTab === 'planerade'}
           style={{
             flex: 1,
             padding: '16px',
             background: 'none',
             border: 'none',
-            color: activeTab === 'planerade' ? '#fff' : '#666',
+            color: activeTab === 'planerade' ? '#fff' : '#a8a8ad',
             fontSize: '14px',
             fontWeight: '500',
             cursor: 'pointer',
@@ -253,26 +259,38 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
         {/* Förklaringstext för oplanerade */}
         {activeTab === 'oplanerade' && !loading && oplanerade.length > 0 && (
-          <div style={{ padding: '12px 20px 4px', fontSize: '13px', color: '#8e8e93' }}>
+          <div style={{ padding: '12px 20px 4px', fontSize: '13px', color: '#a8a8ad' }}>
             Välj ett objekt och tryck Planera för att lägga till volym
           </div>
         )}
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#666' }}>
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#a8a8ad', fontSize: '14px' }}>
             Laddar...
           </div>
         ) : lista.map((obj: any) => {
           const dist = getDistance(obj.lat, obj.lng);
+          const typLabel = obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring';
+          const volymLabel = obj.volym ? `${obj.volym} m³` : 'ingen volym angiven';
           return (
-            <div
+            <button
               key={obj.id}
+              type="button"
               onClick={() => setSelectedObj(obj)}
+              aria-label={`${obj.namn}, ${typLabel}, ${volymLabel}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 padding: '16px 20px',
                 borderBottom: '1px solid #1a1a1a',
+                borderTop: 'none',
+                borderLeft: 'none',
+                borderRight: 'none',
+                background: 'transparent',
+                color: 'inherit',
+                width: '100%',
+                textAlign: 'left',
+                font: 'inherit',
                 cursor: 'pointer',
               }}
             >
@@ -289,15 +307,15 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
                   {obj.namn}
                 </div>
                 <div style={{ fontSize: '13px' }}>
-                  <span style={{ color: 'rgba(255,255,255,0.7)' }}>{obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}</span>
-                  {obj.bolag && <span style={{ color: '#555' }}> · {obj.bolag}</span>}
+                  <span style={{ color: 'rgba(255,255,255,0.85)' }}>{typLabel}</span>
+                  {obj.bolag && <span style={{ color: '#a8a8ad' }}> · {obj.bolag}</span>}
                 </div>
               </div>
 
               {/* Avstånd */}
               {(dist !== null || roadDist[obj.id]) && (
                 <div style={{ textAlign: 'right', marginLeft: '12px', flexShrink: 0 }}>
-                  <div style={{ fontSize: '14px', color: '#666' }}>
+                  <div style={{ fontSize: '14px', color: '#a8a8ad' }}>
                     {typeof roadDist[obj.id] === 'number'
                       ? `${roadDist[obj.id]} km`
                       : roadDist[obj.id] === 'loading'
@@ -311,19 +329,19 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
 
               {/* Volym */}
               <div style={{ textAlign: 'right', marginLeft: '16px', flexShrink: 0 }}>
-                <div style={{ fontSize: '16px', fontWeight: '500', color: obj.volym ? '#fff' : '#666' }}>
+                <div style={{ fontSize: '16px', fontWeight: '500', color: obj.volym ? '#fff' : '#a8a8ad' }}>
                   {obj.volym ? obj.volym : '–'}
                 </div>
-                <div style={{ fontSize: '12px', color: '#666' }}>
+                <div style={{ fontSize: '13px', color: '#a8a8ad' }}>
                   m³
                 </div>
               </div>
 
               {/* Pil */}
-              <div style={{ marginLeft: '16px', color: '#666', fontSize: '20px' }}>
+              <div style={{ marginLeft: '16px', color: '#a8a8ad', fontSize: '20px' }} aria-hidden="true">
                 ›
               </div>
-            </div>
+            </button>
           );
         })}
 
@@ -332,7 +350,8 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
           <div style={{
             textAlign: 'center',
             padding: '60px 20px',
-            color: '#666',
+            color: '#a8a8ad',
+            fontSize: '14px',
           }}>
             Inga objekt
           </div>
@@ -346,7 +365,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
         backgroundColor: '#0a0a0a',
         textAlign: 'center',
       }}>
-        <span style={{ color: '#8e8e93', fontSize: '15px' }}>
+        <span style={{ color: '#a8a8ad', fontSize: '15px' }}>
           {activeTab === 'oplanerade' ? 'Oplanerat' : 'Planerat'} totalt:{' '}
         </span>
         <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>
@@ -400,7 +419,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
             </h2>
 
             {/* Typ + volym + avstånd */}
-            <p style={{ margin: '0 0 24px', color: '#8e8e93', fontSize: '13px' }}>
+            <p style={{ margin: '0 0 24px', color: '#a8a8ad', fontSize: '13px' }}>
               {selectedObj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}
               {' · '}{selectedObj.volym ? `${selectedObj.volym} m³` : '–'}
               {typeof roadDist[selectedObj.id] === 'number'
@@ -412,6 +431,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
 
             {/* Knappar — staplade vertikalt */}
             <button
+              type="button"
               onClick={() => {
                 onSelectObjekt(selectedObj);
                 setSelectedObj(null);
@@ -433,6 +453,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
               Planera
             </button>
             <button
+              type="button"
               onClick={() => {
                 if (selectedObj.lat && selectedObj.lng) {
                   onNavigera(selectedObj.lat, selectedObj.lng);
@@ -447,7 +468,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
                 borderRadius: '12px',
                 border: '1px solid #555',
                 background: 'transparent',
-                color: selectedObj.lat && selectedObj.lng ? '#fff' : '#555',
+                color: selectedObj.lat && selectedObj.lng ? '#fff' : '#a8a8ad',
                 fontSize: '16px',
                 fontWeight: '500',
                 cursor: selectedObj.lat && selectedObj.lng ? 'pointer' : 'not-allowed',

@@ -115,12 +115,12 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
 
   return (
     <div style={{ marginTop: '16px' }}>
-      <div style={{ fontSize: '11px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', padding: '0 4px', marginBottom: '8px' }}>
+      <div style={{ fontSize: '13px', opacity: 0.7, textTransform: 'uppercase', letterSpacing: '1px', padding: '0 4px', marginBottom: '8px' }}>
         Körbarhetsanalys
       </div>
 
       {loading && (
-        <div style={{ textAlign: 'center', padding: '16px', fontSize: '13px', opacity: 0.5 }}>
+        <div style={{ textAlign: 'center', padding: '16px', fontSize: '13px', opacity: 0.75 }}>
           <div style={{ width: '24px', height: '24px', border: '2px solid rgba(255,255,255,0.1)', borderTopColor: '#60a5fa', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 8px' }} />
           Analyserar körbarhet...
         </div>
@@ -149,7 +149,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
               <div style={{ fontSize: '14px', fontWeight: '700', color: cfg.color, marginBottom: '2px' }}>
                 {cfg.label}
               </div>
-              <div style={{ fontSize: '12px', opacity: 0.7, lineHeight: '1.4' }}>
+              <div style={{ fontSize: '13px', opacity: 0.85, lineHeight: '1.4' }}>
                 {sammanfattning}
               </div>
             </div>
@@ -161,7 +161,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
             {ford.gul > 0 && <div style={{ width: `${ford.gul * 100}%`, background: '#eab308' }} />}
             {ford.rod > 0 && <div style={{ width: `${ford.rod * 100}%`, background: '#ef4444' }} />}
           </div>
-          <div style={{ display: 'flex', gap: '10px', fontSize: '11px', opacity: 0.7, marginBottom: '12px' }}>
+          <div style={{ display: 'flex', gap: '10px', fontSize: '13px', opacity: 0.85, marginBottom: '12px' }}>
             {ford.gron > 0.01 && <span style={{ color: '#22c55e' }}>Körbart {Math.round(ford.gron * 100)}%</span>}
             {ford.gul > 0.01 && <span style={{ color: '#eab308' }}>Begränsat {Math.round(ford.gul * 100)}%</span>}
             {ford.rod > 0.01 && <span style={{ color: '#ef4444' }}>Ej körbart {Math.round(ford.rod * 100)}%</span>}
@@ -175,7 +175,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
               padding: '8px 4px 6px',
               marginBottom: '12px',
             }}>
-              <div style={{ fontSize: '10px', opacity: 0.4, marginBottom: '6px', paddingLeft: '6px' }}>
+              <div style={{ fontSize: '13px', opacity: 0.7, marginBottom: '6px', paddingLeft: '6px' }}>
                 SMHI 10-DAGARSPROGNOS{resultat.smhi?.station ? ` – ${resultat.smhi.station}` : ''}
               </div>
               <div style={{
@@ -193,7 +193,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
                   return (
                     <div key={dag.datum} style={{
                       flex: '1 0 auto',
-                      minWidth: '38px',
+                      minWidth: '58px',
                       textAlign: 'center',
                       padding: '4px 2px 3px',
                       borderRight: i < prognos.dagar.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
@@ -202,8 +202,8 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
                     }}>
                       {/* Veckodag */}
                       <div style={{
-                        fontSize: '9px',
-                        opacity: isToday ? 0.9 : 0.5,
+                        fontSize: '13px',
+                        opacity: isToday ? 0.95 : 0.75,
                         textTransform: 'uppercase',
                         fontWeight: isToday ? '600' : '400',
                         color: isToday ? '#93c5fd' : 'inherit',
@@ -213,15 +213,15 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
                       </div>
 
                       {/* Väderikon */}
-                      <div style={{ fontSize: '15px', lineHeight: '1.3' }}>
+                      <div style={{ fontSize: '15px', lineHeight: '1.3' }} aria-hidden="true">
                         {weatherIcon(dag)}
                       </div>
 
                       {/* Temperatur min/max */}
                       <div style={{
-                        fontSize: '9px',
+                        fontSize: '13px',
                         fontVariantNumeric: 'tabular-nums',
-                        color: isFreezing ? '#93c5fd' : 'rgba(255,255,255,0.5)',
+                        color: isFreezing ? '#93c5fd' : 'rgba(255,255,255,0.75)',
                         lineHeight: '1.3',
                         marginTop: '1px',
                       }}>
@@ -230,9 +230,9 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
 
                       {/* Nederbörd mm */}
                       <div style={{
-                        fontSize: '9px',
+                        fontSize: '13px',
                         fontVariantNumeric: 'tabular-nums',
-                        color: isHeavy ? '#60a5fa' : 'rgba(255,255,255,0.35)',
+                        color: isHeavy ? '#60a5fa' : 'rgba(255,255,255,0.7)',
                         fontWeight: isHeavy ? '600' : '400',
                         marginTop: '1px',
                       }}>
@@ -242,7 +242,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
                   );
                 })}
               </div>
-              <div style={{ fontSize: '10px', opacity: 0.4, marginTop: '4px', paddingLeft: '6px' }}>
+              <div style={{ fontSize: '13px', opacity: 0.7, marginTop: '4px', paddingLeft: '6px' }}>
                 3d: {prognos.summa3d}mm · 7d: {prognos.summa7d}mm
               </div>
             </div>
@@ -255,7 +255,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
               border: '1px solid rgba(96,165,250,0.25)',
               borderRadius: '10px',
               padding: '8px 12px',
-              fontSize: '12px',
+              fontSize: '13px',
               marginBottom: '12px',
               color: '#93c5fd',
               lineHeight: '1.4',
@@ -271,12 +271,12 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
               border: '1px solid rgba(239,68,68,0.25)',
               borderRadius: '10px',
               padding: '10px 12px',
-              fontSize: '12px',
+              fontSize: '13px',
             }}>
               <div style={{ fontWeight: '600', color: '#ef4444', marginBottom: '4px' }}>
                 Ej lämplig utan specialåtgärder
               </div>
-              <div style={{ opacity: 0.7, lineHeight: '1.4' }}>
+              <div style={{ opacity: 0.85, lineHeight: '1.4' }}>
                 Risning, kavling eller tjälad mark krävs för att undvika markskador.
               </div>
             </div>
