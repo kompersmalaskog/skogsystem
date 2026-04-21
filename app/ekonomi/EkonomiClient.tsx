@@ -11,20 +11,25 @@ type MaskinTimpris = { maskin_id: string; maskin_namn: string | null; timpris: n
 type ObjektMeta = { objekt_id: string; object_name: string | null; vo_nummer: string | null; huvudtyp: string | null; atgard: string | null; timpeng: boolean | null };
 type MaskinMeta = { maskin_id: string; modell: string | null; maskin_typ: string | null };
 
+type MaskinTypPart = 'Harvester' | 'Forwarder';
+type RowTyp = 'Slutavverkning' | 'Gallring' | 'Okänt';
+
 type DagRad = {
   datum: string;
   maskin_id: string;
   maskin_namn: string;
+  maskin_typ: MaskinTypPart;
   objekt_id: string;
   objekt_namn: string;
+  typ: RowTyp;
   volym: number;
   medelstam: number;
-  pris_total: number;
-  intakt: number;
+  pris_enhet: number;        // kr/m³ (skördare- eller skotare-andel)
+  intakt: number;            // vid gallring = timpeng_belopp
   timmar: number;
   timpris: number;
   timpeng_belopp: number;
-  diff: number;
+  diff: number;              // meningsfullt endast för slutavverkning
 };
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -123,7 +128,7 @@ export default function EkonomiClient() {
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
 
-      const [prodRows, tidRows, objRes, maskinRes, acordRes, timprisRes] = await Promise.all([
+      const [prodRows, lassRows, tidRows, objRes, maskinRes, acordRes, timprisRes] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_produktion')
             .select('datum, maskin_id, objekt_id, stammar, volym_m3sub')
@@ -131,8 +136,14 @@ export default function EkonomiClient() {
             .range(from, to)
         ),
         fetchAllRows((from, to) =>
+          supabase.from('fakt_lass')
+            .select('datum, maskin_id, objekt_id, volym_m3sub')
+            .gte('datum', start).lte('datum', end)
+            .range(from, to)
+        ),
+        fetchAllRows((from, to) =>
           supabase.from('fakt_tid')
-            .select('datum, maskin_id, objekt_id, engine_time_sek, processing_sek')
+            .select('datum, maskin_id, engine_time_sek, processing_sek')
             .gte('datum', start).lte('datum', end)
             .range(from, to)
         ),
@@ -151,10 +162,9 @@ export default function EkonomiClient() {
       const timprisList: MaskinTimpris[] = timprisRes.data || [];
       const acord: AcordPris[] = acordRes.data || [];
 
-      // Aggregate prod per (datum, maskin, objekt)
-      type Key = string;
+      // Harvester production per (datum, maskin, objekt)
       type ProdAgg = { datum: string; maskin_id: string; objekt_id: string; volym: number; stammar: number };
-      const prodMap: Record<Key, ProdAgg> = {};
+      const prodMap: Record<string, ProdAgg> = {};
       for (const r of prodRows) {
         const key = `${r.datum}|${r.maskin_id}|${r.objekt_id}`;
         if (!prodMap[key]) prodMap[key] = { datum: r.datum, maskin_id: r.maskin_id, objekt_id: r.objekt_id, volym: 0, stammar: 0 };
@@ -162,61 +172,131 @@ export default function EkonomiClient() {
         prodMap[key].stammar += r.stammar || 0;
       }
 
-      // Aggregate tid per (datum, maskin) — engine_time in seconds
-      type TidAgg = { timmar: number };
-      const tidMap: Record<string, TidAgg> = {};
-      for (const r of tidRows) {
-        const key = `${r.datum}|${r.maskin_id}`;
-        if (!tidMap[key]) tidMap[key] = { timmar: 0 };
-        const sek = (r.engine_time_sek || r.processing_sek || 0);
-        tidMap[key].timmar += sek / 3600;
+      // Forwarder lass per (datum, maskin, objekt) — volume from fakt_lass (FPR)
+      type LassAgg = { datum: string; maskin_id: string; objekt_id: string; volym: number };
+      const lassMap: Record<string, LassAgg> = {};
+      for (const r of lassRows) {
+        const key = `${r.datum}|${r.maskin_id}|${r.objekt_id}`;
+        if (!lassMap[key]) lassMap[key] = { datum: r.datum, maskin_id: r.maskin_id, objekt_id: r.objekt_id, volym: 0 };
+        lassMap[key].volym += r.volym_m3sub || 0;
       }
 
-      // Build rows — one per (datum, maskin, objekt) where there is production
-      const rader: DagRad[] = Object.values(prodMap)
+      // Day totals per machine for hour allocation
+      const harvDayTot: Record<string, number> = {};
+      for (const p of Object.values(prodMap)) {
+        const k = `${p.datum}|${p.maskin_id}`;
+        harvDayTot[k] = (harvDayTot[k] || 0) + p.volym;
+      }
+      const lassDayTot: Record<string, number> = {};
+      for (const l of Object.values(lassMap)) {
+        const k = `${l.datum}|${l.maskin_id}`;
+        lassDayTot[k] = (lassDayTot[k] || 0) + l.volym;
+      }
+
+      // Object medelstam from harvester data (whole period) — used for forwarder lookup
+      const objMedelstam: Record<string, number> = {};
+      {
+        const agg: Record<string, { vol: number; st: number }> = {};
+        for (const p of Object.values(prodMap)) {
+          if (!agg[p.objekt_id]) agg[p.objekt_id] = { vol: 0, st: 0 };
+          agg[p.objekt_id].vol += p.volym;
+          agg[p.objekt_id].st += p.stammar;
+        }
+        for (const [oid, v] of Object.entries(agg)) {
+          if (v.st > 0) objMedelstam[oid] = v.vol / v.st;
+        }
+      }
+
+      // Tid per (datum, maskin)
+      const tidMap: Record<string, { timmar: number }> = {};
+      for (const r of tidRows) {
+        const k = `${r.datum}|${r.maskin_id}`;
+        if (!tidMap[k]) tidMap[k] = { timmar: 0 };
+        tidMap[k].timmar += (r.engine_time_sek || r.processing_sek || 0) / 3600;
+      }
+
+      const classifyObj = (oid: string): RowTyp => {
+        const obj = objMap[oid];
+        const ht = (obj?.huvudtyp || '').toLowerCase();
+        const an = (obj?.object_name || '').toLowerCase();
+        if (ht === 'gallring' || an.includes('gallring')) return 'Gallring';
+        if (ht === 'slutavverkning' || an.includes('slutavverkning')) return 'Slutavverkning';
+        return 'Okänt';
+      };
+
+      const buildRow = (
+        datum: string,
+        maskin_id: string,
+        objekt_id: string,
+        volym: number,
+        medelstam: number,
+        maskin_typ: MaskinTypPart,
+        dayMaskinVolTot: number,
+      ): DagRad => {
+        const obj = objMap[objekt_id];
+        const maskin = maskinMap[maskin_id];
+        const timpris = timprisList.find(t =>
+          t.maskin_id === maskin_id && isValidOn(datum, t.giltig_fran, t.giltig_till)
+        );
+        const timprisKr = timpris?.timpris || 0;
+        const andel = dayMaskinVolTot > 0 ? volym / dayMaskinVolTot : 0;
+        const timmar = (tidMap[`${datum}|${maskin_id}`]?.timmar || 0) * andel;
+        const timpeng_belopp = timmar * timprisKr;
+
+        const typ = classifyObj(objekt_id);
+        const isSlut = typ === 'Slutavverkning';
+
+        const acordOnDate = acord.filter(a => isValidOn(datum, a.giltig_fran, a.giltig_till));
+        const acordPris = isSlut ? lookupAcordPris(medelstam, acordOnDate) : null;
+        const pris_enhet = isSlut
+          ? (maskin_typ === 'Harvester' ? (acordPris?.pris_skordare || 0) : (acordPris?.pris_skotare || 0))
+          : 0;
+
+        const intakt = isSlut ? volym * pris_enhet : timpeng_belopp;
+        const diff = isSlut ? intakt - timpeng_belopp : 0;
+
+        return {
+          datum,
+          maskin_id,
+          maskin_namn: timpris?.maskin_namn || maskin?.modell || maskin_id,
+          maskin_typ,
+          objekt_id,
+          objekt_namn: obj?.object_name || obj?.vo_nummer || objekt_id || '—',
+          typ,
+          volym,
+          medelstam: parseFloat(medelstam.toFixed(3)),
+          pris_enhet,
+          intakt,
+          timmar: parseFloat(timmar.toFixed(2)),
+          timpris: timprisKr,
+          timpeng_belopp,
+          diff,
+        };
+      };
+
+      const harvRader: DagRad[] = Object.values(prodMap)
         .filter(p => p.volym > 0 && p.stammar > 0)
         .map(p => {
-          const obj = objMap[p.objekt_id];
-          const maskin = maskinMap[p.maskin_id];
-          const timpris = timprisList.find(t =>
-            t.maskin_id === p.maskin_id && isValidOn(p.datum, t.giltig_fran, t.giltig_till)
-          );
           const medelstam = p.volym / p.stammar;
-          const acordOnDate = acord.filter(a => isValidOn(p.datum, a.giltig_fran, a.giltig_till));
-          const acordPris = lookupAcordPris(medelstam, acordOnDate);
-          const pris_total = acordPris?.pris_total || 0;
-          const intakt = p.volym * pris_total;
+          const dayTot = harvDayTot[`${p.datum}|${p.maskin_id}`] || 0;
+          return buildRow(p.datum, p.maskin_id, p.objekt_id, p.volym, medelstam, 'Harvester', dayTot);
+        });
 
-          // Hours allocated proportionally to this machine's day — since tid is per (datum, maskin),
-          // we split among objects on that day by volume share.
-          const dayMaskinKey = `${p.datum}|${p.maskin_id}`;
-          const totVolDay = Object.values(prodMap)
-            .filter(x => x.datum === p.datum && x.maskin_id === p.maskin_id)
-            .reduce((s, x) => s + x.volym, 0);
-          const andel = totVolDay > 0 ? p.volym / totVolDay : 0;
-          const timmar = (tidMap[dayMaskinKey]?.timmar || 0) * andel;
-          const timprisKr = timpris?.timpris || 0;
-          const timpeng_belopp = timmar * timprisKr;
+      const fwdRader: DagRad[] = Object.values(lassMap)
+        .filter(l => l.volym > 0)
+        .map(l => {
+          const medelstam = objMedelstam[l.objekt_id] || 0.35; // fallback om ingen skördardata finns
+          const dayTot = lassDayTot[`${l.datum}|${l.maskin_id}`] || 0;
+          return buildRow(l.datum, l.maskin_id, l.objekt_id, l.volym, medelstam, 'Forwarder', dayTot);
+        });
 
-          return {
-            datum: p.datum,
-            maskin_id: p.maskin_id,
-            maskin_namn: timpris?.maskin_namn || maskin?.modell || p.maskin_id,
-            objekt_id: p.objekt_id,
-            objekt_namn: obj?.object_name || obj?.vo_nummer || p.objekt_id || '—',
-            volym: p.volym,
-            medelstam: parseFloat(medelstam.toFixed(3)),
-            pris_total,
-            intakt,
-            timmar: parseFloat(timmar.toFixed(2)),
-            timpris: timprisKr,
-            timpeng_belopp,
-            diff: intakt - timpeng_belopp,
-          };
-        })
-        .sort((a, b) => a.datum === b.datum ? a.maskin_namn.localeCompare(b.maskin_namn) : a.datum.localeCompare(b.datum));
+      const allRader: DagRad[] = [...harvRader, ...fwdRader].sort((a, b) => {
+        if (a.datum !== b.datum) return a.datum.localeCompare(b.datum);
+        if (a.maskin_typ !== b.maskin_typ) return a.maskin_typ === 'Harvester' ? -1 : 1;
+        return a.maskin_namn.localeCompare(b.maskin_namn);
+      });
 
-      setRader(rader);
+      setRader(allRader);
     } catch (err) {
       console.error('Ekonomi: fetch error', err);
     }
@@ -230,7 +310,11 @@ export default function EkonomiClient() {
   // Kostnad: lönekostnad ej implementerat ännu — använd timpeng som proxy
   const sumKostnad = sumTimpeng;
   const sumVinst = sumIntakt - sumKostnad;
-  const diffVsTimpeng = sumIntakt - sumTimpeng;
+  // Vs-timpeng-jämförelsen gäller bara slutavverkningsrader (acord vs timpeng)
+  const slutRader = rader.filter(r => r.typ === 'Slutavverkning');
+  const sumIntaktSlut = slutRader.reduce((s, r) => s + r.intakt, 0);
+  const sumTimpengSlut = slutRader.reduce((s, r) => s + r.timpeng_belopp, 0);
+  const diffVsTimpeng = sumIntaktSlut - sumTimpengSlut;
 
   // Build per-day aggregation for chart
   const perDag = useMemo(() => {
@@ -334,7 +418,7 @@ export default function EkonomiClient() {
                 <LineChart perDag={perDag} />
                 <div style={{ display: 'flex', gap: 16, marginTop: 10, fontSize: 11, color: '#bfcab9' }}>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 10, height: 2, background: 'rgba(90,255,140,0.8)' }} /> Intäkt (acord)
+                    <span style={{ width: 10, height: 2, background: 'rgba(90,255,140,0.8)' }} /> Intäkt
                   </span>
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <span style={{ width: 10, height: 2, background: 'rgba(255,179,64,0.8)' }} /> Timpeng
@@ -364,18 +448,43 @@ export default function EkonomiClient() {
                   {rader.map((r, i) => {
                     const d = new Date(r.datum);
                     const datumLabel = `${d.getDate()} ${MONTH_NAMES[d.getMonth()].toLowerCase()}`;
+                    const isSlut = r.typ === 'Slutavverkning';
                     const diffColor = r.diff >= 0 ? 'rgba(90,255,140,0.9)' : 'rgba(255,90,90,0.9)';
+                    const isHarv = r.maskin_typ === 'Harvester';
+                    const badgeColor = isHarv ? 'rgba(90,255,140,0.85)' : 'rgba(91,143,255,0.9)';
+                    const badgeBg = isHarv ? 'rgba(90,255,140,0.08)' : 'rgba(91,143,255,0.1)';
                     return (
                       <tr key={i}>
                         <td style={s.td}>{datumLabel}</td>
-                        <td style={s.td}>{r.maskin_namn}</td>
-                        <td style={s.td}>{r.objekt_namn}</td>
+                        <td style={s.td}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{
+                              display: 'inline-block', fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
+                              padding: '2px 6px', borderRadius: 4, color: badgeColor, background: badgeBg,
+                            }}>
+                              {isHarv ? 'SKÖRD' : 'SKOT'}
+                            </span>
+                            <span>{r.maskin_namn}</span>
+                          </div>
+                        </td>
+                        <td style={s.td}>
+                          <div>{r.objekt_namn}</div>
+                          {r.typ === 'Gallring' && (
+                            <div style={{ fontSize: 9, color: 'rgba(255,179,64,0.7)', marginTop: 2, letterSpacing: 0.3 }}>GALLRING</div>
+                          )}
+                        </td>
                         <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Math.round(r.volym).toLocaleString('sv-SE')}</td>
                         <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatKr(r.intakt)}</td>
                         <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{formatKr(r.timpeng_belopp)}</td>
-                        <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: diffColor, fontWeight: 600 }}>
-                          {r.diff >= 0 ? '+' : ''}{formatKr(r.diff)}
-                        </td>
+                        {isSlut ? (
+                          <td style={{ ...s.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: diffColor, fontWeight: 600 }}>
+                            {r.diff >= 0 ? '+' : ''}{formatKr(r.diff)}
+                          </td>
+                        ) : (
+                          <td style={{ ...s.td, textAlign: 'right', color: '#7a7a72', fontStyle: 'italic', fontWeight: 500 }}>
+                            Timpeng
+                          </td>
+                        )}
                       </tr>
                     );
                   })}
@@ -388,9 +497,10 @@ export default function EkonomiClient() {
           </div>
 
           <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 12, padding: '0 4px', lineHeight: 1.5 }}>
-            Priser slås upp per närmaste medelstam i <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>acord_priser</code>.
-            Timmar fördelas per maskin &amp; dag proportionellt mot volym per objekt.
-            Lönekostnad ej implementerad — kostnadssiffran använder timpeng som proxy.
+            Slutavverkning: skördare använder <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>pris_skordare</code>,
+            skotare använder <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>pris_skotare</code> — uppslag per närmaste medelstam.
+            Gallring räknas alltid som timpeng (ingen acord). Skotarens medelstam ärvs från objektets skördardata.
+            Timmar fördelas per maskin &amp; dag proportionellt mot volym per objekt. Lönekostnad ej implementerad — kostnadssiffran använder timpeng som proxy.
           </div>
         </div>
       )}
