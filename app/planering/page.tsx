@@ -7574,6 +7574,18 @@ export default function PlannerPage() {
       label: 'Mäter · dra på kartan',
       onExit: () => setIsMeasuring(false),
       exitLabel: 'Avsluta',
+    } : (skotningDrawing && !skotningPanel) ? {
+      label: 'Ritar produktionshögar · dra på kartan',
+      onExit: () => {
+        setSkotningDrawing(false);
+        const map = mapInstanceRef.current;
+        if (map) {
+          map.dragPan.enable();
+          map.scrollZoom.enable();
+          if (map.touchZoomRotate) map.touchZoomRotate.enable();
+        }
+      },
+      exitLabel: 'Avsluta',
     } : null;
 
   return (
@@ -7811,6 +7823,26 @@ export default function PlannerPage() {
                   { label: 'Pilar', icon: 'arrow_outward', action: () => { setActiveCategory('arrows'); setMenuOpen(true); } },
                   { label: 'Mätning', icon: 'straighten', action: () => { setActiveCategory('measure'); setMenuOpen(true); } },
                   { label: 'Skotning', icon: 'local_shipping', action: () => { setActiveCategory('skotning'); setMenuOpen(true); } },
+                  { label: 'Rita produktionshögar', icon: 'edit', action: () => {
+                    const map = mapInstanceRef.current;
+                    setSkotningDrawing(true);
+                    setSkotningPolygon(null);
+                    setSkotningPanel(false);
+                    setSkotningHogar([]);
+                    setSkotningSparat(false);
+                    if (map) {
+                      map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
+                      try {
+                        const src = map.getSource('skotning-source') as any;
+                        if (src) src.setData({ type: 'FeatureCollection', features: [] });
+                        const dashSrc = map.getSource('skotning-dash-source') as any;
+                        if (dashSrc) dashSrc.setData({ type: 'FeatureCollection', features: [] });
+                      } catch { /* */ }
+                      map.dragPan.disable();
+                      map.scrollZoom.disable();
+                      if (map.touchZoomRotate) map.touchZoomRotate.disable();
+                    }
+                  } },
                 ],
               },
               {
