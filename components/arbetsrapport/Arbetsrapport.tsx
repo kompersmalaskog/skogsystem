@@ -925,9 +925,15 @@ export default function Arbetsrapport() {
     return () => clearInterval(interval);
   }, [medarbetare?.id, maskinNamnMap, objektLista]);
 
-  // Hämta dagdata för kalendern när månad/år ändras
+  // Hämta dagdata för kalendern när månad/år ändras. `steg` ingår också i
+  // dependency-listan så att återbesök till kalender-vyn efter bekräftelse
+  // triggar en ny hämtning — undviker stale data om state-update missas.
   useEffect(() => {
     if (!medarbetare) return;
+    // Kör bara när användaren faktiskt är i kalender-vyn eller vyer som
+    // visar kalender-data (redigera/tidslinje). Slipp att köra varje gång
+    // morgon/mintid/inst-state ändras.
+    if (steg !== 'kalender' && steg !== 'redigera' && steg !== 'tidslinje' && steg !== 'morgon') return;
     const förstadag = new Date(kalÅr, kalMånad, 1).toISOString().slice(0, 10);
     const sistadag = new Date(kalÅr, kalMånad + 1, 0).toISOString().slice(0, 10);
     supabase.from('arbetsdag')
@@ -1000,7 +1006,7 @@ export default function Arbetsrapport() {
           setExtraDagData(map);
         }
       });
-  }, [medarbetare, kalÅr, kalMånad, maskinNamnMap, objektLista]);
+  }, [medarbetare, kalÅr, kalMånad, maskinNamnMap, objektLista, steg]);
 
   const idag=new Date();
   const datumStr=`${["Sön","Mån","Tis","Ons","Tor","Fre","Lör"][idag.getDay()]} ${idag.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][idag.getMonth()]}`;
@@ -4505,10 +4511,12 @@ export default function Arbetsrapport() {
     };
 
     const dotFärg: Record<string,string> = {
-      ok:"#fff", saknas:"#ff9f0a",
+      ok:"#34C759",         // grön — bekräftad (tydligare än vit mot mörk bg)
+      saknas:"#ff9f0a",     // orange — data finns men ej bekräftat
       sjuk:"#ff453a",       // röd
       vab:"#ff9f0a",         // orange
     };
+    const extraPrickFärg = "#0A84FF"; // blå för extra tid
 
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
@@ -4637,14 +4645,15 @@ export default function Arbetsrapport() {
                     }}>{d}</span>
                     {/* Helgdag namn */}
                     {helgNamn && <span style={{ fontSize:8,color:s==="röd"?"#FF3B30":"#8b90a0",marginTop:1,lineHeight:1.2,maxWidth:44,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{helgNamn}</span>}
-                    {/* Status dot: bekräftad=vit, saknas=röd, + grön punkt om extra tid */}
-                    {((s==="ok"||s==="saknas")&&!helgNamn)||harExtra?(
+                    {/* Status dot: bekräftad=grön, saknas=orange, + blå punkt för extra tid.
+                        Visas även på helgdagar — helgtexten döljer inte pricken. */}
+                    {(dotFärg[s]||harExtra)?(
                       <div style={{ display:"flex",gap:3,marginTop:4 }}>
-                        {(s==="ok"||s==="saknas")&&!helgNamn&&(
+                        {dotFärg[s]&&(
                           <div style={{ width:4,height:4,borderRadius:"50%",background:dotFärg[s] }}/>
                         )}
                         {harExtra&&(
-                          <div style={{ width:4,height:4,borderRadius:"50%",background:"#34c759" }}/>
+                          <div style={{ width:4,height:4,borderRadius:"50%",background:extraPrickFärg }}/>
                         )}
                       </div>
                     ):null}
@@ -4659,15 +4668,15 @@ export default function Arbetsrapport() {
             <h3 style={{ ...secHead,marginBottom:24 }}>Statusförklaring</h3>
             <div style={{ display:"flex",flexDirection:"column",gap:20 }}>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:12,height:12,borderRadius:"50%",background:"#fff" }} />
+                <div style={{ width:12,height:12,borderRadius:"50%",background:"#34C759" }} />
                 <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Bekräftad</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                 <div style={{ width:12,height:12,borderRadius:"50%",background:"#ff9f0a" }} />
-                <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Saknas</span>
+                <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Obekräftad</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:12,height:12,borderRadius:"50%",background:"#34c759" }} />
+                <div style={{ width:12,height:12,borderRadius:"50%",background:"#0A84FF" }} />
                 <span style={{ fontSize:14,fontWeight:500,color:"#e2e2e2" }}>Extra tid (klicka för tidslinje)</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
