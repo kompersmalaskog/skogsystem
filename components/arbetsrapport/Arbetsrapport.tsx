@@ -139,18 +139,20 @@ const nuKlock5 = () => {
 };
 
 /* ── Extra-aktiviteter ── */
-type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'flytt'|'annat';
+type AktivitetTyp = 'rotben'|'reservdelar'|'markagare'|'service'|'mote'|'flytt'|'annat'|'utbildning'|'ledig';
 const AKTIVITETER: { typ: AktivitetTyp; label: string; icon: string; debDefault: boolean }[] = [
   { typ:'rotben',      label:'Kapa rotben',         icon:'content_cut',     debDefault:false },
   { typ:'reservdelar', label:'Hämta reservdelar',   icon:'build',           debDefault:false },
-  { typ:'markagare',   label:'Markägarmöte',        icon:'handshake',       debDefault:true  },
   { typ:'service',     label:'Service',             icon:'engineering',     debDefault:false },
-  { typ:'mote',        label:'Möte',                icon:'groups',          debDefault:false },
+  { typ:'utbildning',  label:'Utbildning',          icon:'school',          debDefault:false },
+  { typ:'markagare',   label:'Markägarmöte',        icon:'handshake',       debDefault:true  },
   { typ:'flytt',       label:'Flytt av maskin',     icon:'local_shipping',  debDefault:true  },
+  { typ:'ledig',       label:'Ledig',               icon:'home',            debDefault:false },
+  { typ:'mote',        label:'Möte',                icon:'groups',          debDefault:false },
   { typ:'annat',       label:'Annat',               icon:'more_horiz',      debDefault:false },
 ];
 /** Typer som visas i "Starta extra arbete"-vyn (morgon + kväll). */
-const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['reservdelar','service','markagare','flytt','annat'];
+const EXTRA_ARBETE_TYPER: AktivitetTyp[] = ['reservdelar','service','utbildning','markagare','flytt','ledig','annat'];
 const aktLabel = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.label || 'Extra';
 const aktIcon  = (typ: string|null|undefined) => AKTIVITETER.find(a=>a.typ===typ)?.icon  || 'more_horiz';
 
@@ -1577,10 +1579,13 @@ export default function Arbetsrapport() {
         </section>
         )}
 
-        {/* Dagssammanfattning + Bekräfta — när maskin-passet är avslutat */}
+        {/* Dagssammanfattning + Bekräfta — när maskin-passet är avslutat,
+            eller när det bara finns färdiga extra-aktiviteter för idag. */}
         {(()=>{
           const idagArb: any = dagData[idagKey];
-          if (!idagArb?.slut_tid) return null;
+          const extraFärdiga = (extraTidData || []).filter((e: any) => e.datum === idagKey && e.slut_tid);
+          const harMaskinPass = !!idagArb?.slut_tid;
+          if (!harMaskinPass && extraFärdiga.length === 0) return null;
           const redanBekräftad = !!idagArb?.bekraftad;
           const varBekräftad   = !!idagArb?.bekraftad_tid;
           const ändradSedan    = varBekräftad && !redanBekräftad;
@@ -1589,10 +1594,7 @@ export default function Arbetsrapport() {
             : '';
           const dagNamnLång = ["Söndag","Måndag","Tisdag","Onsdag","Torsdag","Fredag","Lördag"][idag.getDay()];
           const månNamnLång = ["januari","februari","mars","april","maj","juni","juli","augusti","september","oktober","november","december"][idag.getMonth()];
-          const dagTypRubrik: Record<string,string> = {
-            utbildning:'Utbildning', service:'Service', möte:'Möte', annat:'Annat arbete',
-            sjuk:'Sjukdag', vab:'VAB', semester:'Semester', ledig:'Ledig',
-          };
+          const dagTypRubrik: Record<string,string> = { sjuk:'Sjukdag', vab:'VAB' };
           const typPrefix = idagArb?.dagtyp && idagArb.dagtyp !== 'normal' ? dagTypRubrik[idagArb.dagtyp] : '';
           const datumRubrik = typPrefix
             ? `${typPrefix} — ${dagNamnLång} ${idag.getDate()} ${månNamnLång}`
@@ -1604,13 +1606,8 @@ export default function Arbetsrapport() {
           const halvKr = gsAvtal?.traktamente_halv_kr ?? 150;
           const harKm = totKm > 0 || (kmBerakning != null && kmBerakning > 0);
           const harErsKr = ersKr > 0;
-          // Utbildning/service kör en förenklad variant: ingen körning, ingen traktamente, rubrik byts till dagtypen.
-          const erTimerDag = idagArb?.dagtyp === 'utbildning' || idagArb?.dagtyp === 'service';
-          const arbetstidLabel = erTimerDag ? (idagArb.dagtyp === 'utbildning' ? 'Utbildning' : 'Service') : 'Arbetstid';
-          const platsText = erTimerDag ? (idagArb?.kommentar || null) : null;
-          const harPlatsBlock = !!platsText;
-          const harKmBlock = harKm && !erTimerDag;
-          const harObjBlock = !!(dagObjNamn || maskinNamnLång) && !erTimerDag;
+          const harKmBlock = harKm && harMaskinPass;
+          const harObjBlock = !!(dagObjNamn || maskinNamnLång) && harMaskinPass;
           const sammanRad = (label: string, value: string, onClick?: () => void) => (
             <div key={label} onClick={onClick}
               style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center",cursor:onClick?"pointer":"default" }}>
@@ -1640,14 +1637,11 @@ export default function Arbetsrapport() {
                   </div>
                 )}
                 {!redanBekräftad && !ändradSedan && <div style={{ height:6 }} />}
-                <div style={{ paddingBottom:10,borderBottom:(harPlatsBlock||harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harPlatsBlock||harObjBlock||harKmBlock)?10:0 }}>
-                  {sammanRad(arbetstidLabel, `${start} → ${slut}`, öppnaTider)}
-                  {sammanRad("Rast", `${rast} min`, öppnaTider)}
-                  {sammanRad("Total", fmt(arbMin))}
-                </div>
-                {harPlatsBlock && (
+                {harMaskinPass && (
                   <div style={{ paddingBottom:10,borderBottom:(harObjBlock||harKmBlock)?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:(harObjBlock||harKmBlock)?10:0 }}>
-                    {sammanRad("Plats", platsText!)}
+                    {sammanRad("Arbetstid", `${start} → ${slut}`, öppnaTider)}
+                    {sammanRad("Rast", `${rast} min`, öppnaTider)}
+                    {sammanRad("Total", fmt(arbMin))}
                   </div>
                 )}
                 {harObjBlock&&(
@@ -1656,8 +1650,8 @@ export default function Arbetsrapport() {
                     {dagObjNamn     && sammanRad("Objekt", dagObjNamn)}
                   </div>
                 )}
-                {/* Körning — alltid synlig efter avslutat pass för maskinpass (ej utbildning/service) */}
-                {!erTimerDag && (
+                {/* Körning — bara för maskinpass */}
+                {harMaskinPass && (
                   <div style={{ paddingBottom:10,borderBottom:"1px solid rgba(255,255,255,0.08)",marginBottom:10 }}>
                     {sammanRad("Körning", `${totKm} km`, öppnaKm)}
                     {harErsKr && sammanRad("Ersättning", `${ersKr.toFixed(2).replace('.',',')} kr`)}
@@ -1702,7 +1696,7 @@ export default function Arbetsrapport() {
                     </div>
                   );
                 })()}
-                {!erTimerDag && (
+                {harMaskinPass && (
                 <div onClick={()=>setTrakÖppen(v=>!v)} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",cursor:"pointer",alignItems:"center" }}>
                   <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Traktamente</span>
                   <div style={{ display:"flex",alignItems:"center",gap:4 }}>
@@ -1711,7 +1705,7 @@ export default function Arbetsrapport() {
                   </div>
                 </div>
                 )}
-                {!erTimerDag && trakÖppen&&(
+                {harMaskinPass && trakÖppen&&(
                   <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6,marginTop:10 }}>
                     {[{k:'inget',l:'Inget',v:null},{k:'halv',l:`Halv · ${halvKr}`,v:{summa:halvKr}},{k:'hel',l:`Hel · ${helKr}`,v:{summa:helKr}}].map(opt=>{
                       const valt = opt.v === null ? !trak : (trak?.summa === (opt.v as any)?.summa);
@@ -1733,8 +1727,8 @@ export default function Arbetsrapport() {
                   </div>
                 )}
               </div>
-              {/* Primärknapp: Bekräfta / Bekräfta igen / Ändra rapport */}
-              {pagaendeAktiviteter.length===0 && (redanBekräftad ? (
+              {/* Primärknapp: Bekräfta / Bekräfta igen / Ändra rapport — bara för maskinpass */}
+              {harMaskinPass && pagaendeAktiviteter.length===0 && (redanBekräftad ? (
                 <button onClick={()=>setVisaTiderSheet(false)}
                   style={{ width:"100%",marginTop:16,padding:"18px",background:"#2c2c2e",color:"#fff",border:"none",borderRadius:14,fontSize:16,fontWeight:600,cursor:"default",fontFamily:"inherit" }}>
                   Ändra rapport
@@ -1794,22 +1788,16 @@ export default function Arbetsrapport() {
             <button onClick={()=>setVisaÖvrigt(v=>!v)}
               style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 20px",background:"#1c1c1e",borderRadius:16,border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
               <div>
-                <p style={{ margin:0,fontSize:16,fontWeight:600,color:"#fff" }}>Frånvaro & övrigt</p>
-                <p style={{ margin:"3px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Sjuk, VAB, semester, utbildning…</p>
+                <p style={{ margin:0,fontSize:16,fontWeight:600,color:"#fff" }}>Frånvaro</p>
+                <p style={{ margin:"3px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Sjuk, VAB</p>
               </div>
               <span className="material-symbols-outlined" style={{ fontSize:22,color:"rgba(255,255,255,0.45)",transform:visaÖvrigt?"rotate(90deg)":"none",transition:"transform 0.2s",flexShrink:0,marginLeft:12 }}>chevron_right</span>
             </button>
             {visaÖvrigt && (
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginTop:12,animation:"fadeUp 0.25s ease" }}>
                 {[
-                  {id:"sjuk",       label:"Sjukfrånvaro", icon:"medical_services", heldag:true, msg:{text:"Krya på dig!", emoji:"🤒"}},
-                  {id:"vab",        label:"VAB",          icon:"child_care",       heldag:true, msg:{text:"VAB registrerad"}},
-                  {id:"semester",   label:"Semester",     icon:"beach_access",     heldag:true, msg:{text:"Ledig dag"}},
-                  {id:"ledig",      label:"Ledig",        icon:"home",             heldag:true, msg:{text:"Ledig dag"}},
-                  {id:"utbildning", label:"Utbildning",   icon:"school",           heldag:false},
-                  {id:"service",    label:"Service",      icon:"build",            heldag:false},
-                  {id:"möte",       label:"Möte",         icon:"groups",           heldag:false},
-                  {id:"annat",      label:"Annat",        icon:"more_horiz",       heldag:false},
+                  {id:"sjuk", label:"Sjukfrånvaro", icon:"medical_services", heldag:true, msg:{text:"Krya på dig!", emoji:"🤒"}},
+                  {id:"vab",  label:"VAB",          icon:"child_care",       heldag:true, msg:{text:"VAB registrerad"}},
                 ].map(s=>(
                   <button key={s.id} onClick={async ()=>{
                     const nuT = nuKlock();
@@ -4344,12 +4332,6 @@ export default function Arbetsrapport() {
       ok:"#fff", saknas:"#ff9f0a",
       sjuk:"#ff453a",       // röd
       vab:"#ff9f0a",         // orange
-      semester:"#0a84ff",    // blå
-      ledig:"#0a84ff",       // blå (samma som semester)
-      utbildning:"#ffd60a",  // gul
-      service:"#8e8e93",     // grå
-      möte:"#adc6ff",        // ljusblå
-      annat:"#8e8e93",       // grå
     };
 
     return (
