@@ -26,6 +26,12 @@ type OvrigtRad = {
   id?: string; nyckel: string; beskrivning: string; varde: Num; enhet: string;
   giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
 };
+type KostnadsstalleRad = {
+  maskin_id: string;
+  maskin_namn: string;
+  kostnadsstalle_kod: string;
+  dirty?: boolean;
+};
 
 function todayIso() {
   const d = new Date();
@@ -58,6 +64,8 @@ export default function InstallningarClient() {
   const [sortiment, setSortiment] = useState<SortConfig>({ grundantal: '', kr_per_extra_sortiment: '', giltig_fran: null });
   const [flytt, setFlytt] = useState<FlyttRad[]>([]);
   const [ovrigt, setOvrigt] = useState<OvrigtRad[]>([]);
+  const [kostnadsstallen, setKostnadsstallen] = useState<KostnadsstalleRad[]>([]);
+  const [savingKS, setSavingKS] = useState<string | null>(null);
 
   const [savingMaskin, setSavingMaskin] = useState<string | null>(null);
   const [savingAcord, setSavingAcord] = useState(false);
@@ -75,7 +83,7 @@ export default function InstallningarClient() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [mRes, aRes, avRes, trRes, teRes, soRes, flRes, ovRes] = await Promise.all([
+    const [mRes, aRes, avRes, trRes, teRes, soRes, flRes, ovRes, dimMaskinRes, ksRes] = await Promise.all([
       supabase.from('maskin_timpris').select('id, maskin_id, maskin_namn, timpris, giltig_fran, giltig_till').is('giltig_till', null).order('maskin_namn'),
       supabase.from('acord_priser').select('id, medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till').is('giltig_till', null).order('medelstam'),
       supabase.from('acord_skotningsavstand').select('id, grundavstand_m, kr_per_100m, giltig_fran, giltig_till').is('giltig_till', null).not('grundavstand_m', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
@@ -84,6 +92,8 @@ export default function InstallningarClient() {
       supabase.from('acord_sortiment_tillagg').select('id, grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_flyttkostnad').select('id, km_fran, km_till, fast_kr, timpris_trailer_kr, beskrivning, giltig_fran, giltig_till').is('giltig_till', null).order('km_fran'),
       supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
+      supabase.from('dim_maskin').select('maskin_id, modell').order('modell'),
+      supabase.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod'),
     ]);
     setMaskiner((mRes.data || []).map((m: any) => ({ id: m.id, maskin_id: m.maskin_id, maskin_namn: m.maskin_namn || '', timpris: m.timpris, giltig_fran: m.giltig_fran })));
     setAcord((aRes.data || []).map((a: any) => ({ id: a.id, medelstam: a.medelstam, pris_total: a.pris_total, pris_skordare: a.pris_skordare, pris_skotare: a.pris_skotare, giltig_fran: a.giltig_fran })));
@@ -99,6 +109,16 @@ export default function InstallningarClient() {
       : { grundantal: 6, kr_per_extra_sortiment: 2, giltig_fran: null });
     setFlytt((flRes.data || []).map((a: any) => ({ id: a.id, km_fran: a.km_fran, km_till: a.km_till ?? '', fast_kr: a.fast_kr ?? '', timpris_trailer_kr: a.timpris_trailer_kr ?? '', beskrivning: a.beskrivning || '', giltig_fran: a.giltig_fran })));
     setOvrigt((ovRes.data || []).map((a: any) => ({ id: a.id, nyckel: a.nyckel, beskrivning: a.beskrivning || '', varde: a.varde, enhet: a.enhet || '', giltig_fran: a.giltig_fran })));
+
+    // Kostnadsställe-mappning — bygg en rad per maskin i dim_maskin, fyll i från maskin_kostnadsstalle
+    const ksMap: Record<string, string> = {};
+    for (const r of (ksRes.data || [])) ksMap[r.maskin_id] = r.kostnadsstalle_kod;
+    setKostnadsstallen((dimMaskinRes.data || []).map((m: any) => ({
+      maskin_id: m.maskin_id,
+      maskin_namn: m.modell || m.maskin_id,
+      kostnadsstalle_kod: ksMap[m.maskin_id] || '',
+    })));
+
     setLoading(false);
   }, []);
 
@@ -278,6 +298,28 @@ export default function InstallningarClient() {
     setSavingOvrigt(null);
     if (err) { flashMsg(`Fel: ${err.message}`); return; }
     flashMsg(`Sparat: ${row.beskrivning || row.nyckel}`);
+    await fetchData();
+  };
+
+  // ── Kostnadsställe-mappning ──
+  const updateKS = (idx: number, p: Partial<KostnadsstalleRad>) => setKostnadsstallen(prev => prev.map((k, i) => i === idx ? { ...k, ...p, dirty: true } : k));
+  const saveKS = async (idx: number) => {
+    const row = kostnadsstallen[idx];
+    setSavingKS(row.maskin_id);
+    const kod = row.kostnadsstalle_kod.trim();
+    if (!kod) {
+      // Tom kod → ta bort mappning
+      const { error } = await supabase.from('maskin_kostnadsstalle').delete().eq('maskin_id', row.maskin_id);
+      setSavingKS(null);
+      if (error) { flashMsg(`Fel: ${error.message}`); return; }
+      flashMsg(`Mappning borttagen för ${row.maskin_namn}`);
+    } else {
+      const { error } = await supabase.from('maskin_kostnadsstalle')
+        .upsert({ maskin_id: row.maskin_id, kostnadsstalle_kod: kod, updated_at: new Date().toISOString() }, { onConflict: 'maskin_id' });
+      setSavingKS(null);
+      if (error) { flashMsg(`Fel: ${error.message}`); return; }
+      flashMsg(`Sparat: ${row.maskin_namn} → ${kod}`);
+    }
     await fetchData();
   };
 
@@ -606,6 +648,38 @@ export default function InstallningarClient() {
             {ovrigt.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga poster.</div>}
           </div>
           <button style={s.btnGhost as CSSProperties} onClick={addOvrigt}>+ Lägg till övrig post</button>
+
+          {/* Kostnadsställe per maskin */}
+          <div style={s.sectionTitle as CSSProperties}>Kostnadsställe per maskin (Fortnox)</div>
+          <div style={s.sectionBlurb as CSSProperties}>Mappa varje maskin till sitt kostnadsställe i Fortnox — används av Resultat-fliken.</div>
+          <div style={s.card}>
+            {kostnadsstallen.map((k, idx) => {
+              const isSaving = savingKS === k.maskin_id;
+              return (
+                <div key={k.maskin_id} style={{ padding: '12px 0', borderBottom: idx < kostnadsstallen.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 8, alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{k.maskin_namn}</div>
+                      <div style={{ fontSize: 10, color: '#7a7a72', fontFamily: 'ui-monospace, monospace', marginTop: 2 }}>{k.maskin_id}</div>
+                    </div>
+                    <input
+                      style={s.input}
+                      value={k.kostnadsstalle_kod}
+                      onChange={e => updateKS(idx, { kostnadsstalle_kod: e.target.value.toUpperCase() })}
+                      placeholder="t.ex. M13"
+                    />
+                    <button
+                      style={{ ...s.btnDark, opacity: isSaving ? 0.6 : 1 } as CSSProperties}
+                      disabled={isSaving}
+                      onClick={() => saveKS(idx)}>
+                      {isSaving ? 'Sparar...' : 'Spara'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {kostnadsstallen.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga maskiner i dim_maskin.</div>}
+          </div>
 
           {/* Info */}
           <div style={s.sectionTitle as CSSProperties}>Giltighetsdatum</div>
