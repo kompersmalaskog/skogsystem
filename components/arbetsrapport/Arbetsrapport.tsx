@@ -3947,7 +3947,7 @@ export default function Arbetsrapport() {
               ["Körning", `${sparadRed.km} km`],
             ].map(([l,v],i,arr)=>(
               <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
-                <span style={{ fontSize:15,color:C.label }}>{l}</span>
+                <span style={{ fontSize:15,color:"#fff" }}>{l}</span>
                 <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{v}</span>
               </div>
             ))}
@@ -3960,8 +3960,8 @@ export default function Arbetsrapport() {
               ["Körning", `${redDag.km||0} km`],
             ].map(([l,v],i,arr)=>(
               <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"13px 0",borderBottom:i<arr.length-1?`1px solid ${C.line}`:"none" }}>
-                <span style={{ fontSize:15,color:C.label }}>{l}</span>
-                <span style={{ fontSize:15,fontWeight:500,color:"rgba(0,0,0,0.35)",textDecoration:"line-through" }}>{v}</span>
+                <span style={{ fontSize:15,color:"#fff" }}>{l}</span>
+                <span style={{ fontSize:15,fontWeight:500,color:"rgba(255,255,255,0.5)",textDecoration:"line-through" }}>{v}</span>
               </div>
             ))}
           </Card>
@@ -3993,42 +3993,53 @@ export default function Arbetsrapport() {
         </div>
         {(()=>{
           const harData = !!(redDag?.start_tid);
+          const extraTidForDag = (extraTidData || [])
+            .filter((e:any) => e.datum === redDag.datum && e.slut_tid)
+            .sort((a:any,b:any) => (a.start_tid||'').localeCompare(b.start_tid||''));
+          const harExtra = extraTidForDag.length > 0;
+          const prefixFörExtra = (e: any): string => {
+            const arbSt = redDag?.start_tid;
+            const arbEn = redDag?.slut_tid;
+            if (arbSt && e.slut_tid && e.slut_tid <= arbSt) return "Morgon";
+            if (arbEn && e.start_tid && e.start_tid >= arbEn) return "Kväll";
+            return "Extra";
+          };
           return (<>
         <div style={{ flex:1,overflowY:"auto",paddingTop:8 }}>
-          {!harData&&redStart==="00:00"&&redSlut==="00:00"&&redRast===0?(
+          {!harData&&redStart==="00:00"&&redSlut==="00:00"&&redRast===0&&!harExtra?(
             <Card style={{ padding:"24px 20px",textAlign:"center" as const }}>
-              <p style={{ margin:"0 0 4px",fontSize:15,color:C.label }}>Ingen data från MOM</p>
-              <p style={{ margin:0,fontSize:13,color:"#636366" }}>Lägg till arbetstid och körning manuellt</p>
+              <p style={{ margin:"0 0 4px",fontSize:15,color:"#fff" }}>Ingen data från MOM</p>
+              <p style={{ margin:0,fontSize:13,color:"#fff" }}>Lägg till arbetstid och körning manuellt</p>
             </Card>
-          ):!harData?(
+          ):!harData&&!harExtra?(
             <Card style={{ padding:"4px 20px" }}>
               <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:C.label }}>Arbetstid</span>
+                <span style={{ fontSize:16,color:"#fff" }}>Arbetstid</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
                   <span style={{ fontSize:16,fontWeight:600,color:C.orange }}>{fmt(redArbMin)}</span>
                   <ChevronRight/>
                 </div>
               </div>
               <div onClick={()=>setRedVy("km")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:C.label }}>Körning</span>
+                <span style={{ fontSize:16,color:"#fff" }}>Körning</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:600,color:redKm>0?C.orange:C.ink }}>{redKm} km</span>
+                  <span style={{ fontSize:16,fontWeight:600,color:redKm>0?C.orange:"#fff" }}>{redKm} km</span>
                   <ChevronRight/>
                 </div>
               </div>
             </Card>
-          ):(
+          ):!harData?null:(
             <Card style={{ padding:"4px 20px" }}>
               <div onClick={()=>setRedVy("tid")} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:C.label }}>Arbetstid</span>
+                <span style={{ fontSize:16,color:"#fff" }}>Arbetstid</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:600,color:(redStart!==(redDag.start||"00:00")||redSlut!==(redDag.slut||"00:00")||redRast!==(redDag.rast||0))?C.orange:C.ink }}>{fmt(redArbMin)}</span>
+                  <span style={{ fontSize:16,fontWeight:600,color:(redStart!==(redDag.start||"00:00")||redSlut!==(redDag.slut||"00:00")||redRast!==(redDag.rast||0))?C.orange:"#fff" }}>{fmt(redArbMin)}</span>
                   <ChevronRight/>
                 </div>
               </div>
               {/* Maskin — klickbar */}
               <div onClick={()=>setVisaRedMaskinVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:C.label }}>Maskin</span>
+                <span style={{ fontSize:16,color:"#fff" }}>Maskin</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
                   <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{(()=>{const m=redMaskinId?maskinNamnMap[redMaskinId]:null; return m||redDag.maskin_namn||redDag.maskin_id||"—";})()}</span>
                   <ChevronRight/>
@@ -4040,13 +4051,13 @@ export default function Arbetsrapport() {
                 ["Slut", tidKort(redDag.slut_tid)],
               ].map(([l,v])=>(
                 <div key={l} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
-                  <span style={{ fontSize:16,color:C.label }}>{l}</span>
+                  <span style={{ fontSize:16,color:"#fff" }}>{l}</span>
                   <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{v}</span>
                 </div>
               ))}
               {/* Rast — klickbar */}
               <div onClick={()=>setVisaRedRastPicker(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:C.label }}>Rast</span>
+                <span style={{ fontSize:16,color:"#fff" }}>Rast</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
                   <span style={{ fontSize:16,fontWeight:500,color:redRast!==(redDag.rast_min||0)?"#ff9f0a":"#fff" }}>{redRast} min</span>
                   <ChevronRight/>
@@ -4054,7 +4065,7 @@ export default function Arbetsrapport() {
               </div>
               {/* Objekt — klickbar */}
               <div onClick={()=>setVisaRedObjektVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:C.label }}>Objekt</span>
+                <span style={{ fontSize:16,color:"#fff" }}>Objekt</span>
                 <div style={{ display:"flex",alignItems:"center",gap:10 }}>
                   <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(formatObjektNamn(redDag.objekt_namn)||redDag.objekt_id||"—");})()}</span>
                   <ChevronRight/>
@@ -4062,17 +4073,47 @@ export default function Arbetsrapport() {
               </div>
               {redDag.extra>0&&(
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.trak?`1px solid ${C.line}`:"none" }}>
-                  <span style={{ fontSize:16,color:C.label }}>Extra tid</span>
-                  <span style={{ fontSize:16,fontWeight:600 }}>{redDag.extra} min</span>
+                  <span style={{ fontSize:16,color:"#fff" }}>Extra tid</span>
+                  <span style={{ fontSize:16,fontWeight:600,color:"#fff" }}>{redDag.extra} min</span>
                 </div>
               )}
               {redDag.trak&&(
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
-                  <span style={{ fontSize:16,color:C.label }}>Traktamente</span>
-                  <span style={{ fontSize:16,fontWeight:600 }}>{gsAvtal?.traktamente_hel_kr ?? 300} kr</span>
+                  <span style={{ fontSize:16,color:"#fff" }}>Traktamente</span>
+                  <span style={{ fontSize:16,fontWeight:600,color:"#fff" }}>{gsAvtal?.traktamente_hel_kr ?? 300} kr</span>
                 </div>
               )}
             </Card>
+          )}
+
+          {/* Loggad tid — extra_tid-poster för dagen */}
+          {harExtra && (
+            <div style={{ marginTop:16 }}>
+              <Label>Loggad tid</Label>
+              <Card style={{ padding:"4px 20px" }}>
+                {extraTidForDag.map((e:any, i:number) => {
+                  const typLabel = e.aktivitet_typ ? aktLabel(e.aktivitet_typ) : 'Extra';
+                  const tidStr = `${(e.start_tid||'').slice(0,5)}–${(e.slut_tid||'').slice(0,5)}`;
+                  const varaktighet = fmt(e.minuter || 0);
+                  return (
+                    <div key={e.id} onClick={() => {
+                      setKvAvTyp(e.aktivitet_typ || null);
+                      setKvAvObj(e.objekt_id ? objektLista.find(o => o.id === e.objekt_id) || null : null);
+                      setKvAvDeb(!!e.debiterbar);
+                      setKvAvBesk(e.kommentar || "");
+                      setEfterStoppSheet(e);
+                    }}
+                      style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:i<extraTidForDag.length-1?`1px solid ${C.line}`:"none",cursor:"pointer",gap:10 }}>
+                      <span style={{ fontSize:16,color:"#fff",flexShrink:0 }}>{prefixFörExtra(e)}</span>
+                      <div style={{ display:"flex",alignItems:"center",gap:10,minWidth:0 }}>
+                        <span style={{ fontSize:15,fontWeight:500,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{typLabel} {tidStr} ({varaktighet})</span>
+                        <ChevronRight/>
+                      </div>
+                    </div>
+                  );
+                })}
+              </Card>
+            </div>
           )}
 
           {/* Körning — separat kort med morgon/kväll/total (eller segment-kedja) + färdtidsersättning */}
@@ -4093,7 +4134,7 @@ export default function Arbetsrapport() {
 
             return (
               <Card onClick={()=>setRedVy("km")} style={{ padding:"16px 20px" }}>
-                <p style={{ margin:"0 0 10px",fontSize:13,color:"rgba(255,255,255,0.6)",fontWeight:500 }}>Körning</p>
+                <p style={{ margin:"0 0 10px",fontSize:13,color:"#fff",fontWeight:500 }}>Körning</p>
 
                 {harFlerObjekt ? (
                   // Multi-objekt: visa varje segment som egen rad
@@ -4120,15 +4161,15 @@ export default function Arbetsrapport() {
                   {rad("Totalt", `${redKm} km`, true)}
                 </div>
                 {redKmBerakning!=null&&(
-                  <p style={{ margin:"8px 0 0",fontSize:12,color:"rgba(255,255,255,0.4)" }}>Beräknat vägavstånd</p>
+                  <p style={{ margin:"8px 0 0",fontSize:12,color:"#fff" }}>Beräknat vägavstånd</p>
                 )}
                 {över>0&&(
                   <div style={{ borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:10,paddingTop:10 }}>
                     <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
-                      <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>Färdtidsersättning</span>
+                      <span style={{ color:"#fff",fontSize:15 }}>Färdtidsersättning</span>
                       <span style={{ color:"#fff",fontSize:15,fontWeight:600 }}>{kr.toFixed(2).replace('.',',')} kr</span>
                     </div>
-                    <p style={{ margin:"2px 0 0",fontSize:12,color:"rgba(255,255,255,0.4)" }}>
+                    <p style={{ margin:"2px 0 0",fontSize:12,color:"#fff" }}>
                       {över} km över {frikm} km = {mil} mil × {fardtidPerMil.toString().replace('.',',')} kr
                     </p>
                   </div>
