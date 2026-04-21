@@ -8564,13 +8564,14 @@ export default function PlannerPage() {
           }
           // Om GPS är av, gör ingenting - GPS startas via objekt-menyn
         }}
+        aria-label={isTracking ? 'Centrera kartan på GPS-position' : 'GPS inte aktiv'}
         style={{
           position: 'absolute',
           bottom: menuOpen ? menuHeight + 110 : 100,
           right: '15px',
-          width: '48px',
-          height: '48px',
-          borderRadius: '12px',
+          width: '56px',
+          height: '56px',
+          borderRadius: '14px',
           border: isTracking ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.1)',
           background: isTracking ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
           display: 'flex',
@@ -8583,7 +8584,7 @@ export default function PlannerPage() {
         }}
       >
         {/* Centrerings-ikon */}
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={isTracking ? '#22c55e' : 'rgba(255,255,255,0.5)'} strokeWidth="2">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={isTracking ? '#22c55e' : 'rgba(255,255,255,0.5)'} strokeWidth="2">
           <circle cx="12" cy="12" r="3" fill={isTracking ? '#22c55e' : 'none'}/>
           <line x1="12" y1="2" x2="12" y2="6"/>
           <line x1="12" y1="18" x2="12" y2="22"/>
@@ -8602,14 +8603,16 @@ export default function PlannerPage() {
         return (
           <>
             <button
+              type="button"
               onClick={() => { setBriefingChecklistMode(true); }}
+              aria-label={totalUnchecked > 0 ? `Briefing-checklista, ${totalUnchecked} okvitterade` : 'Briefing-checklista'}
               style={{
                 position: 'absolute',
-                bottom: menuOpen ? menuHeight + 170 : 160,
+                bottom: menuOpen ? menuHeight + 178 : 168,
                 right: '15px',
-                width: '48px',
-                height: '48px',
-                borderRadius: '12px',
+                width: '56px',
+                height: '56px',
+                borderRadius: '14px',
                 border: '1px solid rgba(138,180,96,0.3)',
                 background: 'rgba(138,180,96,0.15)',
                 display: 'flex',
@@ -8620,7 +8623,7 @@ export default function PlannerPage() {
                 cursor: 'pointer',
               }}
             >
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8ab460" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8ab460" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" /><path d="M9 14l2 2 4-4" />
               </svg>
               {/* Badge */}

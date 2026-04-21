@@ -40,7 +40,7 @@ export default function VolymPanel({ resultat, loading, onClose, korbarhetsResul
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 20px 12px' }}>
         <span style={{ fontSize: '17px', fontWeight: '600' }}>Volymberäkning</span>
-        <button type="button" onClick={onClose} aria-label="Stäng volymberäkning" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: '32px', height: '32px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: '16px' }}>
+        <button type="button" onClick={onClose} aria-label="Stäng volymberäkning" style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '50%', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff', fontSize: '18px', flexShrink: 0 }}>
           ✕
         </button>
       </div>

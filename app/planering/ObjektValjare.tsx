@@ -197,12 +197,13 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
             onClick={() => setFilter(f.key as any)}
             aria-pressed={filter === f.key}
             style={{
-              padding: '8px 16px',
-              borderRadius: '20px',
+              minHeight: '44px',
+              padding: '10px 20px',
+              borderRadius: '22px',
               border: filter === f.key ? '1px solid #fff' : '1px solid #555',
               background: filter === f.key ? '#fff' : 'transparent',
               color: filter === f.key ? '#000' : '#fff',
-              fontSize: '13px',
+              fontSize: '14px',
               fontWeight: '500',
               cursor: 'pointer',
             }}
