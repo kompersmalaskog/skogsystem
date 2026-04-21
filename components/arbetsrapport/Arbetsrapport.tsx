@@ -4004,11 +4004,60 @@ export default function Arbetsrapport() {
             <BackBtn onClick={()=>setSteg("kalender")}/>
             <div>
               <p style={{ margin:0,fontSize:13,color:C.label }}>{redMånadDisplay}</p>
-              <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>{redDatumDisplay}</h1>
+              <h1 style={{ margin:"4px 0 0",fontSize:26,fontWeight:700 }}>
+                {redDag?.dagtyp === 'sjuk' ? `Sjukdag — ${redDatumDisplay}`
+                  : redDag?.dagtyp === 'vab' ? `VAB — ${redDatumDisplay}`
+                  : redDatumDisplay}
+              </h1>
             </div>
           </div>
         </div>
         {(()=>{
+          // Heldagstyp (sjuk/vab) får en minimal vy — ingen arbetstid/körning,
+          // bara statusmeddelande + bekräftad-rad.
+          if (redDag?.dagtyp === 'sjuk' || redDag?.dagtyp === 'vab') {
+            const bekraftadRedan = !!redDag?.bekraftad;
+            const bekraftadTidFmt = redDag?.bekraftad_tid
+              ? new Date(redDag.bekraftad_tid).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})
+              : null;
+            const meddelande = redDag.dagtyp === 'sjuk'
+              ? { emoji: '🤒', text: 'Krya på dig!' }
+              : { emoji: null as string | null, text: 'VAB registrerad' };
+            return (<>
+              <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"48px 24px" }}>
+                {meddelande.emoji && (
+                  <p style={{ margin:"0 0 20px",fontSize:72,lineHeight:1 }}>{meddelande.emoji}</p>
+                )}
+                <p style={{ margin:0,fontSize:28,fontWeight:700,color:"#fff",textAlign:"center",letterSpacing:"-0.01em" }}>{meddelande.text}</p>
+              </div>
+              <div style={bottom}>
+                {bekraftadRedan ? (<>
+                  <div style={{ width:"100%",padding:"14px 16px",background:"rgba(52,199,89,0.10)",border:"1px solid rgba(52,199,89,0.25)",borderRadius:12,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
+                    <span className="material-symbols-outlined" style={{ fontSize:18,color:"#34c759" }}>check_circle</span>
+                    <span style={{ fontSize:14,color:"#8e8e93",fontWeight:500 }}>Bekräftad{bekraftadTidFmt?` kl ${bekraftadTidFmt}`:''}</span>
+                  </div>
+                  <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
+                </>) : (<>
+                  <button
+                    style={{ width:"100%",padding:"18px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}
+                    onClick={async ()=>{
+                      const nuIso = new Date().toISOString();
+                      const { error } = await supabase.from("arbetsdag")
+                        .update({ bekraftad: true, bekraftad_tid: nuIso })
+                        .eq("medarbetare_id", medarbetare.id)
+                        .eq("datum", redDag.datum);
+                      if (error) { alert("Kunde inte bekräfta — " + error.message); return; }
+                      setRedDag((d:any) => ({ ...d, bekraftad: true, bekraftad_tid: nuIso }));
+                      setDagData(dd => ({ ...dd, [redDag.datum]: { ...(dd[redDag.datum]||{}), bekraftad: true, bekraftad_tid: nuIso } }));
+                      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
+                    }}>
+                    Bekräfta dagen ✓
+                  </button>
+                  <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
+                </>)}
+              </div>
+            </>);
+          }
           const harData = !!(redDag?.start_tid);
           const extraTidForDag = (extraTidData || [])
             .filter((e:any) => e.datum === redDag.datum && e.slut_tid)
