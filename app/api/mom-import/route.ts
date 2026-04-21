@@ -174,6 +174,38 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 5c. Proportionell rast-fördelning för delade maskindagar.
+    // fakt_tid har bara rader för EN operatör per (datum, maskin, objekt) pga
+    // Python-parserns "senaste-vinner"-mappning. När två förare kört samma
+    // maskin samma dag hamnar hela maskinens rast på en förare (ofta den
+    // som loggade ut senast) medan den andra får 0 min. Fördela istället
+    // totalrasten proportionellt mot varje förares skiftlängd.
+    const parseHM = (iso: string): number => {
+      const m = iso.match(/(\d{2}):(\d{2})/);
+      return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
+    };
+    for (const grupp of Object.values(perMaskinDag)) {
+      if (grupp.length < 2) continue;
+      // Summera totalrast från rastMap och kolla om den är ojämnt fördelad.
+      const rastPerOp = grupp.map(agg => {
+        const key = `${agg.medarbetare_id}_${agg.datum}`;
+        return rastMap[key] || 0;
+      });
+      const totalRastSek = rastPerOp.reduce((s, r) => s + r, 0);
+      if (totalRastSek === 0) continue;
+      const nollor = rastPerOp.filter(r => r === 0).length;
+      // Om minst en har rast och minst en annan har 0 → omfördela proportionellt
+      if (nollor === 0) continue;
+      const spans = grupp.map(agg => Math.max(0, parseHM(agg.latestEnd) - parseHM(agg.earliestStart)));
+      const totalSpan = spans.reduce((s, v) => s + v, 0);
+      if (totalSpan === 0) continue;
+      for (let i = 0; i < grupp.length; i++) {
+        const andel = spans[i] / totalSpan;
+        const nyRastSek = Math.round(totalRastSek * andel);
+        rastMap[`${grupp[i].medarbetare_id}_${grupp[i].datum}`] = nyRastSek;
+      }
+    }
+
     // 5. Skapa arbetsdag-rader
     // DB lagrar lokal svensk tid märkt som UTC (parse_datetime strippar timezone)
     // Extrahera HH:MM direkt utan konvertering
