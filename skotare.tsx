@@ -156,9 +156,9 @@ document.querySelectorAll('.k-val[data-count]').forEach(function(el) {
   var t = label.textContent;
   if (t === 'Antal lass') el.setAttribute('data-count', String(_kpiLass));
   if (t === 'Medellast') el.setAttribute('data-count', String(_kpiMedellast));
-  if (t === 'Medelavst\\u00e5nd') el.setAttribute('data-count', String(_kpiMedelavstand));
-  if (t === 'Br\\u00e4nsle totalt') el.setAttribute('data-count', String(_kpiBransle));
-  if (t === 'Br\\u00e4nsle/m\\u00b3') el.setAttribute('data-count', String(_kpiBransleM3));
+  if (t === 'Medelavstånd') el.setAttribute('data-count', String(_kpiMedelavstand));
+  if (t === 'Bränsle totalt') el.setAttribute('data-count', String(_kpiBransle));
+  if (t === 'Bränsle/m³') el.setAttribute('data-count', String(_kpiBransleM3));
   if (t === 'Lass/G15h') el.setAttribute('data-count', String(_kpiLassG15h));
   if (t === 'Utnyttjandegrad') el.setAttribute('data-count', String(_kpiUtnytt));
   if (t === 'G15-timmar') el.setAttribute('data-count', String(_kpiG15));
@@ -191,7 +191,7 @@ var avgLass = nonZeroLass.length > 0 ? Math.round(nonZeroLass.reduce(function(a,
 
 var dailyTitleEl = document.getElementById('dailyChartTitle');
 if (dailyTitleEl && avgLass > 0) {
-  dailyTitleEl.innerHTML = 'Daglig produktion <span style="color:#7a7a72;font-size:11px;font-weight:400;"> \\u00b7 Snitt: ' + avgLass + ' lass/dag</span>';
+  dailyTitleEl.innerHTML = 'Daglig produktion <span style="color:#7a7a72;font-size:11px;font-weight:400;"> · Snitt: ' + avgLass + ' lass/dag</span>';
 }
 
 var weekendBgPlugin = {
@@ -244,7 +244,7 @@ if (dailyEl) {
         if(isWeekend[i]) return 'rgba(91,143,255,0.15)';
         return v>avgLass?'rgba(90,255,140,0.7)':'rgba(76,175,80,0.5)';
       }),borderRadius:6,barPercentage:0.85,categoryPercentage:0.9,yAxisID:'y',order:1},
-      {label:'Volym m\\u00b3',data:dailyVol,type:'line',borderColor:'rgba(90,255,140,0.6)',backgroundColor:'rgba(90,255,140,0.05)',pointBackgroundColor:dailyVol.map(function(v){return v>0?'#5aff8c':'transparent';}),pointRadius:dailyVol.map(function(v){return v>0?3:0;}),tension:0.3,yAxisID:'y2',order:0,spanGaps:false},
+      {label:'Volym m³',data:dailyVol,type:'line',borderColor:'rgba(90,255,140,0.6)',backgroundColor:'rgba(90,255,140,0.05)',pointBackgroundColor:dailyVol.map(function(v){return v>0?'#5aff8c':'transparent';}),pointRadius:dailyVol.map(function(v){return v>0?3:0;}),tension:0.3,yAxisID:'y2',order:0,spanGaps:false},
       {label:'Snitt: '+avgLass+' lass',data:new Array(dailyLass.length).fill(avgLass),type:'line',borderColor:'rgba(255,255,255,0.2)',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false,order:0}
     ]},
     plugins:[weekendBgPlugin,barLabelPlugin],
@@ -260,7 +260,7 @@ if (dailyEl) {
               var idx=items[0].dataIndex;
               var ds=dailyDates[idx]||'';
               var dObj=new Date(ds+'T12:00:00');
-              var vd=['S\\u00f6n','M\\u00e5n','Tis','Ons','Tor','Fre','L\\u00f6r'];
+              var vd=['Sön','Mån','Tis','Ons','Tor','Fre','Lör'];
               return vd[dObj.getDay()]+' '+days[idx];
             },
             label:function(ctx){
@@ -268,8 +268,8 @@ if (dailyEl) {
               var d=dagData[idx+1];
               var lines=[];
               lines.push('Lass: '+dailyLass[idx]);
-              lines.push('Volym: '+dailyVol[idx]+' m\\u00b3');
-              if(d&&d.medellast) lines.push('Medellast: '+d.medellast+' m\\u00b3');
+              lines.push('Volym: '+dailyVol[idx]+' m³');
+              if(d&&d.medellast) lines.push('Medellast: '+d.medellast+' m³');
               if(d&&d.objekt&&d.objekt!=='\\u2013') lines.push('Objekt: '+d.objekt);
               return lines;
             }
@@ -283,7 +283,7 @@ if (dailyEl) {
         }}},
         y:{grid:grid,ticks:ticks,title:{display:true,text:'Lass',color:'#7a7a72',font:{size:11}},
           suggestedMax: Math.max.apply(null,dailyLass)*1.15},
-        y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5aff8c',font:{size:11}},title:{display:true,text:'m\\u00b3',color:'#5aff8c',font:{size:10}}}
+        y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5aff8c',font:{size:11}},title:{display:true,text:'m³',color:'#5aff8c',font:{size:10}}}
       },
       onClick:function(e,els){
         if(!els.length||els[0].datasetIndex!==0) return;
@@ -322,7 +322,7 @@ if (cal) {
     else calCounts.off++;
     var el=document.createElement('div');
     el.className='cal-cell '+(dc[t]||'c-off');
-    el.title=cDate.getDate()+' '+calManader[cDate.getMonth()]+' \\u00b7 '+dlbl[t]+(dailyLass[ci]>0?' \\u00b7 '+dailyLass[ci]+' lass':'');
+    el.title=cDate.getDate()+' '+calManader[cDate.getMonth()]+' · '+dlbl[t]+(dailyLass[ci]>0?' · '+dailyLass[ci]+' lass':'');
     if(t===1||t===2||t===3) el.onclick=(function(idx){return function(){if(window.__skotareOpenDag) window.__skotareOpenDag(idx+1);};})(ci);
     el.textContent=cDate.getDate();
     cal.appendChild(el);
@@ -358,10 +358,10 @@ if (mlEl && ac.length > 0) {
   new Chart(mlEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'Medellast m\\u00b3',data:aML,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
+      {label:'Medellast m³',data:aML,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
       {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(90,255,140,0.7)',backgroundColor:'rgba(90,255,140,0.04)',pointBackgroundColor:'#5aff8c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:tooltip},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m\\u00b3/lass',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5aff8c',font:{size:11}},title:{display:true,text:'Lass/G15h',color:'#5aff8c',font:{size:10}}}}}
+    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:tooltip},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³/lass',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5aff8c',font:{size:11}},title:{display:true,text:'Lass/G15h',color:'#5aff8c',font:{size:10}}}}}
   });
 }
 
@@ -371,10 +371,10 @@ if (totalEl && ac.length > 0) {
   new Chart(totalEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'Volym m\\u00b3',data:aV,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
+      {label:'Volym m³',data:aV,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
       {label:'Lass',data:aL,type:'line',borderColor:'rgba(90,255,140,0.7)',backgroundColor:'rgba(90,255,140,0.04)',pointBackgroundColor:'#5aff8c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:tooltip},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m\\u00b3',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5aff8c',font:{size:11}},title:{display:true,text:'Lass',color:'#5aff8c',font:{size:10}}}}}
+    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:tooltip},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5aff8c',font:{size:11}},title:{display:true,text:'Lass',color:'#5aff8c',font:{size:10}}}}}
   });
 }
 
@@ -384,10 +384,10 @@ if (dieselEl && ac.length > 0) {
   new Chart(dieselEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'l/m\\u00b3',data:aD,backgroundColor:'rgba(90,255,140,0.5)',borderRadius:4,yAxisID:'y',order:1},
+      {label:'l/m³',data:aD,backgroundColor:'rgba(90,255,140,0.5)',borderRadius:4,yAxisID:'y',order:1},
       {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(91,143,255,0.6)',backgroundColor:'rgba(91,143,255,0.04)',pointBackgroundColor:'#5b8fff',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10,callbacks:{label:function(c){return c.datasetIndex===0?' '+c.parsed.y+' l/m\\u00b3':' '+c.parsed.y+' lass/G15h';}}}},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'liter / m\\u00b3',color:'#7a7a72',font:{size:10}},suggestedMin:0.5,suggestedMax:4},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5b8fff',font:{size:11}},title:{display:true,text:'Lass/G15h',color:'#5b8fff',font:{size:10}}}}}
+    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10,callbacks:{label:function(c){return c.datasetIndex===0?' '+c.parsed.y+' l/m³':' '+c.parsed.y+' lass/G15h';}}}},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'liter / m³',color:'#7a7a72',font:{size:10}},suggestedMin:0.5,suggestedMax:4},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5b8fff',font:{size:11}},title:{display:true,text:'Lass/G15h',color:'#5b8fff',font:{size:10}}}}}
   });
 }
 
@@ -401,9 +401,9 @@ if (m3fubEl && ac.length > 0) {
   new Chart(m3fubEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'m\\u00b3fub/G15h',data:m3fubVals,backgroundColor:'rgba(90,255,140,0.5)',borderRadius:4}
+      {label:'m³fub/G15h',data:m3fubVals,backgroundColor:'rgba(90,255,140,0.5)',borderRadius:4}
     ]},
-    options:{responsive:true,plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10,callbacks:{label:function(c){return ' '+c.parsed.y.toFixed(1)+' m\\u00b3fub/G15h';}}}},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m\\u00b3fub/G15h',color:'#7a7a72',font:{size:10}},beginAtZero:true}}}
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10,callbacks:{label:function(c){return ' '+c.parsed.y.toFixed(1)+' m³fub/G15h';}}}},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³fub/G15h',color:'#7a7a72',font:{size:10}},beginAtZero:true}}}
   });
 }
 
@@ -431,7 +431,7 @@ if (tbarSegs.length >= 5) {
 var tlegItems = document.querySelectorAll('.tleg .tli');
 if (tlegItems.length >= 5) {
   tlegItems[0].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.3)"></div>Lastar/lossar ' + pProc + '%';
-  tlegItems[1].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.2)"></div>K\\u00f6r ' + pTerr + '%';
+  tlegItems[1].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.2)"></div>Kör ' + pTerr + '%';
   tlegItems[2].innerHTML = '<div class="tld" style="background:rgba(91,143,255,0.35)"></div>Korta stopp ' + pKort + '%';
   tlegItems[3].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.1)"></div>Avbrott ' + pAvbr + '%';
   tlegItems[4].innerHTML = '<div class="tld" style="background:rgba(255,255,255,0.1)"></div>Rast ' + pRast + '%';
@@ -450,17 +450,17 @@ if (opContainer && ops.length > 0) {
     var row = document.createElement('div');
     row.className = 'op-row op-clickable';
     row.setAttribute('data-op-key', f.key);
-    row.title = 'Visa f\\u00f6rarvy';
+    row.title = 'Visa förarvy';
     row.innerHTML = '<div class="op-av" style="background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6)">' + f.initialer + '</div>'
       + '<div class="op-info"><div class="op-name">' + f.namn + '</div><div class="op-sub">' + Math.round(f.g15h) + ' G15h</div></div>'
-      + '<div class="op-stats"><div><div class="op-sv" style="color:var(--text)">' + Math.round(f.volym) + ' m\\u00b3</div><div class="op-sl">volym</div></div>'
+      + '<div class="op-stats"><div><div class="op-sv" style="color:var(--text)">' + Math.round(f.volym) + ' m³</div><div class="op-sl">volym</div></div>'
       + '<div><div class="op-sv">' + f.lassG15h.toFixed(1) + '</div><div class="op-sl">lass/G15h</div></div>'
       + '<div><div class="op-sv">' + f.medelavstand + 'm</div><div class="op-sl">avst.</div></div></div>';
     opContainer.appendChild(row);
   });
-  if (opBadge) opBadge.textContent = '\\u00b7 ' + ops.length + ' aktiva';
+  if (opBadge) opBadge.textContent = '· ' + ops.length + ' aktiva';
 } else if (opContainer) {
-  opContainer.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px 0;">Ingen data f\\u00f6r vald period</div>';
+  opContainer.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:12px;padding:20px 0;">Ingen data för vald period</div>';
   if (opBadge) opBadge.textContent = '';
 }
 
@@ -486,7 +486,7 @@ export default function SkotareVy() {
   const [vald, setVald] = useState('');
   const [activeView, setActiveView] = useState('idag');
   const [dataVersion, setDataVersion] = useState(0);
-  const [period, setPeriod] = useState<'V' | 'M' | 'K' | '\u00c5'>('M');
+  const [period, setPeriod] = useState<'V' | 'M' | 'K' | 'Å'>('M');
   const [periodOffset, setPeriodOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [maskinOpen, setMaskinOpen] = useState(false);
@@ -527,7 +527,7 @@ export default function SkotareVy() {
   }, []);
 
   // ── Compute date range from period + offset ──
-  function getPeriodDates(p: 'V' | 'M' | 'K' | '\u00c5', offset = 0): { startDate: string; endDate: string } {
+  function getPeriodDates(p: 'V' | 'M' | 'K' | 'Å', offset = 0): { startDate: string; endDate: string } {
     const now = new Date();
     const pad = (n: number) => String(n).padStart(2, '0');
     const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -546,7 +546,7 @@ export default function SkotareVy() {
       const qe = new Date(year, qIdx * 3 + 3, 0);
       return { startDate: fmt(qs), endDate: fmt(qe) };
     }
-    if (p === '\u00c5') {
+    if (p === 'Å') {
       const y = now.getFullYear() + offset;
       return { startDate: `${y}-01-01`, endDate: `${y}-12-31` };
     }
@@ -556,7 +556,7 @@ export default function SkotareVy() {
   }
 
   const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'Maj', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dec'];
-  function getPeriodLabel(p: 'V' | 'M' | 'K' | '\u00c5', offset: number): string {
+  function getPeriodLabel(p: 'V' | 'M' | 'K' | 'Å', offset: number): string {
     const { startDate } = getPeriodDates(p, offset);
     const d = new Date(startDate);
     if (p === 'V') {
@@ -570,7 +570,7 @@ export default function SkotareVy() {
   }
 
   // ── Fetch production data from Supabase ──
-  const fetchDbData = useCallback(async (maskinId: string, p: 'V' | 'M' | 'K' | '\u00c5' = 'M', pOffset = 0) => {
+  const fetchDbData = useCallback(async (maskinId: string, p: 'V' | 'M' | 'K' | 'Å' = 'M', pOffset = 0) => {
     if (!maskinId) return;
     setLoading(true);
     try {
@@ -613,6 +613,17 @@ export default function SkotareVy() {
       const operators = opRes.data || [];
       const objekter = objRes.data || [];
       const avbrottRows = avbrottRes.data || [];
+
+      // Slå ihop operator_id:n som delar namn (dim_operator kan ha samma person
+      // med flera id:n — fakt_lass och fakt_tid använder ofta olika id).
+      const nameToCanonId: Record<string, string> = {};
+      const idToCanon: Record<string, string> = {};
+      for (const o of operators) {
+        if (!o.operator_namn || !o.operator_id) continue;
+        if (!nameToCanonId[o.operator_namn]) nameToCanonId[o.operator_namn] = o.operator_id;
+        idToCanon[o.operator_id] = nameToCanonId[o.operator_namn];
+      }
+      const canonOp = (id: string | null | undefined): string => (id && idToCanon[id]) || id || '';
 
       if (rawProdData.length === 0 && (!tidRes.data || tidRes.data.length === 0)) {
         const emptyDays: string[] = [];
@@ -689,7 +700,7 @@ export default function SkotareVy() {
 
         if (dist > 0) { lassDistSum += dist; lassDistCount += 1; }
 
-        const opId = r.operator_id;
+        const opId = canonOp(r.operator_id);
         if (opId) {
           if (!prodByOp[opId]) prodByOp[opId] = { vol: 0, lass: 0, distSum: 0, distCount: 0, dagar: new Set(), dailyLass: {}, dailyVol: {} };
           prodByOp[opId].vol += r.volym_m3sub || 0;
@@ -728,7 +739,7 @@ export default function SkotareVy() {
         addTid(tidTotal, r);
         if (!tidByDay[d]) tidByDay[d] = emptyTid();
         addTid(tidByDay[d], r);
-        const opId = r.operator_id;
+        const opId = canonOp(r.operator_id);
         if (opId) {
           if (!tidByOp[opId]) tidByOp[opId] = emptyTid();
           addTid(tidByOp[opId], r);
@@ -754,7 +765,7 @@ export default function SkotareVy() {
         prodByDistClass[idx].vol += r.volym_m3sub || 0;
         prodByDistClass[idx].lass += 1;
         prodByDistClass[idx].distSum += dist;
-        const opId = r.operator_id;
+        const opId = canonOp(r.operator_id);
         if (opId) {
           if (!prodByOpDistClass[opId]) {
             prodByOpDistClass[opId] = DIST_LABELS.map(() => ({ vol: 0, lass: 0, distSum: 0 }));
@@ -785,7 +796,7 @@ export default function SkotareVy() {
       const totalAvbrottSek = avbrottRows.reduce((s: number, r: any) => s + (r.langd_sek || 0), 0);
       const katAgg: Record<string, { sek: number; antal: number }> = {};
       for (const r of avbrottRows) {
-        const kat = r.kategori_kod || '\u00d6vrigt';
+        const kat = r.kategori_kod || 'Övrigt';
         if (!katAgg[kat]) katAgg[kat] = { sek: 0, antal: 0 };
         katAgg[kat].sek += r.langd_sek || 0;
         katAgg[kat].antal += 1;
@@ -841,7 +852,7 @@ export default function SkotareVy() {
         }
 
         const opInfo = operators.find((o: any) => String(o.operator_id) === String(opId));
-        const namn = opInfo?.operator_namn || `Operat\u00f6r ${opId}`;
+        const namn = opInfo?.operator_namn || `Operatör ${opId}`;
         const nameParts = namn.split(' ');
         const initialer = nameParts.length >= 2
           ? (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase()
@@ -935,7 +946,7 @@ export default function SkotareVy() {
         const sek = r.langd_sek || 0;
         const min = Math.round(sek / 60);
         const tid = min >= 60 ? `${Math.floor(min / 60)}h ${min % 60 > 0 ? (min % 60) + 'min' : ''}` : `${min} min`;
-        avbrottByDay[dateStr2].push({ orsak: r.kategori_kod || '\u00d6vrigt', tid });
+        avbrottByDay[dateStr2].push({ orsak: r.kategori_kod || 'Övrigt', tid });
       }
 
       const dagData: DbData['dagData'] = {};
@@ -1041,6 +1052,15 @@ export default function SkotareVy() {
         const todayTid = tidRes2.data || [];
         const opNameMap: Record<string, string> = {};
         for (const o of (opRes2.data || [])) opNameMap[o.operator_id] = o.operator_namn;
+        // Slå ihop operator_id:n som delar namn
+        const nameToId2: Record<string, string> = {};
+        const idToCanon2: Record<string, string> = {};
+        for (const o of (opRes2.data || [])) {
+          if (!o.operator_namn || !o.operator_id) continue;
+          if (!nameToId2[o.operator_namn]) nameToId2[o.operator_namn] = o.operator_id;
+          idToCanon2[o.operator_id] = nameToId2[o.operator_namn];
+        }
+        const canonOp2 = (id: string | null | undefined): string => (id && idToCanon2[id]) || id || '';
         const objNameMap: Record<string, string> = {};
         for (const o of (objRes2.data || [])) objNameMap[o.objekt_id] = o.object_name;
 
@@ -1061,7 +1081,8 @@ export default function SkotareVy() {
 
         const opAgg: Record<string, { lass: number; vol: number; objekt: string }> = {};
         for (const r of todayProd) {
-          const opId = r.operator_id || '';
+          const opId = canonOp2(r.operator_id);
+          if (!opId) continue;
           if (!opAgg[opId]) opAgg[opId] = { lass: 0, vol: 0, objekt: objNameMap[r.objekt_id] || '' };
           opAgg[opId].lass += 1;
           opAgg[opId].vol += r.volym_m3sub || 0;
@@ -1249,7 +1270,7 @@ export default function SkotareVy() {
         scales: {
           x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 10 } } },
           y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'Lass/G15h', color: '#7a7a72', font: { size: 10 } } },
-          y2: { position: 'right' as const, grid: { drawOnChartArea: false }, ticks: { color: '#5b8fff', font: { size: 11 } }, title: { display: true, text: 'm\u00b3/lass', color: '#5b8fff', font: { size: 10 } } },
+          y2: { position: 'right' as const, grid: { drawOnChartArea: false }, ticks: { color: '#5b8fff', font: { size: 11 } }, title: { display: true, text: 'm³/lass', color: '#5b8fff', font: { size: 10 } } },
         },
       },
     });
@@ -1403,7 +1424,7 @@ export default function SkotareVy() {
         <nav style={{ flex: 1, padding: '8px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
           {[
             { icon: '\u2600', label: 'Idag', view: 'idag' },
-            { icon: '\u25fb', label: '\u00d6versikt', view: 'oversikt' },
+            { icon: '\u25fb', label: 'Översikt', view: 'oversikt' },
             { icon: '\u25a4', label: 'Produktion', view: 'produktion' },
             { icon: '\u26a0', label: 'Avbrott', view: 'avbrott' },
             { icon: '\u25c8', label: 'Analys', view: 'analys' },
@@ -1446,7 +1467,7 @@ export default function SkotareVy() {
               fontFamily: "'Geist', system-ui, sans-serif", outline: 'none', cursor: 'pointer',
               textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
             }}>
-              <span>{valdMaskin ? `${valdMaskin.tillverkare} ${vald}` : 'V\u00e4lj maskin...'}</span>
+              <span>{valdMaskin ? `${valdMaskin.tillverkare} ${vald}` : 'Välj maskin...'}</span>
               <span style={{ fontSize: 9, color: '#555', transform: maskinOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>{'\u25bc'}</span>
             </button>
             {maskinOpen && (
@@ -1492,7 +1513,7 @@ export default function SkotareVy() {
 
           {/* Period type */}
           <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.04)', borderRadius: 6, padding: 2 }}>
-            {(['V', 'M', 'K', '\u00c5'] as const).map((p) => (
+            {(['V', 'M', 'K', 'Å'] as const).map((p) => (
               <button key={p} onClick={() => { setPeriod(p); setPeriodOffset(0); }} style={{
                 padding: '4px 10px', border: 'none', borderRadius: 5,
                 background: period === p ? '#1e1e1c' : 'transparent',
@@ -1533,7 +1554,7 @@ export default function SkotareVy() {
                     <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                       <div className="k-label">Volym</div>
                       <div className="k-val">{d.vol.toLocaleString('sv')}</div>
-                      <div className="k-unit">m\u00b3sub</div>
+                      <div className="k-unit">m³sub</div>
                     </div>
                     <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                       <div className="k-label">Lass</div>
@@ -1543,10 +1564,10 @@ export default function SkotareVy() {
                     <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                       <div className="k-label">Medellast</div>
                       <div className="k-val">{d.medellast.toFixed(1)}</div>
-                      <div className="k-unit">m\u00b3/lass</div>
+                      <div className="k-unit">m³/lass</div>
                     </div>
                     <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
-                      <div className="k-label">Medelavst\u00e5nd</div>
+                      <div className="k-label">Medelavstånd</div>
                       <div className="k-val">{d.medelavstand}</div>
                       <div className="k-unit">m</div>
                     </div>
@@ -1559,14 +1580,14 @@ export default function SkotareVy() {
                       <div className="k-unit">%</div>
                     </div>
                     <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
-                      <div className="k-label">Br\u00e4nsle totalt</div>
+                      <div className="k-label">Bränsle totalt</div>
                       <div className="k-val">{d.bransle}</div>
                       <div className="k-unit">liter</div>
                     </div>
                     <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
-                      <div className="k-label">Br\u00e4nsle/m\u00b3</div>
+                      <div className="k-label">Bränsle/m³</div>
                       <div className="k-val">{d.bransleLm3.toFixed(1)}</div>
-                      <div className="k-unit">L/m\u00b3</div>
+                      <div className="k-unit">L/m³</div>
                     </div>
                     <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
                       <div className="k-label">Lass/G15h</div>
@@ -1587,10 +1608,10 @@ export default function SkotareVy() {
                             </div>
                             <div style={{ flex: 1 }}>
                               <div style={{ fontSize: 14, fontWeight: 500, color: '#e8e8e4' }}>{op.namn}</div>
-                              <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{op.objekt} \u00b7 start {op.start}</div>
+                              <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{op.objekt} · start {op.start}</div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 17, fontWeight: 500, color: '#e8e8e4' }}>{op.vol} m\u00b3</div>
+                              <div style={{ fontSize: 17, fontWeight: 500, color: '#e8e8e4' }}>{op.vol} m³</div>
                               <div style={{ fontSize: 10, color: '#7a7a72' }}>{op.lass} lass</div>
                             </div>
                           </div>
@@ -1611,10 +1632,10 @@ export default function SkotareVy() {
                 <div className="hero-main" style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.06)' }}>
                   <div className="hero-label">Skotad volym</div>
                   <div className="hero-val" id="hv" style={{ fontSize: 48 }}>0</div>
-                  <div className="hero-unit">m\u00b3sub</div>
+                  <div className="hero-unit">m³sub</div>
                 </div>
                 <div className="kpi"><div className="k-label">Antal lass</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">st</div></div>
-                <div className="kpi"><div className="k-label">Medellast</div><div className="k-val" data-count="0" data-dec="1">0</div><div className="k-unit">m\u00b3/lass</div></div>
+                <div className="kpi"><div className="k-label">Medellast</div><div className="k-val" data-count="0" data-dec="1">0</div><div className="k-unit">m³/lass</div></div>
               </div>
               {/* KPI ROW 2: Lass/G15h (hero, span 2) + Utnyttjandegrad + Bränsle totalt */}
               <div className="hero" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginTop: -8 }}>
@@ -1624,24 +1645,24 @@ export default function SkotareVy() {
                   <div className="k-unit">lass/h</div>
                 </div>
                 <div className="kpi"><div className="k-label">Utnyttjandegrad</div><div className="k-val" data-count="0" data-dec="1">0</div><div className="k-unit">%</div></div>
-                <div className="kpi"><div className="k-label">Br\u00e4nsle totalt</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">liter</div></div>
+                <div className="kpi"><div className="k-label">Bränsle totalt</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">liter</div></div>
               </div>
               {/* KPI ROW 3: Bränsle/m³ + Medelavstånd + G15-timmar */}
               <div className="hero" style={{ gridTemplateColumns: 'repeat(4, 1fr)', marginTop: -8 }}>
-                <div className="kpi"><div className="k-label">Br\u00e4nsle/m\u00b3</div><div className="k-val" data-count="0" data-dec="2">0</div><div className="k-unit">L/m\u00b3</div></div>
-                <div className="kpi"><div className="k-label">Medelavst\u00e5nd</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">m</div></div>
+                <div className="kpi"><div className="k-label">Bränsle/m³</div><div className="k-val" data-count="0" data-dec="2">0</div><div className="k-unit">L/m³</div></div>
+                <div className="kpi"><div className="k-label">Medelavstånd</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">m</div></div>
                 <div className="kpi"><div className="k-label">G15-timmar</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">h</div></div>
               </div>
 
               {/* Operators + Time distribution */}
               <div className="g2">
                 <div className="card">
-                  <div className="card-h"><div className="card-t">Operat\u00f6rer <span id="opBadge" style={{ color: '#7a7a72', fontWeight: 400 }}></span></div></div>
+                  <div className="card-h"><div className="card-t">Operatörer <span id="opBadge" style={{ color: '#7a7a72', fontWeight: 400 }}></span></div></div>
                   <div className="card-b"><div id="opContainer"></div></div>
                 </div>
                 <div className="card">
                   <div className="card-h">
-                    <div className="card-t">Tidsf\u00f6rdelning</div>
+                    <div className="card-t">Tidsfördelning</div>
                     <div style={{ display: 'flex', gap: 10 }}>
                       <span id="tidG15Val" style={{ fontSize: 11, color: '#e8e8e4' }}>0h</span>
                       <span style={{ fontSize: 10, color: '#7a7a72' }}>G15</span>
@@ -1659,7 +1680,7 @@ export default function SkotareVy() {
                     </div>
                     <div className="tleg">
                       <div className="tli"><div className="tld" style={{ background: 'rgba(255,255,255,0.3)' }}></div>Lastar/lossar 0%</div>
-                      <div className="tli"><div className="tld" style={{ background: 'rgba(255,255,255,0.2)' }}></div>K\u00f6r 0%</div>
+                      <div className="tli"><div className="tld" style={{ background: 'rgba(255,255,255,0.2)' }}></div>Kör 0%</div>
                       <div className="tli"><div className="tld" style={{ background: 'rgba(91,143,255,0.35)' }}></div>Korta stopp 0%</div>
                       <div className="tli"><div className="tld" style={{ background: 'rgba(255,255,255,0.1)' }}></div>Avbrott 0%</div>
                       <div className="tli"><div className="tld" style={{ background: 'rgba(255,255,255,0.1)' }}></div>Rast 0%</div>
@@ -1679,7 +1700,7 @@ export default function SkotareVy() {
                 <div className="card-h"><div className="card-t" id="calTitle">Kalender</div></div>
                 <div className="card-b">
                   <div className="cal-names">
-                    {['M\u00e5', 'Ti', 'On', 'To', 'Fr', 'L\u00f6', 'S\u00f6'].map(d2 => <div key={d2} className="cal-dn">{d2}</div>)}
+                    {['Må', 'Ti', 'On', 'To', 'Fr', 'Lö', 'Sö'].map(d2 => <div key={d2} className="cal-dn">{d2}</div>)}
                   </div>
                   <div className="cal-grid" id="calGrid"></div>
                   <div className="cal-sum" id="calSummary"></div>
@@ -1688,12 +1709,12 @@ export default function SkotareVy() {
 
               {/* Distance class charts */}
               <div className="g2">
-                <div className="card"><div className="card-h"><div className="card-t">Medellast per avst\u00e5ndsklass</div></div><div className="card-b"><canvas id="medellastChart"></canvas></div></div>
-                <div className="card"><div className="card-h"><div className="card-t">Produktion per avst\u00e5ndsklass</div></div><div className="card-b"><canvas id="totalChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Medellast per avståndsklass</div></div><div className="card-b"><canvas id="medellastChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Produktion per avståndsklass</div></div><div className="card-b"><canvas id="totalChart"></canvas></div></div>
               </div>
               <div className="g2">
-                <div className="card"><div className="card-h"><div className="card-t">Diesel per avst\u00e5ndsklass</div></div><div className="card-b"><canvas id="dieselChart"></canvas></div></div>
-                <div className="card"><div className="card-h"><div className="card-t">m\u00b3fub/G15h per medelk\u00f6ravst\u00e5nd</div></div><div className="card-b"><canvas id="m3fubG15hChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Diesel per avståndsklass</div></div><div className="card-b"><canvas id="dieselChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">m³fub/G15h per medelköravstånd</div></div><div className="card-b"><canvas id="m3fubG15hChart"></canvas></div></div>
               </div>
             </div>
           )}
@@ -1706,12 +1727,12 @@ export default function SkotareVy() {
                 <div className="card-b"><canvas id="dailyChart"></canvas></div>
               </div>
               <div className="g2">
-                <div className="card"><div className="card-h"><div className="card-t">Medellast per avst\u00e5ndsklass</div></div><div className="card-b"><canvas id="medellastChart"></canvas></div></div>
-                <div className="card"><div className="card-h"><div className="card-t">Produktion per avst\u00e5ndsklass</div></div><div className="card-b"><canvas id="totalChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Medellast per avståndsklass</div></div><div className="card-b"><canvas id="medellastChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Produktion per avståndsklass</div></div><div className="card-b"><canvas id="totalChart"></canvas></div></div>
               </div>
               <div className="g2">
-                <div className="card"><div className="card-h"><div className="card-t">Diesel per avst\u00e5ndsklass</div></div><div className="card-b"><canvas id="dieselChart"></canvas></div></div>
-                <div className="card"><div className="card-h"><div className="card-t">m\u00b3fub/G15h per medelk\u00f6ravst\u00e5nd</div></div><div className="card-b"><canvas id="m3fubG15hChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Diesel per avståndsklass</div></div><div className="card-b"><canvas id="dieselChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">m³fub/G15h per medelköravstånd</div></div><div className="card-b"><canvas id="m3fubG15hChart"></canvas></div></div>
               </div>
             </div>
           )}
@@ -1771,7 +1792,7 @@ export default function SkotareVy() {
                 {/* Distance class insight */}
                 {activeDc.length > 0 && (
                   <div className="card gf">
-                    <div className="card-h"><div className="card-t">Avst\u00e5ndsklassanalys</div></div>
+                    <div className="card-h"><div className="card-t">Avståndsklassanalys</div></div>
                     <div className="card-b">
                       <div style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
@@ -1783,7 +1804,7 @@ export default function SkotareVy() {
                               <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>G15h</th>
                               <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Lass/G15h</th>
                               <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Medellast</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Diesel l/m\u00b3</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Diesel l/m³</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1791,7 +1812,7 @@ export default function SkotareVy() {
                               <tr key={ci} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                                 <td style={{ padding: '8px 12px', fontWeight: 500 }}>{c.label}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.lass}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.volym} m\u00b3</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.volym} m³</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.g15h}h</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#5aff8c' }}>{c.lassG15h}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.medellast}</td>
@@ -1808,13 +1829,13 @@ export default function SkotareVy() {
                 {/* Operator comparison */}
                 {ops.length > 0 && (
                   <div className="card gf">
-                    <div className="card-h"><div className="card-t">Operat\u00f6rsj\u00e4mf\u00f6relse</div></div>
+                    <div className="card-h"><div className="card-t">Operatörsjämförelse</div></div>
                     <div className="card-b">
                       <div style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
                           <thead>
                             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                              <th style={{ textAlign: 'left', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Operat\u00f6r</th>
+                              <th style={{ textAlign: 'left', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Operatör</th>
                               <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Lass</th>
                               <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Volym</th>
                               <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>G15h</th>
@@ -1830,7 +1851,7 @@ export default function SkotareVy() {
                                 onClick={() => { setPanelOperator(op); setPanelType('operator'); setOverlayOpen(true); }}>
                                 <td style={{ padding: '8px 12px', fontWeight: 500 }}>{op.namn}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.lass}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Math.round(op.volym)} m\u00b3</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Math.round(op.volym)} m³</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.g15h.toFixed(0)}h</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.medellast}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#5aff8c' }}>{op.lassG15h}</td>
@@ -1855,7 +1876,7 @@ export default function SkotareVy() {
       <nav className="mv-bottomnav">
         {[
           { icon: 'idag', label: 'Idag', view: 'idag' },
-          { icon: 'oversikt', label: '\u00d6versikt', view: 'oversikt' },
+          { icon: 'oversikt', label: 'Översikt', view: 'oversikt' },
           { icon: 'produktion', label: 'Produktion', view: 'produktion' },
           { icon: 'avbrott', label: 'Avbrott', view: 'avbrott' },
           { icon: 'analys', label: 'Analys', view: 'analys' },
@@ -1887,22 +1908,22 @@ export default function SkotareVy() {
                 <div className="fsec-title">Totalt</div>
                 <div className="forar-kpis">
                   <div className="fkpi"><div className="fkpi-v">{panelOperator.lass}</div><div className="fkpi-l">Lass</div></div>
-                  <div className="fkpi"><div className="fkpi-v">{Math.round(panelOperator.volym)}</div><div className="fkpi-l">m\u00b3 skotad</div></div>
+                  <div className="fkpi"><div className="fkpi-v">{Math.round(panelOperator.volym)}</div><div className="fkpi-l">m³ skotad</div></div>
                   <div className="fkpi"><div className="fkpi-v">{panelOperator.g15h.toFixed(0)}</div><div className="fkpi-l">G15h</div></div>
                   <div className="fkpi"><div className="fkpi-v">{panelOperator.medellast}</div><div className="fkpi-l">Medellast</div></div>
                   <div className="fkpi"><div className="fkpi-v">{panelOperator.lassG15h}</div><div className="fkpi-l">Lass/G15h</div></div>
-                  <div className="fkpi"><div className="fkpi-v">{panelOperator.medelavstand}m</div><div className="fkpi-l">Medelavst\u00e5nd</div></div>
+                  <div className="fkpi"><div className="fkpi-v">{panelOperator.medelavstand}m</div><div className="fkpi-l">Medelavstånd</div></div>
                 </div>
               </div>
               <div className="fsec">
-                <div className="fsec-title">Lass/G15h per avst\u00e5ndsklass</div>
+                <div className="fsec-title">Lass/G15h per avståndsklass</div>
                 <canvas ref={opChartRef} style={{ maxHeight: 180, marginBottom: 12 }}></canvas>
               </div>
               <div className="fsec">
-                <div className="fsec-title">\u00d6vrigt</div>
+                <div className="fsec-title">Övrigt</div>
                 <div style={{ background: 'var(--surface2)', borderRadius: 10, padding: '4px 16px' }}>
                   <div className="frow"><span className="frow-l">Aktiva dagar</span><span className="frow-v">{panelOperator.dagar}</span></div>
-                  <div className="frow"><span className="frow-l">Br\u00e4nsle</span><span className="frow-v">{Math.round(panelOperator.bransleLiter)} liter</span></div>
+                  <div className="frow"><span className="frow-l">Bränsle</span><span className="frow-v">{Math.round(panelOperator.bransleLiter)} liter</span></div>
                 </div>
               </div>
             </div>
@@ -1939,15 +1960,15 @@ export default function SkotareVy() {
                 ) : (<>
                   <div className="forar-kpis" style={{ marginBottom: 16 }}>
                     <div className="fkpi"><div className="fkpi-v">{d.lass}</div><div className="fkpi-l">Lass</div></div>
-                    <div className="fkpi"><div className="fkpi-v">{d.volym}</div><div className="fkpi-l">m\u00b3 skotad</div></div>
+                    <div className="fkpi"><div className="fkpi-v">{d.volym}</div><div className="fkpi-l">m³ skotad</div></div>
                     <div className="fkpi"><div className="fkpi-v">{d.g15}h</div><div className="fkpi-l">G15-timmar</div></div>
                     <div className="fkpi"><div className="fkpi-v">{d.medellast}</div><div className="fkpi-l">Medellast</div></div>
-                    <div className="fkpi"><div className="fkpi-v">{d.medelavstand}m</div><div className="fkpi-l">Medelavst\u00e5nd</div></div>
-                    <div className="fkpi"><div className="fkpi-v">{d.diesel}</div><div className="fkpi-l">Diesel l/m\u00b3</div></div>
+                    <div className="fkpi"><div className="fkpi-v">{d.medelavstand}m</div><div className="fkpi-l">Medelavstånd</div></div>
+                    <div className="fkpi"><div className="fkpi-v">{d.diesel}</div><div className="fkpi-l">Diesel l/m³</div></div>
                   </div>
                   <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.2px', color: 'var(--muted)', marginBottom: 8 }}>Skiftinfo</div>
                   <div style={{ background: 'var(--surface2)', borderRadius: 10, padding: '4px 16px', marginBottom: 16 }}>
-                    <div className="frow"><span className="frow-l">F\u00f6rare</span><span className="frow-v">{d.forare}</span></div>
+                    <div className="frow"><span className="frow-l">Förare</span><span className="frow-v">{d.forare}</span></div>
                     <div className="frow"><span className="frow-l">Objekt</span><span className="frow-v">{d.objekt}</span></div>
                     <div className="frow"><span className="frow-l">Start</span><span className="frow-v">{d.start}</span></div>
                     <div className="frow" style={{ borderBottom: 'none' }}><span className="frow-l">Slut</span><span className="frow-v">{d.slut}</span></div>
