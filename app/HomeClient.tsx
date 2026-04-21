@@ -34,6 +34,7 @@ const adminApps = [
   { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: 'business_center' },
 ]
 
+const ekonomiAppEntry = { href: '/ekonomi', label: 'Ekonomi', icon: 'payments' }
 const adminAppEntry = { href: '/admin', label: 'Admin', icon: 'shield' }
 
 function AppIcon({ href, label, icon, variant }: { href: string; label: string; icon: string; variant: 'production' | 'admin' }) {
@@ -80,7 +81,7 @@ export default function HomeClient() {
   }, [])
 
   const synligaAdminApps = (roll === 'chef' || roll === 'admin')
-    ? [...adminApps, adminAppEntry]
+    ? [...adminApps, ekonomiAppEntry, adminAppEntry]
     : adminApps
 
   return (
