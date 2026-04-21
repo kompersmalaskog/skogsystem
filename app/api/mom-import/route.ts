@@ -149,6 +149,31 @@ export async function POST(req: NextRequest) {
       agg.totalSek += s.langd_sek || 0;
     }
 
+    // 5b. Heuristik: Rottne-maskiner saknar OperatorShiftDefinition — Python-
+    // parsern bygger syntetiska skift där ALLA operatörer på samma maskin/dag
+    // får samma inloggningstid (maskinens första starttid). Det gör att den
+    // andra föraren felaktigt visas som inloggad kl 06:49 när han egentligen
+    // tog över klockan 17:01.
+    //
+    // Regel: om två+ förare på samma maskin/datum har identisk earliestStart,
+    // sortera dem på latestEnd ASC och anta sekventiell körning — den förstas
+    // slut blir den andras start.
+    const perMaskinDag: Record<string, DagAgg[]> = {};
+    for (const agg of Object.values(dagMap)) {
+      const mk = `${agg.maskin_id}_${agg.datum}`;
+      (perMaskinDag[mk] = perMaskinDag[mk] || []).push(agg);
+    }
+    for (const grupp of Object.values(perMaskinDag)) {
+      if (grupp.length < 2) continue;
+      const sameStart = grupp.every(a => a.earliestStart === grupp[0].earliestStart);
+      if (!sameStart) continue;
+      // Sekventiell modell: sortera på slut-tid, varje efterkommande börjar där föregående slutade.
+      grupp.sort((a, b) => a.latestEnd.localeCompare(b.latestEnd));
+      for (let i = 1; i < grupp.length; i++) {
+        grupp[i].earliestStart = grupp[i - 1].latestEnd;
+      }
+    }
+
     // 5. Skapa arbetsdag-rader
     // DB lagrar lokal svensk tid märkt som UTC (parse_datetime strippar timezone)
     // Extrahera HH:MM direkt utan konvertering
