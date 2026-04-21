@@ -4222,39 +4222,78 @@ export default function Arbetsrapport() {
           )}
         </div>
         <div style={bottom}>
-          {!harData&&redStart==="00:00"&&redSlut==="00:00"&&redRast===0?(
-            <button style={btn.primary} onClick={()=>setRedVy("tid")}>Lägg till manuellt</button>
-          ):harÄndrat?(
-            <button
-              style={{ ...btn.primary,opacity:!redAnl?0.35:1 }}
-              disabled={!redAnl}
-              onClick={async ()=>{
-                try {
-                  // arbetad_min + km_totalt är generated columns — räknas från rast_min
-                  // resp. km_morgon+km_kvall. Splittar redKm jämt mellan morgon/kväll.
-                  const halvKm = Math.round(redKm / 2);
-                  const { error } = await supabase.from("arbetsdag").upsert({
-                    medarbetare_id: medarbetare.id,
-                    datum: redDag.datum,
-                    start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
-                    km_morgon: halvKm, km_kvall: redKm - halvKm,
-                    objekt_id: redObjektId || redDag.objekt_id || null,
-                    maskin_id: redMaskinId || redDag.maskin_id || null,
-                    redigerad: true,
-                    redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
-                  }, { onConflict: 'medarbetare_id,datum' });
-                  if(error) throw error;
-                  setRedDagar(r=>({...r,[redDag.datum]:{start:redStart,slut:redSlut,rast:redRast,km:redKm,anl:redAnl}}));
-                  setSteg("kalender");
-                } catch(e) {
-                  alert("Kunde inte spara — kontrollera anslutningen.");
-                }
-              }}>
-              {harData?"Spara ändring":"Spara"}
-            </button>
-          ):(
-            <button style={btn.secondary} onClick={()=>setSteg("kalender")}>Tillbaka</button>
-          )}
+          {(()=>{
+            const bekraftadRedan = !!redDag?.bekraftad;
+            const bekraftadTidFmt = redDag?.bekraftad_tid
+              ? new Date(redDag.bekraftad_tid).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})
+              : null;
+            if (!harData && redStart==="00:00" && redSlut==="00:00" && redRast===0) {
+              return <button style={btn.primary} onClick={()=>setRedVy("tid")}>Lägg till manuellt</button>;
+            }
+            if (harÄndrat) {
+              return (
+                <button
+                  style={{ ...btn.primary,opacity:!redAnl?0.35:1 }}
+                  disabled={!redAnl}
+                  onClick={async ()=>{
+                    try {
+                      // arbetad_min + km_totalt är generated columns — räknas från rast_min
+                      // resp. km_morgon+km_kvall. Splittar redKm jämt mellan morgon/kväll.
+                      const halvKm = Math.round(redKm / 2);
+                      const { error } = await supabase.from("arbetsdag").upsert({
+                        medarbetare_id: medarbetare.id,
+                        datum: redDag.datum,
+                        start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
+                        km_morgon: halvKm, km_kvall: redKm - halvKm,
+                        objekt_id: redObjektId || redDag.objekt_id || null,
+                        maskin_id: redMaskinId || redDag.maskin_id || null,
+                        redigerad: true,
+                        redigerad_anl: redAnl, redigerad_tid: new Date().toISOString(),
+                      }, { onConflict: 'medarbetare_id,datum' });
+                      if(error) throw error;
+                      setRedDagar(r=>({...r,[redDag.datum]:{start:redStart,slut:redSlut,rast:redRast,km:redKm,anl:redAnl}}));
+                      setSteg("kalender");
+                    } catch(e) {
+                      alert("Kunde inte spara — kontrollera anslutningen.");
+                    }
+                  }}>
+                  {harData?"Spara ändring":"Spara"}
+                </button>
+              );
+            }
+            // Ingen ändring gjord. Visa bekräfta-knapp för obekräftade dagar
+            // med data; annars status + Tillbaka.
+            if (harData && !bekraftadRedan) {
+              return (<>
+                <button
+                  style={{ width:"100%",padding:"18px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}
+                  onClick={async ()=>{
+                    const nuIso = new Date().toISOString();
+                    const { error } = await supabase.from("arbetsdag")
+                      .update({ bekraftad: true, bekraftad_tid: nuIso })
+                      .eq("medarbetare_id", medarbetare.id)
+                      .eq("datum", redDag.datum);
+                    if (error) { alert("Kunde inte bekräfta — " + error.message); return; }
+                    setRedDag((d:any) => ({ ...d, bekraftad: true, bekraftad_tid: nuIso }));
+                    setDagData(dd => ({ ...dd, [redDag.datum]: { ...(dd[redDag.datum]||{}), bekraftad: true, bekraftad_tid: nuIso, status: 'ok' } }));
+                    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
+                  }}>
+                  Bekräfta dagen ✓
+                </button>
+                <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
+              </>);
+            }
+            if (harData && bekraftadRedan) {
+              return (<>
+                <div style={{ width:"100%",padding:"14px 16px",background:"rgba(52,199,89,0.10)",border:"1px solid rgba(52,199,89,0.25)",borderRadius:12,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize:18,color:"#34c759" }}>check_circle</span>
+                  <span style={{ fontSize:14,color:"#8e8e93",fontWeight:500 }}>Bekräftad{bekraftadTidFmt?` kl ${bekraftadTidFmt}`:''}</span>
+                </div>
+                <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
+              </>);
+            }
+            return <button style={btn.secondary} onClick={()=>setSteg("kalender")}>Tillbaka</button>;
+          })()}
         </div>
           </>);
         })()}
