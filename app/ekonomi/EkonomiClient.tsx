@@ -1,12 +1,13 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 
 type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
 
-type AcordPris = { medelstam: number; pris_total: number; pris_skordare: number; pris_skotare: number };
-type MaskinTimpris = { maskin_id: string; maskin_namn: string | null; timpris: number };
+type AcordPris = { medelstam: number; pris_total: number; pris_skordare: number; pris_skotare: number; giltig_fran: string | null; giltig_till: string | null };
+type MaskinTimpris = { maskin_id: string; maskin_namn: string | null; timpris: number; giltig_fran: string | null; giltig_till: string | null };
 type ObjektMeta = { objekt_id: string; object_name: string | null; vo_nummer: string | null; huvudtyp: string | null; atgard: string | null; timpeng: boolean | null };
 type MaskinMeta = { maskin_id: string; modell: string | null; maskin_typ: string | null };
 
@@ -101,6 +102,12 @@ function lookupAcordPris(medelstam: number, acord: AcordPris[]): AcordPris | nul
   return best;
 }
 
+function isValidOn(d: string, giltig_fran: string | null, giltig_till: string | null) {
+  if (giltig_fran && d < giltig_fran) return false;
+  if (giltig_till && d > giltig_till) return false;
+  return true;
+}
+
 function formatKr(n: number) {
   return `${Math.round(n).toLocaleString('sv-SE')} kr`;
 }
@@ -131,8 +138,8 @@ export default function EkonomiClient() {
         ),
         supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, atgard, timpeng'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
-        supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare'),
-        supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris'),
+        supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
+        supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
       ]);
 
       const objMap: Record<string, ObjektMeta> = {};
@@ -141,9 +148,7 @@ export default function EkonomiClient() {
       const maskinMap: Record<string, MaskinMeta> = {};
       for (const m of (maskinRes.data || [])) maskinMap[m.maskin_id] = m;
 
-      const timprisMap: Record<string, MaskinTimpris> = {};
-      for (const t of (timprisRes.data || [])) timprisMap[t.maskin_id] = t;
-
+      const timprisList: MaskinTimpris[] = timprisRes.data || [];
       const acord: AcordPris[] = acordRes.data || [];
 
       // Aggregate prod per (datum, maskin, objekt)
@@ -173,9 +178,12 @@ export default function EkonomiClient() {
         .map(p => {
           const obj = objMap[p.objekt_id];
           const maskin = maskinMap[p.maskin_id];
-          const timpris = timprisMap[p.maskin_id];
+          const timpris = timprisList.find(t =>
+            t.maskin_id === p.maskin_id && isValidOn(p.datum, t.giltig_fran, t.giltig_till)
+          );
           const medelstam = p.volym / p.stammar;
-          const acordPris = lookupAcordPris(medelstam, acord);
+          const acordOnDate = acord.filter(a => isValidOn(p.datum, a.giltig_fran, a.giltig_till));
+          const acordPris = lookupAcordPris(medelstam, acordOnDate);
           const pris_total = acordPris?.pris_total || 0;
           const intakt = p.volym * pris_total;
 
@@ -253,9 +261,21 @@ export default function EkonomiClient() {
 
   return (
     <div style={s.page}>
-      <div style={{ padding: '16px 16px 0' }}>
-        <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em' }}>Ekonomi</div>
-        <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>Intäkt · kostnad · vinst. Acord vs timpeng.</div>
+      <div style={{ padding: '16px 16px 0', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em' }}>Ekonomi</div>
+          <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>Intäkt · kostnad · vinst. Acord vs timpeng.</div>
+        </div>
+        <Link href="/ekonomi/installningar" style={{ textDecoration: 'none' }} aria-label="Prisinställningar">
+          <button style={{
+            width: 40, height: 40, borderRadius: 10,
+            border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)',
+            color: '#bfcab9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 0,
+          }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>settings</span>
+          </button>
+        </Link>
       </div>
 
       {/* Period picker */}
