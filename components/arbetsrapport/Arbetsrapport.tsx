@@ -4292,13 +4292,26 @@ export default function Arbetsrapport() {
                   onClick={async ()=>{
                     try {
                       // arbetad_min + km_totalt är generated columns — räknas från rast_min
-                      // resp. km_morgon+km_kvall. Splittar redKm jämt mellan morgon/kväll.
-                      const halvKm = Math.round(redKm / 2);
+                      // resp. km_morgon+km_kvall. Bevara morgon/kväll-splitten som
+                      // användaren satte via km-sheet; om den saknas fall tillbaka
+                      // till jämn split.
+                      const storedMorg = redDag.km_morgon ?? null;
+                      const storedKvall = redDag.km_kvall ?? null;
+                      let kmMorg: number;
+                      let kmKvall: number;
+                      if (storedMorg != null && storedKvall != null && (storedMorg + storedKvall) === redKm) {
+                        kmMorg = storedMorg;
+                        kmKvall = storedKvall;
+                      } else {
+                        const halv = Math.round(redKm / 2);
+                        kmMorg = halv;
+                        kmKvall = redKm - halv;
+                      }
                       const { error } = await supabase.from("arbetsdag").upsert({
                         medarbetare_id: medarbetare.id,
                         datum: redDag.datum,
                         start_tid: redStart, slut_tid: redSlut, rast_min: redRast,
-                        km_morgon: halvKm, km_kvall: redKm - halvKm,
+                        km_morgon: kmMorg, km_kvall: kmKvall,
                         objekt_id: redObjektId || redDag.objekt_id || null,
                         maskin_id: redMaskinId || redDag.maskin_id || null,
                         redigerad: true,
@@ -4466,14 +4479,37 @@ export default function Arbetsrapport() {
                     Avbryt
                   </button>
                   <button
-                    onClick={() => {
+                    onClick={async () => {
+                      // Uppdatera lokal state omedelbart
                       setRedKm(ny);
-                      // Uppdatera lokal redDag med ny split så att visningen stämmer direkt
                       setRedDag((d:any) => ({ ...d, km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_totalt: ny }));
+                      // Skriv direkt till DB om raden finns (samma beteende som
+                      // dag-vyns km-sheet). Bryter bekräftelse vid ändring.
+                      if (redDag?.id) {
+                        const bryterBekräftelse = !!redDag?.bekraftad;
+                        const payload: any = { km_morgon: redTmpKmM, km_kvall: redTmpKmK, redigerad: true, redigerad_tid: new Date().toISOString() };
+                        if (bryterBekräftelse) { payload.bekraftad = false; payload.bekraftad_tid = null; }
+                        const { error } = await supabase.from("arbetsdag").update(payload).eq("id", redDag.id);
+                        if (error) {
+                          alert("Kunde inte spara km — " + error.message);
+                          return;
+                        }
+                        setDagData(dd => ({
+                          ...dd,
+                          [redDag.datum]: {
+                            ...(dd[redDag.datum]||{}),
+                            km_morgon: redTmpKmM,
+                            km_kvall: redTmpKmK,
+                            km_totalt: ny,
+                            ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}),
+                          },
+                        }));
+                        setRedDag((d:any) => ({ ...d, km_morgon: redTmpKmM, km_kvall: redTmpKmK, km_totalt: ny, ...(bryterBekräftelse ? { bekraftad: false, bekraftad_tid: null } : {}) }));
+                      }
                       stäng();
                     }}
                     style={{ padding:"16px",background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
-                    Klar
+                    Spara
                   </button>
                 </div>
               </div>
