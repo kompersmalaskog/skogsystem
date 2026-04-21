@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import EkonomiBottomNav from '../EkonomiBottomNav';
 
 type MaskinRad = {
   id?: string;
@@ -193,7 +193,7 @@ export default function InstallningarClient() {
   };
 
   const s = {
-    page: { background: '#111110', minHeight: '100vh', paddingTop: 16, paddingBottom: 100, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
+    page: { background: '#111110', minHeight: '100vh', paddingTop: 16, paddingBottom: 130, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
     header: { padding: '16px 16px 0', display: 'flex', alignItems: 'center', gap: 12 } as const,
     back: { border: 'none', background: 'rgba(255,255,255,0.05)', width: 36, height: 36, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e8e8e4', cursor: 'pointer', padding: 0 } as const,
     sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 28, padding: '0 4px' } as const,
@@ -237,11 +237,6 @@ export default function InstallningarClient() {
         }
       `}</style>
       <div style={s.header}>
-        <Link href="/ekonomi" aria-label="Tillbaka">
-          <button style={s.back}>
-            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>arrow_back</span>
-          </button>
-        </Link>
         <div>
           <div style={{ fontSize: 20, fontWeight: 600, letterSpacing: '-0.01em' }}>Prisinställningar</div>
           <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>Ändringar skapar nya rader med dagens datum. Gamla priser bevaras.</div>
@@ -400,6 +395,7 @@ export default function InstallningarClient() {
 
         </div>
       )}
+      <EkonomiBottomNav />
     </div>
   );
 }

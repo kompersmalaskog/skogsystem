@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import EkonomiBottomNav from './EkonomiBottomNav';
 
 type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
 
@@ -329,7 +329,7 @@ export default function EkonomiClient() {
 
   // Styles — matches affarsuppfoljning / app-wide convention
   const s = {
-    page: { background: '#111110', minHeight: '100vh', paddingTop: 24, paddingBottom: 90, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
+    page: { background: '#111110', minHeight: '100vh', paddingTop: 24, paddingBottom: 120, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
     filterBar: { display: 'flex', alignItems: 'center', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.07)', gap: 8 } as const,
     periodBtn: { border: 'none', background: 'rgba(255,255,255,0.05)', borderRadius: 6, padding: '5px 12px', fontFamily: 'inherit', fontSize: 11, fontWeight: 600, color: '#7a7a72', cursor: 'pointer' } as const,
     periodBtnActive: { background: 'rgba(90,255,140,0.15)', color: 'rgba(90,255,140,0.9)' } as const,
@@ -345,21 +345,9 @@ export default function EkonomiClient() {
 
   return (
     <div style={s.page}>
-      <div style={{ padding: '16px 16px 0', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-        <div>
-          <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em' }}>Ekonomi</div>
-          <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>Intäkt · kostnad · vinst. Acord vs timpeng.</div>
-        </div>
-        <Link href="/ekonomi/installningar" style={{ textDecoration: 'none' }} aria-label="Prisinställningar">
-          <button style={{
-            width: 40, height: 40, borderRadius: 10,
-            border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.03)',
-            color: '#bfcab9', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            padding: 0,
-          }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 22 }}>settings</span>
-          </button>
-        </Link>
+      <div style={{ padding: '16px 16px 0' }}>
+        <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em' }}>Ekonomi</div>
+        <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>Intäkt · kostnad · vinst. Acord vs timpeng.</div>
       </div>
 
       {/* Period picker */}
@@ -504,6 +492,7 @@ export default function EkonomiClient() {
           </div>
         </div>
       )}
+      <EkonomiBottomNav />
     </div>
   );
 }
