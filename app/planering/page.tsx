@@ -7849,7 +7849,7 @@ export default function PlannerPage() {
                 title: 'INFORMATION',
                 items: [
                   { label: 'Brandrisk', icon: 'local_fire_department', action: () => { setActiveCategory('brandrisk'); setMenuOpen(true); } },
-                  { label: 'Prognos', icon: 'cloud', action: () => { setActiveCategory('prognos'); setMenuOpen(true); } },
+                  { label: 'Prognos', icon: 'cloud', action: () => { setPrognosOpen(true); } },
                   { label: 'Gallring', icon: 'nature', action: () => { setActiveCategory('gallring'); setMenuOpen(true); } },
                   { label: 'Info', icon: 'info', action: () => { setActiveCategory('info'); setMenuOpen(true); } },
                 ],
@@ -7857,8 +7857,8 @@ export default function PlannerPage() {
               {
                 title: 'FLÖDEN',
                 items: [
-                  { label: 'Briefing', icon: 'menu_book', action: () => { setActiveCategory('briefing'); setMenuOpen(true); } },
-                  { label: 'Kvittering', icon: 'task_alt', action: () => { setActiveCategory('briefing-checklist'); setMenuOpen(true); } },
+                  { label: 'Briefing', icon: 'menu_book', action: () => { setBriefingMode(true); setActiveCategory(null); } },
+                  { label: 'Kvittering', icon: 'task_alt', action: () => { setBriefingChecklistMode(true); } },
                   { label: 'Checklista', icon: 'check_circle', action: () => { setChecklistOpen(true); } },
                 ],
               },
