@@ -7670,7 +7670,7 @@ export default function PlannerPage() {
           {/* Nödläge-prick (diskret, klickas i commit 5) */}
           <button
             type="button"
-            onClick={() => alert('Nödläge kommer snart')}
+            onClick={() => { if (navigator.vibrate) navigator.vibrate([30, 20, 30]); alert('Nödläge kommer snart'); }}
             aria-label="Nödläge"
             style={{
               pointerEvents: 'auto',
@@ -7715,7 +7715,7 @@ export default function PlannerPage() {
           </span>
           <button
             type="button"
-            onClick={activeMode.onExit}
+            onClick={() => { if (navigator.vibrate) navigator.vibrate(12); activeMode.onExit(); }}
             aria-label={`${activeMode.exitLabel} verktygsläge`}
             style={{
               minHeight: 40,
@@ -7739,7 +7739,7 @@ export default function PlannerPage() {
       {!briefingMode && (
         <button
           type="button"
-          onClick={() => setPlusMenuOpen(o => !o)}
+          onClick={() => { if (navigator.vibrate) navigator.vibrate(10); setPlusMenuOpen(o => !o); }}
           aria-label={plusMenuOpen ? 'Stäng meny' : 'Öppna meny'}
           aria-expanded={plusMenuOpen}
           style={{
@@ -7890,7 +7890,7 @@ export default function PlannerPage() {
                     <button
                       key={item.label}
                       type="button"
-                      onClick={() => { item.action(); setPlusMenuOpen(false); }}
+                      onClick={() => { if (navigator.vibrate) navigator.vibrate(8); item.action(); setPlusMenuOpen(false); }}
                       style={{
                         width: '100%',
                         minHeight: 56,
