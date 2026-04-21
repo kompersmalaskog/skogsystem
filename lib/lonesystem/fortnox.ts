@@ -13,7 +13,11 @@ import type { ExternEmployee } from "./types";
 const FORTNOX_AUTH_URL  = "https://apps.fortnox.se/oauth-v1/auth";
 const FORTNOX_TOKEN_URL = "https://apps.fortnox.se/oauth-v1/token";
 const FORTNOX_API_BASE  = "https://api.fortnox.se/3";
-const SCOPE = "salary";
+// Space-separerad lista. Utökades från "salary" till även covering
+// companyinformation/customer/invoice/payment/bookkeeping/costcenter/project.
+// Användare måste re-auktorisera (starta /api/fortnox/auth) efter deploy
+// så att Fortnox ger ut en ny access_token med samtliga scopes.
+const SCOPE = "salary companyinformation customer invoice payment bookkeeping costcenter project";
 
 function getCredentials() {
   const clientId = process.env.FORTNOX_CLIENT_ID;
