@@ -114,14 +114,41 @@ const DIST_LABELS = ['0\u2013100', '100\u2013200', '200\u2013300', '300\u2013400
 const SKOTARE_SCRIPT = `(function(){
 if (typeof Chart === 'undefined') { console.error('[Skotare] Chart.js not loaded'); return; }
 Chart.defaults.font.family = 'Geist';
-Chart.defaults.color = '#7a7a72';
+Chart.defaults.color = '#9a9a92';
+// Apple-inspirerad animation — mild, snabb, ingen animation vid uppdatering
+Chart.defaults.animation = { duration: 600, easing: 'easeOutCubic' };
+Chart.defaults.animations.colors = false;
+Chart.defaults.animations.x = false;
 
 var _db = window.__skotareData || {};
 console.log('[Skotare Script] _db keys:', Object.keys(_db));
 
-var grid = {color:'rgba(255,255,255,0.05)'};
-var ticks = {color:'#7a7a72',font:{size:11}};
-var tooltip = {backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10};
+// Minimala axlar och diskreta rutnät
+var grid = { display: false };
+var gridSoft = { color: 'rgba(255,255,255,0.04)', drawTicks: false };
+var ticks = { color: '#9a9a92', font: { size: 11 }, maxTicksLimit: 6, padding: 6 };
+var tooltip = {
+  backgroundColor: 'rgba(26,26,24,0.95)',
+  titleColor: '#f2f2f0',
+  titleFont: { size: 12, weight: '600' },
+  bodyColor: '#c8c8c4',
+  bodyFont: { size: 12 },
+  borderColor: 'rgba(255,255,255,0.12)',
+  borderWidth: 1,
+  padding: 12,
+  cornerRadius: 10,
+  displayColors: false,
+  boxPadding: 4,
+};
+
+// Gradientfyllning under linjediagram (Apple Stocks/Health-stil)
+function accentGradient(ctx, area, rgb) {
+  if (!area) return 'rgba(0,196,140,0.16)';
+  var g = ctx.createLinearGradient(0, area.top, 0, area.bottom);
+  g.addColorStop(0, 'rgba(' + rgb + ',0.28)');
+  g.addColorStop(1, 'rgba(' + rgb + ',0.01)');
+  return g;
+}
 
 // Count-up animation
 function countUp(el, target, dec, duration){
@@ -242,18 +269,19 @@ if (dailyEl) {
       {label:'Lass/dag',data:dailyLass,backgroundColor:dailyLass.map(function(v,i){
         if(v===0) return isWeekend[i]?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.04)';
         if(isWeekend[i]) return 'rgba(91,143,255,0.15)';
-        return v>avgLass?'rgba(0,196,140,0.7)':'rgba(76,175,80,0.5)';
-      }),borderRadius:6,barPercentage:0.85,categoryPercentage:0.9,yAxisID:'y',order:1},
-      {label:'Volym m³',data:dailyVol,type:'line',borderColor:'rgba(0,196,140,0.6)',backgroundColor:'rgba(0,196,140,0.05)',pointBackgroundColor:dailyVol.map(function(v){return v>0?'#00c48c':'transparent';}),pointRadius:dailyVol.map(function(v){return v>0?3:0;}),tension:0.3,yAxisID:'y2',order:0,spanGaps:false},
-      {label:'Snitt: '+avgLass+' lass',data:new Array(dailyLass.length).fill(avgLass),type:'line',borderColor:'rgba(255,255,255,0.2)',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false,order:0}
+        return v>avgLass?'rgba(0,196,140,0.75)':'rgba(0,196,140,0.45)';
+      }),borderRadius:8,borderSkipped:false,barPercentage:0.65,categoryPercentage:0.92,yAxisID:'y',order:1},
+      {label:'Volym m³',data:dailyVol,type:'line',borderColor:'rgba(0,196,140,0.9)',borderWidth:2,
+       backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '0,196,140');},
+       pointBackgroundColor:dailyVol.map(function(v){return v>0?'#00c48c':'transparent';}),pointBorderColor:'#0f0f0e',pointBorderWidth:1,pointRadius:dailyVol.map(function(v){return v>0?3:0;}),pointHoverRadius:5,tension:0.35,yAxisID:'y2',order:0,spanGaps:false,fill:true},
+      {label:'Snitt: '+avgLass+' lass',data:new Array(dailyLass.length).fill(avgLass),type:'line',borderColor:'rgba(255,255,255,0.2)',borderDash:[4,4],borderWidth:1,pointRadius:0,fill:false,order:0}
     ]},
     plugins:[weekendBgPlugin,barLabelPlugin],
     options:{
       responsive:true,
       interaction:{mode:'index',intersect:false},
       plugins:{legend:{display:false},
-        tooltip:{
-          backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#c8c8c4',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:12,
+        tooltip:Object.assign({}, tooltip, {
           filter:function(item){return item.datasetIndex===0;},
           callbacks:{
             title:function(items){
@@ -274,14 +302,14 @@ if (dailyEl) {
               return lines;
             }
           }
-        }
+        })
       },
       scales:{
-        x:{grid:grid,ticks:{color:'#7a7a72',font:{size:10},callback:function(val,idx){
-          if(isWeekend[idx]) return '\\u25AA '+days[idx];
+        x:{grid:grid,border:{display:false},ticks:{color:'#9a9a92',font:{size:10},maxTicksLimit:8,callback:function(val,idx){
+          if(isWeekend[idx]) return '▪ '+days[idx];
           return days[idx];
         }}},
-        y:{grid:grid,ticks:ticks,title:{display:true,text:'Lass',color:'#7a7a72',font:{size:11}},
+        y:{grid:gridSoft,border:{display:false},ticks:Object.assign({},ticks,{maxTicksLimit:4}),title:{display:false},
           suggestedMax: Math.max.apply(null,dailyLass)*1.15},
         y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#00c48c',font:{size:11}},title:{display:true,text:'m³',color:'#00c48c',font:{size:10}}}
       },
@@ -352,16 +380,30 @@ var aV = _activeIdx.map(function(i){return s_volym[i];});
 var aL = _activeIdx.map(function(i){return s_lass[i];});
 var aD = _activeIdx.map(function(i){return s_dieselPerM3[i];});
 
+// Gemensam bar+line option (Apple-minimalistisk)
+function distOptions(axisTextY, axisTextY2) {
+  return {
+    responsive: true,
+    interaction: { mode: 'index', intersect: false },
+    plugins: { legend: { display: false }, tooltip: tooltip },
+    scales: {
+      x: { grid: grid, border: { display: false }, ticks: ticks },
+      y: { grid: gridSoft, border: { display: false }, ticks: Object.assign({}, ticks, { maxTicksLimit: 4 }), title: { display: false } },
+      y2: { position: 'right', grid: { drawOnChartArea: false }, border: { display: false }, ticks: Object.assign({}, ticks, { maxTicksLimit: 4, color: '#00c48c' }), title: { display: false } }
+    }
+  };
+}
+
 // Medellast per avstandsklass chart
 var mlEl = document.getElementById('medellastChart');
 if (mlEl && ac.length > 0) {
   new Chart(mlEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'Medellast m³',data:aML,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
-      {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(0,196,140,0.7)',backgroundColor:'rgba(0,196,140,0.04)',pointBackgroundColor:'#00c48c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
+      {label:'Medellast m³',data:aML,backgroundColor:'rgba(91,143,255,0.55)',borderRadius:8,borderSkipped:false,barPercentage:0.65,categoryPercentage:0.9,yAxisID:'y',order:1},
+      {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(0,196,140,0.9)',borderWidth:2,backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '0,196,140');},pointBackgroundColor:'#00c48c',pointBorderColor:'#0f0f0e',pointBorderWidth:1,pointRadius:4,pointHoverRadius:6,tension:0.35,fill:true,yAxisID:'y2',order:0}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:tooltip},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³/lass',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#00c48c',font:{size:11}},title:{display:true,text:'Lass/G15h',color:'#00c48c',font:{size:10}}}}}
+    options: distOptions('m³/lass','Lass/G15h')
   });
 }
 
@@ -371,10 +413,10 @@ if (totalEl && ac.length > 0) {
   new Chart(totalEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'Volym m³',data:aV,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
-      {label:'Lass',data:aL,type:'line',borderColor:'rgba(0,196,140,0.7)',backgroundColor:'rgba(0,196,140,0.04)',pointBackgroundColor:'#00c48c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
+      {label:'Volym m³',data:aV,backgroundColor:'rgba(91,143,255,0.55)',borderRadius:8,borderSkipped:false,barPercentage:0.65,categoryPercentage:0.9,yAxisID:'y',order:1},
+      {label:'Lass',data:aL,type:'line',borderColor:'rgba(0,196,140,0.9)',borderWidth:2,backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '0,196,140');},pointBackgroundColor:'#00c48c',pointBorderColor:'#0f0f0e',pointBorderWidth:1,pointRadius:4,pointHoverRadius:6,tension:0.35,fill:true,yAxisID:'y2',order:0}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:tooltip},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#00c48c',font:{size:11}},title:{display:true,text:'Lass',color:'#00c48c',font:{size:10}}}}}
+    options: distOptions('m³','Lass')
   });
 }
 
@@ -384,10 +426,13 @@ if (dieselEl && ac.length > 0) {
   new Chart(dieselEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'l/m³',data:aD,backgroundColor:'rgba(0,196,140,0.5)',borderRadius:4,yAxisID:'y',order:1},
-      {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(91,143,255,0.6)',backgroundColor:'rgba(91,143,255,0.04)',pointBackgroundColor:'#5b8fff',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
+      {label:'l/m³',data:aD,backgroundColor:'rgba(0,196,140,0.55)',borderRadius:8,borderSkipped:false,barPercentage:0.65,categoryPercentage:0.9,yAxisID:'y',order:1},
+      {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(91,143,255,0.9)',borderWidth:2,backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '91,143,255');},pointBackgroundColor:'#5b8fff',pointBorderColor:'#0f0f0e',pointBorderWidth:1,pointRadius:4,pointHoverRadius:6,tension:0.35,fill:true,yAxisID:'y2',order:0}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10,callbacks:{label:function(c){return c.datasetIndex===0?' '+c.parsed.y+' l/m³':' '+c.parsed.y+' lass/G15h';}}}},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'liter / m³',color:'#7a7a72',font:{size:10}},suggestedMin:0.5,suggestedMax:4},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5b8fff',font:{size:11}},title:{display:true,text:'Lass/G15h',color:'#5b8fff',font:{size:10}}}}}
+    options: Object.assign({}, distOptions('l/m³','Lass/G15h'), {
+      plugins: { legend: { display: false }, tooltip: Object.assign({}, tooltip, { callbacks: { label: function(c){ return c.datasetIndex===0 ? ' ' + c.parsed.y + ' l/m³' : ' ' + c.parsed.y + ' lass/G15h'; } } }) },
+      scales: Object.assign({}, distOptions('l/m³','Lass/G15h').scales, { y: Object.assign({}, distOptions('l/m³','Lass/G15h').scales.y, { suggestedMin: 0.5, suggestedMax: 4 }) })
+    })
   });
 }
 
@@ -401,9 +446,9 @@ if (m3fubEl && ac.length > 0) {
   new Chart(m3fubEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'m³fub/G15h',data:m3fubVals,backgroundColor:'rgba(0,196,140,0.5)',borderRadius:4}
+      {label:'m³fub/G15h',data:m3fubVals,backgroundColor:'rgba(0,196,140,0.65)',borderRadius:8,borderSkipped:false,barPercentage:0.6,categoryPercentage:0.92}
     ]},
-    options:{responsive:true,plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10,callbacks:{label:function(c){return ' '+c.parsed.y.toFixed(1)+' m³fub/G15h';}}}},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³fub/G15h',color:'#7a7a72',font:{size:10}},beginAtZero:true}}}
+    options:{responsive:true,plugins:{legend:{display:false},tooltip:Object.assign({}, tooltip, { callbacks: { label: function(c){ return ' '+c.parsed.y.toFixed(1)+' m³fub/G15h'; } } })},scales:{x:{grid:grid,border:{display:false},ticks:ticks},y:{grid:gridSoft,border:{display:false},ticks:Object.assign({},ticks,{maxTicksLimit:4}),title:{display:false},beginAtZero:true}}}
   });
 }
 
@@ -1230,14 +1275,15 @@ export default function SkotareVy() {
         type: 'bar',
         data: {
           labels: pk.map((k: any) => k.kategori),
-          datasets: [{ data: pk.map((k: any) => k.timmar), backgroundColor: pk.map((_: any, i: number) => palette[i % palette.length]), borderRadius: 4 }],
+          datasets: [{ data: pk.map((k: any) => k.timmar), backgroundColor: pk.map((_: any, i: number) => palette[i % palette.length]), borderRadius: 8, borderSkipped: false, barThickness: 14 }],
         },
         options: {
           indexAxis: 'y' as const, responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
+          animation: { duration: 600, easing: 'easeOutCubic' as const },
+          plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(26,26,24,0.95)', titleColor: '#f2f2f0', bodyColor: '#c8c8c4', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: 12, cornerRadius: 10, displayColors: false } },
           scales: {
-            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 11 } } },
-            y: { grid: { display: false }, ticks: { color: '#e8e8e4', font: { size: 11 } } },
+            x: { grid: { color: 'rgba(255,255,255,0.04)' }, border: { display: false }, ticks: { color: '#9a9a92', font: { size: 11 }, maxTicksLimit: 5 } },
+            y: { grid: { display: false }, border: { display: false }, ticks: { color: '#f2f2f0', font: { size: 12, weight: 500 as any } } },
           },
         },
       });
@@ -1260,17 +1306,18 @@ export default function SkotareVy() {
       data: {
         labels: activeKlass.map(k => k.label),
         datasets: [
-          { label: 'Lass/G15h', data: activeKlass.map(k => k.lassG15h), backgroundColor: 'rgba(0,196,140,0.5)', borderRadius: 3, yAxisID: 'y', order: 1 },
-          { label: 'Medellast', data: activeKlass.map(k => k.medellast), type: 'line', borderColor: 'rgba(91,143,255,0.6)', pointBackgroundColor: '#5b8fff', pointRadius: 3, tension: 0.3, yAxisID: 'y2', order: 0 },
+          { label: 'Lass/G15h', data: activeKlass.map(k => k.lassG15h), backgroundColor: 'rgba(0,196,140,0.6)', borderRadius: 8, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.9, yAxisID: 'y', order: 1 },
+          { label: 'Medellast', data: activeKlass.map(k => k.medellast), type: 'line', borderColor: 'rgba(91,143,255,0.9)', borderWidth: 2, pointBackgroundColor: '#5b8fff', pointBorderColor: '#0f0f0e', pointBorderWidth: 1, pointRadius: 3, pointHoverRadius: 5, tension: 0.35, yAxisID: 'y2', order: 0 },
         ],
       },
       options: {
         responsive: true, interaction: { mode: 'index' as const, intersect: false },
-        plugins: { legend: { display: false } },
+        animation: { duration: 600, easing: 'easeOutCubic' as const },
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(26,26,24,0.95)', titleColor: '#f2f2f0', bodyColor: '#c8c8c4', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: 12, cornerRadius: 10 } },
         scales: {
-          x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 10 } } },
-          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'Lass/G15h', color: '#7a7a72', font: { size: 10 } } },
-          y2: { position: 'right' as const, grid: { drawOnChartArea: false }, ticks: { color: '#5b8fff', font: { size: 11 } }, title: { display: true, text: 'm³/lass', color: '#5b8fff', font: { size: 10 } } },
+          x: { grid: { display: false }, border: { display: false }, ticks: { color: '#9a9a92', font: { size: 10 }, maxTicksLimit: 6 } },
+          y: { grid: { color: 'rgba(255,255,255,0.04)' }, border: { display: false }, ticks: { color: '#9a9a92', font: { size: 11 }, maxTicksLimit: 4 }, title: { display: false } },
+          y2: { position: 'right' as const, grid: { drawOnChartArea: false }, border: { display: false }, ticks: { color: '#9a9a92', font: { size: 11 }, maxTicksLimit: 4 }, title: { display: false } },
         },
       },
     });
@@ -1406,14 +1453,46 @@ export default function SkotareVy() {
   .g2 { grid-template-columns: 1fr !important; }
   .forar-panel { width: 100% !important; }
 }
+
+/* Skeleton shimmer — visas i KPI/kort-värden medan data laddas */
+@keyframes skeletonShine {
+  0%   { background-position: -200px 0; }
+  100% { background-position: calc(200px + 100%) 0; }
+}
+.is-loading .hero-val,
+.is-loading .k-val,
+.is-loading .hero-unit,
+.is-loading .k-unit {
+  color: transparent !important;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.04) 100%);
+  background-size: 200px 100%;
+  border-radius: 6px;
+  animation: skeletonShine 1.4s ease-in-out infinite;
+  display: inline-block;
+  min-width: 60px;
+}
+.is-loading .hero-unit,
+.is-loading .k-unit { min-width: 40px; height: 10px; margin-top: 4px; }
+
+/* Tunn laddningsbar vid toppen av innehållsområdet */
+.mv-loading-bar {
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: transparent; overflow: hidden; z-index: 90;
+}
+.mv-loading-bar::after {
+  content: ''; display: block; width: 40%; height: 100%;
+  background: var(--accent);
+  animation: mvLoadingSlide 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform;
+}
+@keyframes mvLoadingSlide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
 ` }} />
 
-      {/* Loading overlay */}
-      {loading && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 100, background: 'rgba(15,15,14,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ color: '#7a7a72', fontSize: 14, fontFamily: "'Geist', system-ui, sans-serif" }}>Laddar data...</div>
-        </div>
-      )}
+      {/* Tunn laddningsbar + skeleton via .is-loading (se CSS) */}
+      {loading && <div className="mv-loading-bar" aria-hidden />}
 
       {/* ── SIDEBAR ── */}
       <aside className="mv-sidebar" style={{
@@ -1464,28 +1543,33 @@ export default function SkotareVy() {
           {/* Machine dropdown */}
           <div style={{ position: 'relative' }}>
             <button onClick={() => setMaskinOpen(!maskinOpen)} style={{
-              background: '#1a1a18', color: '#e8e8e4',
+              background: '#1a1a18', color: '#f2f2f0',
               border: maskinOpen ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.1)',
-              borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 500,
+              borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 500, minHeight: 40,
               fontFamily: "'Geist', system-ui, sans-serif", outline: 'none', cursor: 'pointer',
               textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
-            }}>
+              transition: 'transform 120ms ease, border-color 150ms ease',
+            }}
+              onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.97)'; }}
+              onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = ''; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = ''; }}
+            >
               <span>{valdMaskin ? `${valdMaskin.tillverkare} ${vald}` : 'Välj maskin...'}</span>
-              <span style={{ fontSize: 9, color: '#555', transform: maskinOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>{'\u25bc'}</span>
+              <span style={{ fontSize: 10, color: '#888', transform: maskinOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>{'\u25bc'}</span>
             </button>
             {maskinOpen && (
               <div style={{
-                position: 'absolute', top: 'calc(100% + 4px)', left: 0,
+                position: 'absolute', top: 'calc(100% + 6px)', left: 0,
                 background: '#1a1a18', border: '1px solid rgba(255,255,255,0.15)',
-                borderRadius: 8, overflow: 'hidden', zIndex: 50,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.5)', maxHeight: 240, overflowY: 'auto', minWidth: '100%',
+                borderRadius: 10, overflow: 'hidden', zIndex: 50,
+                boxShadow: '0 12px 32px rgba(0,0,0,0.55)', maxHeight: 280, overflowY: 'auto', minWidth: '100%',
               }}>
                 {maskiner.map((m, i) => (
                   <button key={m.maskin_id} onClick={() => { setVald(m.modell); setMaskinOpen(false); }} style={{
-                    width: '100%', padding: '9px 12px', border: 'none',
+                    width: '100%', padding: '12px 14px', border: 'none', minHeight: 44,
                     borderBottom: i < maskiner.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
                     background: m.modell === vald ? 'rgba(255,255,255,0.08)' : 'transparent',
-                    color: m.modell === vald ? '#e8e8e4' : '#999', fontSize: 12,
+                    color: m.modell === vald ? '#f2f2f0' : '#bbb', fontSize: 13,
                     fontFamily: "'Geist', system-ui, sans-serif", cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap',
                   }}>
                     {m.tillverkare} {m.modell}
@@ -1496,39 +1580,57 @@ export default function SkotareVy() {
           </div>
 
           {/* Period navigation */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-            <button onClick={() => setPeriodOffset(o => o - 1)} style={{
-              width: 26, height: 26, border: 'none', borderRadius: 6, background: 'transparent',
-              color: '#7a7a72', fontSize: 14, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <button onClick={() => setPeriodOffset(o => o - 1)} aria-label="Föregående period" style={{
+              width: 40, height: 40, border: 'none', borderRadius: 10, background: 'transparent',
+              color: '#9a9a92', fontSize: 18, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>{'\u2039'}</button>
-            <div style={{ minWidth: 90, textAlign: 'center', fontSize: 12, fontWeight: 500, color: '#e8e8e4', letterSpacing: '-0.2px' }}>
+              transition: 'background 120ms ease, transform 100ms ease',
+            }}
+              onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.05)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.transform = ''; }}
+              onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.92)'; }}
+              onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = ''; }}
+            >{'\u2039'}</button>
+            <div style={{ minWidth: 104, textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#f2f2f0', letterSpacing: '-0.2px' }}>
               {getPeriodLabel(period, periodOffset)}
             </div>
-            <button onClick={() => setPeriodOffset(o => Math.min(o + 1, 0))} style={{
-              width: 26, height: 26, border: 'none', borderRadius: 6, background: 'transparent',
-              color: periodOffset >= 0 ? '#333' : '#7a7a72', fontSize: 14,
+            <button onClick={() => setPeriodOffset(o => Math.min(o + 1, 0))} aria-label="Nästa period" disabled={periodOffset >= 0} style={{
+              width: 40, height: 40, border: 'none', borderRadius: 10, background: 'transparent',
+              color: periodOffset >= 0 ? '#3a3a36' : '#9a9a92', fontSize: 18,
               cursor: periodOffset >= 0 ? 'default' : 'pointer',
               fontFamily: "'Geist', system-ui, sans-serif",
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>{'\u203a'}</button>
+              transition: 'background 120ms ease, transform 100ms ease',
+            }}
+              onMouseEnter={e => { if (periodOffset < 0) (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,255,255,0.05)'; }}
+              onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; (e.currentTarget as HTMLButtonElement).style.transform = ''; }}
+              onMouseDown={e => { if (periodOffset < 0) (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.92)'; }}
+              onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = ''; }}
+            >{'\u203a'}</button>
           </div>
 
-          {/* Period type */}
-          <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.04)', borderRadius: 6, padding: 2 }}>
+          {/* Period type — segmentkontroll */}
+          <div style={{ display: 'flex', gap: 2, background: 'rgba(120,120,128,0.16)', borderRadius: 9, padding: 2, height: 36 }}>
             {(['V', 'M', 'K', 'Å'] as const).map((p) => (
               <button key={p} onClick={() => { setPeriod(p); setPeriodOffset(0); }} style={{
-                padding: '4px 10px', border: 'none', borderRadius: 5,
-                background: period === p ? '#1e1e1c' : 'transparent',
-                color: period === p ? '#e8e8e4' : '#555', fontSize: 11, fontWeight: 500,
+                minWidth: 36, padding: '0 12px', border: 'none', borderRadius: 7,
+                background: period === p ? '#2c2c2a' : 'transparent',
+                color: period === p ? '#f2f2f0' : '#9a9a92', fontSize: 13, fontWeight: period === p ? 600 : 500,
                 cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
-              }}>{p}</button>
+                transition: 'transform 100ms ease, color 150ms ease, background 150ms ease',
+                boxShadow: period === p ? '0 2px 6px rgba(0,0,0,0.3)' : 'none',
+              }}
+                onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.95)'; }}
+                onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = ''; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.transform = ''; }}
+              >{p}</button>
             ))}
           </div>
         </div>
 
         {/* ── SCROLLABLE CONTENT ── */}
-        <div className="mv-scroll" style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div className={`mv-scroll${loading && dataVersion === 0 ? ' is-loading' : ''}`} style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
 
           {/* ── IDAG VIEW ── */}
           {activeView === 'idag' && (() => {
@@ -1657,6 +1759,45 @@ export default function SkotareVy() {
                 <div className="kpi"><div className="k-label">G15-timmar</div><div className="k-val" data-count="0" data-dec="0">0</div><div className="k-unit">h</div></div>
               </div>
 
+              {/* Best day surface — räknas fram från dailyVol */}
+              {(() => {
+                if (!dbData || !dbData.dailyVol || dbData.dailyVol.length === 0) return null;
+                let bestIdx = -1, bestVal = 0;
+                for (let i = 0; i < dbData.dailyVol.length; i++) {
+                  if (dbData.dailyVol[i] > bestVal) { bestVal = dbData.dailyVol[i]; bestIdx = i; }
+                }
+                if (bestIdx < 0 || bestVal === 0) return null;
+                const dateStr = dbData.dailyDates[bestIdx];
+                if (!dateStr) return null;
+                const [yy, mm, dd2] = dateStr.split('-').map(Number);
+                const dObj = new Date(yy, mm - 1, dd2);
+                const datumStr = dObj.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long' });
+                const lass = dbData.dailyLass[bestIdx] || 0;
+                return (
+                  <div style={{
+                    background: 'linear-gradient(135deg, rgba(0,196,140,0.08), rgba(0,196,140,0.02))',
+                    border: '1px solid rgba(0,196,140,0.18)',
+                    borderRadius: 14, padding: '14px 18px', marginBottom: 16,
+                    display: 'flex', alignItems: 'center', gap: 14, fontFamily: "'Geist', system-ui, sans-serif",
+                  }}>
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 10, background: 'rgba(0,196,140,0.12)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    }}>
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}>
+                        <path d="M12 2l2.39 6.95H22l-6.19 4.51L18.18 22 12 17.27 5.82 22l2.37-8.54L2 8.95h7.61z"/>
+                      </svg>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Bästa dagen</div>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: '#f2f2f0', marginTop: 2 }}>
+                        {datumStr} · <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--accent)', fontWeight: 600 }}>{bestVal} m³</span>{lass > 0 ? <span style={{ color: 'var(--muted)' }}> · {lass} lass</span> : null}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* Operators + Time distribution */}
               <div className="g2">
                 <div className="card">
@@ -1712,11 +1853,11 @@ export default function SkotareVy() {
 
               {/* Distance class charts */}
               <div className="g2">
-                <div className="card"><div className="card-h"><div className="card-t">Medellast per avståndsklass</div></div><div className="card-b"><canvas id="medellastChart"></canvas></div></div>
-                <div className="card"><div className="card-h"><div className="card-t">Produktion per avståndsklass</div></div><div className="card-b"><canvas id="totalChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Medellast per avståndsklass <span style={{ color: '#5b8fff', marginLeft: 6 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>m³/lass</span><span style={{ color: 'var(--accent)', marginLeft: 10 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>Lass/G15h</span></div></div><div className="card-b"><canvas id="medellastChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Produktion per avståndsklass <span style={{ color: '#5b8fff', marginLeft: 6 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>Volym</span><span style={{ color: 'var(--accent)', marginLeft: 10 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>Lass</span></div></div><div className="card-b"><canvas id="totalChart"></canvas></div></div>
               </div>
               <div className="g2">
-                <div className="card"><div className="card-h"><div className="card-t">Diesel per avståndsklass</div></div><div className="card-b"><canvas id="dieselChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Diesel per avståndsklass <span style={{ color: 'var(--accent)', marginLeft: 6 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>l/m³</span><span style={{ color: '#5b8fff', marginLeft: 10 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>Lass/G15h</span></div></div><div className="card-b"><canvas id="dieselChart"></canvas></div></div>
                 <div className="card"><div className="card-h"><div className="card-t">m³fub/G15h per medelköravstånd</div></div><div className="card-b"><canvas id="m3fubG15hChart"></canvas></div></div>
               </div>
             </div>
@@ -1730,11 +1871,11 @@ export default function SkotareVy() {
                 <div className="card-b"><canvas id="dailyChart"></canvas></div>
               </div>
               <div className="g2">
-                <div className="card"><div className="card-h"><div className="card-t">Medellast per avståndsklass</div></div><div className="card-b"><canvas id="medellastChart"></canvas></div></div>
-                <div className="card"><div className="card-h"><div className="card-t">Produktion per avståndsklass</div></div><div className="card-b"><canvas id="totalChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Medellast per avståndsklass <span style={{ color: '#5b8fff', marginLeft: 6 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>m³/lass</span><span style={{ color: 'var(--accent)', marginLeft: 10 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>Lass/G15h</span></div></div><div className="card-b"><canvas id="medellastChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Produktion per avståndsklass <span style={{ color: '#5b8fff', marginLeft: 6 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>Volym</span><span style={{ color: 'var(--accent)', marginLeft: 10 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>Lass</span></div></div><div className="card-b"><canvas id="totalChart"></canvas></div></div>
               </div>
               <div className="g2">
-                <div className="card"><div className="card-h"><div className="card-t">Diesel per avståndsklass</div></div><div className="card-b"><canvas id="dieselChart"></canvas></div></div>
+                <div className="card"><div className="card-h"><div className="card-t">Diesel per avståndsklass <span style={{ color: 'var(--accent)', marginLeft: 6 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>l/m³</span><span style={{ color: '#5b8fff', marginLeft: 10 }}>●</span><span style={{ color: '#6a6a66', fontWeight: 400, marginLeft: 4 }}>Lass/G15h</span></div></div><div className="card-b"><canvas id="dieselChart"></canvas></div></div>
                 <div className="card"><div className="card-h"><div className="card-t">m³fub/G15h per medelköravstånd</div></div><div className="card-b"><canvas id="m3fubG15hChart"></canvas></div></div>
               </div>
             </div>
