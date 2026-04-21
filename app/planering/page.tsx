@@ -7683,27 +7683,6 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === KÖRSPÅRNING BANNER === */}
-      {!briefingMode && (
-        <div style={{
-          position: 'absolute', top: activeMode ? 154 : 90, left: 16, right: 16, zIndex: 99,
-          background: korspårActive ? 'rgba(220,38,38,0.9)' : 'rgba(34,197,94,0.9)',
-          backdropFilter: 'blur(10px)',
-          borderRadius: 12, padding: '10px 16px',
-          display: 'flex', alignItems: 'center', gap: 10,
-          cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-          transition: 'top 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
-        }} onClick={korspårActive ? stopKorspårning : startKorspårning}>
-          {korspårActive && <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#fff', animation: 'pulse 1s infinite' }} />}
-          <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#fff' }}>
-            {korspårActive ? 'Stoppa körspårning' : 'Starta körspårning'}
-          </span>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>
-            {korspårActive ? `${korspårPointsRef.current.length} punkter` : 'GPS-spår sparas automatiskt'}
-          </span>
-        </div>
-      )}
-
       {/* === GEOFENCING MODAL === */}
       {geofencePrompt && (
         <div style={{
@@ -13481,37 +13460,6 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* Meny-knapp (när stängd) */}
-      {!menuOpen && !briefingMode && (
-        <div 
-          onClick={() => {
-            setMenuOpen(true);
-            setMenuHeight(400);
-          }}
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: '80px',
-            background: 'linear-gradient(0deg, rgba(0,0,0,0.95) 0%, transparent 100%)',
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            cursor: 'pointer',
-            zIndex: 200,
-            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
-          }}
-        >
-          <div style={{
-            width: '50px',
-            height: '6px',
-            background: 'rgba(255,255,255,0.6)',
-            borderRadius: '3px',
-          }} />
-        </div>
-      )}
-
 
       {/* === REDIGERA-DIALOG === */}
       {editingMarker && (
@@ -16482,66 +16430,6 @@ export default function PlannerPage() {
         </div>
         );
       })()}
-
-      {/* === Skotning penna-knapp (nedre vänster) === */}
-      {!skotningPanel && (
-        <button
-          onClick={() => {
-            const map = mapInstanceRef.current;
-            if (skotningDrawing) {
-              setSkotningDrawing(false);
-              if (map) {
-                map.dragPan.enable();
-                map.scrollZoom.enable();
-                if (map.touchZoomRotate) map.touchZoomRotate.enable();
-              }
-            } else {
-              setSkotningDrawing(true);
-              setSkotningPolygon(null);
-              setSkotningPanel(false);
-              setSkotningHogar([]);
-              setSkotningSparat(false);
-              if (map) {
-                map.easeTo({ pitch: 0, bearing: 0, duration: 500 });
-                try {
-                  const src = map.getSource('skotning-source') as any;
-                  if (src) src.setData({ type: 'FeatureCollection', features: [] });
-                  const dashSrc = map.getSource('skotning-dash-source') as any;
-                  if (dashSrc) dashSrc.setData({ type: 'FeatureCollection', features: [] });
-                } catch { /* */ }
-                map.dragPan.disable();
-                map.scrollZoom.disable();
-                if (map.touchZoomRotate) map.touchZoomRotate.disable();
-              }
-            }
-          }}
-          style={{
-            position: 'fixed',
-            bottom: 'calc(100px + env(safe-area-inset-bottom, 0px))',
-            left: '14px',
-            zIndex: 400,
-            width: '44px',
-            height: '44px',
-            borderRadius: '12px',
-            border: 'none',
-            background: skotningDrawing ? '#1d9e75' : 'rgba(0,0,0,0.5)',
-            color: '#fff',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: skotningDrawing ? '0 0 12px rgba(29,158,117,0.6)' : '0 2px 8px rgba(0,0,0,0.4)',
-            backdropFilter: 'blur(12px)',
-            WebkitBackdropFilter: 'blur(12px)',
-            transition: 'background 0.2s ease, box-shadow 0.2s ease',
-          }}
-        >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
-            <path d="m15 5 4 4" />
-          </svg>
-        </button>
-      )}
 
       {/* === Multi-select högar panel (slide-in från höger) === */}
       {multiSelectPanel && !skotningPanel && (() => {
