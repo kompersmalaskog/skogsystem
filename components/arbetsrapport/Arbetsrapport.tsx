@@ -4482,21 +4482,23 @@ export default function Arbetsrapport() {
     const statusFärg=(d)=>{
       const k=dagKey(d);
       const dag=dagData[k];
-      // Heldagstyper (sjuk/vab) har egen färg. Tidigare föll ALLA dagtyp
-      // som inte var 'normal' in här — men MOM-importen sätter dagtyp
-      // till 'Produktion' för normala arbetsdagar, vilket returnerade
-      // "Produktion" (ej i dotFärg) och gjorde att pricken försvann.
+      // Prick visas BARA när det finns en arbetsdag-rad för dagen:
+      //   sjuk/vab-dagtyp → egen färg
+      //   bekräftat      → grön
+      //   annars          → orange
+      // Om raden saknas returneras icke-prickfärgat värde ("röd" för
+      // helgdagar i texten, "weekend"/"tom" för alla andra) — de saknas
+      // i dotFärg så ingen prick renderas. Tidigare föll gångna vardagar
+      // utan data in i "saknas"-grenen, vilket gav spurious orange prickar.
       if (dag?.dagtyp === 'sjuk') return 'sjuk';
       if (dag?.dagtyp === 'vab')  return 'vab';
-      // Vanlig arbetsdag: bekräftat → grön, annars orange.
-      if (dag?.bekraftad) return "ok";
-      if (dag) return "saknas";
-      if(rödaDagar[k]) return "röd";
-      const date=new Date(kalÅr,kalMånad,d);
-      const dow=date.getDay();
-      if(dow===0||dow===6) return "weekend";
-      if(date<idag) return "saknas";
-      return "tom";
+      if (dag?.bekraftad) return 'ok';
+      if (dag) return 'saknas';
+      if (rödaDagar[k]) return 'röd';
+      const date = new Date(kalÅr, kalMånad, d);
+      const dow = date.getDay();
+      if (dow === 0 || dow === 6) return 'weekend';
+      return 'tom';
     };
 
     const dotFärg: Record<string,string> = {
