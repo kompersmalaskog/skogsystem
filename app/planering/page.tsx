@@ -7553,6 +7553,17 @@ export default function PlannerPage() {
     );
   }
 
+  // Badge-räkning för plus-knappen (okvitterade briefing-anteckningar + symboler).
+  // Återför notifikationen från gamla briefing-checklist-knappen på ett icke-flytande sätt.
+  const plusBadgeCount: number = (() => {
+    if (!briefingCompleted) return 0;
+    const boundary = markers.find(m => m.isLine && m.lineType === 'boundary');
+    const noteIds = (boundary?.notes || []).map(n => `about-note-${n.id}`);
+    const newNotes = noteIds.filter(id => !briefingCheckedIds.includes(id));
+    const uncheckedSymbols = briefingStepTotal - briefingCheckedIds.filter(id => !id.startsWith('about-note-')).length;
+    return Math.max(0, uncheckedSymbols) + newNotes.length;
+  })();
+
   // Aktivt verktygsläge (mode-banner). En mode i taget.
   const activeMode: { label: string; onExit: () => void; exitLabel: string } | null =
     isDrawMode ? {
@@ -7779,7 +7790,7 @@ export default function PlannerPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 6px 24px rgba(0,0,0,0.5)',
+            boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
             zIndex: 200,
             transition: 'transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
             transform: plusMenuOpen ? 'rotate(45deg)' : 'rotate(0deg)',
@@ -7789,6 +7800,32 @@ export default function PlannerPage() {
             <path d="M12 5 L12 19" />
             <path d="M5 12 L19 12" />
           </svg>
+          {plusBadgeCount > 0 && !plusMenuOpen && (
+            <span
+              aria-label={`${plusBadgeCount} okvitterade`}
+              style={{
+                position: 'absolute',
+                top: '-2px',
+                right: '-2px',
+                minWidth: '22px',
+                height: '22px',
+                padding: '0 6px',
+                borderRadius: '11px',
+                background: '#ef4444',
+                color: '#fff',
+                fontSize: '13px',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: '2px solid rgba(20,20,22,0.72)',
+                boxShadow: '0 2px 6px rgba(239,68,68,0.4)',
+                transform: plusMenuOpen ? 'rotate(-45deg)' : 'none',
+              }}
+            >
+              {plusBadgeCount}
+            </span>
+          )}
         </button>
       )}
 
