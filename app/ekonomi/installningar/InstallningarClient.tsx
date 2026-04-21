@@ -14,7 +14,7 @@ type AcordRad = {
   id?: string; medelstam: Num; pris_total: Num; pris_skordare: Num; pris_skotare: Num;
   giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
 };
-type AvstandRad = { id?: string; fran_m: Num; till_m: Num; tillagg_kr_per_m3fub: Num; giltig_fran: string | null };
+type AvstandConfig = { id?: string; grundavstand_m: Num; kr_per_100m: Num; giltig_fran: string | null };
 type TraktRad = { id?: string; fran_m3fub: Num; till_m3fub: Num; tillagg_kr_per_m3fub: Num; giltig_fran: string | null };
 type TerrangRad = {
   id?: string; namn: string; tillagg_kr_per_m3fub: Num;
@@ -52,7 +52,7 @@ export default function InstallningarClient() {
 
   const [maskiner, setMaskiner] = useState<MaskinRad[]>([]);
   const [acord, setAcord] = useState<AcordRad[]>([]);
-  const [avstand, setAvstand] = useState<AvstandRad[]>([]);
+  const [avstand, setAvstand] = useState<AvstandConfig>({ grundavstand_m: '', kr_per_100m: '', giltig_fran: null });
   const [trakt, setTrakt] = useState<TraktRad[]>([]);
   const [terrang, setTerrang] = useState<TerrangRad[]>([]);
   const [sortiment, setSortiment] = useState<SortRad[]>([]);
@@ -78,7 +78,7 @@ export default function InstallningarClient() {
     const [mRes, aRes, avRes, trRes, teRes, soRes, flRes, ovRes] = await Promise.all([
       supabase.from('maskin_timpris').select('id, maskin_id, maskin_namn, timpris, giltig_fran, giltig_till').is('giltig_till', null).order('maskin_namn'),
       supabase.from('acord_priser').select('id, medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till').is('giltig_till', null).order('medelstam'),
-      supabase.from('acord_skotningsavstand').select('id, fran_m, till_m, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m'),
+      supabase.from('acord_skotningsavstand').select('id, grundavstand_m, kr_per_100m, giltig_fran, giltig_till').is('giltig_till', null).not('grundavstand_m', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_traktstorlek').select('id, fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
       supabase.from('acord_terrang').select('id, namn, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('namn'),
       supabase.from('acord_sortiment_tillagg').select('id, antal_fran, antal_till, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('antal_fran'),
@@ -87,7 +87,10 @@ export default function InstallningarClient() {
     ]);
     setMaskiner((mRes.data || []).map((m: any) => ({ id: m.id, maskin_id: m.maskin_id, maskin_namn: m.maskin_namn || '', timpris: m.timpris, giltig_fran: m.giltig_fran })));
     setAcord((aRes.data || []).map((a: any) => ({ id: a.id, medelstam: a.medelstam, pris_total: a.pris_total, pris_skordare: a.pris_skordare, pris_skotare: a.pris_skotare, giltig_fran: a.giltig_fran })));
-    setAvstand((avRes.data || []).map((a: any) => ({ id: a.id, fran_m: a.fran_m, till_m: a.till_m ?? '', tillagg_kr_per_m3fub: a.tillagg_kr_per_m3fub, giltig_fran: a.giltig_fran })));
+    const avRow = (avRes.data || [])[0];
+    setAvstand(avRow
+      ? { id: avRow.id, grundavstand_m: avRow.grundavstand_m, kr_per_100m: avRow.kr_per_100m, giltig_fran: avRow.giltig_fran }
+      : { grundavstand_m: 200, kr_per_100m: 4, giltig_fran: null });
     setTrakt((trRes.data || []).map((a: any) => ({ id: a.id, fran_m3fub: a.fran_m3fub, till_m3fub: a.till_m3fub ?? '', tillagg_kr_per_m3fub: a.tillagg_kr_per_m3fub, giltig_fran: a.giltig_fran })));
     setTerrang((teRes.data || []).map((a: any) => ({ id: a.id, namn: a.namn || '', tillagg_kr_per_m3fub: a.tillagg_kr_per_m3fub, giltig_fran: a.giltig_fran })));
     setSortiment((soRes.data || []).map((a: any) => ({ id: a.id, antal_fran: a.antal_fran, antal_till: a.antal_till ?? '', tillagg_kr_per_m3fub: a.tillagg_kr_per_m3fub, giltig_fran: a.giltig_fran })));
@@ -155,20 +158,27 @@ export default function InstallningarClient() {
     await fetchData();
   };
 
-  // ── Skotningsavstånd ──
-  const updateAvstand = (idx: number, p: Partial<AvstandRad>) => setAvstand(prev => prev.map((a, i) => i === idx ? { ...a, ...p } : a));
-  const removeAvstand = (idx: number) => setAvstand(prev => prev.filter((_, i) => i !== idx));
-  const addAvstand = () => setAvstand(prev => [...prev, { fran_m: '', till_m: '', tillagg_kr_per_m3fub: '', giltig_fran: null }]);
-  const saveAllAvstand = async () => {
-    for (const r of avstand) {
-      if (r.fran_m === '' || r.tillagg_kr_per_m3fub === '') { flashMsg('Skotningsavstånd: från_m och tillägg måste fyllas i'); return; }
+  // ── Skotningsavstånd (formel-config, en rad) ──
+  const updateAvstand = (p: Partial<AvstandConfig>) => setAvstand(prev => ({ ...prev, ...p }));
+  const saveAvstand = async () => {
+    if (avstand.grundavstand_m === '' || avstand.kr_per_100m === '') {
+      flashMsg('Fyll i grundavstånd och tillägg'); return;
     }
     setSavingAvstand(true);
-    const err = await saveAllBracket('acord_skotningsavstand', avstand, r => ({
-      fran_m: Number(r.fran_m), till_m: numOrNull(r.till_m), tillagg_kr_per_m3fub: Number(r.tillagg_kr_per_m3fub),
-    }));
+    const today = todayIso(), yest = yesterdayIso();
+    // Avsluta bara den aktiva formel-raden (inte ev. gamla bracket-rader)
+    const { error: endErr } = await supabase.from('acord_skotningsavstand')
+      .update({ giltig_till: yest })
+      .is('giltig_till', null)
+      .not('grundavstand_m', 'is', null);
+    if (endErr) { setSavingAvstand(false); flashMsg(`Fel: ${endErr.message}`); return; }
+    const { error: insErr } = await supabase.from('acord_skotningsavstand').insert({
+      grundavstand_m: Number(avstand.grundavstand_m),
+      kr_per_100m: Number(avstand.kr_per_100m),
+      giltig_fran: today, giltig_till: null,
+    });
     setSavingAvstand(false);
-    if (err) { flashMsg(`Fel: ${err.message}`); return; }
+    if (insErr) { flashMsg(`Fel: ${insErr.message}`); return; }
     flashMsg('Skotningsavstånd sparat');
     await fetchData();
   };
@@ -383,32 +393,51 @@ export default function InstallningarClient() {
           <button style={s.btnGhost as CSSProperties} onClick={addAcord}>+ Lägg till medelstam-rad</button>
           {saveAllFooter(acord, savingAcord, saveAllAcord)}
 
-          {/* 3. Skotningsavstånd */}
+          {/* 3. Skotningsavstånd — formel-config */}
           <div style={s.sectionTitle as CSSProperties}>Skotningsavstånd</div>
-          <div style={s.sectionBlurb as CSSProperties}>Tillägg per m³fub baserat på avstånd. +4 kr per påbörjad 100m över 200m (standard).</div>
-          <div style={{ ...s.card, padding: '4px 14px 14px' } as CSSProperties}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>
-                <th style={s.th as CSSProperties}>Från (m)</th>
-                <th style={s.th as CSSProperties}>Till (m) — tom = ∞</th>
-                <th style={{ ...s.th, textAlign: 'right' } as CSSProperties}>Tillägg kr/m³fub</th>
-                <th style={s.th as CSSProperties}></th>
-              </tr></thead>
-              <tbody>
-                {avstand.map((r, idx) => (
-                  <tr key={r.id || `ny-${idx}`}>
-                    <td style={s.tdCell}><NumInput value={r.fran_m} onChange={v => updateAvstand(idx, { fran_m: v })} /></td>
-                    <td style={s.tdCell}><NumInput value={r.till_m} onChange={v => updateAvstand(idx, { till_m: v })} /></td>
-                    <td style={s.tdCell}><NumInput value={r.tillagg_kr_per_m3fub} onChange={v => updateAvstand(idx, { tillagg_kr_per_m3fub: v })} step="0.01" /></td>
-                    <td style={{ padding: '6px 0', textAlign: 'right' }}><button style={s.btnRemove as CSSProperties} onClick={() => removeAvstand(idx)}>×</button></td>
-                  </tr>
-                ))}
-                {avstand.length === 0 && <tr><td colSpan={4} style={{ color: '#7a7a72', fontSize: 12, padding: '12px 6px', textAlign: 'center' }}>Inga rader.</td></tr>}
-              </tbody>
-            </table>
+          <div style={s.sectionBlurb as CSSProperties}>Systemet räknar ut tillägget automatiskt per objekt: påbörjad 100m över grundavståndet × kr/m³fub.</div>
+          <div style={s.card}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'end' }}>
+              <div>
+                <div style={{ fontSize: 11, color: '#7a7a72', fontWeight: 600, marginBottom: 4, letterSpacing: 0.3 }}>Grundavstånd (m)</div>
+                <NumInput value={avstand.grundavstand_m} onChange={v => updateAvstand({ grundavstand_m: v })} placeholder="200" />
+                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 4 }}>Under detta avstånd: inget tillägg.</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: '#7a7a72', fontWeight: 600, marginBottom: 4, letterSpacing: 0.3 }}>Tillägg per påbörjad 100m</div>
+                <NumInput value={avstand.kr_per_100m} onChange={v => updateAvstand({ kr_per_100m: v })} step="0.01" placeholder="4" />
+                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 4 }}>kr/m³fub</div>
+              </div>
+              <button
+                style={{ ...s.btnDark, opacity: savingAvstand ? 0.6 : 1 } as CSSProperties}
+                disabled={savingAvstand}
+                onClick={saveAvstand}>
+                {savingAvstand ? 'Sparar...' : 'Spara'}
+              </button>
+            </div>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+              {datePillFor(avstand.giltig_fran)}
+            </div>
+            {/* Preview */}
+            {avstand.grundavstand_m !== '' && avstand.kr_per_100m !== '' && Number(avstand.kr_per_100m) !== 0 && (
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>Exempel</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6, fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#bfcab9' }}>
+                  {[0, 100, 200, 300, 400, 500, 600, 800].map(d => {
+                    const g = Number(avstand.grundavstand_m), k = Number(avstand.kr_per_100m);
+                    const step = Math.max(0, Math.ceil((d - g) / 100));
+                    const kr = step * k;
+                    return (
+                      <div key={d} style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8 }}>
+                        <span style={{ color: '#7a7a72' }}>{d} m</span>
+                        <span style={{ marginLeft: 8, color: kr === 0 ? '#7a7a72' : '#e8e8e4' }}>+{kr.toFixed(kr === Math.floor(kr) ? 0 : 2)} kr</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-          <button style={s.btnGhost as CSSProperties} onClick={addAvstand}>+ Lägg till avstånds-rad</button>
-          {saveAllFooter(avstand, savingAvstand, saveAllAvstand)}
 
           {/* 4. Traktstorlek */}
           <div style={s.sectionTitle as CSSProperties}>Traktstorlek</div>

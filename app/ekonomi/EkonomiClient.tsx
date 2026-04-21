@@ -8,6 +8,7 @@ type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
 
 type AcordPris = { medelstam: number; pris_total: number; pris_skordare: number; pris_skotare: number; giltig_fran: string | null; giltig_till: string | null };
 type MaskinTimpris = { maskin_id: string; maskin_namn: string | null; timpris: number; giltig_fran: string | null; giltig_till: string | null };
+type AvstandConfig = { grundavstand_m: number; kr_per_100m: number; giltig_fran: string | null; giltig_till: string | null };
 type ObjektMeta = { objekt_id: string; object_name: string | null; vo_nummer: string | null; huvudtyp: string | null; atgard: string | null; timpeng: boolean | null };
 type MaskinMeta = { maskin_id: string; modell: string | null; maskin_typ: string | null };
 
@@ -128,7 +129,7 @@ export default function EkonomiClient() {
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
 
-      const [prodRows, lassRows, tidRows, objRes, maskinRes, acordRes, timprisRes] = await Promise.all([
+      const [prodRows, lassRows, tidRows, objRes, maskinRes, acordRes, timprisRes, avstandRes] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_produktion')
             .select('datum, maskin_id, objekt_id, stammar, volym_m3sub')
@@ -137,7 +138,7 @@ export default function EkonomiClient() {
         ),
         fetchAllRows((from, to) =>
           supabase.from('fakt_lass')
-            .select('datum, maskin_id, objekt_id, volym_m3sub')
+            .select('datum, maskin_id, objekt_id, volym_m3sub, korstracka_m')
             .gte('datum', start).lte('datum', end)
             .range(from, to)
         ),
@@ -151,6 +152,9 @@ export default function EkonomiClient() {
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
+        supabase.from('acord_skotningsavstand')
+          .select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till')
+          .not('grundavstand_m', 'is', null),
       ]);
 
       const objMap: Record<string, ObjektMeta> = {};
@@ -161,6 +165,7 @@ export default function EkonomiClient() {
 
       const timprisList: MaskinTimpris[] = timprisRes.data || [];
       const acord: AcordPris[] = acordRes.data || [];
+      const avstandList: AvstandConfig[] = (avstandRes.data || []).filter((a: any) => a.grundavstand_m != null && a.kr_per_100m != null);
 
       // Harvester production per (datum, maskin, objekt)
       type ProdAgg = { datum: string; maskin_id: string; objekt_id: string; volym: number; stammar: number };
@@ -172,13 +177,21 @@ export default function EkonomiClient() {
         prodMap[key].stammar += r.stammar || 0;
       }
 
-      // Forwarder lass per (datum, maskin, objekt) — volume from fakt_lass (FPR)
-      type LassAgg = { datum: string; maskin_id: string; objekt_id: string; volym: number };
+      // Forwarder lass per (datum, maskin, objekt) — volume + skotningsavstånd-tillägg
+      type LassAgg = { datum: string; maskin_id: string; objekt_id: string; volym: number; tillagg_skotningsavstand_kr: number };
       const lassMap: Record<string, LassAgg> = {};
       for (const r of lassRows) {
         const key = `${r.datum}|${r.maskin_id}|${r.objekt_id}`;
-        if (!lassMap[key]) lassMap[key] = { datum: r.datum, maskin_id: r.maskin_id, objekt_id: r.objekt_id, volym: 0 };
-        lassMap[key].volym += r.volym_m3sub || 0;
+        if (!lassMap[key]) lassMap[key] = { datum: r.datum, maskin_id: r.maskin_id, objekt_id: r.objekt_id, volym: 0, tillagg_skotningsavstand_kr: 0 };
+        const vol = r.volym_m3sub || 0;
+        lassMap[key].volym += vol;
+        // Skotningsavstånd: ceil(max(0, (dist - grund)/100)) × kr_per_100m × volym
+        const cfg = avstandList.find(c => isValidOn(r.datum, c.giltig_fran, c.giltig_till));
+        if (cfg) {
+          const dist = r.korstracka_m || 0;
+          const step = Math.max(0, Math.ceil((dist - cfg.grundavstand_m) / 100));
+          lassMap[key].tillagg_skotningsavstand_kr += step * cfg.kr_per_100m * vol;
+        }
       }
 
       // Day totals per machine for hour allocation
@@ -232,6 +245,7 @@ export default function EkonomiClient() {
         medelstam: number,
         maskin_typ: MaskinTypPart,
         dayMaskinVolTot: number,
+        extra_kr: number = 0,
       ): DagRad => {
         const obj = objMap[objekt_id];
         const maskin = maskinMap[maskin_id];
@@ -252,7 +266,7 @@ export default function EkonomiClient() {
           ? (maskin_typ === 'Harvester' ? (acordPris?.pris_skordare || 0) : (acordPris?.pris_skotare || 0))
           : 0;
 
-        const intakt = isSlut ? volym * pris_enhet : timpeng_belopp;
+        const intakt = isSlut ? (volym * pris_enhet + extra_kr) : timpeng_belopp;
         const diff = isSlut ? intakt - timpeng_belopp : 0;
 
         return {
@@ -287,7 +301,7 @@ export default function EkonomiClient() {
         .map(l => {
           const medelstam = objMedelstam[l.objekt_id] || 0.35; // fallback om ingen skördardata finns
           const dayTot = lassDayTot[`${l.datum}|${l.maskin_id}`] || 0;
-          return buildRow(l.datum, l.maskin_id, l.objekt_id, l.volym, medelstam, 'Forwarder', dayTot);
+          return buildRow(l.datum, l.maskin_id, l.objekt_id, l.volym, medelstam, 'Forwarder', dayTot, l.tillagg_skotningsavstand_kr);
         });
 
       const allRader: DagRad[] = [...harvRader, ...fwdRader].sort((a, b) => {
@@ -487,6 +501,7 @@ export default function EkonomiClient() {
           <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 12, padding: '0 4px', lineHeight: 1.5 }}>
             Slutavverkning: skördare använder <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>pris_skordare</code>,
             skotare använder <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>pris_skotare</code> — uppslag per närmaste medelstam.
+            Skotningsavstånds-tillägg beräknas automatiskt per lass: <em>ceil((korstracka − grundavstånd)/100) × kr/100m × volym</em>.
             Gallring räknas alltid som timpeng (ingen acord). Skotarens medelstam ärvs från objektets skördardata.
             Timmar fördelas per maskin &amp; dag proportionellt mot volym per objekt. Lönekostnad ej implementerad — kostnadssiffran använder timpeng som proxy.
           </div>
