@@ -1544,6 +1544,8 @@ export default function PlannerPage() {
   
   // Meny
   const [menuOpen, setMenuOpen] = useState(false);
+  // Plus-meny (bottom-sheet) — öppnas från plus-knappen nere höger
+  const [plusMenuOpen, setPlusMenuOpen] = useState(false);
   const [menuTab, setMenuTab] = useState('symbols'); // symbols, lines, zones, arrows, settings
   const [subMenu, setSubMenu] = useState<string | null>(null); // För meny-i-meny
   const [menuHeight, setMenuHeight] = useState(0); // 0 = stängd, 300 = öppen, 600 = full
@@ -7719,6 +7721,183 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* === PLUS-KNAPP (nere höger) === */}
+      {!briefingMode && (
+        <button
+          type="button"
+          onClick={() => setPlusMenuOpen(o => !o)}
+          aria-label={plusMenuOpen ? 'Stäng meny' : 'Öppna meny'}
+          aria-expanded={plusMenuOpen}
+          style={{
+            position: 'fixed',
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)',
+            right: '16px',
+            width: '56px',
+            height: '56px',
+            borderRadius: '50%',
+            background: 'rgba(20,20,22,0.72)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            color: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 6px 24px rgba(0,0,0,0.5)',
+            zIndex: 200,
+            transition: 'transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
+            transform: plusMenuOpen ? 'rotate(45deg)' : 'rotate(0deg)',
+          }}
+        >
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M12 5 L12 19" />
+            <path d="M5 12 L19 12" />
+          </svg>
+        </button>
+      )}
+
+      {/* === PLUS-MENY (bottom sheet) === */}
+      {plusMenuOpen && (
+        <>
+          {/* Backdrop */}
+          <div
+            onClick={() => setPlusMenuOpen(false)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.45)',
+              zIndex: 400,
+              animation: 'fadeIn 0.2s ease',
+            }}
+          />
+          {/* Sheet */}
+          <div style={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(20,20,22,0.92)',
+            backdropFilter: 'blur(30px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(30px) saturate(180%)',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            borderTop: '1px solid rgba(255,255,255,0.08)',
+            padding: '10px 16px calc(env(safe-area-inset-bottom, 10px) + 16px)',
+            zIndex: 450,
+            maxHeight: '80vh',
+            overflowY: 'auto',
+            animation: 'slideUp 0.28s cubic-bezier(0.32, 0.72, 0, 1)',
+            color: '#fff',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+          }}>
+            <style>{`
+              @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+              @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            `}</style>
+            {/* Drag handle */}
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0 10px' }}>
+              <div style={{ width: 40, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.25)' }} />
+            </div>
+            {[
+              {
+                title: 'VERKTYG',
+                items: [
+                  { label: 'Symboler', icon: 'category', action: () => { setActiveCategory('symbols'); setMenuOpen(true); } },
+                  { label: 'Linjer', icon: 'timeline', action: () => { setActiveCategory('lines'); setMenuOpen(true); } },
+                  { label: 'Zoner', icon: 'crop_square', action: () => { setActiveCategory('zones'); setMenuOpen(true); } },
+                  { label: 'Pilar', icon: 'arrow_outward', action: () => { setActiveCategory('arrows'); setMenuOpen(true); } },
+                  { label: 'Mätning', icon: 'straighten', action: () => { setActiveCategory('measure'); setMenuOpen(true); } },
+                  { label: 'Skotning', icon: 'local_shipping', action: () => { setActiveCategory('skotning'); setMenuOpen(true); } },
+                ],
+              },
+              {
+                title: 'INFORMATION',
+                items: [
+                  { label: 'Brandrisk', icon: 'local_fire_department', action: () => { setActiveCategory('brandrisk'); setMenuOpen(true); } },
+                  { label: 'Prognos', icon: 'cloud', action: () => { setActiveCategory('prognos'); setMenuOpen(true); } },
+                  { label: 'Gallring', icon: 'nature', action: () => { setActiveCategory('gallring'); setMenuOpen(true); } },
+                  { label: 'Info', icon: 'info', action: () => { setActiveCategory('info'); setMenuOpen(true); } },
+                ],
+              },
+              {
+                title: 'FLÖDEN',
+                items: [
+                  { label: 'Briefing', icon: 'menu_book', action: () => { setActiveCategory('briefing'); setMenuOpen(true); } },
+                  { label: 'Kvittering', icon: 'task_alt', action: () => { setActiveCategory('briefing-checklist'); setMenuOpen(true); } },
+                  { label: 'Checklista', icon: 'check_circle', action: () => { setChecklistOpen(true); } },
+                ],
+              },
+              {
+                title: 'ÖVRIGT',
+                items: [
+                  { label: 'Inställningar', icon: 'settings', action: () => { setActiveCategory('settings'); setMenuOpen(true); } },
+                  { label: 'Förslag', icon: 'lightbulb', action: () => { window.location.href = '/forbattringsforslag'; } },
+                  { label: 'Byt objekt', icon: 'swap_horiz', action: () => { setValtObjekt(null); } },
+                ],
+              },
+            ].map(group => (
+              <div key={group.title} style={{ marginTop: 12 }}>
+                <div style={{
+                  padding: '8px 12px 6px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'rgba(255,255,255,0.55)',
+                  letterSpacing: 1.2,
+                }}>
+                  {group.title}
+                </div>
+                <div style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  borderRadius: 14,
+                  overflow: 'hidden',
+                }}>
+                  {group.items.map((item, i) => (
+                    <button
+                      key={item.label}
+                      type="button"
+                      onClick={() => { item.action(); setPlusMenuOpen(false); }}
+                      style={{
+                        width: '100%',
+                        minHeight: 56,
+                        padding: '0 16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 14,
+                        background: 'transparent',
+                        border: 'none',
+                        borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                        color: '#fff',
+                        fontSize: 16,
+                        fontWeight: 500,
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <span
+                        className="material-symbols-outlined"
+                        aria-hidden="true"
+                        style={{
+                          fontSize: 26,
+                          color: 'rgba(255,255,255,0.85)',
+                          flexShrink: 0,
+                          width: 32,
+                          textAlign: 'center',
+                        }}
+                      >
+                        {item.icon}
+                      </span>
+                      <span style={{ flex: 1 }}>{item.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
       {/* === GEOFENCING MODAL === */}
       {geofencePrompt && (
         <div style={{
@@ -11113,7 +11292,9 @@ export default function PlannerPage() {
             alignItems: 'center',
             justifyContent: 'space-between',
           }}>
-            <div 
+            <button
+              type="button"
+              aria-label="Stäng"
               onClick={() => {
                 if (showCamera) {
                   setShowCamera(false);
@@ -11126,9 +11307,9 @@ export default function PlannerPage() {
                   }
                 } else if (subMenu) {
                   setSubMenu(null);
-                } else if (activeCategory) {
-                  setActiveCategory(null);
                 } else {
+                  // 3x3 grid borttagen — stäng helt oavsett activeCategory
+                  setActiveCategory(null);
                   setMenuOpen(false);
                   setMenuHeight(0);
                 }
@@ -11138,16 +11319,17 @@ export default function PlannerPage() {
                 height: '44px',
                 borderRadius: '50%',
                 background: 'transparent',
+                border: 'none',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 cursor: 'pointer',
                 color: '#fff',
-                opacity: 0.6,
+                opacity: 0.75,
               }}
             >
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                {activeCategory || showCamera || showColorPicker || subMenu ? (
+                {showCamera || showColorPicker || subMenu ? (
                   <path d="M15 18 L9 12 L15 6" />
                 ) : (
                   <>
@@ -11156,7 +11338,7 @@ export default function PlannerPage() {
                   </>
                 )}
               </svg>
-            </div>
+            </button>
             
             <div style={{ 
               fontSize: '16px', 
@@ -11191,8 +11373,8 @@ export default function PlannerPage() {
             color: '#fff',
           }}>
             
-            {/* === HUVUDMENY (3x3 grid) === */}
-            {!activeCategory && (<>
+            {/* === HUVUDMENY (3x3 grid) — ERSATT av plus-menyn, renderas aldrig === */}
+            {false && !activeCategory && (<>
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(3, 1fr)',
