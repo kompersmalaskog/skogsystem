@@ -4526,6 +4526,20 @@ export default function Arbetsrapport() {
                 const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
                 const helgNamn = rödaDagar[k] || '';
                 const harExtra = (extraDagData[datum]||[]).length > 0;
+                // Debug: logga bara dagar som har data (undvik skräp för tomma dagar).
+                // Martin kan öppna DevTools → Console för att verifiera mappningen.
+                const dagObj = dagData[k];
+                if (dagObj && typeof window !== 'undefined') {
+                  // eslint-disable-next-line no-console
+                  console.log(`[Kalenderprick] ${datum}`, {
+                    bekraftad: dagObj.bekraftad,
+                    dagtyp: dagObj.dagtyp,
+                    start_tid: dagObj.start_tid,
+                    slut_tid: dagObj.slut_tid,
+                    statusFärg: s,
+                    harExtra,
+                  });
+                }
 
                 return (
                   <div key={i}
