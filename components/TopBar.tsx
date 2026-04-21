@@ -40,6 +40,8 @@ export default function TopBar() {
   }, [])
 
   if (isHome) return null
+  // Planeringsvyn har egen minimal header (hem + objekt-pill + nödprick)
+  if (pathname === '/planering') return null
 
   return (
     <header style={{

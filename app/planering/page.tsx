@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useEffect, useCallback } from 'react'
+import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { createClient } from '@supabase/supabase-js'
 import ObjektValjare from './ObjektValjare'
@@ -7573,13 +7574,12 @@ export default function PlannerPage() {
 
   return (
     <div style={{
-      height: '100vh',
-      width: '100vw',
+      position: 'fixed',
+      inset: 0,
       background: colors.bg,
       fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
       color: colors.text,
       overflow: 'hidden',
-      position: 'relative',
       // Blockera textmarkering och kopiera-meny
       WebkitUserSelect: 'none',
       userSelect: 'none',
@@ -7587,63 +7587,99 @@ export default function PlannerPage() {
       WebkitTapHighlightColor: 'transparent',
     }}>
       
-      {/* === HEADER === */}
-      {!briefingMode && <div style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        padding: '50px 20px 12px',
-        background: 'linear-gradient(180deg, rgba(0,0,0,0.8) 0%, transparent 100%)',
-        zIndex: 100,
-      }}>
-        <div 
-          onClick={toggleTracking}
-          style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '12px',
-            cursor: 'pointer',
-          }}
-        >
-          <span style={{ 
-            fontSize: '20px', 
-            fontWeight: '600',
-            color: colors.text,
+      {/* === MINIMAL HEADER === */}
+      {!briefingMode && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          padding: 'calc(env(safe-area-inset-top, 0px) + 12px) 16px 12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          zIndex: 100,
+          pointerEvents: 'none',
+        }}>
+          {/* Hem-knapp */}
+          <Link
+            href="/"
+            aria-label="Hem"
+            style={{
+              pointerEvents: 'auto',
+              width: '44px',
+              height: '44px',
+              borderRadius: '22px',
+              background: 'rgba(20,20,22,0.72)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textDecoration: 'none',
+              flexShrink: 0,
+              border: '1px solid rgba(255,255,255,0.08)',
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 12 L12 3 L21 12" />
+              <path d="M5 10 L5 21 L19 21 L19 10" />
+            </svg>
+          </Link>
+
+          {/* Objekt-pill (glasig) */}
+          <div style={{
+            pointerEvents: 'auto',
+            flex: '0 1 auto',
+            maxWidth: 'calc(100% - 120px)',
+            padding: '10px 18px',
+            borderRadius: '22px',
+            background: 'rgba(20,20,22,0.72)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            color: '#fff',
+            fontSize: '15px',
+            fontWeight: 600,
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            letterSpacing: '-0.2px',
+            textAlign: 'center',
           }}>
             {valtObjekt?.namn || 'Inget objekt'}
-          </span>
-          <span style={{ fontSize: '14px', color: colors.textMuted }}>
-            {valtObjekt?.areal ? `${valtObjekt.areal} ha` : ''}
-          </span>
-          
-          {/* GPS-indikator - färg baserat på accuracy */}
-          <span style={{
-            width: '10px',
-            height: '10px',
-            borderRadius: '50%',
-            background: !isTracking ? colors.red : gpsAccuracy != null ? (gpsAccuracy < 5 ? '#22c55e' : gpsAccuracy <= 10 ? '#f59e0b' : '#ef4444') : colors.green,
-            boxShadow: isTracking ? `0 0 8px ${gpsAccuracy != null ? (gpsAccuracy < 5 ? 'rgba(34,197,94,0.6)' : gpsAccuracy <= 10 ? 'rgba(245,158,11,0.6)' : 'rgba(239,68,68,0.6)') : 'rgba(34,197,94,0.6)'}` : 'none',
-            animation: isTracking ? 'pulse 1.5s infinite' : 'none',
-          }} />
-          
-          {/* Körläge-indikator */}
-          {drivingMode && (
+          </div>
+
+          {/* Nödläge-prick (diskret, klickas i commit 5) */}
+          <button
+            type="button"
+            onClick={() => alert('Nödläge kommer snart')}
+            aria-label="Nödläge"
+            style={{
+              pointerEvents: 'auto',
+              width: '44px',
+              height: '44px',
+              background: 'transparent',
+              border: 'none',
+              padding: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+          >
             <span style={{
-              marginLeft: '8px',
-              padding: '4px 10px',
-              borderRadius: '8px',
-              background: 'rgba(34,197,94,0.3)',
-              border: '1px solid #22c55e',
-              color: '#22c55e',
-              fontSize: '13px',
-              fontWeight: '600',
-            }}>
-              🚜 KÖRLÄGE
-            </span>
-          )}
+              width: '12px',
+              height: '12px',
+              borderRadius: '50%',
+              background: '#ef4444',
+              boxShadow: '0 0 10px rgba(239,68,68,0.6)',
+            }} aria-hidden="true" />
+          </button>
         </div>
-      </div>}
+      )}
 
       {/* === MODE-BANNER (aktivt verktygsläge) === */}
       {!briefingMode && activeMode && (
