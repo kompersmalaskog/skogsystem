@@ -20,9 +20,9 @@ const OBJEKT_SELECT = `id, namn, vo_nummer, typ, atgard, status, volym, areal, l
   faktisk_slut, grot_status, grot_volym, grot_anteckning, grot_deadline, trakt_data`;
 
 const tabs: { id: TabId; label: string; icon: string }[] = [
-  { id: 'maskiner', label: 'Maskiner', icon: '⚙' },
-  { id: 'karta', label: 'Karta', icon: '◎' },
-  { id: 'grot', label: 'GROT', icon: '◆' },
+  { id: 'maskiner', label: 'Maskiner', icon: 'precision_manufacturing' },
+  { id: 'karta', label: 'Karta', icon: 'map' },
+  { id: 'grot', label: 'GROT', icon: 'forest' },
 ];
 
 // Aggregated production per objekt_id: { skordareVol, skotareVol }
@@ -166,21 +166,21 @@ export default function OversiktPage() {
           return (
             <button key={v.id} onClick={() => setActiveTab(v.id)}
               style={{
-                flex: 1, background: active ? 'rgba(255,255,255,0.06)' : 'none',
+                flex: 1, background: 'none',
                 border: 'none', cursor: 'pointer',
-                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                padding: '10px 0', minHeight: 52, fontFamily: ff,
-                borderRadius: '8px 8px 0 0',
-                borderBottom: active ? '2px solid rgba(255,255,255,0.5)' : '2px solid transparent',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
+                padding: '8px 0', minHeight: 52, fontFamily: ff,
                 transition: 'all 0.25s',
               }}>
-              <span style={{
-                fontSize: 18, lineHeight: 1,
+              <span className="material-symbols-outlined" style={{
+                fontSize: 24, lineHeight: 1,
                 color: active ? C.t1 : C.t3,
-                transition: 'color 0.25s',
+                fontVariationSettings: active ? "'FILL' 1, 'wght' 500" : "'FILL' 0, 'wght' 400",
+                transform: active ? 'scale(1.04)' : 'scale(1)',
+                transition: 'all 0.25s',
               }}>{v.icon}</span>
               <span style={{
-                fontSize: 12, fontWeight: 500, letterSpacing: '0.04em', textTransform: 'uppercase',
+                fontSize: 11, fontWeight: active ? 600 : 500, letterSpacing: '-0.01em',
                 color: active ? C.t1 : C.t3,
                 transition: 'color 0.25s',
               }}>{v.label}</span>

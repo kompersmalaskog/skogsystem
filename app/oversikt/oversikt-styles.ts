@@ -4,6 +4,7 @@ export const globalCss = `
   @keyframes pulse{0%,100%{opacity:.12;transform:scale(1)}50%{opacity:0;transform:scale(2.2)}}
   @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
   @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+  @keyframes ovk-check-fade{0%{opacity:0;transform:scale(0.6)}15%{opacity:1;transform:scale(1.1)}30%{transform:scale(1)}80%{opacity:1}100%{opacity:0}}
   *::-webkit-scrollbar{width:0}
 
   /* Card design — matched to UppfoljningVy */

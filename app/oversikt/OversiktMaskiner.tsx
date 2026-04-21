@@ -97,10 +97,10 @@ function SortableRow({
           {...listeners}
           style={{
             flexShrink: 0, padding: `${SP.sm}px ${SP.xs}px`,
-            color: C.t4, cursor: 'grab', touchAction: 'none',
+            color: C.t3, cursor: 'grab', touchAction: 'none',
           }}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
             <circle cx="9" cy="6" r="1.5" />
             <circle cx="15" cy="6" r="1.5" />
             <circle cx="9" cy="12" r="1.5" />
@@ -351,13 +351,17 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
                 <button
                   onClick={() => { setAddingTo(maskin.maskin_id); setSearchText(''); setMenuOpen(null); }}
                   style={{
-                    width: '100%', padding: `${SP.xl}px ${SP.xs}px`,
+                    width: '100%', padding: `${SP.lg}px ${SP.xs}px`,
                     background: 'none', border: 'none',
-                    borderBottom: `1px solid ${C.border}`, color: C.t4,
-                    ...T.body, fontWeight: 400,
+                    borderBottom: `1px solid ${C.border}`, color: C.t2,
+                    ...T.body, fontWeight: 500,
                     textAlign: 'left', cursor: 'pointer', fontFamily: ff,
+                    display: 'flex', alignItems: 'center', gap: SP.sm,
                   }}
-                >+ Lägg till objekt</button>
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 20, color: C.t3 }}>add_circle</span>
+                  Lägg till objekt
+                </button>
               </div>
             </div>
           );

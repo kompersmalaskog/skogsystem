@@ -373,7 +373,15 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
                     Spara
                   </button>
                   {savedMsg[obj.id] && (
-                    <span style={{ ...T.caption, color: C.green, fontWeight: 600 }}>Sparat!</span>
+                    <span
+                      className="material-symbols-outlined"
+                      style={{
+                        fontSize: 22, color: C.green,
+                        fontVariationSettings: "'FILL' 1, 'wght' 600",
+                        animation: 'ovk-check-fade 2s ease-out forwards',
+                      }}
+                      aria-label="Sparat"
+                    >check_circle</span>
                   )}
                 </div>
               </div>
