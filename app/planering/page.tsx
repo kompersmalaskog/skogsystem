@@ -7548,6 +7548,29 @@ export default function PlannerPage() {
     );
   }
 
+  // Aktivt verktygsläge (mode-banner). En mode i taget.
+  const activeMode: { label: string; onExit: () => void; exitLabel: string } | null =
+    isDrawMode ? {
+      label: drawType === 'boundary' ? 'Ritar traktgräns'
+        : drawType === 'trail' ? 'Ritar stig'
+        : drawType === 'mainRoad' ? 'Ritar huvudväg'
+        : drawType ? `Ritar ${drawType}` : 'Ritar linje',
+      onExit: finishLine,
+      exitLabel: 'Avsluta',
+    } : isZoneMode ? {
+      label: zoneType ? `Ritar zon · ${zoneType}` : 'Ritar zon',
+      onExit: finishZone,
+      exitLabel: 'Avsluta',
+    } : isArrowMode ? {
+      label: 'Placerar pil · tryck på kartan',
+      onExit: () => { setIsArrowMode(false); setArrowType(null); },
+      exitLabel: 'Avbryt',
+    } : isMeasuring ? {
+      label: 'Mäter · dra på kartan',
+      onExit: () => setIsMeasuring(false),
+      exitLabel: 'Avsluta',
+    } : null;
+
   return (
     <div style={{
       height: '100vh',
@@ -7622,15 +7645,54 @@ export default function PlannerPage() {
         </div>
       </div>}
 
+      {/* === MODE-BANNER (aktivt verktygsläge) === */}
+      {!briefingMode && activeMode && (
+        <div style={{
+          position: 'absolute', top: 90, left: 16, right: 16, zIndex: 101,
+          background: 'rgba(10,132,255,0.92)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          borderRadius: 14,
+          padding: '10px 10px 10px 18px',
+          display: 'flex', alignItems: 'center', gap: 12,
+          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          color: '#fff',
+        }}>
+          <span style={{ flex: 1, fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>
+            {activeMode.label}
+          </span>
+          <button
+            type="button"
+            onClick={activeMode.onExit}
+            aria-label={`${activeMode.exitLabel} verktygsläge`}
+            style={{
+              minHeight: 40,
+              padding: '8px 16px',
+              borderRadius: 10,
+              border: '1px solid rgba(255,255,255,0.35)',
+              background: 'rgba(255,255,255,0.18)',
+              color: '#fff',
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {activeMode.exitLabel}
+          </button>
+        </div>
+      )}
+
       {/* === KÖRSPÅRNING BANNER === */}
       {!briefingMode && (
         <div style={{
-          position: 'absolute', top: 90, left: 16, right: 16, zIndex: 99,
+          position: 'absolute', top: activeMode ? 154 : 90, left: 16, right: 16, zIndex: 99,
           background: korspårActive ? 'rgba(220,38,38,0.9)' : 'rgba(34,197,94,0.9)',
           backdropFilter: 'blur(10px)',
           borderRadius: 12, padding: '10px 16px',
           display: 'flex', alignItems: 'center', gap: 10,
           cursor: 'pointer', boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+          transition: 'top 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
         }} onClick={korspårActive ? stopKorspårning : startKorspårning}>
           {korspårActive && <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#fff', animation: 'pulse 1s infinite' }} />}
           <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: '#fff' }}>
