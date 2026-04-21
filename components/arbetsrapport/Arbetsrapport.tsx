@@ -4419,8 +4419,10 @@ export default function Arbetsrapport() {
       const dag=dagData[k];
       // Frånvaro/non-normal dagtyp tar prioritet så färgen syns direkt
       if (dag?.dagtyp && dag.dagtyp !== 'normal') return dag.dagtyp;
-      if(dag?.start_tid) return "ok";
-      if(dag) return "saknas";
+      // Vit prick = bekräftad dag (inte bara pass startat). Orange = obekräftad
+      // eller saknar data.
+      if (dag?.bekraftad) return "ok";
+      if (dag) return "saknas";
       if(rödaDagar[k]) return "röd";
       const date=new Date(kalÅr,kalMånad,d);
       const dow=date.getDay();

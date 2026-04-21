@@ -16,6 +16,7 @@ function datumFörDagarSedan(dagar: number) {
 }
 
 export async function GET(req: NextRequest) {
+  try {
   const url = new URL(req.url);
   const key = url.searchParams.get('key');
   if (key !== DEBUG_KEY) {
@@ -24,6 +25,7 @@ export async function GET(req: NextRequest) {
 
   const id = url.searchParams.get('id');
   const namn = url.searchParams.get('namn');
+  const hämtaFortnox = url.searchParams.get('fortnox') === '1';
   if (!id && !namn) {
     return NextResponse.json(
       { ok: false, error: 'Ange ?id=<uuid> eller ?namn=<del av namn>' },
@@ -31,10 +33,20 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  );
+  const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supaKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supaUrl || !supaKey) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'Saknar NEXT_PUBLIC_SUPABASE_URL eller SUPABASE_SERVICE_ROLE_KEY i env.',
+        har_url: !!supaUrl,
+        har_key: !!supaKey,
+      },
+      { status: 500 },
+    );
+  }
+  const supabase = createClient(supaUrl, supaKey);
 
   // Hämta medarbetaren — UUID eller namnmatchning
   const medQuery = supabase.from('medarbetare').select('id, namn, maskin_id');
@@ -161,11 +173,15 @@ export async function GET(req: NextRequest) {
   const ersMil = ersKm > 0 ? Math.ceil(ersKm / 10) : 0;
   const kmErsattningKr = Math.round(ersMil * kmPerMil * 100) / 100;
 
-  // Fortnox — försök live-anrop om employee-details är tillgängligt (ingen
-  // persistent cache finns ännu). Tolererar fel så endpointen fortfarande
-  // svarar om Fortnox är nere.
+  // Fortnox — opt-in via ?fortnox=1 eftersom det är ett cross-function-anrop
+  // som kan hänga. Default = skippas (undviker 500 vid Fortnox-nedgång).
+  // Ingen persistent cache finns ännu.
   let fortnox: any = null;
-  if (anstNr) {
+  if (!hämtaFortnox) {
+    fortnox = { hämtad: 'skippad', anstallningsnummer: anstNr };
+  } else if (!anstNr) {
+    fortnox = { hämtad: 'ingen_mappning' };
+  } else {
     try {
       const base = url.origin;
       const fnRes = await fetch(
@@ -191,8 +207,6 @@ export async function GET(req: NextRequest) {
     } catch (e: any) {
       fortnox = { hämtad: 'exception', meddelande: e.message || String(e) };
     }
-  } else {
-    fortnox = { hämtad: 'ingen_mappning' };
   }
 
   return NextResponse.json({
@@ -294,4 +308,14 @@ export async function GET(req: NextRequest) {
       : null,
     fortnox,
   });
+  } catch (e: any) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: e?.message || String(e),
+        stack: e?.stack ? String(e.stack).split('\n').slice(0, 8) : null,
+      },
+      { status: 500 },
+    );
+  }
 }
