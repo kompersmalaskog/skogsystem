@@ -491,7 +491,7 @@ export default function Arbetsrapport() {
   const [extra, setExtra]  = useState([]);
   const [start, setStart]  = useState("06:12");
   const [slut,  setSlut]   = useState("16:45");
-  const [rast,  setRast]   = useState(30);
+  const [rast,  setRast]   = useState(0);
   const [ändring,setÄ]     = useState(null);
   const [betald,setBetald] = useState(0);
   const [trak,  setTrak]   = useState<{summa:number}|null>(null);
@@ -513,7 +513,7 @@ export default function Arbetsrapport() {
   const [kvAvVäljer, setKvAvVäljer] = useState(false);
   const [redStart, setRedStart] = useState("06:00");
   const [redSlut,  setRedSlut]  = useState("16:00");
-  const [redRast,  setRedRast]  = useState(30);
+  const [redRast,  setRedRast]  = useState(0);
   const [redKm,    setRedKm]    = useState(0);
   const [redKmBerakning, setRedKmBerakning] = useState<number|null>(null);
   const [redKmChain, setRedKmChain] = useState<{fromLabel:string;toLabel:string;km:number;source:string}[]|null>(null);
@@ -546,7 +546,7 @@ export default function Arbetsrapport() {
   const [anledn,setAnledn]=useState("");
 
   // manuell dag
-  const [mStart,setMStart]=useState(()=>nuKlock5()),[mSlut,setMSlut]=useState(()=>nuKlock5()),[mRast,setMRast]=useState(30),[mBesk,setMBesk]=useState("");
+  const [mStart,setMStart]=useState(()=>nuKlock5()),[mSlut,setMSlut]=useState(()=>nuKlock5()),[mRast,setMRast]=useState(0),[mBesk,setMBesk]=useState("");
 
   // historik redigering
   const [redDag,setRedDag]=useState(null);
@@ -1080,6 +1080,48 @@ export default function Arbetsrapport() {
     </div>
   );
 
+  // Global timer-banner — visas så länge en extra tid-timer är aktiv, oavsett vy.
+  // Placeras av varje vys returnerade JSX genom `{timerBanner}`.
+  const aktivTimer = pagaendeAktiviteter[0];
+  const stoppaAktivTimer = async () => {
+    if (!aktivTimer) return;
+    const nuT = nuKlock() + ":00";
+    const min = minutDiff(aktivTimer.start_tid, nuT);
+    const { data } = await supabase.from("extra_tid").update({ slut_tid: nuT, minuter: min }).eq("id", aktivTimer.id).select().single();
+    const uppdaterad = data || { ...aktivTimer, slut_tid: nuT, minuter: min };
+    setPagaendeAktiviteter(arr => arr.filter(x => x.id !== aktivTimer.id));
+    setExtraTidData(arr => arr.map(x => x.id === aktivTimer.id ? uppdaterad : x));
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
+    setKvAvTyp(uppdaterad.aktivitet_typ || null);
+    setKvAvObj(uppdaterad.objekt_id ? objektLista.find(o => o.id === uppdaterad.objekt_id) || null : null);
+    setKvAvDeb(!!uppdaterad.debiterbar);
+    setKvAvBesk(uppdaterad.kommentar || "");
+    setEfterStoppSheet(uppdaterad);
+  };
+  const timerBanner = aktivTimer ? (
+    <div style={{
+      position:"fixed", top:56, left:0, right:0, height:44,
+      background:"rgba(30,10,10,0.92)",
+      borderBottom:"1px solid rgba(255,69,58,0.4)",
+      backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)",
+      zIndex:900, display:"flex", alignItems:"center",
+      padding:"0 14px", gap:10,
+      fontFamily:"'Inter',-apple-system,sans-serif",
+    }}>
+      <div style={{ width:8,height:8,borderRadius:"50%",background:"#ff453a",boxShadow:"0 0 8px #ff453a",animation:"pulseDot 2s infinite",flexShrink:0 }} />
+      <span style={{ fontSize:13,fontWeight:600,color:"#fff",flexShrink:0 }}>
+        Tidlogg pågår {(aktivTimer.start_tid||'').slice(0,5)}
+      </span>
+      <span style={{ fontSize:14,fontWeight:700,color:"#fff",fontVariantNumeric:"tabular-nums",marginLeft:"auto",marginRight:8,flexShrink:0 }}>
+        {fmtHMS(sekDiff(aktivTimer.start_tid))}
+      </span>
+      <button onClick={stoppaAktivTimer}
+        style={{ background:"#ff453a",color:"#fff",border:"none",borderRadius:8,padding:"6px 14px",fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"inherit",flexShrink:0 }}>
+        Stoppa
+      </button>
+    </div>
+  ) : null;
+
   if(steg==="extraTid") return (
     <ExtraTidSkärm
       initial={extra[0]||null}
@@ -1139,7 +1181,7 @@ export default function Arbetsrapport() {
 
   if(steg==="valjAktivitet") return (
     <div style={shell}>
-      <style>{css}</style>
+      <style>{css}</style>{timerBanner}
       <div style={topBar}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
           <BackBtn onClick={()=>{setValjAktivitet(null);setSteg(valjAktivitet?.kalla==='kvall'?"kväll":"morgon");}}/>
@@ -1181,7 +1223,7 @@ export default function Arbetsrapport() {
   /* ─── BEKRÄFTA AKTIVITET (för "Annat" eller manuell ändring) ─── */
   if(steg==="bekraftaAktivitet" && valdAkt) {
     if(aktVisaObjekt) return (
-      <div style={shell}><style>{css}</style>
+      <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setAktVisaObjekt(false)}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Välj objekt</h1></div></div>
         <div style={{ flex:1,paddingTop:16,overflowY:"auto" }}>
           {objektLista.map(o=>(
@@ -1196,7 +1238,7 @@ export default function Arbetsrapport() {
     const klart = valdAkt.typ !== 'annat' || aktAnnatText.trim().length > 0;
     return (
       <div style={shell}>
-        <style>{css}</style>
+        <style>{css}</style>{timerBanner}
         <div style={topBar}>
           <div style={{ display:"flex",alignItems:"center",gap:14 }}>
             <BackBtn onClick={()=>{setValdAkt(null);setSteg("valjAktivitet");}}/>
@@ -1311,7 +1353,7 @@ export default function Arbetsrapport() {
     const datLabel = `${["sön","mån","tis","ons","tor","fre","lör"][datDate.getDay()]} ${datDate.getDate()} ${["jan","feb","mar","apr","maj","jun","jul","aug","sep","okt","nov","dec"][datDate.getMonth()]}`;
     return (
       <div style={shell}>
-        <style>{css}</style>
+        <style>{css}</style>{timerBanner}
         <div style={topBar}>
           <div style={{ display:"flex",alignItems:"center",gap:14 }}>
             <BackBtn onClick={()=>{setTidslinjeDatum(null);setSteg("kalender");}}/>
@@ -1360,7 +1402,7 @@ export default function Arbetsrapport() {
   /* ─── HEM (morgon/dag/meny unified) ─── */
   if(steg==="morgon"||steg==="dag"||steg==="meny") return (
     <div style={{ minHeight:"100vh",background:"#000",color:"#e5e2e0",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
-      <style>{css}</style>
+      <style>{css}</style>{timerBanner}
 
       {/* Top bar */}
       <header style={{ position:"fixed",top:0,width:"100%",height:64,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",zIndex:50,display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",boxSizing:"border-box" }}>
@@ -1374,7 +1416,7 @@ export default function Arbetsrapport() {
         {igårObekräftad&&(
           <div onClick={()=>{
             const d=dagData[igårKey];
-            setStart(d.start_tid||"06:00");setSlut(d.slut_tid||"16:00");setRast(d.rast_min||30);
+            setStart(d.start_tid||"06:00");setSlut(d.slut_tid||"16:00");setRast(d.rast_min||0);
             setSteg("morgon");
           }} style={{ background:"rgba(255,159,10,0.06)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",animation:"fadeUp 0.3s ease" }}>
             <div style={{ display:"flex",alignItems:"center",gap:10 }}>
@@ -1414,38 +1456,9 @@ export default function Arbetsrapport() {
           return null;
         })}
 
-        {/* Pågående extra-aktiviteter — stora kort med live-timer */}
-        {pagaendeAktiviteter.map(p => (
-          <div key={p.id} style={{ background:"rgba(255,69,58,0.08)",border:"1px solid rgba(255,69,58,0.25)",borderRadius:16,padding:"20px 20px 18px",marginBottom:14,animation:"fadeUp 0.3s ease" }}>
-            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:16 }}>
-              <div style={{ width:10,height:10,borderRadius:"50%",background:"#ff453a",boxShadow:"0 0 8px #ff453a",animation:"pulseDot 2s infinite" }} />
-              <span style={{ fontSize:16,fontWeight:700,color:"#fff" }}>Pågående: {p.aktivitet_text || aktLabel(p.aktivitet_typ)}</span>
-            </div>
-            <p style={{ margin:"0 0 4px",fontSize:14,color:C.label }}>Startad {(p.start_tid||'').slice(0,5)}</p>
-            <p style={{ margin:"0 0 16px",fontSize:32,fontWeight:700,color:"#fff",fontVariantNumeric:"tabular-nums",letterSpacing:"-0.01em" }}>⏱ {fmtHMS(sekDiff(p.start_tid))}</p>
-            <button onClick={async ()=>{
-              // Stoppa direkt: sätt slut_tid + minuter, ta bort från pågående, öppna detalj-sheet
-              const nuT = nuKlock() + ":00";
-              const min = minutDiff(p.start_tid, nuT);
-              const { data } = await supabase.from("extra_tid").update({ slut_tid: nuT, minuter: min }).eq("id", p.id).select().single();
-              const uppdaterad = data || { ...p, slut_tid: nuT, minuter: min };
-              setPagaendeAktiviteter(arr => arr.filter(x => x.id !== p.id));
-              setExtraTidData(arr => arr.map(x => x.id === p.id ? uppdaterad : x));
-              if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
-              // Förifyll detalj-sheet med befintliga värden (om några) + öppna det
-              setKvAvTyp(uppdaterad.aktivitet_typ || null);
-              setKvAvObj(uppdaterad.objekt_id ? objektLista.find(o => o.id === uppdaterad.objekt_id) || null : null);
-              setKvAvDeb(!!uppdaterad.debiterbar);
-              setKvAvBesk(uppdaterad.kommentar || "");
-              setEfterStoppSheet(uppdaterad);
-            }}
-              style={{ width:"100%",padding:"16px",background:"#ff453a",border:"none",borderRadius:12,color:"#fff",fontSize:16,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
-              Stoppa
-            </button>
-          </div>
-        ))}
+        {/* Pågående extra-aktiviteter visas nu via global banner ovanför — se timerBanner */}
 
-        {/* Starta extra tid — visas i alla lägen utom när en timer redan pågår
+        {/* Logga tid — visas i alla lägen utom när en timer redan pågår
             eller dagen är bekräftad. Täcker morgon före MOM, under pass och
             kvällsarbete efter pass (t.ex. köra hem, hämta reservdelar). */}
         {!dagData[idagKey]?.bekraftad && pagaendeAktiviteter.length===0 && (
@@ -1467,7 +1480,7 @@ export default function Arbetsrapport() {
           }}
             style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",padding:"10px 16px",background:"#0a84ff",border:"none",borderRadius:10,color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
             <span className="material-symbols-outlined" style={{ fontSize:18 }}>play_arrow</span>
-            Starta extra tid
+            Logga tid
           </button>
         )}
 
@@ -2170,37 +2183,7 @@ export default function Arbetsrapport() {
         </div>
       )}
 
-      {/* Timer-fullskärm: aktiv pågående-timer tar över hela vyn */}
-      {pagaendeAktiviteter.length > 0 && !efterStoppSheet && (()=>{
-        const p = pagaendeAktiviteter[0];
-        const label = p.aktivitet_typ ? aktLabel(p.aktivitet_typ) : 'Extra';
-        return (
-          <div style={{ position:"fixed",inset:0,background:"#000",zIndex:1400,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px" }}>
-            <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
-              <div style={{ width:10,height:10,borderRadius:"50%",background:"#ff453a",boxShadow:"0 0 10px #ff453a",animation:"pulseDot 2s infinite" }} />
-              <p style={{ margin:0,fontSize:17,fontWeight:600,color:"#fff" }}>Pågående: {label}</p>
-            </div>
-            <p style={{ margin:"0 0 32px",fontSize:14,color:"rgba(255,255,255,0.55)" }}>Startad {(p.start_tid||'').slice(0,5)}</p>
-            <p style={{ margin:"0 0 48px",fontSize:72,fontWeight:700,color:"#fff",fontVariantNumeric:"tabular-nums",letterSpacing:"-0.02em",lineHeight:1 }}>{fmtHMS(sekDiff(p.start_tid))}</p>
-            <button onClick={async ()=>{
-              const nuT = nuKlock() + ":00";
-              const min = minutDiff(p.start_tid, nuT);
-              const { data } = await supabase.from("extra_tid").update({ slut_tid: nuT, minuter: min }).eq("id", p.id).select().single();
-              const uppdaterad = data || { ...p, slut_tid: nuT, minuter: min };
-              setPagaendeAktiviteter(arr => arr.filter(x => x.id !== p.id));
-              setExtraTidData(arr => arr.map(x => x.id === p.id ? uppdaterad : x));
-              if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(120);
-              setKvAvTyp(uppdaterad.aktivitet_typ || null);
-              setKvAvObj(uppdaterad.objekt_id ? objektLista.find(o => o.id === uppdaterad.objekt_id) || null : null);
-              setKvAvDeb(!!uppdaterad.debiterbar);
-              setKvAvBesk(uppdaterad.kommentar || "");
-              setEfterStoppSheet(uppdaterad);
-            }} style={{ width:"min(90%,360px)",padding:"22px",background:"#ff453a",border:"none",borderRadius:16,color:"#fff",fontSize:19,fontWeight:700,cursor:"pointer",fontFamily:"inherit",boxShadow:"0 8px 32px rgba(255,69,58,0.35)" }}>
-              Stoppa
-            </button>
-          </div>
-        );
-      })()}
+      {/* Timer visas nu som kompakt banner överst — se timerBanner */}
 
       {bekräftelseVisa && (
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:2000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
@@ -2224,7 +2207,7 @@ export default function Arbetsrapport() {
     ];
 
     if(avVäljer) return (
-      <div style={shell}><style>{css}</style>
+      <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setAvVäljer(false)}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Välj objekt</h1></div></div>
         <div style={{ flex:1,paddingTop:16 }}>
           {objektLista.map(o=>(
@@ -2238,7 +2221,7 @@ export default function Arbetsrapport() {
     );
 
     return (
-      <div style={shell}><style>{css}</style>
+      <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}>
           <h1 style={{ margin:"0 0 6px",fontSize:26,fontWeight:700 }}>{hälsning()}, {förnamn}</h1>
           <p style={{ margin:0,fontSize:15,color:C.label }}>Du loggade in på maskinen</p>
@@ -2435,7 +2418,7 @@ export default function Arbetsrapport() {
 
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",paddingBottom:120 }}>
-        <style>{css}</style>
+        <style>{css}</style>{timerBanner}
         <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",flexDirection:"column",padding:"0 24px",paddingTop:16 }}>
           <h1 style={{ margin:"0 0 12px",fontSize:20,fontWeight:700,color:"#fff" }}>Min tid</h1>
           <div style={{ display:"flex",gap:0,background:"rgba(255,255,255,0.06)",borderRadius:8,padding:2,marginBottom:12,overflowX:"auto" }}>
@@ -3205,7 +3188,7 @@ export default function Arbetsrapport() {
       const månNamn = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
       return (
         <div style={{ minHeight:"100vh",background:"#131313",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased" }}>
-          <style>{css}</style>
+          <style>{css}</style>{timerBanner}
           <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(19,19,19,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
             <button onClick={()=>setLönVy('översikt')} style={{ background:"none",border:"none",cursor:"pointer",padding:"8px 12px 8px 8px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4 }}>
               <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>chevron_left</span>
@@ -3379,7 +3362,7 @@ export default function Arbetsrapport() {
     // ─── ÖVERSIKT-VY ───
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
-        <style>{css}</style>
+        <style>{css}</style>{timerBanner}
 
         {/* Header */}
         <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",height:64 }}>
@@ -3466,7 +3449,7 @@ export default function Arbetsrapport() {
       if(field==='bt'&&val&&val!==btBil){setBtBil(val);setSparatToast(true);setTimeout(()=>setSparatToast(false),2000);}
     };
     return (
-    <div style={shell}><style>{css}</style>
+    <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
           <BackBtn onClick={()=>setSteg("morgon")}/>
@@ -3666,7 +3649,7 @@ export default function Arbetsrapport() {
 
   /* ─── MITT AVTAL ─── */
   if(steg==="avtal") return (
-    <div style={shell}><style>{css}</style>
+    <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
           <BackBtn onClick={()=>setSteg("inst")}/>
@@ -3765,7 +3748,7 @@ export default function Arbetsrapport() {
 
   /* ─── FRÅNVARO ─── */
   if(steg==="bekräftaFrånvaro") return (
-    <div style={shell}><style>{css}</style>
+    <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}><p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p></div>
       <div style={mid}>
         <div style={{ width:80,height:80,borderRadius:24,background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:28,animation:"scalePop 0.4s ease" }}>
@@ -3793,7 +3776,7 @@ export default function Arbetsrapport() {
   );
 
   if(steg==="klarFrånvaro") return (
-    <div style={shell}><style>{css}</style>
+    <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}><p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p></div>
       <div style={mid}>
         <div style={{ animation:"scalePop 0.4s ease",marginBottom:28 }}><CheckCircle/></div>
@@ -3809,7 +3792,7 @@ export default function Arbetsrapport() {
     const titlar: Record<string,string>={service:"Service",utbildning:"Utbildning",annat:"Annat arbete",möte:"Möte"};
     const platsh={service:"Kommentar",utbildning:"Kommentar",annat:"Kommentar"};
     return (
-      <div style={shell}><style>{css}</style>
+      <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("morgon")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>{titlar[dagTyp]}</h1></div></div>
         <div style={{ flex:1,paddingTop:20,overflowY:"auto" }}>
           <div style={{ marginBottom:24 }}>
@@ -3837,7 +3820,7 @@ export default function Arbetsrapport() {
     };
     const statusText = dagTypVisa[dagTyp] || 'Arbetsdag startad';
     return (
-    <div style={shell}><style>{css}</style>
+    <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}>
         <p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p>
       </div>
@@ -3860,7 +3843,7 @@ export default function Arbetsrapport() {
   }
 
   if(steg==="manuellKväll") return (
-    <div style={shell}><style>{css}</style>
+    <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("manuellPågår")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Avsluta dagen</h1></div></div>
       <div style={{ flex:1,paddingTop:20,overflowY:"auto" }}>
         <Card style={{ marginBottom:24 }}><p style={{ margin:0,fontSize:14,color:C.label }}>Startade</p><p style={{ margin:"4px 0 0",fontSize:20,fontWeight:600 }}>{start}</p></Card>
@@ -3883,7 +3866,7 @@ export default function Arbetsrapport() {
     const harÄndrat = redStart!==(redDag.start||"00:00")||redSlut!==(redDag.slut||"00:00")||redRast!==(redDag.rast||0)||redKm!==(redDag.km||0)||(redObjektId&&redObjektId!==(redDag.objekt_id||null));
 
     if(redVy==="tid") return (
-      <div style={shell}><style>{css}</style>
+      <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Ändra arbetstid</h1></div></div>
         <div style={{ flex:1,overflowY:"auto",paddingTop:24 }}>
 
@@ -3917,7 +3900,7 @@ export default function Arbetsrapport() {
     );
 
     if(redVy==="km") return (
-      <div style={shell}><style>{css}</style>
+      <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Ändra körning</h1></div></div>
         <div style={{ flex:1,paddingTop:20 }}>
           <KmPicker value={redKm} onChange={setRedKm} label="Totalt"/>
@@ -3943,7 +3926,7 @@ export default function Arbetsrapport() {
     const sparadRed: {start:string;slut:string;rast:number;km:number;anl:string} | undefined = redDagar[redDag.datum];
 
     if(sparadRed && redVy==="översikt") return (
-      <div style={shell}><style>{css}</style>
+      <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}>
           <div style={{ display:"flex",alignItems:"center",gap:14 }}>
             <BackBtn onClick={()=>setSteg("kalender")}/>
@@ -3998,7 +3981,7 @@ export default function Arbetsrapport() {
     );
 
     return (
-      <div style={shell}><style>{css}</style>
+      <div style={shell}><style>{css}</style>{timerBanner}
         <div style={topBar}>
           <div style={{ display:"flex",alignItems:"center",gap:14 }}>
             <BackBtn onClick={()=>setSteg("kalender")}/>
@@ -4336,7 +4319,7 @@ export default function Arbetsrapport() {
 
     return (
       <div style={{ minHeight:"100vh",background:"#000",color:"#e2e2e2",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased",display:"flex",flexDirection:"column" }}>
-        <style>{css}</style>
+        <style>{css}</style>{timerBanner}
 
         {/* Header — sticky nav with month + arrows */}
         <header style={{ position:"sticky",top:0,background:"#131313",zIndex:50,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 24px",height:64 }}>
@@ -4517,7 +4500,7 @@ export default function Arbetsrapport() {
   /* ─── MÅNADSSAMMANFATTNING ─── */
   /* ─── KLAR ─── */
   if(steg==="klar") return (
-    <div style={shell}><style>{css}</style>
+    <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}><p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p></div>
       <div style={mid}>
         <div style={{ animation:"scalePop 0.5s ease",marginBottom:32 }}><CheckCircle size={88}/></div>
