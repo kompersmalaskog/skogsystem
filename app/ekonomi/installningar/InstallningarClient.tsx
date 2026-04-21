@@ -20,7 +20,7 @@ type TerrangRad = {
   id?: string; namn: string; tillagg_kr_per_m3fub: Num;
   giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
 };
-type SortRad = { id?: string; antal_fran: Num; antal_till: Num; tillagg_kr_per_m3fub: Num; giltig_fran: string | null };
+type SortConfig = { id?: string; grundantal: Num; kr_per_extra_sortiment: Num; giltig_fran: string | null };
 type FlyttRad = { id?: string; km_fran: Num; km_till: Num; fast_kr: Num; timpris_trailer_kr: Num; beskrivning: string; giltig_fran: string | null };
 type OvrigtRad = {
   id?: string; nyckel: string; beskrivning: string; varde: Num; enhet: string;
@@ -55,7 +55,7 @@ export default function InstallningarClient() {
   const [avstand, setAvstand] = useState<AvstandConfig>({ grundavstand_m: '', kr_per_100m: '', giltig_fran: null });
   const [trakt, setTrakt] = useState<TraktRad[]>([]);
   const [terrang, setTerrang] = useState<TerrangRad[]>([]);
-  const [sortiment, setSortiment] = useState<SortRad[]>([]);
+  const [sortiment, setSortiment] = useState<SortConfig>({ grundantal: '', kr_per_extra_sortiment: '', giltig_fran: null });
   const [flytt, setFlytt] = useState<FlyttRad[]>([]);
   const [ovrigt, setOvrigt] = useState<OvrigtRad[]>([]);
 
@@ -81,7 +81,7 @@ export default function InstallningarClient() {
       supabase.from('acord_skotningsavstand').select('id, grundavstand_m, kr_per_100m, giltig_fran, giltig_till').is('giltig_till', null).not('grundavstand_m', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_traktstorlek').select('id, fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
       supabase.from('acord_terrang').select('id, namn, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('namn'),
-      supabase.from('acord_sortiment_tillagg').select('id, antal_fran, antal_till, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('antal_fran'),
+      supabase.from('acord_sortiment_tillagg').select('id, grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
       supabase.from('acord_flyttkostnad').select('id, km_fran, km_till, fast_kr, timpris_trailer_kr, beskrivning, giltig_fran, giltig_till').is('giltig_till', null).order('km_fran'),
       supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
     ]);
@@ -93,7 +93,10 @@ export default function InstallningarClient() {
       : { grundavstand_m: 200, kr_per_100m: 4, giltig_fran: null });
     setTrakt((trRes.data || []).map((a: any) => ({ id: a.id, fran_m3fub: a.fran_m3fub, till_m3fub: a.till_m3fub ?? '', tillagg_kr_per_m3fub: a.tillagg_kr_per_m3fub, giltig_fran: a.giltig_fran })));
     setTerrang((teRes.data || []).map((a: any) => ({ id: a.id, namn: a.namn || '', tillagg_kr_per_m3fub: a.tillagg_kr_per_m3fub, giltig_fran: a.giltig_fran })));
-    setSortiment((soRes.data || []).map((a: any) => ({ id: a.id, antal_fran: a.antal_fran, antal_till: a.antal_till ?? '', tillagg_kr_per_m3fub: a.tillagg_kr_per_m3fub, giltig_fran: a.giltig_fran })));
+    const soRow = (soRes.data || [])[0];
+    setSortiment(soRow
+      ? { id: soRow.id, grundantal: soRow.grundantal, kr_per_extra_sortiment: soRow.kr_per_extra_sortiment, giltig_fran: soRow.giltig_fran }
+      : { grundantal: 6, kr_per_extra_sortiment: 2, giltig_fran: null });
     setFlytt((flRes.data || []).map((a: any) => ({ id: a.id, km_fran: a.km_fran, km_till: a.km_till ?? '', fast_kr: a.fast_kr ?? '', timpris_trailer_kr: a.timpris_trailer_kr ?? '', beskrivning: a.beskrivning || '', giltig_fran: a.giltig_fran })));
     setOvrigt((ovRes.data || []).map((a: any) => ({ id: a.id, nyckel: a.nyckel, beskrivning: a.beskrivning || '', varde: a.varde, enhet: a.enhet || '', giltig_fran: a.giltig_fran })));
     setLoading(false);
@@ -217,20 +220,26 @@ export default function InstallningarClient() {
     await fetchData();
   };
 
-  // ── Sortiment ──
-  const updateSort = (idx: number, p: Partial<SortRad>) => setSortiment(prev => prev.map((a, i) => i === idx ? { ...a, ...p } : a));
-  const removeSort = (idx: number) => setSortiment(prev => prev.filter((_, i) => i !== idx));
-  const addSort = () => setSortiment(prev => [...prev, { antal_fran: '', antal_till: '', tillagg_kr_per_m3fub: '', giltig_fran: null }]);
-  const saveAllSort = async () => {
-    for (const r of sortiment) {
-      if (r.antal_fran === '' || r.tillagg_kr_per_m3fub === '') { flashMsg('Sortiment: antal och tillägg måste fyllas i'); return; }
+  // ── Sortiment (formel-config, en rad) ──
+  const updateSort = (p: Partial<SortConfig>) => setSortiment(prev => ({ ...prev, ...p }));
+  const saveSort = async () => {
+    if (sortiment.grundantal === '' || sortiment.kr_per_extra_sortiment === '') {
+      flashMsg('Fyll i grundantal och tillägg'); return;
     }
     setSavingSort(true);
-    const err = await saveAllBracket('acord_sortiment_tillagg', sortiment, r => ({
-      antal_fran: Number(r.antal_fran), antal_till: numOrNull(r.antal_till), tillagg_kr_per_m3fub: Number(r.tillagg_kr_per_m3fub),
-    }));
+    const today = todayIso(), yest = yesterdayIso();
+    const { error: endErr } = await supabase.from('acord_sortiment_tillagg')
+      .update({ giltig_till: yest })
+      .is('giltig_till', null)
+      .not('grundantal', 'is', null);
+    if (endErr) { setSavingSort(false); flashMsg(`Fel: ${endErr.message}`); return; }
+    const { error: insErr } = await supabase.from('acord_sortiment_tillagg').insert({
+      grundantal: Number(sortiment.grundantal),
+      kr_per_extra_sortiment: Number(sortiment.kr_per_extra_sortiment),
+      giltig_fran: today, giltig_till: null,
+    });
     setSavingSort(false);
-    if (err) { flashMsg(`Fel: ${err.message}`); return; }
+    if (insErr) { flashMsg(`Fel: ${insErr.message}`); return; }
     flashMsg('Sortiment sparat');
     await fetchData();
   };
@@ -492,32 +501,50 @@ export default function InstallningarClient() {
           </div>
           <button style={s.btnGhost as CSSProperties} onClick={addTerrang}>+ Lägg till terräng-kategori</button>
 
-          {/* 6. Sortiment */}
-          <div style={s.sectionTitle as CSSProperties}>Sortiment (antal sortiment)</div>
-          <div style={s.sectionBlurb as CSSProperties}>Tillägg per m³fub baserat på antal sortiment på objektet.</div>
-          <div style={{ ...s.card, padding: '4px 14px 14px' } as CSSProperties}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead><tr>
-                <th style={s.th as CSSProperties}>Antal från</th>
-                <th style={s.th as CSSProperties}>Antal till — tom = ∞</th>
-                <th style={{ ...s.th, textAlign: 'right' } as CSSProperties}>Tillägg kr/m³fub</th>
-                <th style={s.th as CSSProperties}></th>
-              </tr></thead>
-              <tbody>
-                {sortiment.map((r, idx) => (
-                  <tr key={r.id || `ny-${idx}`}>
-                    <td style={s.tdCell}><NumInput value={r.antal_fran} onChange={v => updateSort(idx, { antal_fran: v })} /></td>
-                    <td style={s.tdCell}><NumInput value={r.antal_till} onChange={v => updateSort(idx, { antal_till: v })} /></td>
-                    <td style={s.tdCell}><NumInput value={r.tillagg_kr_per_m3fub} onChange={v => updateSort(idx, { tillagg_kr_per_m3fub: v })} step="0.01" /></td>
-                    <td style={{ padding: '6px 0', textAlign: 'right' }}><button style={s.btnRemove as CSSProperties} onClick={() => removeSort(idx)}>×</button></td>
-                  </tr>
-                ))}
-                {sortiment.length === 0 && <tr><td colSpan={4} style={{ color: '#7a7a72', fontSize: 12, padding: '12px 6px', textAlign: 'center' }}>Inga rader.</td></tr>}
-              </tbody>
-            </table>
+          {/* 6. Sortiment — formel-config */}
+          <div style={s.sectionTitle as CSSProperties}>Sortiment</div>
+          <div style={s.sectionBlurb as CSSProperties}>Tillägg per m³fub: (antal sortiment − grundantal) × kr/m³fub.</div>
+          <div style={s.card}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'end' }}>
+              <div>
+                <div style={{ fontSize: 11, color: '#7a7a72', fontWeight: 600, marginBottom: 4, letterSpacing: 0.3 }}>Grundantal sortiment</div>
+                <NumInput value={sortiment.grundantal} onChange={v => updateSort({ grundantal: v })} placeholder="6" />
+                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 4 }}>Under detta antal: inget tillägg.</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: '#7a7a72', fontWeight: 600, marginBottom: 4, letterSpacing: 0.3 }}>Tillägg per extra sortiment</div>
+                <NumInput value={sortiment.kr_per_extra_sortiment} onChange={v => updateSort({ kr_per_extra_sortiment: v })} step="0.01" placeholder="2" />
+                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 4 }}>kr/m³fub</div>
+              </div>
+              <button
+                style={{ ...s.btnDark, opacity: savingSort ? 0.6 : 1 } as CSSProperties}
+                disabled={savingSort}
+                onClick={saveSort}>
+                {savingSort ? 'Sparar...' : 'Spara'}
+              </button>
+            </div>
+            <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+              {datePillFor(sortiment.giltig_fran)}
+            </div>
+            {sortiment.grundantal !== '' && sortiment.kr_per_extra_sortiment !== '' && (
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 6 }}>Exempel</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))', gap: 6, fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#bfcab9' }}>
+                  {[6, 7, 8, 9, 10, 12].map(n => {
+                    const g = Number(sortiment.grundantal), k = Number(sortiment.kr_per_extra_sortiment);
+                    const extra = Math.max(0, n - g);
+                    const kr = extra * k;
+                    return (
+                      <div key={n} style={{ background: 'rgba(255,255,255,0.03)', padding: '6px 10px', borderRadius: 8 }}>
+                        <span style={{ color: '#7a7a72' }}>{n} st</span>
+                        <span style={{ marginLeft: 8, color: kr === 0 ? '#7a7a72' : '#e8e8e4' }}>+{kr.toFixed(kr === Math.floor(kr) ? 0 : 2)} kr</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
-          <button style={s.btnGhost as CSSProperties} onClick={addSort}>+ Lägg till sortiment-rad</button>
-          {saveAllFooter(sortiment, savingSort, saveAllSort)}
 
           {/* 7. Flyttkostnad */}
           <div style={s.sectionTitle as CSSProperties}>Flyttkostnad</div>
