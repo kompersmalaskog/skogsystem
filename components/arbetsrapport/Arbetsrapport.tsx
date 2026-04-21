@@ -4506,36 +4506,36 @@ export default function Arbetsrapport() {
                 const s=statusFärg(d);
                 const isToday=d===nuDat.getDate()&&kalMånad===nuDat.getMonth()&&kalÅr===nuDat.getFullYear();
                 const k=dagKey(d);
-                const klickbar=s==="ok"||s==="saknas";
                 const datum=`${kalÅr}-${String(kalMånad+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
                 const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
                 const helgNamn = rödaDagar[k] || '';
                 const harExtra = (extraDagData[datum]||[]).length > 0;
-                const klickbarMedExtra = klickbar || harExtra;
 
                 return (
                   <div key={i}
-                    onClick={()=>{ if(klickbarMedExtra){
-                      // Om det finns extra-tid: visa tidslinje. Annars normal redigering.
+                    onClick={()=>{
+                      // Alla dagar är klickbara. Om extra-tid finns: visa tidslinje,
+                      // annars öppna dagvy (redigera). Tom data → tom dagvy med
+                      // "Lägg till manuellt"-fallback.
                       if(harExtra) {
                         setTidslinjeDatum(datum);
                         setSteg("tidslinje");
                         return;
                       }
                       const d2=dagData[k];
-                      setRedDag({...d2,datum});
+                      setRedDag({...(d2||{}),datum});
                       setRedStart(d2?.start_tid||"00:00");
                       setRedSlut(d2?.slut_tid||"00:00");
                       setRedRast(d2?.rast_min||0);
                       setRedKm(d2?.km_totalt||0);
-                      setRedKmBerakning(null); // nollställs; fylls av useEffect nedan
+                      setRedKmBerakning(null);
                       setRedAnl("");
                       setRedObjektId(d2?.objekt_id||null);
                       setRedMaskinId(d2?.maskin_id||null);
                       setRedVy("översikt");
                       setSteg("redigera");
-                    } }}
-                    style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:klickbarMedExtra?"pointer":"default",padding:"8px 0" }}>
+                    }}
+                    style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",padding:"8px 0" }}>
                     {/* Ring: idag=blå, redigerad=gul, idag har prioritet */}
                     {isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #adc6ff",borderRadius:"50%" }} />}
                     {erRedigerad && !isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #f5c518",borderRadius:"50%" }} />}
