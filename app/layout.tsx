@@ -45,7 +45,7 @@ export default function RootLayout({
       <body style={{ margin: 0, padding: 0 }}>
         <TopBar />
         <PushRegister />
-        <div style={{ paddingTop: 56 }}>
+        <div style={{ paddingTop: 'calc(56px + env(safe-area-inset-top))' }}>
           {children}
         </div>
       </body>

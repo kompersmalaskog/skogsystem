@@ -397,7 +397,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
             style={{
               backgroundColor: '#1c1c1e',
               borderRadius: '16px 16px 0 0',
-              padding: '12px 24px 34px',
+              padding: '12px 24px calc(24px + env(safe-area-inset-bottom, 10px))',
               width: '100%',
               maxWidth: '500px',
               transform: sheetVisible ? 'translateY(0)' : 'translateY(100%)',
