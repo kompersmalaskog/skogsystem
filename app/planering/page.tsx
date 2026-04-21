@@ -4701,9 +4701,9 @@ export default function PlannerPage() {
     { id: 'info', name: 'Info', desc: 'Objektinformation', icon: 'menu-info' },
     { id: 'settings', name: 'Inställningar', desc: 'Anpassa appen', icon: 'menu-settings' },
     { id: 'brandrisk', name: 'Brandrisk', desc: 'FWI, samråd, utrustning', icon: 'menu-brandrisk' },
-    // 'emergency' borttagen ur menyn — nås via nödprick i headern (commit 5). All
-    // emergency-logik (hitta närmsta sjukhus/vårdcentral, rad 4170, 13396) är orörd
-    // och kommer återanvändas när nödläge-vyn byggs separat.
+    // 'emergency' finns kvar här för helskärmsmenyns titel-lookup.
+    // Triggas BARA från nödlägeskorset i headern, inte från plus-menyn.
+    { id: 'emergency', name: 'Nödläge', desc: 'SOS, position, sjukvård', icon: 'menu-emergency' },
     { id: 'briefing', name: 'Briefing', desc: 'Guidad traktgenomgång', icon: 'menu-briefing' },
     { id: 'briefing-checklist', name: 'Kvittering', desc: 'Kvittera markeringar', icon: 'menu-briefing-checklist' },
     { id: 'skotning', name: 'Skotning', desc: 'Utskotad volym', icon: 'menu-skotning' },
@@ -7697,11 +7697,15 @@ export default function PlannerPage() {
             ) : 'Inget objekt'}
           </div>
 
-          {/* Nödläge-prick (diskret, klickas i commit 5) */}
+          {/* Nödläge — vit sjukhuskors på röd cirkel, öppnar emergency-panelen */}
           <button
             type="button"
-            onClick={() => { if (navigator.vibrate) navigator.vibrate([30, 20, 30]); alert('Nödläge kommer snart'); }}
-            aria-label="Nödläge"
+            onClick={() => {
+              if (navigator.vibrate) navigator.vibrate([30, 20, 30]);
+              setActiveCategory('emergency');
+              setMenuOpen(true);
+            }}
+            aria-label="Nödläge — hitta närmaste sjukhus och vårdcentral"
             className="press-scale"
             style={{
               pointerEvents: 'auto',
@@ -7718,12 +7722,21 @@ export default function PlannerPage() {
             }}
           >
             <span style={{
-              width: '12px',
-              height: '12px',
+              width: '32px',
+              height: '32px',
               borderRadius: '50%',
               background: '#ef4444',
-              boxShadow: '0 0 10px rgba(239,68,68,0.6)',
-            }} aria-hidden="true" />
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 2px 10px rgba(239,68,68,0.45)',
+              border: '1px solid rgba(255,255,255,0.15)',
+            }} aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round">
+                <path d="M12 5 L12 19" />
+                <path d="M5 12 L19 12" />
+              </svg>
+            </span>
           </button>
         </div>
       )}
