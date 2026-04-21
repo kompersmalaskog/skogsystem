@@ -9,6 +9,15 @@ type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
 type AcordPris = { medelstam: number; pris_total: number; pris_skordare: number; pris_skotare: number; giltig_fran: string | null; giltig_till: string | null };
 type MaskinTimpris = { maskin_id: string; maskin_namn: string | null; timpris: number; giltig_fran: string | null; giltig_till: string | null };
 type AvstandConfig = { grundavstand_m: number; kr_per_100m: number; giltig_fran: string | null; giltig_till: string | null };
+type RowOverride = {
+  id?: string;
+  datum: string; maskin_id: string; objekt_id: string;
+  volym: number | null;
+  medelstam: number | null;
+  pris_enhet: number | null;
+  tillagg_kr: number | null;
+  kommentar: string | null;
+};
 type ObjektMeta = { objekt_id: string; object_name: string | null; vo_nummer: string | null; huvudtyp: string | null; atgard: string | null; timpeng: boolean | null };
 type MaskinMeta = { maskin_id: string; modell: string | null; maskin_typ: string | null };
 
@@ -23,14 +32,24 @@ type DagRad = {
   objekt_id: string;
   objekt_namn: string;
   typ: RowTyp;
+  // Effektiva värden (auto eller override)
   volym: number;
   medelstam: number;
-  pris_enhet: number;        // kr/m³ (skördare- eller skotare-andel)
-  intakt: number;            // vid gallring = timpeng_belopp
+  pris_enhet: number;        // kr/m³
+  tillagg_kr: number;        // skotningsavstånd m.fl.
+  intakt: number;            // beräknat från effektiva värden
   timmar: number;
   timpris: number;
   timpeng_belopp: number;
-  diff: number;              // meningsfullt endast för slutavverkning
+  diff: number;
+  // Auto-värden (utan override) — för bottom sheetets jämförelse / återställ
+  auto_volym: number;
+  auto_medelstam: number;
+  auto_pris_enhet: number;
+  auto_tillagg_kr: number;
+  // Override-status
+  overridden: boolean;
+  override: RowOverride | null;
 };
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -118,18 +137,27 @@ function formatKr(n: number) {
   return `${Math.round(n).toLocaleString('sv-SE')} kr`;
 }
 
+type SheetNum = number | '';
+type SheetState = {
+  volym: SheetNum; medelstam: SheetNum; pris_enhet: SheetNum; tillagg_kr: SheetNum; kommentar: string;
+};
+
 export default function EkonomiClient() {
   const [period, setPeriod] = useState<PeriodType>('M');
   const [periodOffset, setPeriodOffset] = useState(0);
   const [loading, setLoading] = useState(false);
   const [rader, setRader] = useState<DagRad[]>([]);
+  const [sheetRow, setSheetRow] = useState<DagRad | null>(null);
+  const [sheetVals, setSheetVals] = useState<SheetState>({ volym: '', medelstam: '', pris_enhet: '', tillagg_kr: '', kommentar: '' });
+  const [savingOverride, setSavingOverride] = useState(false);
+  const [toast, setToast] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
 
-      const [prodRows, lassRows, tidRows, objRes, maskinRes, acordRes, timprisRes, avstandRes] = await Promise.all([
+      const [prodRows, lassRows, tidRows, objRes, maskinRes, acordRes, timprisRes, avstandRes, overrideRes] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_produktion')
             .select('datum, maskin_id, objekt_id, stammar, volym_m3sub')
@@ -155,7 +183,15 @@ export default function EkonomiClient() {
         supabase.from('acord_skotningsavstand')
           .select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till')
           .not('grundavstand_m', 'is', null),
+        supabase.from('ekonomi_rad_override')
+          .select('id, datum, maskin_id, objekt_id, volym, medelstam, pris_enhet, tillagg_kr, kommentar')
+          .gte('datum', start).lte('datum', end),
       ]);
+
+      const overrideMap: Record<string, RowOverride> = {};
+      for (const o of (overrideRes.data || [])) {
+        overrideMap[`${o.datum}|${o.maskin_id}|${o.objekt_id}`] = o;
+      }
 
       const objMap: Record<string, ObjektMeta> = {};
       for (const o of (objRes.data || [])) objMap[o.objekt_id] = o;
@@ -241,11 +277,11 @@ export default function EkonomiClient() {
         datum: string,
         maskin_id: string,
         objekt_id: string,
-        volym: number,
-        medelstam: number,
+        autoVolym: number,
+        autoMedelstam: number,
         maskin_typ: MaskinTypPart,
         dayMaskinVolTot: number,
-        extra_kr: number = 0,
+        autoTillaggKr: number = 0,
       ): DagRad => {
         const obj = objMap[objekt_id];
         const maskin = maskinMap[maskin_id];
@@ -253,21 +289,33 @@ export default function EkonomiClient() {
           t.maskin_id === maskin_id && isValidOn(datum, t.giltig_fran, t.giltig_till)
         );
         const timprisKr = timpris?.timpris || 0;
-        const andel = dayMaskinVolTot > 0 ? volym / dayMaskinVolTot : 0;
-        const timmar = (tidMap[`${datum}|${maskin_id}`]?.timmar || 0) * andel;
-        const timpeng_belopp = timmar * timprisKr;
 
         const typ = classifyObj(objekt_id);
         const isSlut = typ === 'Slutavverkning';
 
+        // Auto grundpris (per medelstam + maskintyp)
         const acordOnDate = acord.filter(a => isValidOn(datum, a.giltig_fran, a.giltig_till));
-        const acordPris = isSlut ? lookupAcordPris(medelstam, acordOnDate) : null;
-        const pris_enhet = isSlut
+        const acordPris = isSlut ? lookupAcordPris(autoMedelstam, acordOnDate) : null;
+        const autoPrisEnhet = isSlut
           ? (maskin_typ === 'Harvester' ? (acordPris?.pris_skordare || 0) : (acordPris?.pris_skotare || 0))
           : 0;
 
-        const intakt = isSlut ? (volym * pris_enhet + extra_kr) : timpeng_belopp;
+        // Override: kan ersätta valfritt av {volym, medelstam, pris_enhet, tillagg_kr}
+        const ov = overrideMap[`${datum}|${maskin_id}|${objekt_id}`] || null;
+        const volym = ov?.volym ?? autoVolym;
+        const medelstam = ov?.medelstam ?? autoMedelstam;
+        const pris_enhet = ov?.pris_enhet ?? autoPrisEnhet;
+        const tillagg_kr = ov?.tillagg_kr ?? autoTillaggKr;
+
+        // Timmar fördelas per maskin/dag proportionellt mot AUTO-volym (annars skulle override ändra timpeng för andra rader på samma dag)
+        const andel = dayMaskinVolTot > 0 ? autoVolym / dayMaskinVolTot : 0;
+        const timmar = (tidMap[`${datum}|${maskin_id}`]?.timmar || 0) * andel;
+        const timpeng_belopp = timmar * timprisKr;
+
+        const intakt = isSlut ? (volym * pris_enhet + tillagg_kr) : timpeng_belopp;
         const diff = isSlut ? intakt - timpeng_belopp : 0;
+
+        const overridden = !!ov && (ov.volym != null || ov.medelstam != null || ov.pris_enhet != null || ov.tillagg_kr != null);
 
         return {
           datum,
@@ -280,11 +328,18 @@ export default function EkonomiClient() {
           volym,
           medelstam: parseFloat(medelstam.toFixed(3)),
           pris_enhet,
+          tillagg_kr,
           intakt,
           timmar: parseFloat(timmar.toFixed(2)),
           timpris: timprisKr,
           timpeng_belopp,
           diff,
+          auto_volym: autoVolym,
+          auto_medelstam: parseFloat(autoMedelstam.toFixed(3)),
+          auto_pris_enhet: autoPrisEnhet,
+          auto_tillagg_kr: autoTillaggKr,
+          overridden,
+          override: ov,
         };
       };
 
@@ -318,6 +373,79 @@ export default function EkonomiClient() {
   }, [period, periodOffset]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  const flashToast = (t: string) => { setToast(t); setTimeout(() => setToast(''), 2200); };
+
+  const openSheet = (r: DagRad) => {
+    setSheetRow(r);
+    setSheetVals({
+      volym: r.override?.volym ?? r.auto_volym,
+      medelstam: r.override?.medelstam ?? r.auto_medelstam,
+      pris_enhet: r.override?.pris_enhet ?? r.auto_pris_enhet,
+      tillagg_kr: r.override?.tillagg_kr ?? r.auto_tillagg_kr,
+      kommentar: r.override?.kommentar || '',
+    });
+  };
+  const closeSheet = () => { setSheetRow(null); };
+
+  const saveOverride = async () => {
+    if (!sheetRow) return;
+    setSavingOverride(true);
+    const toNumOrAutoDiff = (v: SheetNum, auto: number): number | null =>
+      v === '' ? null : (Number(v) === auto ? null : Number(v));
+    const payload: any = {
+      datum: sheetRow.datum,
+      maskin_id: sheetRow.maskin_id,
+      objekt_id: sheetRow.objekt_id,
+      volym: toNumOrAutoDiff(sheetVals.volym, sheetRow.auto_volym),
+      medelstam: toNumOrAutoDiff(sheetVals.medelstam, sheetRow.auto_medelstam),
+      pris_enhet: toNumOrAutoDiff(sheetVals.pris_enhet, sheetRow.auto_pris_enhet),
+      tillagg_kr: toNumOrAutoDiff(sheetVals.tillagg_kr, sheetRow.auto_tillagg_kr),
+      kommentar: sheetVals.kommentar.trim() || null,
+      updated_at: new Date().toISOString(),
+    };
+    const allNull = payload.volym == null && payload.medelstam == null && payload.pris_enhet == null && payload.tillagg_kr == null && payload.kommentar == null;
+    if (allNull) {
+      // Inget avviker från auto — ta bort ev. befintlig override
+      await supabase.from('ekonomi_rad_override')
+        .delete()
+        .eq('datum', sheetRow.datum)
+        .eq('maskin_id', sheetRow.maskin_id)
+        .eq('objekt_id', sheetRow.objekt_id);
+      setSavingOverride(false);
+      closeSheet();
+      flashToast('Inga ändringar — override borttagen');
+      await fetchData();
+      return;
+    }
+    const { error } = await supabase.from('ekonomi_rad_override')
+      .upsert(payload, { onConflict: 'datum,maskin_id,objekt_id' });
+    setSavingOverride(false);
+    if (error) { flashToast(`Fel: ${error.message}`); return; }
+    closeSheet();
+    flashToast('Override sparad');
+    await fetchData();
+  };
+
+  const resetOverride = async () => {
+    if (!sheetRow) return;
+    setSavingOverride(true);
+    const { error } = await supabase.from('ekonomi_rad_override')
+      .delete()
+      .eq('datum', sheetRow.datum)
+      .eq('maskin_id', sheetRow.maskin_id)
+      .eq('objekt_id', sheetRow.objekt_id);
+    setSavingOverride(false);
+    if (error) { flashToast(`Fel: ${error.message}`); return; }
+    closeSheet();
+    flashToast('Återställd till auto');
+    await fetchData();
+  };
+
+  // Live-räknat intakt i sheetet
+  const sheetIntakt = sheetRow && sheetRow.typ === 'Slutavverkning'
+    ? (Number(sheetVals.volym || 0) * Number(sheetVals.pris_enhet || 0) + Number(sheetVals.tillagg_kr || 0))
+    : (sheetRow?.timpeng_belopp || 0);
 
   const sumIntakt = rader.reduce((s, r) => s + r.intakt, 0);
   const sumTimpeng = rader.reduce((s, r) => s + r.timpeng_belopp, 0);
@@ -456,8 +584,19 @@ export default function EkonomiClient() {
                     const badgeColor = isHarv ? 'rgba(90,255,140,0.85)' : 'rgba(91,143,255,0.9)';
                     const badgeBg = isHarv ? 'rgba(90,255,140,0.08)' : 'rgba(91,143,255,0.1)';
                     return (
-                      <tr key={i}>
-                        <td style={s.td}>{datumLabel}</td>
+                      <tr key={i} onClick={() => openSheet(r)} style={{ cursor: 'pointer' }}>
+                        <td style={s.td}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {r.overridden && (
+                              <span
+                                aria-label="Manuellt ändrad"
+                                title={r.override?.kommentar || 'Manuellt ändrad'}
+                                style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(91,143,255,0.95)', flexShrink: 0 }}
+                              />
+                            )}
+                            <span>{datumLabel}</span>
+                          </div>
+                        </td>
                         <td style={s.td}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             <span style={{
@@ -507,8 +646,194 @@ export default function EkonomiClient() {
           </div>
         </div>
       )}
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: 'fixed', bottom: 108, left: '50%', transform: 'translateX(-50%)',
+          background: 'rgba(20,20,20,0.95)', color: '#e8e8e4',
+          padding: '10px 16px', borderRadius: 10, fontSize: 12,
+          border: '1px solid rgba(91,143,255,0.3)', zIndex: 100,
+          fontFamily: "'Geist', system-ui, sans-serif",
+        }}>{toast}</div>
+      )}
+
+      {/* Bottom sheet — manuell override */}
+      {sheetRow && (
+        <OverrideSheet
+          row={sheetRow}
+          vals={sheetVals}
+          setVals={setSheetVals}
+          sheetIntakt={sheetIntakt}
+          saving={savingOverride}
+          onClose={closeSheet}
+          onSave={saveOverride}
+          onReset={resetOverride}
+        />
+      )}
+
       <EkonomiBottomNav />
     </div>
+  );
+}
+
+function OverrideSheet({
+  row, vals, setVals, sheetIntakt, saving, onClose, onSave, onReset,
+}: {
+  row: DagRad;
+  vals: SheetState;
+  setVals: (s: SheetState) => void;
+  sheetIntakt: number;
+  saving: boolean;
+  onClose: () => void;
+  onSave: () => void;
+  onReset: () => void;
+}) {
+  const d = new Date(row.datum);
+  const datumLabel = `${d.getDate()} ${MONTH_NAMES[d.getMonth()].toLowerCase()} ${d.getFullYear()}`;
+  const isSlut = row.typ === 'Slutavverkning';
+  const formatKrLocal = (n: number) => `${Math.round(n).toLocaleString('sv-SE')} kr`;
+
+  const field = (label: string, value: number | '', setter: (v: number | '') => void, hint: string, step = '1') => (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+        <div style={{ fontSize: 11, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.3 }}>{label}</div>
+        <div style={{ fontSize: 10, color: '#7a7a72' }}>auto: {hint}</div>
+      </div>
+      <input
+        type="number" step={step} inputMode={step === '1' ? 'numeric' : 'decimal'}
+        value={value}
+        onChange={e => setter(e.target.value === '' ? '' : Number(e.target.value))}
+        style={{
+          background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 8, padding: '10px 12px', color: '#e8e8e4', fontSize: 14,
+          fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      />
+    </div>
+  );
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div onClick={onClose} style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 100,
+        backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)',
+      }} />
+      {/* Sheet */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 101,
+        background: '#1a1a18', borderRadius: '20px 20px 0 0',
+        padding: '12px 20px 28px', maxHeight: '85vh', overflowY: 'auto',
+        borderTop: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 -10px 40px rgba(0,0,0,0.6)',
+        fontFamily: "'Geist', system-ui, sans-serif", color: '#e8e8e4',
+      }}>
+        {/* Grip */}
+        <div style={{ width: 40, height: 4, background: 'rgba(255,255,255,0.15)', borderRadius: 2, margin: '4px auto 16px' }} />
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em' }}>Manuell override</div>
+            <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>
+              {datumLabel} · {row.maskin_namn} · {row.objekt_namn}
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: 'rgba(255,255,255,0.05)', border: 'none',
+            width: 32, height: 32, borderRadius: 16, color: '#e8e8e4',
+            fontSize: 18, lineHeight: 1, cursor: 'pointer', padding: 0,
+          }}>×</button>
+        </div>
+
+        {row.overridden && (
+          <div style={{
+            margin: '0 0 14px', padding: '8px 12px',
+            background: 'rgba(91,143,255,0.08)', border: '1px solid rgba(91,143,255,0.25)',
+            borderRadius: 10, fontSize: 11, color: 'rgba(173,198,255,0.95)', display: 'flex', alignItems: 'center', gap: 8,
+          }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'rgba(91,143,255,0.95)' }} />
+            Den här raden är manuellt ändrad.
+          </div>
+        )}
+
+        {/* Fields */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {field('Volym (m³)', vals.volym, v => setVals({ ...vals, volym: v }), String(Math.round(row.auto_volym)))}
+          {field('Medelstam', vals.medelstam, v => setVals({ ...vals, medelstam: v }), row.auto_medelstam.toFixed(3), '0.001')}
+          {isSlut && field('Grundpris (kr/m³)', vals.pris_enhet, v => setVals({ ...vals, pris_enhet: v }), row.auto_pris_enhet.toFixed(2), '0.01')}
+          {isSlut && field('Tillägg (kr)', vals.tillagg_kr, v => setVals({ ...vals, tillagg_kr: v }), Math.round(row.auto_tillagg_kr).toString(), '0.01')}
+        </div>
+
+        {/* Kommentar */}
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 11, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.3, marginBottom: 4 }}>Kommentar (varför ändrades)</div>
+          <textarea
+            value={vals.kommentar}
+            onChange={e => setVals({ ...vals, kommentar: e.target.value })}
+            rows={3}
+            placeholder="Valfritt — t.ex. 'Korrigering efter fältbesök 18 april'"
+            style={{
+              background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 8, padding: '10px 12px', color: '#e8e8e4', fontSize: 13,
+              fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box', resize: 'vertical',
+            }}
+          />
+        </div>
+
+        {/* Live intakt */}
+        <div style={{
+          marginTop: 18, padding: '12px 14px',
+          background: 'rgba(90,255,140,0.06)', border: '1px solid rgba(90,255,140,0.2)',
+          borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}>
+          <div>
+            <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase' }}>
+              {isSlut ? 'Total intäkt' : 'Intäkt (timpeng)'}
+            </div>
+            <div style={{ fontSize: 20, fontFamily: "'Fraunces', serif", color: 'rgba(90,255,140,0.95)', lineHeight: 1.1, marginTop: 2 }}>
+              {formatKrLocal(sheetIntakt)}
+            </div>
+          </div>
+          {isSlut && (
+            <div style={{ fontSize: 10, color: '#7a7a72', textAlign: 'right', lineHeight: 1.5 }}>
+              {Number(vals.volym || 0)} m³ × {Number(vals.pris_enhet || 0).toFixed(2)} kr<br />
+              + {Math.round(Number(vals.tillagg_kr || 0))} kr tillägg
+            </div>
+          )}
+        </div>
+
+        {/* Buttons */}
+        <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
+          <button
+            onClick={onReset}
+            disabled={saving || !row.overridden}
+            style={{
+              flex: 1, background: 'rgba(255,255,255,0.03)', color: row.overridden ? '#bfcab9' : '#4a4a44',
+              border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10,
+              padding: '10px 14px', fontSize: 13, fontWeight: 600,
+              fontFamily: 'inherit', cursor: row.overridden && !saving ? 'pointer' : 'not-allowed',
+              opacity: saving ? 0.6 : 1,
+            }}>
+            Återställ till auto
+          </button>
+          <button
+            onClick={onSave}
+            disabled={saving}
+            style={{
+              flex: 1, background: '#000', color: '#fff',
+              border: '1px solid rgba(255,255,255,0.15)', borderRadius: 10,
+              padding: '10px 14px', fontSize: 13, fontWeight: 600,
+              fontFamily: 'inherit', cursor: saving ? 'not-allowed' : 'pointer',
+              opacity: saving ? 0.6 : 1,
+            }}>
+            {saving ? 'Sparar...' : 'Spara'}
+          </button>
+        </div>
+      </div>
+    </>
   );
 }
 
