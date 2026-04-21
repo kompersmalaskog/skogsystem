@@ -577,10 +577,10 @@ export default function SkotareVy() {
       const { startDate, endDate } = getPeriodDates(p, pOffset);
       const maskinIds = [maskinId];
 
-      // Fetch production data (each row = one load/lass)
+      // Skotare = FPR-data i fakt_lass (varje rad = ett lass)
       const rawProdData = await fetchAllRows(async (from, to) => {
-        const res = await supabase.from('fakt_produktion')
-          .select('datum, volym_m3sub, operator_id, objekt_id')
+        const res = await supabase.from('fakt_lass')
+          .select('datum, volym_m3sub, operator_id, objekt_id, korstracka_m, lass_nummer')
           .in('maskin_id', maskinIds)
           .gte('datum', startDate).lte('datum', endDate)
           .range(from, to);
@@ -671,28 +671,30 @@ export default function SkotareVy() {
       }
       const rawTidRows = Object.values(tidConsolidated);
 
-      // ── Pre-aggregate production per day and per operator ──
-      type ProdAgg = { vol: number; lass: number };
+      // ── Pre-aggregate lass per day and per operator ──
+      type ProdAgg = { vol: number; lass: number; distSum: number; distCount: number };
       const prodByDay: Record<string, ProdAgg> = {};
-      const prodByDayOp: Record<string, ProdAgg & { dists: number[] }> = {};
-      const prodByOp: Record<string, { vol: number; lass: number; dagar: Set<string>; dailyLass: Record<string, number>; dailyVol: Record<string, number> }> = {};
+      const prodByOp: Record<string, { vol: number; lass: number; distSum: number; distCount: number; dagar: Set<string>; dailyLass: Record<string, number>; dailyVol: Record<string, number> }> = {};
+
+      // Global lass-distance totals
+      let lassDistSum = 0, lassDistCount = 0;
 
       for (const r of rawProdData) {
         const d = r.datum;
-        if (!prodByDay[d]) prodByDay[d] = { vol: 0, lass: 0 };
+        const dist = r.korstracka_m || 0;
+        if (!prodByDay[d]) prodByDay[d] = { vol: 0, lass: 0, distSum: 0, distCount: 0 };
         prodByDay[d].vol += r.volym_m3sub || 0;
         prodByDay[d].lass += 1;
+        if (dist > 0) { prodByDay[d].distSum += dist; prodByDay[d].distCount += 1; }
 
-        const opKey = `${d}|${r.operator_id || ''}`;
-        if (!prodByDayOp[opKey]) prodByDayOp[opKey] = { vol: 0, lass: 0, dists: [] };
-        prodByDayOp[opKey].vol += r.volym_m3sub || 0;
-        prodByDayOp[opKey].lass += 1;
+        if (dist > 0) { lassDistSum += dist; lassDistCount += 1; }
 
         const opId = r.operator_id;
         if (opId) {
-          if (!prodByOp[opId]) prodByOp[opId] = { vol: 0, lass: 0, dagar: new Set(), dailyLass: {}, dailyVol: {} };
+          if (!prodByOp[opId]) prodByOp[opId] = { vol: 0, lass: 0, distSum: 0, distCount: 0, dagar: new Set(), dailyLass: {}, dailyVol: {} };
           prodByOp[opId].vol += r.volym_m3sub || 0;
           prodByOp[opId].lass += 1;
+          if (dist > 0) { prodByOp[opId].distSum += dist; prodByOp[opId].distCount += 1; }
           prodByOp[opId].dagar.add(d);
           prodByOp[opId].dailyLass[d] = (prodByOp[opId].dailyLass[d] || 0) + 1;
           prodByOp[opId].dailyVol[d] = (prodByOp[opId].dailyVol[d] || 0) + (r.volym_m3sub || 0);
@@ -720,9 +722,6 @@ export default function SkotareVy() {
       const tidTotal: TidAgg = emptyTid();
       const tidByDay: Record<string, TidAgg> = {};
       const tidByOp: Record<string, TidAgg> = {};
-      // Per distance class: group tid rows by terrain_korstracka_m
-      const tidByDistClass: TidAgg[] = DIST_LABELS.map(() => emptyTid());
-      const prodByDistClass: ProdAgg[] = DIST_LABELS.map(() => ({ vol: 0, lass: 0 }));
 
       for (const r of rawTidRows) {
         const d = r.datum;
@@ -734,39 +733,35 @@ export default function SkotareVy() {
           if (!tidByOp[opId]) tidByOp[opId] = emptyTid();
           addTid(tidByOp[opId], r);
         }
-        // Distance class grouping
-        const avgDist = r._distCount > 0 ? r.terrain_korstracka_m / r._distCount : 0;
-        if (avgDist > 0) {
-          for (let i = 0; i < DIST_EDGES.length - 1; i++) {
-            if (avgDist >= DIST_EDGES[i] && avgDist < DIST_EDGES[i + 1]) {
-              addTid(tidByDistClass[i], r);
-              // Find matching prod for this datum+operator
-              const prodKey = `${d}|${r.operator_id || ''}`;
-              const pAgg = prodByDayOp[prodKey];
-              if (pAgg && !pAgg.dists.includes(i)) {
-                // Only count once per datum+op per class
-                // This is approximate; a better approach would be per-row matching
-              }
-              break;
-            }
-          }
-        }
       }
 
-      // For distance class production, match prod rows to tid rows by datum+operator
-      // and assign to class based on that day's average distance
+      // ── Distance classes from per-lass korstracka_m (fakt_lass) ──
+      const prodByDistClass: Array<{ vol: number; lass: number; distSum: number }> =
+        DIST_LABELS.map(() => ({ vol: 0, lass: 0, distSum: 0 }));
+      const prodByOpDistClass: Record<string, Array<{ vol: number; lass: number; distSum: number }>> = {};
+
+      const bucketForDist = (dist: number): number => {
+        for (let i = 0; i < DIST_EDGES.length - 1; i++) {
+          if (dist >= DIST_EDGES[i] && dist < DIST_EDGES[i + 1]) return i;
+        }
+        return -1;
+      };
+
       for (const r of rawProdData) {
-        const tidKey = `${r.datum}|${r.operator_id || ''}|${r.objekt_id || ''}`;
-        const tidRow = tidConsolidated[tidKey];
-        if (tidRow && tidRow._distCount > 0) {
-          const avgDist = tidRow.terrain_korstracka_m / tidRow._distCount;
-          for (let i = 0; i < DIST_EDGES.length - 1; i++) {
-            if (avgDist >= DIST_EDGES[i] && avgDist < DIST_EDGES[i + 1]) {
-              prodByDistClass[i].vol += r.volym_m3sub || 0;
-              prodByDistClass[i].lass += 1;
-              break;
-            }
+        const dist = r.korstracka_m || 0;
+        const idx = bucketForDist(dist);
+        if (idx < 0) continue;
+        prodByDistClass[idx].vol += r.volym_m3sub || 0;
+        prodByDistClass[idx].lass += 1;
+        prodByDistClass[idx].distSum += dist;
+        const opId = r.operator_id;
+        if (opId) {
+          if (!prodByOpDistClass[opId]) {
+            prodByOpDistClass[opId] = DIST_LABELS.map(() => ({ vol: 0, lass: 0, distSum: 0 }));
           }
+          prodByOpDistClass[opId][idx].vol += r.volym_m3sub || 0;
+          prodByOpDistClass[opId][idx].lass += 1;
+          prodByOpDistClass[opId][idx].distSum += dist;
         }
       }
 
@@ -779,7 +774,7 @@ export default function SkotareVy() {
       const g15Sek = processingSek + terrainSek;
       const g15Timmar = g15Sek / 3600;
       const lassPerG15h = g15Timmar > 0 ? parseFloat((totalLass / g15Timmar).toFixed(2)) : 0;
-      const medelavstand = tidTotal.distCount > 0 ? Math.round(tidTotal.totalDist / tidTotal.distCount) : 0;
+      const medelavstand = lassDistCount > 0 ? Math.round(lassDistSum / lassDistCount) : 0;
       const bransleTotalt = tidTotal.bransleLiter;
       const branslePerM3 = totalVolym > 0 ? parseFloat((bransleTotalt / totalVolym).toFixed(2)) : 0;
       const effG15h = (processingSek + terrainSek + tidTotal.kortStoppSek) / 3600;
@@ -833,7 +828,7 @@ export default function SkotareVy() {
         const opG15h = opG15sek / 3600;
         const opMedellast = lass > 0 ? parseFloat((volym / lass).toFixed(1)) : 0;
         const opLassG15h = opG15h > 0 ? parseFloat((lass / opG15h).toFixed(2)) : 0;
-        const opMedelavstand = tOp.distCount > 0 ? Math.round(tOp.totalDist / tOp.distCount) : 0;
+        const opMedelavstand = pOp && pOp.distCount > 0 ? Math.round(pOp.distSum / pOp.distCount) : 0;
         const dagarSize = pOp ? pOp.dagar.size : 0;
 
         const opDailyLass: number[] = [];
@@ -856,40 +851,27 @@ export default function SkotareVy() {
         const opEngineH = tOp.engineTimeSek / 3600;
         const opUtnyttj = opEngineH > 0 ? parseFloat((opEffG15h / opEngineH * 100).toFixed(1)) : 0;
 
-        // Per-distance-class data for this operator
+        // Per-distance-class data for this operator (från fakt_lass)
+        const opClasses = prodByOpDistClass[opId] || DIST_LABELS.map(() => ({ vol: 0, lass: 0, distSum: 0 }));
+        // Fördela operator-G15h + bränsle proportionellt mot lass-andel per klass
+        const opTotLass = opClasses.reduce((s, c) => s + c.lass, 0);
+        const opTotVol  = opClasses.reduce((s, c) => s + c.vol, 0);
+        const opBransleTot = tOp.bransleLiter;
         const klassData: DistClassData[] = DIST_LABELS.map((label, ki) => {
-          // Filter tid rows for this operator in this distance class
-          let klassLass = 0, klassVol = 0, klassG15sek = 0, klassBransle = 0;
-          for (const r of rawTidRows) {
-            if (r.operator_id !== opId) continue;
-            const avgDist2 = r._distCount > 0 ? r.terrain_korstracka_m / r._distCount : 0;
-            if (avgDist2 >= DIST_EDGES[ki] && avgDist2 < DIST_EDGES[ki + 1]) {
-              klassG15sek += (r.processing_sek || 0) + (r.terrain_sek || 0);
-              klassBransle += r.bransle_liter || 0;
-            }
-          }
-          // Count production in this class for this operator
-          for (const pr of rawProdData) {
-            if (pr.operator_id !== opId) continue;
-            const tidKey2 = `${pr.datum}|${pr.operator_id || ''}|${pr.objekt_id || ''}`;
-            const tidRow2 = tidConsolidated[tidKey2];
-            if (tidRow2 && tidRow2._distCount > 0) {
-              const avgD = tidRow2.terrain_korstracka_m / tidRow2._distCount;
-              if (avgD >= DIST_EDGES[ki] && avgD < DIST_EDGES[ki + 1]) {
-                klassLass += 1;
-                klassVol += pr.volym_m3sub || 0;
-              }
-            }
-          }
+          const c = opClasses[ki];
+          const lassShare = opTotLass > 0 ? c.lass / opTotLass : 0;
+          const volShare  = opTotVol  > 0 ? c.vol / opTotVol  : 0;
+          const klassG15sek = opG15sek * lassShare;
+          const klassBransle = opBransleTot * volShare;
           const klassG15h2 = klassG15sek / 3600;
           return {
             label,
-            lass: klassLass,
-            volym: Math.round(klassVol),
+            lass: c.lass,
+            volym: Math.round(c.vol),
             g15h: parseFloat(klassG15h2.toFixed(1)),
-            lassG15h: klassG15h2 > 0 ? parseFloat((klassLass / klassG15h2).toFixed(1)) : 0,
-            medellast: klassLass > 0 ? parseFloat((klassVol / klassLass).toFixed(1)) : 0,
-            dieselM3: klassVol > 0 ? parseFloat((klassBransle / klassVol).toFixed(2)) : 0,
+            lassG15h: klassG15h2 > 0 ? parseFloat((c.lass / klassG15h2).toFixed(1)) : 0,
+            medellast: c.lass > 0 ? parseFloat((c.vol / c.lass).toFixed(1)) : 0,
+            dieselM3: c.vol > 0 ? parseFloat((klassBransle / c.vol).toFixed(2)) : 0,
           };
         });
 
@@ -909,11 +891,18 @@ export default function SkotareVy() {
         };
       }).filter(o => o.volym > 0 || o.g15h > 0).sort((a, b) => b.volym - a.volym);
 
-      // ── Distance classes (global) ──
+      // ── Distance classes (global) — G15h + bränsle proportionellt mot lass-andel ──
+      const globTotLass = prodByDistClass.reduce((s, c) => s + c.lass, 0);
+      const globTotVol  = prodByDistClass.reduce((s, c) => s + c.vol, 0);
+      const globG15sek  = tidTotal.processingSek + tidTotal.terrainSek;
+      const globBransle = tidTotal.bransleLiter;
       const distClasses: DistClassData[] = DIST_LABELS.map((label, i) => {
-        const tdc = tidByDistClass[i];
         const pdc = prodByDistClass[i];
-        const dcG15h = (tdc.processingSek + tdc.terrainSek) / 3600;
+        const lassShare = globTotLass > 0 ? pdc.lass / globTotLass : 0;
+        const volShare  = globTotVol  > 0 ? pdc.vol / globTotVol : 0;
+        const dcG15sek = globG15sek * lassShare;
+        const dcBransle = globBransle * volShare;
+        const dcG15h = dcG15sek / 3600;
         return {
           label,
           lass: pdc.lass,
@@ -921,7 +910,7 @@ export default function SkotareVy() {
           g15h: parseFloat(dcG15h.toFixed(1)),
           lassG15h: dcG15h > 0 ? parseFloat((pdc.lass / dcG15h).toFixed(1)) : 0,
           medellast: pdc.lass > 0 ? parseFloat((pdc.vol / pdc.lass).toFixed(1)) : 0,
-          dieselM3: pdc.vol > 0 ? parseFloat((tdc.bransleLiter / pdc.vol).toFixed(2)) : 0,
+          dieselM3: pdc.vol > 0 ? parseFloat((dcBransle / pdc.vol).toFixed(2)) : 0,
         };
       });
 
@@ -962,7 +951,7 @@ export default function SkotareVy() {
           const dg15sek = tDay ? tDay.processingSek + tDay.terrainSek : 0;
           const dg15h = dg15sek / 3600;
           const diesel = tDay ? tDay.bransleLiter : 0;
-          const dayAvgDist = tDay && tDay.distCount > 0 ? Math.round(tDay.totalDist / tDay.distCount) : 0;
+          const dayAvgDist = pDay.distCount > 0 ? Math.round(pDay.distSum / pDay.distCount) : 0;
           const dayProdRow = rawProdData.find((r: any) => r.datum === dateStr);
           const opInfo2 = dayProdRow?.operator_id ? operators.find((o: any) => String(o.operator_id) === String(dayProdRow.operator_id)) : null;
           const objInfo = dayProdRow?.objekt_id ? objekter.find((o: any) => String(o.objekt_id) === String(dayProdRow.objekt_id)) : null;
@@ -1030,18 +1019,18 @@ export default function SkotareVy() {
         const pad2 = (n: number) => String(n).padStart(2, '0');
 
         const [prodRes2, tidRes2, opRes2, objRes2, skiftRes2, senastRes] = await Promise.all([
-          supabase.from('fakt_produktion')
-            .select('datum, volym_m3sub, operator_id, objekt_id')
+          supabase.from('fakt_lass')
+            .select('datum, volym_m3sub, operator_id, objekt_id, korstracka_m')
             .in('maskin_id', maskinIds).eq('datum', today),
           supabase.from('fakt_tid')
-            .select('datum, operator_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, engine_time_sek, terrain_korstracka_m, bransle_liter')
+            .select('datum, operator_id, processing_sek, terrain_sek, other_work_sek, kort_stopp_sek, engine_time_sek, bransle_liter')
             .in('maskin_id', maskinIds).eq('datum', today),
           supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', maskinIds),
           supabase.from('dim_objekt').select('objekt_id, object_name'),
           supabase.from('fakt_skift')
             .select('datum, inloggning_tid')
             .in('maskin_id', maskinIds).eq('datum', today),
-          supabase.from('fakt_produktion')
+          supabase.from('fakt_lass')
             .select('datum')
             .in('maskin_id', maskinIds)
             .order('datum', { ascending: false })
@@ -1062,8 +1051,8 @@ export default function SkotareVy() {
         const kortSek = todayTid.reduce((s: number, r: any) => s + (r.kort_stopp_sek || 0), 0);
         const engineSek2 = todayTid.reduce((s: number, r: any) => s + (r.engine_time_sek || 0), 0);
         const bransleTot = todayTid.reduce((s: number, r: any) => s + parseFloat(r.bransle_liter || 0), 0);
-        const totalDistT = todayTid.reduce((s: number, r: any) => s + (r.terrain_korstracka_m || 0), 0);
-        const distCountT = todayTid.filter((r: any) => r.terrain_korstracka_m > 0).length;
+        const totalDistT = todayProd.reduce((s: number, r: any) => s + (r.korstracka_m || 0), 0);
+        const distCountT = todayProd.filter((r: any) => r.korstracka_m > 0).length;
         const g15sek2 = procSek + terrSek2;
         const g15h2 = g15sek2 / 3600;
         const effG15h2 = (procSek + terrSek2 + kortSek) / 3600;
