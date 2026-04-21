@@ -19,6 +19,7 @@ import {
   arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Maskin, MaskinKoItem, OversiktObjekt, C, T, BTN, SP } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { getMaskinDisplayName, getMaskinTyp } from './oversikt-utils';
@@ -81,6 +82,7 @@ function SortableRow({
         {/* ⋮ meny-knapp */}
         <button
           onClick={(e) => { e.stopPropagation(); onMenuToggle(); }}
+          aria-label="Öppna meny"
           style={{
             width: 44, height: 44, flexShrink: 0,
             background: 'none', border: 'none',
@@ -95,6 +97,8 @@ function SortableRow({
           ref={setActivatorNodeRef}
           {...attributes}
           {...listeners}
+          role="button"
+          aria-label="Dra för att ändra ordning"
           style={{
             flexShrink: 0, padding: `${SP.sm}px ${SP.xs}px`,
             color: C.t3, cursor: 'grab', touchAction: 'none',
@@ -245,16 +249,25 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
               {/* Maskinnamn + status */}
               <div style={{ padding: `0 ${SP.xs}px ${SP.lg}px` }}>
                 <div style={T.h1}>{name}</div>
-                <div style={{ ...T.caption, marginTop: SP.xs }}>
-                  {isSk ? 'Skördare' : 'Skotare'}
+                <div style={{ ...T.caption, marginTop: SP.xs, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                  <span>{isSk ? 'Skördare' : 'Skotare'}</span>
                   {(() => {
-                    if (ko.length === 0) return <span style={{ color: C.t4 }}> · Ledig</span>;
+                    if (ko.length === 0) return <span style={{ color: C.t4 }}>· Ledig</span>;
                     const firstObj = getObj(ko[0].objekt_id);
                     if (!firstObj) return null;
                     const isAct = firstObj.status === 'pagaende' || firstObj.status === 'skordning' || firstObj.status === 'skotning';
-                    return isAct
-                      ? <span style={{ color: C.green }}> · Pågående: {firstObj.namn}</span>
-                      : <span style={{ color: C.t3 }}> · Nästa: {firstObj.namn}</span>;
+                    return (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: isAct ? C.green : C.t3 }}>
+                        <span>·</span>
+                        <span style={{
+                          width: 6, height: 6, borderRadius: 3,
+                          background: isAct ? C.green : C.t3,
+                          flexShrink: 0,
+                          animation: isAct ? 'ovk-dot-pulse 1.8s ease-in-out infinite' : 'none',
+                        }} />
+                        {isAct ? `Pågående: ${firstObj.namn}` : `Nästa: ${firstObj.namn}`}
+                      </span>
+                    );
                   })()}
                 </div>
               </div>
@@ -384,9 +397,14 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
       )}
 
       {/* ── Modal: Lägg till objekt ── */}
+      <AnimatePresence>
       {addingTo && (
-        <div
+        <motion.div
           onClick={() => { setAddingTo(null); setSearchText(''); setAddTypFilter('alla'); }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
           style={{
             position: 'fixed', inset: 0,
             background: 'rgba(0,0,0,0.7)',
@@ -395,8 +413,12 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
             zIndex: 100,
           }}
         >
-          <div
+          <motion.div
             onClick={(e) => e.stopPropagation()}
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.9 }}
             style={{
               background: C.surface3,
               borderRadius: `${SP.xl}px ${SP.xl}px 0 0`,
@@ -478,9 +500,10 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
               onClick={() => { setAddingTo(null); setSearchText(''); setAddTypFilter('alla'); }}
               style={{ ...BTN.secondary, width: '100%', marginTop: SP.lg, fontFamily: ff }}
             >Avbryt</button>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
+      </AnimatePresence>
     </div>
   );
 }

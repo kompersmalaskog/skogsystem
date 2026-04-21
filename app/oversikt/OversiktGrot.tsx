@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { OversiktObjekt, C, T, BTN, SP } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, grotDeadlineDays } from './oversikt-utils';
@@ -284,6 +285,8 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
               <button
                 onClick={(e) => handleToggleSkotat(obj.id, e)}
                 disabled={saving}
+                aria-label={skotat ? 'Markera som ej skotat' : 'Markera som skotat'}
+                aria-pressed={skotat}
                 style={{
                   flexShrink: 0, padding: '6px 14px', borderRadius: 20,
                   border: skotat ? 'none' : `1px solid ${C.border}`,
@@ -296,11 +299,30 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
               >
                 {skotat ? 'Skotat' : 'Ej skotat'}
               </button>
+              <span
+                className="material-symbols-outlined"
+                aria-hidden="true"
+                style={{
+                  fontSize: 20, color: C.t4, flexShrink: 0,
+                  transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                  transition: 'transform 180ms ease-out',
+                  marginLeft: 2,
+                }}
+              >chevron_right</span>
             </div>
 
             {/* Expanded panel */}
+            <AnimatePresence initial={false}>
             {expanded && (
-              <div style={{ marginTop: 12, marginLeft: 15 }} onClick={e => e.stopPropagation()}>
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ type: 'spring', damping: 28, stiffness: 300, mass: 0.7 }}
+                style={{ overflow: 'hidden', marginLeft: 15 }}
+                onClick={e => e.stopPropagation()}
+              >
+              <div style={{ marginTop: 12 }}>
                 {/* Avverkat datum from dim_objekt */}
                 {avverkat && (
                   <div style={{ fontSize: 12, color: C.t2, marginBottom: 10 }}>
@@ -332,9 +354,11 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
                   <label style={{ ...T.label, display: 'block', marginBottom: SP.xs }}>GROT-volym (m³)</label>
                   <input
                     type="number"
+                    inputMode="decimal"
                     value={grotVol[obj.id] ?? (obj.grot_volym != null ? String(obj.grot_volym) : '')}
                     onChange={e => handleGrotVolChange(obj.id, e.target.value)}
                     placeholder="GROT m³"
+                    aria-label="GROT-volym i kubikmeter"
                     style={{ width: 120, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.md, border: `1px solid ${C.border}`, background: C.surface, color: C.t1, ...T.body, outline: 'none', fontFamily: ff, minHeight: 44 }}
                   />
                 </div>
@@ -385,7 +409,9 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
                   )}
                 </div>
               </div>
+              </motion.div>
             )}
+            </AnimatePresence>
           </div>
         );
       })}

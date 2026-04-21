@@ -132,10 +132,24 @@ export default function OversiktPage() {
         </div>
       ) : (
         <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', inset: 0, visibility: activeTab === 'karta' ? 'visible' : 'hidden', zIndex: activeTab === 'karta' ? 1 : 0 }}>
+          <div style={{
+            position: 'absolute', inset: 0,
+            opacity: activeTab === 'karta' ? 1 : 0,
+            pointerEvents: activeTab === 'karta' ? 'auto' : 'none',
+            zIndex: activeTab === 'karta' ? 1 : 0,
+            transition: 'opacity 180ms ease-out',
+          }}>
             <OversiktKarta objekt={objekt} maskiner={maskiner} maskinKo={maskinKo} prodMap={prodMap} />
           </div>
-          <div style={{ position: 'absolute', inset: 0, display: activeTab === 'maskiner' ? 'block' : 'none', overflow: 'auto' }}>
+          <div style={{
+            position: 'absolute', inset: 0, overflow: 'auto',
+            opacity: activeTab === 'maskiner' ? 1 : 0,
+            pointerEvents: activeTab === 'maskiner' ? 'auto' : 'none',
+            zIndex: activeTab === 'maskiner' ? 1 : 0,
+            transition: 'opacity 180ms ease-out',
+            overscrollBehavior: 'contain',
+            WebkitOverflowScrolling: 'touch',
+          }}>
             <OversiktMaskiner
               maskiner={maskiner}
               maskinKo={maskinKo}
@@ -144,7 +158,15 @@ export default function OversiktPage() {
               onRefresh={refreshMaskiner}
             />
           </div>
-          <div style={{ position: 'absolute', inset: 0, display: activeTab === 'grot' ? 'block' : 'none', overflow: 'auto' }}>
+          <div style={{
+            position: 'absolute', inset: 0, overflow: 'auto',
+            opacity: activeTab === 'grot' ? 1 : 0,
+            pointerEvents: activeTab === 'grot' ? 'auto' : 'none',
+            zIndex: activeTab === 'grot' ? 1 : 0,
+            transition: 'opacity 180ms ease-out',
+            overscrollBehavior: 'contain',
+            WebkitOverflowScrolling: 'touch',
+          }}>
             <OversiktGrot
               objekt={objekt}
               grotAnpassadVo={grotAnpassad}
@@ -156,15 +178,20 @@ export default function OversiktPage() {
       )}
 
       {/* Bottom nav — uppföljning-matched tab bar */}
-      <div style={{
+      <div role="tablist" style={{
         flexShrink: 0, background: 'rgba(7,7,8,0.95)', backdropFilter: 'blur(20px)',
         borderTop: `1px solid ${C.borderStrong}`, display: 'flex',
-        padding: '4px 0 max(10px, env(safe-area-inset-bottom))', zIndex: 30,
+        paddingTop: 4,
+        paddingBottom: 'max(10px, env(safe-area-inset-bottom))',
+        paddingLeft: 'env(safe-area-inset-left)',
+        paddingRight: 'env(safe-area-inset-right)',
+        zIndex: 30,
       }}>
         {tabs.map((v) => {
           const active = activeTab === v.id;
           return (
             <button key={v.id} onClick={() => setActiveTab(v.id)}
+              role="tab" aria-selected={active} aria-label={v.label}
               style={{
                 flex: 1, background: 'none',
                 border: 'none', cursor: 'pointer',
@@ -172,7 +199,7 @@ export default function OversiktPage() {
                 padding: '8px 0', minHeight: 52, fontFamily: ff,
                 transition: 'all 0.25s',
               }}>
-              <span className="material-symbols-outlined" style={{
+              <span className="material-symbols-outlined" aria-hidden="true" style={{
                 fontSize: 24, lineHeight: 1,
                 color: active ? C.t1 : C.t3,
                 fontVariationSettings: active ? "'FILL' 1, 'wght' 500" : "'FILL' 0, 'wght' 400",
