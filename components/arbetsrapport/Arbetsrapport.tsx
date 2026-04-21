@@ -967,6 +967,20 @@ export default function Arbetsrapport() {
             };
           }
           setDagData(map);
+          // Debug: logga vilka dagar som har bekraftad=true vs false så att
+          // vi kan verifiera att mappningen når renderingen.
+          if (typeof window !== 'undefined') {
+            // eslint-disable-next-line no-console
+            console.log('[Kalender] dagData för', `${kalÅr}-${String(kalMånad+1).padStart(2,'0')}`,
+              Object.entries(map).map(([d, v]: [string, any]) => ({
+                datum: d,
+                bekraftad: v.bekraftad,
+                dagtyp: v.dagtyp,
+                start_tid: v.start_tid,
+                slut_tid: v.slut_tid,
+              })),
+            );
+          }
         }
       });
     // Hämta extra_tid för månaden — gruppera per datum

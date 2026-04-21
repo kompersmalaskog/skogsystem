@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   const hämtaFortnox = url.searchParams.get('fortnox') === '1';
   if (!id && !namn) {
     return NextResponse.json(
-      { ok: false, error: 'Ange ?id=<uuid> eller ?namn=<del av namn>' },
+      { ok: false, error: 'Ange ?id=<uuid-eller-anstallningsnummer> eller ?namn=<del av namn>' },
       { status: 400 },
     );
   }
@@ -48,10 +48,43 @@ export async function GET(req: NextRequest) {
   }
   const supabase = createClient(supaUrl, supaKey);
 
-  // Hämta medarbetaren — UUID eller namnmatchning
+  // Hämta medarbetaren. `id` kan vara:
+  //   (a) UUID — matchar medarbetare.id direkt
+  //   (b) Anställningsnummer som "07" — slås upp via medarbetare_lonesystem
+  //       (tidigare gav icke-UUID-värden 500 via PostgreSQL 22P02).
+  // `namn` gör ilike-substringmatchning.
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  let medarbetareId: string | null = null;
+
+  if (id) {
+    if (uuidRegex.test(id)) {
+      medarbetareId = id;
+    } else {
+      // Leta via anställningsnummer
+      const mapRes = await supabase
+        .from('medarbetare_lonesystem')
+        .select('medarbetare_id')
+        .eq('anstallningsnummer', id)
+        .maybeSingle();
+      if (mapRes.error) {
+        return NextResponse.json(
+          { ok: false, error: `Uppslag anstallningsnummer='${id}': ${mapRes.error.message}` },
+          { status: 500 },
+        );
+      }
+      medarbetareId = mapRes.data?.medarbetare_id || null;
+      if (!medarbetareId) {
+        return NextResponse.json(
+          { ok: false, error: `Ingen medarbetare med anstallningsnummer='${id}'` },
+          { status: 404 },
+        );
+      }
+    }
+  }
+
   const medQuery = supabase.from('medarbetare').select('id, namn, maskin_id');
-  const medRes = id
-    ? await medQuery.eq('id', id).maybeSingle()
+  const medRes = medarbetareId
+    ? await medQuery.eq('id', medarbetareId).maybeSingle()
     : await medQuery.ilike('namn', `%${namn}%`).limit(1).maybeSingle();
 
   if (medRes.error) {
