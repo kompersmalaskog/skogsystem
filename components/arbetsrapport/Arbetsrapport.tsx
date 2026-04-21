@@ -961,10 +961,11 @@ export default function Arbetsrapport() {
               // Bevara null-värden — villkor på slut_tid styr avslutat-pass-logiken
               start_tid: r.start_tid || null,
               slut_tid: r.slut_tid || null,
-              rast_min: r.rast_min || 30,
+              // Använd ?? så att DB-värde 0 bevaras (|| tolkar 0 som falsy)
+              rast_min: r.rast_min ?? 0,
               start: r.start_tid ? r.start_tid.slice(0,5) : '06:00',
               slut: r.slut_tid ? r.slut_tid.slice(0,5) : '',
-              rast: r.rast_min || 30,
+              rast: r.rast_min ?? 0,
               maskin_id: r.maskin_id,
               maskin_namn: maskinNamnMap[r.maskin_id] || r.maskin_id || null,
               objekt_id: r.objekt_id || null,
