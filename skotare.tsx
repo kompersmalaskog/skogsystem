@@ -242,9 +242,9 @@ if (dailyEl) {
       {label:'Lass/dag',data:dailyLass,backgroundColor:dailyLass.map(function(v,i){
         if(v===0) return isWeekend[i]?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.04)';
         if(isWeekend[i]) return 'rgba(91,143,255,0.15)';
-        return v>avgLass?'rgba(90,255,140,0.7)':'rgba(76,175,80,0.5)';
+        return v>avgLass?'rgba(0,196,140,0.7)':'rgba(76,175,80,0.5)';
       }),borderRadius:6,barPercentage:0.85,categoryPercentage:0.9,yAxisID:'y',order:1},
-      {label:'Volym m³',data:dailyVol,type:'line',borderColor:'rgba(90,255,140,0.6)',backgroundColor:'rgba(90,255,140,0.05)',pointBackgroundColor:dailyVol.map(function(v){return v>0?'#5aff8c':'transparent';}),pointRadius:dailyVol.map(function(v){return v>0?3:0;}),tension:0.3,yAxisID:'y2',order:0,spanGaps:false},
+      {label:'Volym m³',data:dailyVol,type:'line',borderColor:'rgba(0,196,140,0.6)',backgroundColor:'rgba(0,196,140,0.05)',pointBackgroundColor:dailyVol.map(function(v){return v>0?'#00c48c':'transparent';}),pointRadius:dailyVol.map(function(v){return v>0?3:0;}),tension:0.3,yAxisID:'y2',order:0,spanGaps:false},
       {label:'Snitt: '+avgLass+' lass',data:new Array(dailyLass.length).fill(avgLass),type:'line',borderColor:'rgba(255,255,255,0.2)',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false,order:0}
     ]},
     plugins:[weekendBgPlugin,barLabelPlugin],
@@ -283,7 +283,7 @@ if (dailyEl) {
         }}},
         y:{grid:grid,ticks:ticks,title:{display:true,text:'Lass',color:'#7a7a72',font:{size:11}},
           suggestedMax: Math.max.apply(null,dailyLass)*1.15},
-        y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5aff8c',font:{size:11}},title:{display:true,text:'m³',color:'#5aff8c',font:{size:10}}}
+        y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#00c48c',font:{size:11}},title:{display:true,text:'m³',color:'#00c48c',font:{size:10}}}
       },
       onClick:function(e,els){
         if(!els.length||els[0].datasetIndex!==0) return;
@@ -359,9 +359,9 @@ if (mlEl && ac.length > 0) {
     type:'bar',
     data:{labels:ac,datasets:[
       {label:'Medellast m³',data:aML,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
-      {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(90,255,140,0.7)',backgroundColor:'rgba(90,255,140,0.04)',pointBackgroundColor:'#5aff8c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
+      {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(0,196,140,0.7)',backgroundColor:'rgba(0,196,140,0.04)',pointBackgroundColor:'#00c48c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:tooltip},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³/lass',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5aff8c',font:{size:11}},title:{display:true,text:'Lass/G15h',color:'#5aff8c',font:{size:10}}}}}
+    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:tooltip},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³/lass',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#00c48c',font:{size:11}},title:{display:true,text:'Lass/G15h',color:'#00c48c',font:{size:10}}}}}
   });
 }
 
@@ -372,9 +372,9 @@ if (totalEl && ac.length > 0) {
     type:'bar',
     data:{labels:ac,datasets:[
       {label:'Volym m³',data:aV,backgroundColor:'rgba(91,143,255,0.5)',borderRadius:4,yAxisID:'y',order:1},
-      {label:'Lass',data:aL,type:'line',borderColor:'rgba(90,255,140,0.7)',backgroundColor:'rgba(90,255,140,0.04)',pointBackgroundColor:'#5aff8c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
+      {label:'Lass',data:aL,type:'line',borderColor:'rgba(0,196,140,0.7)',backgroundColor:'rgba(0,196,140,0.04)',pointBackgroundColor:'#00c48c',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:tooltip},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5aff8c',font:{size:11}},title:{display:true,text:'Lass',color:'#5aff8c',font:{size:10}}}}}
+    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:tooltip},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³',color:'#5b8fff',font:{size:10}}},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#00c48c',font:{size:11}},title:{display:true,text:'Lass',color:'#00c48c',font:{size:10}}}}}
   });
 }
 
@@ -384,7 +384,7 @@ if (dieselEl && ac.length > 0) {
   new Chart(dieselEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'l/m³',data:aD,backgroundColor:'rgba(90,255,140,0.5)',borderRadius:4,yAxisID:'y',order:1},
+      {label:'l/m³',data:aD,backgroundColor:'rgba(0,196,140,0.5)',borderRadius:4,yAxisID:'y',order:1},
       {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(91,143,255,0.6)',backgroundColor:'rgba(91,143,255,0.04)',pointBackgroundColor:'#5b8fff',pointRadius:4,tension:0.3,yAxisID:'y2',order:0}
     ]},
     options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10,callbacks:{label:function(c){return c.datasetIndex===0?' '+c.parsed.y+' l/m³':' '+c.parsed.y+' lass/G15h';}}}},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'liter / m³',color:'#7a7a72',font:{size:10}},suggestedMin:0.5,suggestedMax:4},y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#5b8fff',font:{size:11}},title:{display:true,text:'Lass/G15h',color:'#5b8fff',font:{size:10}}}}}
@@ -401,7 +401,7 @@ if (m3fubEl && ac.length > 0) {
   new Chart(m3fubEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'m³fub/G15h',data:m3fubVals,backgroundColor:'rgba(90,255,140,0.5)',borderRadius:4}
+      {label:'m³fub/G15h',data:m3fubVals,backgroundColor:'rgba(0,196,140,0.5)',borderRadius:4}
     ]},
     options:{responsive:true,plugins:{legend:{display:false},tooltip:{backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10,callbacks:{label:function(c){return ' '+c.parsed.y.toFixed(1)+' m³fub/G15h';}}}},scales:{x:{grid:grid,ticks:ticks},y:{grid:grid,ticks:ticks,title:{display:true,text:'m³fub/G15h',color:'#7a7a72',font:{size:10}},beginAtZero:true}}}
   });
@@ -1225,7 +1225,7 @@ export default function SkotareVy() {
       const db = (window as any).__skotareData as DbData | undefined;
       const pk = db?.avbrottPerKategori || [];
       if (pk.length === 0) return;
-      const palette = ['rgba(90,255,140,0.7)', 'rgba(90,255,140,0.55)', 'rgba(90,255,140,0.4)', 'rgba(90,255,140,0.28)', 'rgba(90,255,140,0.18)', 'rgba(90,255,140,0.1)'];
+      const palette = ['rgba(0,196,140,0.7)', 'rgba(0,196,140,0.55)', 'rgba(0,196,140,0.4)', 'rgba(0,196,140,0.28)', 'rgba(0,196,140,0.18)', 'rgba(0,196,140,0.1)'];
       new Chart(canvas, {
         type: 'bar',
         data: {
@@ -1260,7 +1260,7 @@ export default function SkotareVy() {
       data: {
         labels: activeKlass.map(k => k.label),
         datasets: [
-          { label: 'Lass/G15h', data: activeKlass.map(k => k.lassG15h), backgroundColor: 'rgba(90,255,140,0.5)', borderRadius: 3, yAxisID: 'y', order: 1 },
+          { label: 'Lass/G15h', data: activeKlass.map(k => k.lassG15h), backgroundColor: 'rgba(0,196,140,0.5)', borderRadius: 3, yAxisID: 'y', order: 1 },
           { label: 'Medellast', data: activeKlass.map(k => k.medellast), type: 'line', borderColor: 'rgba(91,143,255,0.6)', pointBackgroundColor: '#5b8fff', pointRadius: 3, tension: 0.3, yAxisID: 'y2', order: 0 },
         ],
       },
@@ -1301,24 +1301,27 @@ export default function SkotareVy() {
 :root {
   --bg: #111110; --surface: #1a1a18; --surface2: #222220;
   --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12);
-  --text: #e8e8e4; --muted: #7a7a72; --dim: #3a3a36;
-  --accent: #00c48c; --accent2: #1a4a2e;
-  --warn: #ffb340; --danger: #ff5f57; --blue: #5b8fff;
+  --text: #f2f2f0; --muted: #9a9a92; --dim: #3a3a36;
+  --accent: #00c48c; --accent2: rgba(0,196,140,0.12);
+  --warn: #ffb340; --danger: #ff5f57;
 }
+/* Typografisk hierarki (Apple-inspirerad) */
 .hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
-.hero-main { background: #161614; border: 1px solid var(--border); border-radius: 16px; padding: 20px; min-height: 100px; position: relative; overflow: hidden; }
-.hero-label { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; color: #666; margin-bottom: 8px; }
-.hero-val { font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1; font-weight: 500; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
-.hero-unit { font-size: 12px; color: #888; font-weight: 400; }
-.kpi { background: #161614; border: 1px solid var(--border); border-radius: 16px; padding: 20px; min-height: 100px; position: relative; overflow: hidden; transition: border-color 0.2s; }
+.hero-main, .kpi { background: #161614; border: 1px solid var(--border); border-radius: 16px; padding: 22px 22px 20px; min-height: 112px; position: relative; overflow: hidden; transition: border-color 0.2s; }
 .kpi:hover { border-color: var(--border2); }
-.k-label { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; color: #666; margin-bottom: 8px; }
-.k-val { font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1; font-weight: 500; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
-.k-unit { font-size: 12px; color: #888; }
-.card { background: #161614; border: 1px solid rgba(255,255,255,0.07); border-radius: 16px; overflow: hidden; transition: border-color 0.2s; }
+.hero-label, .k-label { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.hero-val, .k-val {
+  font-family: 'Geist', system-ui, sans-serif;
+  font-size: 36px; line-height: 1; font-weight: 600;
+  letter-spacing: -0.035em; color: var(--text);
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 6px;
+}
+.hero-unit, .k-unit { font-size: 12px; color: var(--muted); font-weight: 400; letter-spacing: -0.1px; }
+.card { background: #161614; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; transition: border-color 0.2s; }
 .card:hover { border-color: var(--border2); }
 .card-h { padding: 20px 24px 0; display: flex; align-items: center; justify-content: space-between; }
-.card-t { font-size: 11px; font-weight: 500; letter-spacing: 0.02em; color: #666; }
+.card-t { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
 .card-b { padding: 16px 24px 24px; }
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
 .g3 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
@@ -1345,7 +1348,7 @@ export default function SkotareVy() {
 .cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
 .cal-cell { aspect-ratio: 1; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; cursor: default; transition: transform 0.1s; }
 .cal-cell:hover { transform: scale(1.1); }
-.c-prod { background: rgba(90,255,140,0.18); color: rgba(255,255,255,0.9); cursor: pointer; }
+.c-prod { background: rgba(0,196,140,0.18); color: rgba(255,255,255,0.9); cursor: pointer; }
 .c-flytt { background: rgba(91,143,255,0.18); color: rgba(255,255,255,0.9); cursor: pointer; }
 .c-service { background: rgba(255,179,64,0.15); color: var(--warn); cursor: pointer; }
 .c-off { background: rgba(255,255,255,0.03); color: var(--dim); }
@@ -1361,7 +1364,7 @@ export default function SkotareVy() {
 .forar-panel.open { transform: translateX(0); }
 .forar-head { position: sticky; top: 0; background: var(--surface); border-bottom: 1px solid var(--border); padding: 18px 24px; display: flex; align-items: center; gap: 14px; z-index: 10; }
 .forar-av { width: 44px; height: 44px; border-radius: 50%; background: rgba(255,255,255,0.07); display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 500; color: rgba(255,255,255,0.7); flex-shrink: 0; }
-.forar-title { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 500; }
+.forar-title { font-family: 'Geist', system-ui, sans-serif; font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
 .forar-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .forar-close { margin-left: auto; width: 30px; height: 30px; border-radius: 50%; background: rgba(255,255,255,0.07); border: none; cursor: pointer; color: var(--muted); font-size: 14px; display: flex; align-items: center; justify-content: center; transition: background 0.15s; }
 .forar-close:hover { background: rgba(255,255,255,0.12); color: var(--text); }
@@ -1391,9 +1394,9 @@ export default function SkotareVy() {
     font-family: 'Geist', system-ui, sans-serif;
   }
   .mv-bottomnav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0; background: none; border: none; cursor: pointer; padding: 0; min-height: 44px; color: #7a7a72; transition: color 0.15s; }
-  .mv-bottomnav button.active { color: #5aff8c; }
+  .mv-bottomnav button.active { color: var(--accent); }
   .mv-bn-icon-wrap { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 12px; padding: 6px; transition: background 0.15s; }
-  .mv-bottomnav button.active .mv-bn-icon-wrap { background: rgba(90,255,140,0.1); }
+  .mv-bottomnav button.active .mv-bn-icon-wrap { background: var(--accent2); }
   .mv-bn-icon-wrap svg { width: 24px; height: 24px; }
   .mv-bn-label { font-size: 10px; font-weight: 500; letter-spacing: 0.3px; margin-top: 2px; }
   .mv-topbar { flex-wrap: wrap !important; gap: 8px !important; padding: 8px 12px !important; }
@@ -1418,7 +1421,7 @@ export default function SkotareVy() {
         display: 'flex', flexDirection: 'column', fontFamily: "'Geist', system-ui, sans-serif", overflow: 'hidden',
       }}>
         <div style={{ padding: '20px 16px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: '#1a4a2e', border: '1px solid rgba(90,255,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>🌲</div>
+          <div style={{ width: 32, height: 32, borderRadius: 8, background: '#1a4a2e', border: '1px solid rgba(0,196,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>🌲</div>
           <span style={{ fontSize: 14, fontWeight: 500, color: '#e8e8e4', letterSpacing: '-0.3px' }}>Skotare</span>
         </div>
         <nav style={{ flex: 1, padding: '8px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -1603,7 +1606,7 @@ export default function SkotareVy() {
                       <div className="card-b">
                         {d.operatorer.map((op, oi) => (
                           <div key={oi} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                            <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(90,255,140,0.1)', border: '1px solid rgba(90,255,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 500, color: 'rgba(90,255,140,0.8)', flexShrink: 0 }}>
+                            <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,196,140,0.1)', border: '1px solid rgba(0,196,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 500, color: 'rgba(0,196,140,0.8)', flexShrink: 0 }}>
                               {op.namn.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
                             </div>
                             <div style={{ flex: 1 }}>
@@ -1814,7 +1817,7 @@ export default function SkotareVy() {
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.lass}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.volym} m³</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.g15h}h</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#5aff8c' }}>{c.lassG15h}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#00c48c' }}>{c.lassG15h}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.medellast}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.dieselM3}</td>
                               </tr>
@@ -1854,7 +1857,7 @@ export default function SkotareVy() {
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Math.round(op.volym)} m³</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.g15h.toFixed(0)}h</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.medellast}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#5aff8c' }}>{op.lassG15h}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#00c48c' }}>{op.lassG15h}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.medelavstand}m</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.dagar}</td>
                               </tr>
