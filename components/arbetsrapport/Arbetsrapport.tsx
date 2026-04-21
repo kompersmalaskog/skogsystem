@@ -973,20 +973,6 @@ export default function Arbetsrapport() {
             };
           }
           setDagData(map);
-          // Debug: logga vilka dagar som har bekraftad=true vs false så att
-          // vi kan verifiera att mappningen når renderingen.
-          if (typeof window !== 'undefined') {
-            // eslint-disable-next-line no-console
-            console.log('[Kalender] dagData för', `${kalÅr}-${String(kalMånad+1).padStart(2,'0')}`,
-              Object.entries(map).map(([d, v]: [string, any]) => ({
-                datum: d,
-                bekraftad: v.bekraftad,
-                dagtyp: v.dagtyp,
-                start_tid: v.start_tid,
-                slut_tid: v.slut_tid,
-              })),
-            );
-          }
         }
       });
     // Hämta extra_tid för månaden — gruppera per datum
@@ -4496,10 +4482,13 @@ export default function Arbetsrapport() {
     const statusFärg=(d)=>{
       const k=dagKey(d);
       const dag=dagData[k];
-      // Frånvaro/non-normal dagtyp tar prioritet så färgen syns direkt
-      if (dag?.dagtyp && dag.dagtyp !== 'normal') return dag.dagtyp;
-      // Vit prick = bekräftad dag (inte bara pass startat). Orange = obekräftad
-      // eller saknar data.
+      // Heldagstyper (sjuk/vab) har egen färg. Tidigare föll ALLA dagtyp
+      // som inte var 'normal' in här — men MOM-importen sätter dagtyp
+      // till 'Produktion' för normala arbetsdagar, vilket returnerade
+      // "Produktion" (ej i dotFärg) och gjorde att pricken försvann.
+      if (dag?.dagtyp === 'sjuk') return 'sjuk';
+      if (dag?.dagtyp === 'vab')  return 'vab';
+      // Vanlig arbetsdag: bekräftat → grön, annars orange.
       if (dag?.bekraftad) return "ok";
       if (dag) return "saknas";
       if(rödaDagar[k]) return "röd";
@@ -4593,20 +4582,6 @@ export default function Arbetsrapport() {
                 const erRedigerad=!!redDagar[datum]&&typeof redDagar[datum]==="object";
                 const helgNamn = rödaDagar[k] || '';
                 const harExtra = (extraDagData[datum]||[]).length > 0;
-                // Debug: logga bara dagar som har data (undvik skräp för tomma dagar).
-                // Martin kan öppna DevTools → Console för att verifiera mappningen.
-                const dagObj = dagData[k];
-                if (dagObj && typeof window !== 'undefined') {
-                  // eslint-disable-next-line no-console
-                  console.log(`[Kalenderprick] ${datum}`, {
-                    bekraftad: dagObj.bekraftad,
-                    dagtyp: dagObj.dagtyp,
-                    start_tid: dagObj.start_tid,
-                    slut_tid: dagObj.slut_tid,
-                    statusFärg: s,
-                    harExtra,
-                  });
-                }
 
                 return (
                   <div key={i}
