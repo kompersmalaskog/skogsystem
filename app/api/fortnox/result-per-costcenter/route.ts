@@ -89,48 +89,41 @@ export async function GET(req: NextRequest) {
     const sync = syncRes.data;
 
     // ── Aggregera från cache ──
-    const koder = mappningar.map(m => m.kostnadsstalle_kod);
-    const { data: rader, error: radErr } = await supabase
-      .from("fortnox_voucher_rows")
-      .select("account, debit, credit, costcenter")
-      .in("costcenter", koder.length ? koder : ["__ingen__"])
-      .gte("transaction_date", fromdate)
-      .lte("transaction_date", todate);
-    if (radErr) {
-      return NextResponse.json({ ok: false, meddelande: `Cache-läsning: ${radErr.message}` }, { status: 500 });
+    // Läs ALLA rader i perioden (oavsett costcenter) — vi behöver helheten
+    // för "Företaget totalt" och "Utan kostnadsställe". Paginering för att
+    // komma runt Supabase default-limit 1000.
+    type Rad = { account: string; debit: number; credit: number; costcenter: string | null };
+    const rader: Rad[] = [];
+    const sidStorlek = 1000;
+    for (let offset = 0; ; offset += sidStorlek) {
+      const { data, error: err } = await supabase
+        .from("fortnox_voucher_rows")
+        .select("account, debit, credit, costcenter")
+        .gte("transaction_date", fromdate)
+        .lte("transaction_date", todate)
+        .range(offset, offset + sidStorlek - 1);
+      if (err) {
+        return NextResponse.json({ ok: false, meddelande: `Cache-läsning: ${err.message}` }, { status: 500 });
+      }
+      if (!data || data.length === 0) break;
+      for (const r of data) {
+        rader.push({
+          account: String(r.account || "").trim(),
+          debit: Number(r.debit) || 0,
+          credit: Number(r.credit) || 0,
+          costcenter: r.costcenter || null,
+        });
+      }
+      if (data.length < sidStorlek) break;
     }
 
-    // Gruppera per (costcenter, account)
-    type Summa = { sum: number };
-    const perCC: Record<string, Record<string, Summa>> = {};
-    for (const r of rader || []) {
-      const cc = r.costcenter || "";
-      if (!cc) continue;
-      const acc = String(r.account || "").trim();
-      if (!acc) continue;
-      // Balans = credit - debit för intäktskonton (3xxx visas positivt),
-      // debit - credit för kostnadskonton. Vi sparar båda och normaliserar
-      // per kontoklass nedan.
-      const netto = (Number(r.debit) || 0) - (Number(r.credit) || 0);
-      if (!perCC[cc]) perCC[cc] = {};
-      if (!perCC[cc][acc]) perCC[cc][acc] = { sum: 0 };
-      perCC[cc][acc].sum += netto;
-    }
-
-    const maskiner: any[] = [];
-    for (const m of mappningar) {
-      const cc = costCenters.find(c => c.Code === m.kostnadsstalle_kod);
-      const namnFort = cc?.Description || m.kostnadsstalle_kod;
-      const maskinInfo = maskinMap[m.maskin_id];
-      const accMap = perCC[m.kostnadsstalle_kod] || {};
-      const kontoRader = Object.entries(accMap).map(([account, v]) => ({ account, sum: v.sum }));
-
-      // Kategori-gruppering (BAS)
+    // Hjälpare: gruppera rader per konto-klass enligt BAS. netto=debit-credit;
+    // 3xxx är credit-saldo → intäkter = -netto.
+    function grupperaKonto(accRader: { account: string; sum: number }[]) {
       let intakter = 0, drivmedel = 0, drift_service = 0, loner = 0, ovrigt = 0;
-      for (const r of kontoRader) {
+      for (const r of accRader) {
         const first = r.account.charAt(0);
         const two = r.account.slice(0, 2);
-        // netto = debit - credit; intäktskonton (3xxx) är credit-saldo → netto är negativt
         if (first === "3") intakter += -r.sum;
         else if (two === "56") drivmedel += r.sum;
         else if (first === "5") drift_service += r.sum;
@@ -138,26 +131,77 @@ export async function GET(req: NextRequest) {
         else if (first === "4" || first === "6" || first === "8") ovrigt += r.sum;
       }
       const kostnader_total = drivmedel + drift_service + loner + ovrigt;
-      const resultat = intakter - kostnader_total;
+      return {
+        intakter,
+        kostnader: { drivmedel, drift_service, loner, ovrigt, total: kostnader_total },
+        resultat: intakter - kostnader_total,
+      };
+    }
 
+    function aggrPerKonto(filter: (r: Rad) => boolean): { account: string; sum: number }[] {
+      const m: Record<string, number> = {};
+      for (const r of rader) {
+        if (!filter(r)) continue;
+        if (!r.account) continue;
+        m[r.account] = (m[r.account] || 0) + (r.debit - r.credit);
+      }
+      return Object.entries(m).map(([account, sum]) => ({ account, sum }));
+    }
+
+    // 1) Företaget totalt — alla rader oavsett costcenter
+    const totalRader = aggrPerKonto(() => true);
+    const foretagetTotalt = { ok: true, konton: totalRader, ...grupperaKonto(totalRader) };
+
+    // 2) Per maskin
+    const koder = new Set(mappningar.map(m => m.kostnadsstalle_kod));
+    const maskiner: any[] = [];
+    for (const m of mappningar) {
+      const cc = costCenters.find(c => c.Code === m.kostnadsstalle_kod);
+      const namnFort = cc?.Description || m.kostnadsstalle_kod;
+      const maskinInfo = maskinMap[m.maskin_id];
+      const kontoRader = aggrPerKonto(r => r.costcenter === m.kostnadsstalle_kod);
+      const grupp = grupperaKonto(kontoRader);
       maskiner.push({
         maskin_id: m.maskin_id,
         maskin_namn: maskinInfo?.modell || m.maskin_id,
         maskin_typ: maskinInfo?.maskin_typ || null,
         kostnadsstalle: { kod: m.kostnadsstalle_kod, namn: namnFort },
         ok: true,
-        intakter,
-        kostnader: { drivmedel, drift_service, loner, ovrigt, total: kostnader_total },
-        resultat,
+        ...grupp,
         konton: kontoRader,
       });
     }
 
+    // 3) Utan kostnadsställe — costcenter IS NULL eller ''
+    const utanKostRader = aggrPerKonto(r => !r.costcenter || r.costcenter === "");
+    const utanKostnadsstalle = { ok: true, konton: utanKostRader, ...grupperaKonto(utanKostRader) };
+
+    // 4) Övriga kostnadsställen (inte mappade till maskin) — kan vara bra
+    //    att visa för att täcka alla rader. Grupperat per kod.
+    const ovrigaMap: Record<string, { account: string; sum: number }[]> = {};
+    for (const r of rader) {
+      if (!r.costcenter) continue;
+      if (koder.has(r.costcenter)) continue;
+      if (!ovrigaMap[r.costcenter]) ovrigaMap[r.costcenter] = [];
+      const accList = ovrigaMap[r.costcenter];
+      const hittad = accList.find(a => a.account === r.account);
+      if (hittad) hittad.sum += (r.debit - r.credit);
+      else accList.push({ account: r.account, sum: (r.debit - r.credit) });
+    }
+    const ovrigaKostnadsstallen = Object.entries(ovrigaMap).map(([kod, konton]) => {
+      const cc = costCenters.find(c => c.Code === kod);
+      return { kod, namn: cc?.Description || kod, ...grupperaKonto(konton), konton };
+    });
+
     return NextResponse.json({
       ok: true,
       period: { fromdate, todate },
+      antal_rader_i_period: rader.length,
       kostnadsstallen: costCenters.map(c => ({ kod: c.Code, namn: c.Description, aktiv: c.Active })),
+      foretaget_totalt: foretagetTotalt,
       maskiner,
+      utan_kostnadsstalle: utanKostnadsstalle,
+      ovriga_kostnadsstallen: ovrigaKostnadsstallen,
       cache_status: sync
         ? {
             senaste_sync: sync.last_sync_at,

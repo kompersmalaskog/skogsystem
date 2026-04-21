@@ -17,6 +17,13 @@ type MaskinResult = {
   resultat?: number;
 };
 
+type Sammanfattning = {
+  ok: boolean;
+  intakter: number;
+  kostnader: { drivmedel: number; drift_service: number; loner: number; ovrigt: number; total: number };
+  resultat: number;
+};
+
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function fmtDate(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 
@@ -72,6 +79,8 @@ export default function ResultatClient() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [maskiner, setMaskiner] = useState<MaskinResult[]>([]);
+  const [foretagetTotalt, setForetagetTotalt] = useState<Sammanfattning | null>(null);
+  const [utanKost, setUtanKost] = useState<Sammanfattning | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -82,22 +91,24 @@ export default function ResultatClient() {
       const body = await r.json();
       if (!r.ok || !body.ok) {
         setMaskiner([]);
+        setForetagetTotalt(null);
+        setUtanKost(null);
         setError(body.meddelande || `HTTP ${r.status}`);
         return;
       }
       setMaskiner(body.maskiner || []);
+      setForetagetTotalt(body.foretaget_totalt || null);
+      setUtanKost(body.utan_kostnadsstalle || null);
     } catch (e: any) {
       setError(e?.message || String(e));
       setMaskiner([]);
+      setForetagetTotalt(null);
+      setUtanKost(null);
     }
     setLoading(false);
   }, [period, periodOffset]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-
-  const totalIntakter = maskiner.reduce((s, m) => s + (m.intakter || 0), 0);
-  const totalKostnader = maskiner.reduce((s, m) => s + (m.kostnader?.total || 0), 0);
-  const totalResultat = totalIntakter - totalKostnader;
 
   const s = {
     page: { background: '#111110', minHeight: '100vh', paddingTop: 16, paddingBottom: 130, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
@@ -149,19 +160,20 @@ export default function ResultatClient() {
 
       {!loading && !error && (
         <div style={{ padding: '0 16px' }}>
-          {/* Total-KPI */}
-          <div style={{ ...s.card, margin: '16px 0' }}>
+          {/* Företaget totalt — alla rader i perioden oavsett kostnadsställe */}
+          <div style={s.sectionTitle}>Företaget totalt</div>
+          <div style={{ ...s.card, marginBottom: 20 }}>
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: 'rgba(90,255,140,0.95)' }}>{formatKr(totalIntakter)}</div>
+                <div style={{ ...s.kpiVal, color: 'rgba(90,255,140,0.95)' }}>{formatKr(foretagetTotalt?.intakter || 0)}</div>
                 <div style={s.kpiLabel}>Intäkter</div>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: 'rgba(255,179,64,0.95)' }}>{formatKr(totalKostnader)}</div>
+                <div style={{ ...s.kpiVal, color: 'rgba(255,179,64,0.95)' }}>{formatKr(foretagetTotalt?.kostnader.total || 0)}</div>
                 <div style={s.kpiLabel}>Kostnader</div>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: totalResultat >= 0 ? '#e8e8e4' : 'rgba(255,90,90,0.9)' }}>{formatKr(totalResultat)}</div>
+                <div style={{ ...s.kpiVal, color: (foretagetTotalt?.resultat || 0) >= 0 ? '#e8e8e4' : 'rgba(255,90,90,0.9)' }}>{formatKr(foretagetTotalt?.resultat || 0)}</div>
                 <div style={s.kpiLabel}>Resultat</div>
               </div>
             </div>
@@ -174,6 +186,7 @@ export default function ResultatClient() {
           )}
 
           {/* Per maskin */}
+          {maskiner.length > 0 && <div style={s.sectionTitle}>Per maskin</div>}
           {maskiner.map(m => (
             <div key={m.maskin_id} style={{ ...s.card, marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
@@ -213,6 +226,31 @@ export default function ResultatClient() {
               )}
             </div>
           ))}
+
+          {/* Utan kostnadsställe — rader som saknar CC. Ofta lastbil/löner/OH. */}
+          {utanKost && (utanKost.intakter !== 0 || utanKost.kostnader.total !== 0) && (
+            <>
+              <div style={s.sectionTitle}>Utan kostnadsställe</div>
+              <div style={{ ...s.card, marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, color: '#7a7a72' }}>Rader där costcenter saknas i Fortnox</div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, color: (utanKost.resultat || 0) >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)' }}>
+                      {formatKr(utanKost.resultat)}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>Resultat</div>
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6, fontSize: 12 }}>
+                  <Kpi label="Intäkter" value={utanKost.intakter} color="rgba(90,255,140,0.9)" />
+                  <Kpi label="Drivmedel" value={utanKost.kostnader.drivmedel} color="#bfcab9" />
+                  <Kpi label="Drift & service" value={utanKost.kostnader.drift_service} color="#bfcab9" />
+                  <Kpi label="Löner" value={utanKost.kostnader.loner} color="#bfcab9" />
+                  <Kpi label="Övrigt" value={utanKost.kostnader.ovrigt} color="#bfcab9" />
+                </div>
+              </div>
+            </>
+          )}
 
           <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 12, padding: '0 4px', lineHeight: 1.5 }}>
             Kategori-gruppering (BAS-plan): intäkter = 3xxx · drivmedel = 56xx · drift &amp; service = 50–55 + 57–59 · löner = 7xxx · övrigt = 4/6/8xxx.
