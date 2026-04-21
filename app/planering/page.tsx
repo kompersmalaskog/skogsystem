@@ -8799,136 +8799,52 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === GPS-CENTRERING-KNAPP (höger nere) === */}
-      {!briefingMode && <button
-        onClick={() => {
-          // Vibrera för feedback
-          if (navigator.vibrate) {
-            navigator.vibrate(25);
-          }
-          
-          if (isTracking && currentPosition) {
-            // Flytta BARA kameravyn till GPS-position (rör inte markers/koordinater)
+      {/* === CENTRERA-KNAPP (centrerar kartan på objektet, ovanför plus) === */}
+      {!briefingMode && valtObjekt && (
+        <button
+          type="button"
+          onClick={() => {
+            if (navigator.vibrate) navigator.vibrate(15);
             const map = mapInstanceRef.current;
-            if (map) {
+            if (!map || !valtObjekt) return;
+            if (valtObjekt.lat && valtObjekt.lng) {
               map.flyTo({
-                center: [currentPosition.lon, currentPosition.lat],
-                zoom: Math.max(map.getZoom(), 15),
-                duration: 500,
+                center: [valtObjekt.lng, valtObjekt.lat],
+                zoom: Math.max(map.getZoom(), 14),
+                duration: 600,
               });
             }
-          }
-          // Om GPS är av, gör ingenting - GPS startas via objekt-menyn
-        }}
-        aria-label={isTracking ? 'Centrera kartan på GPS-position' : 'GPS inte aktiv'}
-        style={{
-          position: 'absolute',
-          bottom: menuOpen ? menuHeight + 110 : 100,
-          right: '15px',
-          width: '56px',
-          height: '56px',
-          borderRadius: '14px',
-          border: isTracking ? '1px solid rgba(34,197,94,0.3)' : '1px solid rgba(255,255,255,0.1)',
-          background: isTracking ? 'rgba(34,197,94,0.15)' : 'rgba(255,255,255,0.06)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 150,
-          transition: 'all 0.3s ease',
-          cursor: isTracking ? 'pointer' : 'default',
-          opacity: isTracking ? 1 : 0.4,
-        }}
-      >
-        {/* Centrerings-ikon */}
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={isTracking ? '#22c55e' : 'rgba(255,255,255,0.5)'} strokeWidth="2">
-          <circle cx="12" cy="12" r="3" fill={isTracking ? '#22c55e' : 'none'}/>
-          <line x1="12" y1="2" x2="12" y2="6"/>
-          <line x1="12" y1="18" x2="12" y2="22"/>
-          <line x1="2" y1="12" x2="6" y2="12"/>
-          <line x1="18" y1="12" x2="22" y2="12"/>
-        </svg>
-      </button>}
-
-      {/* === BRIEFING CHECKLISTA-KNAPP (persistent efter briefing) === */}
-      {briefingCompleted && !briefingMode && !briefingChecklistMode && (() => {
-        const boundary = markers.find(m => m.isLine && m.lineType === 'boundary');
-        const noteIds = (boundary?.notes || []).map(n => `about-note-${n.id}`);
-        const newNotes = noteIds.filter(id => !briefingCheckedIds.includes(id));
-        const uncheckedSymbols = briefingStepTotal - briefingCheckedIds.filter(id => !id.startsWith('about-note-')).length;
-        const totalUnchecked = Math.max(0, uncheckedSymbols) + newNotes.length;
-        return (
-          <>
-            <button
-              type="button"
-              onClick={() => { setBriefingChecklistMode(true); }}
-              aria-label={totalUnchecked > 0 ? `Briefing-checklista, ${totalUnchecked} okvitterade` : 'Briefing-checklista'}
-              style={{
-                position: 'absolute',
-                bottom: menuOpen ? menuHeight + 178 : 168,
-                right: '15px',
-                width: '56px',
-                height: '56px',
-                borderRadius: '14px',
-                border: '1px solid rgba(138,180,96,0.3)',
-                background: 'rgba(138,180,96,0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 150,
-                transition: 'all 0.3s ease',
-                cursor: 'pointer',
-              }}
-            >
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#8ab460" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2" /><rect x="9" y="3" width="6" height="4" rx="1" /><path d="M9 14l2 2 4-4" />
-              </svg>
-              {/* Badge */}
-              {totalUnchecked > 0 && (
-                <div style={{
-                  position: 'absolute', top: '-4px', right: '-4px',
-                  minWidth: '20px', height: '20px', borderRadius: '10px',
-                  background: '#ef4444', color: '#fff',
-                  fontSize: '13px', fontWeight: '700',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  padding: '0 4px',
-                }}>
-                  {totalUnchecked}
-                </div>
-              )}
-              {/* Red dot for new notes */}
-              {newNotes.length > 0 && totalUnchecked === 0 && (
-                <div style={{ position: 'absolute', top: '-2px', right: '-2px', width: '10px', height: '10px', borderRadius: '5px', background: '#ef4444' }} />
-              )}
-            </button>
-            {/* Notification toast for new notes */}
-            {newNotes.length > 0 && !drivingMode && (
-              <button
-                onClick={() => { setBriefingChecklistMode(true); }}
-                style={{
-                  position: 'absolute',
-                  top: '70px',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  padding: '10px 20px',
-                  borderRadius: '14px',
-                  background: 'rgba(10,15,8,0.95)',
-                  backdropFilter: 'blur(12px)',
-                  border: '1px solid rgba(138,180,96,0.25)',
-                  color: '#e8f0e0',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  zIndex: 150,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                  animation: 'fadeIn 0.4s ease',
-                }}
-              >
-                📝 {newNotes.length} ny{newNotes.length > 1 ? 'a' : ''} anteckning{newNotes.length > 1 ? 'ar' : ''}
-              </button>
-            )}
-          </>
-        );
-      })()}
+          }}
+          aria-label="Centrera kartan på objektet"
+          style={{
+            position: 'fixed',
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)',
+            right: '16px',
+            width: '48px',
+            height: '48px',
+            borderRadius: '50%',
+            background: 'rgba(20,20,22,0.72)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            color: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: '0 4px 18px rgba(0,0,0,0.4)',
+            zIndex: 200,
+          }}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <line x1="12" y1="2" x2="12" y2="6" />
+            <line x1="12" y1="18" x2="12" y2="22" />
+            <line x1="2" y1="12" x2="6" y2="12" />
+            <line x1="18" y1="12" x2="22" y2="12" />
+          </svg>
+        </button>
+      )}
 
       {/* === ÅNGRA-KNAPP === */}
       {showUndo && history.length > 0 && !briefingMode && (
