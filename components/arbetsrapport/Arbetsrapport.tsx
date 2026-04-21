@@ -4227,6 +4227,18 @@ export default function Arbetsrapport() {
             const bekraftadTidFmt = redDag?.bekraftad_tid
               ? new Date(redDag.bekraftad_tid).toLocaleTimeString('sv-SE',{hour:'2-digit',minute:'2-digit'})
               : null;
+            // Bekräfta-villkor:
+            //  (a) maskinpass avslutat (slut_tid finns) — normalfall
+            //  (b) heldagstyp (sjuk/vab) — klar direkt när registrerad
+            //  (c) bara extra_tid utan maskinpass — inget att vänta på
+            // Om passet pågår (start utan slut) visar vi istället en grå
+            // väntetext.
+            const harStart = !!redDag?.start_tid;
+            const harSlut = !!redDag?.slut_tid;
+            const erHelDag = redDag?.dagtyp === 'sjuk' || redDag?.dagtyp === 'vab';
+            const harExtra = (extraTidData || []).some((e:any) => e.datum === redDag.datum && e.slut_tid);
+            const kanBekrafta = !bekraftadRedan && (harSlut || erHelDag || (harExtra && !harStart));
+            const passPågår = harStart && !harSlut && !erHelDag;
             if (!harData && redStart==="00:00" && redSlut==="00:00" && redRast===0) {
               return <button style={btn.primary} onClick={()=>setRedVy("tid")}>Lägg till manuellt</button>;
             }
@@ -4261,9 +4273,9 @@ export default function Arbetsrapport() {
                 </button>
               );
             }
-            // Ingen ändring gjord. Visa bekräfta-knapp för obekräftade dagar
-            // med data; annars status + Tillbaka.
-            if (harData && !bekraftadRedan) {
+            // Ingen ändring gjord. Bekräfta-knapp visas bara för dagar där
+            // passet är avslutat (eller saknas). Pågående pass visar väntetext.
+            if (kanBekrafta) {
               return (<>
                 <button
                   style={{ width:"100%",padding:"18px",background:"#34C759",color:"#fff",border:"none",borderRadius:14,fontSize:17,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}
@@ -4283,7 +4295,15 @@ export default function Arbetsrapport() {
                 <button style={{ ...btn.secondary, marginTop:8 }} onClick={()=>setSteg("kalender")}>Tillbaka</button>
               </>);
             }
-            if (harData && bekraftadRedan) {
+            if (passPågår) {
+              return (<>
+                <div style={{ width:"100%",padding:"14px 16px",textAlign:"center" }}>
+                  <span style={{ fontSize:14,color:"#8e8e93",fontWeight:500 }}>Pass pågår — kan bekräftas efter avslut</span>
+                </div>
+                <button style={btn.secondary} onClick={()=>setSteg("kalender")}>Tillbaka</button>
+              </>);
+            }
+            if (bekraftadRedan) {
               return (<>
                 <div style={{ width:"100%",padding:"14px 16px",background:"rgba(52,199,89,0.10)",border:"1px solid rgba(52,199,89,0.25)",borderRadius:12,textAlign:"center",display:"flex",alignItems:"center",justifyContent:"center",gap:6 }}>
                   <span className="material-symbols-outlined" style={{ fontSize:18,color:"#34c759" }}>check_circle</span>
