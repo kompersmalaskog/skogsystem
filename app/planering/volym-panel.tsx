@@ -55,14 +55,14 @@ export default function VolymPanel({ resultat, loading, onClose, korbarhetsResul
 
       {resultat?.status === 'error' && (
         <div style={{ padding: '20px', textAlign: 'center' }}>
-          <div style={{ fontSize: '24px', marginBottom: '8px' }}>⚠</div>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', color: '#f87171', marginBottom: '8px', display: 'block' }}>warning</span>
           <div style={{ fontSize: '14px', color: '#f87171' }}>{resultat.felmeddelande}</div>
         </div>
       )}
 
       {resultat?.status === 'no_data' && (
         <div style={{ padding: '20px', textAlign: 'center' }}>
-          <div style={{ fontSize: '24px', marginBottom: '8px' }} aria-hidden="true">🌲</div>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', opacity: 0.5, marginBottom: '8px', display: 'block' }}>forest</span>
           <div style={{ fontSize: '14px', opacity: 0.75 }}>{resultat.felmeddelande}</div>
           <div style={{ fontSize: '13px', opacity: 0.65, marginTop: '4px' }}>Areal: {resultat.areal} ha</div>
         </div>
@@ -73,7 +73,7 @@ export default function VolymPanel({ resultat, loading, onClose, korbarhetsResul
           {/* Avverkningsvarning */}
           {resultat.avverkatVarning && (
             <div style={{ background: 'rgba(251,191,36,0.15)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: '12px', padding: '12px 14px', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <span style={{ fontSize: '20px' }} aria-hidden="true">⚠</span>
+              <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '24px', color: '#fbbf24' }}>warning</span>
               <div>
                 <div style={{ fontSize: '13px', fontWeight: '600', color: '#fbbf24' }}>Området verkar avverkat</div>
                 <div style={{ fontSize: '13px', opacity: 0.75, marginTop: '2px' }}>Låg volym trots skogsmark. Data kan vara inaktuellt.</div>
