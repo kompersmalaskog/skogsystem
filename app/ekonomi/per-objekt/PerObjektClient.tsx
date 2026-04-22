@@ -7,19 +7,38 @@ import EkonomiBottomNav from '../EkonomiBottomNav';
 type PeriodType = 'D' | 'V' | 'M' | 'K' | 'A';
 
 type MaskinTimpris = { maskin_id: string; maskin_namn: string | null; timpris: number; giltig_fran: string | null; giltig_till: string | null };
+type AcordPris = { medelstam: number; pris_total: number; pris_skordare: number; pris_skotare: number; giltig_fran: string | null; giltig_till: string | null };
+type AvstandConfig = { grundavstand_m: number; kr_per_100m: number; giltig_fran: string | null; giltig_till: string | null };
+type TraktBracket = { fran_m3fub: number; till_m3fub: number | null; tillagg_kr_per_m3fub: number };
+type SortConfig = { grundantal: number; kr_per_extra_sortiment: number };
 
-type MaskinDel = { maskin_id: string; maskin_namn: string; maskin_typ: string | null; timmar: number; timpeng: number };
+type MaskinDel = {
+  maskin_id: string;
+  maskin_namn: string;
+  maskin_typ: 'Harvester' | 'Forwarder' | null;
+  volym: number;
+  medelstam: number;
+  grundpris: number;
+  timmar: number;
+  timpeng: number;
+  acord: number;
+  skillnad: number;
+};
 type ObjektRad = {
   objekt_id: string;
   objekt_namn: string;
   vo_nummer: string | null;
   huvudtyp: string | null;
+  volym_m3fub: number;
+  sortiment_grupper: string[];
+  sortiment_count: number;
+  sortiment_kr_per_m3: number;
+  trakt_kr_per_m3: number;
+  trakt_bracket: string;
   timmar: number;
   timpeng: number;
-  acord: number;            // summa från fortnox_invoice_rows
-  acord_rader: number;      // antal fakturarader
-  skillnad: number;         // acord − timpeng
-  volym_m3fub: number;
+  acord: number;
+  skillnad: number;
   maskiner: MaskinDel[];
 };
 
@@ -76,6 +95,17 @@ function isValidOn(d: string, giltig_fran: string | null, giltig_till: string | 
   return true;
 }
 
+function lookupNearest(medelstam: number, acord: AcordPris[]): AcordPris | null {
+  if (!acord.length) return null;
+  let best = acord[0];
+  let bestDiff = Math.abs(acord[0].medelstam - medelstam);
+  for (const p of acord) {
+    const d = Math.abs(p.medelstam - medelstam);
+    if (d < bestDiff) { bestDiff = d; best = p; }
+  }
+  return best;
+}
+
 async function fetchAllRows(queryFn: (from: number, to: number) => Promise<{ data: any[] | null }>): Promise<any[]> {
   const PAGE = 1000;
   let all: any[] = [];
@@ -105,28 +135,43 @@ export default function PerObjektClient() {
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
 
-      const [tidRows, prodRows, invoiceRows, objRes, maskinRes, timprisRes] = await Promise.all([
+      const [
+        tidRows, prodRows, lassRows, sortRows,
+        sortGruppRes, objRes, maskinRes, timprisRes,
+        acordRes, avstandRes, sortTillaggRes, traktRes,
+      ] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_tid')
-            .select('datum, maskin_id, objekt_id, engine_time_sek, processing_sek')
+            .select('datum, maskin_id, objekt_id, engine_time_sek')
             .gte('datum', start).lte('datum', end)
             .range(from, to)
         ),
         fetchAllRows((from, to) =>
           supabase.from('fakt_produktion')
-            .select('datum, maskin_id, objekt_id, volym_m3sub')
+            .select('datum, maskin_id, objekt_id, volym_m3sub, stammar')
             .gte('datum', start).lte('datum', end)
             .range(from, to)
         ),
         fetchAllRows((from, to) =>
-          supabase.from('fortnox_invoice_rows')
-            .select('invoice_date, total, matched_objekt_id, manual_objekt_id')
-            .gte('invoice_date', start).lte('invoice_date', end)
+          supabase.from('fakt_lass')
+            .select('datum, maskin_id, objekt_id, volym_m3sub, korstracka_m')
+            .gte('datum', start).lte('datum', end)
             .range(from, to)
         ),
+        fetchAllRows((from, to) =>
+          supabase.from('fakt_sortiment')
+            .select('objekt_id, sortiment_id')
+            .gte('datum', start).lte('datum', end)
+            .range(from, to)
+        ),
+        supabase.from('dim_sortiment_grupp').select('sortiment_id, grupp'),
         supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, atgard'),
         supabase.from('dim_maskin').select('maskin_id, modell, maskin_typ'),
         supabase.from('maskin_timpris').select('maskin_id, maskin_namn, timpris, giltig_fran, giltig_till'),
+        supabase.from('acord_priser').select('medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till'),
+        supabase.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till').not('grundavstand_m', 'is', null),
+        supabase.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
+        supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
       ]);
 
       const objMap: Record<string, any> = {};
@@ -134,84 +179,194 @@ export default function PerObjektClient() {
       const maskinMap: Record<string, any> = {};
       for (const m of (maskinRes.data || [])) maskinMap[m.maskin_id] = m;
       const timprisList: MaskinTimpris[] = timprisRes.data || [];
+      const acordList: AcordPris[] = acordRes.data || [];
+      const avstandList: AvstandConfig[] = (avstandRes.data || []).filter((a: any) => a.grundavstand_m != null && a.kr_per_100m != null);
+      const traktBrackets: TraktBracket[] = traktRes.data || [];
+      const sortConf: SortConfig | null = (sortTillaggRes.data && sortTillaggRes.data[0])
+        ? { grundantal: Number(sortTillaggRes.data[0].grundantal), kr_per_extra_sortiment: Number(sortTillaggRes.data[0].kr_per_extra_sortiment) }
+        : null;
+      const sortGruppMap: Record<string, string | null> = {};
+      for (const g of (sortGruppRes.data || [])) sortGruppMap[g.sortiment_id] = g.grupp;
 
-      // Aggregera timmar/timpeng per (objekt, maskin)
-      type Key = string;
-      type Agg = { objekt_id: string; maskin_id: string; timmar: number; timpeng: number };
-      const aggMap: Record<Key, Agg> = {};
+      // Pre-aggregera per objekt
+      // 1) total m³fub (från skördardata — används för traktstorlek-bracket och medelstam)
+      const objVol: Record<string, { vol: number; stammar: number }> = {};
+      for (const r of prodRows) {
+        if (!r.objekt_id) continue;
+        if (!objVol[r.objekt_id]) objVol[r.objekt_id] = { vol: 0, stammar: 0 };
+        objVol[r.objekt_id].vol += Number(r.volym_m3sub) || 0;
+        objVol[r.objekt_id].stammar += Number(r.stammar) || 0;
+      }
+
+      // 2) Distinkta sortimentgrupper per objekt (grupp = null exkluderas)
+      const objGrupper: Record<string, Set<string>> = {};
+      for (const s of sortRows) {
+        if (!s.objekt_id) continue;
+        const g = sortGruppMap[s.sortiment_id];
+        if (!g) continue;
+        if (!objGrupper[s.objekt_id]) objGrupper[s.objekt_id] = new Set();
+        objGrupper[s.objekt_id].add(g);
+      }
+
+      // 3) Traktstorlek-tillägg per objekt
+      const objTrakt: Record<string, { kr_per_m3: number; bracket: string }> = {};
+      for (const objekt_id of Object.keys(objVol)) {
+        const v = objVol[objekt_id].vol;
+        const br = traktBrackets.find(b =>
+          Number(b.fran_m3fub) <= v && (b.till_m3fub == null || Number(b.till_m3fub) > v)
+        );
+        objTrakt[objekt_id] = {
+          kr_per_m3: br ? Number(br.tillagg_kr_per_m3fub) : 0,
+          bracket: br
+            ? `${br.fran_m3fub}–${br.till_m3fub ?? '∞'}`
+            : '—',
+        };
+      }
+
+      // 4) Sortiment-tillägg per objekt (baseras på grupp-count)
+      const objSortTillagg: Record<string, { count: number; kr_per_m3: number }> = {};
+      for (const objekt_id of new Set([...Object.keys(objGrupper), ...Object.keys(objVol)])) {
+        const count = objGrupper[objekt_id]?.size || 0;
+        const extra = sortConf ? Math.max(0, count - sortConf.grundantal) * sortConf.kr_per_extra_sortiment : 0;
+        objSortTillagg[objekt_id] = { count, kr_per_m3: extra };
+      }
+
+      // 5) Objektets medelstam (från skördare) — används av skotare
+      const objMedelstam: Record<string, number> = {};
+      for (const [objekt_id, v] of Object.entries(objVol)) {
+        if (v.stammar > 0) objMedelstam[objekt_id] = v.vol / v.stammar;
+      }
+
+      // Tid per (objekt, maskin)
+      type TidAgg = { timmar: number; timpeng: number };
+      const tidAgg: Record<string, TidAgg> = {};
       for (const r of tidRows) {
         if (!r.objekt_id) continue;
         const key = `${r.objekt_id}|${r.maskin_id}`;
-        if (!aggMap[key]) aggMap[key] = { objekt_id: r.objekt_id, maskin_id: r.maskin_id, timmar: 0, timpeng: 0 };
-        const sek = r.engine_time_sek || 0;
-        const t = sek / 3600;
-        aggMap[key].timmar += t;
+        if (!tidAgg[key]) tidAgg[key] = { timmar: 0, timpeng: 0 };
+        const t = (r.engine_time_sek || 0) / 3600;
+        tidAgg[key].timmar += t;
         const tp = timprisList.find(p => p.maskin_id === r.maskin_id && isValidOn(r.datum, p.giltig_fran, p.giltig_till));
-        aggMap[key].timpeng += t * (tp?.timpris || 0);
+        tidAgg[key].timpeng += t * (tp?.timpris || 0);
       }
 
-      // Volym per objekt från produktion
-      const volPerObjekt: Record<string, number> = {};
+      // Skördare (harvester): aggregera vol + stammar per (objekt, maskin)
+      type HarvAgg = { vol: number; stammar: number };
+      const harvAgg: Record<string, HarvAgg> = {};
       for (const r of prodRows) {
         if (!r.objekt_id) continue;
-        volPerObjekt[r.objekt_id] = (volPerObjekt[r.objekt_id] || 0) + (r.volym_m3sub || 0);
+        const key = `${r.objekt_id}|${r.maskin_id}`;
+        if (!harvAgg[key]) harvAgg[key] = { vol: 0, stammar: 0 };
+        harvAgg[key].vol += Number(r.volym_m3sub) || 0;
+        harvAgg[key].stammar += Number(r.stammar) || 0;
       }
 
-      // Acord per objekt från fakturarader (manual_objekt_id har företräde)
-      const acordPerObjekt: Record<string, { total: number; antal: number }> = {};
-      for (const r of invoiceRows) {
-        const oid = r.manual_objekt_id || r.matched_objekt_id;
-        if (!oid) continue;
-        if (!acordPerObjekt[oid]) acordPerObjekt[oid] = { total: 0, antal: 0 };
-        acordPerObjekt[oid].total += Number(r.total) || 0;
-        acordPerObjekt[oid].antal += 1;
+      // Skotare (forwarder): aggregera vol + skotavstånd-tillägg per (objekt, maskin)
+      type FwdAgg = { vol: number; skotavstand_kr: number };
+      const fwdAgg: Record<string, FwdAgg> = {};
+      for (const r of lassRows) {
+        if (!r.objekt_id) continue;
+        const key = `${r.objekt_id}|${r.maskin_id}`;
+        if (!fwdAgg[key]) fwdAgg[key] = { vol: 0, skotavstand_kr: 0 };
+        const vol = Number(r.volym_m3sub) || 0;
+        fwdAgg[key].vol += vol;
+        const cfg = avstandList.find(c => isValidOn(r.datum, c.giltig_fran, c.giltig_till));
+        if (cfg) {
+          const dist = r.korstracka_m || 0;
+          const step = Math.max(0, Math.ceil((dist - cfg.grundavstand_m) / 100));
+          fwdAgg[key].skotavstand_kr += step * cfg.kr_per_100m * vol;
+        }
       }
 
-      // Bygg per-objekt-rader
-      type ObjAgg = { timmar: number; timpeng: number; maskiner: MaskinDel[] };
-      const objAgg: Record<string, ObjAgg> = {};
-      for (const a of Object.values(aggMap)) {
-        if (!objAgg[a.objekt_id]) objAgg[a.objekt_id] = { timmar: 0, timpeng: 0, maskiner: [] };
-        const obj = objAgg[a.objekt_id];
-        obj.timmar += a.timmar;
-        obj.timpeng += a.timpeng;
-        const tp = timprisList.find(p => p.maskin_id === a.maskin_id);
-        const maskinInfo = maskinMap[a.maskin_id];
-        obj.maskiner.push({
-          maskin_id: a.maskin_id,
-          maskin_namn: tp?.maskin_namn || maskinInfo?.modell || a.maskin_id,
-          maskin_typ: maskinInfo?.maskin_typ || null,
-          timmar: a.timmar,
-          timpeng: a.timpeng,
+      // Bygg maskinrader per objekt
+      const maskinDelarPerObjekt: Record<string, MaskinDel[]> = {};
+
+      function addMaskinDel(objekt_id: string, maskin_id: string, rad: Omit<MaskinDel, 'maskin_id' | 'maskin_namn' | 'maskin_typ'>) {
+        const minfo = maskinMap[maskin_id];
+        const tp = timprisList.find(p => p.maskin_id === maskin_id);
+        const maskin_typ: 'Harvester' | 'Forwarder' | null = minfo?.maskin_typ || null;
+        if (!maskinDelarPerObjekt[objekt_id]) maskinDelarPerObjekt[objekt_id] = [];
+        maskinDelarPerObjekt[objekt_id].push({
+          maskin_id,
+          maskin_namn: tp?.maskin_namn || minfo?.modell || maskin_id,
+          maskin_typ,
+          ...rad,
         });
       }
 
-      // Ta med objekt som har timmar ELLER acord
-      const allaObjektIds = new Set<string>([...Object.keys(objAgg), ...Object.keys(acordPerObjekt)]);
+      // Harvester-rader
+      for (const [key, h] of Object.entries(harvAgg)) {
+        const [objekt_id, maskin_id] = key.split('|');
+        if (h.vol <= 0 || h.stammar <= 0) continue;
+        const medelstam = h.vol / h.stammar;
+        const a = lookupNearest(medelstam, acordList);
+        const grundpris = a?.pris_skordare || 0;
+        const extraKr = (objSortTillagg[objekt_id]?.kr_per_m3 || 0) + (objTrakt[objekt_id]?.kr_per_m3 || 0);
+        const acord = h.vol * (grundpris + extraKr);
+        const tidK = tidAgg[key] || { timmar: 0, timpeng: 0 };
+        addMaskinDel(objekt_id, maskin_id, {
+          volym: h.vol,
+          medelstam,
+          grundpris,
+          timmar: tidK.timmar,
+          timpeng: tidK.timpeng,
+          acord,
+          skillnad: acord - tidK.timpeng,
+        });
+      }
 
-      const list: ObjektRad[] = Array.from(allaObjektIds)
-        .map(objekt_id => {
-          const v = objAgg[objekt_id] || { timmar: 0, timpeng: 0, maskiner: [] };
-          const a = acordPerObjekt[objekt_id] || { total: 0, antal: 0 };
-          const o = objMap[objekt_id];
-          return {
-            objekt_id,
-            objekt_namn: o?.object_name || o?.vo_nummer || objekt_id,
-            vo_nummer: o?.vo_nummer || null,
-            huvudtyp: o?.huvudtyp || null,
-            timmar: v.timmar,
-            timpeng: v.timpeng,
-            acord: a.total,
-            acord_rader: a.antal,
-            skillnad: a.total - v.timpeng,
-            volym_m3fub: volPerObjekt[objekt_id] || 0,
-            maskiner: v.maskiner.sort((x, y) => y.timpeng - x.timpeng),
-          };
-        })
-        .filter(r => r.timmar > 0 || r.acord > 0)
-        .sort((x, y) => Math.abs(y.skillnad) - Math.abs(x.skillnad));
+      // Forwarder-rader
+      for (const [key, f] of Object.entries(fwdAgg)) {
+        const [objekt_id, maskin_id] = key.split('|');
+        if (f.vol <= 0) continue;
+        const medelstam = objMedelstam[objekt_id] || 0.35;
+        const a = lookupNearest(medelstam, acordList);
+        const grundpris = a?.pris_skotare || 0;
+        const extraKr = (objSortTillagg[objekt_id]?.kr_per_m3 || 0) + (objTrakt[objekt_id]?.kr_per_m3 || 0);
+        const acord = f.vol * (grundpris + extraKr) + f.skotavstand_kr;
+        const tidK = tidAgg[key] || { timmar: 0, timpeng: 0 };
+        addMaskinDel(objekt_id, maskin_id, {
+          volym: f.vol,
+          medelstam,
+          grundpris,
+          timmar: tidK.timmar,
+          timpeng: tidK.timpeng,
+          acord,
+          skillnad: acord - tidK.timpeng,
+        });
+      }
 
-      setRader(list);
+      // Samla till ObjektRad
+      const objektRader: ObjektRad[] = [];
+      for (const objekt_id of Object.keys(maskinDelarPerObjekt)) {
+        const maskiner = maskinDelarPerObjekt[objekt_id].sort((a, b) => b.acord - a.acord);
+        const o = objMap[objekt_id];
+        const totalTimmar = maskiner.reduce((s, m) => s + m.timmar, 0);
+        const totalTimpeng = maskiner.reduce((s, m) => s + m.timpeng, 0);
+        const totalAcord = maskiner.reduce((s, m) => s + m.acord, 0);
+        const sortInfo = objSortTillagg[objekt_id] || { count: 0, kr_per_m3: 0 };
+        const traktInfo = objTrakt[objekt_id] || { kr_per_m3: 0, bracket: '—' };
+        objektRader.push({
+          objekt_id,
+          objekt_namn: o?.object_name || o?.vo_nummer || objekt_id,
+          vo_nummer: o?.vo_nummer || null,
+          huvudtyp: o?.huvudtyp || null,
+          volym_m3fub: objVol[objekt_id]?.vol || 0,
+          sortiment_grupper: Array.from(objGrupper[objekt_id] || []).sort(),
+          sortiment_count: sortInfo.count,
+          sortiment_kr_per_m3: sortInfo.kr_per_m3,
+          trakt_kr_per_m3: traktInfo.kr_per_m3,
+          trakt_bracket: traktInfo.bracket,
+          timmar: totalTimmar,
+          timpeng: totalTimpeng,
+          acord: totalAcord,
+          skillnad: totalAcord - totalTimpeng,
+          maskiner,
+        });
+      }
+
+      objektRader.sort((a, b) => Math.abs(b.skillnad) - Math.abs(a.skillnad));
+      setRader(objektRader);
     } catch (err) {
       console.error('PerObjekt: fetch error', err);
     }
@@ -220,11 +375,9 @@ export default function PerObjektClient() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const totalTimmar = rader.reduce((s, r) => s + r.timmar, 0);
   const totalTimpeng = rader.reduce((s, r) => s + r.timpeng, 0);
   const totalAcord = rader.reduce((s, r) => s + r.acord, 0);
   const totalSkillnad = totalAcord - totalTimpeng;
-  const finnsAcordData = rader.some(r => r.acord > 0);
 
   const s = {
     page: { background: '#111110', minHeight: '100vh', paddingTop: 16, paddingBottom: 130, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
@@ -236,7 +389,6 @@ export default function PerObjektClient() {
     card: { background: '#1a1a18', borderRadius: 14, padding: 16 } as const,
     kpiVal: { fontFamily: "'Fraunces', serif", fontSize: 26, lineHeight: 1, fontWeight: 500 },
     kpiLabel: { fontSize: 10, color: '#7a7a72', marginTop: 3, textTransform: 'uppercase' as const, letterSpacing: 0.6, fontWeight: 600 },
-    sectionTitle: { fontSize: 10, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: '#7a7a72', marginBottom: 10, marginTop: 20, padding: '0 4px' } as const,
     pill: { display: 'inline-block', fontSize: 9, padding: '2px 8px', borderRadius: 999, fontWeight: 600, letterSpacing: 0.3 } as const,
   };
 
@@ -244,7 +396,7 @@ export default function PerObjektClient() {
     <div style={s.page}>
       <div style={{ padding: '16px 16px 0' }}>
         <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em' }}>Per objekt</div>
-        <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>Timpeng (G15h × timpris) mot acord (fakturerat per VO).</div>
+        <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>Timpeng mot beräknad acord (produktionsdata × acordprislista).</div>
       </div>
 
       <div style={{ ...s.filterBar, marginTop: 16 }}>
@@ -264,42 +416,28 @@ export default function PerObjektClient() {
 
       {!loading && (
         <div style={{ padding: '0 16px' }}>
-          {/* Sammanfattning */}
           <div style={{ ...s.card, margin: '16px 0' }}>
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ ...s.kpiVal, color: 'rgba(90,255,140,0.95)' }}>{formatKr(totalTimpeng)}</div>
                 <div style={s.kpiLabel}>Timpeng</div>
-                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 2 }}>{formatTim(totalTimmar)} G15h</div>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: finnsAcordData ? 'rgba(91,143,255,0.95)' : '#4a4a44' }}>
-                  {finnsAcordData ? formatKr(totalAcord) : '—'}
-                </div>
+                <div style={{ ...s.kpiVal, color: 'rgba(91,143,255,0.95)' }}>{formatKr(totalAcord)}</div>
                 <div style={s.kpiLabel}>Acord</div>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{
-                  ...s.kpiVal,
-                  color: !finnsAcordData ? '#4a4a44'
-                    : totalSkillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
-                }}>
-                  {finnsAcordData ? `${totalSkillnad >= 0 ? '+' : ''}${formatKr(totalSkillnad)}` : '—'}
+                <div style={{ ...s.kpiVal, color: totalSkillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)' }}>
+                  {totalSkillnad >= 0 ? '+' : ''}{formatKr(totalSkillnad)}
                 </div>
                 <div style={s.kpiLabel}>Skillnad</div>
               </div>
             </div>
-            {!finnsAcordData && (
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.07)', fontSize: 11, color: '#7a7a72', lineHeight: 1.5 }}>
-                Ingen faktura-data hittad för denna period. Kör <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>POST /api/fortnox/sync-invoices?full=1</code>. Omappade rader hanteras i Inställningar.
-              </div>
-            )}
           </div>
 
-          {/* Lista */}
           {rader.length === 0 && (
             <div style={{ textAlign: 'center', padding: 40, color: '#7a7a72', fontSize: 13 }}>
-              Ingen tidsdata för vald period.
+              Inga objekt med produktionsdata för vald period.
             </div>
           )}
 
@@ -329,65 +467,90 @@ export default function PerObjektClient() {
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    {r.acord > 0 ? (
-                      <>
-                        <div style={{
-                          fontFamily: "'Fraunces', serif", fontSize: 20,
-                          color: r.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
-                        }}>
-                          {r.skillnad >= 0 ? '+' : ''}{formatKr(r.skillnad)}
-                        </div>
-                        <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Skillnad</div>
-                      </>
-                    ) : (
-                      <>
-                        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: 'rgba(90,255,140,0.95)' }}>{formatKr(r.timpeng)}</div>
-                        <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Timpeng</div>
-                      </>
-                    )}
+                    <div style={{
+                      fontFamily: "'Fraunces', serif", fontSize: 20,
+                      color: r.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
+                    }}>
+                      {r.skillnad >= 0 ? '+' : ''}{formatKr(r.skillnad)}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Skillnad</div>
                   </div>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 11 }}>
-                  <Metric label="G15h" value={formatTim(r.timmar)} color="#e8e8e4" />
-                  <Metric label="Timpeng" value={formatKr(r.timpeng)} color="#e8e8e4" />
-                  <Metric label="Acord" value={r.acord > 0 ? formatKr(r.acord) : '—'} color={r.acord > 0 ? 'rgba(91,143,255,0.95)' : '#4a4a44'} />
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 11 }}>
+                  <Metric label="Timpeng" value={formatKr(r.timpeng)} color="#e8e8e4" sub={formatTim(r.timmar)} />
+                  <Metric label="Acord" value={formatKr(r.acord)} color="rgba(91,143,255,0.95)" />
                   <Metric
                     label="Skillnad"
-                    value={r.acord > 0 ? `${r.skillnad >= 0 ? '+' : ''}${formatKr(r.skillnad)}` : '—'}
-                    color={r.acord === 0 ? '#4a4a44'
-                      : r.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)'}
+                    value={`${r.skillnad >= 0 ? '+' : ''}${formatKr(r.skillnad)}`}
+                    color={r.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)'}
                   />
                 </div>
-                {isExpanded && r.maskiner.length > 0 && (
-                  <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Per maskin</div>
-                    {r.maskiner.map(m => (
-                      <div key={m.maskin_id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', fontSize: 12 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{
-                            ...s.pill,
-                            color: m.maskin_typ === 'Harvester' ? 'rgba(90,255,140,0.85)' : 'rgba(91,143,255,0.9)',
-                            background: m.maskin_typ === 'Harvester' ? 'rgba(90,255,140,0.08)' : 'rgba(91,143,255,0.1)',
-                          } as any}>
-                            {m.maskin_typ === 'Harvester' ? 'SKÖRD' : m.maskin_typ === 'Forwarder' ? 'SKOT' : 'MASK'}
-                          </span>
-                          <span>{m.maskin_namn}</span>
+                {isExpanded && (
+                  <>
+                    {/* Beräkningsparametrar */}
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Beräkningsunderlag</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, fontSize: 11, color: '#bfcab9' }}>
+                        <div>
+                          <span style={{ color: '#7a7a72' }}>Sortimentgrupper: </span>
+                          <strong>{r.sortiment_count}</strong>
+                          {r.sortiment_grupper.length > 0 && <span style={{ color: '#7a7a72' }}> ({r.sortiment_grupper.join(', ')})</span>}
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                          <span style={{ color: '#7a7a72', fontVariantNumeric: 'tabular-nums' }}>{formatTim(m.timmar)}</span>
-                          <span style={{ marginLeft: 12, fontVariantNumeric: 'tabular-nums' }}>{formatKr(m.timpeng)}</span>
-                        </div>
+                        <div><span style={{ color: '#7a7a72' }}>Sortiment-tillägg: </span><strong>{r.sortiment_kr_per_m3} kr/m³</strong></div>
+                        <div><span style={{ color: '#7a7a72' }}>Traktstorlek-bracket: </span><strong>{r.trakt_bracket}</strong></div>
+                        <div><span style={{ color: '#7a7a72' }}>Trakt-tillägg: </span><strong>{r.trakt_kr_per_m3} kr/m³</strong></div>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+
+                    {/* Per maskin */}
+                    {r.maskiner.length > 0 && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Per maskin</div>
+                        {r.maskiner.map(m => {
+                          const isHarv = m.maskin_typ === 'Harvester';
+                          return (
+                            <div key={m.maskin_id} style={{ padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span style={{
+                                    ...s.pill,
+                                    color: isHarv ? 'rgba(90,255,140,0.85)' : 'rgba(91,143,255,0.9)',
+                                    background: isHarv ? 'rgba(90,255,140,0.08)' : 'rgba(91,143,255,0.1)',
+                                  } as any}>
+                                    {isHarv ? 'SKÖRD' : m.maskin_typ === 'Forwarder' ? 'SKOT' : 'MASK'}
+                                  </span>
+                                  <span style={{ fontSize: 12, fontWeight: 600 }}>{m.maskin_namn}</span>
+                                </div>
+                                <div style={{
+                                  fontSize: 13, fontFamily: "'Fraunces', serif", fontVariantNumeric: 'tabular-nums',
+                                  color: m.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
+                                }}>
+                                  {m.skillnad >= 0 ? '+' : ''}{formatKr(m.skillnad)}
+                                </div>
+                              </div>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, fontSize: 10, color: '#7a7a72', fontVariantNumeric: 'tabular-nums' }}>
+                                <div><span style={{ color: '#7a7a72' }}>G15h </span><span style={{ color: '#e8e8e4' }}>{formatTim(m.timmar)}</span></div>
+                                <div><span style={{ color: '#7a7a72' }}>Timpeng </span><span style={{ color: '#e8e8e4' }}>{formatKr(m.timpeng)}</span></div>
+                                <div><span style={{ color: '#7a7a72' }}>m³ </span><span style={{ color: '#e8e8e4' }}>{Math.round(m.volym).toLocaleString('sv-SE')}</span></div>
+                                <div><span style={{ color: '#7a7a72' }}>Pris </span><span style={{ color: '#e8e8e4' }}>{m.grundpris.toFixed(0)} kr</span></div>
+                                <div style={{ textAlign: 'right' }}><span style={{ color: '#7a7a72' }}>Acord </span><span style={{ color: 'rgba(91,143,255,0.9)' }}>{formatKr(m.acord)}</span></div>
+                              </div>
+                              <div style={{ fontSize: 9, color: '#4a4a44', marginTop: 3 }}>
+                                medelstam {m.medelstam.toFixed(3)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             );
           })}
 
           <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 12, padding: '0 4px', lineHeight: 1.5 }}>
-            G15h = <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>engine_time_sek</code> summerat per (datum, maskin, objekt).
-            Timpris hämtas från <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>maskin_timpris</code> med temporal uppslagning per rad-datum.
+            Acord = volym × (grundpris + sortiment-tillägg + trakt-tillägg) + skotavstånd-tillägg (skotare). Grundpris slås upp per närmaste medelstam i acord_priser. Skördare använder egen medelstam, skotare ärver objektets. Sortimentgrupper räknas via dim_sortiment_grupp — Avkap exkluderas.
           </div>
         </div>
       )}
@@ -396,11 +559,12 @@ export default function PerObjektClient() {
   );
 }
 
-function Metric({ label, value, color }: { label: string; value: string; color: string }) {
+function Metric({ label, value, color, sub }: { label: string; value: string; color: string; sub?: string }) {
   return (
     <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: '8px 10px' }}>
       <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2 }}>{label}</div>
       <div style={{ fontSize: 13, fontFamily: "'Fraunces', serif", color, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+      {sub && <div style={{ fontSize: 9, color: '#7a7a72', marginTop: 1 }}>{sub}</div>}
     </div>
   );
 }

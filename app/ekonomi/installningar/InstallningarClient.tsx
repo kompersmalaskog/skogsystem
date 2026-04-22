@@ -43,6 +43,14 @@ type OmappadFaktura = {
   valt_objekt_id: string;  // UI-state
 };
 type ObjektVal = { objekt_id: string; label: string };
+type SortGruppRad = {
+  sortiment_id: string;
+  namn: string;
+  grupp: string | null;  // null = exkluderad
+  grupp_manuell: boolean;
+  dirty?: boolean;
+};
+const SORT_GRUPPER = ['Timmer', 'Klentimmer', 'Kubb', 'Massa', 'Energi', 'Övrigt'] as const;
 
 function todayIso() {
   const d = new Date();
@@ -80,6 +88,9 @@ export default function InstallningarClient() {
   const [omappade, setOmappade] = useState<OmappadFaktura[]>([]);
   const [objektVal, setObjektVal] = useState<ObjektVal[]>([]);
   const [savingMap, setSavingMap] = useState<number | null>(null);
+  const [sortGruppRader, setSortGruppRader] = useState<SortGruppRad[]>([]);
+  const [savingSortGrupp, setSavingSortGrupp] = useState<string | null>(null);
+  const [sortGruppFilter, setSortGruppFilter] = useState<string>('Ej manuella');
 
   const [savingMaskin, setSavingMaskin] = useState<string | null>(null);
   const [savingAcord, setSavingAcord] = useState(false);
@@ -97,7 +108,7 @@ export default function InstallningarClient() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [mRes, aRes, avRes, trRes, teRes, soRes, flRes, ovRes, dimMaskinRes, ksRes, omappadRes, objektValRes] = await Promise.all([
+    const [mRes, aRes, avRes, trRes, teRes, soRes, flRes, ovRes, dimMaskinRes, ksRes, omappadRes, objektValRes, sortGruppRes] = await Promise.all([
       supabase.from('maskin_timpris').select('id, maskin_id, maskin_namn, timpris, giltig_fran, giltig_till').is('giltig_till', null).order('maskin_namn'),
       supabase.from('acord_priser').select('id, medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till').is('giltig_till', null).order('medelstam'),
       supabase.from('acord_skotningsavstand').select('id, grundavstand_m, kr_per_100m, giltig_fran, giltig_till').is('giltig_till', null).not('grundavstand_m', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
@@ -116,6 +127,7 @@ export default function InstallningarClient() {
         .order('invoice_date', { ascending: false })
         .limit(200),
       supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer').order('object_name').limit(1000),
+      supabase.from('dim_sortiment').select('sortiment_id, namn, dim_sortiment_grupp(grupp, grupp_manuell)').order('namn'),
     ]);
     setMaskiner((mRes.data || []).map((m: any) => ({ id: m.id, maskin_id: m.maskin_id, maskin_namn: m.maskin_namn || '', timpris: m.timpris, giltig_fran: m.giltig_fran })));
     setAcord((aRes.data || []).map((a: any) => ({ id: a.id, medelstam: a.medelstam, pris_total: a.pris_total, pris_skordare: a.pris_skordare, pris_skotare: a.pris_skotare, giltig_fran: a.giltig_fran })));
@@ -158,6 +170,16 @@ export default function InstallningarClient() {
         ? (o.vo_nummer ? `${o.object_name} (VO ${o.vo_nummer})` : o.object_name)
         : (o.vo_nummer ? `VO ${o.vo_nummer}` : o.objekt_id),
     })));
+
+    setSortGruppRader((sortGruppRes.data || []).map((s: any) => {
+      const g = Array.isArray(s.dim_sortiment_grupp) ? s.dim_sortiment_grupp[0] : s.dim_sortiment_grupp;
+      return {
+        sortiment_id: s.sortiment_id,
+        namn: s.namn || '',
+        grupp: g?.grupp ?? null,
+        grupp_manuell: !!g?.grupp_manuell,
+      };
+    }));
 
     setLoading(false);
   }, []);
@@ -358,6 +380,28 @@ export default function InstallningarClient() {
     // Ta bort raden lokalt (den är nu mappad)
     setOmappade(prev => prev.filter((_, i) => i !== idx));
     flashMsg(`Mappad: faktura ${row.document_number} → ${objektVal.find(o => o.objekt_id === row.valt_objekt_id)?.label || row.valt_objekt_id}`);
+  };
+
+  // ── Sortiment-grupp-mappning ──
+  const updateSortGrupp = (idx: number, grupp: string | null) => {
+    setSortGruppRader(prev => prev.map((r, i) => i === idx ? { ...r, grupp, dirty: true } : r));
+  };
+  const saveSortGrupp = async (idx: number) => {
+    const row = sortGruppRader[idx];
+    setSavingSortGrupp(row.sortiment_id);
+    const { error } = await supabase.from('dim_sortiment_grupp')
+      .upsert({
+        sortiment_id: row.sortiment_id,
+        grupp: row.grupp,
+        grupp_manuell: true,
+        uppdaterad_tid: new Date().toISOString(),
+      }, { onConflict: 'sortiment_id' });
+    setSavingSortGrupp(null);
+    if (error) { flashMsg(`Fel: ${error.message}`); return; }
+    setSortGruppRader(prev => prev.map((r, i) => i === idx
+      ? { ...r, grupp_manuell: true, dirty: false }
+      : r));
+    flashMsg(`Sparad: ${row.namn || row.sortiment_id} → ${row.grupp || '(exkluderad)'}`);
   };
 
   // ── Kostnadsställe-mappning ──
@@ -786,6 +830,81 @@ export default function InstallningarClient() {
                 </div>
               );
             })}
+          </div>
+
+          {/* Sortiment-grupp-mappning */}
+          <div style={s.sectionTitle as CSSProperties}>Sortimentgrupp-mappning</div>
+          <div style={s.sectionBlurb as CSSProperties}>
+            Varje sortiment-id får en grupp som räknas i acord (Timmer/Klentimmer/Kubb/Massa/Energi/Övrigt).
+            Välj "Exkluderat" för Avkap, test och fallback. Manuell ändring skyddas från framtida auto-seed.
+          </div>
+          <div style={{ ...s.card, padding: 14 } as CSSProperties}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              {['Alla', 'Ej manuella', 'Exkluderade', 'Timmer', 'Klentimmer', 'Kubb', 'Massa', 'Energi', 'Övrigt'].map(f => (
+                <button key={f}
+                  style={{
+                    ...s.periodBtn,
+                    ...(sortGruppFilter === f ? s.periodBtnActive : {}),
+                  } as CSSProperties}
+                  onClick={() => setSortGruppFilter(f)}>
+                  {f}
+                </button>
+              ))}
+            </div>
+            {(() => {
+              const filtered = sortGruppRader.filter(r => {
+                if (sortGruppFilter === 'Alla') return true;
+                if (sortGruppFilter === 'Ej manuella') return !r.grupp_manuell;
+                if (sortGruppFilter === 'Exkluderade') return r.grupp == null;
+                return r.grupp === sortGruppFilter;
+              });
+              if (filtered.length === 0) {
+                return <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0', textAlign: 'center' }}>Inga rader i filtret.</div>;
+              }
+              return (
+                <div>
+                  <div style={{ fontSize: 10, color: '#7a7a72', marginBottom: 8 }}>Visar {filtered.length} av {sortGruppRader.length} sortiment.</div>
+                  {filtered.map(r => {
+                    const idx = sortGruppRader.findIndex(x => x.sortiment_id === r.sortiment_id);
+                    const isSaving = savingSortGrupp === r.sortiment_id;
+                    return (
+                      <div key={r.sortiment_id} style={{
+                        padding: '8px 0',
+                        borderBottom: '1px solid rgba(255,255,255,0.04)',
+                        display: 'grid', gridTemplateColumns: '1fr 140px auto', gap: 8, alignItems: 'center',
+                      }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {r.namn || <span style={{ color: '#7a7a72', fontStyle: 'italic' }}>(tom)</span>}
+                          </div>
+                          <div style={{ fontSize: 9, color: '#7a7a72', fontFamily: 'ui-monospace, monospace', marginTop: 1 }}>
+                            {r.sortiment_id}
+                            {r.grupp_manuell && <span style={{ marginLeft: 6, color: 'rgba(173,198,255,0.7)' }}>● manuell</span>}
+                          </div>
+                        </div>
+                        <select
+                          value={r.grupp ?? ''}
+                          onChange={e => updateSortGrupp(idx, e.target.value || null)}
+                          style={{
+                            background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                            borderRadius: 8, padding: '6px 8px', color: '#e8e8e4', fontSize: 12,
+                            fontFamily: 'inherit', outline: 'none', width: '100%', boxSizing: 'border-box',
+                          }}>
+                          <option value="">Exkluderat</option>
+                          {SORT_GRUPPER.map(g => <option key={g} value={g}>{g}</option>)}
+                        </select>
+                        <button
+                          style={{ ...s.btnDark, padding: '6px 10px', fontSize: 11, opacity: isSaving || !r.dirty ? 0.4 : 1 } as CSSProperties}
+                          disabled={isSaving || !r.dirty}
+                          onClick={() => saveSortGrupp(idx)}>
+                          {isSaving ? '…' : 'Spara'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Info */}
