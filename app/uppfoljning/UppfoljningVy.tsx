@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export interface Forare {
@@ -44,6 +44,22 @@ export interface UppfoljningData {
   externPris?: number;
   externAntal?: number;
   maskiner: Maskin[];
+  // V6 detail meta
+  typ?: 'slutavverkning' | 'gallring';
+  areal?: number;
+  agare?: string;
+  status?: 'pagaende' | 'avslutat';
+  skordareModell?: string | null;
+  skordareStart?: string | null;
+  skordareSlut?: string | null;
+  skordareLastDate?: string | null;
+  skotareModell?: string | null;
+  skotareStart?: string | null;
+  skotareSlut?: string | null;
+  skotareLastDate?: string | null;
+  operatorSkordare?: string | null;
+  operatorSkotare?: string | null;
+  prodSkordarePerDag?: { datum: string; m3: number }[];
   // Tidredovisning
   skordareG15h: number;
   skordareG0: number;
@@ -87,755 +103,661 @@ export interface UppfoljningData {
   snittlassM3: number;
   lassG15h: number;
   skotningsavstand: number;
-  lassPerDag: { datum: string; lass: number }[];
+  lassPerDag: { datum: string; lass: number; m3?: number }[];
   // Balans
   skordareBalG15h: number;
   skotareBalG15h: number;
 }
 
-// ── Demo data (ersätt med riktig API-fetch) ────────────────────────────────
-const demoData: UppfoljningData = {
-  objektNamn: 'Krampamåla',
-  skordat: 2169,
-  skotat: 1842,
-  kvarPct: 15,
-  maskiner: [
-    { typ: 'Skördare', modell: 'John Deere 1270G', start: '12 feb', slut: '18 mar', aktivForare: 'Erik S.', tidigareForare: [{ namn: 'Jonas K.', fran: '12 feb', till: '18 feb' }] },
-    { typ: 'Skotare', modell: 'John Deere 1110G', start: '14 feb', slut: '20 mar', aktivForare: 'Lars M.' },
-  ],
-  skordareG15h: 142.5, skordareG0: 4.1, skordareTomgang: 3.8, skordareKortaStopp: 2.2, skordareRast: 8.2, skordareAvbrott: 6.3,
-  skotareG15h: 138.2, skotareG0: 5.3, skotareTomgang: 4.6, skotareKortaStopp: 1.9, skotareRast: 7.9, skotareAvbrott: 5.6,
-  skordareM3G15h: 15.2, skordareStammarG15h: 82, skordareMedelstam: 0.185,
-  skotareM3G15h: 13.3, skotareLassG15h: 1.13, skotareSnittlass: 13.8,
-  tradslag: [{ namn: 'Gran', pct: 58 }, { namn: 'Tall', pct: 32 }, { namn: 'Björk', pct: 7 }, { namn: 'Övrigt', pct: 3 }],
-  sortiment: [{ namn: 'Grantimmer', m3: 845 }, { namn: 'Talltimmer', m3: 523 }, { namn: 'Granmassa', m3: 412 }, { namn: 'Tallmassa', m3: 198 }, { namn: 'Björkmassa', m3: 124 }, { namn: 'Brännved', m3: 67 }],
-  dieselTotalt: 4768, dieselPerM3: 2.20,
-  skordareL: 2845, skordareL_M3: 1.31, skordareL_G15h: 16.8,
-  skotareL: 1923, skotareL_M3: 0.89, skotareL_G15h: 12.4,
-  dieselSkordare: [{ datum: '11/3', liter: 185 }, { datum: '12/3', liter: 198 }, { datum: '13/3', liter: 172 }, { datum: '14/3', liter: 191 }, { datum: '15/3', liter: 205 }, { datum: '16/3', liter: 188 }, { datum: '17/3', liter: 212 }],
-  dieselSkotare: [{ datum: '14/3', liter: 142 }, { datum: '15/3', liter: 149 }, { datum: '16/3', liter: 136 }, { datum: '17/3', liter: 145 }, { datum: '18/3', liter: 133 }, { datum: '19/3', liter: 143 }, { datum: '20/3', liter: 139 }],
-  avbrottSkordare: [{ orsak: 'Kedjebrott', typ: 'Mekaniskt', tid: '2.5h', antal: 3 }, { orsak: 'Tankning', typ: 'Planerat', tid: '1.8h', antal: 8 }, { orsak: 'Hydraulikfel', typ: 'Mekaniskt', tid: '1.2h', antal: 1 }, { orsak: 'Väntan', typ: 'Logistik', tid: '0.8h', antal: 2 }],
-  avbrottSkordare_totalt: '6.3h',
-  avbrottSkotare: [{ orsak: 'Väntan', typ: 'Logistik', tid: '2.1h', antal: 4 }, { orsak: 'Tankning', typ: 'Planerat', tid: '1.5h', antal: 7 }, { orsak: 'Punktering', typ: 'Mekaniskt', tid: '1.2h', antal: 1 }, { orsak: 'Kranfel', typ: 'Mekaniskt', tid: '0.8h', antal: 1 }],
-  avbrottSkotareTotalt: '5.6h',
-  antalLass: 156, snittlassM3: 13.8, lassG15h: 1.13, skotningsavstand: 285,
-  lassPerDag: [{ datum: '11/3', lass: 18 }, { datum: '12/3', lass: 22 }, { datum: '13/3', lass: 20 }, { datum: '14/3', lass: 24 }, { datum: '15/3', lass: 21 }, { datum: '16/3', lass: 25 }, { datum: '17/3', lass: 26 }],
-  skordareBalG15h: 142.5,
-  skotareBalG15h: 162.8,
-};
+// ── Design tokens ─────────────────────────────────────────────────────────
+const V6_GREY = '#8e8e93';
+const V6_GREY2 = '#636366';
+const V6_CARD = '#141416';
+const V6_SEP = 'rgba(255,255,255,0.06)';
+const V6_SK = '#a8d582';
+const V6_ST = '#f0b24c';
+const V6_WARN = '#ff9f0a';
+const V6_DONE = '#30d158';
+const V6_BG = '#000';
+const V6_FF = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Inter',system-ui,sans-serif";
 
-// ── Helpers ────────────────────────────────────────────────────────────────
-function useCountUp(target: number, duration = 1800, isDecimal = false, decimals = 2) {
-  const [value, setValue] = useState(0);
-  const started = useRef(false);
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    const startTime = performance.now();
-    const step = (now: number) => {
-      const p = Math.min((now - startTime) / duration, 1);
-      const ease = 1 - Math.pow(1 - p, 4);
-      const v = ease * target;
-      setValue(v);
-      if (p < 1) requestAnimationFrame(step);
-      else setValue(target);
-    };
-    requestAnimationFrame(step);
-  }, [target, duration]);
-  if (isDecimal) return value.toFixed(decimals);
-  return Math.floor(value).toLocaleString('sv-SE');
+// ── Helpers ───────────────────────────────────────────────────────────────
+function fmtISO(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return `${d.getDate()} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()]}`;
+}
+function daysBetween(a?: string | null, b?: string | null): number {
+  if (!a) return 0;
+  const d1 = new Date(a);
+  const d2 = b ? new Date(b) : new Date();
+  return Math.max(1, Math.round((d2.getTime() - d1.getTime()) / 864e5));
+}
+function daysAgo(iso?: string | null): string | null {
+  if (!iso) return null;
+  const d = daysBetween(iso, undefined);
+  return d === 0 ? 'idag' : d === 1 ? 'igår' : `${d} dagar sedan`;
 }
 
-function HBar({ label, pct, val, delay = 0 }: { label: string; pct: number; val: string; delay?: number }) {
-  const fillRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const t = setTimeout(() => {
-      if (fillRef.current) {
-        fillRef.current.style.width = pct + '%';
-        setTimeout(() => fillRef.current?.classList.add('shimmer-go'), 1300);
-      }
-    }, delay);
-    return () => clearTimeout(t);
-  }, [pct, delay]);
+// Sortiment name cleanup (bevarad från tidigare version)
+const sortimentNamnMap: Record<string, string> = {
+  'BmavFall': 'Barrmassaved', 'BmavFall_V3': 'Barrmassaved', 'BmavFall_V4': 'Barrmassaved',
+  'BjörkmavFall': 'Björkmassaved', 'BjörkmavFall_V3': 'Björkmassaved',
+  'EngvedFall': 'Energived', 'EngvedFall_V3': 'Energived',
+  'Timmer': 'Sågtimmer', 'TimmerFall': 'Sågtimmer',
+  'Kubb': 'Kubb', 'KubbFall': 'Kubb',
+  'GranTimmer': 'Grantimmer', 'TallTimmer': 'Talltimmer',
+  'GranMassa': 'Granmassaved', 'TallMassa': 'Tallmassaved',
+};
+function sortimentSvenska(raw: string): string {
+  if (sortimentNamnMap[raw]) return sortimentNamnMap[raw];
+  const base = raw.replace(/_V\d+$/, '');
+  if (sortimentNamnMap[base]) return sortimentNamnMap[base];
+  const lower = raw.toLowerCase();
+  for (const [k, v] of Object.entries(sortimentNamnMap)) {
+    if (k.toLowerCase() === lower) return v;
+  }
+  return raw;
+}
+
+const avbrottOversattning: Record<string, string> = {
+  'Saw maintenance': 'Sågunderhåll',
+  'Refilling and lubrication': 'Påfyllning och smörjning',
+  'Boom failure': 'Kranfel',
+  'Saw failure': 'Sågfel',
+  'Engine failure': 'Motorfel',
+  'Hydraulic failure': 'Hydraulikfel',
+  'Electric failure': 'Elfel',
+  'Boom maintenance': 'Kranunderhåll',
+  'Track failure': 'Bandfel',
+  'Moving': 'Förflyttning',
+};
+function avbrottSv(raw: string): string {
+  return avbrottOversattning[raw] || raw;
+}
+
+// ── Headline (meta + H1) ──────────────────────────────────────────────────
+function Headline({ data }: { data: UppfoljningData }) {
+  const typLabel = data.typ === 'slutavverkning' ? 'Slutavverkning' : data.typ === 'gallring' ? 'Gallring' : '';
+  const parts = [typLabel, data.areal ? `${data.areal} ha` : null, data.agare || null].filter(Boolean);
   return (
-    <div className="hbar-row">
-      <span className="hbar-label">{label}</span>
-      <div className="hbar-track"><div ref={fillRef} className="hbar-fill" /></div>
-      <span className="hbar-val">{val}</span>
+    <section style={{ padding: '22px 24px 20px' }}>
+      {parts.length > 0 && (
+        <div style={{ fontSize: 13, color: V6_GREY, fontWeight: 500 }}>{parts.join(' · ')}</div>
+      )}
+      <h1 style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.8px', margin: '4px 0 0', lineHeight: 1.05 }}>
+        {data.objektNamn}
+      </h1>
+    </section>
+  );
+}
+
+// ── Maskinkort ────────────────────────────────────────────────────────────
+function MaskinCell({
+  label, color, modell, forare, statusKort, primary, primaryUnit, primaryLabel, snitt, senaste,
+}: {
+  label: string; color: string; modell?: string | null; forare?: string | null;
+  statusKort: string; primary: number; primaryUnit: string; primaryLabel: string;
+  snitt: number | null; senaste: string | null;
+}) {
+  return (
+    <div style={{ background: V6_CARD, borderRadius: 16, padding: '16px 16px 14px', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 12 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+        <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
+        <span style={{ fontSize: 32, fontWeight: 700, letterSpacing: '-0.8px', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{primary}</span>
+        <span style={{ fontSize: 14, color: V6_GREY, fontWeight: 500 }}>{primaryUnit}</span>
+      </div>
+      <div style={{ fontSize: 11, color: V6_GREY, marginTop: 4, fontWeight: 500, minHeight: 14 }}>{primaryLabel}</div>
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: `0.5px solid ${V6_SEP}`, fontSize: 12, color: V6_GREY, display: 'flex', flexDirection: 'column', gap: 3, fontVariantNumeric: 'tabular-nums' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+          <span>Status</span>
+          <span style={{ color: '#fff', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{statusKort}</span>
+        </div>
+        {snitt != null && (
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Snitt/dag</span><span style={{ color: '#fff', fontWeight: 500 }}>{snitt} m³</span>
+          </div>
+        )}
+        {senaste && (
+          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <span>Senast</span><span style={{ color: '#fff', fontWeight: 500 }}>{senaste}</span>
+          </div>
+        )}
+        {modell && (
+          <div style={{ marginTop: 4, fontSize: 11, color: V6_GREY2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {modell}{forare ? ` · ${forare}` : ''}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────
-export default function UppfoljningVy({ data = demoData }: { data?: UppfoljningData }) {
-  const egen = data.egenSkotning === true;
-  const grot = data.grotSkotning === true;
-  const extern = data.externSkotning === true;
-  const externKostnad = (data.externPris || 0) * (data.externAntal || 0);
-  const harSkordareData = data.skordareG15h > 0 || data.skordareM3G15h > 0;
-  const harSkotareData = data.skotareG15h > 0 || data.antalLass > 0 || data.skotareM3G15h > 0;
-  const harTidData = harSkordareData || harSkotareData;
-  const harProduktionData = data.skordareM3G15h > 0 || data.skordareStammarG15h > 0 || data.skotareM3G15h > 0 || data.tradslag.length > 0 || data.sortiment.length > 0;
-  const harDieselData = data.dieselTotalt > 0;
-  const harAvbrottData = data.avbrottSkordare.length > 0 || data.avbrottSkotare.length > 0;
-  const harSkotareProdData = data.antalLass > 0 || data.skotareM3G15h > 0;
+function Maskinkort({ data }: { data: UppfoljningData }) {
+  const kvar = Math.max(0, data.skordat - data.skotat);
+  const seven = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const skAct = !!(data.skordareLastDate && data.skordareLastDate >= seven);
+  const stAct = !!(data.skotareLastDate && data.skotareLastDate >= seven);
 
-  const tabChoices = (() => {
-    const tabs: Array<'oversikt' | 'tid' | 'produktion' | 'diesel' | 'avbrott' | 'skotare'> = ['oversikt'];
-    if (harTidData) tabs.push('tid');
-    if (!grot && harProduktionData) tabs.push('produktion');
-    if (harDieselData) tabs.push('diesel');
-    if (harAvbrottData) tabs.push('avbrott');
-    if (!egen && !extern && !grot && harSkotareProdData) tabs.push('skotare');
-    // For grot: skotare tab if data exists
-    if (grot && harSkotareProdData) tabs.push('skotare');
-    return tabs;
-  })();
-  const [aktifTab, setAktifTab] = useState<'oversikt' | 'tid' | 'produktion' | 'diesel' | 'avbrott' | 'skotare'>('oversikt');
-  const [visaForare, setVisaForare] = useState<Record<number, boolean>>({});
-  const [timestamp, setTimestamp] = useState('');
-  const tabsRef = useRef<HTMLDivElement>(null);
-  const sliderRef = useRef<HTMLDivElement>(null);
+  const skProd = data.prodSkordarePerDag || [];
+  const skSnitt = skProd.length > 0 ? Math.round(skProd.reduce((a, b) => a + b.m3, 0) / skProd.length) : null;
+  const stProd = data.lassPerDag || [];
+  const stProdWithM3 = stProd.filter(d => typeof d.m3 === 'number');
+  const stSnitt = stProdWithM3.length > 0 ? Math.round(stProdWithM3.reduce((a, b) => a + (b.m3 || 0), 0) / stProdWithM3.length) : null;
 
-  const skordat = useCountUp(data.skordat);
-  const skotat = useCountUp(data.skotat);
-  const kvar = useCountUp(data.kvarPct, 1200);
-  const dieselTot = useCountUp(data.dieselTotalt);
-  const dieselM3 = useCountUp(data.dieselPerM3, 1600, true, 2);
-  const skordareBalStr = useCountUp(data.skordareBalG15h, 1400, true, 1);
-  const skotareBalStr = useCountUp(data.skotareBalG15h, 1400, true, 1);
-
-  // Timestamp (only HH:MM for inline display)
-  useEffect(() => {
-    const now = new Date();
-    setTimestamp(
-      String(now.getHours()).padStart(2, '0') + ':' +
-      String(now.getMinutes()).padStart(2, '0')
-    );
-  }, []);
-
-  // Progress bars on mount
-  const progressRef = useRef<HTMLDivElement>(null);
-  const balSkordRef = useRef<HTMLDivElement>(null);
-  const balSkotRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const t1 = setTimeout(() => { if (progressRef.current) progressRef.current.style.width = (100 - data.kvarPct) + '%'; }, 400);
-    const t2 = setTimeout(() => { if (balSkordRef.current) balSkordRef.current.style.width = '88%'; }, 300);
-    const t3 = setTimeout(() => { if (balSkotRef.current) balSkotRef.current.style.width = '100%'; }, 500);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [data.kvarPct, aktifTab]);
-
-  // Tab slider
-  useEffect(() => {
-    const tabs = tabsRef.current;
-    const slider = sliderRef.current;
-    if (!tabs || !slider) return;
-    const active = tabs.querySelector<HTMLButtonElement>('.tab-active');
-    if (active) {
-      slider.style.transition = 'none';
-      slider.style.left = active.offsetLeft + 'px';
-      slider.style.width = active.offsetWidth + 'px';
-      setTimeout(() => { slider.style.transition = ''; }, 50);
-    }
-  }, [aktifTab]);
-
-  // Mouse tilt
-  useEffect(() => {
-    const cards = document.querySelectorAll<HTMLElement>('.card3d');
-    const handlers: Array<[HTMLElement, (e: MouseEvent) => void, () => void]> = [];
-    cards.forEach(card => {
-      const onMove = (e: MouseEvent) => {
-        const r = card.getBoundingClientRect();
-        const x = (e.clientX - r.left) / r.width - 0.5;
-        const y = (e.clientY - r.top) / r.height - 0.5;
-        card.style.transform = `perspective(600px) rotateY(${x * 6}deg) rotateX(${-y * 6}deg) translateY(-4px)`;
-      };
-      const onLeave = () => { card.style.transform = ''; };
-      card.addEventListener('mousemove', onMove);
-      card.addEventListener('mouseleave', onLeave);
-      handlers.push([card, onMove, onLeave]);
-    });
-    return () => handlers.forEach(([card, onMove, onLeave]) => {
-      card.removeEventListener('mousemove', onMove);
-      card.removeEventListener('mouseleave', onLeave);
-    });
-  }, [aktifTab]);
-
-  // Scroll reveal — re-run when tab changes so conditionally rendered sections get observed
-  useEffect(() => {
-    const sections = document.querySelectorAll<HTMLElement>('.section-reveal');
-    const observer = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          entry.target.classList.add('visible');
-          observer.unobserve(entry.target);
-        }
-      });
-    }, { threshold: 0.08 });
-    sections.forEach(s => observer.observe(s));
-    return () => observer.disconnect();
-  }, [aktifTab]);
-
-  const moveSlider = (btn: HTMLButtonElement) => {
-    if (sliderRef.current) {
-      sliderRef.current.style.left = btn.offsetLeft + 'px';
-      sliderRef.current.style.width = btn.offsetWidth + 'px';
-    }
-  };
-
-  const sortimentNamnMap: Record<string, string> = {
-    'BmavFall': 'Barrmassaved', 'BmavFall_V3': 'Barrmassaved', 'BmavFall_V4': 'Barrmassaved',
-    'BjörkmavFall': 'Björkmassaved', 'BjörkmavFall_V3': 'Björkmassaved',
-    'EngvedFall': 'Energived', 'EngvedFall_V3': 'Energived',
-    'Timmer': 'Sågtimmer', 'TimmerFall': 'Sågtimmer',
-    'Kubb': 'Kubb', 'KubbFall': 'Kubb',
-    'GranTimmer': 'Grantimmer', 'TallTimmer': 'Talltimmer',
-    'GranMassa': 'Granmassaved', 'TallMassa': 'Tallmassaved',
-  };
-  function sortimentSvenska(raw: string): { namn: string; kod: string | null } {
-    // Check exact match
-    if (sortimentNamnMap[raw]) return { namn: sortimentNamnMap[raw], kod: raw };
-    // Check prefix match (strip _V3 etc)
-    const base = raw.replace(/_V\d+$/, '');
-    if (sortimentNamnMap[base]) return { namn: sortimentNamnMap[base], kod: raw };
-    // Check case-insensitive
-    const lower = raw.toLowerCase();
-    for (const [k, v] of Object.entries(sortimentNamnMap)) {
-      if (k.toLowerCase() === lower) return { namn: v, kod: raw };
-    }
-    return { namn: raw, kod: null };
-  }
-
-  const avbrottOversattning: Record<string, string> = {
-    'Saw maintenance': 'Sågunderhåll',
-    'Refilling and lubrication': 'Påfyllning och smörjning',
-    'Boom failure': 'Kranfel',
-    'Saw failure': 'Sågfel',
-    'Engine failure': 'Motorfel',
-    'Hydraulic failure': 'Hydraulikfel',
-    'Electric failure': 'Elfel',
-    'Boom maintenance': 'Kranunderhåll',
-    'Track failure': 'Bandfel',
-    'Moving': 'Förflyttning',
-    'Waiting': 'Väntan',
-    'Planning': 'Planering',
-    'Personal': 'Personligt',
-    'Other': 'Övrigt',
-    'Mechanical': 'Mekaniskt',
-    'Planned': 'Planerat',
-    'Logistics': 'Logistik',
-  };
-  function oversattAvbrott(s: string): string {
-    return avbrottOversattning[s] || s;
-  }
-
-  const maxSortiment = Math.max(...data.sortiment.map(s => s.m3));
-  const maxDieselSkord = Math.max(...data.dieselSkordare.map(d => d.liter));
-  const maxDieselSkot = Math.max(...data.dieselSkotare.map(d => d.liter));
-  const maxLass = Math.max(...data.lassPerDag.map(d => d.lass));
-
-  function getTradslagColor(namn: string): string {
-    const n = namn.toLowerCase();
-    if (n === 'gran') return '#2d6a4f';
-    if (n === 'tall') return '#a0522d';
-    if (n === 'björk') return '#c8c8c8';
-    if (n === 'övrigt' || n === 'övr_löv' || n === 'övrigt löv') return '#6b7c3a';
-    return '#6b7c3a';
-  }
-  const tradslagColors = data.tradslag.map(t => getTradslagColor(t.namn));
+  const showSt = !!data.skotareModell || data.skotat > 0;
+  const hasSk = !!data.skordareModell || data.skordat > 0;
 
   return (
-    <>
-      <style>{`
-        :root {
-          --bg: #070708;
-          --surface: #0f0f10;
-          --surface2: #141415;
-          --surface3: #1a1a1c;
-          --border: rgba(255,255,255,0.07);
-          --border-strong: rgba(255,255,255,0.13);
-          --border-top: rgba(255,255,255,0.18);
-          --text: #f5f5f7;
-          --text-sec: #a1a1a6;
-          --text-ter: #6e6e73;
-          --shadow-sm: 0 2px 8px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.6);
-          --shadow-md: 0 8px 24px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.7);
-          --shadow-lg: 0 20px 60px rgba(0,0,0,0.6), 0 4px 12px rgba(0,0,0,0.8);
-        }
-        .uppf-wrap { background: var(--bg); background-image: radial-gradient(ellipse at 50% 0%, rgba(255,255,255,0.03) 0%, transparent 70%); color: var(--text); font-family: 'Inter', -apple-system, sans-serif; min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
-        .uppf-wrap::after { content:''; position:fixed; inset:0; pointer-events:none; z-index:999; opacity:0.035; background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E"); background-size:180px 180px; }
-        .uppf-header { padding:1.25rem 1.75rem; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--border); background:linear-gradient(180deg,rgba(255,255,255,0.025) 0%,transparent 100%); position:sticky; top:0; z-index:10; backdrop-filter:blur(20px); }
-        .uppf-header-label { font-size:11px; color:var(--text-sec); letter-spacing:0.02em; margin-bottom:3px; }
-        .uppf-header-title { font-size:22px; font-weight:600; letter-spacing:-0.03em; }
-        .uppf-live { display:inline-flex; align-items:center; gap:5px; margin-top:4px; }
-        .uppf-live-dot { width:5px; height:5px; border-radius:50%; background:#f5f5f7; opacity:0.5; animation:lp 2.4s ease-in-out infinite; }
-        @keyframes lp { 0%,100%{opacity:0.5} 50%{opacity:0.15} }
-        .uppf-live-label { font-size:10px; color:var(--text-ter); letter-spacing:0.04em; }
-        .uppf-ts-label { font-size:11px; color:var(--text-ter); margin-bottom:3px; text-align:right; }
-        .uppf-ts-val { font-size:13px; color:var(--text-sec); text-align:right; }
-        .uppf-content { padding:0 1.75rem 4rem; max-width:900px; margin:0 auto; }
-        .section-reveal { padding:2rem 0; border-bottom:1px solid var(--border); opacity:0; transform:translateY(16px); transition:opacity 0.55s ease, transform 0.55s cubic-bezier(0.16,1,0.3,1); }
-        .section-reveal:last-child { border-bottom:none; }
-        .section-reveal.visible { opacity:1; transform:translateY(0); }
-        .sec-label { font-size:11px; font-weight:500; letter-spacing:0.04em; color:var(--text-ter); margin-bottom:1.25rem; display:flex; align-items:center; gap:10px; }
-        .sec-label::after { content:''; flex:1; height:1px; background:var(--border); }
-        .card3d { background:linear-gradient(160deg,var(--surface3) 0%,var(--surface) 100%); border:1px solid var(--border); border-top-color:var(--border-top); border-radius:16px; padding:1.25rem; box-shadow:var(--shadow-md); transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.35s ease, border-color 0.2s; position:relative; overflow:hidden; }
-        .card3d::before { content:''; position:absolute; top:0; left:-20%; right:-20%; height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.12),transparent); pointer-events:none; }
-        .card3d:hover { box-shadow:var(--shadow-lg); border-color:var(--border-strong); }
-        .hero-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px; }
-        .hero-label { font-size:11px; color:var(--text-ter); margin-bottom:10px; font-weight:500; letter-spacing:0.04em; }
-        .hero-num { font-size:clamp(40px,9vw,68px); font-weight:300; font-variant-numeric:tabular-nums; letter-spacing:-0.04em; line-height:1; text-shadow:0 0 40px rgba(255,255,255,0.12),0 0 80px rgba(255,255,255,0.05); }
-        .hero-unit { font-size:12px; color:var(--text-sec); margin-top:6px; }
-        .progress-wrap { padding:1.25rem; background:linear-gradient(160deg,var(--surface3) 0%,var(--surface) 100%); border:1px solid var(--border); border-top-color:var(--border-top); border-radius:16px; box-shadow:var(--shadow-md); position:relative; overflow:hidden; }
-        .progress-wrap::before { content:''; position:absolute; top:0; left:-20%; right:-20%; height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent); }
-        .progress-top { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px; }
-        .progress-pct { font-size:32px; font-weight:300; letter-spacing:-0.03em; }
-        .progress-lbl { font-size:12px; color:var(--text-sec); }
-        .progress-track { width:100%; height:2px; background:rgba(255,255,255,0.05); border-radius:1px; overflow:hidden; }
-        .progress-fill { height:100%; background:linear-gradient(90deg,rgba(255,255,255,0.3),rgba(255,255,255,0.7)); width:0; border-radius:1px; transition:width 2s cubic-bezier(0.16,1,0.3,1) 0.3s; }
-        .two-col { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-        .bal-inner { padding:1.25rem; }
-        .bal-machine { font-size:11px; color:var(--text-ter); letter-spacing:0.04em; margin-bottom:8px; font-weight:500; }
-        .bal-num { font-size:30px; font-weight:300; letter-spacing:-0.03em; font-variant-numeric:tabular-nums; text-shadow:0 0 30px rgba(255,255,255,0.1),0 0 60px rgba(255,255,255,0.04); }
-        .bal-unit { font-size:11px; color:var(--text-sec); margin-top:3px; }
-        .bal-bar { height:1px; background:rgba(255,255,255,0.05); margin-top:12px; overflow:hidden; border-radius:1px; }
-        .bal-fill { height:100%; background:linear-gradient(90deg,rgba(255,255,255,0.4),rgba(255,255,255,0.15)); width:0; transition:width 1.8s cubic-bezier(0.16,1,0.3,1) 0.4s; }
-        .bal-note { padding:1rem 1.25rem; border-top:1px solid var(--border); font-size:12px; color:var(--text-sec); line-height:1.6; }
-        .bal-note strong { color:var(--text); font-weight:500; }
-        .maskin-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:14px; }
-        .maskin-type { font-size:11px; color:var(--text-ter); letter-spacing:0.04em; margin-bottom:4px; font-weight:500; }
-        .maskin-model { font-size:15px; font-weight:500; letter-spacing:-0.01em; }
-        .badge { font-size:10px; padding:3px 9px; border-radius:20px; background:rgba(255,255,255,0.04); color:var(--text-sec); display:inline-flex; align-items:center; gap:5px; border:1px solid var(--border); box-shadow:inset 0 1px 0 rgba(255,255,255,0.06); }
-        .badge-aktiv .badge-dot { width:5px; height:5px; border-radius:50%; background:#4ade80; box-shadow:0 0 6px rgba(74,222,128,0.6); animation:lp 2s ease-in-out infinite; }
-        .badge-klar { color:#6e6e73; }
-        .badge-klar .badge-dot { width:5px; height:5px; border-radius:50%; background:#6e6e73; }
-        .maskin-meta { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
-        .maskin-lbl { font-size:10px; color:var(--text-ter); margin-bottom:3px; letter-spacing:0.04em; }
-        .maskin-val { font-size:13px; color:var(--text-sec); }
-        .forare-toggle { margin-top:12px; font-size:11px; color:var(--text-ter); cursor:pointer; transition:color 0.2s; display:inline-block; }
-        .forare-toggle:hover { color:var(--text-sec); }
-        .forare-header { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:10px; color:var(--text-ter); letter-spacing:0.04em; margin-bottom:6px; }
-        .forare-row { display:grid; grid-template-columns:1fr 1fr 1fr; font-size:12px; color:var(--text-sec); padding:5px 0; }
-        .forare-list { margin-top:10px; padding-top:10px; border-top:1px solid var(--border); }
-        .tabs-outer { position:relative; }
-        .tabs-outer::after { content:''; position:absolute; top:0; right:0; bottom:0; width:32px; background:linear-gradient(90deg,transparent,var(--bg)); pointer-events:none; z-index:2; }
-        .tabs-wrap { display:flex; border-bottom:1px solid var(--border); overflow-x:auto; position:relative; scrollbar-width:none; -ms-overflow-style:none; padding-top:4px; }
-        .tabs-wrap::-webkit-scrollbar { display:none; }
-        .tab-btn { padding:12px 20px; font-size:12px; font-weight:500; letter-spacing:0.02em; color:#636366; background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; white-space:nowrap; font-family:inherit; transition:color 0.25s, background 0.25s; border-radius:6px 6px 0 0; flex-shrink:0; }
-        .tab-btn:hover { color:var(--text-sec); }
-        .tab-active { color:var(--text) !important; background:rgba(255,255,255,0.08); border-bottom-color:var(--text) !important; }
-        .tab-slider { position:absolute; bottom:-1px; height:2px; background:linear-gradient(90deg,rgba(255,255,255,0.2),rgba(255,255,255,0.7),rgba(255,255,255,0.2)); border-radius:2px; transition:left 0.35s cubic-bezier(0.34,1.2,0.64,1), width 0.35s cubic-bezier(0.34,1.2,0.64,1); pointer-events:none; box-shadow:0 0 8px rgba(255,255,255,0.3); }
-        .panel { padding:1.5rem 0; }
-        .panel-two { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-        .panel-card { background:linear-gradient(160deg,var(--surface3) 0%,var(--surface) 100%); border:1px solid var(--border); border-top-color:rgba(255,255,255,0.1); border-radius:14px; padding:1.1rem; box-shadow:var(--shadow-sm); transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1),box-shadow 0.3s ease; position:relative; overflow:hidden; }
-        .panel-card::before { content:''; position:absolute; top:0; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent); }
-        .panel-card:hover { transform:translateY(-3px); box-shadow:var(--shadow-md); }
-        .panel-card h3 { font-size:10px; color:var(--text-ter); letter-spacing:0.04em; font-weight:500; margin-bottom:12px; }
-        .row { display:flex; justify-content:space-between; align-items:center; font-size:13px; padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.04); }
-        .row:last-child { border-bottom:none; }
-        .row-label { color:var(--text-sec); }
-        .row-val { color:var(--text); font-variant-numeric:tabular-nums; }
-        .row-total { border-top:1px solid var(--border-strong) !important; margin-top:4px; padding-top:10px !important; }
-        .row-total .row-val { font-weight:600; }
-        .hbar-row { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
-        .hbar-label { font-size:11px; color:var(--text-sec); width:80px; flex-shrink:0; }
-        .hbar-track { flex:1; height:3px; background:rgba(255,255,255,0.05); border-radius:2px; overflow:hidden; }
-        .hbar-fill { height:100%; background:linear-gradient(90deg,rgba(255,255,255,0.6),rgba(255,255,255,0.25)); width:0; transition:width 1.2s cubic-bezier(0.16,1,0.3,1); border-radius:2px; position:relative; overflow:hidden; }
-        .hbar-fill::after { content:''; position:absolute; top:0; left:-100%; width:60%; height:100%; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.6),transparent); }
-        .hbar-fill.shimmer-go::after { animation:shimmer 0.7s ease forwards; }
-        @keyframes shimmer { 0%{left:-100%;opacity:1} 100%{left:160%;opacity:0} }
-        .hbar-val { font-size:11px; width:52px; text-align:right; color:var(--text-sec); font-variant-numeric:tabular-nums; }
-        .tradslag-bar { display:flex; height:4px; width:100%; margin-bottom:12px; border-radius:2px; overflow:hidden; gap:2px; }
-        .tradslag-seg { height:100%; border-radius:2px; transition:width 1.4s cubic-bezier(0.16,1,0.3,1); }
-        .tradslag-legend { display:flex; flex-wrap:wrap; gap:14px; font-size:11px; color:var(--text-sec); }
-        .leg-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; display:inline-block; margin-right:4px; }
-        .avbrott-table { width:100%; font-size:12px; border-collapse:collapse; }
-        .avbrott-table th { color:var(--text-ter); font-weight:500; text-align:left; padding:4px 0 8px; border-bottom:1px solid var(--border); font-size:10px; letter-spacing:0.04em; }
-        .avbrott-table td { padding:7px 0; border-bottom:1px solid rgba(255,255,255,0.04); color:var(--text-sec); }
-        .avbrott-table td:first-child { color:var(--text); }
-        .avbrott-table td:last-child, .avbrott-table th:last-child { text-align:right; }
-        .total-row { display:flex; justify-content:space-between; font-size:12px; padding-top:10px; color:var(--text-sec); }
-        .total-row span:last-child { color:var(--text); font-weight:500; }
-        .stats4 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:1.25rem; }
-        @media(min-width:500px){ .stats4 { grid-template-columns:repeat(4,1fr); } }
-        .stat-card { background:linear-gradient(160deg,var(--surface3) 0%,var(--surface) 100%); border:1px solid var(--border); border-top-color:rgba(255,255,255,0.1); border-radius:14px; padding:1rem; box-shadow:var(--shadow-sm); transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1),box-shadow 0.3s; }
-        .stat-card:hover { transform:translateY(-3px) scale(1.01); box-shadow:var(--shadow-md); }
-        .stat-label { font-size:10px; color:var(--text-ter); letter-spacing:0.04em; margin-bottom:6px; font-weight:500; }
-        .stat-num { font-size:22px; font-weight:300; letter-spacing:-0.02em; }
-        .diesel-hero { display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; }
-        .diesel-big { font-size:clamp(28px,6vw,44px); font-weight:300; letter-spacing:-0.03em; font-variant-numeric:tabular-nums; }
-        .diesel-unit { font-size:12px; color:var(--text-sec); margin-top:4px; }
-        .sub-label { font-size:10px; color:var(--text-ter); letter-spacing:0.04em; margin:16px 0 10px; padding-top:14px; border-top:1px solid var(--border); font-weight:500; }
-      `}</style>
+    <section style={{ padding: '0 24px 24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: showSt && hasSk ? '1fr 1fr' : '1fr', gap: 10 }}>
+        {hasSk && (
+          <MaskinCell
+            label="Skördare" color={V6_SK}
+            modell={data.skordareModell} forare={data.operatorSkordare}
+            statusKort={data.skordareSlut ? 'Klar' : skAct ? 'Aktiv idag' : data.skordareStart ? `Start ${fmtISO(data.skordareStart)}` : '—'}
+            primary={Math.round(data.skordat)}
+            primaryUnit="m³" primaryLabel="skördat"
+            snitt={skSnitt}
+            senaste={daysAgo(data.skordareLastDate)}
+          />
+        )}
+        {showSt && (
+          <MaskinCell
+            label="Skotare" color={V6_ST}
+            modell={data.skotareModell} forare={data.operatorSkotare}
+            statusKort={data.skotareSlut ? 'Klar' : stAct ? 'Aktiv idag' : data.skotareStart ? `Start ${fmtISO(data.skotareStart)}` : 'Ej startad'}
+            primary={Math.round(data.skotat)}
+            primaryUnit="m³"
+            primaryLabel={kvar > 0 ? `utkört · ${Math.round(kvar)} kvar` : 'utkört'}
+            snitt={stSnitt}
+            senaste={daysAgo(data.skotareLastDate)}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
 
-      <div className="uppf-wrap">
-        {/* HEADER */}
-        <div className="uppf-header">
-          <div>
-            <div className="uppf-header-label">Uppföljning</div>
-            <div className="uppf-header-title">{data.objektNamn}</div>
-            {grot && <div style={{ fontSize: 12, color: '#4ade80', fontWeight: 600, letterSpacing: '0.05em', marginTop: 2 }}>Grot-skotning</div>}
-            {extern && <div style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, letterSpacing: '0.05em', marginTop: 2 }}>Extern skotare{data.externForetag ? ` — ${data.externForetag}` : ''}</div>}
-            <div className="uppf-live">
-              <span className="uppf-live-dot" />
-              <span className="uppf-live-label">LIVE</span>
-              {timestamp && <span style={{ color: 'var(--text-ter)', fontSize: 10 }}>· Uppdaterad {timestamp}</span>}
-            </div>
-          </div>
+// ── Tidslinje ─────────────────────────────────────────────────────────────
+function Tidslinje({ data }: { data: UppfoljningData }) {
+  const allDates = [data.skordareStart, data.skordareSlut, data.skotareStart, data.skotareSlut].filter(Boolean) as string[];
+  if (allDates.length === 0) return null;
+  const now = new Date().toISOString().slice(0, 10);
+  const withNow = [...allDates, now];
+  const min = withNow.reduce((a, b) => a < b ? a : b);
+  const max = withNow.reduce((a, b) => a > b ? a : b);
+  const totalDays = daysBetween(min, max);
+  const toPct = (iso?: string | null) => iso ? (daysBetween(min, iso) / totalDays) * 100 : 0;
+  const today = toPct(now);
+
+  type Track = { label: string; color: string; start: string; end: string; active: boolean };
+  const tracks: Track[] = [];
+  if (data.skordareModell || data.skordareStart) {
+    tracks.push({ label: 'Skördare', color: V6_SK, start: data.skordareStart || min, end: data.skordareSlut || now, active: !data.skordareSlut });
+  }
+  if (data.skotareModell || data.skotareStart) {
+    tracks.push({ label: 'Skotare', color: V6_ST, start: data.skotareStart || min, end: data.skotareSlut || now, active: !!(data.skotareStart && !data.skotareSlut) });
+  }
+  if (tracks.length === 0) return null;
+
+  return (
+    <section style={{ padding: '0 24px 24px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', margin: '0 0 12px' }}>
+        <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, letterSpacing: '-0.3px' }}>Tidslinje</h2>
+        <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{totalDays} dagar</span>
+      </div>
+      <div style={{ background: V6_CARD, borderRadius: 16, padding: '18px 18px 16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: V6_GREY2, fontWeight: 600, marginBottom: 16, fontVariantNumeric: 'tabular-nums' }}>
+          <span>{fmtISO(min)}</span>
+          <span>{data.status === 'avslutat' ? fmtISO(max) : 'Idag'}</span>
         </div>
-
-        {/* TABS — sticky under header */}
-        <div className="tabs-outer" style={{ position: 'sticky', top: 0, zIndex: 9, background: 'var(--bg)' }}>
-          <div ref={tabsRef} className="tabs-wrap">
-            {tabChoices.map(tab => (
-              <button
-                key={tab}
-                className={`tab-btn${aktifTab === tab ? ' tab-active' : ''}`}
-                onClick={e => { setAktifTab(tab); moveSlider(e.currentTarget); }}
-              >
-                {tab === 'oversikt' ? 'Översikt' : tab === 'tid' ? 'Tidredovisning' : tab === 'produktion' ? 'Produktion' : tab === 'diesel' ? 'Diesel' : tab === 'avbrott' ? 'Avbrott' : 'Skotarproduktion'}
-              </button>
-            ))}
-            <div ref={sliderRef} className="tab-slider" />
-          </div>
-        </div>
-
-        <div className="uppf-content">
-
-          {/* ÖVERSIKT — Volym + Balans + Maskiner */}
-          {aktifTab === 'oversikt' && <>
-
-          {/* VOLYM */}
-          <div className="section-reveal">
-            <div className="sec-label">Volym</div>
-            <div className="hero-grid">
-              {!grot && (
-                <div className="card3d">
-                  <div className="hero-label">Skördat</div>
-                  <div className="hero-num">{skordat}</div>
-                  <div className="hero-unit">m³fub</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18, position: 'relative' }}>
+          {data.status !== 'avslutat' && (
+            <div style={{ position: 'absolute', left: `${today}%`, top: -10, bottom: -10, width: 1, background: 'rgba(255,255,255,0.14)', pointerEvents: 'none', zIndex: 1 }} />
+          )}
+          {tracks.map((t, i) => {
+            const startPct = toPct(t.start);
+            const endPct = toPct(t.end);
+            const width = Math.max(2, endPct - startPct);
+            return (
+              <div key={i}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: t.color }} />
+                  <span style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{t.label}</span>
+                  <span style={{ fontSize: 11, color: V6_GREY, fontVariantNumeric: 'tabular-nums', marginLeft: 'auto' }}>
+                    {fmtISO(t.start)} → {t.active ? 'pågår' : fmtISO(t.end)}
+                  </span>
                 </div>
-              )}
-              {!egen && !extern && (
-                <div className="card3d">
-                  <div className="hero-label">Skotat</div>
-                  <div className="hero-num">{skotat}</div>
-                  <div className="hero-unit">m³fub</div>
-                </div>
-              )}
-            </div>
-            {!egen && !grot && !extern && (
-              <div className="progress-wrap card3d" style={{ padding: '1.25rem' }}>
-                <div className="progress-top">
-                  <div className="progress-lbl">Framkört</div>
-                </div>
-                <div className="progress-track"><div ref={progressRef} className="progress-fill" style={data.skordat === 0 ? { background: 'rgba(255,255,255,0.08)' } : {}} /></div>
-                <div style={{ fontSize: 12, color: 'var(--text-sec)', marginTop: 8 }}>
-                  {data.skordat > 0 ? `Skotat: ${data.skotat.toLocaleString('sv-SE')} av ${data.skordat.toLocaleString('sv-SE')} m³` : '–'}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* BALANS */}
-          {!grot && <div className="section-reveal">
-            {extern ? (
-              <>
-                <div className="sec-label">Extern skotare</div>
-                <div className="card3d" style={{ padding: '1.25rem' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 11, color: 'var(--text-ter)', letterSpacing: '0.06em', fontWeight: 500, marginBottom: 4 }}>Företag</div>
-                      <div style={{ fontSize: 15, fontWeight: 500 }}>{data.externForetag || '—'}</div>
-                    </div>
-                    <div className="badge" style={{ background: 'rgba(245,158,11,0.15)', color: '#f59e0b', borderColor: 'rgba(245,158,11,0.3)' }}>Inlejd</div>
-                  </div>
-                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--text-ter)', letterSpacing: '0.04em', marginBottom: 3 }}>Pris</div>
-                      <div style={{ fontSize: 13, color: 'var(--text-sec)' }}>{data.externPris || 0} kr/{data.externPrisTyp === 'timme' ? 'h' : 'm³'}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--text-ter)', letterSpacing: '0.04em', marginBottom: 3 }}>Antal</div>
-                      <div style={{ fontSize: 13, color: 'var(--text-sec)' }}>{data.externAntal || 0} {data.externPrisTyp === 'timme' ? 'h' : 'm³'}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--text-ter)', letterSpacing: '0.04em', marginBottom: 3 }}>Kostnad</div>
-                      <div style={{ fontSize: 13, color: '#f59e0b', fontWeight: 600 }}>{externKostnad.toLocaleString('sv-SE')} kr</div>
-                    </div>
-                  </div>
-                  {data.externPrisTyp === 'm3' && data.skordat > 0 && (
-                    <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 10 }}>
-                      <div style={{ fontSize: 12, color: 'var(--text-sec)' }}>
-                        Skotningskostnad: <span style={{ color: '#f59e0b', fontWeight: 500 }}>{(externKostnad / data.skordat).toFixed(1)} kr/m³</span> skördat
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : egen ? (
-              <>
-                <div className="sec-label">Skotning</div>
-                <div className="card3d" style={{ padding: '1.25rem', textAlign: 'center' }}>
-                  <div style={{ fontSize: 14, color: 'var(--text-sec)' }}>Egen skotning</div>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="sec-label">Balans – skördare vs skotare</div>
-                <div className="card3d" style={{ padding: 0, overflow: 'hidden' }}>
-                  <div className="two-col" style={{ gap: 0 }}>
-                    <div className="bal-inner" style={{ borderRight: '1px solid var(--border)' }}>
-                      <div className="bal-machine">Skördare</div>
-                      <div className="bal-num">{skordareBalStr}</div>
-                      <div className="bal-unit">G15h</div>
-                      <div className="bal-bar"><div ref={balSkordRef} className="bal-fill" /></div>
-                    </div>
-                    <div className="bal-inner">
-                      <div className="bal-machine">Skotare</div>
-                      <div className="bal-num">{skotareBalStr}</div>
-                      <div className="bal-unit">G15h</div>
-                      <div className="bal-bar"><div ref={balSkotRef} className="bal-fill" /></div>
-                    </div>
-                  </div>
-                  <div className="bal-note">
-                    {(() => {
-                      if (data.skordareBalG15h === 0) return null;
-                      const diffPct = Math.abs(((data.skotareBalG15h - data.skordareBalG15h) / data.skordareBalG15h) * 100);
-                      if (diffPct < 5) return <>Skördare och skotare körde i god balans på det här objektet.</>;
-                      if (data.skotareBalG15h > data.skordareBalG15h) return <>Skotaren behövde <strong>{diffPct.toFixed(0)}% mer tid</strong> än skördaren på det här objektet.</>;
-                      return <>Skördaren behövde <strong>{diffPct.toFixed(0)}% mer tid</strong> än skotaren på det här objektet.</>;
-                    })()}
-                  </div>
-                </div>
-              </>
-            )}
-          </div>}
-
-          {/* MASKINER */}
-          <div className="section-reveal">
-            <div className="sec-label">Maskiner</div>
-            <div className="two-col">
-              {data.maskiner.filter(m => !((egen || extern) && m.typ === 'Skotare') && !(grot && m.typ === 'Skördare')).map((m, i) => (
-                <div key={i} className="card3d">
-                  <div className="maskin-header">
-                    <div>
-                      <div className="maskin-type">{m.typ}</div>
-                      <div className="maskin-model">{m.modell}</div>
-                    </div>
-                    {m.slut === 'pågår' ? (
-                      <div className="badge badge-aktiv"><span className="badge-dot" />Aktiv</div>
-                    ) : (
-                      <div className="badge badge-klar"><span className="badge-dot" />Klar</div>
-                    )}
-                  </div>
-                  <div className="maskin-meta">
-                    <div><div className="maskin-lbl">Start</div><div className="maskin-val">{m.start}</div></div>
-                    <div><div className="maskin-lbl">Slut</div><div className="maskin-val">{m.slut}</div></div>
-                    <div><div className="maskin-lbl">Förare</div><div className="maskin-val">{m.aktivForare}</div></div>
-                  </div>
-                  {m.tidigareForare && m.tidigareForare.length > 0 && (
-                    <>
-                      <div className="forare-toggle" onClick={() => setVisaForare(v => ({ ...v, [i]: !v[i] }))}>
-                        Tidigare förare ↓
-                      </div>
-                      {visaForare[i] && (
-                        <div className="forare-list">
-                          <div className="forare-header"><span>Förare</span><span>Från</span><span>Till</span></div>
-                          {m.tidigareForare.map((f, j) => (
-                            <div key={j} className="forare-row"><span>{f.namn}</span><span>{f.fran}</span><span>{f.till}</span></div>
-                          ))}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-
-          </div>
-          </>}
-
-            {/* TID */}
-            {aktifTab === 'tid' && (
-              <div className="panel">
-                <div className="panel-two">
-                  {[
-                    ...(!grot ? [{
-                      label: 'Skördare',
-                      g15: data.skordareG15h, g0: data.skordareG0, tomgang: data.skordareTomgang,
-                      kortaStopp: data.skordareKortaStopp, avbrott: data.skordareAvbrott, rast: data.skordareRast,
-                    }] : []),
-                    ...((!egen && !extern) ? [{
-                      label: 'Skotare',
-                      g15: data.skotareG15h, g0: data.skotareG0, tomgang: data.skotareTomgang,
-                      kortaStopp: data.skotareKortaStopp, avbrott: data.skotareAvbrott, rast: data.skotareRast,
-                    }] : []),
-                  ].map(m => {
-                    const harData = m.g15 > 0 || m.g0 > 0 || m.avbrott > 0 || m.rast > 0;
-                    if (!harData) return (
-                      <div key={m.label} className="panel-card">
-                        <h3>{m.label}</h3>
-                        <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '1.5rem 0' }}>
-                          Ingen {m.label.toLowerCase()} kopplad till detta objekt
-                        </div>
-                      </div>
-                    );
-                    const arbetstid = Math.round((m.g15 + m.avbrott) * 10) / 10;
-                    const totaltid = Math.round((arbetstid + m.rast) * 10) / 10;
-                    return (
-                      <div key={m.label} className="panel-card">
-                        <h3>{m.label}</h3>
-                        <div className="row"><span className="row-label">Grundtid G(t)</span><span className="row-val">{m.g15}h</span></div>
-                        <div className="row"><span className="row-label">Grundtid G(0)</span><span className="row-val">{m.g0}h</span></div>
-                        <div className="row"><span className="row-label">Tomgång</span><span className="row-val">{m.tomgang}h</span></div>
-                        <div className="row"><span className="row-label">Korta stopp</span><span className="row-val">{m.kortaStopp}h</span></div>
-                        <div className="row"><span className="row-label">Avbrott</span><span className="row-val">{m.avbrott}h</span></div>
-                        <div className="row row-total"><span className="row-label">Arbetstid</span><span className="row-val">{arbetstid}h</span></div>
-                        <div className="row"><span className="row-label">Rast</span><span className="row-val">{m.rast}h</span></div>
-                        <div className="row row-total"><span className="row-label">Totaltid</span><span className="row-val">{totaltid}h</span></div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* PRODUKTION */}
-            {aktifTab === 'produktion' && (
-              <div className="panel">
-                <div className="panel-two" style={{ marginBottom: 12 }}>
-                  <div className="panel-card">
-                    <h3>Skördare</h3>
-                    {data.skordareM3G15h > 0 || data.skordareStammarG15h > 0 ? <>
-                      <div className="row"><span className="row-label">m³/G15h</span><span className="row-val">{data.skordareM3G15h}</span></div>
-                      <div className="row"><span className="row-label">Stammar/G15h</span><span className="row-val">{data.skordareStammarG15h}</span></div>
-                      <div className="row"><span className="row-label">Medelstam</span><span className="row-val">{data.skordareMedelstam} m³</span></div>
-                    </> : <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '1.5rem 0' }}>Ingen skördare kopplad till detta objekt</div>}
-                  </div>
-                  {!egen && !extern && (
-                    <div className="panel-card">
-                      <h3>Skotare</h3>
-                      {data.skotareM3G15h > 0 || data.skotareLassG15h > 0 ? <>
-                        <div className="row"><span className="row-label">m³/G15h</span><span className="row-val">{data.skotareM3G15h}</span></div>
-                        <div className="row"><span className="row-label">Lass/G15h</span><span className="row-val">{data.skotareLassG15h}</span></div>
-                        <div className="row"><span className="row-label">Snittlass</span><span className="row-val">{data.skotareSnittlass} m³</span></div>
-                      </> : <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '1.5rem 0' }}>Ingen skotare kopplad till detta objekt</div>}
-                    </div>
-                  )}
-                </div>
-                <div className="panel-two">
-                  <div className="panel-card">
-                    <h3>Trädslag</h3>
-                    <div className="tradslag-bar">
-                      {data.tradslag.map((t, i) => <div key={t.namn} className="tradslag-seg" style={{ width: t.pct + '%', background: tradslagColors[i] }} />)}
-                    </div>
-                    <div className="tradslag-legend">
-                      {data.tradslag.map((t, i) => <span key={t.namn}><span className="leg-dot" style={{ background: tradslagColors[i], border: i === 3 ? '1px solid var(--border-strong)' : 'none' }} />{t.namn} {t.pct}%</span>)}
-                    </div>
-                  </div>
-                  <div className="panel-card">
-                    <h3>Sortiment</h3>
-                    {data.sortiment.map((s, i) => {
-                      const { namn, kod } = sortimentSvenska(s.namn);
-                      return (
-                        <div key={s.namn} style={{ marginBottom: 8 }}>
-                          <HBar label={namn} pct={Math.round(s.m3 / maxSortiment * 100)} val={s.m3 + ' m³'} delay={i * 60} />
-                          {kod && <div style={{ fontSize: 9, color: 'var(--text-ter)', marginTop: -4, marginLeft: 0, paddingLeft: 0 }}>{kod}</div>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* DIESEL */}
-            {aktifTab === 'diesel' && (
-              <div className="panel">
-                <div className="card3d" style={{ marginBottom: 12 }}>
-                  <div className="sec-label" style={{ marginBottom: '1rem' }}>{(egen || extern) ? 'Totalt — Skördare' : grot ? 'Totalt — Skotare' : 'Totalt — Skördare + Skotare'}</div>
-                  <div className="diesel-hero">
-                    <div><div className="diesel-big">{dieselTot}</div><div className="diesel-unit">liter totalt</div></div>
-                    <div><div className="diesel-big">{dieselM3}</div><div className="diesel-unit">L/m³fub fritt bilväg</div></div>
-                  </div>
-                </div>
-                <div className="panel-two" style={{ marginBottom: 12 }}>
-                  {!grot && (
-                    <div className="panel-card">
-                      <h3>Skördare</h3>
-                      <div className="row"><span className="row-label">Liter totalt</span><span className="row-val">{data.skordareL.toLocaleString('sv-SE')} L</span></div>
-                      <div className="row"><span className="row-label">L/m³</span><span className="row-val">{data.skordareL_M3}</span></div>
-                      <div className="row"><span className="row-label">L/G15h</span><span className="row-val">{data.skordareL_G15h}</span></div>
-                    </div>
-                  )}
-                  {!egen && !extern && (
-                    <div className="panel-card">
-                      <h3>Skotare</h3>
-                      <div className="row"><span className="row-label">Liter totalt</span><span className="row-val">{data.skotareL.toLocaleString('sv-SE')} L</span></div>
-                      <div className="row"><span className="row-label">L/m³</span><span className="row-val">{data.skotareL_M3}</span></div>
-                      <div className="row"><span className="row-label">L/G15h</span><span className="row-val">{data.skotareL_G15h}</span></div>
-                    </div>
-                  )}
-                </div>
-                <div className="panel-card">
-                  {!grot && (
-                    <>
-                      <h3>Skördare — Diesel per dag</h3>
-                      {data.dieselSkordare.map((d, i) => <HBar key={d.datum} label={d.datum} pct={Math.round(d.liter / maxDieselSkord * 100)} val={d.liter + ' L'} delay={i * 60} />)}
-                    </>
-                  )}
-                  {!egen && !extern && (
-                    <>
-                      {grot ? <h3>Skotare — Diesel per dag</h3> : <div className="sub-label">Skotare — Diesel per dag</div>}
-                      {data.dieselSkotare.map((d, i) => <HBar key={d.datum} label={d.datum} pct={Math.round(d.liter / maxDieselSkot * 100)} val={d.liter + ' L'} delay={i * 60} />)}
-                    </>
+                <div style={{ position: 'relative', height: 12, background: 'rgba(255,255,255,0.04)', borderRadius: 6 }}>
+                  <div style={{ position: 'absolute', left: `${startPct}%`, width: `${width}%`, top: 0, bottom: 0, background: t.color, borderRadius: 6, opacity: t.active ? 1 : 0.5 }} />
+                  {t.active && (
+                    <div style={{ position: 'absolute', left: `${endPct}%`, top: -2, width: 16, height: 16, marginLeft: -8, borderRadius: '50%', background: t.color, boxShadow: `0 0 0 3px ${V6_CARD}, 0 0 14px ${t.color}` }} />
                   )}
                 </div>
               </div>
-            )}
-
-            {/* AVBROTT */}
-            {aktifTab === 'avbrott' && (
-              <div className="panel">
-                <div className="panel-two">
-                  {[...(!grot ? [{ label: 'Skördare', rows: data.avbrottSkordare, totalt: data.avbrottSkordare_totalt }] : []), ...((!egen && !extern) ? [{ label: 'Skotare', rows: data.avbrottSkotare, totalt: data.avbrottSkotareTotalt }] : [])].map(m => (
-                    <div key={m.label} className="panel-card">
-                      <h3>{m.label}</h3>
-                      {m.rows.length > 0 ? <>
-                        <table className="avbrott-table">
-                          <thead><tr><th>Orsak</th><th>Typ</th><th>Tid</th><th>Antal</th></tr></thead>
-                          <tbody>{m.rows.map(r => <tr key={r.orsak}><td>{oversattAvbrott(r.orsak)}</td><td>{oversattAvbrott(r.typ)}</td><td>{r.tid}</td><td>{r.antal}</td></tr>)}</tbody>
-                        </table>
-                        <div className="total-row"><span>Totalt</span><span>{m.totalt}</span></div>
-                      </> : <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '1.5rem 0' }}>Ingen {m.label.toLowerCase()} kopplad till detta objekt</div>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* SKOTARPRODUKTION */}
-            {aktifTab === 'skotare' && (
-              <div className="panel">
-                {data.antalLass === 0 && data.skotareM3G15h === 0 ? (
-                  <div style={{ color: 'var(--text-ter)', fontSize: 13, padding: '2rem 0', textAlign: 'center' }}>Ingen skotare kopplad till detta objekt</div>
-                ) : <>
-                <div className="stats4">
-                  {[['Antal lass', data.antalLass], ['Snittlass', data.snittlassM3 + ' m³'], ['Lass/G15h', data.lassG15h], ['Skotningsavst.', data.skotningsavstand + ' m']].map(([l, v]) => (
-                    <div key={String(l)} className="stat-card"><div className="stat-label">{l}</div><div className="stat-num">{v}</div></div>
-                  ))}
-                </div>
-                <div className="panel-card">
-                  <h3>Lass per dag</h3>
-                  {data.lassPerDag.map((d, i) => <HBar key={d.datum} label={d.datum} pct={Math.round(d.lass / maxLass * 100)} val={d.lass + ' lass'} delay={i * 60} />)}
-                </div>
-                </>}
-              </div>
-            )}
-
+            );
+          })}
         </div>
       </div>
-    </>
+    </section>
+  );
+}
+
+// ── Kollapsbar sektion ────────────────────────────────────────────────────
+function Collapse({ title, children, defaultOpen = false }: { title: string; children: React.ReactNode; defaultOpen?: boolean }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ borderTop: `0.5px solid ${V6_SEP}` }}>
+      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', padding: '16px 24px', background: 'transparent', border: 'none', color: '#fff', fontFamily: V6_FF, cursor: 'pointer' }}>
+        <span style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px' }}>{title}</span>
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }}>
+          <polyline points="4 2 8 6 4 10" />
+        </svg>
+      </button>
+      {open && <div style={{ paddingBottom: 8 }}>{children}</div>}
+    </div>
+  );
+}
+
+// ── Produktivitet ─────────────────────────────────────────────────────────
+function ProdKort({ color, label, rows }: { color: string; label: string; rows: [string, string][] }) {
+  return (
+    <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+        <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+        {rows.map(([v, u], i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+            <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.3px', fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>{v}</span>
+            <span style={{ fontSize: 11, color: V6_GREY, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 600 }}>{u}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Produktivitet({ data }: { data: UppfoljningData }) {
+  const skRows: [string, string][] = [];
+  if (data.skordareM3G15h > 0) skRows.push([String(data.skordareM3G15h), 'm³/G15h']);
+  if (data.skordareStammarG15h > 0) skRows.push([String(data.skordareStammarG15h), 'stammar/G15h']);
+  if (data.skordareMedelstam > 0) skRows.push([String(data.skordareMedelstam), 'm³ medelstam']);
+
+  const stRows: [string, string][] = [];
+  if (data.skotareM3G15h > 0) stRows.push([String(data.skotareM3G15h), 'm³/G15h']);
+  if (data.skotareLassG15h > 0) stRows.push([String(data.skotareLassG15h), 'lass/G15h']);
+  if (data.skotareSnittlass > 0) stRows.push([`${data.skotareSnittlass} m³`, 'snittlass']);
+  if (data.skotningsavstand > 0) stRows.push([`${data.skotningsavstand} m`, 'skotningsavstånd']);
+
+  if (skRows.length === 0 && stRows.length === 0) {
+    return <div style={{ padding: '0 24px 16px', color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
+  }
+
+  return (
+    <div style={{ padding: '0 24px 16px', display: 'grid', gridTemplateColumns: skRows.length > 0 && stRows.length > 0 ? '1fr 1fr' : '1fr', gap: 10 }}>
+      {skRows.length > 0 && <ProdKort color={V6_SK} label="Skördare" rows={skRows} />}
+      {stRows.length > 0 && <ProdKort color={V6_ST} label="Skotare" rows={stRows} />}
+    </div>
+  );
+}
+
+// ── Produktion per dag ────────────────────────────────────────────────────
+function ProdChart({ data, color, snitt }: { data: { datum: string; m3: number; lass?: number }[]; color: string; snitt: number }) {
+  const [active, setActive] = useState<number | null>(null);
+  const max = Math.max(...data.map(d => d.m3), 1);
+  const chartH = 130;
+  const barMaxH = chartH - 20;
+  const snittH = snitt ? (snitt / max) * barMaxH : 0;
+  return (
+    <div style={{ background: V6_CARD, borderRadius: 14, padding: '16px 18px 14px' }}>
+      <div style={{ position: 'relative', height: chartH, borderBottom: `0.5px solid ${V6_SEP}`, paddingBottom: 4 }}>
+        {snitt > 0 && (
+          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 4 + snittH, height: 0, borderTop: `1px dashed ${V6_GREY2}`, pointerEvents: 'none', zIndex: 2 }}>
+            <span style={{ position: 'absolute', right: 0, top: -16, fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 700, background: V6_CARD, padding: '0 4px' }}>snitt {Math.round(snitt)} m³</span>
+          </div>
+        )}
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: '100%' }}>
+          {data.map((d, i) => {
+            const h = (d.m3 / max) * barMaxH;
+            const isActive = active === i;
+            return (
+              <div key={i} onClick={() => setActive(isActive ? null : i)} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end', cursor: 'pointer', position: 'relative' }}>
+                {isActive && d.lass != null && (
+                  <div style={{ position: 'absolute', bottom: h + 30, left: '50%', transform: 'translateX(-50%)', background: '#2c2c2e', border: '0.5px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '6px 9px', whiteSpace: 'nowrap', fontSize: 11, color: '#fff', zIndex: 5, boxShadow: '0 4px 12px rgba(0,0,0,0.4)' }}>{d.lass} lass · {Math.round(d.m3)} m³</div>
+                )}
+                <div style={{ fontSize: 11, color: '#fff', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{Math.round(d.m3)}</div>
+                <div style={{ width: '100%', maxWidth: 26, height: `${h}px`, background: color, borderRadius: 3, minHeight: 4, opacity: active != null && !isActive ? 0.4 : 1, transition: 'opacity .15s' }} />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        {data.map((d, i) => (
+          <div key={i} style={{ flex: 1, textAlign: 'center', fontSize: 10, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{d.datum}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProdPerDag({ data }: { data: UppfoljningData }) {
+  const skData = data.prodSkordarePerDag || [];
+  const stRaw = data.lassPerDag || [];
+  // Bara dagar med m³-data för skotare
+  const stData = stRaw.filter(d => typeof d.m3 === 'number' && d.m3 > 0).map(d => ({ datum: d.datum, m3: d.m3 || 0, lass: d.lass }));
+  const hasSk = skData.length > 0;
+  const hasSt = stData.length > 0;
+  if (!hasSk && !hasSt) return <div style={{ padding: '0 24px 16px', color: V6_GREY, fontSize: 13 }}>Ingen data</div>;
+
+  const skSnitt = hasSk ? skData.reduce((a, b) => a + b.m3, 0) / skData.length : 0;
+  const stSnitt = hasSt ? stData.reduce((a, b) => a + b.m3, 0) / stData.length : 0;
+  const stTotalLass = hasSt ? stData.reduce((a, b) => a + (b.lass || 0), 0) : 0;
+  const stTotal = hasSt ? stData.reduce((a, b) => a + b.m3, 0) : 0;
+  const skTotal = hasSk ? skData.reduce((a, b) => a + b.m3, 0) : 0;
+
+  return (
+    <div style={{ padding: '0 24px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {hasSk && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_SK, alignSelf: 'center' }} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Skördare</span>
+            <span style={{ fontSize: 11, color: V6_GREY, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
+              Snitt {Math.round(skSnitt)} m³/dag · {Math.round(skTotal)} m³
+            </span>
+          </div>
+          <ProdChart data={skData} color={V6_SK} snitt={skSnitt} />
+        </div>
+      )}
+      {hasSt && (
+        <div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_ST, alignSelf: 'center' }} />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Skotare</span>
+            <span style={{ fontSize: 11, color: V6_GREY, marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
+              Snitt {Math.round(stSnitt)} m³/dag · {stTotalLass} lass · {Math.round(stTotal)} m³
+            </span>
+          </div>
+          <ProdChart data={stData} color={V6_ST} snitt={stSnitt} />
+          <div style={{ fontSize: 10, color: V6_GREY2, marginTop: 6, textAlign: 'center' }}>Tryck på en stapel för att se antal lass</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Trädslag + Sortiment ──────────────────────────────────────────────────
+function Tradslag({ tradslag }: { tradslag: { namn: string; pct: number }[] }) {
+  if (!tradslag || tradslag.length === 0) return null;
+  const colors = ['#a8d582', '#64d2ff', '#ff9f0a', '#bf5af2', '#ff453a'];
+  return (
+    <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ background: V6_CARD, borderRadius: 14, padding: '16px 16px 14px' }}>
+        <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 12 }}>Trädslag</div>
+        <div style={{ display: 'flex', height: 14, borderRadius: 3, overflow: 'hidden', gap: 2, marginBottom: 14 }}>
+          {tradslag.map((t, i) => (
+            <div key={t.namn} style={{ width: `${t.pct}%`, background: colors[i % colors.length] }} />
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {tradslag.map((t, i) => (
+            <div key={t.namn} style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: colors[i % colors.length], flexShrink: 0, alignSelf: 'center' }} />
+              <span style={{ flex: 1, fontSize: 14, color: '#fff' }}>{t.namn}</span>
+              <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{t.pct}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Sortiment({ sortiment }: { sortiment: { namn: string; m3: number }[] }) {
+  if (!sortiment || sortiment.length === 0) return null;
+  const max = Math.max(...sortiment.map(s => s.m3), 1);
+  const total = sortiment.reduce((a, b) => a + b.m3, 0);
+  return (
+    <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 18px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>Sortiment</span>
+          <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{Math.round(total)} m³</span>
+        </div>
+        {sortiment.map((s, i) => (
+          <div key={s.namn} style={{ padding: '10px 0', borderTop: i === 0 ? 'none' : `0.5px solid ${V6_SEP}` }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 13, color: '#fff', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: 8 }}>
+                {sortimentSvenska(s.namn)}
+              </span>
+              <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                {s.m3} <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600 }}>m³</span>
+              </span>
+            </div>
+            <div style={{ height: 3, background: 'rgba(255,255,255,0.04)', borderRadius: 2 }}>
+              <div style={{ width: `${(s.m3 / max) * 100}%`, height: '100%', background: V6_SK, borderRadius: 2 }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Tid & Diesel ──────────────────────────────────────────────────────────
+function TidKort({ label, color, rows }: { label: string; color: string; rows: [string, number, boolean?][] }) {
+  return (
+    <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+        <span style={{ width: 8, height: 8, borderRadius: 2, background: color }} />
+        <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>{label}</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {rows.map(([k, v, accent], i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 12, color: accent ? '#fff' : V6_GREY, fontWeight: accent ? 600 : 400 }}>{k}</span>
+            <span style={{ fontSize: accent ? 17 : 13, fontWeight: accent ? 700 : 500, color: '#fff', fontVariantNumeric: 'tabular-nums' }}>
+              {v.toFixed(1)}<span style={{ fontSize: 10, color: V6_GREY, marginLeft: 2 }}>h</span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Tid({ data }: { data: UppfoljningData }) {
+  const hasSk = data.skordareG15h > 0;
+  const hasSt = data.skotareG15h > 0;
+  if (!hasSk && !hasSt) return null;
+  const skRows: [string, number, boolean?][] = [
+    ['G15', data.skordareG15h, true],
+    ['G0', data.skordareG0],
+    ['Tomgång', data.skordareTomgang],
+    ['Korta stopp', data.skordareKortaStopp],
+    ['Rast', data.skordareRast],
+    ['Avbrott', data.skordareAvbrott],
+  ];
+  const stRows: [string, number, boolean?][] = [
+    ['G15', data.skotareG15h, true],
+    ['G0', data.skotareG0],
+    ['Tomgång', data.skotareTomgang],
+    ['Korta stopp', data.skotareKortaStopp],
+    ['Rast', data.skotareRast],
+    ['Avbrott', data.skotareAvbrott],
+  ];
+  return (
+    <div style={{ padding: '0 24px 16px', display: 'grid', gridTemplateColumns: hasSk && hasSt ? '1fr 1fr' : '1fr', gap: 10 }}>
+      {hasSk && <TidKort label="Skördare" color={V6_SK} rows={skRows} />}
+      {hasSt && <TidKort label="Skotare" color={V6_ST} rows={stRows} />}
+    </div>
+  );
+}
+
+function Diesel({ data }: { data: UppfoljningData }) {
+  if (!data.dieselTotalt) return null;
+  const skL = data.skordareL || 0;
+  const stL = data.skotareL || 0;
+  return (
+    <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ background: V6_CARD, borderRadius: 14, padding: '16px 18px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700 }}>Diesel</span>
+          {data.dieselPerM3 > 0 && (
+            <span style={{ fontSize: 12, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{data.dieselPerM3.toFixed(2)} L/m³</span>
+          )}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 14 }}>
+          <span style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.6px', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{Math.round(data.dieselTotalt)}</span>
+          <span style={{ fontSize: 13, color: V6_GREY }}>liter</span>
+        </div>
+        <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', background: 'rgba(255,255,255,0.04)', marginBottom: 10 }}>
+          <div style={{ width: `${(skL / data.dieselTotalt) * 100}%`, background: V6_SK }} />
+          <div style={{ width: `${(stL / data.dieselTotalt) * 100}%`, background: V6_ST }} />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+          <div>
+            <span style={{ color: V6_GREY }}>
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: V6_SK, marginRight: 5 }} />
+              Skördare
+            </span>
+            <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{skL} L</span>
+          </div>
+          <div>
+            <span style={{ color: V6_GREY }}>
+              <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: V6_ST, marginRight: 5 }} />
+              Skotare
+            </span>
+            <span style={{ marginLeft: 6, fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{stL} L</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Avbrott ───────────────────────────────────────────────────────────────
+function AvbrottKort({ label, color, items, totalt }: { label: string; color: string; items: AvbrottRad[]; totalt: string }) {
+  return (
+    <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 16px 12px' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+        <span style={{ fontSize: 11, color: '#fff', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 700 }}>
+          <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: color, marginRight: 6, verticalAlign: 'middle' }} />
+          {label}
+        </span>
+        <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{totalt}</span>
+      </div>
+      {items.map((a, i) => (
+        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderTop: i > 0 ? `0.5px solid ${V6_SEP}` : 'none' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, color: '#fff' }}>{avbrottSv(a.orsak)}</div>
+            <div style={{ fontSize: 11, color: V6_GREY, marginTop: 2 }}>{a.typ} · {a.antal} ggr</div>
+          </div>
+          <div style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums', fontWeight: 600 }}>{a.tid}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Avbrott({ data }: { data: UppfoljningData }) {
+  const sk = data.avbrottSkordare || [];
+  const st = data.avbrottSkotare || [];
+  if (sk.length === 0 && st.length === 0) return null;
+  return (
+    <div style={{ padding: '0 24px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {sk.length > 0 && <AvbrottKort label="Skördare" color={V6_SK} items={sk} totalt={data.avbrottSkordare_totalt} />}
+      {st.length > 0 && <AvbrottKort label="Skotare" color={V6_ST} items={st} totalt={data.avbrottSkotareTotalt} />}
+    </div>
+  );
+}
+
+// ── Extern skotning ───────────────────────────────────────────────────────
+function Extern({ data }: { data: UppfoljningData }) {
+  if (!data.externSkotning) return null;
+  const total = (data.externPris || 0) * (data.externAntal || 0);
+  return (
+    <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ background: V6_CARD, borderRadius: 14, padding: '14px 18px 14px' }}>
+        <div style={{ fontSize: 11, color: V6_GREY, letterSpacing: '0.06em', textTransform: 'uppercase', fontWeight: 700, marginBottom: 4 }}>Extern skotning</div>
+        <div style={{ fontSize: 18, fontWeight: 600 }}>{data.externForetag || '—'}</div>
+        <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Pris</div>
+            <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{data.externPris}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Antal</div>
+            <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>{data.externAntal}</div>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>Totalt</div>
+            <div style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
+              {total.toLocaleString('sv-SE')} <span style={{ fontSize: 10, color: V6_GREY }}>kr</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Sticky nav ────────────────────────────────────────────────────────────
+function Nav({ onBack }: { onBack?: () => void }) {
+  if (!onBack) return null;
+  return (
+    <nav style={{ position: 'sticky', top: 0, zIndex: 30, height: 44, display: 'flex', alignItems: 'center', padding: '0 6px', background: 'rgba(0,0,0,0.78)', backdropFilter: 'blur(24px) saturate(180%)', WebkitBackdropFilter: 'blur(24px) saturate(180%)', borderBottom: `0.5px solid ${V6_SEP}` }}>
+      <button onClick={onBack} style={{ display: 'flex', alignItems: 'center', gap: 2, background: 'none', border: 'none', color: '#fff', fontSize: 17, cursor: 'pointer', padding: '8px 10px', fontFamily: V6_FF, letterSpacing: '-0.2px' }}>
+        <svg width="12" height="20" viewBox="0 0 12 20" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="10 2 2 10 10 18" />
+        </svg>
+        <span style={{ marginLeft: 2 }}>Uppföljning</span>
+      </button>
+    </nav>
+  );
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────
+export default function UppfoljningVy({ data, onBack }: { data: UppfoljningData; onBack?: () => void }) {
+  const hasAvbrott = (data.avbrottSkordare?.length || 0) > 0 || (data.avbrottSkotare?.length || 0) > 0;
+  const hasProduktivitet = data.skordareM3G15h > 0 || data.skordareStammarG15h > 0 || data.skotareM3G15h > 0 || data.skotningsavstand > 0 || data.skotareSnittlass > 0 || data.skotareLassG15h > 0 || data.skordareMedelstam > 0;
+  const hasProdPerDag = (data.prodSkordarePerDag?.length || 0) > 0 || (data.lassPerDag?.some(d => typeof d.m3 === 'number' && d.m3 > 0));
+  const hasTradslagSort = data.tradslag.length > 0 || data.sortiment.length > 0;
+  const hasTidDiesel = data.skordareG15h > 0 || data.skotareG15h > 0 || data.dieselTotalt > 0;
+
+  return (
+    <div style={{ minHeight: '100%', background: V6_BG, color: '#fff', fontFamily: V6_FF, WebkitFontSmoothing: 'antialiased' }}>
+      <Nav onBack={onBack} />
+      <Headline data={data} />
+      <Maskinkort data={data} />
+      <Tidslinje data={data} />
+
+      <div style={{ marginTop: 8 }}>
+        {hasProduktivitet && <Collapse title="Produktivitet"><Produktivitet data={data} /></Collapse>}
+        {hasProdPerDag && <Collapse title="Produktion per dag"><ProdPerDag data={data} /></Collapse>}
+        {hasTradslagSort && (
+          <Collapse title="Trädslag & sortiment">
+            <Tradslag tradslag={data.tradslag} />
+            <Sortiment sortiment={data.sortiment} />
+          </Collapse>
+        )}
+        {hasTidDiesel && (
+          <Collapse title="Tid & diesel">
+            <Tid data={data} />
+            <Diesel data={data} />
+          </Collapse>
+        )}
+        {hasAvbrott && <Collapse title="Avbrott"><Avbrott data={data} /></Collapse>}
+        {data.externSkotning && <Collapse title="Extern skotning"><Extern data={data} /></Collapse>}
+      </div>
+      <div style={{ height: 60 }} />
+    </div>
   );
 }

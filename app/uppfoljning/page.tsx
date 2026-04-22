@@ -9,12 +9,21 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-/* ── Design tokens ── */
+/* ── Design tokens (V6) ── */
+const V6_GREY = '#8e8e93';
+const V6_GREY2 = '#636366';
+const V6_CARD = '#1c1c1e';
+const V6_SEP = 'rgba(255,255,255,0.06)';
+const V6_SK = '#a8d582';
+const V6_ST = '#f0b24c';
+const V6_WARN = '#ff9f0a';
+const V6_DONE = '#30d158';
+const V6_FF = "-apple-system,BlinkMacSystemFont,'SF Pro Display','SF Pro Text','Inter',system-ui,sans-serif";
+
 const bg = '#000';
 const text = '#fff';
-const muted = 'rgba(255,255,255,0.4)';
-const divider = 'rgba(255,255,255,0.08)';
-const ff = 'system-ui, sans-serif';
+const muted = V6_GREY;
+const ff = V6_FF;
 
 /* ── Types ── */
 interface UppfoljningObjekt {
@@ -88,72 +97,180 @@ function inferType(huvudtyp: string | undefined): 'slutavverkning' | 'gallring' 
   return 'slutavverkning';
 }
 
-/* ── Status helpers ── */
-function getObjektStatus(obj: UppfoljningObjekt): { text: string; color: string } {
-  if (obj.status === 'avslutat') return { text: 'Avslutat', color: 'rgba(255,255,255,0.3)' };
-  const now = new Date();
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 864e5).toISOString().slice(0, 10);
-  const skActive = obj.skordareLastDate && obj.skordareLastDate >= sevenDaysAgo;
-  const stActive = obj.skotareLastDate && obj.skotareLastDate >= sevenDaysAgo;
+/* ── V6 status-härledning ── */
+type V6StatusKey = 'skordare' | 'skotare' | 'vantar' | 'pagaende' | 'done';
+function v6Status(obj: UppfoljningObjekt): { t: string; k: V6StatusKey } {
+  if (obj.status === 'avslutat') return { t: 'Avslutat', k: 'done' };
+  const seven = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const skAct = !!(obj.skordareLastDate && obj.skordareLastDate >= seven);
+  const stAct = !!(obj.skotareLastDate && obj.skotareLastDate >= seven);
   const skDone = !!obj.skordareSlut;
-  if (skActive) return { text: 'Skördare kör', color: '#4ade80' };
-  if (skDone && stActive) return { text: 'Skotare kör', color: '#60a5fa' };
-  if (skDone && !obj.skotareStart && !stActive) return { text: 'Väntar på skotning', color: '#f59e0b' };
-  if (skDone && !stActive) return { text: 'Väntar på skotning', color: '#f59e0b' };
-  if (obj.skordareModell && !skActive && !skDone) return { text: 'Skördare kör', color: '#4ade80' };
-  return { text: 'Pågående', color: 'rgba(255,255,255,0.5)' };
+  if (skAct) return { t: 'Skördare kör', k: 'skordare' };
+  if (skDone && stAct) return { t: 'Skotare kör', k: 'skotare' };
+  if (skDone && !stAct) return { t: 'Väntar på skotning', k: 'vantar' };
+  if (obj.skordareModell && !skAct && !skDone) return { t: 'Skördare kör', k: 'skordare' };
+  return { t: 'Pågående', k: 'pagaende' };
 }
 
-/* ── ObjektKort — card ── */
-function ObjektKort({ obj, onClick }: { obj: UppfoljningObjekt; onClick: () => void }) {
-  const vol = Math.round(obj.volymSkordare);
-  const framkort = obj.volymSkordare > 0 ? Math.min(100, Math.round((obj.volymSkotare / obj.volymSkordare) * 100)) : 0;
-  const status = getObjektStatus(obj);
-  const maskin = obj.skordareModell || obj.skotareModell || '';
-  const start = obj.skordareStart ? fmtDate(obj.skordareStart) : obj.skotareStart ? fmtDate(obj.skotareStart) : '';
-  const isLive = obj.status === 'pagaende';
+/* ── V6 Oskotat-kort (kompakt, expanderbar) ── */
+function V6OskotatKort({ data, onFilter }: { data: UppfoljningObjekt[]; onFilter: (k: 'slutavverkning' | 'gallring' | 'grot') => void }) {
+  const [open, setOpen] = useState(false);
+  const oskotat = {
+    slut: { m3: 0, objekt: [] as UppfoljningObjekt[] },
+    gall: { m3: 0, objekt: [] as UppfoljningObjekt[] },
+    grot: { m3: 0, objekt: [] as UppfoljningObjekt[] },
+  };
+  data.forEach(o => {
+    if (o.status === 'avslutat') return;
+    const kvar = Math.max(0, o.volymSkordare - o.volymSkotare);
+    if (kvar <= 0) return;
+    if (o.grotSkotning) {
+      const grotKvar = Math.round(o.volymSkordare * 0.15);
+      if (grotKvar > 0) { oskotat.grot.m3 += grotKvar; oskotat.grot.objekt.push(o); }
+    }
+    if (o.typ === 'slutavverkning') { oskotat.slut.m3 += kvar; oskotat.slut.objekt.push(o); }
+    else if (o.typ === 'gallring') { oskotat.gall.m3 += kvar; oskotat.gall.objekt.push(o); }
+  });
+  const total = oskotat.slut.m3 + oskotat.gall.m3 + oskotat.grot.m3;
+  if (total === 0) return null;
+
+  const rad = (label: string, key: 'slutavverkning' | 'gallring' | 'grot', kat: typeof oskotat.slut) => {
+    if (kat.m3 === 0) return null;
+    return (
+      <button key={key} onClick={() => { onFilter(key); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '12px 18px', background: 'transparent', border: 'none', borderTop: `0.5px solid ${V6_SEP}`, color: '#fff', fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left' }}>
+        <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{label}</span>
+        <span style={{ fontSize: 11, color: V6_GREY, marginRight: 12, fontVariantNumeric: 'tabular-nums' }}>{kat.objekt.length} obj</span>
+        <span style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.2px', minWidth: 56, textAlign: 'right' }}>{Math.round(kat.m3).toLocaleString('sv-SE')}</span>
+        <span style={{ fontSize: 10, color: V6_GREY, fontWeight: 600, marginLeft: 3 }}>m³</span>
+        <svg width="7" height="12" viewBox="0 0 8 14" fill="none" stroke={V6_GREY2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 8 }}>
+          <polyline points="1 1 7 7 1 13" />
+        </svg>
+      </button>
+    );
+  };
 
   return (
-    <div onClick={onClick} style={{
-      background: '#1c1c1e', borderRadius: 12, padding: 16, marginBottom: 8,
-      cursor: 'pointer', transition: 'background 0.15s',
-    }}>
-      {/* Rad 1: Namn + status */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ fontSize: 17, fontWeight: 600, color: text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{obj.namn}</div>
-        {isLive ? (
-          <span style={{ fontSize: 11, fontWeight: 500, color: '#4ade80', display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0, marginLeft: 12 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#4ade80', display: 'inline-block' }} />
-            {status.text}
-          </span>
-        ) : (
-          <span style={{ fontSize: 11, color: '#636366', flexShrink: 0, marginLeft: 12 }}>Avslutat</span>
+    <div style={{ margin: '0 16px 14px', background: V6_CARD, borderRadius: 12, overflow: 'hidden' }}>
+      <button onClick={() => setOpen(!open)} style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '13px 16px', background: 'transparent', border: 'none', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', textAlign: 'left', gap: 10 }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: V6_WARN, flexShrink: 0 }} />
+        <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: '-0.1px' }}>Oskotat i skogen</span>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.3px' }}>{Math.round(total).toLocaleString('sv-SE')}</span>
+        <span style={{ fontSize: 11, color: V6_GREY, fontWeight: 600, marginLeft: 3 }}>m³</span>
+        <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke={V6_GREY} strokeWidth="2" strokeLinecap="round" style={{ marginLeft: 6, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>
+          <polyline points="4 2 8 6 4 10" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          {rad('Slutavverkning', 'slutavverkning', oskotat.slut)}
+          {rad('Gallring', 'gallring', oskotat.gall)}
+          {rad('Grot', 'grot', oskotat.grot)}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ── V6 Row ── */
+function V6Row({ obj, onClick, divider: showDivider }: { obj: UppfoljningObjekt; onClick: () => void; divider: boolean }) {
+  const kvar = Math.max(0, obj.volymSkordare - obj.volymSkotare);
+  const status = v6Status(obj);
+  const statusColor =
+    status.k === 'skordare' ? V6_SK :
+    status.k === 'skotare' ? V6_ST :
+    status.k === 'vantar' ? V6_WARN :
+    status.k === 'done' ? V6_DONE :
+    V6_GREY;
+  const showKvar = kvar > 0 && obj.status !== 'avslutat';
+  const rightNum = showKvar ? Math.round(kvar) : Math.round(obj.volymSkordare);
+  const rightLabel = showKvar ? 'kvar' : 'm³';
+  let liggerDagar: number | null = null;
+  if (status.k === 'vantar' && obj.skordareSlut) {
+    const d = Math.round((Date.now() - new Date(obj.skordareSlut).getTime()) / 864e5);
+    if (d > 0) liggerDagar = d;
+  }
+
+  return (
+    <button onClick={onClick} style={{ display: 'flex', alignItems: 'center', width: '100%', minHeight: 60, padding: '12px 16px', gap: 12, background: 'transparent', border: 'none', textAlign: 'left', color: '#fff', fontFamily: V6_FF, cursor: 'pointer', borderTop: showDivider ? `0.5px solid ${V6_SEP}` : 'none' }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
+        <div style={{ fontSize: 12, color: V6_GREY, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}{obj.areal ? ` · ${obj.areal} ha` : ''}
+          {liggerDagar != null && (
+            <span> · <span style={{ color: V6_WARN, fontWeight: 600 }}>Oskotat {liggerDagar} {liggerDagar === 1 ? 'dag' : 'dagar'} · färdigskördat {fmtDate(obj.skordareSlut)}</span></span>
+          )}
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 3, flexShrink: 0 }}>
+        <span style={{ fontSize: 17, fontWeight: 600, fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.3px', color: '#fff' }}>{rightNum.toLocaleString('sv-SE')}</span>
+        <span style={{ fontSize: 11, color: V6_GREY, fontWeight: 500 }}>{rightLabel}{showKvar ? ' m³' : ''}</span>
+      </div>
+      <svg width="7" height="12" viewBox="0 0 8 14" fill="none" stroke={V6_GREY2} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 4, flexShrink: 0 }}>
+        <polyline points="1 1 7 7 1 13" />
+      </svg>
+    </button>
+  );
+}
+
+function V6GroupHeader({ title, count }: { title: string; count: number }) {
+  return (
+    <div style={{ padding: '20px 20px 8px', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+      <span style={{ fontSize: 13, fontWeight: 600, color: V6_GREY, letterSpacing: '0.04em', textTransform: 'uppercase' }}>{title}</span>
+      <span style={{ fontSize: 13, color: V6_GREY, fontVariantNumeric: 'tabular-nums' }}>{count}</span>
+    </div>
+  );
+}
+
+/* ── V6 iOS sökbar ── */
+function V6Search({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [focused, setFocused] = useState(false);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+  const active = focused || value.length > 0;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(118,118,128,0.24)', borderRadius: 10, padding: '7px 8px', minWidth: 0, position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: active ? '0 0 auto' : 1, justifyContent: active ? 'flex-start' : 'center', transition: 'flex .2s' }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={V6_GREY} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <circle cx="11" cy="11" r="7" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          {!active && <span style={{ fontSize: 15, color: V6_GREY }}>Sök</span>}
+        </div>
+        <input
+          ref={inputRef}
+          type="text"
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          style={{ flex: active ? 1 : 0, width: active ? 'auto' : 0, border: 'none', background: 'none', outline: 'none', color: '#fff', fontSize: 15, fontFamily: V6_FF, minWidth: 0, padding: 0 }}
+        />
+        {value.length > 0 && (
+          <button onMouseDown={e => { e.preventDefault(); onChange(''); inputRef.current?.focus(); }} style={{ background: 'rgba(255,255,255,0.22)', border: 'none', borderRadius: '50%', width: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }} aria-label="Rensa">
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="#000" strokeWidth="1.8" strokeLinecap="round">
+              <line x1="1.5" y1="1.5" x2="6.5" y2="6.5" /><line x1="6.5" y1="1.5" x2="1.5" y2="6.5" />
+            </svg>
+          </button>
         )}
       </div>
-
-      {/* Rad 2: Ägare · Maskin · Datum */}
-      <div style={{ fontSize: 13, color: '#636366', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-        {obj.agare}{maskin ? ` · ${maskin}` : ''}{start ? ` · ${start}` : ''}
-      </div>
-
-      {/* Rad 3: Progress-bar full bredd */}
-      {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning && (
-        <div style={{ marginTop: 12, height: 4, background: 'rgba(255,255,255,0.06)', borderRadius: 2, overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: obj.volymSkordare > 0 ? `${framkort}%` : '0%', background: obj.volymSkordare > 0 ? (framkort >= 95 ? '#4ade80' : 'rgba(255,255,255,0.35)') : 'rgba(255,255,255,0.08)', borderRadius: 2, transition: 'width 0.3s' }} />
-        </div>
+      {active && (
+        <button onMouseDown={e => { e.preventDefault(); onChange(''); inputRef.current?.blur(); }} style={{ background: 'none', border: 'none', color: '#0a84ff', fontSize: 15, fontFamily: V6_FF, cursor: 'pointer', padding: '0 2px', flexShrink: 0, whiteSpace: 'nowrap' }}>Avbryt</button>
       )}
+    </div>
+  );
+}
 
-      {/* Rad 4: Skotat text + total m³ */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 8 }}>
-        <div style={{ fontSize: 12, color: '#636366', fontVariantNumeric: 'tabular-nums' }}>
-          {!obj.egenSkotning && !obj.externSkotning && !obj.grotSkotning
-            ? (obj.volymSkordare > 0 ? `Skotat: ${Math.round(obj.volymSkotare)} av ${Math.round(obj.volymSkordare)} m³` : '–')
-            : ''}
-        </div>
-        <div style={{ fontSize: 13, color: '#636366', fontVariantNumeric: 'tabular-nums' }}>
-          {vol > 0 ? `${vol} m³` : ''}
-        </div>
-      </div>
+/* ── V6 Segmented ── */
+function V6Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: [T, string][] }) {
+  return (
+    <div style={{ display: 'flex', background: 'rgba(118,118,128,0.24)', borderRadius: 9, padding: 2, position: 'relative' }}>
+      {options.map(([k, l]) => {
+        const on = value === k;
+        return (
+          <button key={k} onClick={() => onChange(k)} style={{ flex: 1, padding: '6px 8px', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: on ? 600 : 500, fontFamily: V6_FF, cursor: 'pointer', background: on ? '#636366' : 'transparent', color: '#fff', transition: 'background .15s', minWidth: 0, whiteSpace: 'nowrap', letterSpacing: '-0.1px', boxShadow: on ? '0 1px 2px rgba(0,0,0,0.2)' : 'none' }}>{l}</button>
+        );
+      })}
     </div>
   );
 }
@@ -178,7 +295,7 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
       const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes, dimOperatorRes, dimMaskinRes] = await Promise.all([
         supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
-        supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar, processtyp, tradslag_id').in('objekt_id', ids),
+        supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar, processtyp, tradslag_id, datum').in('objekt_id', ids),
         supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
         supabase.from('dim_tradslag').select('tradslag_id, namn'),
@@ -311,6 +428,19 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const stamPerG15 = skTid.g15 > 0 ? Math.round((totalStammar / skTid.g15) * 10) / 10 : 0;
       const m3PerG15Sk = skTid.g15 > 0 ? Math.round((totalVol / skTid.g15) * 10) / 10 : 0;
 
+      // Produktion per dag (skördare)
+      const prodPerDagMap = new Map<string, number>();
+      skProd.forEach((r: any) => {
+        if (!r.datum) return;
+        prodPerDagMap.set(r.datum, (prodPerDagMap.get(r.datum) || 0) + (r.volym_m3sub || 0));
+      });
+      const prodSkordarePerDag = Array.from(prodPerDagMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([d, m3]) => {
+          const date = new Date(d);
+          return { datum: `${date.getDate()}/${date.getMonth() + 1}`, m3: Math.round(m3) };
+        });
+
       // Per trädslag
       const tradslagAgg = new Map<string, number>();
       skProd.forEach((r: any) => {
@@ -388,12 +518,15 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
 
       // Lass
       let totalLassVol = 0, totalKor = 0;
-      const lassPerDagMap = new Map<string, number>();
+      const lassPerDagMap = new Map<string, { lass: number; m3: number }>();
       lassRows.forEach((l: any) => {
         totalLassVol += l.volym_m3sob || 0;
         totalKor += l.korstracka_m || 0;
         if (l.datum) {
-          lassPerDagMap.set(l.datum, (lassPerDagMap.get(l.datum) || 0) + 1);
+          const prev = lassPerDagMap.get(l.datum) || { lass: 0, m3: 0 };
+          prev.lass += 1;
+          prev.m3 += (l.volym_m3sob || 0);
+          lassPerDagMap.set(l.datum, prev);
         }
       });
       const antalLass = lassRows.length;
@@ -403,9 +536,9 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       const avstand = antalLass > 0 ? Math.round(totalKor / antalLass) : 0;
       const lassPerDag = Array.from(lassPerDagMap.entries())
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([d, count]) => {
+        .map(([d, v]) => {
           const date = new Date(d);
-          return { datum: `${date.getDate()}/${date.getMonth() + 1}`, lass: count };
+          return { datum: `${date.getDate()}/${date.getMonth() + 1}`, lass: v.lass, m3: Math.round(v.m3) };
         });
 
       // Diesel
@@ -515,6 +648,22 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
         externPris: obj.externPris,
         externAntal: obj.externAntal,
         maskiner,
+        // V6 meta
+        typ: obj.typ,
+        areal: obj.areal,
+        agare: obj.agare,
+        status: obj.status,
+        skordareModell: obj.skordareModell,
+        skordareStart: obj.skordareStart,
+        skordareSlut: obj.skordareSlut,
+        skordareLastDate: obj.skordareLastDate,
+        skotareModell: obj.skotareModell,
+        skotareStart: obj.skotareStart,
+        skotareSlut: obj.skotareSlut,
+        skotareLastDate: obj.skotareLastDate,
+        operatorSkordare: skForare.aktiv || null,
+        operatorSkotare: stForare.aktiv || null,
+        prodSkordarePerDag,
         // Tid — all in hours
         skordareG15h: skTid.g15,
         skordareG0: skTid.g0,
@@ -578,35 +727,11 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
   }
 
   return (
-    <>
-      {/* × close button — rendered outside scroll container, same style as TopBar hem-knapp */}
-      <button onClick={onBack} style={{
-        position: 'fixed',
-        top: 10,
-        right: 12,
-        width: 36,
-        height: 36,
-        borderRadius: 10,
-        background: 'rgba(255,255,255,0.08)',
-        border: 'none',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        cursor: 'pointer',
-        zIndex: 1001,
-        color: 'rgba(255,255,255,0.7)',
-        fontSize: 20,
-        lineHeight: 1,
-      }}>
-        <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18" />
-          <line x1="6" y1="6" x2="18" y2="18" />
-        </svg>
-      </button>
-      <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflowY: 'auto', background: '#070708' }}>
-        <UppfoljningVy data={data} />
+    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflowY: 'auto', background: '#000' }}>
+      <div style={{ maxWidth: 440, margin: '0 auto', minHeight: '100%' }}>
+        <UppfoljningVy data={data} onBack={onBack} />
       </div>
-    </>
+    </div>
   );
 }
 
@@ -616,6 +741,10 @@ function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
     skordat: 0, skotat: 0, kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning,
     externSkotning: obj.externSkotning, externForetag: obj.externForetag, externPrisTyp: obj.externPrisTyp, externPris: obj.externPris, externAntal: obj.externAntal,
     maskiner: [],
+    typ: obj.typ, areal: obj.areal, agare: obj.agare, status: obj.status,
+    skordareModell: obj.skordareModell, skordareStart: obj.skordareStart, skordareSlut: obj.skordareSlut, skordareLastDate: obj.skordareLastDate,
+    skotareModell: obj.skotareModell, skotareStart: obj.skotareStart, skotareSlut: obj.skotareSlut, skotareLastDate: obj.skotareLastDate,
+    operatorSkordare: null, operatorSkotare: null, prodSkordarePerDag: [],
     skordareG15h: 0, skordareG0: 0, skordareTomgang: 0, skordareKortaStopp: 0, skordareRast: 0, skordareAvbrott: 0,
     skotareG15h: 0, skotareG0: 0, skotareTomgang: 0, skotareKortaStopp: 0, skotareRast: 0, skotareAvbrott: 0,
     skordareM3G15h: 0, skordareStammarG15h: 0, skordareMedelstam: 0,
@@ -636,8 +765,9 @@ function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
 export default function UppfoljningPage() {
   const [loading, setLoading] = useState(true);
   const [objekt, setObjekt] = useState<UppfoljningObjekt[]>([]);
-  const [flik, setFlik] = useState<'alla' | 'pagaende' | 'avslutat'>('pagaende');
-  const [filter, setFilter] = useState<'alla' | 'slutavverkning' | 'gallring' | 'grot'>('alla');
+  const [typ, setTyp] = useState<'alla' | 'slutavverkning' | 'gallring' | 'grot'>('alla');
+  const [oskotatFilter, setOskotatFilter] = useState<'slutavverkning' | 'gallring' | 'grot' | null>(null);
+  const [visaAvslutade, setVisaAvslutade] = useState(false);
   const [sok, setSok] = useState('');
   const [valt, setValt] = useState<UppfoljningObjekt | null>(null);
 
@@ -951,84 +1081,110 @@ export default function UppfoljningPage() {
     })();
   }, []);
 
-  const lista = useMemo(() => {
-    return objekt
-      .filter(o => flik === 'alla' || o.status === flik)
-      .filter(o => {
-        if (filter === 'alla') return true;
-        if (filter === 'grot') return o.grotSkotning;
-        return o.typ === filter;
-      })
-      .filter(o => {
-        if (!sok.trim()) return true;
+  const filtered = useMemo(() => {
+    return objekt.filter(o => {
+      if (o.status === 'avslutat' && !visaAvslutade && !oskotatFilter) return false;
+      if (oskotatFilter) {
+        if (o.status === 'avslutat') return false;
+        const kvar = o.volymSkordare - o.volymSkotare;
+        if (kvar <= 0) return false;
+        if (oskotatFilter === 'grot' && !o.grotSkotning) return false;
+        if (oskotatFilter !== 'grot' && o.typ !== oskotatFilter) return false;
+      } else {
+        if (typ === 'grot' && !o.grotSkotning) return false;
+        if (typ !== 'alla' && typ !== 'grot' && o.typ !== typ) return false;
+      }
+      if (sok.trim()) {
         const t = sok.toLowerCase();
-        return o.namn.toLowerCase().includes(t) || o.agare.toLowerCase().includes(t) || o.vo_nummer?.includes(t);
-      });
-  }, [objekt, flik, filter, sok]);
+        if (!(o.namn.toLowerCase().includes(t) || (o.agare || '').toLowerCase().includes(t) || (o.vo_nummer || '').includes(t))) return false;
+      }
+      return true;
+    });
+  }, [objekt, typ, sok, oskotatFilter, visaAvslutade]);
+
+  const avslutadeCount = useMemo(() => objekt.filter(o => o.status === 'avslutat').length, [objekt]);
 
   if (valt) {
     return <ObjektDetalj obj={valt} onBack={() => setValt(null)} />;
   }
 
+  const order: V6StatusKey[] = ['skordare', 'skotare', 'vantar', 'pagaende', 'done'];
+  const titles: Record<V6StatusKey, string> = {
+    skordare: 'Skördare kör',
+    skotare: 'Skotare kör',
+    vantar: 'Väntar på skotning',
+    pagaende: 'Övrigt pågående',
+    done: 'Avslutade',
+  };
+  const groups: Record<V6StatusKey, UppfoljningObjekt[]> = { skordare: [], skotare: [], vantar: [], pagaende: [], done: [] };
+  filtered.forEach(o => { const k = v6Status(o).k; (groups[k] || groups.pagaende).push(o); });
+
+  const filterLabel = oskotatFilter ? ({ slutavverkning: 'Slutavverkning', gallring: 'Gallring', grot: 'Grot' } as const)[oskotatFilter] : '';
+
   return (
     <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: bg, color: text, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
-
-      <div style={{ padding: '32px 32px 0', maxWidth: 1400, margin: '0 auto' }}>
-        <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 28 }}>Uppföljning</div>
-
-        <input
-          type="text"
-          placeholder="Sök objekt, ägare, VO..."
-          value={sok}
-          onChange={e => setSok(e.target.value)}
-          style={{
-            width: '100%', boxSizing: 'border-box', border: 'none',
-            borderBottom: `1px solid ${divider}`,
-            background: 'none', fontSize: 15, color: text, outline: 'none', fontFamily: ff,
-            padding: '12px 0', marginBottom: 20,
-          }}
-        />
-
-        <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.06)', borderRadius: 8, padding: 2, marginBottom: 16 }}>
-          {(['alla', 'pagaende', 'avslutat'] as const).map(f => (
-            <button key={f} onClick={() => setFlik(f)} style={{
-              padding: '7px 16px', border: 'none', borderRadius: 6,
-              fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: ff,
-              background: flik === f ? 'rgba(255,255,255,0.12)' : 'transparent',
-              color: flik === f ? text : muted,
-              transition: 'all 0.15s',
-            }}>
-              {f === 'alla' ? 'Alla' : f === 'pagaende' ? 'Pågående' : 'Avslutade'}
-            </button>
-          ))}
+      <div style={{ maxWidth: 440, margin: '0 auto', minHeight: '100%' }}>
+        <div style={{ padding: '20px 20px 8px' }}>
+          <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.8px', margin: 0 }}>Uppföljning</h1>
+        </div>
+        <div style={{ padding: '8px 16px 14px' }}>
+          <V6Search value={sok} onChange={setSok} />
         </div>
 
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 11, color: muted, marginBottom: 6, letterSpacing: '0.02em' }}>Avverkningstyp:</div>
-          <div style={{ display: 'flex', gap: 12 }}>
-            {[{ k: 'alla', l: 'Alla' }, { k: 'slutavverkning', l: 'Slutavverkning' }, { k: 'gallring', l: 'Gallring' }, { k: 'grot', l: 'Grot' }].map(f => (
-              <button key={f.k} onClick={() => setFilter(f.k as any)} style={{
-                padding: 0, border: 'none', cursor: 'pointer', fontFamily: ff,
-                fontSize: 13, background: 'none',
-                color: filter === f.k ? text : muted,
-                fontWeight: filter === f.k ? 600 : 400,
-                transition: 'all 0.15s',
-              }}>{f.l}</button>
-            ))}
+        {!oskotatFilter && <V6OskotatKort data={objekt} onFilter={setOskotatFilter} />}
+
+        {oskotatFilter && (
+          <div style={{ margin: '0 16px 14px', padding: '12px 16px', background: V6_CARD, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: V6_WARN }} />
+            <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>Oskotat · {filterLabel}</span>
+            <button onClick={() => setOskotatFilter(null)} style={{ background: 'none', border: 'none', color: V6_WARN, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: V6_FF }}>Rensa</button>
           </div>
-        </div>
-      </div>
-
-      <div style={{ padding: '0 32px 120px', maxWidth: 1400, margin: '0 auto' }}>
-        {loading ? (
-          <div style={{ textAlign: 'center', padding: 60, color: muted, fontSize: 14 }}>Laddar...</div>
-        ) : lista.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 60, color: muted, fontSize: 14 }}>Inga objekt hittades</div>
-        ) : (
-          lista.map(o => (
-            <ObjektKort key={o.skordareObjektId || o.skotareObjektId || o.vo_nummer} obj={o} onClick={() => setValt(o)} />
-          ))
         )}
+
+        {!oskotatFilter && (
+          <div style={{ padding: '0 16px 12px' }}>
+            <V6Segmented<'alla' | 'slutavverkning' | 'gallring' | 'grot'>
+              value={typ}
+              onChange={setTyp}
+              options={[['alla', 'Alla'], ['slutavverkning', 'Slutavv.'], ['gallring', 'Gallring'], ['grot', 'Grot']]}
+            />
+          </div>
+        )}
+
+        <div style={{ paddingBottom: 40 }}>
+          {loading ? (
+            <div style={{ textAlign: 'center', padding: 60, color: muted, fontSize: 14 }}>Laddar...</div>
+          ) : (
+            <>
+              {order.map(k => {
+                const rows = groups[k];
+                if (!rows || rows.length === 0) return null;
+                return (
+                  <section key={k}>
+                    <V6GroupHeader title={titles[k]} count={rows.length} />
+                    <div style={{ margin: '0 16px', background: V6_CARD, borderRadius: 14, overflow: 'hidden' }}>
+                      {rows.map((o, i) => (
+                        <V6Row key={o.skordareObjektId || o.skotareObjektId || o.vo_nummer} obj={o} onClick={() => setValt(o)} divider={i > 0} />
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
+              {filtered.length === 0 && (
+                <div style={{ textAlign: 'center', padding: 80, color: V6_GREY, fontSize: 15 }}>Inga objekt hittades</div>
+              )}
+
+              {!oskotatFilter && avslutadeCount > 0 && (
+                <div style={{ padding: '24px 16px 12px' }}>
+                  <button onClick={() => setVisaAvslutade(!visaAvslutade)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, width: '100%', padding: '12px 16px', background: 'transparent', border: `0.5px solid ${V6_SEP}`, borderRadius: 10, color: V6_GREY, fontSize: 13, fontWeight: 500, fontFamily: V6_FF, cursor: 'pointer' }}>
+                    <span>{visaAvslutade ? 'Dölj' : 'Visa'} avslutade</span>
+                    <span style={{ fontVariantNumeric: 'tabular-nums' }}>({avslutadeCount})</span>
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
