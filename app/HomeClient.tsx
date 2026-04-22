@@ -32,6 +32,7 @@ const adminApps = [
   { href: '/helikopter', label: 'Helikopter', icon: 'flight' },
   { href: '/helikopter-v2', label: 'Helikopter 2', icon: 'helicopter' },
   { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: 'business_center' },
+  { href: '/fordonsoversikt', label: 'Fordon', icon: 'local_shipping' },
 ]
 
 const ekonomiAppEntry = { href: '/ekonomi', label: 'Ekonomi', icon: 'payments' }
