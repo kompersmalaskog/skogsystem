@@ -32,6 +32,17 @@ type KostnadsstalleRad = {
   kostnadsstalle_kod: string;
   dirty?: boolean;
 };
+type OmappadFaktura = {
+  id: number;
+  document_number: number;
+  invoice_date: string | null;
+  description: string | null;
+  total: number | null;
+  matched_objekt_id: string | null;
+  manual_objekt_id: string | null;
+  valt_objekt_id: string;  // UI-state
+};
+type ObjektVal = { objekt_id: string; label: string };
 
 function todayIso() {
   const d = new Date();
@@ -66,6 +77,9 @@ export default function InstallningarClient() {
   const [ovrigt, setOvrigt] = useState<OvrigtRad[]>([]);
   const [kostnadsstallen, setKostnadsstallen] = useState<KostnadsstalleRad[]>([]);
   const [savingKS, setSavingKS] = useState<string | null>(null);
+  const [omappade, setOmappade] = useState<OmappadFaktura[]>([]);
+  const [objektVal, setObjektVal] = useState<ObjektVal[]>([]);
+  const [savingMap, setSavingMap] = useState<number | null>(null);
 
   const [savingMaskin, setSavingMaskin] = useState<string | null>(null);
   const [savingAcord, setSavingAcord] = useState(false);
@@ -83,7 +97,7 @@ export default function InstallningarClient() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [mRes, aRes, avRes, trRes, teRes, soRes, flRes, ovRes, dimMaskinRes, ksRes] = await Promise.all([
+    const [mRes, aRes, avRes, trRes, teRes, soRes, flRes, ovRes, dimMaskinRes, ksRes, omappadRes, objektValRes] = await Promise.all([
       supabase.from('maskin_timpris').select('id, maskin_id, maskin_namn, timpris, giltig_fran, giltig_till').is('giltig_till', null).order('maskin_namn'),
       supabase.from('acord_priser').select('id, medelstam, pris_total, pris_skordare, pris_skotare, giltig_fran, giltig_till').is('giltig_till', null).order('medelstam'),
       supabase.from('acord_skotningsavstand').select('id, grundavstand_m, kr_per_100m, giltig_fran, giltig_till').is('giltig_till', null).not('grundavstand_m', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
@@ -94,6 +108,14 @@ export default function InstallningarClient() {
       supabase.from('acord_ovrigt').select('id, nyckel, beskrivning, varde, enhet, giltig_fran, giltig_till').is('giltig_till', null).order('nyckel'),
       supabase.from('dim_maskin').select('maskin_id, modell').order('modell'),
       supabase.from('maskin_kostnadsstalle').select('maskin_id, kostnadsstalle_kod'),
+      supabase.from('fortnox_invoice_rows')
+        .select('id, document_number, invoice_date, description, total, matched_objekt_id, manual_objekt_id')
+        .is('matched_objekt_id', null)
+        .is('manual_objekt_id', null)
+        .not('total', 'is', null)
+        .order('invoice_date', { ascending: false })
+        .limit(200),
+      supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer').order('object_name').limit(1000),
     ]);
     setMaskiner((mRes.data || []).map((m: any) => ({ id: m.id, maskin_id: m.maskin_id, maskin_namn: m.maskin_namn || '', timpris: m.timpris, giltig_fran: m.giltig_fran })));
     setAcord((aRes.data || []).map((a: any) => ({ id: a.id, medelstam: a.medelstam, pris_total: a.pris_total, pris_skordare: a.pris_skordare, pris_skotare: a.pris_skotare, giltig_fran: a.giltig_fran })));
@@ -117,6 +139,24 @@ export default function InstallningarClient() {
       maskin_id: m.maskin_id,
       maskin_namn: m.modell || m.maskin_id,
       kostnadsstalle_kod: ksMap[m.maskin_id] || '',
+    })));
+
+    setOmappade((omappadRes.data || []).map((r: any) => ({
+      id: r.id,
+      document_number: r.document_number,
+      invoice_date: r.invoice_date,
+      description: r.description,
+      total: r.total,
+      matched_objekt_id: r.matched_objekt_id,
+      manual_objekt_id: r.manual_objekt_id,
+      valt_objekt_id: '',
+    })));
+
+    setObjektVal((objektValRes.data || []).map((o: any) => ({
+      objekt_id: o.objekt_id,
+      label: o.object_name
+        ? (o.vo_nummer ? `${o.object_name} (VO ${o.vo_nummer})` : o.object_name)
+        : (o.vo_nummer ? `VO ${o.vo_nummer}` : o.objekt_id),
     })));
 
     setLoading(false);
@@ -299,6 +339,25 @@ export default function InstallningarClient() {
     if (err) { flashMsg(`Fel: ${err.message}`); return; }
     flashMsg(`Sparat: ${row.beskrivning || row.nyckel}`);
     await fetchData();
+  };
+
+  // ── Manuell fakturarads-mappning ──
+  const updateOmappad = (idx: number, objekt_id: string) => {
+    setOmappade(prev => prev.map((r, i) => i === idx ? { ...r, valt_objekt_id: objekt_id } : r));
+  };
+  const saveOmappad = async (idx: number) => {
+    const row = omappade[idx];
+    if (!row.valt_objekt_id) { flashMsg('Välj objekt först'); return; }
+    setSavingMap(row.id);
+    const { error } = await supabase
+      .from('fortnox_invoice_rows')
+      .update({ manual_objekt_id: row.valt_objekt_id })
+      .eq('id', row.id);
+    setSavingMap(null);
+    if (error) { flashMsg(`Fel: ${error.message}`); return; }
+    // Ta bort raden lokalt (den är nu mappad)
+    setOmappade(prev => prev.filter((_, i) => i !== idx));
+    flashMsg(`Mappad: faktura ${row.document_number} → ${objektVal.find(o => o.objekt_id === row.valt_objekt_id)?.label || row.valt_objekt_id}`);
   };
 
   // ── Kostnadsställe-mappning ──
@@ -679,6 +738,54 @@ export default function InstallningarClient() {
               );
             })}
             {kostnadsstallen.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga maskiner i dim_maskin.</div>}
+          </div>
+
+          {/* Omappade fakturarader */}
+          <div style={s.sectionTitle as CSSProperties}>Omappade fakturarader</div>
+          <div style={s.sectionBlurb as CSSProperties}>
+            Rader där VO-regex inte hittade matchande objekt. Välj objekt manuellt — detta bevaras över framtida synkar.
+          </div>
+          <div style={s.card}>
+            {omappade.length === 0 && (
+              <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>
+                Inga omappade rader. Kör <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>POST /api/fortnox/sync-invoices?full=1</code> för första synkningen.
+              </div>
+            )}
+            {omappade.map((r, idx) => {
+              const isSaving = savingMap === r.id;
+              return (
+                <div key={r.id} style={{ padding: '12px 0', borderBottom: idx < omappade.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>Faktura {r.document_number}</div>
+                    <div style={{ fontSize: 10, color: '#7a7a72', fontVariantNumeric: 'tabular-nums' }}>
+                      {r.invoice_date || '—'} · {r.total != null ? Math.round(r.total).toLocaleString('sv-SE') : '—'} kr
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#bfcab9', marginBottom: 8, fontStyle: 'italic' }}>
+                    {r.description || '(ingen beskrivning)'}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
+                    <select
+                      value={r.valt_objekt_id}
+                      onChange={e => updateOmappad(idx, e.target.value)}
+                      style={{
+                        background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: 8, padding: '8px 10px', color: '#e8e8e4', fontSize: 13,
+                        fontFamily: 'inherit', outline: 'none', width: '100%',
+                      }}>
+                      <option value="">— Välj objekt —</option>
+                      {objektVal.map(o => <option key={o.objekt_id} value={o.objekt_id}>{o.label}</option>)}
+                    </select>
+                    <button
+                      style={{ ...s.btnDark, opacity: isSaving || !r.valt_objekt_id ? 0.6 : 1 } as CSSProperties}
+                      disabled={isSaving || !r.valt_objekt_id}
+                      onClick={() => saveOmappad(idx)}>
+                      {isSaving ? 'Sparar...' : 'Mappa'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
           {/* Info */}

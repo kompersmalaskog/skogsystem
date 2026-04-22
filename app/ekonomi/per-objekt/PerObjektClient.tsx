@@ -16,6 +16,9 @@ type ObjektRad = {
   huvudtyp: string | null;
   timmar: number;
   timpeng: number;
+  acord: number;            // summa från fortnox_invoice_rows
+  acord_rader: number;      // antal fakturarader
+  skillnad: number;         // acord − timpeng
   volym_m3fub: number;
   maskiner: MaskinDel[];
 };
@@ -102,7 +105,7 @@ export default function PerObjektClient() {
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
 
-      const [tidRows, prodRows, objRes, maskinRes, timprisRes] = await Promise.all([
+      const [tidRows, prodRows, invoiceRows, objRes, maskinRes, timprisRes] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_tid')
             .select('datum, maskin_id, objekt_id, engine_time_sek, processing_sek')
@@ -113,6 +116,12 @@ export default function PerObjektClient() {
           supabase.from('fakt_produktion')
             .select('datum, maskin_id, objekt_id, volym_m3sub')
             .gte('datum', start).lte('datum', end)
+            .range(from, to)
+        ),
+        fetchAllRows((from, to) =>
+          supabase.from('fortnox_invoice_rows')
+            .select('invoice_date, total, matched_objekt_id, manual_objekt_id')
+            .gte('invoice_date', start).lte('invoice_date', end)
             .range(from, to)
         ),
         supabase.from('dim_objekt').select('objekt_id, object_name, vo_nummer, huvudtyp, atgard'),
@@ -148,6 +157,16 @@ export default function PerObjektClient() {
         volPerObjekt[r.objekt_id] = (volPerObjekt[r.objekt_id] || 0) + (r.volym_m3sub || 0);
       }
 
+      // Acord per objekt från fakturarader (manual_objekt_id har företräde)
+      const acordPerObjekt: Record<string, { total: number; antal: number }> = {};
+      for (const r of invoiceRows) {
+        const oid = r.manual_objekt_id || r.matched_objekt_id;
+        if (!oid) continue;
+        if (!acordPerObjekt[oid]) acordPerObjekt[oid] = { total: 0, antal: 0 };
+        acordPerObjekt[oid].total += Number(r.total) || 0;
+        acordPerObjekt[oid].antal += 1;
+      }
+
       // Bygg per-objekt-rader
       type ObjAgg = { timmar: number; timpeng: number; maskiner: MaskinDel[] };
       const objAgg: Record<string, ObjAgg> = {};
@@ -167,9 +186,13 @@ export default function PerObjektClient() {
         });
       }
 
-      const list: ObjektRad[] = Object.entries(objAgg)
-        .filter(([, v]) => v.timmar > 0)
-        .map(([objekt_id, v]) => {
+      // Ta med objekt som har timmar ELLER acord
+      const allaObjektIds = new Set<string>([...Object.keys(objAgg), ...Object.keys(acordPerObjekt)]);
+
+      const list: ObjektRad[] = Array.from(allaObjektIds)
+        .map(objekt_id => {
+          const v = objAgg[objekt_id] || { timmar: 0, timpeng: 0, maskiner: [] };
+          const a = acordPerObjekt[objekt_id] || { total: 0, antal: 0 };
           const o = objMap[objekt_id];
           return {
             objekt_id,
@@ -178,11 +201,15 @@ export default function PerObjektClient() {
             huvudtyp: o?.huvudtyp || null,
             timmar: v.timmar,
             timpeng: v.timpeng,
+            acord: a.total,
+            acord_rader: a.antal,
+            skillnad: a.total - v.timpeng,
             volym_m3fub: volPerObjekt[objekt_id] || 0,
-            maskiner: v.maskiner.sort((a, b) => b.timpeng - a.timpeng),
+            maskiner: v.maskiner.sort((x, y) => y.timpeng - x.timpeng),
           };
         })
-        .sort((a, b) => b.timpeng - a.timpeng);
+        .filter(r => r.timmar > 0 || r.acord > 0)
+        .sort((x, y) => Math.abs(y.skillnad) - Math.abs(x.skillnad));
 
       setRader(list);
     } catch (err) {
@@ -195,6 +222,9 @@ export default function PerObjektClient() {
 
   const totalTimmar = rader.reduce((s, r) => s + r.timmar, 0);
   const totalTimpeng = rader.reduce((s, r) => s + r.timpeng, 0);
+  const totalAcord = rader.reduce((s, r) => s + r.acord, 0);
+  const totalSkillnad = totalAcord - totalTimpeng;
+  const finnsAcordData = rader.some(r => r.acord > 0);
 
   const s = {
     page: { background: '#111110', minHeight: '100vh', paddingTop: 16, paddingBottom: 130, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
@@ -214,7 +244,7 @@ export default function PerObjektClient() {
     <div style={s.page}>
       <div style={{ padding: '16px 16px 0' }}>
         <div style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.01em' }}>Per objekt</div>
-        <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>Timpeng (G15h × timpris). Acord/skillnad kräver fakturadata (Del B).</div>
+        <div style={{ fontSize: 12, color: '#7a7a72', marginTop: 2 }}>Timpeng (G15h × timpris) mot acord (fakturerat per VO).</div>
       </div>
 
       <div style={{ ...s.filterBar, marginTop: 16 }}>
@@ -238,21 +268,32 @@ export default function PerObjektClient() {
           <div style={{ ...s.card, margin: '16px 0' }}>
             <div style={{ display: 'flex', gap: 12 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: '#e8e8e4' }}>{formatTim(totalTimmar)}</div>
-                <div style={s.kpiLabel}>Totalt G15h</div>
-              </div>
-              <div style={{ flex: 1 }}>
                 <div style={{ ...s.kpiVal, color: 'rgba(90,255,140,0.95)' }}>{formatKr(totalTimpeng)}</div>
                 <div style={s.kpiLabel}>Timpeng</div>
+                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 2 }}>{formatTim(totalTimmar)} G15h</div>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: '#4a4a44' }}>—</div>
+                <div style={{ ...s.kpiVal, color: finnsAcordData ? 'rgba(91,143,255,0.95)' : '#4a4a44' }}>
+                  {finnsAcordData ? formatKr(totalAcord) : '—'}
+                </div>
                 <div style={s.kpiLabel}>Acord</div>
               </div>
+              <div style={{ flex: 1 }}>
+                <div style={{
+                  ...s.kpiVal,
+                  color: !finnsAcordData ? '#4a4a44'
+                    : totalSkillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
+                }}>
+                  {finnsAcordData ? `${totalSkillnad >= 0 ? '+' : ''}${formatKr(totalSkillnad)}` : '—'}
+                </div>
+                <div style={s.kpiLabel}>Skillnad</div>
+              </div>
             </div>
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.07)', fontSize: 11, color: '#7a7a72', lineHeight: 1.5 }}>
-              Acord-intäkt per objekt kräver fakturadata från Fortnox (Del B). Kopplingen kommer via VO-nummer i fakturarader.
-            </div>
+            {!finnsAcordData && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.07)', fontSize: 11, color: '#7a7a72', lineHeight: 1.5 }}>
+                Ingen faktura-data hittad för denna period. Kör <code style={{ fontFamily: 'inherit', color: '#bfcab9' }}>POST /api/fortnox/sync-invoices?full=1</code>. Omappade rader hanteras i Inställningar.
+              </div>
+            )}
           </div>
 
           {/* Lista */}
@@ -288,15 +329,34 @@ export default function PerObjektClient() {
                     </div>
                   </div>
                   <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: 'rgba(90,255,140,0.95)' }}>{formatKr(r.timpeng)}</div>
-                    <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Timpeng</div>
+                    {r.acord > 0 ? (
+                      <>
+                        <div style={{
+                          fontFamily: "'Fraunces', serif", fontSize: 20,
+                          color: r.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
+                        }}>
+                          {r.skillnad >= 0 ? '+' : ''}{formatKr(r.skillnad)}
+                        </div>
+                        <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Skillnad</div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: 'rgba(90,255,140,0.95)' }}>{formatKr(r.timpeng)}</div>
+                        <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Timpeng</div>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 11 }}>
                   <Metric label="G15h" value={formatTim(r.timmar)} color="#e8e8e4" />
                   <Metric label="Timpeng" value={formatKr(r.timpeng)} color="#e8e8e4" />
-                  <Metric label="Acord" value="—" color="#4a4a44" />
-                  <Metric label="Skillnad" value="—" color="#4a4a44" />
+                  <Metric label="Acord" value={r.acord > 0 ? formatKr(r.acord) : '—'} color={r.acord > 0 ? 'rgba(91,143,255,0.95)' : '#4a4a44'} />
+                  <Metric
+                    label="Skillnad"
+                    value={r.acord > 0 ? `${r.skillnad >= 0 ? '+' : ''}${formatKr(r.skillnad)}` : '—'}
+                    color={r.acord === 0 ? '#4a4a44'
+                      : r.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)'}
+                  />
                 </div>
                 {isExpanded && r.maskiner.length > 0 && (
                   <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
