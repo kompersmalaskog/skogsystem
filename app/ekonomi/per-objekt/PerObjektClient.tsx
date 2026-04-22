@@ -29,6 +29,9 @@ type ObjektRad = {
   objekt_namn: string;
   vo_nummer: string | null;
   huvudtyp: string | null;
+  ar_gallring: boolean;
+  ar_timpeng_override: boolean;  // admin har flaggat slutavverkning som timpeng
+  behandla_som_timpeng: boolean; // härlett: gallring eller override
   volym_m3fub: number;
   sortiment_grupper: string[];
   sortiment_count: number;
@@ -129,6 +132,7 @@ export default function PerObjektClient() {
   const [loading, setLoading] = useState(false);
   const [rader, setRader] = useState<ObjektRad[]>([]);
   const [expandedObjektId, setExpandedObjektId] = useState<string | null>(null);
+  const [togglingObjektId, setTogglingObjektId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -138,7 +142,7 @@ export default function PerObjektClient() {
       const [
         tidRows, prodRows, lassRows, sortRows,
         sortGruppRes, objRes, maskinRes, timprisRes,
-        acordRes, avstandRes, sortTillaggRes, traktRes,
+        acordRes, avstandRes, sortTillaggRes, traktRes, flaggaRes,
       ] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_tid')
@@ -172,6 +176,7 @@ export default function PerObjektClient() {
         supabase.from('acord_skotningsavstand').select('grundavstand_m, kr_per_100m, giltig_fran, giltig_till').not('grundavstand_m', 'is', null),
         supabase.from('acord_sortiment_tillagg').select('grundantal, kr_per_extra_sortiment, giltig_fran, giltig_till').is('giltig_till', null).not('grundantal', 'is', null).order('giltig_fran', { ascending: false }).limit(1),
         supabase.from('acord_traktstorlek').select('fran_m3fub, till_m3fub, tillagg_kr_per_m3fub, giltig_fran, giltig_till').is('giltig_till', null).order('fran_m3fub'),
+        supabase.from('objekt_ekonomi').select('objekt_id, rakna_som_timpeng'),
       ]);
 
       const objMap: Record<string, any> = {};
@@ -185,6 +190,8 @@ export default function PerObjektClient() {
       const sortConf: SortConfig | null = (sortTillaggRes.data && sortTillaggRes.data[0])
         ? { grundantal: Number(sortTillaggRes.data[0].grundantal), kr_per_extra_sortiment: Number(sortTillaggRes.data[0].kr_per_extra_sortiment) }
         : null;
+      const flaggaMap: Record<string, boolean> = {};
+      for (const f of (flaggaRes.data || [])) flaggaMap[f.objekt_id] = !!f.rakna_som_timpeng;
       const sortGruppMap: Record<string, string | null> = {};
       for (const g of (sortGruppRes.data || [])) sortGruppMap[g.sortiment_id] = g.grupp;
 
@@ -346,11 +353,17 @@ export default function PerObjektClient() {
         const totalAcord = maskiner.reduce((s, m) => s + m.acord, 0);
         const sortInfo = objSortTillagg[objekt_id] || { count: 0, kr_per_m3: 0 };
         const traktInfo = objTrakt[objekt_id] || { kr_per_m3: 0, bracket: '—' };
+        const ar_gallring = (o?.huvudtyp || '') === 'Gallring';
+        const ar_timpeng_override = !!flaggaMap[objekt_id];
+        const behandla_som_timpeng = ar_gallring || ar_timpeng_override;
         objektRader.push({
           objekt_id,
           objekt_namn: o?.object_name || o?.vo_nummer || objekt_id,
           vo_nummer: o?.vo_nummer || null,
           huvudtyp: o?.huvudtyp || null,
+          ar_gallring,
+          ar_timpeng_override,
+          behandla_som_timpeng,
           volym_m3fub: objVol[objekt_id]?.vol || 0,
           sortiment_grupper: Array.from(objGrupper[objekt_id] || []).sort(),
           sortiment_count: sortInfo.count,
@@ -365,7 +378,6 @@ export default function PerObjektClient() {
         });
       }
 
-      objektRader.sort((a, b) => Math.abs(b.skillnad) - Math.abs(a.skillnad));
       setRader(objektRader);
     } catch (err) {
       console.error('PerObjekt: fetch error', err);
@@ -375,9 +387,39 @@ export default function PerObjektClient() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const totalTimpeng = rader.reduce((s, r) => s + r.timpeng, 0);
-  const totalAcord = rader.reduce((s, r) => s + r.acord, 0);
-  const totalSkillnad = totalAcord - totalTimpeng;
+  const toggleTimpengOverride = async (objekt_id: string, ny_flagga: boolean, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setTogglingObjektId(objekt_id);
+    if (ny_flagga) {
+      await supabase.from('objekt_ekonomi').upsert({
+        objekt_id,
+        rakna_som_timpeng: true,
+        uppdaterad_tid: new Date().toISOString(),
+      }, { onConflict: 'objekt_id' });
+    } else {
+      await supabase.from('objekt_ekonomi').delete().eq('objekt_id', objekt_id);
+    }
+    setTogglingObjektId(null);
+    await fetchData();
+  };
+
+  const acordRader = rader
+    .filter(r => !r.behandla_som_timpeng)
+    .sort((a, b) => Math.abs(b.skillnad) - Math.abs(a.skillnad));
+  const timpengRader = rader
+    .filter(r => r.behandla_som_timpeng)
+    .sort((a, b) => b.timpeng - a.timpeng);
+
+  const acordSum = {
+    timpeng: acordRader.reduce((s, r) => s + r.timpeng, 0),
+    acord: acordRader.reduce((s, r) => s + r.acord, 0),
+  };
+  const acordSkillnad = acordSum.acord - acordSum.timpeng;
+  const timpengSum = {
+    timpeng: timpengRader.reduce((s, r) => s + r.timpeng, 0),
+    volym: timpengRader.reduce((s, r) => s + r.volym_m3fub, 0),
+    timmar: timpengRader.reduce((s, r) => s + r.timmar, 0),
+  };
 
   const s = {
     page: { background: '#111110', minHeight: '100vh', paddingTop: 16, paddingBottom: 130, color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif" } as const,
@@ -416,21 +458,43 @@ export default function PerObjektClient() {
 
       {!loading && (
         <div style={{ padding: '0 16px' }}>
-          <div style={{ ...s.card, margin: '16px 0' }}>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: 'rgba(90,255,140,0.95)' }}>{formatKr(totalTimpeng)}</div>
-                <div style={s.kpiLabel}>Timpeng</div>
+          {/* Sammanfattning: två separata kort */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, margin: '16px 0' }}>
+            {/* Acord-objekt */}
+            <div style={s.card}>
+              <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
+                Acord-objekt ({acordRader.length})
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: 'rgba(91,143,255,0.95)' }}>{formatKr(totalAcord)}</div>
-                <div style={s.kpiLabel}>Acord</div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, color: 'rgba(91,143,255,0.95)' }}>{formatKr(acordSum.acord)}</div>
+              <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 2 }}>Acord</div>
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <div style={{ fontSize: 11, color: '#7a7a72' }}>Timpeng</div>
+                <div style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#e8e8e4' }}>{formatKr(acordSum.timpeng)}</div>
               </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ ...s.kpiVal, color: totalSkillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)' }}>
-                  {totalSkillnad >= 0 ? '+' : ''}{formatKr(totalSkillnad)}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: '#7a7a72' }}>Skillnad</div>
+                <div style={{
+                  fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                  color: acordSkillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
+                }}>
+                  {acordSkillnad >= 0 ? '+' : ''}{formatKr(acordSkillnad)}
                 </div>
-                <div style={s.kpiLabel}>Skillnad</div>
+              </div>
+            </div>
+            {/* Timpeng-objekt */}
+            <div style={s.card}>
+              <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 }}>
+                Timpeng-objekt ({timpengRader.length})
+              </div>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, color: 'rgba(90,255,140,0.95)' }}>{formatKr(timpengSum.timpeng)}</div>
+              <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 2 }}>Timpeng</div>
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <div style={{ fontSize: 11, color: '#7a7a72' }}>G15h</div>
+                <div style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#e8e8e4' }}>{formatTim(timpengSum.timmar)}</div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: 4 }}>
+                <div style={{ fontSize: 11, color: '#7a7a72' }}>Volym</div>
+                <div style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', color: '#e8e8e4' }}>{Math.round(timpengSum.volym).toLocaleString('sv-SE')} m³</div>
               </div>
             </div>
           </div>
@@ -441,122 +505,209 @@ export default function PerObjektClient() {
             </div>
           )}
 
-          {rader.map(r => {
-            const isExpanded = expandedObjektId === r.objekt_id;
-            const typeBadge = r.huvudtyp ? (
-              <span style={{
-                ...s.pill,
-                color: r.huvudtyp === 'Slutavverkning' ? 'rgba(90,255,140,0.85)' : 'rgba(255,179,64,0.9)',
-                background: r.huvudtyp === 'Slutavverkning' ? 'rgba(90,255,140,0.08)' : 'rgba(255,179,64,0.08)',
-              } as any}>
-                {r.huvudtyp === 'Slutavverkning' ? 'SLUT' : r.huvudtyp.toUpperCase()}
-              </span>
-            ) : null;
-            return (
-              <div key={r.objekt_id} style={{ ...s.card, marginBottom: 10, cursor: 'pointer' }}
-                onClick={() => setExpandedObjektId(isExpanded ? null : r.objekt_id)}>
-                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                      {typeBadge}
-                      <span style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.objekt_namn}</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: '#7a7a72' }}>
-                      {r.vo_nummer ? `VO ${r.vo_nummer}` : ''}
-                      {r.volym_m3fub > 0 && <span>{r.vo_nummer ? ' · ' : ''}{Math.round(r.volym_m3fub).toLocaleString('sv-SE')} m³</span>}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{
-                      fontFamily: "'Fraunces', serif", fontSize: 20,
-                      color: r.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
-                    }}>
-                      {r.skillnad >= 0 ? '+' : ''}{formatKr(r.skillnad)}
-                    </div>
-                    <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Skillnad</div>
-                  </div>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 11 }}>
-                  <Metric label="Timpeng" value={formatKr(r.timpeng)} color="#e8e8e4" sub={formatTim(r.timmar)} />
-                  <Metric label="Acord" value={formatKr(r.acord)} color="rgba(91,143,255,0.95)" />
-                  <Metric
-                    label="Skillnad"
-                    value={`${r.skillnad >= 0 ? '+' : ''}${formatKr(r.skillnad)}`}
-                    color={r.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)'}
-                  />
-                </div>
-                {isExpanded && (
-                  <>
-                    {/* Beräkningsparametrar */}
-                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                      <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Beräkningsunderlag</div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, fontSize: 11, color: '#bfcab9' }}>
-                        <div>
-                          <span style={{ color: '#7a7a72' }}>Sortimentgrupper: </span>
-                          <strong>{r.sortiment_count}</strong>
-                          {r.sortiment_grupper.length > 0 && <span style={{ color: '#7a7a72' }}> ({r.sortiment_grupper.join(', ')})</span>}
-                        </div>
-                        <div><span style={{ color: '#7a7a72' }}>Sortiment-tillägg: </span><strong>{r.sortiment_kr_per_m3} kr/m³</strong></div>
-                        <div><span style={{ color: '#7a7a72' }}>Traktstorlek-bracket: </span><strong>{r.trakt_bracket}</strong></div>
-                        <div><span style={{ color: '#7a7a72' }}>Trakt-tillägg: </span><strong>{r.trakt_kr_per_m3} kr/m³</strong></div>
-                      </div>
-                    </div>
+          {/* Acord-objekt-sektion */}
+          {acordRader.length > 0 && (
+            <div style={s.sectionTitle as any}>Acord · {acordRader.length} objekt</div>
+          )}
+          {acordRader.map(r => renderObjektKort(r))}
 
-                    {/* Per maskin */}
-                    {r.maskiner.length > 0 && (
-                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                        <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Per maskin</div>
-                        {r.maskiner.map(m => {
-                          const isHarv = m.maskin_typ === 'Harvester';
-                          return (
-                            <div key={m.maskin_id} style={{ padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  <span style={{
-                                    ...s.pill,
-                                    color: isHarv ? 'rgba(90,255,140,0.85)' : 'rgba(91,143,255,0.9)',
-                                    background: isHarv ? 'rgba(90,255,140,0.08)' : 'rgba(91,143,255,0.1)',
-                                  } as any}>
-                                    {isHarv ? 'SKÖRD' : m.maskin_typ === 'Forwarder' ? 'SKOT' : 'MASK'}
-                                  </span>
-                                  <span style={{ fontSize: 12, fontWeight: 600 }}>{m.maskin_namn}</span>
-                                </div>
-                                <div style={{
-                                  fontSize: 13, fontFamily: "'Fraunces', serif", fontVariantNumeric: 'tabular-nums',
-                                  color: m.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
-                                }}>
-                                  {m.skillnad >= 0 ? '+' : ''}{formatKr(m.skillnad)}
-                                </div>
-                              </div>
-                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, fontSize: 10, color: '#7a7a72', fontVariantNumeric: 'tabular-nums' }}>
-                                <div><span style={{ color: '#7a7a72' }}>G15h </span><span style={{ color: '#e8e8e4' }}>{formatTim(m.timmar)}</span></div>
-                                <div><span style={{ color: '#7a7a72' }}>Timpeng </span><span style={{ color: '#e8e8e4' }}>{formatKr(m.timpeng)}</span></div>
-                                <div><span style={{ color: '#7a7a72' }}>m³ </span><span style={{ color: '#e8e8e4' }}>{Math.round(m.volym).toLocaleString('sv-SE')}</span></div>
-                                <div><span style={{ color: '#7a7a72' }}>Pris </span><span style={{ color: '#e8e8e4' }}>{m.grundpris.toFixed(0)} kr</span></div>
-                                <div style={{ textAlign: 'right' }}><span style={{ color: '#7a7a72' }}>Acord </span><span style={{ color: 'rgba(91,143,255,0.9)' }}>{formatKr(m.acord)}</span></div>
-                              </div>
-                              <div style={{ fontSize: 9, color: '#4a4a44', marginTop: 3 }}>
-                                medelstam {m.medelstam.toFixed(3)}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            );
-          })}
+          {/* Timpeng-objekt-sektion */}
+          {timpengRader.length > 0 && (
+            <div style={s.sectionTitle as any}>Timpeng · {timpengRader.length} objekt</div>
+          )}
+          {timpengRader.map(r => renderObjektKort(r))}
 
           <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 12, padding: '0 4px', lineHeight: 1.5 }}>
-            Acord = volym × (grundpris + sortiment-tillägg + trakt-tillägg) + skotavstånd-tillägg (skotare). Grundpris slås upp per närmaste medelstam i acord_priser. Skördare använder egen medelstam, skotare ärver objektets. Sortimentgrupper räknas via dim_sortiment_grupp — Avkap exkluderas.
+            Acord = volym × (grundpris + sortiment-tillägg + trakt-tillägg) + skotavstånd-tillägg (skotare). Grundpris slås upp per närmaste medelstam i acord_priser. Gallring räknas alltid som timpeng. Slutavverkning kan flaggas som timpeng manuellt.
           </div>
         </div>
       )}
       <EkonomiBottomNav />
     </div>
   );
+
+  function renderObjektKort(r: ObjektRad) {
+    const isExpanded = expandedObjektId === r.objekt_id;
+    const isTimpengMode = r.behandla_som_timpeng;
+    const isToggling = togglingObjektId === r.objekt_id;
+
+    const typeBadge = r.ar_gallring ? (
+      <span style={{ ...s.pill, color: 'rgba(255,179,64,0.95)', background: 'rgba(255,179,64,0.1)' } as any}>GALLRING</span>
+    ) : r.huvudtyp === 'Slutavverkning' ? (
+      <span style={{ ...s.pill, color: 'rgba(90,255,140,0.85)', background: 'rgba(90,255,140,0.08)' } as any}>SLUT</span>
+    ) : (
+      <span style={{ ...s.pill, color: '#7a7a72', background: 'rgba(255,255,255,0.05)' } as any}>OKÄND</span>
+    );
+
+    const modePill = isTimpengMode ? (
+      <span style={{ ...s.pill, color: 'rgba(173,198,255,0.95)', background: 'rgba(91,143,255,0.12)' } as any}>TIMPENG</span>
+    ) : null;
+
+    return (
+      <div key={r.objekt_id} style={{ ...s.card, marginBottom: 10, cursor: 'pointer' }}
+        onClick={() => setExpandedObjektId(isExpanded ? null : r.objekt_id)}>
+        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2, flexWrap: 'wrap' }}>
+              {typeBadge}
+              {modePill}
+              <span style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.objekt_namn}</span>
+            </div>
+            <div style={{ fontSize: 11, color: '#7a7a72' }}>
+              {r.vo_nummer ? `VO ${r.vo_nummer}` : ''}
+              {r.volym_m3fub > 0 && <span>{r.vo_nummer ? ' · ' : ''}{Math.round(r.volym_m3fub).toLocaleString('sv-SE')} m³</span>}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            {isTimpengMode ? (
+              <>
+                <div style={{ fontFamily: "'Fraunces', serif", fontSize: 20, color: 'rgba(90,255,140,0.95)' }}>
+                  {formatKr(r.timpeng)}
+                </div>
+                <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Timpeng</div>
+              </>
+            ) : (
+              <>
+                <div style={{
+                  fontFamily: "'Fraunces', serif", fontSize: 20,
+                  color: r.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
+                }}>
+                  {r.skillnad >= 0 ? '+' : ''}{formatKr(r.skillnad)}
+                </div>
+                <div style={{ fontSize: 10, color: '#7a7a72', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase' }}>Skillnad</div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {isTimpengMode ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 11 }}>
+            <Metric label="G15h" value={formatTim(r.timmar)} color="#e8e8e4" />
+            <Metric label="Timpeng" value={formatKr(r.timpeng)} color="rgba(90,255,140,0.95)" />
+            <Metric label="Volym" value={`${Math.round(r.volym_m3fub).toLocaleString('sv-SE')} m³`} color="#e8e8e4" />
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, fontSize: 11 }}>
+            <Metric label="Timpeng" value={formatKr(r.timpeng)} color="#e8e8e4" sub={formatTim(r.timmar)} />
+            <Metric label="Acord" value={formatKr(r.acord)} color="rgba(91,143,255,0.95)" />
+            <Metric
+              label="Skillnad"
+              value={`${r.skillnad >= 0 ? '+' : ''}${formatKr(r.skillnad)}`}
+              color={r.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)'}
+            />
+          </div>
+        )}
+
+        {isExpanded && (
+          <>
+            {/* Beräkningsunderlag — bara meningsfullt i acord-läge */}
+            {!isTimpengMode && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>Beräkningsunderlag</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, fontSize: 11, color: '#bfcab9' }}>
+                  <div>
+                    <span style={{ color: '#7a7a72' }}>Sortimentgrupper: </span>
+                    <strong>{r.sortiment_count}</strong>
+                    {r.sortiment_grupper.length > 0 && <span style={{ color: '#7a7a72' }}> ({r.sortiment_grupper.join(', ')})</span>}
+                  </div>
+                  <div><span style={{ color: '#7a7a72' }}>Sortiment-tillägg: </span><strong>{r.sortiment_kr_per_m3} kr/m³</strong></div>
+                  <div><span style={{ color: '#7a7a72' }}>Traktstorlek-bracket: </span><strong>{r.trakt_bracket}</strong></div>
+                  <div><span style={{ color: '#7a7a72' }}>Trakt-tillägg: </span><strong>{r.trakt_kr_per_m3} kr/m³</strong></div>
+                </div>
+              </div>
+            )}
+
+            {/* Per maskin */}
+            {r.maskiner.length > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ fontSize: 9, fontWeight: 600, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8 }}>Per maskin</div>
+                {r.maskiner.map(m => {
+                  const isHarv = m.maskin_typ === 'Harvester';
+                  return (
+                    <div key={m.maskin_id} style={{ padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{
+                            ...s.pill,
+                            color: isHarv ? 'rgba(90,255,140,0.85)' : 'rgba(91,143,255,0.9)',
+                            background: isHarv ? 'rgba(90,255,140,0.08)' : 'rgba(91,143,255,0.1)',
+                          } as any}>
+                            {isHarv ? 'SKÖRD' : m.maskin_typ === 'Forwarder' ? 'SKOT' : 'MASK'}
+                          </span>
+                          <span style={{ fontSize: 12, fontWeight: 600 }}>{m.maskin_namn}</span>
+                        </div>
+                        {!isTimpengMode && (
+                          <div style={{
+                            fontSize: 13, fontFamily: "'Fraunces', serif", fontVariantNumeric: 'tabular-nums',
+                            color: m.skillnad >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)',
+                          }}>
+                            {m.skillnad >= 0 ? '+' : ''}{formatKr(m.skillnad)}
+                          </div>
+                        )}
+                        {isTimpengMode && (
+                          <div style={{ fontSize: 13, fontFamily: "'Fraunces', serif", fontVariantNumeric: 'tabular-nums', color: 'rgba(90,255,140,0.95)' }}>
+                            {formatKr(m.timpeng)}
+                          </div>
+                        )}
+                      </div>
+                      {isTimpengMode ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 4, fontSize: 10, color: '#7a7a72', fontVariantNumeric: 'tabular-nums' }}>
+                          <div><span style={{ color: '#7a7a72' }}>G15h </span><span style={{ color: '#e8e8e4' }}>{formatTim(m.timmar)}</span></div>
+                          <div><span style={{ color: '#7a7a72' }}>Timpeng </span><span style={{ color: '#e8e8e4' }}>{formatKr(m.timpeng)}</span></div>
+                          <div style={{ textAlign: 'right' }}><span style={{ color: '#7a7a72' }}>m³ </span><span style={{ color: '#e8e8e4' }}>{Math.round(m.volym).toLocaleString('sv-SE')}</span></div>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 4, fontSize: 10, color: '#7a7a72', fontVariantNumeric: 'tabular-nums' }}>
+                            <div><span style={{ color: '#7a7a72' }}>G15h </span><span style={{ color: '#e8e8e4' }}>{formatTim(m.timmar)}</span></div>
+                            <div><span style={{ color: '#7a7a72' }}>Timpeng </span><span style={{ color: '#e8e8e4' }}>{formatKr(m.timpeng)}</span></div>
+                            <div><span style={{ color: '#7a7a72' }}>m³ </span><span style={{ color: '#e8e8e4' }}>{Math.round(m.volym).toLocaleString('sv-SE')}</span></div>
+                            <div><span style={{ color: '#7a7a72' }}>Pris </span><span style={{ color: '#e8e8e4' }}>{m.grundpris.toFixed(0)} kr</span></div>
+                            <div style={{ textAlign: 'right' }}><span style={{ color: '#7a7a72' }}>Acord </span><span style={{ color: 'rgba(91,143,255,0.9)' }}>{formatKr(m.acord)}</span></div>
+                          </div>
+                          <div style={{ fontSize: 9, color: '#4a4a44', marginTop: 3 }}>
+                            medelstam {m.medelstam.toFixed(3)}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Toggle: bara tillgänglig för slutavverkning + okänd (inte gallring) */}
+            {!r.ar_gallring && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <button
+                  onClick={e => toggleTimpengOverride(r.objekt_id, !r.ar_timpeng_override, e)}
+                  disabled={isToggling}
+                  style={{
+                    width: '100%',
+                    background: r.ar_timpeng_override ? 'rgba(91,143,255,0.12)' : 'rgba(255,255,255,0.03)',
+                    color: r.ar_timpeng_override ? 'rgba(173,198,255,0.95)' : '#bfcab9',
+                    border: `1px solid ${r.ar_timpeng_override ? 'rgba(91,143,255,0.35)' : 'rgba(255,255,255,0.1)'}`,
+                    borderRadius: 10, padding: '10px 14px', fontSize: 12, fontWeight: 600,
+                    fontFamily: 'inherit', cursor: isToggling ? 'wait' : 'pointer',
+                    opacity: isToggling ? 0.6 : 1,
+                  }}>
+                  {isToggling ? 'Sparar...' :
+                    r.ar_timpeng_override
+                      ? '← Återställ till acord-beräkning'
+                      : 'Flagga detta objekt som timpeng →'}
+                </button>
+                <div style={{ fontSize: 10, color: '#7a7a72', marginTop: 6, textAlign: 'center', lineHeight: 1.4 }}>
+                  {r.ar_timpeng_override
+                    ? 'Detta objekt räknas som timpeng trots att det är slutavverkning.'
+                    : 'Vissa slutavverkningsobjekt körs på timpeng istället för acord. Flagga i så fall här.'}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
 }
 
 function Metric({ label, value, color, sub }: { label: string; value: string; color: string; sub?: string }) {
