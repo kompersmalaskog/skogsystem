@@ -34,6 +34,7 @@ const adminApps = [
   { href: '/affarsuppfoljning', label: 'Affärsuppföljning', icon: 'business_center' },
   { href: '/fordonsoversikt', label: 'Fordon', icon: 'local_shipping' },
   { href: '/avtal', label: 'Avtal', icon: 'receipt_long' },
+  { href: '/personal', label: 'Personal', icon: 'badge' },
 ]
 
 const ekonomiAppEntry = { href: '/ekonomi', label: 'Ekonomi', icon: 'payments' }

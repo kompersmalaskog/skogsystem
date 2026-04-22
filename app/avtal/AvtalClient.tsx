@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-type Kategori = 'telefon' | 'friskvard' | 'forsakring' | 'leasing' | 'programvara' | 'ovrigt';
+// Friskvård hanteras nu per medarbetare i /personal och är borttaget här.
+type Kategori = 'telefon' | 'forsakring' | 'leasing' | 'programvara' | 'ovrigt';
 
 type Avtal = {
   id: string;
@@ -21,14 +22,13 @@ type Avtal = {
 
 const KATEGORI_LABEL: Record<Kategori, string> = {
   telefon: 'Telefon',
-  friskvard: 'Företagshälsovård',
   forsakring: 'Försäkring',
   leasing: 'Leasing & finansiering',
   programvara: 'Programvara',
   ovrigt: 'Övrigt',
 };
 
-const KATEGORI_ORDNING: Kategori[] = ['telefon', 'friskvard', 'forsakring', 'leasing', 'programvara', 'ovrigt'];
+const KATEGORI_ORDNING: Kategori[] = ['telefon', 'forsakring', 'leasing', 'programvara', 'ovrigt'];
 
 const MÅN_KORT = ['jan', 'feb', 'mar', 'apr', 'maj', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec'];
 
@@ -101,16 +101,12 @@ export default function AvtalClient({ kanRedigera }: { kanRedigera: boolean }) {
     return { utgatt, snart, ok };
   }, [avtal]);
 
-  const friskvardSum = useMemo(() => {
-    const rader = avtal.filter(a => a.kategori === 'friskvard');
-    const total = rader.reduce((s, r) => s + (r.budget_total || 0), 0);
-    const använt = rader.reduce((s, r) => s + (r.budget_anvant || 0), 0);
-    return { total, använt, rader: rader.length };
-  }, [avtal]);
-
   const perKategori = useMemo(() => {
     const m: Record<string, Avtal[]> = {};
     for (const a of avtal) {
+      // Friskvård flyttad till /personal — om gamla rader finns kvar i DB,
+      // hoppa över dem här tills de migrerats eller raderats.
+      if (a.kategori === ('friskvard' as any)) continue;
       if (!m[a.kategori]) m[a.kategori] = [];
       m[a.kategori].push(a);
     }
@@ -180,18 +176,6 @@ export default function AvtalClient({ kanRedigera }: { kanRedigera: boolean }) {
         </div>
       </div>
 
-      {friskvardSum.rader > 0 && friskvardSum.total > 0 && (
-        <div style={s.friskCard}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-            <span style={{ fontSize: 13, color: 'rgba(235,235,245,0.6)', fontWeight: 500 }}>Friskvård totalt</span>
-            <span style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums' as const }}>
-              {fmtKr(friskvardSum.använt)} av {fmtKr(friskvardSum.total)}
-            </span>
-          </div>
-          <ProgressBar anvant={friskvardSum.använt} total={friskvardSum.total} />
-        </div>
-      )}
-
       {laddar && <div style={s.tomTillstand}>Laddar…</div>}
       {!laddar && fel && <div style={{ ...s.tomTillstand, color: '#ff6b6b' }}>Fel: {fel}</div>}
       {!laddar && !fel && avtal.length === 0 && (
@@ -208,7 +192,6 @@ export default function AvtalClient({ kanRedigera }: { kanRedigera: boolean }) {
               {lista.map((a, i) => {
                 const status = statusFör(a.slut_datum);
                 const harUtvikt = utvikt === a.id;
-                const erFriskvard = a.kategori === 'friskvard';
                 return (
                   <div
                     key={a.id}
@@ -223,12 +206,7 @@ export default function AvtalClient({ kanRedigera }: { kanRedigera: boolean }) {
                         </div>
                       </div>
                       <div style={{ textAlign: 'right' as const, minWidth: 0 }}>
-                        {erFriskvard && a.budget_total ? (
-                          <>
-                            <div style={s.beloppHöger}>{fmtKr(a.budget_anvant || 0)} / {fmtKr(a.budget_total)}</div>
-                            <div style={{ fontSize: 11, color: 'rgba(235,235,245,0.5)', marginTop: 2 }}>använt</div>
-                          </>
-                        ) : a.belopp_per_manad ? (
+                        {a.belopp_per_manad ? (
                           <>
                             <div style={s.beloppHöger}>{fmtKr(a.belopp_per_manad)}</div>
                             <div style={{ fontSize: 11, color: 'rgba(235,235,245,0.5)', marginTop: 2 }}>/månad</div>
@@ -251,12 +229,6 @@ export default function AvtalClient({ kanRedigera }: { kanRedigera: boolean }) {
                       </div>
                       <div style={{ ...s.prick, background: statusFärg(status) }} />
                     </div>
-
-                    {erFriskvard && a.budget_total ? (
-                      <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
-                        <ProgressBar anvant={a.budget_anvant || 0} total={a.budget_total} />
-                      </div>
-                    ) : null}
 
                     {harUtvikt && (
                       <div style={s.expand} onClick={e => e.stopPropagation()}>
@@ -360,8 +332,6 @@ function AvtalForm({ befintligt, onStäng, onSparad }: {
   const [sparar, setSparar] = useState(false);
   const [fel, setFel] = useState<string | null>(null);
 
-  const erFriskvard = kategori === 'friskvard';
-
   async function spara() {
     setSparar(true); setFel(null);
     try {
@@ -427,7 +397,6 @@ function AvtalForm({ befintligt, onStäng, onSparad }: {
           <div style={label}>Kategori *</div>
           <select style={inp as any} value={kategori} onChange={e => setKategori(e.target.value as Kategori)}>
             <option value="telefon">Telefon</option>
-            <option value="friskvard">Företagshälsovård</option>
             <option value="forsakring">Försäkring</option>
             <option value="leasing">Leasing & finansiering</option>
             <option value="programvara">Programvara</option>
@@ -455,31 +424,16 @@ function AvtalForm({ befintligt, onStäng, onSparad }: {
           </div>
         </div>
 
-        {!erFriskvard && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div style={grp}>
-              <div style={label}>Belopp/månad</div>
-              <input style={inp as any} type="number" inputMode="decimal" value={perMan} onChange={e => setPerMan(e.target.value)}/>
-            </div>
-            <div style={grp}>
-              <div style={label}>Belopp/år</div>
-              <input style={inp as any} type="number" inputMode="decimal" value={perAr} onChange={e => setPerAr(e.target.value)}/>
-            </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div style={grp}>
+            <div style={label}>Belopp/månad</div>
+            <input style={inp as any} type="number" inputMode="decimal" value={perMan} onChange={e => setPerMan(e.target.value)}/>
           </div>
-        )}
-
-        {erFriskvard && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div style={grp}>
-              <div style={label}>Budget totalt</div>
-              <input style={inp as any} type="number" inputMode="decimal" value={budgetTot} onChange={e => setBudgetTot(e.target.value)}/>
-            </div>
-            <div style={grp}>
-              <div style={label}>Hittills använt</div>
-              <input style={inp as any} type="number" inputMode="decimal" value={budgetAnv} onChange={e => setBudgetAnv(e.target.value)}/>
-            </div>
+          <div style={grp}>
+            <div style={label}>Belopp/år</div>
+            <input style={inp as any} type="number" inputMode="decimal" value={perAr} onChange={e => setPerAr(e.target.value)}/>
           </div>
-        )}
+        </div>
 
         <div style={grp}>
           <div style={label}>Anteckning</div>
