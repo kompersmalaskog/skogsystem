@@ -392,8 +392,8 @@ export default function Jamforelse() {
               key={cfg}
               onClick={() => setEkConfig(cfg)}
               style={{
-                padding: '5px 16px', border: 'none', borderRadius: 6, fontFamily: ff,
-                fontSize: 12, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s',
+                minHeight: 44, padding: '0 18px', border: 'none', borderRadius: 10, fontFamily: ff,
+                fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s',
                 background: ekConfig === cfg ? C.surface2 : 'transparent',
                 color: ekConfig === cfg ? C.t1 : C.t3,
                 letterSpacing: -0.2,

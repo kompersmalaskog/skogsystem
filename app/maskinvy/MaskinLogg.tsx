@@ -45,8 +45,15 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
   const [formDatum, setFormDatum] = useState(() => new Date().toISOString().slice(0, 10));
   const [formAtgard, setFormAtgard] = useState('');
   const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; kind: 'ok' | 'err' } | null>(null);
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<any>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   // Load machines
   useEffect(() => {
@@ -224,21 +231,30 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
   }, [open, dailyProd, logg]);
 
   const handleSave = async () => {
-    if (!formAtgard.trim() || !selectedMaskin) return;
+    if (!formAtgard.trim()) { setToast({ msg: 'Beskrivning krävs', kind: 'err' }); return; }
+    if (!selectedMaskin) { setToast({ msg: 'Välj maskin först', kind: 'err' }); return; }
+    if (!formDatum) { setToast({ msg: 'Datum krävs', kind: 'err' }); return; }
     setSaving(true);
-    await supabase.from('maskin_logg').insert({
+    const { error } = await supabase.from('maskin_logg').insert({
       maskin_id: selectedMaskin,
       datum: formDatum,
       atgard: formAtgard.trim(),
     });
+    setSaving(false);
+    if (error) {
+      setToast({ msg: 'Kunde inte spara: ' + error.message, kind: 'err' });
+      return;
+    }
     setFormAtgard('');
     setFormOpen(false);
-    setSaving(false);
+    setToast({ msg: 'Åtgärd loggad', kind: 'ok' });
     loadData();
   };
 
   const handleDelete = async (id: string) => {
-    await supabase.from('maskin_logg').delete().eq('id', id);
+    const { error } = await supabase.from('maskin_logg').delete().eq('id', id);
+    if (error) { setToast({ msg: 'Kunde inte ta bort', kind: 'err' }); return; }
+    setToast({ msg: 'Åtgärd borttagen', kind: 'ok' });
     loadData();
   };
 
@@ -250,15 +266,31 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
     return () => { delete (window as any).__openMaskinLogg; };
   }, []);
 
-  if (!open) {
+  if (!open && !toast) {
     return null;
   }
 
   return (
     <div style={{
       position: 'fixed', inset: 0, zIndex: 200,
-      display: 'flex', flexDirection: 'column',
+      display: open ? 'flex' : 'block', flexDirection: 'column',
+      pointerEvents: open ? 'auto' : 'none',
     }}>
+      {/* Toast — synligt även när panelen stängs */}
+      {toast && (
+        <div style={{
+          position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)',
+          background: toast.kind === 'ok' ? 'rgba(48,209,88,0.16)' : 'rgba(255,69,58,0.16)',
+          border: `1px solid ${toast.kind === 'ok' ? 'rgba(48,209,88,0.38)' : 'rgba(255,69,58,0.38)'}`,
+          color: toast.kind === 'ok' ? '#30d158' : '#ff453a',
+          padding: '12px 20px', borderRadius: 12, fontSize: 15, fontFamily: ff, fontWeight: 500,
+          backdropFilter: 'saturate(180%) blur(20px)', WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+          zIndex: 1100, maxWidth: 'calc(100vw - 32px)', pointerEvents: 'auto',
+        }}>{toast.msg}</div>
+      )}
+
+      {!open && null}
+      {open && (<>
       {/* Backdrop */}
       <div onClick={() => setOpen(false)} style={{
         position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)',
@@ -268,7 +300,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
       <div style={{
         position: 'absolute', bottom: 0, left: 0, right: 0,
         maxHeight: '85vh', background: C.bg, borderTop: `1px solid ${C.border2}`,
-        borderRadius: '16px 16px 0 0', overflow: 'auto',
+        borderRadius: '12px 12px 0 0', overflow: 'auto',
         fontFamily: ff, color: C.t1,
       }}>
         {/* Header */}
@@ -281,10 +313,10 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: -0.3 }}>Maskinlogg</span>
           </div>
-          <button onClick={() => setOpen(false)} style={{
+          <button onClick={() => setOpen(false)} aria-label="Stäng" style={{
             background: 'none', border: 'none', color: C.t3, fontSize: 20, cursor: 'pointer',
-            width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center',
-            borderRadius: 8,
+            width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            borderRadius: 10,
           }}>✕</button>
         </div>
 
@@ -343,9 +375,9 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
             <button
               onClick={() => setFormOpen(true)}
               style={{
-                width: '100%', padding: '12px 0', borderRadius: 10,
+                width: '100%', minHeight: 44, padding: '0 16px', borderRadius: 10,
                 background: C.accent2, border: `1px solid rgba(48,209,88,0.2)`,
-                color: C.accent, fontFamily: ff, fontSize: 13, fontWeight: 600,
+                color: C.accent, fontFamily: ff, fontSize: 15, fontWeight: 600,
                 cursor: 'pointer', marginBottom: 16, letterSpacing: -0.2,
               }}
             >
@@ -388,9 +420,9 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
                   onClick={handleSave}
                   disabled={saving || !formAtgard.trim()}
                   style={{
-                    flex: 1, padding: '10px 0', borderRadius: 10,
+                    flex: 1, minHeight: 44, padding: '0 16px', borderRadius: 10,
                     background: C.accent2, border: `1px solid rgba(48,209,88,0.2)`,
-                    color: C.accent, fontFamily: ff, fontSize: 13, fontWeight: 600,
+                    color: C.accent, fontFamily: ff, fontSize: 15, fontWeight: 600,
                     cursor: saving ? 'wait' : 'pointer',
                     opacity: !formAtgard.trim() ? 0.4 : 1,
                   }}
@@ -400,9 +432,9 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
                 <button
                   onClick={() => { setFormOpen(false); setFormAtgard(''); }}
                   style={{
-                    padding: '10px 18px', borderRadius: 10,
+                    minHeight: 44, padding: '0 20px', borderRadius: 10,
                     background: 'transparent', border: `1px solid ${C.border2}`,
-                    color: C.t3, fontFamily: ff, fontSize: 13, cursor: 'pointer',
+                    color: C.t3, fontFamily: ff, fontSize: 15, cursor: 'pointer',
                   }}
                 >
                   Avbryt
@@ -475,6 +507,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           )}
         </div>
       </div>
+      </>)}
     </div>
   );
 }

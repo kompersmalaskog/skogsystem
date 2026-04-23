@@ -87,6 +87,14 @@ export default function MaskinDetailPage() {
   const [timmar, setTimmar] = useState('');
   const [datum, setDatum] = useState(new Date().toISOString().split('T')[0]);
   const [selectedWheel, setSelectedWheel] = useState('');
+  const [errors, setErrors] = useState<{ beskrivning?: string; timmar?: string; datum?: string }>({});
+  const [toast, setToast] = useState<{ msg: string; kind: 'ok' | 'err' } | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3200);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const fetchData = useCallback(async () => {
     const [{ data: m }, { data: s }, { data: skift }] = await Promise.all([
@@ -116,14 +124,25 @@ export default function MaskinDetailPage() {
     setTimmar(drifttimmar.toString());
     setDatum(new Date().toISOString().split('T')[0]);
     setSelectedWheel('');
+    setErrors({});
     setShowForm(false);
   };
 
-  const handleSave = async () => {
-    if (!beskrivning.trim()) { alert('Beskrivning krävs'); return; }
-    if (!timmar || !parseFloat(timmar)) { alert('Timräknare krävs'); return; }
-    setSaving(true);
+  const validate = () => {
+    const e: { beskrivning?: string; timmar?: string; datum?: string } = {};
+    if (!beskrivning.trim()) e.beskrivning = 'Beskrivning krävs';
+    const t = parseFloat(timmar);
+    if (!timmar || isNaN(t) || t <= 0) e.timmar = 'Ange ett positivt timvärde';
+    if (!datum) e.datum = 'Datum krävs';
+    return e;
+  };
 
+  const handleSave = async () => {
+    const e = validate();
+    setErrors(e);
+    if (Object.keys(e).length > 0) return;
+
+    setSaving(true);
     const { error } = await supabase.from('maskin_service').insert({
       maskin_id: maskinId,
       del: kategori,
@@ -133,8 +152,9 @@ export default function MaskinDetailPage() {
       datum,
     });
 
-    if (error) { alert('Fel: ' + error.message); }
-    else {
+    if (error) {
+      setToast({ msg: 'Kunde inte spara: ' + error.message, kind: 'err' });
+    } else {
       if (kategori === 'service' && parseFloat(timmar)) {
         await supabase
           .from('service_paminnelser')
@@ -143,13 +163,39 @@ export default function MaskinDetailPage() {
       }
       resetForm();
       await fetchData();
+      setToast({ msg: 'Åtgärd sparad', kind: 'ok' });
     }
     setSaving(false);
   };
 
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
-      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 15, fontFamily: f }}>Laddar...</p>
+    <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 24px', paddingBottom: 120 }}>
+      <style>{`@keyframes skelShine { 0% { background-position: -200px 0; } 100% { background-position: calc(200px + 100%) 0; } }
+        .skel { background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 100%); background-size: 200px 100%; border-radius: 8px; animation: skelShine 1.4s ease-in-out infinite; }
+      `}</style>
+      <div style={{ padding: '28px 0 20px' }}>
+        <div className="skel" style={{ height: 28, width: '60%', marginBottom: 10 }} />
+        <div className="skel" style={{ height: 13, width: '40%' }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+        {[1, 2].map(i => (
+          <div key={i} style={{ backgroundColor: '#1c1c1e', borderRadius: 12, padding: 16 }}>
+            <div className="skel" style={{ height: 13, width: '50%', marginBottom: 12 }} />
+            <div className="skel" style={{ height: 28, width: '70%' }} />
+          </div>
+        ))}
+      </div>
+      <div style={{ backgroundColor: '#1c1c1e', borderRadius: 12, padding: '4px 0' }}>
+        {[1, 2, 3].map(i => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', borderBottom: i < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+            <div className="skel" style={{ height: 40, width: 40, borderRadius: 8, flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div className="skel" style={{ height: 15, width: '70%', marginBottom: 6 }} />
+              <div className="skel" style={{ height: 12, width: '40%' }} />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 
@@ -163,6 +209,19 @@ export default function MaskinDetailPage() {
 
   return (
     <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 20px', paddingBottom: 100 }}>
+
+      {/* Toast */}
+      {toast && (
+        <div style={{
+          position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)',
+          background: toast.kind === 'ok' ? 'rgba(48,209,88,0.16)' : 'rgba(255,69,58,0.16)',
+          border: `1px solid ${toast.kind === 'ok' ? 'rgba(48,209,88,0.38)' : 'rgba(255,69,58,0.38)'}`,
+          color: toast.kind === 'ok' ? '#30d158' : '#ff453a',
+          padding: '12px 20px', borderRadius: 12, fontSize: 15, fontFamily: f, fontWeight: 500,
+          backdropFilter: 'saturate(180%) blur(20px)', WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+          zIndex: 1000, maxWidth: 'calc(100vw - 32px)',
+        }}>{toast.msg}</div>
+      )}
 
       {/* Header */}
       <div style={{ padding: '24px 0 24px' }}>
@@ -304,12 +363,13 @@ export default function MaskinDetailPage() {
               </h2>
               <button
                 onClick={resetForm}
+                aria-label="Stäng"
                 style={{
-                  width: 30, height: 30, borderRadius: '50%',
+                  width: 44, height: 44, borderRadius: '50%',
                   backgroundColor: 'rgba(255,255,255,0.1)',
                   border: 'none', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 16, color: 'rgba(255,255,255,0.5)', lineHeight: 1,
+                  fontSize: 20, color: 'rgba(255,255,255,0.6)', lineHeight: 1,
                 }}
               >
                 ×
@@ -329,7 +389,7 @@ export default function MaskinDetailPage() {
                     key={k}
                     onClick={() => setKategori(val)}
                     style={{
-                      flex: 1, padding: '9px 0', borderRadius: 8,
+                      flex: 1, minHeight: 44, padding: '0', borderRadius: 8,
                       backgroundColor: active ? 'rgba(255,255,255,0.18)' : 'transparent',
                       border: 'none', cursor: 'pointer',
                       fontSize: 14, fontWeight: active ? 600 : 400,
@@ -381,18 +441,19 @@ export default function MaskinDetailPage() {
             {/* Beskrivning */}
             <textarea
               value={beskrivning}
-              onChange={e => setBeskrivning(e.target.value)}
+              onChange={e => { setBeskrivning(e.target.value); if (errors.beskrivning) setErrors(x => ({ ...x, beskrivning: undefined })); }}
               placeholder="Vad gjordes?"
               rows={3}
               style={{
                 width: '100%', padding: '12px 16px',
                 backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
-                border: '1px solid rgba(255,255,255,0.04)',
+                border: `1px solid ${errors.beskrivning ? '#ff453a' : 'rgba(255,255,255,0.04)'}`,
                 outline: 'none', resize: 'none',
                 color: '#fff', fontSize: 15, fontFamily: f, lineHeight: 1.5,
                 boxSizing: 'border-box',
               }}
             />
+            {errors.beskrivning && <div style={{ fontSize: 13, color: '#ff453a', marginTop: 6, fontFamily: f }}>{errors.beskrivning}</div>}
 
             {/* Timmar + Datum */}
             <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
@@ -401,33 +462,35 @@ export default function MaskinDetailPage() {
                 <input
                   type="number"
                   value={timmar}
-                  onChange={e => setTimmar(e.target.value)}
+                  onChange={e => { setTimmar(e.target.value); if (errors.timmar) setErrors(x => ({ ...x, timmar: undefined })); }}
                   style={{
                     width: '100%', padding: '12px 16px',
                     backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
-                    border: '1px solid rgba(255,255,255,0.04)',
+                    border: `1px solid ${errors.timmar ? '#ff453a' : 'rgba(255,255,255,0.04)'}`,
                     outline: 'none',
                     color: '#fff', fontSize: 15, fontFamily: f,
                     boxSizing: 'border-box',
                   }}
                 />
+                {errors.timmar && <div style={{ fontSize: 13, color: '#ff453a', marginTop: 6, fontFamily: f }}>{errors.timmar}</div>}
               </div>
               <div style={{ flex: 1 }}>
                 <label style={{ ...labelStyle, fontSize: 12, display: 'block', marginBottom: 8 }}>Datum</label>
                 <input
                   type="date"
                   value={datum}
-                  onChange={e => setDatum(e.target.value)}
+                  onChange={e => { setDatum(e.target.value); if (errors.datum) setErrors(x => ({ ...x, datum: undefined })); }}
                   style={{
                     width: '100%', padding: '12px 16px',
                     backgroundColor: 'rgba(118,118,128,0.18)', borderRadius: 12,
-                    border: '1px solid rgba(255,255,255,0.04)',
+                    border: `1px solid ${errors.datum ? '#ff453a' : 'rgba(255,255,255,0.04)'}`,
                     outline: 'none',
                     color: '#fff', fontSize: 15, fontFamily: f,
                     boxSizing: 'border-box',
                     colorScheme: 'dark',
                   }}
                 />
+                {errors.datum && <div style={{ fontSize: 13, color: '#ff453a', marginTop: 6, fontFamily: f }}>{errors.datum}</div>}
               </div>
             </div>
 
@@ -436,10 +499,10 @@ export default function MaskinDetailPage() {
               <button
                 onClick={resetForm}
                 style={{
-                  padding: '9px 20px', marginRight: 8,
+                  minHeight: 44, padding: '0 20px', marginRight: 8,
                   backgroundColor: 'transparent', borderRadius: 10,
                   border: 'none', cursor: 'pointer',
-                  fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.4)', fontFamily: f,
+                  fontSize: 15, fontWeight: 500, color: 'rgba(255,255,255,0.55)', fontFamily: f,
                 }}
               >
                 Avbryt
@@ -448,10 +511,10 @@ export default function MaskinDetailPage() {
                 onClick={handleSave}
                 disabled={saving}
                 style={{
-                  padding: '9px 22px',
+                  minHeight: 44, padding: '0 24px',
                   backgroundColor: '#30d158', borderRadius: 10,
                   border: 'none', cursor: 'pointer',
-                  fontSize: 14, fontWeight: 600, color: '#fff', fontFamily: f,
+                  fontSize: 15, fontWeight: 600, color: '#fff', fontFamily: f,
                   opacity: saving ? 0.5 : 1,
                   transition: 'opacity 0.15s',
                 }}

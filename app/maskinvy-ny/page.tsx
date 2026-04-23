@@ -32,20 +32,10 @@ interface KPIData {
   idlePct: number
 }
 
-// Fallback demo data
-const FALLBACK_DAILY: DailyData[] = [
-  { datum: '2026-03-18', volym: 155.2, stammar: 640, g15h: 6.5, bransle: 70 },
-  { datum: '2026-03-19', volym: 178.0, stammar: 730, g15h: 7.3, bransle: 76 },
-  { datum: '2026-03-20', volym: 142.8, stammar: 620, g15h: 6.2, bransle: 68 },
-  { datum: '2026-03-21', volym: 168.3, stammar: 710, g15h: 7.1, bransle: 74 },
-  { datum: '2026-03-24', volym: 188.1, stammar: 780, g15h: 7.8, bransle: 82 },
-  { datum: '2026-03-25', volym: 195.4, stammar: 820, g15h: 8.0, bransle: 85 },
-  { datum: '2026-03-26', volym: 172.0, stammar: 700, g15h: 7.0, bransle: 75 },
-]
-const FALLBACK_KPI: KPIData = {
-  totalVolym: 1199.8, totalStammar: 5000, prodPerG15h: 23.5, medelstam: 0.240,
-  branslePerM3: 0.44, effektivitet: 72, processingPct: 55, terrainPct: 18,
-  otherPct: 12, idlePct: 15,
+const EMPTY_KPI: KPIData = {
+  totalVolym: 0, totalStammar: 0, prodPerG15h: 0, medelstam: 0,
+  branslePerM3: 0, effektivitet: 0, processingPct: 0, terrainPct: 0,
+  otherPct: 0, idlePct: 0,
 }
 
 const TOPBAR_H = 56 // pixels, from layout.tsx TopBar
@@ -84,10 +74,10 @@ export default function MaskinvyNyPage() {
   const [maskiner, setMaskiner] = useState<Maskin[]>([])
   const [valdMaskin, setValdMaskin] = useState<string>('')
   const [daily, setDaily] = useState<DailyData[]>([])
-  const [kpi, setKpi] = useState<KPIData>(FALLBACK_KPI)
+  const [kpi, setKpi] = useState<KPIData>(EMPTY_KPI)
   const [loading, setLoading] = useState(true)
-  const [usingFallback, setUsingFallback] = useState(false)
   const [timeoutError, setTimeoutError] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [activeNav, setActiveNav] = useState('section-kpi')
   const dailyChartRef = useRef<any>(null)
   const dailyCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -102,9 +92,7 @@ export default function MaskinvyNyPage() {
       .then(({ data, error }) => {
         if (error) {
           console.error('dim_maskin error:', error)
-          setUsingFallback(true)
-          setDaily(FALLBACK_DAILY)
-          setKpi(FALLBACK_KPI)
+          setLoadError('Kunde inte hämta maskiner från databasen.')
           setLoading(false)
           return
         }
@@ -113,18 +101,14 @@ export default function MaskinvyNyPage() {
           const skordare = data.find(m => m.typ === 'Skördare') || data[0]
           setValdMaskin(skordare.maskin_id.toString())
         } else {
-          setUsingFallback(true)
-          setDaily(FALLBACK_DAILY)
-          setKpi(FALLBACK_KPI)
+          setLoadError('Inga maskiner registrerade.')
           setLoading(false)
         }
       })
       .catch((err) => {
         console.error('dim_maskin timeout/error:', err)
         setTimeoutError(true)
-        setUsingFallback(true)
-        setDaily(FALLBACK_DAILY)
-        setKpi(FALLBACK_KPI)
+        setLoadError(`Databasanslutningen tog för lång tid (${SUPABASE_TIMEOUT / 1000}s timeout).`)
         setLoading(false)
       })
   }, [])
@@ -135,6 +119,7 @@ export default function MaskinvyNyPage() {
     setLoading(true)
 
     setTimeoutError(false)
+    setLoadError(null)
     try {
       const [prodRes, tidRes] = await withTimeout(
         Promise.all([
@@ -158,14 +143,11 @@ export default function MaskinvyNyPage() {
       const hasData = (prodRes.data && prodRes.data.length > 0) || (tidRes.data && tidRes.data.length > 0)
 
       if (!hasData) {
-        setUsingFallback(true)
-        setDaily(FALLBACK_DAILY)
-        setKpi(FALLBACK_KPI)
+        setDaily([])
+        setKpi(EMPTY_KPI)
         setLoading(false)
         return
       }
-
-      setUsingFallback(false)
 
       const prodByDay: Record<string, { volym: number; stammar: number }> = {}
       const tidByDay: Record<string, { proc: number; terr: number; other: number; bransle: number }> = {}
@@ -228,10 +210,14 @@ export default function MaskinvyNyPage() {
       })
     } catch (err: any) {
       console.error('loadData error:', err)
-      if (err?.message?.includes('Timeout')) setTimeoutError(true)
-      setUsingFallback(true)
-      setDaily(FALLBACK_DAILY)
-      setKpi(FALLBACK_KPI)
+      if (err?.message?.includes('Timeout')) {
+        setTimeoutError(true)
+        setLoadError(`Databasanslutningen tog för lång tid (${SUPABASE_TIMEOUT / 1000}s timeout).`)
+      } else {
+        setLoadError('Kunde inte hämta produktionsdata.')
+      }
+      setDaily([])
+      setKpi(EMPTY_KPI)
     }
 
     setLoading(false)
@@ -387,18 +373,18 @@ export default function MaskinvyNyPage() {
               >
                 {maskiner.length > 0
                   ? maskiner.map(m => <option key={m.maskin_id} value={m.maskin_id}>{m.modell} ({m.typ})</option>)
-                  : <option value="">Demodata</option>
+                  : <option value="">Inga maskiner</option>
                 }
               </select>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 4px' }}>
               <div style={{
                 width: 8, height: 8, borderRadius: '50%',
-                background: loading ? '#ffb340' : timeoutError ? '#ff5555' : usingFallback ? '#ffb340' : '#30d158',
+                background: loading ? '#ffb340' : loadError ? '#ff453a' : '#30d158',
                 animation: 'sfPulse 2s infinite',
               }} />
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#ffffff', letterSpacing: '0.05em' }}>
-                {loading ? 'LADDAR...' : timeoutError ? 'TIMEOUT' : usingFallback ? 'DEMO' : 'ONLINE'}
+              <span style={{ fontSize: 13, fontWeight: 500, color: '#ffffff' }}>
+                {loading ? 'Laddar' : loadError ? 'Fel' : 'Live'}
               </span>
             </div>
           </div>
@@ -420,17 +406,17 @@ export default function MaskinvyNyPage() {
             </span>
             <span style={{ color: 'rgba(255,255,255,0.2)' }}>/</span>
             <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 16, color: '#ffffff' }}>
-              {currentMaskin?.modell || (usingFallback ? 'Demomaskin' : 'Laddar...')}
+              {currentMaskin?.modell || (loading ? 'Laddar...' : 'Ingen maskin vald')}
             </span>
           </div>
           <div style={{
-            background: loading ? 'rgba(255,179,64,0.1)' : usingFallback ? 'rgba(255,179,64,0.1)' : 'rgba(48,209,88,0.1)',
-            color: loading ? '#ffb340' : usingFallback ? '#ffb340' : '#30d158',
+            background: loading ? 'rgba(255,179,64,0.1)' : loadError ? 'rgba(255,69,58,0.12)' : 'rgba(48,209,88,0.1)',
+            color: loading ? '#ffb340' : loadError ? '#ff453a' : '#30d158',
             padding: '6px 16px', borderRadius: 9999,
-            fontSize: 10, fontWeight: 700, letterSpacing: '0.1em',
+            fontSize: 13, fontWeight: 500,
             fontFamily: "'Manrope', sans-serif",
           }}>
-            {loading ? 'Laddar...' : timeoutError ? 'Timeout' : usingFallback ? 'Demodata' : 'Live'}
+            {loading ? 'Laddar' : loadError ? 'Fel' : 'Live'}
           </div>
         </header>
 
@@ -443,31 +429,36 @@ export default function MaskinvyNyPage() {
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ animation: 'sfSpin 1s linear infinite' }}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
                 Laddar data...
               </div>
+            ) : loadError ? (
+              <div style={{
+                background: 'rgba(255,69,58,0.1)', border: '1px solid rgba(255,69,58,0.3)',
+                borderRadius: 12, padding: '20px 24px', marginTop: 40,
+                display: 'flex', alignItems: 'flex-start', gap: 14, color: '#ff453a',
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 2 }}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <div>
+                  <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 4, color: '#ffffff' }}>Kunde inte hämta data</div>
+                  <div style={{ fontSize: 13, color: '#8e8e93' }}>{loadError}</div>
+                  <button
+                    onClick={() => valdMaskin && loadData(valdMaskin)}
+                    style={{
+                      marginTop: 14, minHeight: 44, padding: '0 18px', borderRadius: 10,
+                      background: 'rgba(48,209,88,0.12)', border: '1px solid rgba(48,209,88,0.28)',
+                      color: '#30d158', fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Försök igen
+                  </button>
+                </div>
+              </div>
+            ) : daily.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 400, gap: 12 }}>
+                <div style={{ fontSize: 17, fontWeight: 600, color: '#ffffff' }}>Ingen produktionsdata</div>
+                <div style={{ fontSize: 13, color: '#8e8e93' }}>Ingen data hittades för vald maskin i databasen.</div>
+              </div>
             ) : (
               <>
-                {/* Timeout banner */}
-                {timeoutError && (
-                  <div style={{
-                    background: 'rgba(255,85,85,0.1)', border: '1px solid rgba(255,85,85,0.3)',
-                    borderRadius: 12, padding: '12px 20px', marginBottom: 20,
-                    display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, color: '#ff453a',
-                  }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                    Databasanslutningen tog för lång tid (10s timeout). Visar demodata istället.
-                  </div>
-                )}
-
-                {/* Fallback banner */}
-                {usingFallback && !timeoutError && (
-                  <div style={{
-                    background: 'rgba(255,179,64,0.1)', border: '1px solid rgba(255,179,64,0.3)',
-                    borderRadius: 12, padding: '12px 20px', marginBottom: 20,
-                    display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, color: '#ffb340',
-                  }}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                    Visar demodata — ingen produktionsdata hittades i databasen.
-                  </div>
-                )}
 
                 {/* KPI Cards */}
                 <div id="section-kpi" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20, scrollMarginTop: TOPBAR_H + 64 + 16 }}>

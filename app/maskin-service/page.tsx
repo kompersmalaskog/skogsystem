@@ -43,8 +43,27 @@ export default function MaskinServicePage() {
   );
 
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
-      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 14, fontFamily: fonts }}>Laddar...</p>
+    <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 24px', paddingBottom: 40 }}>
+      <style>{`@keyframes skelShine { 0% { background-position: -200px 0; } 100% { background-position: calc(200px + 100%) 0; } }
+        .skel { background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 100%); background-size: 200px 100%; border-radius: 8px; animation: skelShine 1.4s ease-in-out infinite; }
+      `}</style>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '28px 0 20px' }}>
+        <h1 style={{ fontSize: 34, fontWeight: 700, color: '#fff', letterSpacing: -0.4, fontFamily: fonts, margin: 0 }}>Servicelogg</h1>
+      </div>
+      <div className="skel" style={{ height: 44, marginBottom: 28 }} />
+      {[1, 2].map(i => (
+        <div key={i} style={{ marginBottom: 24 }}>
+          <div className="skel" style={{ height: 14, width: 120, marginBottom: 12 }} />
+          <div style={{ backgroundColor: '#1c1c1e', borderRadius: 12, padding: '4px 0' }}>
+            {[1, 2, 3].map(j => (
+              <div key={j} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 18px', borderBottom: j < 3 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                <div className="skel" style={{ height: 17, width: '50%' }} />
+                <div className="skel" style={{ height: 13, width: 40 }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 
