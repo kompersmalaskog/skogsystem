@@ -3676,9 +3676,33 @@ export default function PlannerPage() {
   // Volymberäkning
   const [volymResultat, setVolymResultat] = useState<VolymResultat | null>(null);
   const [volymLoading, setVolymLoading] = useState(false);
+  const lastVolymPathRef = useRef<{ lat: number; lon: number }[] | null>(null);
   // Körbarhetsanalys
   const [korbarhetsResultat, setKorbarhetsResultat] = useState<KorbarhetsResultat | null>(null);
   const [korbarhetsLoading, setKorbarhetsLoading] = useState(false);
+
+  // Kör volym+körbarhets-beräkning för en path. Använd vid första beräkning OCH vid retry.
+  const runVolymBerakning = useCallback((latLonPath: { lat: number; lon: number }[]) => {
+    lastVolymPathRef.current = latLonPath;
+    setVolymLoading(true);
+    setVolymResultat(null);
+    setKorbarhetsLoading(true);
+    setKorbarhetsResultat(null);
+    beraknaVolym(latLonPath, '/api/wms-proxy').then(res => {
+      setVolymResultat(res);
+      setVolymLoading(false);
+    }).catch(() => {
+      setVolymResultat({ status: 'error', areal: 0, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: 'Beräkning misslyckades' });
+      setVolymLoading(false);
+    });
+    beraknaKorbarhet(latLonPath, '/api/wms-proxy', '/api/sgu-proxy').then(res => {
+      setKorbarhetsResultat(res);
+      setKorbarhetsLoading(false);
+    }).catch(() => {
+      setKorbarhetsResultat({ status: 'error', fordelning: { gron: 0, gul: 0, rod: 0 }, dominantJordart: 'Okänd', jordartFordelning: [], medelLutning: 0, felmeddelande: 'Körbarhetsanalys misslyckades' });
+      setKorbarhetsLoading(false);
+    });
+  }, []);
 
   // Auto-spara beräknad data till trakt_data.beraknad
   useEffect(() => {
@@ -9535,25 +9559,8 @@ export default function PlannerPage() {
                   onClick={() => {
                     const path = marker.path!;
                     const latLonPath = path.map(p => svgToLatLon(p.x, p.y));
-                    setVolymLoading(true);
-                    setVolymResultat(null);
-                    setKorbarhetsLoading(true);
-                    setKorbarhetsResultat(null);
                     setMarkerMenuOpen(null);
-                    beraknaVolym(latLonPath, '/api/wms-proxy').then(res => {
-                      setVolymResultat(res);
-                      setVolymLoading(false);
-                    }).catch(() => {
-                      setVolymResultat({ status: 'error', areal: 0, totalVolymHa: 0, totalVolym: 0, medeldiameter: 0, tradslag: [], felmeddelande: 'Beräkning misslyckades' });
-                      setVolymLoading(false);
-                    });
-                    beraknaKorbarhet(latLonPath, '/api/wms-proxy', '/api/sgu-proxy').then(res => {
-                      setKorbarhetsResultat(res);
-                      setKorbarhetsLoading(false);
-                    }).catch(() => {
-                      setKorbarhetsResultat({ status: 'error', fordelning: { gron: 0, gul: 0, rod: 0 }, dominantJordart: 'Okänd', jordartFordelning: [], medelLutning: 0, felmeddelande: 'Körbarhetsanalys misslyckades' });
-                      setKorbarhetsLoading(false);
-                    });
+                    runVolymBerakning(latLonPath);
                   }}
                   style={{
                     width: '48px',
@@ -9811,6 +9818,7 @@ export default function PlannerPage() {
           resultat={volymResultat}
           loading={volymLoading}
           onClose={() => { setVolymResultat(null); setVolymLoading(false); setKorbarhetsResultat(null); setKorbarhetsLoading(false); }}
+          onRetry={lastVolymPathRef.current ? () => runVolymBerakning(lastVolymPathRef.current!) : undefined}
           korbarhetsResultat={korbarhetsResultat}
           korbarhetsLoading={korbarhetsLoading}
         />

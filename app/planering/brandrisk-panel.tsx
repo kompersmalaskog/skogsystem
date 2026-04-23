@@ -396,9 +396,12 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <div style={{ fontSize: 14, fontWeight: 700, color: '#eab308' }}>
               {testMode !== null ? `TESTLÄGE – simulerad brandrisk (FWI ${testMode})` : 'TESTLÄGE – kunde inte hämta data'}
             </div>
-            <div style={{ fontSize: 11, color: 'rgba(234,179,8,0.7)', marginTop: 4 }}>
-              {testMode !== null ? 'Data nedan är simulerad. Avsluta via Inställningar.' : 'Visar simulerad data. Försök igen senare.'}
+            <div style={{ fontSize: 13, color: 'rgba(234,179,8,0.85)', marginTop: 4 }}>
+              {testMode !== null ? 'Data nedan är simulerad. Avsluta via Inställningar.' : 'Visar simulerad data.'}
             </div>
+            {isTestFallback && testMode === null && (
+              <button type="button" onClick={() => { lastFetchRef.current = ''; fetchData(); }} style={{ marginTop: 10, padding: '8px 18px', borderRadius: 10, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', minHeight: 40 }}>Försök igen</button>
+            )}
           </div>
         )}
 

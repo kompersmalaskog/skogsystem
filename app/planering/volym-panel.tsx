@@ -7,13 +7,16 @@ interface VolymPanelProps {
   resultat: VolymResultat | null;
   loading: boolean;
   onClose: () => void;
+  onRetry?: () => void;
   korbarhetsResultat?: KorbarhetsResultat | null;
   korbarhetsLoading?: boolean;
 }
 
 const fmtNum = (n: number, d = 0) => n.toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
-export default function VolymPanel({ resultat, loading, onClose, korbarhetsResultat, korbarhetsLoading }: VolymPanelProps) {
+const retryBtnStyle: React.CSSProperties = { marginTop: 16, padding: '10px 20px', borderRadius: 12, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer', minHeight: 44 };
+
+export default function VolymPanel({ resultat, loading, onClose, onRetry, korbarhetsResultat, korbarhetsLoading }: VolymPanelProps) {
   if (!resultat && !loading) return null;
 
   return (
@@ -59,17 +62,23 @@ export default function VolymPanel({ resultat, loading, onClose, korbarhetsResul
       )}
 
       {resultat?.status === 'error' && (
-        <div style={{ padding: '20px', textAlign: 'center' }}>
+        <div style={{ padding: '24px 20px', textAlign: 'center' }}>
           <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', color: '#ff453a', marginBottom: '8px', display: 'block' }}>warning</span>
           <div style={{ fontSize: '14px', color: '#ff453a' }}>{resultat.felmeddelande}</div>
+          {onRetry && (
+            <button type="button" onClick={onRetry} style={retryBtnStyle}>Försök igen</button>
+          )}
         </div>
       )}
 
       {resultat?.status === 'no_data' && (
-        <div style={{ padding: '20px', textAlign: 'center' }}>
+        <div style={{ padding: '24px 20px', textAlign: 'center' }}>
           <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', opacity: 0.5, marginBottom: '8px', display: 'block' }}>forest</span>
           <div style={{ fontSize: '14px', opacity: 0.75 }}>{resultat.felmeddelande}</div>
           <div style={{ fontSize: '13px', opacity: 0.65, marginTop: '4px' }}>Areal: {resultat.areal} ha</div>
+          {onRetry && (
+            <button type="button" onClick={onRetry} style={retryBtnStyle}>Försök igen</button>
+          )}
         </div>
       )}
 
