@@ -11228,92 +11228,96 @@ export default function PlannerPage() {
       )}
 
 
-      {/* === FULLSKÄRMSMENY === */}
+      {/* === PANEL-SHEET (tidigare helskärmsmeny — nu glas-bottom-sheet) === */}
       {menuOpen && !briefingMode && (
         <div style={{
           position: 'fixed',
-          inset: 0,
-          background: '#000',
+          left: 0,
+          right: 0,
+          bottom: 0,
+          maxHeight: '85vh',
+          background: 'rgba(20,20,22,0.92)',
+          backdropFilter: 'blur(30px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(30px) saturate(180%)',
+          borderTopLeftRadius: 20,
+          borderTopRightRadius: 20,
           zIndex: 500,
           display: 'flex',
           flexDirection: 'column',
           fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", sans-serif',
+          overflow: 'hidden',
+          animation: 'sheetSlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
         }}>
-          {/* Header */}
+          <style>{`@keyframes sheetSlideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+
+          {/* Drag-handle */}
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '8px 0 4px', flexShrink: 0 }}>
+            <div style={{ width: 36, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.3)' }} />
+          </div>
+
+          {/* Header: titel centrerad, X-knapp till höger (pil till vänster vid back-navigation) */}
           <div style={{
-            padding: '55px 20px 20px',
+            padding: '4px 12px 12px',
             borderBottom: '1px solid rgba(255,255,255,0.06)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
+            gap: 8,
+            flexShrink: 0,
           }}>
-            <button
-              type="button"
-              aria-label="Stäng"
-              onClick={() => {
-                if (showCamera) {
-                  setShowCamera(false);
-                  setDetectedColor(null);
-                } else if (showColorPicker) {
-                  if (selectedVagColor) {
-                    setSelectedVagColor(null);
-                  } else {
-                    setShowColorPicker(false);
+            {/* Back-pil (bara synlig vid submenu/camera/colorPicker) */}
+            {(showCamera || showColorPicker || subMenu) ? (
+              <button
+                type="button"
+                aria-label="Tillbaka"
+                onClick={() => {
+                  if (showCamera) {
+                    setShowCamera(false);
+                    setDetectedColor(null);
+                  } else if (showColorPicker) {
+                    if (selectedVagColor) {
+                      setSelectedVagColor(null);
+                    } else {
+                      setShowColorPicker(false);
+                    }
+                  } else if (subMenu) {
+                    setSubMenu(null);
                   }
-                } else if (subMenu) {
-                  setSubMenu(null);
-                } else {
-                  // 3x3 grid borttagen — stäng helt oavsett activeCategory
-                  setActiveCategory(null);
-                  setMenuOpen(false);
-                  setMenuHeight(0);
-                }
-              }}
-              className="press-scale"
-              style={{
-                width: '44px',
-                height: '44px',
-                padding: '6px',
-                borderRadius: '22px',
-                background: 'transparent',
-                border: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                cursor: 'pointer',
-                color: '#fff',
-              }}
-            >
-              <span style={{
-                width: '32px',
-                height: '32px',
-                borderRadius: '50%',
-                background: 'rgba(255,255,255,0.12)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                {showCamera || showColorPicker || subMenu ? (
-                  <path d="M15 18 L9 12 L15 6" />
-                ) : (
-                  <>
-                    <path d="M18 6 L6 18" />
-                    <path d="M6 6 L18 18" />
-                  </>
-                )}
-              </svg>
-              </span>
-            </button>
-            
-            <div style={{ 
-              fontSize: '16px', 
-              fontWeight: '500',
+                }}
+                className="press-scale"
+                style={{
+                  width: 44,
+                  height: 44,
+                  padding: 6,
+                  borderRadius: 22,
+                  background: 'transparent',
+                  border: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  color: '#fff',
+                  flexShrink: 0,
+                }}
+              >
+                <span style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M15 18 L9 12 L15 6" />
+                  </svg>
+                </span>
+              </button>
+            ) : (
+              <div style={{ width: 44, flexShrink: 0 }} />
+            )}
+
+            {/* Titel */}
+            <div style={{
+              fontSize: 17,
+              fontWeight: 600,
               flex: 1,
               textAlign: 'center',
               color: '#fff',
-              opacity: 0.9,
-              letterSpacing: '-0.3px',
+              letterSpacing: '-0.2px',
             }}>
               {showCamera ? 'Fota snitsel' :
                showColorPicker && selectedVagColor ? `${selectedVagColor.name} väg` :
@@ -11327,15 +11331,51 @@ export default function PlannerPage() {
                activeCategory ? menuCategories.find(c => c.id === activeCategory)?.name :
                'Meny'}
             </div>
-            
-            <div style={{ width: '44px' }} />
+
+            {/* X-knapp (alltid synlig, stänger hela sheet) */}
+            <button
+              type="button"
+              aria-label="Stäng"
+              onClick={() => {
+                setShowCamera(false);
+                setDetectedColor(null);
+                setShowColorPicker(false);
+                setSelectedVagColor(null);
+                setSubMenu(null);
+                setActiveCategory(null);
+                setMenuOpen(false);
+                setMenuHeight(0);
+              }}
+              className="press-scale"
+              style={{
+                width: 44,
+                height: 44,
+                padding: 6,
+                borderRadius: 22,
+                background: 'transparent',
+                border: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                color: '#fff',
+                flexShrink: 0,
+              }}
+            >
+              <span style={{ width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M18 6 L6 18" />
+                  <path d="M6 6 L18 18" />
+                </svg>
+              </span>
+            </button>
           </div>
 
           {/* Innehåll */}
-          <div style={{ 
-            flex: 1, 
+          <div style={{
+            flex: 1,
             overflowY: 'auto',
-            paddingBottom: '30px',
+            paddingBottom: 'calc(30px + env(safe-area-inset-bottom, 0px))',
             color: '#fff',
           }}>
             
