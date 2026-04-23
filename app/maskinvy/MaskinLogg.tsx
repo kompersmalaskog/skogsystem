@@ -29,10 +29,10 @@ interface DailyProd {
 
 const ff = "'Geist', system-ui, sans-serif";
 const C = {
-  bg: '#111110', surface: '#1a1a18', surface2: '#222220',
+  bg: '#000000', surface: '#1c1c1e', surface2: '#2c2c2e',
   border: 'rgba(255,255,255,0.07)', border2: 'rgba(255,255,255,0.12)',
-  t1: '#e8e8e4', t3: '#7a7a72', t4: '#3a3a36',
-  accent: '#5aff8c', accent2: '#1a4a2e', blue: '#5b8fff', warn: '#ffb340',
+  t1: '#ffffff', t3: '#8e8e93', t4: '#48484a',
+  accent: '#30d158', accent2: '#1a4a2e', blue: '#5b8fff', warn: '#ffb340',
 };
 
 export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
@@ -149,7 +149,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
         datasets: [{
           label: 'm³fub/G15h',
           data: m3g15,
-          backgroundColor: m3g15.map((v: number) => v === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(90,255,140,0.5)'),
+          backgroundColor: m3g15.map((v: number) => v === 0 ? 'rgba(255,255,255,0.04)' : 'rgba(48,209,88,0.5)'),
           borderRadius: 3,
         }],
       },
@@ -170,7 +170,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
               afterLabel: (c: any) => {
                 const d = last30[c.dataIndex];
                 const entry = logg.find(l => l.datum === d.datum);
-                return entry ? `\n⚡ ${entry.atgard}` : '';
+                return entry ? `\n${entry.atgard}` : '';
               }
             }
           },
@@ -279,7 +279,6 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 18 }}>🔧</span>
             <span style={{ fontSize: 15, fontWeight: 600, letterSpacing: -0.3 }}>Maskinlogg</span>
           </div>
           <button onClick={() => setOpen(false)} style={{
@@ -312,10 +311,10 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
 
           {/* Production chart with log annotations */}
           <div style={{
-            background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`,
+            background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
             padding: 16, marginBottom: 16,
           }}>
-            <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: C.t3, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.8, color: C.t3, marginBottom: 12 }}>
               Produktion & åtgärder – {maskinNamn}
             </div>
             <div style={{ height: 200, position: 'relative' }}>
@@ -329,7 +328,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
             </div>
             <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 10, color: C.t3 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                <div style={{ width: 12, height: 12, borderRadius: 3, background: 'rgba(90,255,140,0.5)' }} />
+                <div style={{ width: 12, height: 12, borderRadius: 3, background: 'rgba(48,209,88,0.5)' }} />
                 m³fub/G15h
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -345,7 +344,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
               onClick={() => setFormOpen(true)}
               style={{
                 width: '100%', padding: '12px 0', borderRadius: 10,
-                background: C.accent2, border: `1px solid rgba(90,255,140,0.2)`,
+                background: C.accent2, border: `1px solid rgba(48,209,88,0.2)`,
                 color: C.accent, fontFamily: ff, fontSize: 13, fontWeight: 600,
                 cursor: 'pointer', marginBottom: 16, letterSpacing: -0.2,
               }}
@@ -354,10 +353,10 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
             </button>
           ) : (
             <div style={{
-              background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`,
+              background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
               padding: 16, marginBottom: 16,
             }}>
-              <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: C.t3, marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.8, color: C.t3, marginBottom: 12 }}>
                 Ny åtgärd
               </div>
               <input
@@ -390,7 +389,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
                   disabled={saving || !formAtgard.trim()}
                   style={{
                     flex: 1, padding: '10px 0', borderRadius: 10,
-                    background: C.accent2, border: `1px solid rgba(90,255,140,0.2)`,
+                    background: C.accent2, border: `1px solid rgba(48,209,88,0.2)`,
                     color: C.accent, fontFamily: ff, fontSize: 13, fontWeight: 600,
                     cursor: saving ? 'wait' : 'pointer',
                     opacity: !formAtgard.trim() ? 0.4 : 1,
@@ -413,12 +412,12 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           )}
 
           {/* Log list */}
-          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase' as const, letterSpacing: 0.8, color: C.t3, marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.8, color: C.t3, marginBottom: 10 }}>
             Loggade åtgärder ({logg.length})
           </div>
           {logg.length === 0 ? (
             <div style={{
-              background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`,
+              background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
               padding: '24px 16px', textAlign: 'center' as const, color: C.t3, fontSize: 13,
             }}>
               Inga åtgärder loggade för denna maskin
@@ -452,7 +451,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
                         {delta !== null && (
                           <span style={{
                             marginLeft: 10,
-                            color: delta >= 0 ? C.accent : '#ff5f57',
+                            color: delta >= 0 ? C.accent : '#ff453a',
                             fontWeight: 600,
                           }}>
                             {delta >= 0 ? '↑' : '↓'} {Math.abs(delta).toFixed(1)} m³fub/G15h

@@ -114,7 +114,7 @@ const DIST_LABELS = ['0\u2013100', '100\u2013200', '200\u2013300', '300\u2013400
 const SKOTARE_SCRIPT = `(function(){
 if (typeof Chart === 'undefined') { console.error('[Skotare] Chart.js not loaded'); return; }
 Chart.defaults.font.family = 'Geist';
-Chart.defaults.color = '#9a9a92';
+Chart.defaults.color = '#8e8e93';
 // Apple-inspirerad animation — mild, snabb, ingen animation vid uppdatering
 Chart.defaults.animation = { duration: 600, easing: 'easeOutCubic' };
 Chart.defaults.animations.colors = false;
@@ -126,10 +126,10 @@ console.log('[Skotare Script] _db keys:', Object.keys(_db));
 // Minimala axlar och diskreta rutnät
 var grid = { display: false };
 var gridSoft = { color: 'rgba(255,255,255,0.04)', drawTicks: false };
-var ticks = { color: '#9a9a92', font: { size: 11 }, maxTicksLimit: 6, padding: 6 };
+var ticks = { color: '#8e8e93', font: { size: 11 }, maxTicksLimit: 6, padding: 6 };
 var tooltip = {
   backgroundColor: 'rgba(26,26,24,0.95)',
-  titleColor: '#f2f2f0',
+  titleColor: '#ffffff',
   titleFont: { size: 12, weight: '600' },
   bodyColor: '#c8c8c4',
   bodyFont: { size: 12 },
@@ -143,7 +143,7 @@ var tooltip = {
 
 // Gradientfyllning under linjediagram (Apple Stocks/Health-stil)
 function accentGradient(ctx, area, rgb) {
-  if (!area) return 'rgba(0,196,140,0.16)';
+  if (!area) return 'rgba(48,209,88,0.16)';
   var g = ctx.createLinearGradient(0, area.top, 0, area.bottom);
   g.addColorStop(0, 'rgba(' + rgb + ',0.28)');
   g.addColorStop(1, 'rgba(' + rgb + ',0.01)');
@@ -218,7 +218,7 @@ var avgLass = nonZeroLass.length > 0 ? Math.round(nonZeroLass.reduce(function(a,
 
 var dailyTitleEl = document.getElementById('dailyChartTitle');
 if (dailyTitleEl && avgLass > 0) {
-  dailyTitleEl.innerHTML = 'Daglig produktion <span style="color:#7a7a72;font-size:11px;font-weight:400;"> · Snitt: ' + avgLass + ' lass/dag</span>';
+  dailyTitleEl.innerHTML = 'Daglig produktion <span style="color:#8e8e93;font-size:11px;font-weight:400;"> · Snitt: ' + avgLass + ' lass/dag</span>';
 }
 
 var weekendBgPlugin = {
@@ -269,11 +269,11 @@ if (dailyEl) {
       {label:'Lass/dag',data:dailyLass,backgroundColor:dailyLass.map(function(v,i){
         if(v===0) return isWeekend[i]?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.04)';
         if(isWeekend[i]) return 'rgba(91,143,255,0.15)';
-        return v>avgLass?'rgba(0,196,140,0.75)':'rgba(0,196,140,0.45)';
+        return v>avgLass?'rgba(48,209,88,0.75)':'rgba(48,209,88,0.45)';
       }),borderRadius:8,borderSkipped:false,barPercentage:0.65,categoryPercentage:0.92,yAxisID:'y',order:1},
-      {label:'Volym m³',data:dailyVol,type:'line',borderColor:'rgba(0,196,140,0.9)',borderWidth:2,
+      {label:'Volym m³',data:dailyVol,type:'line',borderColor:'rgba(48,209,88,0.9)',borderWidth:2,
        backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '0,196,140');},
-       pointBackgroundColor:dailyVol.map(function(v){return v>0?'#00c48c':'transparent';}),pointBorderColor:'#0f0f0e',pointBorderWidth:1,pointRadius:dailyVol.map(function(v){return v>0?3:0;}),pointHoverRadius:5,tension:0.35,yAxisID:'y2',order:0,spanGaps:false,fill:true},
+       pointBackgroundColor:dailyVol.map(function(v){return v>0?'#30d158':'transparent';}),pointBorderColor:'#000000',pointBorderWidth:1,pointRadius:dailyVol.map(function(v){return v>0?3:0;}),pointHoverRadius:5,tension:0.35,yAxisID:'y2',order:0,spanGaps:false,fill:true},
       {label:'Snitt: '+avgLass+' lass',data:new Array(dailyLass.length).fill(avgLass),type:'line',borderColor:'rgba(255,255,255,0.2)',borderDash:[4,4],borderWidth:1,pointRadius:0,fill:false,order:0}
     ]},
     plugins:[weekendBgPlugin,barLabelPlugin],
@@ -305,13 +305,13 @@ if (dailyEl) {
         })
       },
       scales:{
-        x:{grid:grid,border:{display:false},ticks:{color:'#9a9a92',font:{size:10},maxTicksLimit:8,callback:function(val,idx){
+        x:{grid:grid,border:{display:false},ticks:{color:'#8e8e93',font:{size:10},maxTicksLimit:8,callback:function(val,idx){
           if(isWeekend[idx]) return '▪ '+days[idx];
           return days[idx];
         }}},
         y:{grid:gridSoft,border:{display:false},ticks:Object.assign({},ticks,{maxTicksLimit:4}),title:{display:false},
           suggestedMax: Math.max.apply(null,dailyLass)*1.15},
-        y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#00c48c',font:{size:11}},title:{display:true,text:'m³',color:'#00c48c',font:{size:10}}}
+        y2:{position:'right',grid:{drawOnChartArea:false},ticks:{color:'#30d158',font:{size:11}},title:{display:true,text:'m³',color:'#30d158',font:{size:10}}}
       },
       onClick:function(e,els){
         if(!els.length||els[0].datasetIndex!==0) return;
@@ -389,7 +389,7 @@ function distOptions(axisTextY, axisTextY2) {
     scales: {
       x: { grid: grid, border: { display: false }, ticks: ticks },
       y: { grid: gridSoft, border: { display: false }, ticks: Object.assign({}, ticks, { maxTicksLimit: 4 }), title: { display: false } },
-      y2: { position: 'right', grid: { drawOnChartArea: false }, border: { display: false }, ticks: Object.assign({}, ticks, { maxTicksLimit: 4, color: '#00c48c' }), title: { display: false } }
+      y2: { position: 'right', grid: { drawOnChartArea: false }, border: { display: false }, ticks: Object.assign({}, ticks, { maxTicksLimit: 4, color: '#30d158' }), title: { display: false } }
     }
   };
 }
@@ -401,7 +401,7 @@ if (mlEl && ac.length > 0) {
     type:'bar',
     data:{labels:ac,datasets:[
       {label:'Medellast m³',data:aML,backgroundColor:'rgba(91,143,255,0.55)',borderRadius:8,borderSkipped:false,barPercentage:0.65,categoryPercentage:0.9,yAxisID:'y',order:1},
-      {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(0,196,140,0.9)',borderWidth:2,backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '0,196,140');},pointBackgroundColor:'#00c48c',pointBorderColor:'#0f0f0e',pointBorderWidth:1,pointRadius:4,pointHoverRadius:6,tension:0.35,fill:true,yAxisID:'y2',order:0}
+      {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(48,209,88,0.9)',borderWidth:2,backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '0,196,140');},pointBackgroundColor:'#30d158',pointBorderColor:'#000000',pointBorderWidth:1,pointRadius:4,pointHoverRadius:6,tension:0.35,fill:true,yAxisID:'y2',order:0}
     ]},
     options: distOptions('m³/lass','Lass/G15h')
   });
@@ -414,7 +414,7 @@ if (totalEl && ac.length > 0) {
     type:'bar',
     data:{labels:ac,datasets:[
       {label:'Volym m³',data:aV,backgroundColor:'rgba(91,143,255,0.55)',borderRadius:8,borderSkipped:false,barPercentage:0.65,categoryPercentage:0.9,yAxisID:'y',order:1},
-      {label:'Lass',data:aL,type:'line',borderColor:'rgba(0,196,140,0.9)',borderWidth:2,backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '0,196,140');},pointBackgroundColor:'#00c48c',pointBorderColor:'#0f0f0e',pointBorderWidth:1,pointRadius:4,pointHoverRadius:6,tension:0.35,fill:true,yAxisID:'y2',order:0}
+      {label:'Lass',data:aL,type:'line',borderColor:'rgba(48,209,88,0.9)',borderWidth:2,backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '0,196,140');},pointBackgroundColor:'#30d158',pointBorderColor:'#000000',pointBorderWidth:1,pointRadius:4,pointHoverRadius:6,tension:0.35,fill:true,yAxisID:'y2',order:0}
     ]},
     options: distOptions('m³','Lass')
   });
@@ -426,8 +426,8 @@ if (dieselEl && ac.length > 0) {
   new Chart(dieselEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'l/m³',data:aD,backgroundColor:'rgba(0,196,140,0.55)',borderRadius:8,borderSkipped:false,barPercentage:0.65,categoryPercentage:0.9,yAxisID:'y',order:1},
-      {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(91,143,255,0.9)',borderWidth:2,backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '91,143,255');},pointBackgroundColor:'#5b8fff',pointBorderColor:'#0f0f0e',pointBorderWidth:1,pointRadius:4,pointHoverRadius:6,tension:0.35,fill:true,yAxisID:'y2',order:0}
+      {label:'l/m³',data:aD,backgroundColor:'rgba(48,209,88,0.55)',borderRadius:8,borderSkipped:false,barPercentage:0.65,categoryPercentage:0.9,yAxisID:'y',order:1},
+      {label:'Lass/G15h',data:aLG15,type:'line',borderColor:'rgba(91,143,255,0.9)',borderWidth:2,backgroundColor:function(ctx){return accentGradient(ctx.chart.ctx, ctx.chart.chartArea, '91,143,255');},pointBackgroundColor:'#5b8fff',pointBorderColor:'#000000',pointBorderWidth:1,pointRadius:4,pointHoverRadius:6,tension:0.35,fill:true,yAxisID:'y2',order:0}
     ]},
     options: Object.assign({}, distOptions('l/m³','Lass/G15h'), {
       plugins: { legend: { display: false }, tooltip: Object.assign({}, tooltip, { callbacks: { label: function(c){ return c.datasetIndex===0 ? ' ' + c.parsed.y + ' l/m³' : ' ' + c.parsed.y + ' lass/G15h'; } } }) },
@@ -446,7 +446,7 @@ if (m3fubEl && ac.length > 0) {
   new Chart(m3fubEl,{
     type:'bar',
     data:{labels:ac,datasets:[
-      {label:'m³fub/G15h',data:m3fubVals,backgroundColor:'rgba(0,196,140,0.65)',borderRadius:8,borderSkipped:false,barPercentage:0.6,categoryPercentage:0.92}
+      {label:'m³fub/G15h',data:m3fubVals,backgroundColor:'rgba(48,209,88,0.65)',borderRadius:8,borderSkipped:false,barPercentage:0.6,categoryPercentage:0.92}
     ]},
     options:{responsive:true,plugins:{legend:{display:false},tooltip:Object.assign({}, tooltip, { callbacks: { label: function(c){ return ' '+c.parsed.y.toFixed(1)+' m³fub/G15h'; } } })},scales:{x:{grid:grid,border:{display:false},ticks:ticks},y:{grid:gridSoft,border:{display:false},ticks:Object.assign({},ticks,{maxTicksLimit:4}),title:{display:false},beginAtZero:true}}}
   });
@@ -1270,7 +1270,7 @@ export default function SkotareVy() {
       const db = (window as any).__skotareData as DbData | undefined;
       const pk = db?.avbrottPerKategori || [];
       if (pk.length === 0) return;
-      const palette = ['rgba(0,196,140,0.7)', 'rgba(0,196,140,0.55)', 'rgba(0,196,140,0.4)', 'rgba(0,196,140,0.28)', 'rgba(0,196,140,0.18)', 'rgba(0,196,140,0.1)'];
+      const palette = ['rgba(48,209,88,0.7)', 'rgba(48,209,88,0.55)', 'rgba(48,209,88,0.4)', 'rgba(48,209,88,0.28)', 'rgba(48,209,88,0.18)', 'rgba(48,209,88,0.1)'];
       new Chart(canvas, {
         type: 'bar',
         data: {
@@ -1280,10 +1280,10 @@ export default function SkotareVy() {
         options: {
           indexAxis: 'y' as const, responsive: true, maintainAspectRatio: false,
           animation: { duration: 600, easing: 'easeOutCubic' as const },
-          plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(26,26,24,0.95)', titleColor: '#f2f2f0', bodyColor: '#c8c8c4', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: 12, cornerRadius: 10, displayColors: false } },
+          plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(26,26,24,0.95)', titleColor: '#ffffff', bodyColor: '#c8c8c4', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: 12, cornerRadius: 10, displayColors: false } },
           scales: {
-            x: { grid: { color: 'rgba(255,255,255,0.04)' }, border: { display: false }, ticks: { color: '#9a9a92', font: { size: 11 }, maxTicksLimit: 5 } },
-            y: { grid: { display: false }, border: { display: false }, ticks: { color: '#f2f2f0', font: { size: 12, weight: 500 as any } } },
+            x: { grid: { color: 'rgba(255,255,255,0.04)' }, border: { display: false }, ticks: { color: '#8e8e93', font: { size: 11 }, maxTicksLimit: 5 } },
+            y: { grid: { display: false }, border: { display: false }, ticks: { color: '#ffffff', font: { size: 12, weight: 500 as any } } },
           },
         },
       });
@@ -1306,18 +1306,18 @@ export default function SkotareVy() {
       data: {
         labels: activeKlass.map(k => k.label),
         datasets: [
-          { label: 'Lass/G15h', data: activeKlass.map(k => k.lassG15h), backgroundColor: 'rgba(0,196,140,0.6)', borderRadius: 8, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.9, yAxisID: 'y', order: 1 },
-          { label: 'Medellast', data: activeKlass.map(k => k.medellast), type: 'line', borderColor: 'rgba(91,143,255,0.9)', borderWidth: 2, pointBackgroundColor: '#5b8fff', pointBorderColor: '#0f0f0e', pointBorderWidth: 1, pointRadius: 3, pointHoverRadius: 5, tension: 0.35, yAxisID: 'y2', order: 0 },
+          { label: 'Lass/G15h', data: activeKlass.map(k => k.lassG15h), backgroundColor: 'rgba(48,209,88,0.6)', borderRadius: 8, borderSkipped: false, barPercentage: 0.6, categoryPercentage: 0.9, yAxisID: 'y', order: 1 },
+          { label: 'Medellast', data: activeKlass.map(k => k.medellast), type: 'line', borderColor: 'rgba(91,143,255,0.9)', borderWidth: 2, pointBackgroundColor: '#5b8fff', pointBorderColor: '#000000', pointBorderWidth: 1, pointRadius: 3, pointHoverRadius: 5, tension: 0.35, yAxisID: 'y2', order: 0 },
         ],
       },
       options: {
         responsive: true, interaction: { mode: 'index' as const, intersect: false },
         animation: { duration: 600, easing: 'easeOutCubic' as const },
-        plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(26,26,24,0.95)', titleColor: '#f2f2f0', bodyColor: '#c8c8c4', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: 12, cornerRadius: 10 } },
+        plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(26,26,24,0.95)', titleColor: '#ffffff', bodyColor: '#c8c8c4', borderColor: 'rgba(255,255,255,0.12)', borderWidth: 1, padding: 12, cornerRadius: 10 } },
         scales: {
-          x: { grid: { display: false }, border: { display: false }, ticks: { color: '#9a9a92', font: { size: 10 }, maxTicksLimit: 6 } },
-          y: { grid: { color: 'rgba(255,255,255,0.04)' }, border: { display: false }, ticks: { color: '#9a9a92', font: { size: 11 }, maxTicksLimit: 4 }, title: { display: false } },
-          y2: { position: 'right' as const, grid: { drawOnChartArea: false }, border: { display: false }, ticks: { color: '#9a9a92', font: { size: 11 }, maxTicksLimit: 4 }, title: { display: false } },
+          x: { grid: { display: false }, border: { display: false }, ticks: { color: '#8e8e93', font: { size: 10 }, maxTicksLimit: 6 } },
+          y: { grid: { color: 'rgba(255,255,255,0.04)' }, border: { display: false }, ticks: { color: '#8e8e93', font: { size: 11 }, maxTicksLimit: 4 }, title: { display: false } },
+          y2: { position: 'right' as const, grid: { drawOnChartArea: false }, border: { display: false }, ticks: { color: '#8e8e93', font: { size: 11 }, maxTicksLimit: 4 }, title: { display: false } },
         },
       },
     });
@@ -1346,15 +1346,15 @@ export default function SkotareVy() {
     <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, display: 'flex', zIndex: 1 }}>
       <style dangerouslySetInnerHTML={{ __html: `
 :root {
-  --bg: #111110; --surface: #1a1a18; --surface2: #222220;
+  --bg: #000000; --surface: #1c1c1e; --surface2: #2c2c2e;
   --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12);
-  --text: #f2f2f0; --muted: #9a9a92; --dim: #3a3a36;
-  --accent: #00c48c; --accent2: rgba(0,196,140,0.12);
-  --warn: #ffb340; --danger: #ff5f57;
+  --text: #ffffff; --muted: #8e8e93; --dim: #48484a;
+  --accent: #30d158; --accent2: rgba(48,209,88,0.12);
+  --warn: #ffb340; --danger: #ff453a;
 }
 /* Typografisk hierarki (Apple-inspirerad) */
 .hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
-.hero-main, .kpi { background: #161614; border: 1px solid var(--border); border-radius: 16px; padding: 22px 22px 20px; min-height: 112px; position: relative; overflow: hidden; transition: border-color 0.2s; }
+.hero-main, .kpi { background: #1c1c1e; border: 1px solid var(--border); border-radius: 12px; padding: 22px 22px 20px; min-height: 112px; position: relative; overflow: hidden; transition: border-color 0.2s; }
 .kpi:hover { border-color: var(--border2); }
 .hero-label, .k-label { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
 .hero-val, .k-val {
@@ -1365,7 +1365,7 @@ export default function SkotareVy() {
   margin-bottom: 6px;
 }
 .hero-unit, .k-unit { font-size: 12px; color: var(--muted); font-weight: 400; letter-spacing: -0.1px; }
-.card { background: #161614; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; transition: border-color 0.2s; }
+.card { background: #1c1c1e; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; transition: border-color 0.2s; }
 .card:hover { border-color: var(--border2); }
 .card-h { padding: 20px 24px 0; display: flex; align-items: center; justify-content: space-between; }
 .card-t { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
@@ -1395,7 +1395,7 @@ export default function SkotareVy() {
 .cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
 .cal-cell { aspect-ratio: 1; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; cursor: default; transition: transform 0.1s; }
 .cal-cell:hover { transform: scale(1.1); }
-.c-prod { background: rgba(0,196,140,0.18); color: rgba(255,255,255,0.9); cursor: pointer; }
+.c-prod { background: rgba(48,209,88,0.18); color: rgba(255,255,255,0.9); cursor: pointer; }
 .c-flytt { background: rgba(91,143,255,0.18); color: rgba(255,255,255,0.9); cursor: pointer; }
 .c-service { background: rgba(255,179,64,0.15); color: var(--warn); cursor: pointer; }
 .c-off { background: rgba(255,255,255,0.03); color: var(--dim); }
@@ -1417,7 +1417,7 @@ export default function SkotareVy() {
 .forar-close:hover { background: rgba(255,255,255,0.12); color: var(--text); }
 .forar-body { padding: 20px 24px 40px; }
 .forar-kpis { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 20px; }
-.fkpi { background: #161614; border-radius: 10px; padding: 14px 12px; text-align: center; }
+.fkpi { background: #1c1c1e; border-radius: 10px; padding: 14px 12px; text-align: center; }
 .fkpi-v { font-family: 'Geist', system-ui, sans-serif; font-size: 22px; font-weight: 500; line-height: 1; color: var(--text); }
 .fkpi-l { font-size: 9px; letter-spacing: 0.2px; color: var(--muted); margin-top: 4px; }
 .fsec-title { font-size: 10px; font-weight: 500; letter-spacing: 0.2px; color: var(--muted); margin-bottom: 10px; }
@@ -1435,12 +1435,12 @@ export default function SkotareVy() {
   .mv-sidebar { display: none !important; }
   .mv-bottomnav {
     display: flex !important; position: fixed; bottom: 0; left: 0; right: 0;
-    background: #111110; border-top: 0.5px solid rgba(255,255,255,0.07);
+    background: #000000; border-top: 0.5px solid rgba(255,255,255,0.07);
     z-index: 200; justify-content: space-around; align-items: flex-start;
     padding: 10px 4px 16px 4px; padding-bottom: max(16px, env(safe-area-inset-bottom));
     font-family: 'Geist', system-ui, sans-serif;
   }
-  .mv-bottomnav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0; background: none; border: none; cursor: pointer; padding: 0; min-height: 44px; color: #7a7a72; transition: color 0.15s; }
+  .mv-bottomnav button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0; background: none; border: none; cursor: pointer; padding: 0; min-height: 44px; color: #8e8e93; transition: color 0.15s; }
   .mv-bottomnav button.active { color: var(--accent); }
   .mv-bn-icon-wrap { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 12px; padding: 6px; transition: background 0.15s; }
   .mv-bottomnav button.active .mv-bn-icon-wrap { background: var(--accent2); }
@@ -1496,22 +1496,21 @@ export default function SkotareVy() {
 
       {/* ── SIDEBAR ── */}
       <aside className="mv-sidebar" style={{
-        width: 220, flexShrink: 0, background: '#0f0f0e', borderRight: '1px solid rgba(255,255,255,0.07)',
+        width: 220, flexShrink: 0, background: '#000000', borderRight: '1px solid rgba(255,255,255,0.07)',
         display: 'flex', flexDirection: 'column', fontFamily: "'Geist', system-ui, sans-serif", overflow: 'hidden',
       }}>
         <div style={{ padding: '20px 16px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: '#1a4a2e', border: '1px solid rgba(0,196,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>🌲</div>
-          <span style={{ fontSize: 14, fontWeight: 500, color: '#e8e8e4', letterSpacing: '-0.3px' }}>Skotare</span>
+          <span style={{ fontSize: 17, fontWeight: 600, color: '#ffffff', letterSpacing: '-0.3px' }}>Skotare</span>
         </div>
         <nav style={{ flex: 1, padding: '8px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {[
-            { icon: '\u2600', label: 'Idag', view: 'idag' },
-            { icon: '\u25fb', label: 'Översikt', view: 'oversikt' },
-            { icon: '\u25a4', label: 'Produktion', view: 'produktion' },
-            { icon: '\u26a0', label: 'Avbrott', view: 'avbrott' },
-            { icon: '\u25c8', label: 'Analys', view: 'analys' },
-            { icon: '\ud83d\udd27', label: 'Maskinlogg', view: 'maskinlogg' },
-          ].map(item => {
+          {([
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>), label: 'Idag', view: 'idag' },
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>), label: 'Översikt', view: 'oversikt' },
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>), label: 'Produktion', view: 'produktion' },
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>), label: 'Avbrott', view: 'avbrott' },
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>), label: 'Analys', view: 'analys' },
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>), label: 'Maskinlogg', view: 'maskinlogg' },
+          ] as Array<{ icon: any; label: string; view: string }>).map(item => {
             const isActive = activeView === item.view;
             return (
               <div key={item.label} onClick={() => {
@@ -1521,10 +1520,10 @@ export default function SkotareVy() {
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
                 background: isActive ? '#1e1e1c' : 'transparent',
-                borderLeft: isActive ? '3px solid #00c48c' : '3px solid transparent',
-                color: isActive ? '#e8e8e4' : '#666', fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
+                borderLeft: isActive ? '3px solid #30d158' : '3px solid transparent',
+                color: isActive ? '#ffffff' : '#8e8e93', fontSize: 13, fontWeight: 500, transition: 'all 0.15s',
               }}>
-                <span style={{ fontSize: 14, width: 18, textAlign: 'center', opacity: isActive ? 1 : 0.5 }}>{item.icon}</span>
+                <span style={{ width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', color: isActive ? '#30d158' : '#8e8e93' }}>{item.icon}</span>
                 {item.label}
               </div>
             );
@@ -1533,17 +1532,17 @@ export default function SkotareVy() {
       </aside>
 
       {/* ── MAIN CONTENT ── */}
-      <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch', background: '#111110', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch', background: '#000000', display: 'flex', flexDirection: 'column' }}>
         {/* ── TOP BAR ── */}
         <div className="mv-topbar" style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '8px 20px',
-          borderBottom: '1px solid rgba(255,255,255,0.07)', background: '#0f0f0e',
+          borderBottom: '1px solid rgba(255,255,255,0.07)', background: '#000000',
           fontFamily: "'Geist', system-ui, sans-serif", flexShrink: 0,
         }}>
           {/* Machine dropdown */}
           <div style={{ position: 'relative' }}>
             <button onClick={() => setMaskinOpen(!maskinOpen)} style={{
-              background: '#1a1a18', color: '#f2f2f0',
+              background: '#1c1c1e', color: '#ffffff',
               border: maskinOpen ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.1)',
               borderRadius: 10, padding: '10px 14px', fontSize: 13, fontWeight: 500, minHeight: 40,
               fontFamily: "'Geist', system-ui, sans-serif", outline: 'none', cursor: 'pointer',
@@ -1560,16 +1559,16 @@ export default function SkotareVy() {
             {maskinOpen && (
               <div style={{
                 position: 'absolute', top: 'calc(100% + 6px)', left: 0,
-                background: '#1a1a18', border: '1px solid rgba(255,255,255,0.15)',
+                background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.15)',
                 borderRadius: 10, overflow: 'hidden', zIndex: 50,
-                boxShadow: '0 12px 32px rgba(0,0,0,0.55)', maxHeight: 280, overflowY: 'auto', minWidth: '100%',
+                maxHeight: 280, overflowY: 'auto', minWidth: '100%',
               }}>
                 {maskiner.map((m, i) => (
                   <button key={m.maskin_id} onClick={() => { setVald(m.modell); setMaskinOpen(false); }} style={{
                     width: '100%', padding: '12px 14px', border: 'none', minHeight: 44,
                     borderBottom: i < maskiner.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
                     background: m.modell === vald ? 'rgba(255,255,255,0.08)' : 'transparent',
-                    color: m.modell === vald ? '#f2f2f0' : '#bbb', fontSize: 13,
+                    color: m.modell === vald ? '#ffffff' : '#bbb', fontSize: 13,
                     fontFamily: "'Geist', system-ui, sans-serif", cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap',
                   }}>
                     {m.tillverkare} {m.modell}
@@ -1583,7 +1582,7 @@ export default function SkotareVy() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
             <button onClick={() => setPeriodOffset(o => o - 1)} aria-label="Föregående period" style={{
               width: 40, height: 40, border: 'none', borderRadius: 10, background: 'transparent',
-              color: '#9a9a92', fontSize: 18, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
+              color: '#8e8e93', fontSize: 18, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               transition: 'background 120ms ease, transform 100ms ease',
             }}
@@ -1592,12 +1591,12 @@ export default function SkotareVy() {
               onMouseDown={e => { (e.currentTarget as HTMLButtonElement).style.transform = 'scale(0.92)'; }}
               onMouseUp={e => { (e.currentTarget as HTMLButtonElement).style.transform = ''; }}
             >{'\u2039'}</button>
-            <div style={{ minWidth: 104, textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#f2f2f0', letterSpacing: '-0.2px' }}>
+            <div style={{ minWidth: 104, textAlign: 'center', fontSize: 13, fontWeight: 600, color: '#ffffff', letterSpacing: '-0.2px' }}>
               {getPeriodLabel(period, periodOffset)}
             </div>
             <button onClick={() => setPeriodOffset(o => Math.min(o + 1, 0))} aria-label="Nästa period" disabled={periodOffset >= 0} style={{
               width: 40, height: 40, border: 'none', borderRadius: 10, background: 'transparent',
-              color: periodOffset >= 0 ? '#3a3a36' : '#9a9a92', fontSize: 18,
+              color: periodOffset >= 0 ? '#48484a' : '#8e8e93', fontSize: 18,
               cursor: periodOffset >= 0 ? 'default' : 'pointer',
               fontFamily: "'Geist', system-ui, sans-serif",
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1616,7 +1615,7 @@ export default function SkotareVy() {
               <button key={p} onClick={() => { setPeriod(p); setPeriodOffset(0); }} style={{
                 minWidth: 36, padding: '0 12px', border: 'none', borderRadius: 7,
                 background: period === p ? '#2c2c2a' : 'transparent',
-                color: period === p ? '#f2f2f0' : '#9a9a92', fontSize: 13, fontWeight: period === p ? 600 : 500,
+                color: period === p ? '#ffffff' : '#8e8e93', fontSize: 13, fontWeight: period === p ? 600 : 500,
                 cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
                 transition: 'transform 100ms ease, color 150ms ease, background 150ms ease',
                 boxShadow: period === p ? '0 2px 6px rgba(0,0,0,0.3)' : 'none',
@@ -1635,43 +1634,43 @@ export default function SkotareVy() {
           {/* ── IDAG VIEW ── */}
           {activeView === 'idag' && (() => {
             const d = idagData;
-            if (idagLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#7a7a72' }}>Laddar...</div>;
-            if (!d) return <div style={{ padding: 40, textAlign: 'center', color: '#7a7a72' }}>Ingen data</div>;
+            if (idagLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#8e8e93' }}>Laddar...</div>;
+            if (!d) return <div style={{ padding: 40, textAlign: 'center', color: '#8e8e93' }}>Ingen data</div>;
             const noProduction = d.vol === 0 && d.lass === 0;
             return (
               <div style={{ padding: '0 20px 60px', maxWidth: 900, fontFamily: "'Geist', system-ui, sans-serif" }}>
                 {noProduction ? (<>
-                  <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginTop: 24, marginBottom: 20 }}>Idag</div>
-                  <div style={{ textAlign: 'center', padding: '48px 20px', background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16 }}>
+                  <div style={{ fontSize: 20, fontWeight: 500, color: '#ffffff', letterSpacing: -0.5, marginTop: 24, marginBottom: 20 }}>Idag</div>
+                  <div style={{ textAlign: 'center', padding: '48px 20px', background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12 }}>
                     <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.3 }}>{'\u2600'}</div>
-                    <div style={{ fontSize: 16, fontWeight: 500, color: '#e8e8e4', marginBottom: 6 }}>Ingen produktion registrerad idag</div>
+                    <div style={{ fontSize: 16, fontWeight: 500, color: '#ffffff', marginBottom: 6 }}>Ingen produktion registrerad idag</div>
                     {d.senastAktiv && (() => {
                       const [yy, mm, dd2] = d.senastAktiv.datum.split('-').map(Number);
                       const dObj = new Date(yy, mm - 1, dd2);
                       const datumStr = dObj.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
                       const tidStr = d.senastAktiv.tid ? `, kl ${d.senastAktiv.tid}` : '';
-                      return <div style={{ fontSize: 13, color: '#7a7a72', marginTop: 8 }}>Senast aktiv: {datumStr}{tidStr}</div>;
+                      return <div style={{ fontSize: 13, color: '#8e8e93', marginTop: 8 }}>Senast aktiv: {datumStr}{tidStr}</div>;
                     })()}
                   </div>
                 </>) : (<>
                   {/* KPI ROW 1 */}
                   <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 16 }}>
-                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                       <div className="k-label">Volym</div>
                       <div className="k-val">{d.vol.toLocaleString('sv')}</div>
                       <div className="k-unit">m³sub</div>
                     </div>
-                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                       <div className="k-label">Lass</div>
                       <div className="k-val">{d.lass}</div>
                       <div className="k-unit">st</div>
                     </div>
-                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                       <div className="k-label">Medellast</div>
                       <div className="k-val">{d.medellast.toFixed(1)}</div>
                       <div className="k-unit">m³/lass</div>
                     </div>
-                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                       <div className="k-label">Medelavstånd</div>
                       <div className="k-val">{d.medelavstand}</div>
                       <div className="k-unit">m</div>
@@ -1679,22 +1678,22 @@ export default function SkotareVy() {
                   </div>
                   {/* KPI ROW 2 */}
                   <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 8 }}>
-                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                       <div className="k-label">Utnyttjandegrad</div>
                       <div className="k-val">{d.utnyttj.toFixed(1)}</div>
                       <div className="k-unit">%</div>
                     </div>
-                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                       <div className="k-label">Bränsle totalt</div>
                       <div className="k-val">{d.bransle}</div>
                       <div className="k-unit">liter</div>
                     </div>
-                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                       <div className="k-label">Bränsle/m³</div>
                       <div className="k-val">{d.bransleLm3.toFixed(1)}</div>
                       <div className="k-unit">L/m³</div>
                     </div>
-                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                    <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                       <div className="k-label">Lass/G15h</div>
                       <div className="k-val">{d.lassG15h.toFixed(1)}</div>
                       <div className="k-unit">lass/h</div>
@@ -1708,16 +1707,16 @@ export default function SkotareVy() {
                       <div className="card-b">
                         {d.operatorer.map((op, oi) => (
                           <div key={oi} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                            <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(0,196,140,0.1)', border: '1px solid rgba(0,196,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 500, color: 'rgba(0,196,140,0.8)', flexShrink: 0 }}>
+                            <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(48,209,88,0.1)', border: '1px solid rgba(48,209,88,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 500, color: 'rgba(48,209,88,0.8)', flexShrink: 0 }}>
                               {op.namn.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
                             </div>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: 14, fontWeight: 500, color: '#e8e8e4' }}>{op.namn}</div>
-                              <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{op.objekt} · start {op.start}</div>
+                              <div style={{ fontSize: 14, fontWeight: 500, color: '#ffffff' }}>{op.namn}</div>
+                              <div style={{ fontSize: 11, color: '#8e8e93', marginTop: 2 }}>{op.objekt} · start {op.start}</div>
                             </div>
                             <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 17, fontWeight: 500, color: '#e8e8e4' }}>{op.vol} m³</div>
-                              <div style={{ fontSize: 10, color: '#7a7a72' }}>{op.lass} lass</div>
+                              <div style={{ fontSize: 17, fontWeight: 500, color: '#ffffff' }}>{op.vol} m³</div>
+                              <div style={{ fontSize: 10, color: '#8e8e93' }}>{op.lass} lass</div>
                             </div>
                           </div>
                         ))}
@@ -1775,13 +1774,13 @@ export default function SkotareVy() {
                 const lass = dbData.dailyLass[bestIdx] || 0;
                 return (
                   <div style={{
-                    background: 'linear-gradient(135deg, rgba(0,196,140,0.08), rgba(0,196,140,0.02))',
-                    border: '1px solid rgba(0,196,140,0.18)',
-                    borderRadius: 14, padding: '14px 18px', marginBottom: 16,
+                    background: 'linear-gradient(135deg, rgba(48,209,88,0.08), rgba(48,209,88,0.02))',
+                    border: '1px solid rgba(48,209,88,0.18)',
+                    borderRadius: 12, padding: '14px 18px', marginBottom: 16,
                     display: 'flex', alignItems: 'center', gap: 14, fontFamily: "'Geist', system-ui, sans-serif",
                   }}>
                     <div style={{
-                      width: 36, height: 36, borderRadius: 10, background: 'rgba(0,196,140,0.12)',
+                      width: 36, height: 36, borderRadius: 10, background: 'rgba(48,209,88,0.12)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                     }}>
                       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}>
@@ -1789,8 +1788,8 @@ export default function SkotareVy() {
                       </svg>
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Bästa dagen</div>
-                      <div style={{ fontSize: 14, fontWeight: 500, color: '#f2f2f0', marginTop: 2 }}>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', letterSpacing: '0.06em', }}>Bästa dagen</div>
+                      <div style={{ fontSize: 14, fontWeight: 500, color: '#ffffff', marginTop: 2 }}>
                         {datumStr} · <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--accent)', fontWeight: 600 }}>{bestVal} m³</span>{lass > 0 ? <span style={{ color: 'var(--muted)' }}> · {lass} lass</span> : null}
                       </div>
                     </div>
@@ -1801,17 +1800,17 @@ export default function SkotareVy() {
               {/* Operators + Time distribution */}
               <div className="g2">
                 <div className="card">
-                  <div className="card-h"><div className="card-t">Operatörer <span id="opBadge" style={{ color: '#7a7a72', fontWeight: 400 }}></span></div></div>
+                  <div className="card-h"><div className="card-t">Operatörer <span id="opBadge" style={{ color: '#8e8e93', fontWeight: 400 }}></span></div></div>
                   <div className="card-b"><div id="opContainer"></div></div>
                 </div>
                 <div className="card">
                   <div className="card-h">
                     <div className="card-t">Tidsfördelning</div>
                     <div style={{ display: 'flex', gap: 10 }}>
-                      <span id="tidG15Val" style={{ fontSize: 11, color: '#e8e8e4' }}>0h</span>
-                      <span style={{ fontSize: 10, color: '#7a7a72' }}>G15</span>
+                      <span id="tidG15Val" style={{ fontSize: 11, color: '#ffffff' }}>0h</span>
+                      <span style={{ fontSize: 10, color: '#8e8e93' }}>G15</span>
                       <span id="tidAvbrVal" style={{ fontSize: 11, color: '#ffb340' }}>0h</span>
-                      <span style={{ fontSize: 10, color: '#7a7a72' }}>avbrott</span>
+                      <span style={{ fontSize: 10, color: '#8e8e93' }}>avbrott</span>
                     </div>
                   </div>
                   <div className="card-b">
@@ -1888,7 +1887,7 @@ export default function SkotareVy() {
             const pk = db?.avbrottPerKategori || [];
             return (
               <div style={{ padding: '24px 28px 60px', maxWidth: 1400, margin: '0 auto', fontFamily: "'Geist', system-ui, sans-serif" }}>
-                <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
+                <div style={{ fontSize: 20, fontWeight: 500, color: '#ffffff', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
                 <div className="hero" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
                   <div className="hero-main" style={{ gridColumn: 'span 2', background: 'rgba(255,255,255,0.06)' }}>
                     <div className="hero-label">Total avbrottstid</div>
@@ -1912,8 +1911,8 @@ export default function SkotareVy() {
                         <div key={ki} className="frow">
                           <span className="frow-l">{k.kategori}</span>
                           <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                            <span style={{ fontSize: 10, color: '#7a7a72' }}>{k.antal}x</span>
-                            <span style={{ fontSize: 10, color: '#7a7a72' }}>snitt {k.snittMin} min</span>
+                            <span style={{ fontSize: 10, color: '#8e8e93' }}>{k.antal}x</span>
+                            <span style={{ fontSize: 10, color: '#8e8e93' }}>snitt {k.snittMin} min</span>
                             <span className="frow-v">{k.timmar}h</span>
                           </div>
                         </div>
@@ -1942,13 +1941,13 @@ export default function SkotareVy() {
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
                           <thead>
                             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                              <th style={{ textAlign: 'left', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Klass</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Lass</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Volym</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>G15h</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Lass/G15h</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Medellast</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Diesel l/m³</th>
+                              <th style={{ textAlign: 'left', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Klass</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Lass</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Volym</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>G15h</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Lass/G15h</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Medellast</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Diesel l/m³</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1958,7 +1957,7 @@ export default function SkotareVy() {
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.lass}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.volym} m³</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.g15h}h</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#00c48c' }}>{c.lassG15h}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#30d158' }}>{c.lassG15h}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.medellast}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{c.dieselM3}</td>
                               </tr>
@@ -1979,14 +1978,14 @@ export default function SkotareVy() {
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 600 }}>
                           <thead>
                             <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                              <th style={{ textAlign: 'left', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Operatör</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Lass</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Volym</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>G15h</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Medellast</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Lass/G15h</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Medelavst.</th>
-                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#7a7a72', fontSize: 10, fontWeight: 500 }}>Dagar</th>
+                              <th style={{ textAlign: 'left', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Operatör</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Lass</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Volym</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>G15h</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Medellast</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Lass/G15h</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Medelavst.</th>
+                              <th style={{ textAlign: 'right', padding: '8px 12px', color: '#8e8e93', fontSize: 10, fontWeight: 500 }}>Dagar</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1998,7 +1997,7 @@ export default function SkotareVy() {
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Math.round(op.volym)} m³</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.g15h.toFixed(0)}h</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.medellast}</td>
-                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#00c48c' }}>{op.lassG15h}</td>
+                                <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#30d158' }}>{op.lassG15h}</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.medelavstand}m</td>
                                 <td style={{ padding: '8px 12px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{op.dagar}</td>
                               </tr>

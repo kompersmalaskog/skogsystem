@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 
 const f = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
-const card = { backgroundColor: '#1C1C1E', borderRadius: 16 } as const;
+const card = { backgroundColor: '#1c1c1e', borderRadius: 12 } as const;
 const labelStyle = { fontSize: 13, color: 'rgba(255,255,255,0.45)', fontFamily: f, fontWeight: 400 as const, letterSpacing: 0.2, margin: 0 };
 
 interface Maskin {
@@ -126,7 +126,10 @@ export default function HistorikPage() {
         borderRadius: 10,
         marginBottom: 16,
       }}>
-        <span style={{ fontSize: 15, opacity: 0.4 }}>🔍</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.35-4.35" />
+        </svg>
         <input
           type="text"
           value={search}

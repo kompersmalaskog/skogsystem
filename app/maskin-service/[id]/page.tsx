@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 import Link from 'next/link';
 
 const f = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
-const card = { backgroundColor: '#1C1C1E', borderRadius: 16 } as const;
+const card = { backgroundColor: '#1c1c1e', borderRadius: 12 } as const;
 const labelStyle = { fontSize: 13, color: 'rgba(255,255,255,0.45)', fontFamily: f, fontWeight: 400 as const, letterSpacing: 0.2, margin: 0 };
 const bigNum = { fontSize: 28, fontWeight: 700 as const, color: '#fff', fontFamily: f, letterSpacing: -0.5, margin: '6px 0 0' };
 
@@ -264,8 +264,8 @@ export default function MaskinDetailPage() {
           style={{
             position: 'fixed', bottom: 24, left: 20, right: 20,
             maxWidth: 440, margin: '0 auto',
-            height: 52, borderRadius: 14,
-            backgroundColor: '#00c48c', border: 'none', cursor: 'pointer',
+            height: 52, borderRadius: 12,
+            backgroundColor: '#30d158', border: 'none', cursor: 'pointer',
             fontSize: 16, fontWeight: 600, color: '#fff', fontFamily: f,
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
             zIndex: 50,
@@ -291,7 +291,7 @@ export default function MaskinDetailPage() {
           {/* Sheet */}
           <div style={{
             position: 'fixed', bottom: 0, left: 0, right: 0,
-            backgroundColor: '#1C1C1E',
+            backgroundColor: '#1c1c1e',
             borderRadius: '20px 20px 0 0',
             padding: '24px 20px 40px',
             zIndex: 100,
@@ -361,12 +361,12 @@ export default function MaskinDetailPage() {
                   {HJUL.map(h => (
                     <g key={h.id} onClick={() => { setSelectedWheel(h.id); setBeskrivning(`Punktering ${h.id}`); }} style={{ cursor: 'pointer' }}>
                       <circle cx={h.cx} cy={h.cy} r="17"
-                        fill={selectedWheel === h.id ? 'rgba(0,196,140,0.15)' : 'none'}
-                        stroke={selectedWheel === h.id ? '#00c48c' : 'rgba(255,255,255,0.12)'}
+                        fill={selectedWheel === h.id ? 'rgba(48,209,88,0.15)' : 'none'}
+                        stroke={selectedWheel === h.id ? '#30d158' : 'rgba(255,255,255,0.12)'}
                         strokeWidth="1.5"
                       />
                       <text x={h.cx} y={h.cy + 4} textAnchor="middle"
-                        fill={selectedWheel === h.id ? '#00c48c' : 'rgba(255,255,255,0.35)'}
+                        fill={selectedWheel === h.id ? '#30d158' : 'rgba(255,255,255,0.35)'}
                         fontSize="10" fontWeight="500"
                       >{h.label}</text>
                     </g>
@@ -449,7 +449,7 @@ export default function MaskinDetailPage() {
                 disabled={saving}
                 style={{
                   padding: '9px 22px',
-                  backgroundColor: '#00c48c', borderRadius: 10,
+                  backgroundColor: '#30d158', borderRadius: 10,
                   border: 'none', cursor: 'pointer',
                   fontSize: 14, fontWeight: 600, color: '#fff', fontFamily: f,
                   opacity: saving ? 0.5 : 1,

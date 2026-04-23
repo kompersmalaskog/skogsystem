@@ -154,7 +154,7 @@ type DbData = {
 const MASKINVY_SCRIPT = `(function(){
 if (typeof Chart === 'undefined') { console.error('[Maskinvy] Chart.js not loaded'); return; }
 Chart.defaults.font.family = 'Geist';
-Chart.defaults.color = '#7a7a72';
+Chart.defaults.color = '#8e8e93';
 
 // Read DB data from window if available
 var _db = window.__maskinvyData || {};
@@ -178,8 +178,8 @@ console.log('[MTH total]', {sumKlassVolym: volym.reduce(function(a,b){return a+b
 console.log('[MTH raw]', _rawClasses.map(function(c,i){return {klass:c, volym:_rawVolym[i], stammar:_rawStammar[i]};}));
 
 var grid    = {color:'rgba(255,255,255,0.05)'};
-var ticks   = {color:'#7a7a72',font:{size:11}};
-const tooltip = {backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#7a7a72',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10};
+var ticks   = {color:'#8e8e93',font:{size:11}};
+const tooltip = {backgroundColor:'#1c1c1e',titleColor:'#ffffff',bodyColor:'#8e8e93',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:10};
 
 // Count-up animation
 function countUp(el, target, dec=0, duration=1200){
@@ -252,7 +252,7 @@ var avgVol = nonZeroVols.length > 0 ? Math.round(nonZeroVols.reduce(function(a,b
 // Update daily chart title with average
 var dailyTitleEl = document.getElementById('dailyChartTitle');
 if (dailyTitleEl && avgVol > 0) {
-  dailyTitleEl.innerHTML = 'Daglig produktion <span style="color:#7a7a72;font-size:11px;font-weight:400;"> \\u00b7 Snitt: ' + avgVol + ' m\\u00b3/dag</span>';
+  dailyTitleEl.innerHTML = 'Daglig produktion <span style="color:#8e8e93;font-size:11px;font-weight:400;"> \\u00b7 Snitt: ' + avgVol + ' m\\u00b3/dag</span>';
 }
 
 // Weekend background plugin
@@ -305,7 +305,7 @@ else { new Chart(dailyEl,{
     {label:'m³/dag',data:dailyVol,backgroundColor:dailyVol.map(function(v,i){
       if(v===0) return isWeekend[i]?'rgba(255,255,255,0.02)':'rgba(255,255,255,0.04)';
       if(isWeekend[i]) return 'rgba(91,143,255,0.15)';
-      return v>avgVol?'rgba(90,255,140,0.7)':'rgba(76,175,80,0.5)';
+      return v>avgVol?'rgba(48,209,88,0.7)':'rgba(76,175,80,0.5)';
     }),borderRadius:6,barPercentage:0.85,categoryPercentage:0.9,order:1},
     {label:'Snitt: '+avgVol+' m³',data:new Array(dailyVol.length).fill(avgVol),type:'line',borderColor:'rgba(255,255,255,0.2)',borderDash:[5,4],borderWidth:1.5,pointRadius:0,fill:false,order:0}
   ]},
@@ -315,7 +315,7 @@ else { new Chart(dailyEl,{
     interaction:{mode:'index',intersect:false},
     plugins:{legend:{display:false},
       tooltip:{
-        backgroundColor:'#1a1a18',titleColor:'#e8e8e4',bodyColor:'#c8c8c4',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:12,
+        backgroundColor:'#1c1c1e',titleColor:'#ffffff',bodyColor:'#c8c8c4',borderColor:'rgba(255,255,255,0.1)',borderWidth:1,padding:12,
         filter:function(item){return item.datasetIndex===0;},
         callbacks:{
           title:function(items){
@@ -342,7 +342,7 @@ else { new Chart(dailyEl,{
         if(isWeekend[idx]) return '\\u25AA '+days[idx];
         return days[idx];
       }}},
-      y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:11}},
+      y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#8e8e93',font:{size:11}},
         suggestedMax: Math.max.apply(null,dailyVol)*1.15}
     },
     onClick:(e,els)=>{
@@ -402,9 +402,9 @@ var _stotal = _sd.totals.reduce(function(a,b){return a+b;},0);
 new Chart(document.getElementById('sortChart'),{
   type:'bar',
   data:{labels:_sd.categories,datasets:[
-    {label:'m\\u00b3sub',data:_sd.totals,backgroundColor:['rgba(90,255,140,0.5)','rgba(91,143,255,0.5)','rgba(255,179,64,0.4)','rgba(255,255,255,0.15)'],borderRadius:4}
+    {label:'m\\u00b3sub',data:_sd.totals,backgroundColor:['rgba(48,209,88,0.5)','rgba(91,143,255,0.5)','rgba(255,179,64,0.4)','rgba(255,255,255,0.15)'],borderRadius:4}
   ]},
-  options:{responsive:true,layout:{padding:{top:22}},plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:11}}}}},
+  options:{responsive:true,layout:{padding:{top:22}},plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#8e8e93',font:{size:11}}}}},
   plugins:[{
     id:'sortPctLabels',
     afterDatasetsDraw:function(chart){
@@ -414,7 +414,7 @@ new Chart(document.getElementById('sortChart'),{
       meta.data.forEach(function(bar, i){
         var pct = _stotal > 0 ? Math.round((_sd.totals[i] || 0) / _stotal * 100) : 0;
         ctx.save();
-        ctx.fillStyle = '#e8e8e4';
+        ctx.fillStyle = '#ffffff';
         ctx.font = "500 11px 'Geist', system-ui, sans-serif";
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
@@ -453,14 +453,14 @@ if (_db.hasMth === false) {
     new Chart(spdEl, {
       type: 'bar',
       data: { labels: spd.days, datasets: [
-        { label: 'Timmer', data: spd.timmer, backgroundColor: 'rgba(90,255,140,0.5)', borderRadius: 3, stack: 'sd' },
+        { label: 'Timmer', data: spd.timmer, backgroundColor: 'rgba(48,209,88,0.5)', borderRadius: 3, stack: 'sd' },
         { label: 'Kubb', data: spd.kubb, backgroundColor: 'rgba(91,143,255,0.5)', borderRadius: 3, stack: 'sd' },
         { label: 'Massa', data: spd.massa, backgroundColor: 'rgba(255,179,64,0.4)', borderRadius: 3, stack: 'sd' },
         { label: 'Energi', data: spd.energi, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 3, stack: 'sd' },
       ]},
       options: { responsive: true, interaction: { mode: 'index', intersect: false },
-        plugins: { legend: { position: 'top', labels: { font: { family: 'Geist', size: 11 }, boxWidth: 8, borderRadius: 2, padding: 12, color: '#7a7a72' } }, tooltip },
-        scales: { x: { stacked: true, grid, ticks }, y: { stacked: true, grid, ticks, title: { display: true, text: 'm\\u00b3', color: '#7a7a72', font: { size: 11 } } } }
+        plugins: { legend: { position: 'top', labels: { font: { family: 'Geist', size: 11 }, boxWidth: 8, borderRadius: 2, padding: 12, color: '#8e8e93' } }, tooltip },
+        scales: { x: { stacked: true, grid, ticks }, y: { stacked: true, grid, ticks, title: { display: true, text: 'm\\u00b3', color: '#8e8e93', font: { size: 11 } } } }
       }
     });
   }
@@ -479,9 +479,9 @@ if (_db.hasMth === false) {
       return '<div style="display:flex;align-items:center;gap:10px;margin-bottom:5px;">'
         + '<div style="width:48px;font-size:14px;color:#fff;text-align:right;flex-shrink:0;">' + cls + '</div>'
         + '<div style="flex:1;height:32px;background:rgba(255,255,255,0.04);border-radius:4px;overflow:hidden;">'
-        + '<div style="height:100%;width:' + Math.max(p, 1) + '%;background:rgba(90,255,140,' + (p > 30 ? '0.5' : p > 10 ? '0.35' : '0.2') + ');border-radius:4px;"></div>'
+        + '<div style="height:100%;width:' + Math.max(p, 1) + '%;background:rgba(48,209,88,' + (p > 30 ? '0.5' : p > 10 ? '0.35' : '0.2') + ');border-radius:4px;"></div>'
         + '</div>'
-        + '<div style="width:140px;font-size:16px;font-weight:500;color:#fff;text-align:right;flex-shrink:0;">' + p + '%<span style="font-size:12px;color:#7a7a72;margin-left:6px;">\\u2014 ' + st.toLocaleString('sv') + ' st</span></div>'
+        + '<div style="width:140px;font-size:16px;font-weight:500;color:#fff;text-align:right;flex-shrink:0;">' + p + '%<span style="font-size:12px;color:#8e8e93;margin-left:6px;">\\u2014 ' + st.toLocaleString('sv') + ' st</span></div>'
         + '</div>';
     }).filter(Boolean).join('');
   }
@@ -493,7 +493,7 @@ new Chart(document.getElementById('totalChart'),{
   data:{labels:classes,datasets:[
     {label:'Volym m³',data:volym,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Volym: '+volym[idx].toLocaleString('sv')+' m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')+' st','m\\u00b3/G15h: '+m3g15[idx]];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:11}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Volym: '+volym[idx].toLocaleString('sv')+' m\\u00b3','Stammar: '+(stammar[idx]||0).toLocaleString('sv')+' st','m\\u00b3/G15h: '+m3g15[idx]];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#8e8e93',font:{size:11}}}}}
 });
 
 // Åtgärdsjämförelse — volym per klass per åtgärd
@@ -501,7 +501,7 @@ var atgKlassData = _db.atgardKlassData || {};
 var atgKlassEl = document.getElementById('atgardKlassChart');
 var atgNames = Object.keys(atgKlassData);
 if (atgKlassEl && atgNames.length >= 2) {
-  var atgColors = ['rgba(76,175,80,0.65)','rgba(91,143,255,0.65)','rgba(255,179,64,0.65)','rgba(255,95,87,0.65)','rgba(160,120,255,0.65)'];
+  var atgColors = ['rgba(76,175,80,0.65)','rgba(91,143,255,0.65)','rgba(255,179,64,0.65)','rgba(255,69,58,0.65)','rgba(160,120,255,0.65)'];
   var atgDatasets = atgNames.map(function(atg, ai) {
     // Filter by activeIdx (same as classes)
     var filtered = _activeIdx.map(function(i){return atgKlassData[atg][i]||0;});
@@ -511,9 +511,9 @@ if (atgKlassEl && atgNames.length >= 2) {
     type:'bar',
     data:{labels:classes, datasets:atgDatasets},
     options:{responsive:true,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{labels:{color:'#7a7a72',font:{family:'Geist',size:11},boxWidth:10,padding:14}},
+      plugins:{legend:{labels:{color:'#8e8e93',font:{family:'Geist',size:11},boxWidth:10,padding:14}},
         tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){return ' '+ctx.dataset.label+': '+ctx.parsed.y.toLocaleString('sv')+' m\\u00b3';}}}},
-      scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#7a7a72',font:{size:11}}}}}
+      scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3',color:'#8e8e93',font:{size:11}}}}}
   });
   document.getElementById('atgardKlassWrap').style.display = '';
 } else if (document.getElementById('atgardKlassWrap')) {
@@ -525,7 +525,7 @@ var atgM3g15Data = _db.atgardM3g15Data || {};
 var atgM3g15El = document.getElementById('atgardM3g15Chart');
 var atgM3g15Names = Object.keys(atgM3g15Data);
 if (atgM3g15El && atgM3g15Names.length >= 2) {
-  var atgProdColors = ['rgba(76,175,80,0.65)','rgba(91,143,255,0.65)','rgba(255,179,64,0.65)','rgba(255,95,87,0.65)','rgba(160,120,255,0.65)'];
+  var atgProdColors = ['rgba(76,175,80,0.65)','rgba(91,143,255,0.65)','rgba(255,179,64,0.65)','rgba(255,69,58,0.65)','rgba(160,120,255,0.65)'];
   var atgProdDatasets = atgM3g15Names.map(function(atg, ai) {
     var filtered = _activeIdx.map(function(i){return atgM3g15Data[atg][i]||0;});
     return {label:atg, data:filtered, backgroundColor:atgProdColors[ai%atgProdColors.length], borderRadius:6};
@@ -534,9 +534,9 @@ if (atgM3g15El && atgM3g15Names.length >= 2) {
     type:'bar',
     data:{labels:classes, datasets:atgProdDatasets},
     options:{responsive:true,interaction:{mode:'index',intersect:false},
-      plugins:{legend:{labels:{color:'#7a7a72',font:{family:'Geist',size:11},boxWidth:10,padding:14}},
+      plugins:{legend:{labels:{color:'#8e8e93',font:{family:'Geist',size:11},boxWidth:10,padding:14}},
         tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){return ' '+ctx.dataset.label+': '+ctx.parsed.y+' m\\u00b3/G15h';}}}},
-      scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:11}}}}}
+      scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#8e8e93',font:{size:11}}}}}
   });
   document.getElementById('atgardM3g15Wrap').style.display = '';
 } else if (document.getElementById('atgardM3g15Wrap')) {
@@ -572,7 +572,7 @@ new Chart(document.getElementById('prodChart'),{
   data:{labels:classes,datasets:[
     {label:'m³/G15h',data:m3g15,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
   ]},
-  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Produktivitet: '+m3g15[idx]+' m\\u00b3/G15h','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#7a7a72',font:{size:11}}}}}
+  options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['Produktivitet: '+m3g15[idx]+' m\\u00b3/G15h','Stammar: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m\\u00b3/G15h',color:'#8e8e93',font:{size:11}}}}}
 });
 
 // Medelstam insight card (ovanför diagrammen)
@@ -603,7 +603,7 @@ if (stg15ChartEl && classes.length > 0) {
     data:{labels:classes,datasets:[
       {label:'st/G15h',data:stg15,backgroundColor:'rgba(76,175,80,0.65)',borderRadius:6}
     ]},
-    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['st/G15h: '+stg15[idx],'Stammar totalt: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'st/G15h',color:'#7a7a72',font:{size:11}}}}}
+    options:{responsive:true,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{...tooltip,callbacks:{title:function(items){return items[0].label;},label:function(ctx){var idx=ctx.dataIndex;return ['st/G15h: '+stg15[idx],'Stammar totalt: '+(stammar[idx]||0).toLocaleString('sv')];}}}},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'st/G15h',color:'#8e8e93',font:{size:11}}}}}
   });
 }
 var stg15SumEl = document.getElementById('stg15Summary');
@@ -734,9 +734,9 @@ function openForare(id) {
     fpChart = new Chart(ctx, {
       type:'bar',
       data:{labels:dLabels,datasets:[
-        {label:'m³/dag',data:f.dailyVol,backgroundColor:f.dailyVol.map(v=>v===0?'rgba(255,255,255,0.04)':'rgba(90,255,140,0.5)'),borderRadius:3}
+        {label:'m³/dag',data:f.dailyVol,backgroundColor:f.dailyVol.map(v=>v===0?'rgba(255,255,255,0.04)':'rgba(48,209,88,0.5)'),borderRadius:3}
       ]},
-      options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m³',color:'#7a7a72',font:{size:11}}}}}
+      options:{responsive:true,plugins:{legend:{display:false},tooltip},scales:{x:{grid,ticks},y:{grid,ticks,title:{display:true,text:'m³',color:'#8e8e93',font:{size:11}}}}}
     });
   }, 50);
   openOverlay();
@@ -829,14 +829,14 @@ function runCmp(){
   const div=document.createElement('div');
   div.id='cmpView'; div.style.marginBottom='8px';
   div.innerHTML=\`
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:22px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
       <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);">Jämförelse</div>
       <button onclick="document.getElementById('cmpView').remove()" style="border:none;background:var(--surface2);border-radius:6px;padding:4px 10px;font-family:inherit;font-size:11px;cursor:pointer;color:var(--muted);">✕</button>
     </div>
     <div style="display:grid;grid-template-columns:120px 1fr 32px 1fr;gap:7px;align-items:center;margin-bottom:12px;">
       <div></div>
-      <div style="background:rgba(90,255,140,0.08);color:var(--accent);border-radius:7px;padding:9px 14px;font-size:11px;font-weight:500;border:1px solid rgba(90,255,140,0.15);">Period A · Jan 2026</div>
+      <div style="background:rgba(48,209,88,0.08);color:var(--accent);border-radius:7px;padding:9px 14px;font-size:11px;font-weight:500;border:1px solid rgba(48,209,88,0.15);">Period A · Jan 2026</div>
       <div style="text-align:center;font-size:10px;font-weight:500;color:var(--dim);">VS</div>
       <div style="background:rgba(255,179,64,0.08);color:var(--warn);border-radius:7px;padding:9px 14px;font-size:11px;font-weight:500;border:1px solid rgba(255,179,64,0.15);">Period B · Feb 2026</div>
     </div>
@@ -851,7 +851,7 @@ function runCmp(){
           <span style="font-size:11px;color:var(--muted)">\${m.unit}</span>
         </div>
         <div style="text-align:center;">
-          <div style="border-radius:5px;padding:3px 1px;font-size:10px;font-weight:500;background:\${pos?'rgba(90,255,140,0.1)':'rgba(255,95,87,0.1)'};color:\${pos?'var(--accent)':'var(--danger)'};">\${pos?'+':''}\${d}%</div>
+          <div style="border-radius:5px;padding:3px 1px;font-size:10px;font-weight:500;background:\${pos?'rgba(48,209,88,0.1)':'rgba(255,69,58,0.1)'};color:\${pos?'var(--accent)':'var(--danger)'};">\${pos?'+':''}\${d}%</div>
         </div>
         <div style="background:var(--surface2);border-radius:10px;padding:12px 16px;display:flex;align-items:baseline;gap:5px;">
           <span style="font-family:'Fraunces',serif;font-size:26px;color:var(--warn)">\${fmt(m.b)}</span>
@@ -866,7 +866,7 @@ function runCmp(){
 // ── DAG DATA — DB only ──
 const dagData = _db.dagData || {};
 
-const typIcon = { 1:'🌲', 2:'🚛', 3:'🔧' };
+const typIcon = { 1:'', 2:'', 3:'' };
 const typNamn = { 1:'Produktion', 2:'Flytt', 3:'Service' };
 
 function openDag(dag) {
@@ -1039,7 +1039,7 @@ function openObjJmf() {
     var bestIdx = vals.indexOf(Math.max.apply(null,vals));
     var tds = objTypArr.map(function(t,ti){
       var isBest = ti===bestIdx;
-      return '<td style="text-align:right;padding:11px 10px;font-weight:'+(isBest?'500':'400')+';color:'+(isBest?'rgba(90,255,140,0.9)':'var(--text)')+';">'+m.fn(t)+(isBest?' ↑':'')+'</td>';
+      return '<td style="text-align:right;padding:11px 10px;font-weight:'+(isBest?'500':'400')+';color:'+(isBest?'rgba(48,209,88,0.9)':'var(--text)')+';">'+m.fn(t)+(isBest?' ↑':'')+'</td>';
     }).join('');
     return '<tr style="border-top:1px solid var(--border)"><td style="padding:11px 16px;color:var(--muted);font-size:11px;">'+m.lbl+'</td>'+tds+'</tr>';
   }).join('');
@@ -1131,7 +1131,7 @@ if (objTypDistEl && objTypArr.length > 0) {
       +'<div style="font-size:9px;letter-spacing:0.2px;color:var(--muted);margin-top:3px;">'+t.label+' · m³</div>'
       +'<div style="font-size:10px;color:var(--muted);margin-top:4px;">'+t.prod+' m³/G15h</div></div>';
   }).join('');
-  var colors = ['rgba(90,255,140,0.5)','rgba(255,255,255,0.2)','rgba(91,143,255,0.4)','rgba(255,179,64,0.4)'];
+  var colors = ['rgba(48,209,88,0.5)','rgba(255,255,255,0.2)','rgba(91,143,255,0.4)','rgba(255,179,64,0.4)'];
   var bar = '<div style="background:var(--surface2);border-radius:8px;overflow:hidden;height:6px;display:flex;">'
     + objTypArr.map(function(t,i){return '<div style="flex:'+t.volym+';background:'+colors[i%colors.length]+(i>0?';margin-left:2px':'')+'"></div>';}).join('')+'</div>';
   var legend = objTypArr.map(function(t,i){
@@ -1147,7 +1147,7 @@ if (objTypDistEl && objTypArr.length > 0) {
 var timpengDistEl = document.getElementById('timpengDist');
 if (timpengDistEl && timpengArr.length > 0) {
   var tpTotal = timpengArr.reduce(function(s,t){return s+t.volym;},0);
-  var tpColors = ['rgba(255,179,64,0.5)','rgba(90,255,140,0.5)'];
+  var tpColors = ['rgba(255,179,64,0.5)','rgba(48,209,88,0.5)'];
   var tpCards = timpengArr.map(function(t,i){
     return '<div style="background:var(--surface2);border-radius:10px;padding:12px;text-align:center;cursor:pointer;" onclick="openTimpeng(\\''+t.key+'\\')">'
       +'<div style="font-family:Fraunces,serif;font-size:22px;line-height:1;">'+t.volym.toLocaleString('sv')+'</div>'
@@ -1177,7 +1177,7 @@ if (inkopareEl && inkopareList.length > 0) {
     var init = words.length >= 2 ? (words[0][0]+words[words.length-1][0]).toUpperCase() : ink.namn.substring(0,2).toUpperCase();
     // Trädslag bars
     var tsOrder = ['Gran','Tall','Björk','Övr. löv'];
-    var tsColors = {'Gran':'rgba(90,255,140,0.5)','Tall':'rgba(255,255,255,0.2)','Björk':'rgba(91,143,255,0.4)','Övr. löv':'rgba(255,179,64,0.3)'};
+    var tsColors = {'Gran':'rgba(48,209,88,0.5)','Tall':'rgba(255,255,255,0.2)','Björk':'rgba(91,143,255,0.4)','Övr. löv':'rgba(255,179,64,0.3)'};
     var inkTs2 = ink.perTradslag || {};
     var tsBars = tsOrder.filter(function(ts){return (inkTs2[ts]||0)>0;}).map(function(ts){
       var tsPct = ink.volym>0?Math.round((inkTs2[ts]||0)/ink.volym*100):0;
@@ -1209,12 +1209,12 @@ function openInkopare(key) {
   var inkAtgard = ink.perAtgard || {};
   var atgRows = Object.entries(inkAtgard).sort(function(a,b){return b[1]-a[1];}).map(function(e){
     var pct = ink.volym>0?Math.round(e[1]/ink.volym*100):0;
-    return '<div class="frow" style="padding:10px 0;"><span class="frow-l">'+e[0]+'</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:'+pct+'%;background:rgba(90,255,140,0.5)"></div></div></div><span class="frow-v" style="min-width:90px;text-align:right;">'+e[1].toLocaleString('sv')+' m³ <span style="color:var(--muted)">'+pct+'%</span></span></div>';
+    return '<div class="frow" style="padding:10px 0;"><span class="frow-l">'+e[0]+'</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:'+pct+'%;background:rgba(48,209,88,0.5)"></div></div></div><span class="frow-v" style="min-width:90px;text-align:right;">'+e[1].toLocaleString('sv')+' m³ <span style="color:var(--muted)">'+pct+'%</span></span></div>';
   }).join('');
 
   // Trädslag
   var tsOrder = ['Gran','Tall','Björk','Övr. löv'];
-  var tsColors = {'Gran':'rgba(90,255,140,0.5)','Tall':'rgba(255,255,255,0.2)','Björk':'rgba(91,143,255,0.4)','Övr. löv':'rgba(255,179,64,0.3)'};
+  var tsColors = {'Gran':'rgba(48,209,88,0.5)','Tall':'rgba(255,255,255,0.2)','Björk':'rgba(91,143,255,0.4)','Övr. löv':'rgba(255,179,64,0.3)'};
   var inkTs = ink.perTradslag || {};
   var tsRows = tsOrder.filter(function(ts){return (inkTs[ts]||0)>0;}).map(function(ts){
     var v = inkTs[ts]||0;
@@ -1258,7 +1258,7 @@ if (_db.operatorer && _db.operatorer.length > 0) {
       row.setAttribute('onclick', "openForare('" + key + "')");
       row.title = 'Visa förarvy';
       var uVal = (f.utnyttjandePct > 0 && f.utnyttjandePct <= 100) ? f.utnyttjandePct + '%' : '\u2014';
-      var uWarn = (f.utnyttjandePct === 0 || f.utnyttjandePct > 100) ? '<div style="font-size:9px;color:#3a3a36;">data saknas</div>' : '';
+      var uWarn = (f.utnyttjandePct === 0 || f.utnyttjandePct > 100) ? '<div style="font-size:9px;color:#48484a;">data saknas</div>' : '';
       row.innerHTML = '<div class="op-av" style="background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.6)">' + f.av + '</div>'
         + '<div class="op-info"><div class="op-name">' + f.name + '</div><div class="op-sub">' + Math.round(f.timmar) + ' G15h' + uWarn + '</div></div>'
         + '<div class="op-stats"><div><div class="op-sv" style="color:var(--text)">' + Math.round(f.volym) + ' m\\u00b3</div><div class="op-sl">volym</div></div>'
@@ -1358,15 +1358,15 @@ function switchProdSub(tab) {
   var btns = document.querySelectorAll('.ps-btn');
   btns.forEach(function(btn) {
     var isActive = btn.getAttribute('data-tab') === tab;
-    btn.style.background = isActive ? 'rgba(90,255,140,0.15)' : 'transparent';
-    btn.style.color = isActive ? 'rgba(90,255,140,0.9)' : '#7a7a72';
+    btn.style.background = isActive ? 'rgba(48,209,88,0.15)' : 'transparent';
+    btn.style.color = isActive ? 'rgba(48,209,88,0.9)' : '#8e8e93';
   });
 }
 var prodSubTabsEl = document.getElementById('prodSubTabs');
 if (prodSubTabsEl) {
   prodSubTabsEl.innerHTML = _subTabs.map(function(t) {
     var isActive = t.key === _prodSubTab;
-    return '<button class="ps-btn" data-tab="'+t.key+'" onclick="switchProdSub(\\''+t.key+'\\')" style="border:none;border-radius:6px;padding:10px 14px;font-family:inherit;font-size:11px;font-weight:500;cursor:pointer;letter-spacing:0.2px;background:'+(isActive?'rgba(90,255,140,0.15)':'transparent')+';color:'+(isActive?'rgba(90,255,140,0.9)':'#7a7a72')+';">'+t.label+'</button>';
+    return '<button class="ps-btn" data-tab="'+t.key+'" onclick="switchProdSub(\\''+t.key+'\\')" style="border:none;border-radius:6px;padding:10px 14px;font-family:inherit;font-size:11px;font-weight:500;cursor:pointer;letter-spacing:0.2px;background:'+(isActive?'rgba(48,209,88,0.15)':'transparent')+';color:'+(isActive?'rgba(48,209,88,0.9)':'#8e8e93')+';">'+t.label+'</button>';
   }).join('');
 }
 
@@ -1471,7 +1471,7 @@ export default function Maskinvy() {
     if (!Chart) return;
     const existing = Chart.getChart(canvas);
     if (existing) existing.destroy();
-    const colors = ['#00c48c', '#5b8fff'];
+    const colors = ['#30d158', '#5b8fff'];
     new Chart(canvas, {
       type: 'line',
       data: {
@@ -1488,10 +1488,10 @@ export default function Maskinvy() {
       },
       options: {
         responsive: true, interaction: { mode: 'index' as const, intersect: false },
-        plugins: { legend: { labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 11 }, boxWidth: 10, padding: 14 } } },
+        plugins: { legend: { labels: { color: '#8e8e93', font: { family: "'Geist',sans-serif", size: 11 }, boxWidth: 10, padding: 14 } } },
         scales: {
-          x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
-          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'm³/G15h', color: '#7a7a72', font: { size: 11 } } },
+          x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8e8e93', font: { size: 11 } } },
+          y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8e8e93', font: { size: 11 } }, title: { display: true, text: 'm³/G15h', color: '#8e8e93', font: { size: 11 } } },
         },
       },
     });
@@ -2863,7 +2863,7 @@ export default function Maskinvy() {
       const pm: Array<{ month: string; byKat: Record<string, number> }> = db.avbrottPerManad || [];
       if (pk.length === 0) return;
       const allKats = pk.map(k => k.kategori);
-      const palette = ['rgba(90,255,140,0.7)','rgba(90,255,140,0.55)','rgba(90,255,140,0.4)','rgba(90,255,140,0.28)','rgba(90,255,140,0.18)','rgba(90,255,140,0.1)'];
+      const palette = ['rgba(48,209,88,0.7)','rgba(48,209,88,0.55)','rgba(48,209,88,0.4)','rgba(48,209,88,0.28)','rgba(48,209,88,0.18)','rgba(48,209,88,0.1)'];
       const katColors: Record<string, string> = {};
       allKats.forEach((k, i) => { katColors[k] = palette[i % palette.length]; });
       const isMultiMonth = pm.length > 1;
@@ -2882,10 +2882,10 @@ export default function Maskinvy() {
           options: {
             responsive: true, maintainAspectRatio: false,
             interaction: { mode: 'index' as const, intersect: false },
-            plugins: { legend: { position: 'top' as const, labels: { color: '#7a7a72', font: { family: "'Geist',sans-serif", size: 11 }, boxWidth: 8, padding: 10 } } },
+            plugins: { legend: { position: 'top' as const, labels: { color: '#8e8e93', font: { family: "'Geist',sans-serif", size: 11 }, boxWidth: 8, padding: 10 } } },
             scales: {
-              x: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } } },
-              y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 11 } } },
+              x: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8e8e93', font: { size: 11 } } },
+              y: { stacked: true, grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8e8e93', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#8e8e93', font: { size: 11 } } },
             },
           },
         });
@@ -2900,8 +2900,8 @@ export default function Maskinvy() {
             indexAxis: 'y' as const, responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-              x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#7a7a72', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#7a7a72', font: { size: 11 } } },
-              y: { grid: { display: false }, ticks: { color: '#e8e8e4', font: { size: 11 } } },
+              x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8e8e93', font: { size: 11 } }, title: { display: true, text: 'timmar', color: '#8e8e93', font: { size: 11 } } },
+              y: { grid: { display: false }, ticks: { color: '#ffffff', font: { size: 11 } } },
             },
           },
         });
@@ -2938,32 +2938,29 @@ export default function Maskinvy() {
           background: 'rgba(15,15,14,0.7)', display: 'flex',
           alignItems: 'center', justifyContent: 'center',
         }}>
-          <div style={{ color: '#7a7a72', fontSize: 14, fontFamily: "'Geist', system-ui, sans-serif" }}>Laddar data...</div>
+          <div style={{ color: '#8e8e93', fontSize: 14, fontFamily: "'Geist', system-ui, sans-serif" }}>Laddar data...</div>
         </div>
       )}
       {/* ── SIDEBAR ── */}
       <aside className="mv-sidebar" style={{
-        width: 220, flexShrink: 0, background: '#0f0f0e', borderRight: '1px solid rgba(255,255,255,0.07)',
+        width: 220, flexShrink: 0, background: '#000000', borderRight: '1px solid rgba(255,255,255,0.07)',
         display: 'flex', flexDirection: 'column', fontFamily: "'Geist', system-ui, sans-serif",
         overflow: 'hidden',
       }}>
         {/* Logo */}
         <div style={{ padding: '20px 16px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 8, background: '#1a4a2e', border: '1px solid rgba(90,255,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15 }}>🌲</div>
-          <span style={{ fontSize: 14, fontWeight: 500, color: '#e8e8e4', letterSpacing: '-0.3px' }}>Dashboard</span>
+          <span style={{ fontSize: 17, fontWeight: 600, color: '#ffffff', letterSpacing: '-0.3px' }}>Dashboard</span>
         </div>
         {/* Nav */}
         <nav style={{ flex: 1, padding: '8px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {[
-            { icon: '☀', label: 'Idag', view: 'idag' },
-            { icon: '◻', label: 'Översikt', view: 'oversikt' },
-            { icon: '▤', label: 'Produktion', view: 'produktion' },
-            { icon: '⚠', label: 'Avbrott', view: 'avbrott' },
-
-
-            { icon: '◈', label: 'Analys', view: 'analys' },
-            { icon: '🔧', label: 'Maskinlogg', view: 'maskinlogg' },
-          ].map(item => {
+          {([
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>), label: 'Idag', view: 'idag' },
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>), label: 'Översikt', view: 'oversikt' },
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>), label: 'Produktion', view: 'produktion' },
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>), label: 'Avbrott', view: 'avbrott' },
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>), label: 'Analys', view: 'analys' },
+            { icon: (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>), label: 'Maskinlogg', view: 'maskinlogg' },
+          ] as Array<{ icon: any; label: string; view: string }>).map(item => {
             const isActive = activeView === item.view;
             return (
             <div key={item.label} onClick={() => {
@@ -2973,12 +2970,12 @@ export default function Maskinvy() {
               display: 'flex', alignItems: 'center', gap: 10,
               padding: '10px 16px', borderRadius: 8, cursor: 'pointer',
               background: isActive ? '#1e1e1c' : 'transparent',
-              borderLeft: isActive ? '3px solid #00c48c' : '3px solid transparent',
-              color: isActive ? '#e8e8e4' : '#666',
+              borderLeft: isActive ? '3px solid #30d158' : '3px solid transparent',
+              color: isActive ? '#ffffff' : '#8e8e93',
               fontSize: 13, fontWeight: 500,
               transition: 'all 0.15s',
             }}>
-              <span style={{ fontSize: 14, width: 18, textAlign: 'center', opacity: isActive ? 1 : 0.5 }}>{item.icon}</span>
+              <span style={{ width: 18, height: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', color: isActive ? '#30d158' : '#8e8e93' }}>{item.icon}</span>
               {item.label}
             </div>
             );
@@ -2986,11 +2983,11 @@ export default function Maskinvy() {
         </nav>
       </aside>
       {/* ── MAIN CONTENT ── */}
-      <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch', background: '#111110', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch', background: '#000000', display: 'flex', flexDirection: 'column' }}>
         {/* ── TOP BAR: Maskin + Period ── */}
         <div className="mv-topbar" style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '8px 20px',
-          borderBottom: '1px solid rgba(255,255,255,0.07)', background: '#0f0f0e',
+          borderBottom: '1px solid rgba(255,255,255,0.07)', background: '#000000',
           fontFamily: "'Geist', system-ui, sans-serif", flexShrink: 0,
         }}>
           {/* Maskin dropdown */}
@@ -2998,7 +2995,7 @@ export default function Maskinvy() {
             <button
               onClick={() => setMaskinOpen(!maskinOpen)}
               style={{
-                background: '#1a1a18', color: '#e8e8e4',
+                background: '#1c1c1e', color: '#ffffff',
                 border: maskinOpen ? '1px solid rgba(255,255,255,0.2)' : '1px solid rgba(255,255,255,0.1)',
                 borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 500,
                 fontFamily: "'Geist', system-ui, sans-serif",
@@ -3009,14 +3006,13 @@ export default function Maskinvy() {
               <span>{maskiner.find(m => m.modell === vald)
                 ? `${maskiner.find(m => m.modell === vald)!.tillverkare} ${vald}`
                 : 'Välj maskin...'}</span>
-              <span style={{ fontSize: 9, color: '#555', transform: maskinOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}>▼</span>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: maskinOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }}><polyline points="6 9 12 15 18 9"/></svg>
             </button>
             {maskinOpen && (
               <div style={{
                 position: 'absolute', top: 'calc(100% + 4px)', left: 0,
-                background: '#1a1a18', border: '1px solid rgba(255,255,255,0.15)',
+                background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.15)',
                 borderRadius: 8, overflow: 'hidden', zIndex: 50,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
                 maxHeight: 240, overflowY: 'auto', minWidth: '100%',
               }}>
                 {maskiner.map((m, i) => (
@@ -3027,7 +3023,7 @@ export default function Maskinvy() {
                       width: '100%', padding: '9px 12px', border: 'none',
                       borderBottom: i < maskiner.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
                       background: m.modell === vald ? 'rgba(255,255,255,0.08)' : 'transparent',
-                      color: m.modell === vald ? '#e8e8e4' : '#999',
+                      color: m.modell === vald ? '#ffffff' : '#999',
                       fontSize: 12, fontFamily: "'Geist', system-ui, sans-serif",
                       cursor: 'pointer', textAlign: 'left', whiteSpace: 'nowrap',
                     }}
@@ -3043,18 +3039,18 @@ export default function Maskinvy() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
             <button onClick={() => setPeriodOffset(o => o - 1)} style={{
               width: 26, height: 26, border: 'none', borderRadius: 6, background: 'transparent',
-              color: '#7a7a72', fontSize: 14, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
+              color: '#8e8e93', fontSize: 14, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>‹</button>
             <div style={{
               minWidth: 90, textAlign: 'center', fontSize: 12, fontWeight: 500,
-              color: '#e8e8e4', letterSpacing: '-0.2px',
+              color: '#ffffff', letterSpacing: '-0.2px',
             }}>
               {getPeriodLabel(period, periodOffset)}
             </div>
             <button onClick={() => setPeriodOffset(o => Math.min(o + 1, 0))} style={{
               width: 26, height: 26, border: 'none', borderRadius: 6, background: 'transparent',
-              color: periodOffset >= 0 ? '#333' : '#7a7a72', fontSize: 14,
+              color: periodOffset >= 0 ? '#333' : '#8e8e93', fontSize: 14,
               cursor: periodOffset >= 0 ? 'default' : 'pointer',
               fontFamily: "'Geist', system-ui, sans-serif",
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -3067,7 +3063,7 @@ export default function Maskinvy() {
               <button key={p} onClick={() => { setPeriod(p); setPeriodOffset(0); }} style={{
                 padding: '4px 10px', border: 'none', borderRadius: 5,
                 background: period === p ? '#1e1e1c' : 'transparent',
-                color: period === p ? '#e8e8e4' : '#555',
+                color: period === p ? '#ffffff' : '#555',
                 fontSize: 11, fontWeight: 500, cursor: 'pointer',
                 fontFamily: "'Geist', system-ui, sans-serif",
               }}>{p}</button>
@@ -3080,25 +3076,24 @@ export default function Maskinvy() {
       {/* ── PERIOD COMPARISON PANEL ── */}
       {activeView === 'idag' && (() => {
         const d = idagData;
-        if (idagLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#7a7a72' }}>Laddar...</div>;
-        if (!d) return <div style={{ padding: 40, textAlign: 'center', color: '#7a7a72' }}>Ingen data</div>;
+        if (idagLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#8e8e93' }}>Laddar...</div>;
+        if (!d) return <div style={{ padding: 40, textAlign: 'center', color: '#8e8e93' }}>Ingen data</div>;
         const noProduction = d.vol === 0 && d.st === 0;
         const stG15h = d.g15h > 0 ? parseFloat((d.st / d.g15h).toFixed(1)) : 0;
         return (
           <div style={{ padding: '0 20px 60px', maxWidth: 900, fontFamily: "'Geist', system-ui, sans-serif" }}>
 
             {noProduction ? (<>
-              <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginTop: 24, marginBottom: 20 }}>Idag</div>
-              <div style={{ textAlign: 'center', padding: '48px 20px', background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16 }}>
-                <div style={{ fontSize: 36, marginBottom: 12, opacity: 0.3 }}>☀</div>
-                <div style={{ fontSize: 16, fontWeight: 500, color: '#e8e8e4', marginBottom: 6 }}>Ingen produktion registrerad idag</div>
+              <div style={{ fontSize: 20, fontWeight: 500, color: '#ffffff', letterSpacing: -0.5, marginTop: 24, marginBottom: 20 }}>Idag</div>
+              <div style={{ textAlign: 'center', padding: '48px 20px', background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12 }}>
+                <div style={{ fontSize: 17, fontWeight: 600, color: '#ffffff', marginBottom: 6 }}>Ingen produktion registrerad idag</div>
                 {d.senastAktiv && (() => {
                   const [yy, mm, dd] = d.senastAktiv.datum.split('-').map(Number);
                   const dObj = new Date(yy, mm - 1, dd);
                   const datumStr = dObj.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
                   const tidStr = d.senastAktiv.tid ? `, kl ${d.senastAktiv.tid}` : '';
                   return (
-                    <div style={{ fontSize: 13, color: '#9a9a92', marginTop: 4 }}>
+                    <div style={{ fontSize: 13, color: '#8e8e93', marginTop: 4 }}>
                       Senast aktiv: {datumStr}{tidStr}
                     </div>
                   );
@@ -3110,22 +3105,22 @@ export default function Maskinvy() {
             </>) : (<>
               {/* KPI ROW 1 */}
               <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 16 }}>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                   <div className="k-label">Volym</div>
                   <div className="k-val">{d.vol.toLocaleString('sv')}</div>
                   <div className="k-unit">m³sub</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                   <div className="k-label">Stammar</div>
                   <div className="k-val">{d.st.toLocaleString('sv')}</div>
                   <div className="k-unit">stammar</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                   <div className="k-label">Produktivitet</div>
                   <div className="k-val">{d.prod}</div>
                   <div className="k-unit">m³/G15h</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                   <div className="k-label">Medelstam</div>
                   <div className="k-val">{d.medelstam}</div>
                   <div className="k-unit">m³/stam</div>
@@ -3133,22 +3128,22 @@ export default function Maskinvy() {
               </div>
               {/* KPI ROW 2 */}
               <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginTop: 8 }}>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                   <div className="k-label">Utnyttjandegrad</div>
                   <div className="k-val">{d.utnyttj}</div>
                   <div className="k-unit">%</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                   <div className="k-label">Bränsle totalt</div>
                   <div className="k-val">{d.bransle}</div>
                   <div className="k-unit">liter</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                   <div className="k-label">Bränsle/m³</div>
                   <div className="k-val">{d.bransleLm3}</div>
                   <div className="k-unit">L/m³</div>
                 </div>
-                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 16, padding: '20px' }}>
+                <div className="kpi" style={{ background: 'var(--surface)', borderRadius: 12, padding: '20px' }}>
                   <div className="k-label">Stammar/G15h</div>
                   <div className="k-val">{stG15h}</div>
                   <div className="k-unit">st/G15h</div>
@@ -3162,16 +3157,16 @@ export default function Maskinvy() {
                   <div className="card-b">
                     {d.operatorer.map(op => (
                       <div key={op.namn} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                        <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(90,255,140,0.1)', border: '1px solid rgba(90,255,140,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 500, color: 'rgba(90,255,140,0.8)', flexShrink: 0 }}>
+                        <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(48,209,88,0.1)', border: '1px solid rgba(48,209,88,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 500, color: 'rgba(48,209,88,0.8)', flexShrink: 0 }}>
                           {op.namn.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase()}
                         </div>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 14, fontWeight: 500, color: '#e8e8e4' }}>{op.namn}</div>
-                          <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{op.objekt} · start {op.start}</div>
+                          <div style={{ fontSize: 14, fontWeight: 500, color: '#ffffff' }}>{op.namn}</div>
+                          <div style={{ fontSize: 11, color: '#8e8e93', marginTop: 2 }}>{op.objekt} · start {op.start}</div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: 17, fontWeight: 500, color: '#e8e8e4' }}>{op.vol} m³</div>
-                          <div style={{ fontSize: 10, color: '#7a7a72' }}>{op.prod} m³/G15h</div>
+                          <div style={{ fontSize: 17, fontWeight: 500, color: '#ffffff' }}>{op.vol} m³</div>
+                          <div style={{ fontSize: 10, color: '#8e8e93' }}>{op.prod} m³/G15h</div>
                         </div>
                       </div>
                     ))}
@@ -3191,7 +3186,7 @@ export default function Maskinvy() {
                           <span><span style={{ fontWeight: 500 }}>{b.vol} m³</span> <span style={{ color: '#666', fontSize: 11 }}>{b.pct}%</span></span>
                         </div>
                         <div style={{ height: 5, borderRadius: 2, background: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${b.pct}%`, background: 'rgba(90,255,140,0.5)', borderRadius: 2 }} />
+                          <div style={{ height: '100%', width: `${b.pct}%`, background: 'rgba(48,209,88,0.5)', borderRadius: 2 }} />
                         </div>
                       </div>
                     ))}
@@ -3205,35 +3200,35 @@ export default function Maskinvy() {
 
       {activeView === 'jamfor' && (
         <div style={{ padding: '24px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 900 }}>
-          <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 4 }}>
+          <div style={{ fontSize: 20, fontWeight: 500, color: '#ffffff', letterSpacing: -0.5, marginBottom: 4 }}>
             Jämför perioder
           </div>
-          <div style={{ fontSize: 13, color: '#7a7a72', marginBottom: 24 }}>
+          <div style={{ fontSize: 13, color: '#8e8e93', marginBottom: 24 }}>
             {valdMaskin ? `${valdMaskin.tillverkare} ${valdMaskin.modell}` : ''} — sida vid sida
           </div>
 
           {/* Date pickers */}
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 24, flexWrap: 'wrap' }}>
-            <div style={{ background: '#1a1a18', border: '1px solid rgba(90,255,140,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 500, color: '#00c48c', letterSpacing: '0.08em' }}>A</span>
+            <div style={{ background: '#1c1c1e', border: '1px solid rgba(48,209,88,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, fontWeight: 500, color: '#30d158', letterSpacing: '0.08em' }}>A</span>
               <input type="date" value={cmpDateA.start} onChange={e => setCmpDateA(p => ({ ...p, start: e.target.value }))}
-                style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
-              <span style={{ color: '#3a3a36' }}>–</span>
+                style={{ background: 'transparent', border: 'none', color: '#ffffff', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+              <span style={{ color: '#48484a' }}>–</span>
               <input type="date" value={cmpDateA.end} onChange={e => setCmpDateA(p => ({ ...p, end: e.target.value }))}
-                style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+                style={{ background: 'transparent', border: 'none', color: '#ffffff', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
             </div>
-            <span style={{ fontSize: 11, fontWeight: 500, color: '#3a3a36' }}>VS</span>
-            <div style={{ background: '#1a1a18', border: '1px solid rgba(255,179,64,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 500, color: '#48484a' }}>VS</span>
+            <div style={{ background: '#1c1c1e', border: '1px solid rgba(255,179,64,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 10, fontWeight: 500, color: '#ffb340', letterSpacing: '0.08em' }}>B</span>
               <input type="date" value={cmpDateB.start} onChange={e => setCmpDateB(p => ({ ...p, start: e.target.value }))}
-                style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
-              <span style={{ color: '#3a3a36' }}>–</span>
+                style={{ background: 'transparent', border: 'none', color: '#ffffff', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+              <span style={{ color: '#48484a' }}>–</span>
               <input type="date" value={cmpDateB.end} onChange={e => setCmpDateB(p => ({ ...p, end: e.target.value }))}
-                style={{ background: 'transparent', border: 'none', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+                style={{ background: 'transparent', border: 'none', color: '#ffffff', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
             </div>
             <button onClick={runComparison} style={{
               padding: '10px 20px', border: 'none', borderRadius: 8,
-              background: '#1a4a2e', color: '#00c48c', fontFamily: "'Geist', system-ui, sans-serif",
+              background: '#1a4a2e', color: '#30d158', fontFamily: "'Geist', system-ui, sans-serif",
               fontSize: 13, fontWeight: 500, cursor: 'pointer', letterSpacing: -0.2,
             }}>
               {cmpLoading ? 'Laddar...' : 'Visa →'}
@@ -3242,11 +3237,11 @@ export default function Maskinvy() {
 
           {/* Comparison results */}
           {cmpDataA && cmpDataB && (
-            <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, padding: 22 }}>
+            <div style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 22 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 32px 1fr', gap: 7, alignItems: 'center', marginBottom: 12 }}>
                 <div />
-                <div style={{ background: 'rgba(90,255,140,0.08)', color: '#00c48c', borderRadius: 7, padding: '9px 14px', fontSize: 11, fontWeight: 500, border: '1px solid rgba(90,255,140,0.15)' }}>Period A</div>
-                <div style={{ textAlign: 'center', fontSize: 10, fontWeight: 500, color: '#3a3a36' }}>VS</div>
+                <div style={{ background: 'rgba(48,209,88,0.08)', color: '#30d158', borderRadius: 7, padding: '9px 14px', fontSize: 11, fontWeight: 500, border: '1px solid rgba(48,209,88,0.15)' }}>Period A</div>
+                <div style={{ textAlign: 'center', fontSize: 10, fontWeight: 500, color: '#48484a' }}>VS</div>
                 <div style={{ background: 'rgba(255,179,64,0.08)', color: '#ffb340', borderRadius: 7, padding: '9px 14px', fontSize: 11, fontWeight: 500, border: '1px solid rgba(255,179,64,0.15)' }}>Period B</div>
               </div>
               {[
@@ -3261,23 +3256,23 @@ export default function Maskinvy() {
                 const fmt = (v: number) => v > 100 ? v.toLocaleString('sv-SE') : v;
                 return (
                   <div key={m.lbl} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 32px 1fr', gap: 7, alignItems: 'center', marginBottom: 7 }}>
-                    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#7a7a72' }}>{m.lbl}</div>
-                    <div style={{ background: '#222220', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
-                      <span style={{ fontFamily: "'Fraunces', serif", fontSize: 26, color: '#e8e8e4' }}>{fmt(m.a)}</span>
-                      <span style={{ fontSize: 11, color: '#7a7a72' }}>{m.unit}</span>
+                    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#8e8e93' }}>{m.lbl}</div>
+                    <div style={{ background: '#2c2c2e', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                      <span style={{ fontFamily: "'Fraunces', serif", fontSize: 26, color: '#ffffff' }}>{fmt(m.a)}</span>
+                      <span style={{ fontSize: 11, color: '#8e8e93' }}>{m.unit}</span>
                     </div>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{
                         borderRadius: 5, padding: '3px 1px', fontSize: 10, fontWeight: 500,
-                        background: pos ? 'rgba(90,255,140,0.1)' : 'rgba(255,95,87,0.1)',
-                        color: pos ? '#00c48c' : '#ff5f57',
+                        background: pos ? 'rgba(48,209,88,0.1)' : 'rgba(255,69,58,0.1)',
+                        color: pos ? '#30d158' : '#ff453a',
                       }}>
                         {diff !== 0 ? `${pos ? '+' : ''}${diff.toFixed(1)}%` : '—'}
                       </div>
                     </div>
-                    <div style={{ background: '#222220', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                    <div style={{ background: '#2c2c2e', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
                       <span style={{ fontFamily: "'Fraunces', serif", fontSize: 26, color: '#ffb340' }}>{fmt(m.b)}</span>
-                      <span style={{ fontSize: 11, color: '#7a7a72' }}>{m.unit}</span>
+                      <span style={{ fontSize: 11, color: '#8e8e93' }}>{m.unit}</span>
                     </div>
                   </div>
                 );
@@ -3287,25 +3282,25 @@ export default function Maskinvy() {
 
           {/* ── MACHINE COMPARISON ── */}
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 28, marginTop: 28 }}>
-            <div style={{ fontSize: 18, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.4, marginBottom: 4 }}>
+            <div style={{ fontSize: 18, fontWeight: 500, color: '#ffffff', letterSpacing: -0.4, marginBottom: 4 }}>
               Jämför maskiner
             </div>
-            <div style={{ fontSize: 12, color: '#7a7a72', marginBottom: 18 }}>
+            <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 18 }}>
               Välj två maskiner och en period
             </div>
 
             {/* Machine selectors + date range */}
             <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
               <select value={machCmpA} onChange={e => setMachCmpA(e.target.value)} style={{
-                background: '#1a1a18', border: '1px solid rgba(90,255,140,0.15)', borderRadius: 8,
-                padding: '7px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif",
+                background: '#1c1c1e', border: '1px solid rgba(48,209,88,0.15)', borderRadius: 8,
+                padding: '7px 10px', color: '#ffffff', fontFamily: "'Geist', system-ui, sans-serif",
                 fontSize: 12, fontWeight: 500, outline: 'none', cursor: 'pointer',
               }}>
                 {allMachines.map(m => <option key={m.id} value={m.id}>{m.namn}</option>)}
               </select>
-              <span style={{ fontSize: 11, fontWeight: 500, color: '#3a3a36' }}>VS</span>
+              <span style={{ fontSize: 11, fontWeight: 500, color: '#48484a' }}>VS</span>
               <select value={machCmpB} onChange={e => setMachCmpB(e.target.value)} style={{
-                background: '#1a1a18', border: '1px solid rgba(91,143,255,0.2)', borderRadius: 8,
+                background: '#1c1c1e', border: '1px solid rgba(91,143,255,0.2)', borderRadius: 8,
                 padding: '7px 10px', color: '#5b8fff', fontFamily: "'Geist', system-ui, sans-serif",
                 fontSize: 12, fontWeight: 500, outline: 'none', cursor: 'pointer',
               }}>
@@ -3314,14 +3309,14 @@ export default function Maskinvy() {
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 20 }}>
               <input type="date" value={machCmpFrom} onChange={e => setMachCmpFrom(e.target.value)}
-                style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
-              <span style={{ color: '#3a3a36', fontSize: 12 }}>–</span>
+                style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#ffffff', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+              <span style={{ color: '#48484a', fontSize: 12 }}>–</span>
               <input type="date" value={machCmpTo} onChange={e => setMachCmpTo(e.target.value)}
-                style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#e8e8e4', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
+                style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#ffffff', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
               <button onClick={runMachCmp} disabled={machCmpA === machCmpB} style={{
                 padding: '7px 16px', border: 'none', borderRadius: 8,
-                background: machCmpA !== machCmpB ? '#1a4a2e' : '#1a1a18',
-                color: machCmpA !== machCmpB ? '#e8e8e4' : '#555',
+                background: machCmpA !== machCmpB ? '#1a4a2e' : '#1c1c1e',
+                color: machCmpA !== machCmpB ? '#ffffff' : '#555',
                 fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, fontWeight: 500,
                 cursor: machCmpA !== machCmpB ? 'pointer' : 'default',
               }}>
@@ -3332,30 +3327,30 @@ export default function Maskinvy() {
             {/* Results */}
             {machCmpRows.length === 2 && (
               <>
-                <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
+                <div style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, overflow: 'hidden', marginBottom: 14 }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-                        <th style={{ padding: '10px 14px', textAlign: 'left', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Maskin</th>
+                        <th style={{ padding: '10px 14px', textAlign: 'left', color: '#8e8e93', fontWeight: 500, fontSize: 11 }}>Maskin</th>
                         {['Stammar', 'Volym m³', 'Medelstam', 'm³/G15h', 'L/m³', 'Motortid h'].map(h => (
-                          <th key={h} style={{ padding: '10px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>{h}</th>
+                          <th key={h} style={{ padding: '10px 10px', textAlign: 'right', color: '#8e8e93', fontWeight: 500, fontSize: 11 }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {machCmpRows.map((r, i) => {
                         const other = machCmpRows[1 - i];
-                        const colors = ['#00c48c', '#5b8fff'];
+                        const colors = ['#30d158', '#5b8fff'];
                         const better = (a: number, b: number, higher: boolean) => higher ? a >= b : a <= b;
                         return (
                           <tr key={r.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                             <td style={{ padding: '10px 14px', fontWeight: 500, color: colors[i] }}>{r.namn}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.stammar, other.stammar, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.stammar, other.stammar, true) ? 500 : 400 }}>{r.stammar.toLocaleString('sv-SE')}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.volym, other.volym, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.volym, other.volym, true) ? 500 : 400 }}>{r.volym.toLocaleString('sv-SE')}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.medelstam}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.prod, other.prod, true) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.prod, other.prod, true) ? 500 : 400 }}>{r.prod}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.dieselM3, other.dieselM3, false) ? '#e8e8e4' : '#7a7a72', fontWeight: better(r.dieselM3, other.dieselM3, false) ? 500 : 400 }}>{r.dieselM3}</td>
-                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.motorH}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.stammar, other.stammar, true) ? '#ffffff' : '#8e8e93', fontWeight: better(r.stammar, other.stammar, true) ? 500 : 400 }}>{r.stammar.toLocaleString('sv-SE')}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.volym, other.volym, true) ? '#ffffff' : '#8e8e93', fontWeight: better(r.volym, other.volym, true) ? 500 : 400 }}>{r.volym.toLocaleString('sv-SE')}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#8e8e93' }}>{r.medelstam}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.prod, other.prod, true) ? '#ffffff' : '#8e8e93', fontWeight: better(r.prod, other.prod, true) ? 500 : 400 }}>{r.prod}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: better(r.dieselM3, other.dieselM3, false) ? '#ffffff' : '#8e8e93', fontWeight: better(r.dieselM3, other.dieselM3, false) ? 500 : 400 }}>{r.dieselM3}</td>
+                            <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#8e8e93' }}>{r.motorH}</td>
                           </tr>
                         );
                       })}
@@ -3365,8 +3360,8 @@ export default function Maskinvy() {
 
                 {/* Monthly m³/G15h chart */}
                 {machCmpMonths.length > 0 && (
-                  <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '16px 16px 12px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#3a3a36', marginBottom: 12 }}>
+                  <div style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 16px 12px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#48484a', marginBottom: 12 }}>
                       m³/G15h per månad
                     </div>
                     <div style={{ height: 240, position: 'relative' }}>
@@ -3389,12 +3384,12 @@ export default function Maskinvy() {
         const pm: Array<{ month: string; byKat: Record<string, number> }> = db.avbrottPerManad || [];
         const allKats = pk.map(k => k.kategori);
         const katColors: Record<string, string> = {};
-        const palette = ['rgba(90,255,140,0.7)','rgba(90,255,140,0.55)','rgba(90,255,140,0.4)','rgba(90,255,140,0.28)','rgba(90,255,140,0.18)','rgba(90,255,140,0.1)'];
+        const palette = ['rgba(48,209,88,0.7)','rgba(48,209,88,0.55)','rgba(48,209,88,0.4)','rgba(48,209,88,0.28)','rgba(48,209,88,0.18)','rgba(48,209,88,0.1)'];
         allKats.forEach((k, i) => { katColors[k] = palette[i % palette.length]; });
         const isMultiMonth = pm.length > 1;
         return (
           <div style={{ padding: '24px 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 960 }}>
-            <div style={{ fontSize: 20, fontWeight: 500, color: '#e8e8e4', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
+            <div style={{ fontSize: 20, fontWeight: 500, color: '#ffffff', letterSpacing: -0.5, marginBottom: 20 }}>Avbrott</div>
 
             {/* KPI cards */}
             <div className="hero" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 }}>
@@ -3404,23 +3399,23 @@ export default function Maskinvy() {
                 { label: 'Snitt per avbrott', value: at.snittMin + ' min', hero: false },
               ].map(c => (
                 <div key={c.label} style={{
-                  background: '#161614',
+                  background: '#1c1c1e',
                   border: '1px solid rgba(255,255,255,0.07)',
-                  borderRadius: 16,
+                  borderRadius: 12,
                   padding: 20,
                   minHeight: 100,
                   ...(c.hero ? { gridColumn: 'span 2' } : {}),
                 }}>
                   <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.02em', color: '#666', marginBottom: 8 }}>{c.label}</div>
-                  <div style={{ fontSize: c.hero ? 48 : 32, fontWeight: 500, color: '#e8e8e4', letterSpacing: -1, marginBottom: 4 }}>{c.value}</div>
+                  <div style={{ fontSize: c.hero ? 48 : 32, fontWeight: 500, color: '#ffffff', letterSpacing: -1, marginBottom: 4 }}>{c.value}</div>
                 </div>
               ))}
             </div>
 
             {/* Chart: stacked bars per month if multi-month, horizontal bars per category if single month */}
             {pk.length > 0 && (
-              <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, padding: '18px', marginBottom: 16 }}>
-                <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#3a3a36', marginBottom: 14 }}>
+              <div style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '18px', marginBottom: 16 }}>
+                <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#48484a', marginBottom: 14 }}>
                   {isMultiMonth ? 'Avbrottstid per månad & kategori' : 'Avbrottstid per kategori'}
                 </div>
                 <div style={{ height: isMultiMonth ? 280 : Math.max(180, pk.length * 36), position: 'relative' }}>
@@ -3431,26 +3426,26 @@ export default function Maskinvy() {
 
             {/* Top list */}
             {pk.length > 0 && (
-              <div style={{ background: '#1a1a18', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 14, overflow: 'hidden' }}>
+              <div style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ borderBottom: '0.5px solid rgba(255,255,255,0.15)' }}>
-                      <th style={{ padding: '12px 14px', textAlign: 'left', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Kategori</th>
-                      <th style={{ padding: '12px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Timmar</th>
-                      <th style={{ padding: '12px 10px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Antal</th>
-                      <th style={{ padding: '12px 14px', textAlign: 'right', color: '#7a7a72', fontWeight: 500, fontSize: 11 }}>Snitt min</th>
+                      <th style={{ padding: '12px 14px', textAlign: 'left', color: '#8e8e93', fontWeight: 500, fontSize: 11 }}>Kategori</th>
+                      <th style={{ padding: '12px 10px', textAlign: 'right', color: '#8e8e93', fontWeight: 500, fontSize: 11 }}>Timmar</th>
+                      <th style={{ padding: '12px 10px', textAlign: 'right', color: '#8e8e93', fontWeight: 500, fontSize: 11 }}>Antal</th>
+                      <th style={{ padding: '12px 14px', textAlign: 'right', color: '#8e8e93', fontWeight: 500, fontSize: 11 }}>Snitt min</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pk.map(r => (
                       <tr key={r.kategori} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                         <td style={{ padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ width: 8, height: 8, borderRadius: 2, background: katColors[r.kategori] || '#7a7a72', flexShrink: 0 }} />
+                          <div style={{ width: 8, height: 8, borderRadius: 2, background: katColors[r.kategori] || '#8e8e93', flexShrink: 0 }} />
                           {translateKategori(r.kategori)}
                         </td>
-                        <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: '#e8e8e4' }}>{r.timmar}</td>
-                        <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.antal}</td>
-                        <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#7a7a72' }}>{r.snittMin}</td>
+                        <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', fontWeight: 500, color: '#ffffff' }}>{r.timmar}</td>
+                        <td style={{ padding: '10px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#8e8e93' }}>{r.antal}</td>
+                        <td style={{ padding: '10px 14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#8e8e93' }}>{r.snittMin}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -3482,18 +3477,18 @@ export default function Maskinvy() {
 /* ps-hidden MUST come after .g2 rules so it wins at equal specificity */
 .page[data-view="produktion"] .vs-produktion.ps-hidden { display: none !important; }
 :root {
-  --bg:       #111110;
-  --surface:  #1a1a18;
-  --surface2: #222220;
+  --bg:       #000000;
+  --surface:  #1c1c1e;
+  --surface2: #2c2c2e;
   --border:   rgba(255,255,255,0.07);
   --border2:  rgba(255,255,255,0.12);
-  --text:     #e8e8e4;
-  --muted:    #7a7a72;
-  --dim:      #3a3a36;
-  --accent:   #00c48c;
+  --text:     #ffffff;
+  --muted:    #8e8e93;
+  --dim:      #48484a;
+  --accent:   #30d158;
   --accent2:  #1a4a2e;
   --warn:     #ffb340;
-  --danger:   #ff5f57;
+  --danger:   #ff453a;
   --blue:     #5b8fff;
 }
 
@@ -3523,7 +3518,7 @@ body {
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand-mark {
   width: 30px; height: 30px; border-radius: 7px;
-  background: var(--accent2); border: 1px solid rgba(90,255,140,0.2);
+  background: var(--accent2); border: 1px solid rgba(48,209,88,0.2);
   display: flex; align-items: center; justify-content: center; font-size: 14px;
 }
 .brand-name {
@@ -3549,7 +3544,7 @@ body {
   transition: all 0.15s;
 }
 .cmp-btn:hover { color: var(--text); border-color: var(--muted); }
-.cmp-btn.on { background: var(--accent2); color: var(--accent); border-color: rgba(90,255,140,0.3); }
+.cmp-btn.on { background: var(--accent2); color: var(--accent); border-color: rgba(48,209,88,0.3); }
 
 .mach-wrap { position: relative; }
 .mach-btn {
@@ -3565,7 +3560,6 @@ body {
   display: none; position: absolute; top: calc(100%+6px); right: 0;
   background: var(--surface); border: 1px solid var(--border2);
   border-radius: 12px; min-width: 260px; padding: 5px; z-index: 300;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
 }
 .mach-menu.open { display: block; animation: pop 0.15s ease; }
 @keyframes pop { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
@@ -3611,8 +3605,8 @@ body {
 .hero-main { grid-column: auto; }
 
 .hero-main {
-  background: #161614; border: 1px solid var(--border);
-  border-radius: 16px; padding: 20px; min-height: 100px;
+  background: #1c1c1e; border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px; min-height: 100px;
   position: relative; overflow: hidden;
   animation-delay: 0.05s;
 }
@@ -3628,7 +3622,7 @@ body {
 .hero-delta { margin-top: 12px; font-size: 11px; color: var(--accent); opacity: 0.9; display: flex; align-items: center; gap: 4px; }
 
 .kpi {
-  background: #161614; border: 1px solid var(--border); border-radius: 16px;
+  background: #1c1c1e; border: 1px solid var(--border); border-radius: 12px;
   padding: 20px; min-height: 100px; position: relative; overflow: hidden;
   transition: border-color 0.2s, transform 0.2s;
 }
@@ -3640,12 +3634,12 @@ body {
 .k-val { font-family: 'Geist', system-ui, sans-serif; font-size: 32px; line-height: 1; font-weight: 500; letter-spacing: -1px; color: var(--text); margin-bottom: 4px; }
 .k-unit { font-size: 12px; color: #888; }
 .k-delta { margin-top: 10px; font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 20px; }
-.up   { color: var(--accent); background: rgba(90,255,140,0.1); }
-.down { color: var(--danger); background: rgba(255,95,87,0.1); }
+.up   { color: var(--accent); background: rgba(48,209,88,0.1); }
+.down { color: var(--danger); background: rgba(255,69,58,0.1); }
 
 /* ── CARD ── */
 .card {
-  background: #161614; border: 1px solid rgba(255,255,255,0.07); border-radius: 16px;
+  background: #1c1c1e; border: 1px solid rgba(255,255,255,0.07); border-radius: 12px;
   overflow: hidden; transition: border-color 0.2s;
 }
 .card:hover { border-color: var(--border2); }
@@ -3660,11 +3654,11 @@ body {
 
 /* ── BADGE ── */
 .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 500; letter-spacing: 0.3px; }
-.bg  { background: rgba(90,255,140,0.1);  color: var(--accent); }
+.bg  { background: rgba(48,209,88,0.1);  color: var(--accent); }
 .bw  { background: rgba(255,179,64,0.1);  color: var(--warn); }
 .bs  { background: rgba(255,179,64,0.12); color: var(--warn); }
-.bgall { background: rgba(90,255,140,0.1); color: var(--accent); }
-.bd  { background: rgba(255,95,87,0.1);   color: var(--danger); }
+.bgall { background: rgba(48,209,88,0.1); color: var(--accent); }
+.bd  { background: rgba(255,69,58,0.1);   color: var(--danger); }
 .bm  { background: rgba(255,255,255,0.06); color: var(--muted); }
 
 /* ── DIVIDER ── */
@@ -3726,7 +3720,7 @@ body {
   font-size: 11px; font-weight: 500; cursor: default; transition: transform 0.1s, opacity 0.1s;
 }
 .cal-cell:hover { transform: scale(1.1); }
-.c-prod    { background: rgba(90,255,140,0.18); color: rgba(255,255,255,0.9); }
+.c-prod    { background: rgba(48,209,88,0.18); color: rgba(255,255,255,0.9); }
 .c-flytt   { background: rgba(91,143,255,0.18); color: rgba(255,255,255,0.9); }
 .c-service { background: rgba(255,179,64,0.15); color: var(--warn); }
 .c-off     { background: rgba(255,255,255,0.03); color: var(--dim); }
@@ -3743,7 +3737,7 @@ body {
   border: 1px solid transparent; transition: all 0.15s; cursor: default;
 }
 .sc:hover { border-color: var(--border2); background: var(--surface); }
-.sc.best { border-color: rgba(90,255,140,0.2); }
+.sc.best { border-color: rgba(48,209,88,0.2); }
 .sc-k { font-size: 9px; color: var(--muted); font-weight: 500; letter-spacing: 0.2px; margin-bottom: 7px; }
 .sc-p { font-family: 'Geist', system-ui, sans-serif; font-size: 16px; font-weight: 500; line-height: 1; margin-bottom: 1px; }
 .sc-u { font-size: 9px; color: var(--muted); margin-bottom: 6px; }
@@ -3818,7 +3812,7 @@ body {
 .forar-body { padding: 20px 24px 40px; }
 
 .forar-kpis { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-bottom: 20px; }
-.fkpi { background: #161614; border-radius: 10px; padding: 14px 12px; text-align: center; }
+.fkpi { background: #1c1c1e; border-radius: 10px; padding: 14px 12px; text-align: center; }
 .fkpi-v { font-family: 'Geist', system-ui, sans-serif; font-size: 22px; font-weight: 500; line-height: 1; color: var(--text); }
 .fkpi-l { font-size: 9px; letter-spacing: 0.2px; color: var(--muted); margin-top: 4px; }
 
@@ -3872,7 +3866,7 @@ body {
   .mv-bottomnav {
     display: flex !important;
     position: fixed; bottom: 0; left: 0; right: 0;
-    background: #111110;
+    background: #000000;
     border-top: 0.5px solid rgba(255,255,255,0.07);
     z-index: 200; justify-content: space-around; align-items: flex-start;
     padding: 10px 4px 16px 4px;
@@ -3882,15 +3876,15 @@ body {
   .mv-bottomnav button {
     flex: 1; display: flex; flex-direction: column; align-items: center;
     gap: 0; background: none; border: none; cursor: pointer;
-    padding: 0; min-height: 44px; color: #7a7a72; transition: color 0.15s;
+    padding: 0; min-height: 44px; color: #8e8e93; transition: color 0.15s;
   }
-  .mv-bottomnav button.active { color: #5aff8c; }
+  .mv-bottomnav button.active { color: #30d158; }
   .mv-bn-icon-wrap {
     width: 36px; height: 36px; display: flex; align-items: center; justify-content: center;
     border-radius: 12px; padding: 6px; transition: background 0.15s;
   }
   .mv-bottomnav button.active .mv-bn-icon-wrap {
-    background: rgba(90,255,140,0.1);
+    background: rgba(48,209,88,0.1);
   }
   .mv-bn-icon-wrap svg { width: 24px; height: 24px; }
   .mv-bn-label { font-size: 10px; font-weight: 500; letter-spacing: 0.3px; margin-top: 2px; }
@@ -3944,7 +3938,7 @@ body {
 ` }} />
       <div dangerouslySetInnerHTML={{ __html: `<header class="hdr">
   <div class="brand">
-    <div class="brand-mark">🌲</div>
+    <div class="brand-mark"></div>
   </div>
 
   <div class="hdr-mid">
@@ -4058,7 +4052,7 @@ body {
   <!-- ROW 1: Operatörer + Tidsfördelning -->
   <div class="g2 view-section vs-oversikt" id="sec-operatorer">
     <div class="card anim" style="animation-delay:0.3s">
-      <div class="card-h"><div class="card-t">Operatörer <span id="opBadge" style="color:#7a7a72;font-weight:400;"></span></div></div>
+      <div class="card-h"><div class="card-t">Operatörer <span id="opBadge" style="color:#8e8e93;font-weight:400;"></span></div></div>
       <div class="card-b" id="opContainer">
         <!-- Populated dynamically from DB -->
       </div>
@@ -4070,7 +4064,7 @@ body {
         <div class="card-h"><div class="card-t">Tidsfördelning</div></div>
         <div class="card-b">
           <div class="tbar">
-            <div class="tseg" style="flex:66;background:rgba(90,255,140,0.25)"></div>
+            <div class="tseg" style="flex:66;background:rgba(48,209,88,0.25)"></div>
             <div class="tseg" style="flex:14;background:rgba(91,143,255,0.2)"></div>
             <div class="tseg" style="flex:2;background:rgba(91,143,255,0.35)"></div>
             <div class="tseg" style="flex:11;background:rgba(255,179,64,0.2)"></div>
@@ -4173,7 +4167,7 @@ body {
       <div class="card-h">
         <div class="card-t" id="dailyChartTitle">Daglig produktion</div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(90,255,140,0.7)"></div>Över snitt</div>
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(48,209,88,0.7)"></div>Över snitt</div>
           <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(76,175,80,0.5)"></div>Under snitt</div>
           <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(91,143,255,0.15)"></div>Helg</div>
         </div>
@@ -4210,13 +4204,13 @@ body {
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
           <div>
             <div style="font-size:11px;font-weight:500;letter-spacing:0.02em;color:#666;margin-bottom:8px;">Bästa produktivitet</div>
-            <div id="miBestProdVal" style="font-size:24px;font-weight:500;color:#e8e8e4;letter-spacing:-0.5px;line-height:1.1;">–</div>
-            <div id="miBestProdLbl" style="font-size:11px;color:#7a7a72;margin-top:4px;"></div>
+            <div id="miBestProdVal" style="font-size:24px;font-weight:500;color:#ffffff;letter-spacing:-0.5px;line-height:1.1;">–</div>
+            <div id="miBestProdLbl" style="font-size:11px;color:#8e8e93;margin-top:4px;"></div>
           </div>
           <div>
             <div style="font-size:11px;font-weight:500;letter-spacing:0.02em;color:#666;margin-bottom:8px;">Mest volym</div>
-            <div id="miMostVolVal" style="font-size:24px;font-weight:500;color:#e8e8e4;letter-spacing:-0.5px;line-height:1.1;">–</div>
-            <div id="miMostVolLbl" style="font-size:11px;color:#7a7a72;margin-top:4px;"></div>
+            <div id="miMostVolVal" style="font-size:24px;font-weight:500;color:#ffffff;letter-spacing:-0.5px;line-height:1.1;">–</div>
+            <div id="miMostVolLbl" style="font-size:11px;color:#8e8e93;margin-top:4px;"></div>
           </div>
         </div>
       </div>
@@ -4244,7 +4238,7 @@ body {
       <div class="card-h">
         <div class="card-t">Flerträd (MTH) per medelstamsklass</div>
         <div style="display:flex;align-items:center;gap:8px;">
-          <div style="width:10px;height:10px;border-radius:2px;background:rgba(90,255,140,0.4);"></div>
+          <div style="width:10px;height:10px;border-radius:2px;background:rgba(48,209,88,0.4);"></div>
           <span style="font-size:10px;color:var(--muted);">MTH-andel</span>
         </div>
       </div>
@@ -4257,7 +4251,7 @@ body {
     <div class="card anim">
       <div class="card-h"><div class="card-t">Åtgärdsjämförelse per medelstamsklass</div></div>
       <div class="card-b">
-        <div id="rpauSummary" style="display:none;margin-bottom:16px;padding:14px 18px;background:rgba(0,196,140,0.06);border:1px solid rgba(0,196,140,0.18);border-radius:12px;color:#e8e8e4;font-size:14px;font-weight:500;letter-spacing:-0.1px;text-align:center;"></div>
+        <div id="rpauSummary" style="display:none;margin-bottom:16px;padding:14px 18px;background:rgba(48,209,88,0.06);border:1px solid rgba(48,209,88,0.18);border-radius:12px;color:#ffffff;font-size:14px;font-weight:500;letter-spacing:-0.1px;text-align:center;"></div>
         <div id="atgardKlassWrap" style="display:none;">
           <div class="cleg">Volym per medelstamsklass — per åtgärd</div>
           <canvas id="atgardKlassChart" style="max-height:175px"></canvas>
@@ -4285,7 +4279,7 @@ body {
       <div class="card-h">
         <div class="card-t">Sortiment per dag</div>
         <div style="display:flex;gap:12px;">
-          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(90,255,140,0.5)"></div>Timmer</div>
+          <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(48,209,88,0.5)"></div>Timmer</div>
           <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(91,143,255,0.5)"></div>Kubb</div>
           <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(255,179,64,0.4)"></div>Massa</div>
           <div class="li" style="font-size:10px;color:var(--muted)"><div class="ld" style="background:rgba(255,255,255,0.1)"></div>Energi</div>
@@ -4365,7 +4359,7 @@ body {
     <!-- Tidsfördelning stapel -->
     <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Fördelning</div>
     <div style="background:var(--surface2);border-radius:10px;padding:14px 16px;margin-bottom:20px;">
-      <div class="frow"><span class="frow-l">Processar</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:66%;background:rgba(90,255,140,0.4)"></div></div></div><span class="frow-v">111h · 66%</span></div>
+      <div class="frow"><span class="frow-l">Processar</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:66%;background:rgba(48,209,88,0.4)"></div></div></div><span class="frow-v">111h · 66%</span></div>
       <div class="frow"><span class="frow-l">Kör</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:14%;background:rgba(255,255,255,0.2)"></div></div></div><span class="frow-v">23h · 14%</span></div>
       <div class="frow"><span class="frow-l">Korta stopp</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:2%;background:rgba(91,143,255,0.3)"></div></div></div><span class="frow-v">4h · 2%</span></div>
       <div class="frow"><span class="frow-l">Avbrott</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:11%;background:rgba(255,179,64,0.4)"></div></div></div><span class="frow-v">18h · 11%</span></div>
@@ -4459,7 +4453,7 @@ body {
 <!-- TRÄDSLAG PANEL -->
 <div class="bolag-panel" id="tradslagPanel">
   <div class="forar-head">
-    <div class="forar-av" style="border-radius:8px;font-size:14px;">🌲</div>
+    <div class="forar-av" style="border-radius:8px;"></div>
     <div>
       <div class="forar-title">Trädslag & sortiment</div>
       <div class="forar-sub"></div>
@@ -4520,7 +4514,7 @@ body {
 
     <div style="font-size:10px;font-weight:500;letter-spacing:0.2px;color:var(--muted);margin-bottom:10px;">Andel per sortiment</div>
     <div style="background:var(--surface2);border-radius:10px;padding:14px 16px;">
-      <div class="frow"><span class="frow-l">Sågtimmer</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:62%;background:rgba(90,255,140,0.5)"></div></div></div><span class="frow-v">62% · 1 124 m³</span></div>
+      <div class="frow"><span class="frow-l">Sågtimmer</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:62%;background:rgba(48,209,88,0.5)"></div></div></div><span class="frow-v">62% · 1 124 m³</span></div>
       <div class="frow"><span class="frow-l">Massaved</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:32%;background:rgba(255,255,255,0.2)"></div></div></div><span class="frow-v">32% · 575 m³</span></div>
       <div class="frow" style="border-bottom:none"><span class="frow-l">Energived</span><div style="flex:1;margin:0 12px"><div class="prog"><div class="pf" style="width:6%;background:rgba(91,143,255,0.4)"></div></div></div><span class="frow-v">6% · 108 m³</span></div>
     </div>
@@ -4533,7 +4527,7 @@ body {
 <!-- OBJ JMF PANEL -->
 <div class="bolag-panel" id="objJmfPanel" style="width:min(560px,100vw);">
   <div class="forar-head">
-    <div class="forar-av" style="border-radius:8px;font-size:13px;">⚡</div>
+    <div class="forar-av" style="border-radius:8px;"></div>
     <div>
       <div class="forar-title">RP · AU · LRK – jämförelse</div>
       <div class="forar-sub"></div>
@@ -4621,19 +4615,19 @@ body {
       {activeView === 'analys' && (
         <div style={{ padding: '0 28px 60px', fontFamily: "'Geist', system-ui, sans-serif", maxWidth: 1400, margin: '0 auto' }}>
           <div style={{
-            background: '#161614', border: '1px solid rgba(255,255,255,0.07)',
-            borderRadius: 16, padding: 20, marginTop: 16,
+            background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)',
+            borderRadius: 12, padding: 20, marginTop: 16,
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.02em', color: '#666', marginBottom: 8 }}>Jämför perioder</div>
-              <div style={{ fontSize: 13, color: '#e8e8e4' }}>
+              <div style={{ fontSize: 13, color: '#ffffff' }}>
                 {valdMaskin ? `${valdMaskin.tillverkare} ${valdMaskin.modell}` : ''} — sida vid sida
               </div>
             </div>
             <button onClick={() => setActiveView('jamfor')} style={{
               padding: '8px 18px', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8,
-              background: '#1a1a18', color: '#e8e8e4',
+              background: '#1c1c1e', color: '#ffffff',
               fontSize: 12, fontWeight: 500, cursor: 'pointer',
               fontFamily: "'Geist', system-ui, sans-serif",
               transition: 'border-color 0.15s',
