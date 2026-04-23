@@ -14,10 +14,10 @@ const supabase = createClient(
    ══════════════════════════════════════════════════════════════ */
 const ff = "'Geist', system-ui, sans-serif";
 const C = {
-  bg: '#111110', surface: '#1a1a18', surface2: '#222220',
+  bg: '#000000', surface: '#1c1c1e', surface2: '#2c2c2e',
   border: 'rgba(255,255,255,0.07)', border2: 'rgba(255,255,255,0.13)',
-  t1: '#e8e8e4', t2: '#a8a8a2', t3: '#7a7a72', t4: '#3a3a36',
-  green: '#00c48c', red: '#ff5f57', amber: '#ffb340', blue: '#60a5fa',
+  t1: '#ffffff', t2: '#8e8e93', t3: '#8e8e93', t4: '#48484a',
+  green: '#30d158', red: '#ff453a', amber: '#ffb340', blue: '#60a5fa',
 };
 
 /* ══════════════════════════════════════════════════════════════
@@ -353,7 +353,7 @@ function BarChart({ bars, prevAvg, color }: {
 function SectionTitle({ children }: { children: string }) {
   return (
     <div style={{
-      fontSize: 13, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em',
+      fontSize: 13, fontWeight: 600, letterSpacing: '0.08em',
       color: C.t3, marginBottom: 12, fontFamily: ff,
     }}>{children}</div>
   );
@@ -690,14 +690,14 @@ export default function Maskinvy2Page() {
               return (
                 <div key={k} onClick={() => { setActiveKpi(active ? null : k); setSelectedOp(null); }} style={{
                   background: C.surface,
-                  border: `1px solid ${active ? 'rgba(0,196,140,0.3)' : 'rgba(255,255,255,0.08)'}`,
-                  borderRadius: 16, padding: 24, cursor: 'pointer',
+                  border: `1px solid ${active ? 'rgba(48,209,88,0.3)' : 'rgba(255,255,255,0.08)'}`,
+                  borderRadius: 12, padding: 24, cursor: 'pointer',
                   transition: 'all 0.2s',
-                  boxShadow: active ? '0 0 0 1px rgba(0,196,140,0.15)' : 'none',
+                  boxShadow: active ? '0 0 0 1px rgba(48,209,88,0.15)' : 'none',
                 }}>
                   <div style={{
                     fontSize: 11, color: C.t3, fontWeight: 600, letterSpacing: '0.08em',
-                    textTransform: 'uppercase', marginBottom: 12,
+                    marginBottom: 12,
                   }}>
                     {meta.label}
                   </div>
@@ -713,7 +713,7 @@ export default function Maskinvy2Page() {
                   <div style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4,
                     fontSize: 12, fontWeight: 600, color: tCol,
-                    background: dir === 'flat' ? 'transparent' : isGood ? 'rgba(0,196,140,0.1)' : 'rgba(255,95,87,0.1)',
+                    background: dir === 'flat' ? 'transparent' : isGood ? 'rgba(48,209,88,0.1)' : 'rgba(255,69,58,0.1)',
                     borderRadius: 20, padding: '3px 10px',
                   }}>
                     {arrow} {Math.abs(pct).toFixed(0)}%
@@ -726,7 +726,7 @@ export default function Maskinvy2Page() {
           {/* ═══ FÖRARE ═══ */}
           <SectionTitle>Förare</SectionTitle>
           <div style={{
-            background: C.surface, borderRadius: 16,
+            background: C.surface, borderRadius: 12,
             border: '1px solid rgba(255,255,255,0.08)', marginBottom: 32, overflow: 'hidden',
           }}>
             {opsCurr.length === 0 && (
@@ -754,7 +754,7 @@ export default function Maskinvy2Page() {
                 >
                   <div style={{
                     width: 36, height: 36, borderRadius: 18,
-                    background: 'rgba(0,196,140,0.1)', border: '1px solid rgba(0,196,140,0.2)',
+                    background: 'rgba(48,209,88,0.1)', border: '1px solid rgba(48,209,88,0.2)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontSize: 12, fontWeight: 700, color: C.green, flexShrink: 0, marginRight: 14,
                   }}>
@@ -781,7 +781,7 @@ export default function Maskinvy2Page() {
           {/* ═══ MÅNADSPRODUKTION ═══ */}
           <SectionTitle>Volym per månad — {year}</SectionTitle>
           <div style={{
-            background: C.surface, borderRadius: 16,
+            background: C.surface, borderRadius: 12,
             border: '1px solid rgba(255,255,255,0.08)', padding: 24, marginBottom: 32,
           }}>
             {(() => {
@@ -808,7 +808,7 @@ export default function Maskinvy2Page() {
                           <div style={{
                             width: '70%', maxWidth: 32,
                             height: `${Math.max((b.value / maxV) * 100, b.value > 0 ? 3 : 0)}%`,
-                            background: isCurrent ? C.green : b.value > 0 ? 'rgba(0,196,140,0.35)' : 'rgba(255,255,255,0.04)',
+                            background: isCurrent ? C.green : b.value > 0 ? 'rgba(48,209,88,0.35)' : 'rgba(255,255,255,0.04)',
                             borderRadius: '4px 4px 0 0', transition: 'height 0.4s ease',
                           }} />
                         </div>
@@ -830,7 +830,7 @@ export default function Maskinvy2Page() {
 
           {/* ═══ SAMMANFATTNING ═══ */}
           <div style={{
-            background: C.surface, borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)',
+            background: C.surface, borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)',
             padding: 20, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16,
           }}>
             {[
@@ -840,7 +840,7 @@ export default function Maskinvy2Page() {
               { label: 'Diesel', value: fN(aggCurr.bransle, 0), unit: 'liter' },
             ].map(s => (
               <div key={s.label}>
-                <div style={{ fontSize: 10, color: C.t4, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 }}>{s.label}</div>
+                <div style={{ fontSize: 10, color: C.t4, fontWeight: 600, letterSpacing: '0.06em', marginBottom: 4 }}>{s.label}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                   <span style={{ fontSize: 20, fontWeight: 700, color: C.t1, fontVariantNumeric: 'tabular-nums' }}>{s.value}</span>
                   <span style={{ fontSize: 11, color: C.t3 }}>{s.unit}</span>
@@ -861,13 +861,13 @@ export default function Maskinvy2Page() {
         {activeKpi && (
           <>
             <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>
+              <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', marginBottom: 12 }}>
                 {periodType === 'vecka' ? 'Per dag' : periodType === 'manad' ? 'Per dag' : 'Per månad'}
               </div>
               <BarChart bars={chartBars} prevAvg={prevChartAvg} color={chartColor(activeKpi)} />
             </div>
 
-            <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', marginBottom: 12 }}>
               Förare
             </div>
             {opsCurr.length === 0 && (
@@ -937,9 +937,9 @@ export default function Maskinvy2Page() {
                 return (
                   <div key={k} style={{
                     background: C.surface, border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: 14, padding: '16px 18px',
+                    borderRadius: 12, padding: '16px 18px',
                   }}>
-                    <div style={{ fontSize: 10, color: C.t4, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 }}>{meta.label}</div>
+                    <div style={{ fontSize: 10, color: C.t4, fontWeight: 600, letterSpacing: '0.06em', marginBottom: 6 }}>{meta.label}</div>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                       <span style={{ fontSize: 24, fontWeight: 700, color: C.t1, fontVariantNumeric: 'tabular-nums' }}>
                         {fN(v, meta.dec)}
@@ -957,7 +957,7 @@ export default function Maskinvy2Page() {
               })}
             </div>
 
-            <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', marginBottom: 10 }}>
               {periodType === 'vecka' ? 'Per dag' : 'Per månad'}
             </div>
             <div style={{ overflowX: 'auto' }}>

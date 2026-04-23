@@ -50,7 +50,6 @@ export default function MaskinvyPage() {
           width: calc((100% - 4px) / 3);
           background: #2c2c2a;
           border-radius: 7px;
-          box-shadow: 0 3px 8px rgba(0,0,0,0.35), 0 1px 0 rgba(255,255,255,0.06) inset;
           transition: transform 280ms cubic-bezier(0.32, 0.72, 0, 1);
           pointer-events: none;
         }
@@ -63,13 +62,13 @@ export default function MaskinvyPage() {
           font-family: 'Geist', system-ui, sans-serif;
           font-size: 13px;
           font-weight: 500;
-          color: #9a9a92;
+          color: #8e8e93;
           cursor: pointer;
           letter-spacing: -0.2px;
           transition: color 200ms ease, transform 120ms ease;
           padding: 0;
         }
-        .mv-seg-btn.active { color: #f2f2f0; font-weight: 600; }
+        .mv-seg-btn.active { color: #ffffff; font-weight: 600; }
         .mv-seg-btn:active { transform: scale(0.97); }
         /* Push content down by 52px below the taller toggle bar */
         .mv-wrapper > div { top: 108px !important; }

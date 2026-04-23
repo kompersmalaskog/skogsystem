@@ -27,29 +27,29 @@ const METRICS: { id: MetricId; label: string; sublabel: string; unit: string; hi
 const ff = "'Geist', system-ui, sans-serif";
 
 const C = {
-  bg: '#111110',
-  surface: '#1a1a18',
-  surface2: '#222220',
+  bg: '#000000',
+  surface: '#1c1c1e',
+  surface2: '#2c2c2e',
   surface3: '#2a2a28',
   border: 'rgba(255,255,255,0.07)',
   border2: 'rgba(255,255,255,0.13)',
   border3: 'rgba(255,255,255,0.2)',
-  t1: '#e8e8e4',
-  t2: '#a8a8a2',
-  t3: '#7a7a72',
-  t4: '#3a3a36',
-  green: '#5aff8c',
-  greenBg: 'rgba(90,255,140,0.08)',
-  greenBorder: 'rgba(90,255,140,0.2)',
-  red: '#ff5f57',
-  redBg: 'rgba(255,95,87,0.08)',
+  t1: '#ffffff',
+  t2: '#8e8e93',
+  t3: '#8e8e93',
+  t4: '#48484a',
+  green: '#30d158',
+  greenBg: 'rgba(48,209,88,0.08)',
+  greenBorder: 'rgba(48,209,88,0.2)',
+  red: '#ff453a',
+  redBg: 'rgba(255,69,58,0.08)',
   amber: '#ffb340',
 };
 
 // Bar colors — white tones for EK, green for Wisent
 const COLOR_EK_BRED = 'rgba(255,255,255,0.9)';
 const COLOR_EK_SMAL = 'rgba(255,255,255,0.45)';
-const COLOR_WI      = 'rgba(90,255,140,0.7)';
+const COLOR_WI      = 'rgba(48,209,88,0.7)';
 
 interface ClassData {
   volym: number;
@@ -107,7 +107,7 @@ function ScoreCard({
         ? 'linear-gradient(145deg, #1e1e1c 0%, #141412 100%)'
         : C.surface,
       border: `1px solid ${isWinner ? C.border3 : C.border}`,
-      borderRadius: 16,
+      borderRadius: 12,
       padding: '22px 20px 18px',
       position: 'relative',
       overflow: 'hidden',
@@ -127,13 +127,12 @@ function ScoreCard({
       {/* Rank badge */}
       <div style={{
         display: 'inline-flex', alignItems: 'center', gap: 4,
-        fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase',
-        padding: '3px 9px', borderRadius: 4, marginBottom: 10,
+        fontSize: 11, fontWeight: 500, padding: '3px 9px', borderRadius: 4, marginBottom: 10,
         background: isWinner ? C.greenBg : 'transparent',
         border: `1px solid ${isWinner ? C.greenBorder : C.border}`,
         color: isWinner ? C.green : C.t4,
       }}>
-        {isWinner ? '★ Bäst' : '2:a plats'}
+        {isWinner ? 'Bäst' : '2:a plats'}
       </div>
 
       {/* Name */}
@@ -161,7 +160,7 @@ function ScoreCard({
       <div style={{
         fontSize: 14, fontWeight: 700, marginBottom: 16, letterSpacing: -0.3,
         color: goodDiff ? C.green : C.red,
-        textShadow: goodDiff && isWinner ? '0 0 20px rgba(90,255,140,0.4)' : 'none',
+        textShadow: goodDiff && isWinner ? '0 0 20px rgba(48,209,88,0.4)' : 'none',
       }}>
         {value > 0 ? `${sign}${pctDiff.toFixed(1)}% ${goodDiff ? 'bättre' : 'sämre'}` : '—'}
       </div>
@@ -381,7 +380,7 @@ export default function Jamforelse() {
 
       {/* ── EK CONFIG SELECTOR ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <span style={{ fontSize: 11, color: C.t3, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+        <span style={{ fontSize: 11, color: C.t3, fontWeight: 600, letterSpacing: '0.08em', }}>
           EK konfiguration:
         </span>
         <div style={{
@@ -452,12 +451,11 @@ export default function Jamforelse() {
 
       {/* ── BAR CHART ── */}
       <div style={{
-        background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`,
+        background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
         padding: '18px 18px 14px', marginBottom: 14,
       }}>
         <div style={{
-          fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
-          letterSpacing: '0.14em', color: C.t4, marginBottom: 16,
+          fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: C.t4, marginBottom: 16,
         }}>
           {currentMetric.label} per avståndsklass
         </div>
@@ -468,12 +466,11 @@ export default function Jamforelse() {
 
       {/* ── DETAILS TABLE ── */}
       <div style={{
-        background: C.surface, borderRadius: 14, border: `1px solid ${C.border}`,
+        background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
         overflow: 'hidden',
       }}>
         <div style={{
-          fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
-          letterSpacing: '0.14em', color: C.t4, padding: '16px 18px 12px',
+          fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: C.t4, padding: '16px 18px 12px',
           borderBottom: `1px solid ${C.border}`,
         }}>
           Detaljer per avståndsklass

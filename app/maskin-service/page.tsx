@@ -65,7 +65,10 @@ export default function MaskinServicePage() {
         borderRadius: 10,
         marginBottom: 28,
       }}>
-        <span style={{ fontSize: 15, opacity: 0.4 }}>🔍</span>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.35-4.35" />
+        </svg>
         <input
           type="text"
           value={search}
@@ -96,7 +99,7 @@ export default function MaskinServicePage() {
             <h2 style={{ fontSize: 20, fontWeight: 600, color: '#fff', letterSpacing: -0.3, fontFamily: fonts, margin: '0 0 10px' }}>
               {formatTyp(typ)}
             </h2>
-            <div style={{ backgroundColor: '#1C1C1E', borderRadius: 16, overflow: 'hidden' }}>
+            <div style={{ backgroundColor: '#1c1c1e', borderRadius: 12, overflow: 'hidden' }}>
               {machines.map((m, i) => (
                 <div key={m.id}>
                   {i > 0 && (
