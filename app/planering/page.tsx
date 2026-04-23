@@ -11162,105 +11162,61 @@ export default function PlannerPage() {
                         Avståndsinställningar gäller i körläge
                       </div>
                     )}
-                    {/* Varningsavstånd slider */}
-                    <div style={{ marginBottom: '10px', opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Varningsavstånd</span>
-                        <span style={{ fontSize: '13px', color: '#f59e0b', fontWeight: '600' }}>
-                          {warningSettings[item.id]?.warnDist || item.defaultWarn}m
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={10}
-                        max={100}
-                        step={5}
-                        value={warningSettings[item.id]?.warnDist || item.defaultWarn}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value);
-                          setWarningSettings(prev => ({
-                            ...prev,
-                            [item.id]: { ...prev[item.id], warnDist: val },
-                          }));
-                        }}
-                        style={{
-                          width: '100%',
-                          height: '6px',
-                          WebkitAppearance: 'none',
-                          appearance: 'none' as any,
-                          background: `linear-gradient(to right, #f59e0b 0%, #f59e0b ${((warningSettings[item.id]?.warnDist || item.defaultWarn) - 10) / 90 * 100}%, rgba(255,255,255,0.1) ${((warningSettings[item.id]?.warnDist || item.defaultWarn) - 10) / 90 * 100}%, rgba(255,255,255,0.1) 100%)`,
-                          borderRadius: '3px',
-                          outline: 'none',
-                          cursor: 'pointer',
-                        }}
-                      />
-                    </div>
-                    {/* Synlighetsavstånd slider */}
-                    <div style={{ marginBottom: '10px', opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Synlighetsavstånd</span>
-                        <span style={{ fontSize: '13px', color: '#30d158', fontWeight: '600' }}>
-                          {warningSettings[item.id]?.fadeDist || item.defaultFade}m
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={50}
-                        max={500}
-                        step={10}
-                        value={warningSettings[item.id]?.fadeDist || item.defaultFade}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value);
-                          setWarningSettings(prev => ({
-                            ...prev,
-                            [item.id]: { ...prev[item.id], fadeDist: val },
-                          }));
-                        }}
-                        style={{
-                          width: '100%',
-                          height: '6px',
-                          WebkitAppearance: 'none',
-                          appearance: 'none' as any,
-                          background: `linear-gradient(to right, #30d158 0%, #30d158 ${((warningSettings[item.id]?.fadeDist || item.defaultFade) - 50) / 450 * 100}%, rgba(255,255,255,0.1) ${((warningSettings[item.id]?.fadeDist || item.defaultFade) - 50) / 450 * 100}%, rgba(255,255,255,0.1) 100%)`,
-                          borderRadius: '3px',
-                          outline: 'none',
-                          cursor: 'pointer',
-                        }}
-                      />
-                    </div>
-                    {/* Synlighet på avstånd slider (minOpacity) */}
-                    <div style={{ opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                        <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Synlighet på avstånd</span>
-                        <span style={{ fontSize: '13px', color: '#a78bfa', fontWeight: '600' }}>
-                          {Math.round((warningSettings[item.id]?.minOpacity ?? 0.1) * 100)}%
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={100}
-                        step={5}
-                        value={Math.round((warningSettings[item.id]?.minOpacity ?? 0.1) * 100)}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value) / 100;
-                          setWarningSettings(prev => ({
-                            ...prev,
-                            [item.id]: { ...prev[item.id], minOpacity: val },
-                          }));
-                        }}
-                        style={{
-                          width: '100%',
-                          height: '6px',
-                          WebkitAppearance: 'none',
-                          appearance: 'none' as any,
-                          background: `linear-gradient(to right, #a78bfa 0%, #a78bfa ${(warningSettings[item.id]?.minOpacity ?? 0.1) * 100}%, rgba(255,255,255,0.1) ${(warningSettings[item.id]?.minOpacity ?? 0.1) * 100}%, rgba(255,255,255,0.1) 100%)`,
-                          borderRadius: '3px',
-                          outline: 'none',
-                          cursor: 'pointer',
-                        }}
-                      />
-                    </div>
+                    {(() => {
+                      // iOS segmented control-stil för warning-inställningar
+                      const segWrap: React.CSSProperties = { display: 'flex', background: 'rgba(118,118,128,0.24)', borderRadius: 9, padding: 2, gap: 2 };
+                      const segBtn = (active: boolean): React.CSSProperties => ({
+                        flex: 1, minHeight: 32, padding: '6px 8px', borderRadius: 7, border: 'none',
+                        background: active ? '#fff' : 'transparent',
+                        color: active ? '#000' : 'rgba(255,255,255,0.85)',
+                        fontSize: 13, fontWeight: active ? 600 : 500, cursor: 'pointer', fontFamily: 'inherit',
+                      });
+                      const curWarn = warningSettings[item.id]?.warnDist || item.defaultWarn;
+                      const curFade = warningSettings[item.id]?.fadeDist || item.defaultFade;
+                      const curOpacity = warningSettings[item.id]?.minOpacity ?? 0.1;
+                      const warnPresets = [{ label: 'Nära', value: 30 }, { label: 'Medel', value: 50 }, { label: 'Långt', value: 80 }];
+                      const fadePresets = [{ label: 'Nära', value: 100 }, { label: 'Medel', value: 250 }, { label: 'Långt', value: 500 }];
+                      const opacityPresets = [{ label: 'Låg', value: 0.1 }, { label: 'Medel', value: 0.4 }, { label: 'Hög', value: 0.7 }];
+                      const pickClosest = <T extends { value: number }>(presets: T[], cur: number) =>
+                        presets.reduce((best, p) => Math.abs(p.value - cur) < Math.abs(best.value - cur) ? p : best, presets[0]).value;
+                      return (
+                        <div style={{ opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
+                          {/* Varningsavstånd */}
+                          <div style={{ marginBottom: 12 }}>
+                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Varningsavstånd</div>
+                            <div style={segWrap}>
+                              {warnPresets.map(p => (
+                                <button key={p.value} type="button" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], warnDist: p.value } }))} style={segBtn(pickClosest(warnPresets, curWarn) === p.value)}>
+                                  {p.label} <span style={{ opacity: 0.6, fontSize: 12 }}>{p.value}m</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Synlighetsavstånd */}
+                          <div style={{ marginBottom: 12 }}>
+                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Synlighetsavstånd</div>
+                            <div style={segWrap}>
+                              {fadePresets.map(p => (
+                                <button key={p.value} type="button" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], fadeDist: p.value } }))} style={segBtn(pickClosest(fadePresets, curFade) === p.value)}>
+                                  {p.label} <span style={{ opacity: 0.6, fontSize: 12 }}>{p.value}m</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Synlighet på avstånd */}
+                          <div>
+                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Synlighet på avstånd</div>
+                            <div style={segWrap}>
+                              {opacityPresets.map(p => (
+                                <button key={p.value} type="button" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], minOpacity: p.value } }))} style={segBtn(pickClosest(opacityPresets, curOpacity) === p.value)}>
+                                  {p.label} <span style={{ opacity: 0.6, fontSize: 12 }}>{Math.round(p.value * 100)}%</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
                     </>)}
                   </div>
                   );
