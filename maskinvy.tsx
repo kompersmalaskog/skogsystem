@@ -2931,16 +2931,23 @@ export default function Maskinvy() {
 
   return (
     <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, display: 'flex', zIndex: 1 }}>
-      {/* Loading overlay */}
-      {loading && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 100,
-          background: 'rgba(15,15,14,0.7)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-        }}>
-          <div style={{ color: '#8e8e93', fontSize: 14, fontFamily: "'Geist', system-ui, sans-serif" }}>Laddar data...</div>
-        </div>
-      )}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes mvLoadingSlide { 0% { transform: translateX(-100%); } 100% { transform: translateX(350%); } }
+        .mv-loading-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: transparent; overflow: hidden; z-index: 90; }
+        .mv-loading-bar::after { content: ''; display: block; width: 40%; height: 100%; background: #30d158; animation: mvLoadingSlide 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+        @keyframes mvSkelShine { 0% { background-position: -200px 0; } 100% { background-position: calc(200px + 100%) 0; } }
+        .mv-is-loading .hero-val, .mv-is-loading .k-val, .mv-is-loading .hero-unit, .mv-is-loading .k-unit {
+          color: transparent !important;
+          background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.04) 100%);
+          background-size: 200px 100%;
+          border-radius: 6px;
+          animation: mvSkelShine 1.4s ease-in-out infinite;
+          display: inline-block;
+          min-width: 60px;
+        }
+        .mv-is-loading .hero-unit, .mv-is-loading .k-unit { min-width: 40px; height: 10px; margin-top: 4px; }
+      ` }} />
+      {loading && <div className="mv-loading-bar" aria-hidden />}
       {/* ── SIDEBAR ── */}
       <aside className="mv-sidebar" style={{
         width: 220, flexShrink: 0, background: '#000000', borderRight: '1px solid rgba(255,255,255,0.07)',
@@ -3036,21 +3043,21 @@ export default function Maskinvy() {
           </div>
 
           {/* Period navigation: ‹ Label › */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
-            <button onClick={() => setPeriodOffset(o => o - 1)} style={{
-              width: 26, height: 26, border: 'none', borderRadius: 6, background: 'transparent',
-              color: '#8e8e93', fontSize: 14, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <button onClick={() => setPeriodOffset(o => o - 1)} aria-label="Föregående period" style={{
+              width: 44, height: 44, border: 'none', borderRadius: 10, background: 'transparent',
+              color: '#8e8e93', fontSize: 18, cursor: 'pointer', fontFamily: "'Geist', system-ui, sans-serif",
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>‹</button>
             <div style={{
-              minWidth: 90, textAlign: 'center', fontSize: 12, fontWeight: 500,
+              minWidth: 104, textAlign: 'center', fontSize: 13, fontWeight: 600,
               color: '#ffffff', letterSpacing: '-0.2px',
             }}>
               {getPeriodLabel(period, periodOffset)}
             </div>
-            <button onClick={() => setPeriodOffset(o => Math.min(o + 1, 0))} style={{
-              width: 26, height: 26, border: 'none', borderRadius: 6, background: 'transparent',
-              color: periodOffset >= 0 ? '#333' : '#8e8e93', fontSize: 14,
+            <button onClick={() => setPeriodOffset(o => Math.min(o + 1, 0))} aria-label="Nästa period" disabled={periodOffset >= 0} style={{
+              width: 44, height: 44, border: 'none', borderRadius: 10, background: 'transparent',
+              color: periodOffset >= 0 ? '#3a3a36' : '#8e8e93', fontSize: 18,
               cursor: periodOffset >= 0 ? 'default' : 'pointer',
               fontFamily: "'Geist', system-ui, sans-serif",
               display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -3058,20 +3065,20 @@ export default function Maskinvy() {
           </div>
 
           {/* Period type: V M K Å */}
-          <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.04)', borderRadius: 6, padding: 2 }}>
+          <div style={{ display: 'flex', gap: 2, background: 'rgba(120,120,128,0.16)', borderRadius: 10, padding: 2, height: 44 }}>
             {(['V', 'M', 'K', 'Å'] as const).map((p) => (
               <button key={p} onClick={() => { setPeriod(p); setPeriodOffset(0); }} style={{
-                padding: '4px 10px', border: 'none', borderRadius: 5,
-                background: period === p ? '#1e1e1c' : 'transparent',
-                color: period === p ? '#ffffff' : '#555',
-                fontSize: 11, fontWeight: 500, cursor: 'pointer',
+                minWidth: 44, padding: '0 14px', border: 'none', borderRadius: 8,
+                background: period === p ? '#2c2c2e' : 'transparent',
+                color: period === p ? '#ffffff' : '#8e8e93',
+                fontSize: 14, fontWeight: period === p ? 600 : 500, cursor: 'pointer',
                 fontFamily: "'Geist', system-ui, sans-serif",
               }}>{p}</button>
             ))}
           </div>
         </div>
         {/* ── SCROLLABLE CONTENT ── */}
-        <div className="mv-scroll" style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
+        <div className={`mv-scroll${loading && dataVersion === 0 ? ' mv-is-loading' : ''}`} style={{ flex: 1, overflow: 'auto', WebkitOverflowScrolling: 'touch' }}>
 
       {/* ── PERIOD COMPARISON PANEL ── */}
       {activeView === 'idag' && (() => {
@@ -3799,12 +3806,12 @@ body {
   font-size: 15px; font-weight: 500; color: rgba(255,255,255,0.7);
   flex-shrink: 0;
 }
-.forar-title { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 500; }
-.forar-sub   { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.forar-title { font-family: 'Geist', system-ui, sans-serif; font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
+.forar-sub   { font-size: 13px; color: var(--muted); margin-top: 2px; }
 .forar-close {
-  margin-left: auto; width: 30px; height: 30px; border-radius: 50%;
+  margin-left: auto; width: 44px; height: 44px; border-radius: 50%;
   background: rgba(255,255,255,0.07); border: none; cursor: pointer;
-  color: var(--muted); font-size: 14px; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 17px; display: flex; align-items: center; justify-content: center;
   transition: background 0.15s;
 }
 .forar-close:hover { background: rgba(255,255,255,0.12); color: var(--text); }

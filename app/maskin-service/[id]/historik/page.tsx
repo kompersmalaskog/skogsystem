@@ -93,8 +93,25 @@ export default function HistorikPage() {
   }, [entries, filter, search]);
 
   if (loading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '80vh' }}>
-      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 15, fontFamily: f }}>Laddar...</p>
+    <div style={{ maxWidth: 480, margin: '0 auto', padding: '0 24px', paddingBottom: 40 }}>
+      <style>{`@keyframes skelShine { 0% { background-position: -200px 0; } 100% { background-position: calc(200px + 100%) 0; } }
+        .skel { background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 100%); background-size: 200px 100%; border-radius: 8px; animation: skelShine 1.4s ease-in-out infinite; }
+      `}</style>
+      <div style={{ padding: '28px 0 20px' }}>
+        <div className="skel" style={{ height: 28, width: '60%' }} />
+      </div>
+      <div className="skel" style={{ height: 44, marginBottom: 14 }} />
+      <div style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
+        {[60, 80, 95, 60].map((w, i) => <div key={i} className="skel" style={{ height: 44, width: w, borderRadius: 22 }} />)}
+      </div>
+      <div style={{ backgroundColor: '#1c1c1e', borderRadius: 12, padding: '4px 0' }}>
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} style={{ padding: '16px 18px', borderBottom: i < 4 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+            <div className="skel" style={{ height: 16, width: '60%', marginBottom: 8 }} />
+            <div className="skel" style={{ height: 13, width: '40%' }} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 
@@ -152,12 +169,12 @@ export default function HistorikPage() {
               key={tab}
               onClick={() => setFilter(tab)}
               style={{
-                padding: '6px 14px', borderRadius: 18,
+                minHeight: 44, padding: '0 16px', borderRadius: 22,
                 backgroundColor: active ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.04)',
                 border: active ? '1px solid rgba(255,255,255,0.12)' : '1px solid transparent',
                 cursor: 'pointer',
-                fontSize: 13, fontWeight: active ? 600 : 400,
-                color: active ? '#fff' : 'rgba(255,255,255,0.4)',
+                fontSize: 14, fontWeight: active ? 600 : 400,
+                color: active ? '#fff' : '#8e8e93',
                 fontFamily: f,
                 transition: 'all 0.15s',
               }}
@@ -208,8 +225,8 @@ export default function HistorikPage() {
                   onClick={() => handleDelete(e)}
                   style={{
                     background: 'none', border: 'none', cursor: 'pointer',
-                    fontSize: 12, color: 'rgba(255,255,255,0.15)', fontFamily: f,
-                    padding: '4px 0 4px 16px', flexShrink: 0,
+                    fontSize: 13, color: '#8e8e93', fontFamily: f,
+                    minHeight: 44, padding: '0 0 0 16px', flexShrink: 0,
                   }}
                 >
                   Ta bort

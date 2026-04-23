@@ -267,8 +267,8 @@ function SlidePanel({ open, onClose, title, children, z = 100 }: {
         }}>
           <span style={{ fontSize: 16, fontWeight: 700, letterSpacing: -0.3 }}>{title}</span>
           <button onClick={onClose} style={{
-            background: 'none', border: `1px solid ${C.border}`, borderRadius: 8,
-            color: C.t3, fontSize: 13, padding: '4px 14px', cursor: 'pointer', fontFamily: ff,
+            background: 'none', border: `1px solid ${C.border}`, borderRadius: 10,
+            color: C.t3, fontSize: 14, minHeight: 44, padding: '0 16px', cursor: 'pointer', fontFamily: ff,
           }}>Stäng</button>
         </div>
         <div style={{ padding: 20 }}>{children}</div>
@@ -280,8 +280,8 @@ function SlidePanel({ open, onClose, title, children, z = 100 }: {
 function Pill({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button onClick={onClick} style={{
-      padding: '6px 16px', border: 'none', borderRadius: 6, fontFamily: ff,
-      fontSize: 12, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s',
+      minHeight: 44, padding: '0 16px', border: 'none', borderRadius: 10, fontFamily: ff,
+      fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s',
       background: active ? C.surface2 : 'transparent',
       color: active ? C.t1 : C.t3, letterSpacing: -0.2,
     }}>{label}</button>
@@ -298,7 +298,7 @@ function Select({ value, onChange, children, style }: {
       onChange={e => onChange(e.target.value)}
       style={{
         background: C.surface, color: C.t1, border: `1px solid ${C.border}`,
-        borderRadius: 6, padding: '5px 8px', fontSize: 12, fontFamily: ff,
+        borderRadius: 10, minHeight: 44, padding: '0 12px', fontSize: 14, fontFamily: ff,
         cursor: 'pointer', outline: 'none', ...style,
       }}
     >{children}</select>
@@ -582,11 +582,11 @@ export default function Maskinvy2Page() {
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       zIndex: 60, fontFamily: ff,
     }}>
-      <div style={{ display: 'flex', gap: 2, background: 'rgba(255,255,255,0.05)', borderRadius: 8, padding: 3 }}>
+      <div style={{ display: 'flex', gap: 2, background: 'rgba(120,120,128,0.16)', borderRadius: 10, padding: 2, height: 44 }}>
         {([['skordare', 'Skördare'], ['skotare', 'Skotare'], ['jamforelse', 'Jämförelse']] as const).map(([m, label]) => (
           <button key={m} onClick={() => { setMode(m as ViewMode); if (m !== mode) setSelectedMaskin('alla'); }} style={{
-            padding: '5px 20px', border: 'none', background: mode === m ? C.surface2 : 'transparent',
-            borderRadius: 6, fontFamily: ff, fontSize: 13, fontWeight: 500,
+            minWidth: 96, padding: '0 16px', border: 'none', background: mode === m ? C.surface2 : 'transparent',
+            borderRadius: 8, fontFamily: ff, fontSize: 14, fontWeight: mode === m ? 600 : 500,
             color: mode === m ? C.t1 : C.t3, cursor: 'pointer', transition: 'all 0.15s',
             letterSpacing: -0.2,
           }}>{label}</button>
@@ -612,9 +612,30 @@ export default function Maskinvy2Page() {
         {toggleBar}
         <div style={{
           position: 'fixed', top: 100, left: 0, right: 0, bottom: 0,
-          background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: C.t3, fontFamily: ff, fontSize: 13, zIndex: 1,
-        }}>Laddar data...</div>
+          background: C.bg, fontFamily: ff, zIndex: 1, overflow: 'auto', padding: '24px 28px',
+        }}>
+          <style>{`@keyframes mv2Skel { 0% { background-position: -200px 0; } 100% { background-position: calc(200px + 100%) 0; } } .mv2-skel { background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 100%); background-size: 200px 100%; border-radius: 8px; animation: mv2Skel 1.4s ease-in-out infinite; }`}</style>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 16, maxWidth: 1200 }}>
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22 }}>
+                <div className="mv2-skel" style={{ height: 13, width: '50%', marginBottom: 16 }} />
+                <div className="mv2-skel" style={{ height: 36, width: '70%' }} />
+              </div>
+            ))}
+          </div>
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 12, padding: 22, maxWidth: 1200 }}>
+            <div className="mv2-skel" style={{ height: 14, width: 140, marginBottom: 16 }} />
+            {[1, 2, 3, 4, 5].map(i => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: i < 5 ? `1px solid ${C.border}` : 'none' }}>
+                <div className="mv2-skel" style={{ height: 32, width: 32, borderRadius: '50%' }} />
+                <div style={{ flex: 1 }}>
+                  <div className="mv2-skel" style={{ height: 14, width: '60%', marginBottom: 6 }} />
+                  <div className="mv2-skel" style={{ height: 12, width: '40%' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </>
     );
   }

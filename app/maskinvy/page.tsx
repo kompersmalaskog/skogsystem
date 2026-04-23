@@ -37,9 +37,9 @@ export default function MaskinvyPage() {
           grid-template-columns: repeat(3, minmax(96px, 140px));
           gap: 0;
           background: rgba(120,120,128,0.16);
-          border-radius: 9px;
+          border-radius: 10px;
           padding: 2px;
-          height: 32px;
+          height: 44px;
           width: 100%;
           max-width: 440px;
         }
