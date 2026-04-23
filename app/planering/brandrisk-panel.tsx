@@ -249,7 +249,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
   const inputStyle: React.CSSProperties = { width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box' };
   const secStyle: React.CSSProperties = { marginTop: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' };
-  const headStyle: React.CSSProperties = { fontSize: '11px', fontWeight: '600', color: '#fff', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '12px' };
+  const headStyle: React.CSSProperties = { fontSize: '17px', fontWeight: 600, color: '#fff', marginBottom: '12px' };
   const summaryStyle: React.CSSProperties = { ...headStyle, cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' };
   const textStyle: React.CSSProperties = { fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.7' };
   const linkStyle: React.CSSProperties = { fontSize: '13px', color: '#60a5fa', textDecoration: 'none' };
@@ -448,7 +448,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           <div style={{ display: 'flex', gap: 6, padding: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 12, width: 120 }}>
             {[true, false].map(val => (
               <button key={String(val)} onClick={() => onEldningsforbudChange(val)}
-                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: eldningsforbud === val ? (val ? '#ef4444' : 'rgba(255,255,255,0.3)') : 'transparent', color: eldningsforbud === val ? (val ? '#fff' : '#000') : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: eldningsforbud === val ? 700 : 500, cursor: 'pointer' }}>
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: eldningsforbud === val ? (val ? '#ff453a' : 'rgba(255,255,255,0.3)') : 'transparent', color: eldningsforbud === val ? (val ? '#fff' : '#000') : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: eldningsforbud === val ? 700 : 500, cursor: 'pointer' }}>
                 {val ? 'Ja' : 'Nej'}
               </button>
             ))}
@@ -508,7 +508,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 <div style={{ display: 'flex', alignItems: 'center', padding: '12px 0', gap: 12, ...(i === 0 ? { background: 'rgba(255,255,255,0.03)', margin: '0 -20px', padding: '12px 20px', borderRadius: 10 } : {}) }}>
                   <div style={{ width: 32, fontSize: 14, fontWeight: 500, color: i === 0 ? '#fff' : 'rgba(255,255,255,0.5)', flexShrink: 0 }}>{d.dayName}</div>
                   <div style={{ flex: 1, height: 28, background: 'rgba(255,255,255,0.03)', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
-                    <div style={{ height: '100%', width: barWidths[d.fwiIndex] || '17%', background: MCF_COLORS[d.fwiIndex], borderRadius: 8, display: 'flex', alignItems: 'center', paddingLeft: 10, gap: 6, boxShadow: BAR_GLOW[d.fwiIndex] || 'none' }}>
+                    <div style={{ height: '100%', width: barWidths[d.fwiIndex] || '17%', background: MCF_COLORS[d.fwiIndex], borderRadius: 8, display: 'flex', alignItems: 'center', paddingLeft: 10, gap: 6 }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: 'rgba(0,0,0,0.7)' }}>{d.fwiIndex}</span>
                       {d.fwiIndex > 1 && <span style={{ fontSize: 11, fontWeight: 500, color: 'rgba(0,0,0,0.5)' }}>{MCF_TEXTS[d.fwiIndex]?.short || ''}</span>}
                     </div>
@@ -588,7 +588,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <details open>
               <summary style={summaryStyle}>
                 <span>Samråd brandrisk</span>
-                {brandSamrad.kvitterad ? <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, textTransform: 'none' as const, color: '#22c55e' }}>Kvitterat</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
+                {brandSamrad.kvitterad ? <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, textTransform: 'none' as const, color: '#30d158' }}>Kvitterat</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
               </summary>
               <div style={{ marginTop: 12 }}>
                 <div style={textStyle}>Enligt Skogforsks branschgemensamma riktlinjer (2022) krävs samråd mellan uppdragstagare och uppdragsgivare vid FWI &#x2265; 4.</div>
@@ -597,7 +597,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 <div style={{ display: 'flex', gap: 6, padding: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 12, marginBottom: 16 }}>
                   {(['normal', 'hojd'] as const).map(niva => (
                     <button key={niva} onClick={() => onSamradChange({ ...brandSamrad, beredskapsniva: niva })}
-                      style={{ flex: 1, padding: '10px 0', borderRadius: 8, border: 'none', background: brandSamrad.beredskapsniva === niva ? (niva === 'hojd' ? '#eab308' : '#22c55e') : 'transparent', color: brandSamrad.beredskapsniva === niva ? '#000' : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: brandSamrad.beredskapsniva === niva ? 700 : 500, cursor: 'pointer' }}>
+                      style={{ flex: 1, padding: '10px 0', borderRadius: 8, border: 'none', background: brandSamrad.beredskapsniva === niva ? (niva === 'hojd' ? '#eab308' : '#30d158') : 'transparent', color: brandSamrad.beredskapsniva === niva ? '#000' : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: brandSamrad.beredskapsniva === niva ? 700 : 500, cursor: 'pointer' }}>
                       {niva === 'normal' ? 'Normal' : 'Höjd'}
                     </button>
                   ))}
@@ -608,8 +608,8 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                   {atgardsAlternativ.map((atg, i) => (
                     <div key={i} onClick={() => onSamradChange({ ...brandSamrad, atgarder: brandSamrad.atgarder.includes(atg) ? brandSamrad.atgarder.filter((a: string) => a !== atg) : [...brandSamrad.atgarder, atg] })}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                      <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${brandSamrad.atgarder.includes(atg) ? '#22c55e' : 'rgba(255,255,255,0.15)'}`, background: brandSamrad.atgarder.includes(atg) ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        {brandSamrad.atgarder.includes(atg) && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
+                      <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${brandSamrad.atgarder.includes(atg) ? '#30d158' : 'rgba(255,255,255,0.15)'}`, background: brandSamrad.atgarder.includes(atg) ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                        {brandSamrad.atgarder.includes(atg) && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
                       </div>
                       <span style={{ fontSize: 13, color: brandSamrad.atgarder.includes(atg) ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)', textDecoration: brandSamrad.atgarder.includes(atg) ? 'line-through' : 'none', lineHeight: 1.4 }}>{atg}</span>
                     </div>
@@ -655,7 +655,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                     <input type="datetime-local" value={brandSamrad.datum} onChange={e => onSamradChange({ ...brandSamrad, datum: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
                   </div>
                   <button onClick={() => onSamradChange({ ...brandSamrad, kvitterad: !brandSamrad.kvitterad })}
-                    style={{ flex: 1, padding: 14, borderRadius: 12, border: 'none', background: brandSamrad.kvitterad ? 'rgba(34,197,94,0.15)' : '#22c55e', color: brandSamrad.kvitterad ? '#22c55e' : '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                    style={{ flex: 1, padding: 14, borderRadius: 12, border: 'none', background: brandSamrad.kvitterad ? 'rgba(34,197,94,0.15)' : '#30d158', color: brandSamrad.kvitterad ? '#30d158' : '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                     {brandSamrad.kvitterad ? 'Kvitterat \u2713' : 'Kvittera samråd'}
                   </button>
                 </div>
@@ -670,15 +670,15 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <details>
               <summary style={summaryStyle}>
                 <span>Utrustning</span>
-                <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, textTransform: 'none' as const, color: brandUtrustning.every(Boolean) ? '#22c55e' : 'rgba(255,255,255,0.3)' }}>{brandUtrustning.filter(Boolean).length}/{brandUtrustning.length}</span>
+                <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, textTransform: 'none' as const, color: brandUtrustning.every(Boolean) ? '#30d158' : 'rgba(255,255,255,0.3)' }}>{brandUtrustning.filter(Boolean).length}/{brandUtrustning.length}</span>
               </summary>
               <div style={{ marginTop: 12 }}>
                 <div style={{ ...textStyle, marginBottom: 12 }}>Källa: Brandskyddsföreningens SBF 127</div>
                 {utrustLabels.map((label, i) => (
                   <div key={i} onClick={() => { const n = [...brandUtrustning]; n[i] = !n[i]; onUtrustningChange(n); }}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${brandUtrustning[i] ? '#22c55e' : 'rgba(255,255,255,0.15)'}`, background: brandUtrustning[i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      {brandUtrustning[i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
+                    <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${brandUtrustning[i] ? '#30d158' : 'rgba(255,255,255,0.15)'}`, background: brandUtrustning[i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {brandUtrustning[i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
                     </div>
                     <span style={{ fontSize: 13, color: brandUtrustning[i] ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)', textDecoration: brandUtrustning[i] ? 'line-through' : 'none', lineHeight: 1.4 }}>{label}</span>
                   </div>
@@ -755,8 +755,8 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
               {larmLabels.map((label, i) => (
                 <div key={i} onClick={() => { const n = [...brandLarmChecklista]; n[i] = !n[i]; onLarmChecklistaChange(n); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', cursor: 'pointer' }}>
-                  <div style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${brandLarmChecklista[i] ? '#22c55e' : 'rgba(255,255,255,0.15)'}`, background: brandLarmChecklista[i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {brandLarmChecklista[i] && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
+                  <div style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${brandLarmChecklista[i] ? '#30d158' : 'rgba(255,255,255,0.15)'}`, background: brandLarmChecklista[i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    {brandLarmChecklista[i] && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
                   </div>
                   <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.4 }}>{label}</span>
                 </div>
@@ -863,7 +863,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           <details>
             <summary style={summaryStyle}>
               <span>Efterkontroll</span>
-              {brandEfterkontroll.kvitterad ? <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, textTransform: 'none' as const, color: '#22c55e' }}>Utförd &#x2713;</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
+              {brandEfterkontroll.kvitterad ? <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, textTransform: 'none' as const, color: '#30d158' }}>Utförd &#x2713;</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
             </summary>
             <div style={{ marginTop: 12 }}>
               <div style={textStyle}>Trakten ska avsynas efter avslutat arbete (Skogforsk).</div>
@@ -873,7 +873,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                   <input type="datetime-local" value={brandEfterkontroll.datum} onChange={e => onEfterkontrollChange({ ...brandEfterkontroll, datum: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
                 </div>
                 <button onClick={() => onEfterkontrollChange({ ...brandEfterkontroll, kvitterad: !brandEfterkontroll.kvitterad })}
-                  style={{ flex: 1, padding: 14, borderRadius: 12, border: 'none', background: brandEfterkontroll.kvitterad ? 'rgba(34,197,94,0.15)' : '#22c55e', color: brandEfterkontroll.kvitterad ? '#22c55e' : '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  style={{ flex: 1, padding: 14, borderRadius: 12, border: 'none', background: brandEfterkontroll.kvitterad ? 'rgba(34,197,94,0.15)' : '#30d158', color: brandEfterkontroll.kvitterad ? '#30d158' : '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                   {brandEfterkontroll.kvitterad ? 'Utförd \u2713' : 'Efterkontroll utförd'}
                 </button>
               </div>

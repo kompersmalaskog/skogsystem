@@ -10,9 +10,9 @@ interface KorbarhetPanelProps {
 type Bedomning = 'kor' | 'planera' | 'undvik';
 
 const bedomningConfig: Record<Bedomning, { icon: string; label: string; color: string; bg: string }> = {
-  kor:     { icon: '✓', label: 'KÖR',     color: '#22c55e', bg: 'rgba(34,197,94,0.15)' },
+  kor:     { icon: '✓', label: 'KÖR',     color: '#30d158', bg: 'rgba(34,197,94,0.15)' },
   planera: { icon: '!', label: 'PLANERA',  color: '#eab308', bg: 'rgba(234,179,8,0.15)' },
-  undvik:  { icon: '✕', label: 'UNDVIK',   color: '#ef4444', bg: 'rgba(239,68,68,0.15)' },
+  undvik:  { icon: '✕', label: 'UNDVIK',   color: '#ff453a', bg: 'rgba(239,68,68,0.15)' },
 };
 
 const sasongText: Record<string, string> = {
@@ -28,39 +28,38 @@ const bedomningText: Record<Bedomning, string> = {
 };
 
 // Wsymb2 + temperatur → väderikon
+// Material Symbols Outlined-namn för Wsymb2 + temperatur
 function weatherIcon(dag: SmhiPrognosDag): string {
   const { symbol, tempMin, tempMax, nederbord } = dag;
   const avgTemp = (tempMin + tempMax) / 2;
 
-  // Åska (Wsymb2: 21, 11 med åska-varianter)
-  if (symbol === 21 || symbol === 11) return '⛈️';
+  // Åska
+  if (symbol === 21 || symbol === 11) return 'thunderstorm';
 
   // Nederbörd + temperatur → snö/regn
   if (nederbord > 0 && symbol >= 11) {
-    if (avgTemp < 0) return '❄️';           // Snö
-    if (avgTemp < 2) return '🌨️';           // Snöblandat regn
-    if (nederbord > 8) return '🌧️🌧️';      // Kraftigt regn
-    return '🌧️';                             // Lätt–måttligt regn
+    if (avgTemp < 0) return 'weather_snowy';
+    if (avgTemp < 2) return 'cloudy_snowing';
+    return 'rainy';
   }
 
   // Wsymb2-baserade ikoner (utan betydande nederbörd)
-  if (symbol <= 2) return '☀️';              // Klart
-  if (symbol <= 4) return '⛅';              // Halvmoln
-  if (symbol <= 6) return '🌤️';             // Mest moln
-  if (symbol <= 10) return '☁️';             // Mulet
-  if (symbol <= 14) {                        // Regn-klasser
-    if (avgTemp < 0) return '❄️';
-    if (avgTemp < 2) return '🌨️';
-    if (nederbord > 8) return '🌧️🌧️';
-    return '🌧️';
+  if (symbol <= 2) return 'sunny';
+  if (symbol <= 4) return 'partly_cloudy_day';
+  if (symbol <= 6) return 'partly_cloudy_day';
+  if (symbol <= 10) return 'cloud';
+  if (symbol <= 14) {
+    if (avgTemp < 0) return 'weather_snowy';
+    if (avgTemp < 2) return 'cloudy_snowing';
+    return 'rainy';
   }
-  if (symbol <= 17) return '❄️';             // Snö-klasser
-  if (symbol <= 19) return '☁️';             // Dimma/dis
-  if (symbol <= 21) {                        // Åska
-    if (avgTemp < 0) return '❄️';
-    return '🌧️';
+  if (symbol <= 17) return 'weather_snowy';
+  if (symbol <= 19) return 'foggy';
+  if (symbol <= 21) {
+    if (avgTemp < 0) return 'weather_snowy';
+    return 'rainy';
   }
-  return '⛈️';                               // Åska kraftigt
+  return 'thunderstorm';
 }
 
 const VECKODAGAR = ['sön', 'mån', 'tis', 'ons', 'tor', 'fre', 'lör'];
@@ -127,7 +126,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
       )}
 
       {resultat?.status === 'error' && (
-        <div style={{ textAlign: 'center', padding: '12px', fontSize: '13px', color: '#f87171' }}>
+        <div style={{ textAlign: 'center', padding: '12px', fontSize: '13px', color: '#ff453a' }}>
           {resultat.felmeddelande}
         </div>
       )}
@@ -157,14 +156,14 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
 
           {/* Fördelningsstapel */}
           <div style={{ display: 'flex', height: '10px', borderRadius: '5px', overflow: 'hidden', marginBottom: '6px' }}>
-            {ford.gron > 0 && <div style={{ width: `${ford.gron * 100}%`, background: '#22c55e' }} />}
+            {ford.gron > 0 && <div style={{ width: `${ford.gron * 100}%`, background: '#30d158' }} />}
             {ford.gul > 0 && <div style={{ width: `${ford.gul * 100}%`, background: '#eab308' }} />}
-            {ford.rod > 0 && <div style={{ width: `${ford.rod * 100}%`, background: '#ef4444' }} />}
+            {ford.rod > 0 && <div style={{ width: `${ford.rod * 100}%`, background: '#ff453a' }} />}
           </div>
           <div style={{ display: 'flex', gap: '10px', fontSize: '13px', opacity: 0.85, marginBottom: '12px' }}>
-            {ford.gron > 0.01 && <span style={{ color: '#22c55e' }}>Körbart {Math.round(ford.gron * 100)}%</span>}
+            {ford.gron > 0.01 && <span style={{ color: '#30d158' }}>Körbart {Math.round(ford.gron * 100)}%</span>}
             {ford.gul > 0.01 && <span style={{ color: '#eab308' }}>Begränsat {Math.round(ford.gul * 100)}%</span>}
-            {ford.rod > 0.01 && <span style={{ color: '#ef4444' }}>Ej körbart {Math.round(ford.rod * 100)}%</span>}
+            {ford.rod > 0.01 && <span style={{ color: '#ff453a' }}>Ej körbart {Math.round(ford.rod * 100)}%</span>}
           </div>
 
           {/* 10-dagars väderprognos */}
@@ -213,8 +212,10 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
                       </div>
 
                       {/* Väderikon */}
-                      <div style={{ fontSize: '15px', lineHeight: '1.3' }} aria-hidden="true">
-                        {weatherIcon(dag)}
+                      <div style={{ lineHeight: 1, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-hidden="true">
+                        <span className="material-symbols-outlined" style={{ fontSize: 20, color: 'rgba(255,255,255,0.85)' }}>
+                          {weatherIcon(dag)}
+                        </span>
                       </div>
 
                       {/* Temperatur min/max */}
@@ -273,7 +274,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
               padding: '10px 12px',
               fontSize: '13px',
             }}>
-              <div style={{ fontWeight: '600', color: '#ef4444', marginBottom: '4px' }}>
+              <div style={{ fontWeight: '600', color: '#ff453a', marginBottom: '4px' }}>
                 Ej lämplig utan specialåtgärder
               </div>
               <div style={{ opacity: 0.85, lineHeight: '1.4' }}>

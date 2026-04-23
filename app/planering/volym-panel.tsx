@@ -52,7 +52,7 @@ export default function VolymPanel({ resultat, loading, onClose, korbarhetsResul
 
       {loading && (
         <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-          <div style={{ width: '32px', height: '32px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#22c55e', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
+          <div style={{ width: '32px', height: '32px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#30d158', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
           <div style={{ fontSize: '14px', opacity: 0.75 }}>Beräknar volym via Skogliga Grunddata...</div>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
@@ -60,8 +60,8 @@ export default function VolymPanel({ resultat, loading, onClose, korbarhetsResul
 
       {resultat?.status === 'error' && (
         <div style={{ padding: '20px', textAlign: 'center' }}>
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', color: '#f87171', marginBottom: '8px', display: 'block' }}>warning</span>
-          <div style={{ fontSize: '14px', color: '#f87171' }}>{resultat.felmeddelande}</div>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', color: '#ff453a', marginBottom: '8px', display: 'block' }}>warning</span>
+          <div style={{ fontSize: '14px', color: '#ff453a' }}>{resultat.felmeddelande}</div>
         </div>
       )}
 
@@ -159,7 +159,7 @@ export default function VolymPanel({ resultat, loading, onClose, korbarhetsResul
               }}>
                 {/* Ja/Nej-bedömning */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: '600', color: resultat.gallring.behov ? '#ef4444' : '#22c55e' }}>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: resultat.gallring.behov ? '#ff453a' : '#30d158' }}>
                     Gallringsbehov: {resultat.gallring.behov ? 'Ja' : 'Nej'}
                   </span>
                   <span style={{ fontSize: '13px', opacity: 0.75 }}>Mall: {resultat.gallring.sis}</span>
@@ -191,7 +191,7 @@ export default function VolymPanel({ resultat, loading, onClose, korbarhetsResul
                 {/* Fördelningsstapel */}
                 <div style={{ display: 'flex', height: '8px', borderRadius: '4px', overflow: 'hidden', marginBottom: '6px' }}>
                   {resultat.gallring.fordelning.lagt > 0 && (
-                    <div style={{ width: `${resultat.gallring.fordelning.lagt * 100}%`, background: '#22c55e' }} />
+                    <div style={{ width: `${resultat.gallring.fordelning.lagt * 100}%`, background: '#30d158' }} />
                   )}
                   {resultat.gallring.fordelning.medel > 0 && (
                     <div style={{ width: `${resultat.gallring.fordelning.medel * 100}%`, background: '#eab308' }} />
@@ -200,14 +200,14 @@ export default function VolymPanel({ resultat, loading, onClose, korbarhetsResul
                     <div style={{ width: `${resultat.gallring.fordelning.hogt * 100}%`, background: '#f97316' }} />
                   )}
                   {resultat.gallring.fordelning.akut > 0 && (
-                    <div style={{ width: `${resultat.gallring.fordelning.akut * 100}%`, background: '#ef4444' }} />
+                    <div style={{ width: `${resultat.gallring.fordelning.akut * 100}%`, background: '#ff453a' }} />
                   )}
                 </div>
                 <div style={{ display: 'flex', gap: '10px', fontSize: '13px', opacity: 0.85, flexWrap: 'wrap' }}>
-                  {resultat.gallring.fordelning.lagt > 0.01 && <span style={{ color: '#22c55e' }}>Lågt {Math.round(resultat.gallring.fordelning.lagt * 100)}%</span>}
+                  {resultat.gallring.fordelning.lagt > 0.01 && <span style={{ color: '#30d158' }}>Lågt {Math.round(resultat.gallring.fordelning.lagt * 100)}%</span>}
                   {resultat.gallring.fordelning.medel > 0.01 && <span style={{ color: '#eab308' }}>Medel {Math.round(resultat.gallring.fordelning.medel * 100)}%</span>}
                   {resultat.gallring.fordelning.hogt > 0.01 && <span style={{ color: '#f97316' }}>Högt {Math.round(resultat.gallring.fordelning.hogt * 100)}%</span>}
-                  {resultat.gallring.fordelning.akut > 0.01 && <span style={{ color: '#ef4444' }}>Akut {Math.round(resultat.gallring.fordelning.akut * 100)}%</span>}
+                  {resultat.gallring.fordelning.akut > 0.01 && <span style={{ color: '#ff453a' }}>Akut {Math.round(resultat.gallring.fordelning.akut * 100)}%</span>}
                 </div>
               </div>
             </div>

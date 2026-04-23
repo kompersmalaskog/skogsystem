@@ -78,8 +78,8 @@ const A = '#8ab460';
 
 // Icon backgrounds & outlines (must match page.tsx markerIconDefs)
 const ICON_BG: Record<string, { bg: string; outline: string }> = {
-  eternitytree: { bg: '#22c55e', outline: '#ffffff' },
-  naturecorner: { bg: '#22c55e', outline: '#ffffff' },
+  eternitytree: { bg: '#30d158', outline: '#ffffff' },
+  naturecorner: { bg: '#30d158', outline: '#ffffff' },
   culturemonument: { bg: '#f59e0b', outline: 'rgba(0,0,0,0.8)' },
   culturestump: { bg: '#f59e0b', outline: 'rgba(0,0,0,0.8)' },
   warning: { bg: '#E53935', outline: '#ffffff' },
@@ -111,8 +111,8 @@ const ICON_SVG: Record<string, string> = {
 
 // Zone colors (must match page.tsx zoneTypes)
 const ZONE_COLORS: Record<string, string> = {
-  wet: '#3b82f6', steep: '#a855f7', protected: '#22c55e',
-  culture: '#f59e0b', noentry: '#ef4444', fornlamning: '#ef4444',
+  wet: '#3b82f6', steep: '#a855f7', protected: '#30d158',
+  culture: '#f59e0b', noentry: '#ff453a', fornlamning: '#ff453a',
 };
 // Zone icon mapping (zones use a different icon type than their zoneType id)
 const ZONE_ICON: Record<string, string> = {
@@ -713,7 +713,7 @@ export default function TraktBriefing({
   }, [checklistOpen, steps, mapInstanceRef, onActiveMarkerChange]);
 
   const tagBg: Record<string, string> = { danger: 'rgba(239,68,68,0.25)', caution: 'rgba(245,158,11,0.25)', info: 'rgba(138,180,96,0.2)' };
-  const tagColor: Record<string, string> = { danger: '#ef4444', caution: '#f59e0b', info: '#8ab460' };
+  const tagColor: Record<string, string> = { danger: '#ff453a', caution: '#f59e0b', info: '#8ab460' };
 
   // Shared button style
   const glassBtnStyle: React.CSSProperties = {
@@ -1049,7 +1049,6 @@ export default function TraktBriefing({
       width: '22px', height: '22px', borderRadius: '11px',
       border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.12)',
       background: isChecked ? 'linear-gradient(135deg, #6abf40, #8ab460)' : 'transparent',
-      boxShadow: isChecked ? '0 0 8px rgba(138,180,96,0.4)' : 'none',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       flexShrink: 0, cursor: 'pointer', transition: 'all 0.2s',
     });
@@ -1082,7 +1081,7 @@ export default function TraktBriefing({
               height: '100%', borderRadius: '2px',
               background: 'linear-gradient(90deg, #6abf40, #8ab460)',
               width: `${progressPctCL}%`, transition: 'width 0.4s ease',
-              boxShadow: '0 0 10px rgba(138,180,96,0.35)',
+
             }} />
           </div>
         </div>
@@ -1137,7 +1136,7 @@ export default function TraktBriefing({
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
                           <span style={{ fontSize: '12px', color: 'rgba(138,180,96,0.5)', fontWeight: '500' }}>{fmtDateCL(note.date)}</span>
                           {isNew && !isNChecked && (
-                            <div style={{ width: '6px', height: '6px', borderRadius: '3px', background: A, boxShadow: `0 0 6px ${A}` }} />
+                            <div style={{ width: '6px', height: '6px', borderRadius: '3px', background: A,}} />
                           )}
                         </div>
                         {/* Text — LARGE and dominant */}
@@ -1338,7 +1337,6 @@ export default function TraktBriefing({
                 : 'rgba(255,255,255,0.06)',
               color: allDone ? '#0c0f0a' : 'rgba(255,255,255,0.3)',
               fontSize: '15px', fontWeight: '700', cursor: 'pointer',
-              boxShadow: allDone ? '0 0 20px rgba(138,180,96,0.3)' : 'none',
               transition: 'all 0.3s', pointerEvents: 'auto',
             }}
           >

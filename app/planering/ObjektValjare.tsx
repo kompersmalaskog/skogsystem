@@ -443,7 +443,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
                 height: '56px',
                 borderRadius: '12px',
                 border: 'none',
-                background: '#34c759',
+                background: '#30d158',
                 color: '#fff',
                 fontSize: '17px',
                 fontWeight: '600',

@@ -445,7 +445,7 @@ export default function PlannerPage() {
       group: 'Skogsstyrelsen',
       layers: [
         { id: 'nyckelbiotoper', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: 'Nyckelbiotop_Skogsstyrelsen', name: 'Nyckelbiotoper', color: '#a855f7' },
-        { id: 'naturvarde', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer', layers: 'Objektnaturvarde_Skogsstyrelsen', name: 'Naturvärde', color: '#22c55e' },
+        { id: 'naturvarde', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer', layers: 'Objektnaturvarde_Skogsstyrelsen', name: 'Naturvärde', color: '#30d158' },
         { id: 'sumpskog', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer', layers: 'Sumpskog_Skogsstyrelsen', name: 'Sumpskogar', color: '#3b82f6' },
         { id: 'biotopskydd', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer', layers: 'Biotopskydd_Skogsstyrelsen', name: 'Biotopskydd', color: '#166534' },
         { id: 'naturvardsavtal', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNaturvardsavtal/MapServer/WmsServer', layers: 'Naturvardsavtal_Skogsstyrelsen', name: 'Naturvårdsavtal', color: '#14b8a6' },
@@ -458,7 +458,7 @@ export default function PlannerPage() {
     {
       group: 'Riksantikvarieämbetet',
       layers: [
-        { id: 'fornlamningar', url: 'https://pub.raa.se/visning/lamningar/wms', layers: 'fornlamningar', name: 'Fornlämningar', color: '#ef4444', srs: 'EPSG:3857' },
+        { id: 'fornlamningar', url: 'https://pub.raa.se/visning/lamningar/wms', layers: 'fornlamningar', name: 'Fornlämningar', color: '#ff453a', srs: 'EPSG:3857' },
       ],
     },
     {
@@ -490,13 +490,13 @@ export default function PlannerPage() {
     {
       group: 'Svenska Kraftnät',
       layers: [
-        { id: 'kraftledningar', url: 'https://inspire-skn.metria.se/geoserver/skn/ows', layers: 'US.ElectricityNetwork.Lines', name: 'Kraftledningar (stamnätet)', color: '#ef4444' },
+        { id: 'kraftledningar', url: 'https://inspire-skn.metria.se/geoserver/skn/ows', layers: 'US.ElectricityNetwork.Lines', name: 'Kraftledningar (stamnätet)', color: '#ff453a' },
       ],
     },
     {
       group: 'Analys',
       layers: [
-        { id: 'korbarhet', url: '/api/korbarhet-tiles', layers: '', name: 'Körbarhet', color: '#22c55e', customApi: true, desc: 'Baserat på markfuktighet och lutning. Rita trakt för full analys inkl jordart.' },
+        { id: 'korbarhet', url: '/api/korbarhet-tiles', layers: '', name: 'Körbarhet', color: '#30d158', customApi: true, desc: 'Baserat på markfuktighet och lutning. Rita trakt för full analys inkl jordart.' },
       ],
     },
     {
@@ -614,16 +614,16 @@ export default function PlannerPage() {
 
     // === Line layers per type ===
     const lineTypeDefs = [
-      { id: 'boundary', color: '#ef4444', color2: '#fbbf24', striped: true },
+      { id: 'boundary', color: '#ff453a', color2: '#fbbf24', striped: true },
       { id: 'mainRoad', color: '#3b82f6', color2: '#fbbf24', striped: true },
-      { id: 'backRoadRed', color: '#ef4444' },
+      { id: 'backRoadRed', color: '#ff453a' },
       { id: 'backRoadYellow', color: '#fbbf24' },
       { id: 'backRoadBlue', color: '#3b82f6' },
-      { id: 'sideRoadRed', color: '#ef4444' },
+      { id: 'sideRoadRed', color: '#ff453a' },
       { id: 'sideRoadYellow', color: '#fbbf24' },
       { id: 'sideRoadBlue', color: '#3b82f6' },
       { id: 'stickvag', color: '#ff00ff' },
-      { id: 'nature', color: '#22c55e', color2: '#ef4444', striped: true },
+      { id: 'nature', color: '#30d158', color2: '#ff453a', striped: true },
       { id: 'ditch', color: '#06b6d4', color2: '#0e7490', striped: true },
       { id: 'trail', color: '#ffffff', dashed: true },
     ];
@@ -709,12 +709,12 @@ export default function PlannerPage() {
 
     // === TMA road layers ===
     map.addLayer({ id: 'tma-roads-glow', type: 'line', source: 'tma-roads-source', paint: { 'line-color': 'rgba(239,68,68,0.3)', 'line-width': 20, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'tma-roads-line', type: 'line', source: 'tma-roads-source', paint: { 'line-color': '#ef4444', 'line-width': 8 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'tma-roads-line', type: 'line', source: 'tma-roads-source', paint: { 'line-color': '#ff453a', 'line-width': 8 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
 
     // === TMA varningslinje (traktgräns nära väg – pulserande röd glow) ===
     // OBS: Bara glow + hitbox — ingen solid linje eller vita streck som döljer traktgränsen under
     map.addSource('tma-warning-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-    map.addLayer({ id: 'tma-warning-glow', type: 'line', source: 'tma-warning-source', paint: { 'line-color': '#ef4444', 'line-width': 24, 'line-opacity': 0.4, 'line-blur': 8 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'tma-warning-glow', type: 'line', source: 'tma-warning-source', paint: { 'line-color': '#ff453a', 'line-width': 24, 'line-opacity': 0.4, 'line-blur': 8 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'tma-warning-hitbox', type: 'line', source: 'tma-warning-source', paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': 30 } });
 
     // === Drawing preview layers ===
@@ -913,7 +913,7 @@ export default function PlannerPage() {
         'circle-radius': 22,
         'circle-color': 'transparent',
         'circle-stroke-width': 3,
-        'circle-stroke-color': '#22c55e',
+        'circle-stroke-color': '#30d158',
         'circle-stroke-opacity': 0.9,
       },
     });
@@ -951,8 +951,8 @@ export default function PlannerPage() {
     // Generera ikon-bilder för varje symboltyp
     const iconSize = 64; // px
     const markerIconDefs: { id: string; bg: string; outline: string }[] = [
-      { id: 'eternitytree', bg: '#22c55e', outline: '#ffffff' },
-      { id: 'naturecorner', bg: '#22c55e', outline: '#ffffff' },
+      { id: 'eternitytree', bg: '#30d158', outline: '#ffffff' },
+      { id: 'naturecorner', bg: '#30d158', outline: '#ffffff' },
       { id: 'culturemonument', bg: '#f59e0b', outline: 'rgba(0,0,0,0.8)' },
       { id: 'culturestump', bg: '#f59e0b', outline: 'rgba(0,0,0,0.8)' },
       { id: 'highstump', bg: 'rgba(0,0,0,0.9)', outline: '#ffffff' },
@@ -4514,15 +4514,15 @@ export default function PlannerPage() {
       ),
       'menu-emergency': (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="10" stroke="#ef4444" />
-          <line x1="12" y1="7" x2="12" y2="17" stroke="#ef4444" strokeWidth="2.5" />
-          <line x1="7" y1="12" x2="17" y2="12" stroke="#ef4444" strokeWidth="2.5" />
+          <circle cx="12" cy="12" r="10" stroke="#ff453a" />
+          <line x1="12" y1="7" x2="12" y2="17" stroke="#ff453a" strokeWidth="2.5" />
+          <line x1="7" y1="12" x2="17" y2="12" stroke="#ff453a" strokeWidth="2.5" />
         </svg>
       ),
       'menu-brandrisk': (
         <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-          <path d="M12 2C12 2 4 12 4 16C4 20 8 22 12 22C16 22 20 20 20 16C20 12 12 2 12 2Z" stroke="#ef4444" strokeWidth="1.5" fill="rgba(239,68,68,0.15)" />
-          <path d="M12 22C12 22 9 19 9 16C9 13 12 10 12 10C12 10 15 13 15 16C15 19 12 22 12 22Z" fill="#ef4444" opacity="0.6" />
+          <path d="M12 2C12 2 4 12 4 16C4 20 8 22 12 22C16 22 20 20 20 16C20 12 12 2 12 2Z" stroke="#ff453a" strokeWidth="1.5" fill="rgba(239,68,68,0.15)" />
+          <path d="M12 22C12 22 9 19 9 16C9 13 12 10 12 10C12 10 15 13 15 16C15 19 12 22 12 22Z" fill="#ff453a" opacity="0.6" />
         </svg>
       ),
       'menu-briefing': (
@@ -4559,7 +4559,7 @@ export default function PlannerPage() {
   const getIconBackground = (symbolId: string): string => {
     const greenIcons = ['eternitytree', 'naturecorner'];
     const orangeIcons = ['culturemonument', 'culturestump'];
-    if (greenIcons.includes(symbolId)) return '#22c55e';
+    if (greenIcons.includes(symbolId)) return '#30d158';
     if (orangeIcons.includes(symbolId)) return '#f59e0b';
     return 'rgba(0,0,0,0.6)';
   };
@@ -4575,7 +4575,7 @@ export default function PlannerPage() {
   const symbolCategories = [
     {
       name: 'Naturvård',
-      bgColor: '#22c55e',
+      bgColor: '#30d158',
       symbols: [
         { id: 'eternitytree', name: 'Evighetsträd' },
         { id: 'naturecorner', name: 'Naturhörna' },
@@ -4630,16 +4630,16 @@ export default function PlannerPage() {
   const markerTypes = symbolCategories.flatMap(cat => cat.symbols);
 
   const lineTypes = [
-    { id: 'boundary', name: 'Traktgräns', color: '#ef4444', color2: '#fbbf24', striped: true },
+    { id: 'boundary', name: 'Traktgräns', color: '#ff453a', color2: '#fbbf24', striped: true },
     { id: 'mainRoad', name: 'Basväg', color: '#3b82f6', color2: '#fbbf24', striped: true },
-    { id: 'backRoadRed', name: 'Backväg Röd', color: '#ef4444', striped: false, isBackRoad: true },
+    { id: 'backRoadRed', name: 'Backväg Röd', color: '#ff453a', striped: false, isBackRoad: true },
     { id: 'backRoadYellow', name: 'Backväg Gul', color: '#fbbf24', striped: false, isBackRoad: true },
     { id: 'backRoadBlue', name: 'Backväg Blå', color: '#3b82f6', striped: false, isBackRoad: true },
-    { id: 'sideRoadRed', name: 'Stickväg Röd', color: '#ef4444', striped: false },
+    { id: 'sideRoadRed', name: 'Stickväg Röd', color: '#ff453a', striped: false },
     { id: 'sideRoadYellow', name: 'Stickväg Gul', color: '#fbbf24', striped: false },
     { id: 'sideRoadBlue', name: 'Stickväg Blå', color: '#3b82f6', striped: false },
     { id: 'stickvag', name: 'Test-stickväg', color: '#ff00ff', striped: false },
-    { id: 'nature', name: 'Naturvård', color: '#22c55e', color2: '#ef4444', striped: true },
+    { id: 'nature', name: 'Naturvård', color: '#30d158', color2: '#ff453a', striped: true },
     { id: 'ditch', name: 'Dike', color: '#06b6d4', color2: '#0e7490', striped: true },
     { id: 'trail', name: 'Stig/Led', color: '#ffffff', striped: false, dashed: true },
   ];
@@ -4647,15 +4647,15 @@ export default function PlannerPage() {
   const zoneTypes = [
     { id: 'wet', name: 'Blött', color: '#3b82f6', icon: 'wet' },
     { id: 'steep', name: 'Brant', color: '#a855f7', icon: 'steep' },
-    { id: 'protected', name: 'Naturvård', color: '#22c55e', icon: 'naturecorner' },
+    { id: 'protected', name: 'Naturvård', color: '#30d158', icon: 'naturecorner' },
     { id: 'culture', name: 'Kulturmiljö', color: '#f59e0b', icon: 'culturemonument' },
-    { id: 'noentry', name: 'Ej framkomlig', color: '#ef4444', icon: 'warning' },
-    { id: 'fornlamning', name: 'Fornlämning', color: '#ef4444', icon: 'culturemonument' },
+    { id: 'noentry', name: 'Ej framkomlig', color: '#ff453a', icon: 'warning' },
+    { id: 'fornlamning', name: 'Fornlämning', color: '#ff453a', icon: 'culturemonument' },
   ];
 
   const warningCategories = [
     { section: 'Punkter', items: [
-      { id: 'naturvard',     name: 'Naturvård',     color: '#22c55e', defaultWarn: 30, defaultFade: 200 },
+      { id: 'naturvard',     name: 'Naturvård',     color: '#30d158', defaultWarn: 30, defaultFade: 200 },
       { id: 'kultur',        name: 'Kultur',        color: '#f59e0b', defaultWarn: 30, defaultFade: 200 },
       { id: 'avverkning',    name: 'Avverkning',    color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
       { id: 'infrastruktur', name: 'Infrastruktur', color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
@@ -4665,23 +4665,23 @@ export default function PlannerPage() {
     { section: 'Zoner', items: [
       { id: 'zone_wet',        name: 'Blött område',     color: '#3b82f6', defaultWarn: 30, defaultFade: 200 },
       { id: 'zone_steep',      name: 'Brant',            color: '#a855f7', defaultWarn: 30, defaultFade: 200 },
-      { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#22c55e', defaultWarn: 30, defaultFade: 200 },
-      { id: 'zone_culture',    name: 'Fornlämningszon',  color: '#ef4444', defaultWarn: 50, defaultFade: 300 },
-      { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ef4444', defaultWarn: 30, defaultFade: 200 },
+      { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#30d158', defaultWarn: 30, defaultFade: 200 },
+      { id: 'zone_culture',    name: 'Fornlämningszon',  color: '#ff453a', defaultWarn: 50, defaultFade: 300 },
+      { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ff453a', defaultWarn: 30, defaultFade: 200 },
     ]},
   ];
 
   const arrowTypes = [
-    { id: 'fellingdirection', name: 'Fällriktning', color: '#22c55e' },
+    { id: 'fellingdirection', name: 'Fällriktning', color: '#30d158' },
     { id: 'drivedirection', name: 'Körriktning', color: '#3b82f6' },
   ];
 
   // Färger för stickvägar/backvägar (Gallring)
   const vagColors = [
-    { id: 'rod', name: 'Röd', color: '#ef4444' },
+    { id: 'rod', name: 'Röd', color: '#ff453a' },
     { id: 'gul', name: 'Gul', color: '#fbbf24' },
     { id: 'bla', name: 'Blå', color: '#3b82f6' },
-    { id: 'gron', name: 'Grön', color: '#22c55e' },
+    { id: 'gron', name: 'Grön', color: '#30d158' },
     { id: 'orange', name: 'Orange', color: '#f97316' },
     { id: 'vit', name: 'Vit', color: '#ffffff' },
     { id: 'svart', name: 'Svart', color: '#1f2937' },
@@ -7484,7 +7484,7 @@ export default function PlannerPage() {
         />
         {/* Grön ring om kvitterad */}
         {isAcknowledged && drivingMode && (
-          <circle cx={centerX} cy={centerY} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={strokeW} />
+          <circle cx={centerX} cy={centerY} r={ringRadius} fill="none" stroke="#30d158" strokeWidth={strokeW} />
         )}
         {/* Ikon i mitten */}
         <circle cx={centerX} cy={centerY} r={iconRadius} fill="rgba(0,0,0,0.7)" stroke={zone.color} strokeWidth={getConstrainedSize(2)} />
@@ -7502,7 +7502,7 @@ export default function PlannerPage() {
     surfaceLight: '#2c2c2e',
     text: '#ffffff',
     textMuted: '#8e8e93',
-    green: '#34c759',
+    green: '#30d158',
     blue: '#0a84ff',
     red: '#ff453a',
     orange: '#ff9f0a',
@@ -7725,11 +7725,11 @@ export default function PlannerPage() {
               width: '32px',
               height: '32px',
               borderRadius: '50%',
-              background: '#ef4444',
+              background: '#ff453a',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              boxShadow: '0 2px 10px rgba(239,68,68,0.45)',
+
               border: '1px solid rgba(255,255,255,0.15)',
             }} aria-hidden="true">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round">
@@ -7751,7 +7751,7 @@ export default function PlannerPage() {
           borderRadius: 14,
           padding: '10px 10px 10px 18px',
           display: 'flex', alignItems: 'center', gap: 12,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
+
           color: '#fff',
         }}>
           <span style={{ flex: 1, fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>
@@ -7803,7 +7803,7 @@ export default function PlannerPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 2px 10px rgba(0,0,0,0.35)',
+
             zIndex: 200,
             transition: 'transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
             transform: plusMenuOpen ? 'rotate(45deg)' : 'rotate(0deg)',
@@ -7824,7 +7824,7 @@ export default function PlannerPage() {
                 height: '22px',
                 padding: '0 6px',
                 borderRadius: '11px',
-                background: '#ef4444',
+                background: '#ff453a',
                 color: '#fff',
                 fontSize: '13px',
                 fontWeight: 700,
@@ -7832,7 +7832,7 @@ export default function PlannerPage() {
                 alignItems: 'center',
                 justifyContent: 'center',
                 border: '2px solid rgba(20,20,22,0.72)',
-                boxShadow: '0 2px 6px rgba(239,68,68,0.4)',
+
                 transform: plusMenuOpen ? 'rotate(-45deg)' : 'none',
               }}
             >
@@ -8015,7 +8015,7 @@ export default function PlannerPage() {
         }}>
           <div style={{
             background: '#1c1c1e', borderRadius: 20, padding: '28px 24px', maxWidth: 340, width: '100%',
-            textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+            textAlign: 'center',
           }}>
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 44, color: '#60a5fa', marginBottom: 12, display: 'inline-block' }}>pin_drop</span>
             <div style={{ fontSize: 14, color: '#9ca3af', marginBottom: 6 }}>Du verkar ha kommit fram till</div>
@@ -8028,7 +8028,7 @@ export default function PlannerPage() {
               }}>Inte nu</button>
               <button onClick={handleGeofenceStart} style={{
                 flex: 1, padding: '14px', borderRadius: 12, border: 'none',
-                background: '#22c55e', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+                background: '#30d158', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
               }}>Ja, starta</button>
             </div>
           </div>
@@ -8242,12 +8242,7 @@ export default function PlannerPage() {
           zIndex: 50,
           pointerEvents: 'none',
           ...(showMap ? {} : {
-            background: `
-              radial-gradient(ellipse at 30% 40%, rgba(52, 199, 89, 0.15) 0%, transparent 50%),
-              radial-gradient(ellipse at 70% 60%, rgba(10, 132, 255, 0.2) 0%, transparent 45%),
-              radial-gradient(ellipse at 50% 80%, rgba(10, 132, 255, 0.25) 0%, transparent 40%),
-              linear-gradient(180deg, #1c1c1e 0%, #000000 100%)
-            `,
+            background: '#000000',
           }),
         }}
       >
@@ -8325,7 +8320,7 @@ export default function PlannerPage() {
                       cx={m.x} cy={m.y}
                       r={symbolRadius + 12}
                       fill="none"
-                      stroke="#ef4444"
+                      stroke="#ff453a"
                       strokeWidth={4}
                       opacity={0.8}
                       style={{ animation: 'pulse 0.8s infinite' }}
@@ -8334,7 +8329,7 @@ export default function PlannerPage() {
                       cx={m.x} cy={m.y}
                       r={symbolRadius + 20}
                       fill="none"
-                      stroke="#ef4444"
+                      stroke="#ff453a"
                       strokeWidth={2}
                       opacity={0.4}
                       style={{ animation: 'pulse 0.8s infinite 0.2s' }}
@@ -8395,7 +8390,7 @@ export default function PlannerPage() {
               <g key={m.id} transform={`translate(${offsetX}, ${offsetY})`} style={{ opacity: opacity }}>
                 {/* Grön ring om kvitterad */}
                 {isAcknowledged && drivingMode && (
-                  <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#22c55e" strokeWidth={getConstrainedSize(3)} />
+                  <circle cx={m.x} cy={m.y} r={ringRadius} fill="none" stroke="#30d158" strokeWidth={getConstrainedSize(3)} />
                 )}
                 <g 
                   transform={`translate(${m.x}, ${m.y}) rotate(${m.rotation || 0}) scale(${arrowScale})`}
@@ -8432,7 +8427,7 @@ export default function PlannerPage() {
                 {/* Foto-indikator (utanför rotation) */}
                 {m.photoData && (
                   <>
-                    <circle cx={m.x + photoOffset} cy={m.y - photoOffset} r={photoRadius} fill="#22c55e" stroke="#fff" strokeWidth={getConstrainedSize(2)} />
+                    <circle cx={m.x + photoOffset} cy={m.y - photoOffset} r={photoRadius} fill="#30d158" stroke="#fff" strokeWidth={getConstrainedSize(2)} />
                     <text x={m.x + photoOffset} y={m.y - photoOffset} textAnchor="middle" dominantBaseline="central" fontSize={photoFontSize} style={{ pointerEvents: 'none' }}>
                       📷
                     </text>
@@ -8452,7 +8447,7 @@ export default function PlannerPage() {
                 return s ? `${i === 0 ? 'M' : 'L'} ${s.x} ${s.y}` : '';
               }).join(' ')}
               fill="none"
-              stroke={lineTypes.find(t => t.id === previousStickvagRef.current.lineType)?.color || '#ef4444'}
+              stroke={lineTypes.find(t => t.id === previousStickvagRef.current.lineType)?.color || '#ff453a'}
               strokeWidth={6}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -8542,7 +8537,7 @@ export default function PlannerPage() {
               {/* GPS-prick - färg baserat på accuracy */}
               <circle
                 cx={gpx} cy={gpy} r={getConstrainedSize(12)}
-                fill={gpsAccuracy != null ? (gpsAccuracy < 5 ? '#22c55e' : gpsAccuracy <= 10 ? '#f59e0b' : '#ef4444') : colors.blue}
+                fill={gpsAccuracy != null ? (gpsAccuracy < 5 ? '#30d158' : gpsAccuracy <= 10 ? '#f59e0b' : '#ff453a') : colors.blue}
                 stroke="#fff"
                 strokeWidth={getConstrainedSize(3)}
                 style={{ animation: 'pulse 1.5s infinite' }}
@@ -8750,7 +8745,7 @@ export default function PlannerPage() {
             <path
               d={measurePath.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z'}
               fill="rgba(34, 197, 94, 0.3)"
-              stroke="#22c55e"
+              stroke="#30d158"
               strokeWidth={4}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -8763,7 +8758,7 @@ export default function PlannerPage() {
             <path
               d={`M ${measurePath[0].x} ${measurePath[0].y} L ${measurePath[1].x} ${measurePath[1].y}`}
               fill="none"
-              stroke="#22c55e"
+              stroke="#30d158"
               strokeWidth={4}
               strokeLinecap="round"
             />
@@ -8774,7 +8769,7 @@ export default function PlannerPage() {
             cx={measurePath[0].x} 
             cy={measurePath[0].y} 
             r={12} 
-            fill="#22c55e" 
+            fill="#30d158" 
             stroke="#fff" 
             strokeWidth={3} 
           />
@@ -8809,13 +8804,13 @@ export default function PlannerPage() {
                     cy={end.y} 
                     r={25} 
                     fill="none"
-                    stroke="#22c55e"
+                    stroke="#30d158"
                     strokeWidth={2}
                     opacity={0.5}
                     style={{ animation: 'pulse 1.5s infinite' }}
                   />
                 )}
-                <circle cx={end.x} cy={end.y} r={14} fill="#22c55e" stroke="#fff" strokeWidth={3} />
+                <circle cx={end.x} cy={end.y} r={14} fill="#30d158" stroke="#fff" strokeWidth={3} />
                 
                 {/* Area-etikett i mitten */}
                 <rect
@@ -8824,7 +8819,7 @@ export default function PlannerPage() {
                   width={110}
                   height={36}
                   rx={18}
-                  fill="#22c55e"
+                  fill="#30d158"
                   style={{ filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.5))' }}
                 />
                 <text
@@ -8858,7 +8853,7 @@ export default function PlannerPage() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          boxShadow: '0 4px 15px rgba(0,0,0,0.5)',
+
           zIndex: 150,
           transition: 'bottom 0.3s ease',
         }}>
@@ -8872,7 +8867,7 @@ export default function PlannerPage() {
             }}
           >
             <circle cx="12" cy="12" r="10" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"/>
-            <path d="M12 3 L14.5 12 L12 10 L9.5 12 Z" fill="#ef4444"/>
+            <path d="M12 3 L14.5 12 L12 10 L9.5 12 Z" fill="#ff453a"/>
             <path d="M12 21 L14.5 12 L12 14 L9.5 12 Z" fill="rgba(255,255,255,0.5)"/>
             <circle cx="12" cy="12" r="2" fill="#0a84ff"/>
           </svg>
@@ -8880,7 +8875,7 @@ export default function PlannerPage() {
             position: 'absolute',
             top: '4px',
             fontSize: '13px',
-            color: '#ef4444',
+            color: '#ff453a',
             fontWeight: '700',
           }}>N</span>
         </div>
@@ -8896,7 +8891,7 @@ export default function PlannerPage() {
           borderRadius: '8px',
           background: 'rgba(0,0,0,0.6)',
           backdropFilter: 'blur(8px)',
-          color: gpsAccuracy < 5 ? '#22c55e' : gpsAccuracy <= 10 ? '#f59e0b' : '#ef4444',
+          color: gpsAccuracy < 5 ? '#30d158' : gpsAccuracy <= 10 ? '#f59e0b' : '#ff453a',
           fontSize: '13px',
           fontWeight: '600',
           fontVariantNumeric: 'tabular-nums',
@@ -8941,7 +8936,7 @@ export default function PlannerPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            boxShadow: '0 4px 18px rgba(0,0,0,0.4)',
+
             zIndex: 200,
           }}
         >
@@ -8970,7 +8965,7 @@ export default function PlannerPage() {
           fontWeight: '600',
           zIndex: 150,
           animation: 'fadeIn 0.2s ease',
-          boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+
         }}>
           Släpp för att placera
         </div>
@@ -8991,7 +8986,7 @@ export default function PlannerPage() {
           fontWeight: '600',
           zIndex: 150,
           animation: 'fadeIn 0.2s ease',
-          boxShadow: '0 4px 15px rgba(0,0,0,0.3)',
+
           textAlign: 'center',
         }}>
           <div style={{ fontSize: '24px', marginBottom: '4px' }}>
@@ -9048,7 +9043,7 @@ export default function PlannerPage() {
                 padding: '28px',
                 width: '90%',
                 maxWidth: '500px',
-                boxShadow: '0 12px 60px rgba(0,0,0,0.9)',
+
                 border: '1px solid rgba(255,255,255,0.15)',
               }}
               onClick={(e) => e.stopPropagation()}
@@ -9196,7 +9191,7 @@ export default function PlannerPage() {
                   <div style={{ padding: '16px', background: cat === 'enskild' ? 'rgba(255,255,255,0.05)' : 'transparent', borderRadius: '16px', border: cat === 'enskild' ? '1px solid rgba(34,197,94,0.3)' : 'none' }}>
 
                     {/* ===== RUBRIK ===== */}
-                    <div style={{ fontSize: '15px', fontWeight: '700', textAlign: 'center', marginBottom: '4px', color: cat === 'enskild' ? '#22c55e' : cat === 'allman' ? '#ef4444' : '#eab308' }}>
+                    <div style={{ fontSize: '15px', fontWeight: '700', textAlign: 'center', marginBottom: '4px', color: cat === 'enskild' ? '#30d158' : cat === 'allman' ? '#ff453a' : '#eab308' }}>
                       {cat === 'enskild' ? 'Enskild väg' : cat === 'kan_vara_allman' ? 'Kontrollera om vägen är allmän' : 'Allmän väg – tillstånd krävs'}
                     </div>
 
@@ -9228,7 +9223,7 @@ export default function PlannerPage() {
                         )}
 
                         {rc.requiresSpecialPermit && (
-                          <div style={{ fontSize: '13px', color: '#ef4444', marginBottom: '4px' }}>Särskilt tillstånd krävs</div>
+                          <div style={{ fontSize: '13px', color: '#ff453a', marginBottom: '4px' }}>Särskilt tillstånd krävs</div>
                         )}
 
                         {!rc.generelltTillstandApplied && (
@@ -9240,7 +9235,7 @@ export default function PlannerPage() {
                               {(['ej_sokt', 'sokt', 'beviljat'] as const).map(t => {
                                 const isActive = rc.tillstand === t;
                                 const label = t === 'ej_sokt' ? 'Ej sökt' : t === 'sokt' ? 'Sökt' : 'Beviljat';
-                                const activeColor = t === 'ej_sokt' ? '#ef4444' : t === 'sokt' ? '#eab308' : '#22c55e';
+                                const activeColor = t === 'ej_sokt' ? '#ff453a' : t === 'sokt' ? '#eab308' : '#30d158';
                                 return (
                                   <button key={t} onClick={() => { setMarkers(prev => prev.map(m => m.id === marker.id && m.roadCheck ? { ...m, roadCheck: { ...m.roadCheck, tillstand: t } } : m)); }}
                                     style={{ flex: 1, padding: '10px 0', borderRadius: '8px', border: 'none', background: isActive ? activeColor : 'transparent', color: isActive ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: isActive ? '700' : '500', cursor: 'pointer', transition: 'all 0.2s' }}>
@@ -9289,7 +9284,7 @@ export default function PlannerPage() {
                       <details style={sectionStyle}>
                         <summary style={{ ...sectionHeadingStyle, cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' }}>
                           <span>Checklista</span>
-                          <span style={{ fontSize: '13px', fontWeight: '500', color: checkedCount === 11 ? '#22c55e' : 'rgba(255,255,255,0.3)', letterSpacing: '0', textTransform: 'none' as const }}>{checkedCount}/11</span>
+                          <span style={{ fontSize: '13px', fontWeight: '500', color: checkedCount === 11 ? '#30d158' : 'rgba(255,255,255,0.3)', letterSpacing: '0', textTransform: 'none' as const }}>{checkedCount}/11</span>
                         </summary>
                         <div style={{ marginTop: '12px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 20px' }}>
                           {checklistLabels.map((label, i) => (
@@ -9303,8 +9298,8 @@ export default function PlannerPage() {
                                 }));
                               }}
                               style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '7px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                              <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: `1.5px solid ${rc.checklist![i] ? '#22c55e' : 'rgba(255,255,255,0.15)'}`, background: rc.checklist![i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' }}>
-                                {rc.checklist![i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
+                              <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: `1.5px solid ${rc.checklist![i] ? '#30d158' : 'rgba(255,255,255,0.15)'}`, background: rc.checklist![i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' }}>
+                                {rc.checklist![i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
                               </div>
                               <span style={{ fontSize: '13px', color: rc.checklist![i] ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)', textDecoration: rc.checklist![i] ? 'line-through' : 'none', lineHeight: '1.4' }}>{label}</span>
                             </div>
@@ -9465,7 +9460,7 @@ export default function PlannerPage() {
                   justifyContent: 'center',
                 }}
               >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={marker.photoData ? '#22c55e' : 'rgba(255,255,255,0.5)'} strokeWidth="2">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={marker.photoData ? '#30d158' : 'rgba(255,255,255,0.5)'} strokeWidth="2">
                   <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
                   <circle cx="12" cy="13" r="4" />
                 </svg>
@@ -9496,10 +9491,10 @@ export default function PlannerPage() {
                     {isRecThis ? (
                       <>
                         <span style={{ fontSize: '18px' }}>⏹</span>
-                        <span style={{ fontSize: '13px', color: '#ef4444', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>
+                        <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>
                       </>
                     ) : (
-                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={marker.audioData ? '#22c55e' : 'rgba(255,255,255,0.5)'} strokeWidth="2">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={marker.audioData ? '#30d158' : 'rgba(255,255,255,0.5)'} strokeWidth="2">
                         <rect x="9" y="2" width="6" height="11" rx="3" />
                         <path d="M5 10a7 7 0 0014 0" />
                         <line x1="12" y1="17" x2="12" y2="21" />
@@ -9616,7 +9611,7 @@ export default function PlannerPage() {
                         position: 'absolute',
                         top: '-2px',
                         right: '-2px',
-                        background: '#ef4444',
+                        background: '#ff453a',
                         color: '#fff',
                         borderRadius: '50%',
                         width: '18px',
@@ -9670,7 +9665,7 @@ export default function PlannerPage() {
               {marker.audioData && !isRecordingAudio && (
                 <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <audio controls src={marker.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
-                  <button onClick={() => { if (marker.audioData) deleteAudioFromStorage(marker.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, audioData: undefined } : m)); }} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                  <button onClick={() => { if (marker.audioData) deleteAudioFromStorage(marker.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, audioData: undefined } : m)); }} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                 </div>
               )}
 
@@ -9701,7 +9696,7 @@ export default function PlannerPage() {
                             {!isEditing && (
                               <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
                                 <button onClick={() => { setEditingNoteId(note.id); setNewNoteText(note.text || ''); }} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.4)', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✎</button>
-                                <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).filter(n => n.id !== note.id) } : m))} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                                <button onClick={() => setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).filter(n => n.id !== note.id) } : m))} style={{ width: '26px', height: '26px', borderRadius: '13px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                               </div>
                             )}
                           </div>
@@ -9720,11 +9715,11 @@ export default function PlannerPage() {
                                 <button
                                   onClick={() => toggleNoteAudioRecording(marker.id, note.id)}
                                   style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecThis ? '0 14px 0 10px' : '0', width: isRecThis ? 'auto' : '36px', background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '16px', animation: isRecThis ? 'pulse 1s infinite' : 'none' }}
-                                >{isRecThis ? '⏹' : '🎤'}{isRecThis && <span style={{ fontSize: '13px', color: '#ef4444', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
+                                >{isRecThis ? '⏹' : '🎤'}{isRecThis && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                                 {note.audioData && !isRecThis && (
                                   <>
                                     <audio controls src={note.audioData} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
-                                    <button onClick={() => { if (note.audioData) deleteAudioFromStorage(note.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                                    <button onClick={() => { if (note.audioData) deleteAudioFromStorage(note.audioData); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                                   </>
                                 )}
                                 {!note.audioData && !isRecThis && <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)' }}>Tryck för att spela in</div>}
@@ -9764,11 +9759,11 @@ export default function PlannerPage() {
                             <button
                               onClick={() => toggleNoteAudioRecording(marker.id, newId)}
                               style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecNew ? '0 14px 0 10px' : '0', width: isRecNew ? 'auto' : '36px', background: isRecNew ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '16px', animation: isRecNew ? 'pulse 1s infinite' : 'none' }}
-                            >{isRecNew ? '⏹' : '🎤'}{isRecNew && <span style={{ fontSize: '13px', color: '#ef4444', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
+                            >{isRecNew ? '⏹' : '🎤'}{isRecNew && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                             {pendingAudio && !isRecNew && (
                               <>
                                 <audio controls src={pendingAudio} style={{ flex: 1, height: '32px', borderRadius: '6px' }} />
-                                <button onClick={() => { if (pendingAudio) deleteAudioFromStorage(pendingAudio); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === newId ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                                <button onClick={() => { if (pendingAudio) deleteAudioFromStorage(pendingAudio); setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === newId ? { ...n, audioData: undefined } : n) } : m)); }} style={{ width: '24px', height: '24px', borderRadius: '12px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
                               </>
                             )}
                             {!pendingAudio && !isRecNew && <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)' }}>Tryck för att spela in</div>}
@@ -9840,10 +9835,10 @@ export default function PlannerPage() {
             width: '10px',
             height: '10px',
             borderRadius: '50%',
-            background: brandriskData.fwiindex <= 0 ? '#22c55e'
+            background: brandriskData.fwiindex <= 0 ? '#30d158'
               : brandriskData.fwiindex <= 2 ? '#eab308'
               : brandriskData.fwiindex <= 3 ? '#f97316'
-              : '#ef4444',
+              : '#ff453a',
             flexShrink: 0,
           }} />
           <div>
@@ -9875,7 +9870,7 @@ export default function PlannerPage() {
           alignItems: 'center',
           gap: '4px',
           padding: '4px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+
           zIndex: 200,
         }}>
           {measurePath.length > 1 ? (
@@ -9911,7 +9906,7 @@ export default function PlannerPage() {
                   height: '44px',
                   borderRadius: '12px',
                   border: 'none',
-                  background: '#22c55e',
+                  background: '#30d158',
                   color: '#fff',
                   fontSize: '18px',
                   cursor: 'pointer',
@@ -9967,7 +9962,7 @@ export default function PlannerPage() {
           alignItems: 'center',
           gap: '4px',
           padding: '4px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+
           zIndex: 200,
         }}>
           {measurePath.length > 2 ? (
@@ -10003,7 +9998,7 @@ export default function PlannerPage() {
                   height: '44px',
                   borderRadius: '12px',
                   border: 'none',
-                  background: '#22c55e',
+                  background: '#30d158',
                   color: '#fff',
                   fontSize: '18px',
                   cursor: 'pointer',
@@ -10057,7 +10052,7 @@ export default function PlannerPage() {
           alignItems: 'center',
           gap: '4px',
           padding: '4px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+
           zIndex: 500,
         }}>
           {/* Status-indikator */}
@@ -10071,7 +10066,7 @@ export default function PlannerPage() {
               width: '8px', 
               height: '8px', 
               borderRadius: '50%', 
-              background: gpsPaused ? '#f59e0b' : '#22c55e',
+              background: gpsPaused ? '#f59e0b' : '#30d158',
               animation: gpsPaused ? 'none' : 'pulse 1s infinite',
             }} />
             <span style={{ fontSize: '13px', opacity: 0.6 }}>
@@ -10117,7 +10112,7 @@ export default function PlannerPage() {
               height: '44px',
               borderRadius: '12px',
               border: 'none',
-              background: '#22c55e',
+              background: '#30d158',
               color: '#fff',
               fontSize: '18px',
               cursor: 'pointer',
@@ -10164,7 +10159,7 @@ export default function PlannerPage() {
           alignItems: 'center',
           gap: '4px',
           padding: '4px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+
           zIndex: 700,
         }}>
           {/* Ångra */}
@@ -10195,7 +10190,7 @@ export default function PlannerPage() {
               height: '44px',
               borderRadius: '12px',
               border: 'none',
-              background: '#22c55e',
+              background: '#30d158',
               color: '#fff',
               fontSize: '18px',
               cursor: 'pointer',
@@ -10242,7 +10237,7 @@ export default function PlannerPage() {
           alignItems: 'center',
           gap: '4px',
           padding: '4px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+
           zIndex: 700,
         }}>
           <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita</span>
@@ -10280,7 +10275,7 @@ export default function PlannerPage() {
           alignItems: 'center',
           gap: '4px',
           padding: '4px',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+
         }}>
           <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Tryck för att placera</span>
           <button
@@ -10316,7 +10311,7 @@ export default function PlannerPage() {
           padding: '16px 24px',
           borderRadius: '16px',
           zIndex: 150,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+
           textAlign: 'center',
         }}>
           <div style={{ fontSize: '32px', fontWeight: '300', opacity: 0.9 }}>
@@ -10410,7 +10405,7 @@ export default function PlannerPage() {
                     height: '24px',
                     borderRadius: '50%',
                     border: mapType === type.id ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                    background: mapType === type.id ? '#22c55e' : 'transparent',
+                    background: mapType === type.id ? '#30d158' : 'transparent',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -10473,7 +10468,7 @@ export default function PlannerPage() {
                     width: '44px',
                     height: '26px',
                     borderRadius: '13px',
-                    background: overlays[overlay.id] ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                    background: overlays[overlay.id] ? '#30d158' : 'rgba(255,255,255,0.1)',
                     padding: '2px',
                     transition: 'background 0.2s ease',
                   }}>
@@ -10538,7 +10533,7 @@ export default function PlannerPage() {
                       width: '44px',
                       height: '26px',
                       borderRadius: '13px',
-                      background: overlays[layer.id] ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                      background: overlays[layer.id] ? '#30d158' : 'rgba(255,255,255,0.1)',
                       padding: '2px',
                       transition: 'background 0.2s ease',
                     }}>
@@ -10601,7 +10596,7 @@ export default function PlannerPage() {
                   width: '44px',
                   height: '26px',
                   borderRadius: '13px',
-                  background: overlays.brandrisk ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                  background: overlays.brandrisk ? '#30d158' : 'rgba(255,255,255,0.1)',
                   padding: '2px',
                   transition: 'background 0.2s ease',
                 }}>
@@ -10660,7 +10655,7 @@ export default function PlannerPage() {
                     width: '44px',
                     height: '26px',
                     borderRadius: '13px',
-                    background: visibleLayers[layer.id] ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                    background: visibleLayers[layer.id] ? '#30d158' : 'rgba(255,255,255,0.1)',
                     padding: '2px',
                     transition: 'background 0.2s ease',
                   }}>
@@ -10722,7 +10717,7 @@ export default function PlannerPage() {
                   width: '44px',
                   height: '26px',
                   borderRadius: '13px',
-                  background: overlays.produktionshogar ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                  background: overlays.produktionshogar ? '#30d158' : 'rgba(255,255,255,0.1)',
                   padding: '2px',
                   transition: 'background 0.2s ease',
                 }}>
@@ -10764,7 +10759,7 @@ export default function PlannerPage() {
                   width: '44px',
                   height: '26px',
                   borderRadius: '13px',
-                  background: overlays.grothogar ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                  background: overlays.grothogar ? '#30d158' : 'rgba(255,255,255,0.1)',
                   padding: '2px',
                   transition: 'background 0.2s ease',
                 }}>
@@ -10825,7 +10820,7 @@ export default function PlannerPage() {
                       height: '24px',
                       borderRadius: '50%',
                       border: visibleZones[zone.id] ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: visibleZones[zone.id] ? '#22c55e' : 'transparent',
+                      background: visibleZones[zone.id] ? '#30d158' : 'transparent',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -10886,7 +10881,7 @@ export default function PlannerPage() {
                       height: '24px',
                       borderRadius: '50%',
                       border: visibleLines[line.id] ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: visibleLines[line.id] ? '#22c55e' : 'transparent',
+                      background: visibleLines[line.id] ? '#30d158' : 'transparent',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -10992,10 +10987,9 @@ export default function PlannerPage() {
                 width: '10px',
                 height: '10px',
                 borderRadius: '50%',
-                background: drivingMode ? '#22c55e' : 'rgba(255,255,255,0.2)',
-                boxShadow: drivingMode ? '0 0 8px rgba(34,197,94,0.5)' : 'none',
+                background: drivingMode ? '#30d158' : 'rgba(255,255,255,0.2)',
               }} />
-              <span style={{ fontSize: '14px', color: drivingMode ? '#22c55e' : 'rgba(255,255,255,0.4)', fontWeight: '500' }}>
+              <span style={{ fontSize: '14px', color: drivingMode ? '#30d158' : 'rgba(255,255,255,0.4)', fontWeight: '500' }}>
                 {drivingMode ? 'Körläge aktivt — proximity-varningar på' : 'Körläge av — alla symboler visas normalt'}
               </span>
             </div>
@@ -11021,7 +11015,7 @@ export default function PlannerPage() {
                   cursor: drivingMode ? 'pointer' : 'default',
                 }}
               >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={warningShowAll && drivingMode ? '#22c55e' : 'rgba(255,255,255,0.4)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={warningShowAll && drivingMode ? '#30d158' : 'rgba(255,255,255,0.4)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                   <circle cx="12" cy="12" r="3"/>
                 </svg>
@@ -11030,7 +11024,7 @@ export default function PlannerPage() {
                   width: '44px',
                   height: '26px',
                   borderRadius: '13px',
-                  background: warningShowAll && drivingMode ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                  background: warningShowAll && drivingMode ? '#30d158' : 'rgba(255,255,255,0.1)',
                   padding: '2px',
                   transition: 'background 0.2s ease',
                 }}>
@@ -11135,7 +11129,7 @@ export default function PlannerPage() {
                         width: '36px',
                         height: '20px',
                         borderRadius: '10px',
-                        background: proximityOn ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                        background: proximityOn ? '#30d158' : 'rgba(255,255,255,0.1)',
                         padding: '2px',
                         transition: 'background 0.2s ease',
                         flexShrink: 0,
@@ -11197,7 +11191,7 @@ export default function PlannerPage() {
                     <div style={{ marginBottom: '10px', opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
                         <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)' }}>Synlighetsavstånd</span>
-                        <span style={{ fontSize: '13px', color: '#22c55e', fontWeight: '600' }}>
+                        <span style={{ fontSize: '13px', color: '#30d158', fontWeight: '600' }}>
                           {warningSettings[item.id]?.fadeDist || item.defaultFade}m
                         </span>
                       </div>
@@ -11219,7 +11213,7 @@ export default function PlannerPage() {
                           height: '6px',
                           WebkitAppearance: 'none',
                           appearance: 'none' as any,
-                          background: `linear-gradient(to right, #22c55e 0%, #22c55e ${((warningSettings[item.id]?.fadeDist || item.defaultFade) - 50) / 450 * 100}%, rgba(255,255,255,0.1) ${((warningSettings[item.id]?.fadeDist || item.defaultFade) - 50) / 450 * 100}%, rgba(255,255,255,0.1) 100%)`,
+                          background: `linear-gradient(to right, #30d158 0%, #30d158 ${((warningSettings[item.id]?.fadeDist || item.defaultFade) - 50) / 450 * 100}%, rgba(255,255,255,0.1) ${((warningSettings[item.id]?.fadeDist || item.defaultFade) - 50) / 450 * 100}%, rgba(255,255,255,0.1) 100%)`,
                           borderRadius: '3px',
                           outline: 'none',
                           cursor: 'pointer',
@@ -11468,7 +11462,7 @@ export default function PlannerPage() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+
                       }}>
                         <div style={{ filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.6))' }}>
                           {renderIcon(category.symbols[0]?.id || 'default', 18, '#fff')}
@@ -11549,7 +11543,7 @@ export default function PlannerPage() {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+
                           }}>
                             <div style={{ filter: 'drop-shadow(0 0 3px rgba(255,255,255,0.8))' }}>
                               {renderIcon(type.id, 24, '#fff')}
@@ -12208,7 +12202,7 @@ export default function PlannerPage() {
                     setDetectedColor(vagColors.find(c => c.id === randomColor));
                   }}
                   style={{
-                    background: 'linear-gradient(180deg, #1a1a1a 0%, #2a2a2a 100%)',
+                    background: '#1c1c1e',
                     borderRadius: '20px',
                     height: '300px',
                     display: 'flex',
@@ -12264,7 +12258,7 @@ export default function PlannerPage() {
                     background: detectedColor.color,
                     margin: '0 auto 16px',
                     border: detectedColor.id === 'vit' ? '3px solid #ccc' : '3px solid rgba(255,255,255,0.3)',
-                    boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+
                   }} />
                   <div style={{ fontSize: '24px', fontWeight: '700' }}>{detectedColor.name}</div>
                 </div>
@@ -12282,7 +12276,7 @@ export default function PlannerPage() {
                       padding: '18px',
                       borderRadius: '14px',
                       border: 'none',
-                      background: '#22c55e',
+                      background: '#30d158',
                       color: '#fff',
                       fontSize: '16px',
                       fontWeight: '700',
@@ -12373,7 +12367,7 @@ export default function PlannerPage() {
                       height: '22px',
                       borderRadius: '50%',
                       border: selectedVagType === 'stickvag' ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: selectedVagType === 'stickvag' ? '#22c55e' : 'transparent',
+                      background: selectedVagType === 'stickvag' ? '#30d158' : 'transparent',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -12412,7 +12406,7 @@ export default function PlannerPage() {
                       height: '22px',
                       borderRadius: '50%',
                       border: selectedVagType === 'backvag' ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: selectedVagType === 'backvag' ? '#22c55e' : 'transparent',
+                      background: selectedVagType === 'backvag' ? '#30d158' : 'transparent',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -12469,7 +12463,7 @@ export default function PlannerPage() {
                       background: 'rgba(34,197,94,0.15)',
                     }}
                   >
-                    <div style={{ color: '#22c55e' }}>
+                    <div style={{ color: '#30d158' }}>
                       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="12" cy="12" r="3" />
                         <circle cx="12" cy="12" r="8" />
@@ -12480,10 +12474,10 @@ export default function PlannerPage() {
                       </svg>
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '15px', color: '#fff', color: '#22c55e' }}>Starta GPS-spårning</div>
+                      <div style={{ fontSize: '15px', color: '#fff', color: '#30d158' }}>Starta GPS-spårning</div>
                       <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>Börja gå längs stickvägen</div>
                     </div>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="1.5" style={{ opacity: 0.6 }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="1.5" style={{ opacity: 0.6 }}>
                       <path d="M9 6 L15 12 L9 18" />
                     </svg>
                   </div>
@@ -12582,7 +12576,7 @@ export default function PlannerPage() {
                   textAlign: 'center',
                 }}>
                   <div style={{ fontSize: '14px', opacity: 0.7 }}>Godkänt avstånd:</div>
-                  <div style={{ fontSize: '20px', fontWeight: '700', color: '#22c55e' }}>
+                  <div style={{ fontSize: '20px', fontWeight: '700', color: '#30d158' }}>
                     {stickvagSettings.targetDistance - stickvagSettings.tolerance} - {stickvagSettings.targetDistance + stickvagSettings.tolerance} m
                   </div>
                 </div>
@@ -12696,7 +12690,7 @@ export default function PlannerPage() {
                     <span style={{ fontSize: '14px', color: '#fff' }}>Band</span>
                     <div onClick={() => setInfoSkordareBand(!infoSkordareBand)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkordareBand ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                      background: infoSkordareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
                     }}>
                       <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkordareBand ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
                     </div>
@@ -12723,7 +12717,7 @@ export default function PlannerPage() {
                     <span style={{ fontSize: '14px', color: '#fff' }}>Manuell fällning</span>
                     <div onClick={() => setInfoSkordareManFall(!infoSkordareManFall)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkordareManFall ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                      background: infoSkordareManFall ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
                     }}>
                       <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkordareManFall ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
                     </div>
@@ -12792,7 +12786,7 @@ export default function PlannerPage() {
                     <span style={{ fontSize: '14px', color: '#fff' }}>Band</span>
                     <div onClick={() => setInfoSkotareBand(!infoSkotareBand)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkotareBand ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                      background: infoSkotareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
                     }}>
                       <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareBand ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
                     </div>
@@ -12819,7 +12813,7 @@ export default function PlannerPage() {
                     <span style={{ fontSize: '14px', color: '#fff' }}>Lastreder breddat</span>
                     <div onClick={() => setInfoSkotareLastreder(!infoSkotareLastreder)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkotareLastreder ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                      background: infoSkotareLastreder ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
                     }}>
                       <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareLastreder ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
                     </div>
@@ -12830,7 +12824,7 @@ export default function PlannerPage() {
                     <span style={{ fontSize: '14px', color: '#fff' }}>Ris skotas direkt</span>
                     <div onClick={() => setInfoSkotareRisDirekt(!infoSkotareRisDirekt)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoSkotareRisDirekt ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                      background: infoSkotareRisDirekt ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
                     }}>
                       <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoSkotareRisDirekt ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
                     </div>
@@ -12849,7 +12843,7 @@ export default function PlannerPage() {
                     <span style={{ fontSize: '14px', color: '#fff' }}>Trailer kan köra in</span>
                     <div onClick={() => setInfoTrailerIn(!infoTrailerIn)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoTrailerIn ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                      background: infoTrailerIn ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
                     }}>
                       <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoTrailerIn ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
                     </div>
@@ -12892,7 +12886,7 @@ export default function PlannerPage() {
                     <span style={{ fontSize: '14px', color: '#fff' }}>Ska ha ved</span>
                     <div onClick={() => setInfoMarkagareVed(!infoMarkagareVed)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
-                      background: infoMarkagareVed ? '#22c55e' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
+                      background: infoMarkagareVed ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
                     }}>
                       <div style={{ width: '22px', height: '22px', borderRadius: '50%', background: '#fff', transform: infoMarkagareVed ? 'translateX(18px)' : 'translateX(0)', transition: 'transform 0.2s ease' }} />
                     </div>
@@ -12978,7 +12972,7 @@ export default function PlannerPage() {
                       width: '44px',
                       height: '26px',
                       borderRadius: '13px',
-                      background: drivingMode ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                      background: drivingMode ? '#30d158' : 'rgba(255,255,255,0.1)',
                       padding: '2px',
                       transition: 'background 0.2s ease',
                     }}>
@@ -13019,7 +13013,7 @@ export default function PlannerPage() {
                       width: '44px',
                       height: '26px',
                       borderRadius: '13px',
-                      background: compassMode ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                      background: compassMode ? '#30d158' : 'rgba(255,255,255,0.1)',
                       padding: '2px',
                       transition: 'background 0.2s ease',
                     }}>
@@ -13130,7 +13124,7 @@ export default function PlannerPage() {
                       background: new Date(generelltTillstand.giltigtTom) >= new Date()
                         ? 'rgba(34,197,94,0.15)' : 'rgba(239,68,68,0.15)',
                       color: new Date(generelltTillstand.giltigtTom) >= new Date()
-                        ? '#22c55e' : '#ef4444',
+                        ? '#30d158' : '#ff453a',
                     }}>
                       {new Date(generelltTillstand.giltigtTom) >= new Date()
                         ? `Giltigt — ${generelltTillstand.lan} län`
@@ -13236,7 +13230,7 @@ export default function PlannerPage() {
                       width: '44px',
                       height: '26px',
                       borderRadius: '13px',
-                      background: showMap ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                      background: showMap ? '#30d158' : 'rgba(255,255,255,0.1)',
                       padding: '2px',
                       transition: 'background 0.2s ease',
                     }}>
@@ -13269,7 +13263,7 @@ export default function PlannerPage() {
                             console.log('[BrandTest] Aktiverat FWI 5 testläge');
                             setTimeout(() => setActiveCategory('brandrisk'), 50);
                           }}
-                          style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: 'rgba(239,68,68,0.2)', color: '#ef4444', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                          style={{ flex: 1, padding: '12px', borderRadius: '10px', border: 'none', background: 'rgba(239,68,68,0.2)', color: '#ff453a', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
                         >
                           Testa FWI 5
                         </button>
@@ -13508,7 +13502,7 @@ export default function PlannerPage() {
               padding: '28px',
               width: '90%',
               maxWidth: '320px',
-              boxShadow: '0 12px 60px rgba(0,0,0,0.9)',
+
               border: '1px solid rgba(255,255,255,0.15)',
             }}
             onClick={(e) => e.stopPropagation()}
@@ -13568,7 +13562,7 @@ export default function PlannerPage() {
                         background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)',
                         cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                         gap: '8px', fontSize: '15px', animation: isRecThis ? 'pulse 1s infinite' : 'none',
-                        color: isRecThis ? '#ef4444' : '#8ab460',
+                        color: isRecThis ? '#ff453a' : '#8ab460',
                       }}
                     >
                       {isRecThis ? '⏹' : '🎤'}
@@ -13579,7 +13573,7 @@ export default function PlannerPage() {
                     {hasAudio && !isRecThis && (
                       <button
                         onClick={() => { if (editingMarker.audioData) deleteAudioFromStorage(editingMarker.audioData); setEditingMarker(prev => prev ? { ...prev, audioData: undefined } : null); setMarkers(prev => prev.map(m => m.id === editingMarker.id ? { ...m, audioData: undefined } : m)); }}
-                        style={{ width: '32px', height: '32px', borderRadius: '16px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ef4444', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        style={{ width: '32px', height: '32px', borderRadius: '16px', border: 'none', background: 'rgba(239,68,68,0.1)', color: '#ff453a', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       >🗑</button>
                     )}
                   </div>
@@ -13642,7 +13636,7 @@ export default function PlannerPage() {
                   justifyContent: 'center',
                 }}
               >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2.5">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2.5">
                   <path d="M20 6L9 17l-5-5" />
                 </svg>
               </button>
@@ -13675,7 +13669,7 @@ export default function PlannerPage() {
                 <div style={{
                   fontSize: '120px',
                   fontWeight: '200',
-                  color: isInRange ? '#22c55e' : '#fff',
+                  color: isInRange ? '#30d158' : '#fff',
                   lineHeight: 0.9,
                   textShadow: '0 4px 30px rgba(0,0,0,0.9)',
                 }}>
@@ -13764,7 +13758,7 @@ export default function PlannerPage() {
                 height: '60px',
                 borderRadius: '50%',
                 border: 'none',
-                background: '#22c55e',
+                background: '#30d158',
                 color: '#fff',
                 fontSize: '24px',
                 cursor: 'pointer',
@@ -13795,7 +13789,7 @@ export default function PlannerPage() {
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             marginBottom: '16px',
           }}>
-            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2">
               <path d="M5 12l5 5L20 7"/>
             </svg>
           </div>
@@ -13820,7 +13814,7 @@ export default function PlannerPage() {
 
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginBottom: '20px' }}>
               {[
-                { id: 'rod', color: '#ef4444' },
+                { id: 'rod', color: '#ff453a' },
                 { id: 'gul', color: '#fbbf24' },
                 { id: 'bla', color: '#3b82f6' },
               ].map((f) => (
@@ -13923,7 +13917,7 @@ export default function PlannerPage() {
               padding: '16px',
               borderRadius: '14px',
               border: 'none',
-              background: '#22c55e',
+              background: '#30d158',
               color: '#fff',
               fontSize: '15px',
               fontWeight: '500',
@@ -13969,7 +13963,7 @@ export default function PlannerPage() {
               display: 'flex', alignItems: 'center', gap: '6px',
               padding: '8px 12px', borderRadius: '10px', background: 'rgba(0,0,0,0.5)',
             }}>
-              <div style={{ width: '6px', height: '6px', background: gpsPaused ? '#666' : '#22c55e', borderRadius: '50%' }} />
+              <div style={{ width: '6px', height: '6px', background: gpsPaused ? '#666' : '#30d158', borderRadius: '50%' }} />
               <span style={{ fontSize: '13px', color: '#fff', opacity: 0.6 }}>GPS</span>
             </div>
           </div>
@@ -14159,7 +14153,7 @@ export default function PlannerPage() {
                       borderRadius: '12px',
                       border: 'none',
                       background: 'rgba(239,68,68,0.2)',
-                      color: '#ef4444',
+                      color: '#ff453a',
                       fontSize: '14px',
                       cursor: 'pointer',
                       pointerEvents: 'auto',
@@ -14272,7 +14266,7 @@ export default function PlannerPage() {
                       borderRadius: '12px',
                       border: 'none',
                       background: 'rgba(239,68,68,0.2)',
-                      color: '#ef4444',
+                      color: '#ff453a',
                       fontSize: '14px',
                       cursor: 'pointer',
                       pointerEvents: 'auto',
@@ -14298,7 +14292,7 @@ export default function PlannerPage() {
             bottom: 0,
             width: '100vw',
             height: '100vh',
-            background: '#dc2626',
+            background: '#ff453a',
             zIndex: 9999,
             display: 'flex',
             flexDirection: 'column',
@@ -14395,12 +14389,12 @@ export default function PlannerPage() {
               borderRadius: '24px',
               border: 'none',
               background: '#fff',
-              color: '#dc2626',
+              color: '#ff453a',
               fontSize: '28px',
               fontWeight: '900',
               cursor: 'pointer',
               marginTop: '20px',
-              boxShadow: '0 8px 30px rgba(0,0,0,0.4)',
+
               textTransform: 'uppercase',
             }}
           >
@@ -14432,7 +14426,7 @@ export default function PlannerPage() {
               maxWidth: '400px',
               maxHeight: '80vh',
               overflow: 'auto',
-              boxShadow: '0 12px 60px rgba(0,0,0,0.9)',
+
               border: '1px solid rgba(255,255,255,0.15)',
             }}
             onClick={(e) => e.stopPropagation()}
@@ -14449,7 +14443,7 @@ export default function PlannerPage() {
               </div>
               <div style={{ 
                 fontSize: '14px', 
-                color: checklistItems.every(i => i.answer !== null) ? '#22c55e' : '#fbbf24',
+                color: checklistItems.every(i => i.answer !== null) ? '#30d158' : '#fbbf24',
                 fontWeight: '500',
               }}>
                 {checklistItems.filter(i => i.answer !== null).length} / {checklistItems.length}
@@ -14467,7 +14461,7 @@ export default function PlannerPage() {
               <div style={{
                 height: '100%',
                 width: `${(checklistItems.filter(i => i.answer !== null).length / checklistItems.length) * 100}%`,
-                background: checklistItems.every(i => i.answer !== null) ? '#22c55e' : '#fbbf24',
+                background: checklistItems.every(i => i.answer !== null) ? '#30d158' : '#fbbf24',
                 transition: 'width 0.3s ease',
               }} />
             </div>
@@ -14501,7 +14495,7 @@ export default function PlannerPage() {
                       padding: '8px 16px',
                       borderRadius: '8px',
                       border: 'none',
-                      background: item.answer === true ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                      background: item.answer === true ? '#30d158' : 'rgba(255,255,255,0.1)',
                       color: item.answer === true ? '#fff' : 'rgba(255,255,255,0.5)',
                       fontSize: '13px',
                       fontWeight: '600',
@@ -14518,7 +14512,7 @@ export default function PlannerPage() {
                       padding: '8px 16px',
                       borderRadius: '8px',
                       border: 'none',
-                      background: item.answer === false ? '#ef4444' : 'rgba(255,255,255,0.1)',
+                      background: item.answer === false ? '#ff453a' : 'rgba(255,255,255,0.1)',
                       color: item.answer === false ? '#fff' : 'rgba(255,255,255,0.5)',
                       fontSize: '13px',
                       fontWeight: '600',
@@ -14625,7 +14619,7 @@ export default function PlannerPage() {
                 marginTop: '24px',
                 borderRadius: '12px',
                 border: 'none',
-                background: checklistItems.every(i => i.answer !== null) ? '#22c55e' : 'rgba(255,255,255,0.1)',
+                background: checklistItems.every(i => i.answer !== null) ? '#30d158' : 'rgba(255,255,255,0.1)',
                 color: '#fff',
                 fontSize: '16px',
                 fontWeight: '600',
@@ -14673,7 +14667,7 @@ export default function PlannerPage() {
             justifyContent: 'center',
             cursor: 'pointer',
             zIndex: 100,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+
             pointerEvents: 'auto',
           }}
         >
@@ -14767,7 +14761,7 @@ export default function PlannerPage() {
                 maxWidth: '500px',
                 maxHeight: '85vh',
                 overflowY: 'auto',
-                boxShadow: '0 12px 60px rgba(0,0,0,0.9)',
+
                 border: '1px solid rgba(255,255,255,0.15)',
               }}
               onClick={(e) => e.stopPropagation()}
@@ -14813,7 +14807,7 @@ export default function PlannerPage() {
                 borderBottom: '1px solid rgba(255,255,255,0.08)',
               }}>
                 <div>
-                  <div style={{ fontSize: '15px', fontWeight: '700', color: isRed ? '#ef4444' : '#eab308', marginBottom: '4px' }}>
+                  <div style={{ fontSize: '15px', fontWeight: '700', color: isRed ? '#ff453a' : '#eab308', marginBottom: '4px' }}>
                     {isRed ? 'Avverkning nära skyddsklassad väg' : 'Allmän väg nära avverkning'}
                   </div>
                   <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)' }}>
@@ -14854,7 +14848,7 @@ export default function PlannerPage() {
 
                   {/* Vädervarningar */}
                   {windWarningRed && (
-                    <div style={{ marginTop: '10px', fontSize: '13px', fontWeight: '500', color: '#ef4444' }}>
+                    <div style={{ marginTop: '10px', fontSize: '13px', fontWeight: '500', color: '#ff453a' }}>
                       Mycket stark vind – avbryt fällning nära väg
                     </div>
                   )}
@@ -14881,7 +14875,7 @@ export default function PlannerPage() {
                 <summary style={summaryStyle}>
                   <span>Riskbedömning – arbete nära väg</span>
                   {answeredCount === 7 && (
-                    <span style={{ fontSize: '13px', fontWeight: '500', letterSpacing: '0', textTransform: 'none' as const, color: riskLevel === 'low' ? '#22c55e' : riskLevel === 'medium' ? '#eab308' : '#ef4444' }}>
+                    <span style={{ fontSize: '13px', fontWeight: '500', letterSpacing: '0', textTransform: 'none' as const, color: riskLevel === 'low' ? '#30d158' : riskLevel === 'medium' ? '#eab308' : '#ff453a' }}>
                       {riskLevel === 'low' ? 'Låg risk' : riskLevel === 'medium' ? 'Förhöjd' : 'Hög risk'}
                     </span>
                   )}
@@ -14898,7 +14892,7 @@ export default function PlannerPage() {
                       <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', flexShrink: 0 }}>
                         {([true, false] as const).map(val => {
                           const isActive = bRisk[i] === val;
-                          const activeColor = val ? '#eab308' : '#22c55e';
+                          const activeColor = val ? '#eab308' : '#30d158';
                           return (
                             <button key={String(val)} onClick={() => setTmaRisk(prev => { const old = prev[boundaryId] || [null, null, null, null, null, null, null]; const n = [...old]; n[i] = val; return { ...prev, [boundaryId]: n }; })}
                               style={{ flex: 1, minWidth: '50px', padding: '10px 0', borderRadius: '8px', border: 'none', background: isActive ? activeColor : 'transparent', color: isActive ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: isActive ? '700' : '500', cursor: 'pointer', transition: 'all 0.2s' }}>
@@ -14912,7 +14906,7 @@ export default function PlannerPage() {
 
                   {/* Resultat */}
                   {riskLevel && (
-                    <div style={{ marginTop: '8px', fontSize: '13px', fontWeight: '500', lineHeight: '1.5', color: riskLevel === 'low' ? '#22c55e' : riskLevel === 'medium' ? '#eab308' : '#ef4444' }}>
+                    <div style={{ marginTop: '8px', fontSize: '13px', fontWeight: '500', lineHeight: '1.5', color: riskLevel === 'low' ? '#30d158' : riskLevel === 'medium' ? '#eab308' : '#ff453a' }}>
                       {riskLevel === 'low' && 'Låg risk – tänk på skyltning vid fällning nära väg'}
                       {riskLevel === 'medium' && 'Förhöjd risk – varningsskyltar och farthinder rekommenderas'}
                       {riskLevel === 'high' && 'Hög risk – TMA-bil eller avstängd vägbana rekommenderas'}
@@ -14943,7 +14937,7 @@ export default function PlannerPage() {
                 <summary style={summaryStyle}>
                   <span>Samråd – gemensamt arbetsställe</span>
                   {bSamrad.kvitterad ? (
-                    <span style={{ fontSize: '13px', fontWeight: '500', letterSpacing: '0', textTransform: 'none' as const, color: '#22c55e' }}>Genomfört</span>
+                    <span style={{ fontSize: '13px', fontWeight: '500', letterSpacing: '0', textTransform: 'none' as const, color: '#30d158' }}>Genomfört</span>
                   ) : (
                     <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>›</span>
                   )}
@@ -14954,7 +14948,7 @@ export default function PlannerPage() {
                   </div>
 
                   {bSamrad.kvitterad ? (
-                    <div style={{ fontSize: '13px', color: '#22c55e', fontWeight: '500' }}>
+                    <div style={{ fontSize: '13px', color: '#30d158', fontWeight: '500' }}>
                       Samråd genomfört {bSamrad.kvitteradDatum}
                       <button onClick={() => setTmaSamrad(prev => ({ ...prev, [boundaryId]: { ...bSamrad, kvitterad: false, kvitteradDatum: '' } }))} style={{ marginLeft: '12px', fontSize: '13px', color: '#60a5fa', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Ändra</button>
                     </div>
@@ -14981,7 +14975,7 @@ export default function PlannerPage() {
                           <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
                             {([true, false] as const).map(val => {
                               const isActive = bSamrad.tmaBil === val;
-                              const activeColor = val ? '#22c55e' : 'rgba(255,255,255,0.3)';
+                              const activeColor = val ? '#30d158' : 'rgba(255,255,255,0.3)';
                               return (
                                 <button key={String(val)} onClick={() => setTmaSamrad(prev => ({ ...prev, [boundaryId]: { ...bSamrad, tmaBil: val } }))}
                                   style={{ flex: 1, padding: '10px 0', borderRadius: '8px', border: 'none', background: isActive ? activeColor : 'transparent', color: isActive ? '#000' : 'rgba(255,255,255,0.5)', fontSize: '13px', fontWeight: isActive ? '700' : '500', cursor: 'pointer', transition: 'all 0.2s' }}>
@@ -15002,11 +14996,11 @@ export default function PlannerPage() {
                             style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                             <div style={{
                               width: '18px', height: '18px', borderRadius: '4px',
-                              border: `1.5px solid ${bSamrad.checkboxes[i] ? '#22c55e' : 'rgba(255,255,255,0.15)'}`,
+                              border: `1.5px solid ${bSamrad.checkboxes[i] ? '#30d158' : 'rgba(255,255,255,0.15)'}`,
                               background: bSamrad.checkboxes[i] ? 'rgba(34,197,94,0.12)' : 'transparent',
                               display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                             }}>
-                              {bSamrad.checkboxes[i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
+                              {bSamrad.checkboxes[i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
                             </div>
                             <span style={{ fontSize: '13px', color: bSamrad.checkboxes[i] ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)', textDecoration: bSamrad.checkboxes[i] ? 'line-through' : 'none', lineHeight: '1.4' }}>
                               {label}
@@ -15035,7 +15029,7 @@ export default function PlannerPage() {
                           onClick={() => setTmaSamrad(prev => ({ ...prev, [boundaryId]: { ...bSamrad, kvitterad: true, kvitteradDatum: bSamrad.datum } }))}
                           style={{
                             flex: 1, padding: '14px', borderRadius: '12px', border: 'none',
-                            background: '#22c55e', color: '#000', fontSize: '14px', fontWeight: '600',
+                            background: '#30d158', color: '#000', fontSize: '14px', fontWeight: '600',
                             cursor: 'pointer',
                           }}
                         >
@@ -15282,7 +15276,7 @@ export default function PlannerPage() {
                 >
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: isRed ? '#ef4444' : '#eab308', flexShrink: 0 }} />
+                      <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: isRed ? '#ff453a' : '#eab308', flexShrink: 0 }} />
                       <div>
                         <div style={{ fontSize: '14px', fontWeight: '500', color: '#fff' }}>Avverkning nära väg</div>
                         <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
@@ -15390,7 +15384,7 @@ export default function PlannerPage() {
                         background: 'rgba(0,0,0,0.95)',
                         borderRadius: '14px',
                         padding: '10px 20px',
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+
                         border: '1px solid rgba(255,255,255,0.15)',
                         zIndex: 10,
                       }}>
@@ -15487,14 +15481,11 @@ export default function PlannerPage() {
                         height: draggingSlider === 'terrang' ? '36px' : '20px',
                         borderRadius: '50%',
                         background: '#fff',
-                        boxShadow: draggingSlider === 'terrang' 
-                          ? '0 4px 16px rgba(0,0,0,0.4)'
-                          : '0 2px 8px rgba(0,0,0,0.3)',
-                        transition: 'width 0.15s ease, height 0.15s ease, box-shadow 0.15s ease',
+                        transition: 'width 0.15s ease, height 0.15s ease',
                       }} />
                     </div>
                   </div>
-                  
+
                   {/* Dålig bärighet */}
                   <div style={{ position: 'relative' }}>
                     {/* Stor siffra när man drar */}
@@ -15507,7 +15498,7 @@ export default function PlannerPage() {
                         background: 'rgba(0,0,0,0.95)',
                         borderRadius: '14px',
                         padding: '10px 20px',
-                        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+
                         border: '1px solid rgba(255,255,255,0.15)',
                         zIndex: 10,
                       }}>
@@ -15604,10 +15595,7 @@ export default function PlannerPage() {
                         height: draggingSlider === 'barighet' ? '36px' : '20px',
                         borderRadius: '50%',
                         background: '#fff',
-                        boxShadow: draggingSlider === 'barighet' 
-                          ? '0 4px 16px rgba(0,0,0,0.4)'
-                          : '0 2px 8px rgba(0,0,0,0.3)',
-                        transition: 'width 0.15s ease, height 0.15s ease, box-shadow 0.15s ease',
+                        transition: 'width 0.15s ease, height 0.15s ease',
                       }} />
                     </div>
                   </div>
@@ -15822,7 +15810,7 @@ export default function PlannerPage() {
               borderRadius: '12px',
               padding: '4px',
               minWidth: '200px',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+
             }}
           >
             <div
@@ -15858,7 +15846,7 @@ export default function PlannerPage() {
                   gap: '10px',
                   borderRadius: '8px',
                   cursor: 'pointer',
-                  color: '#ef4444',
+                  color: '#ff453a',
                   fontSize: '14px',
                 }}
               >
@@ -15887,7 +15875,7 @@ export default function PlannerPage() {
           alignItems: 'center',
           gap: '6px',
           cursor: 'pointer',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.3)',
+
         }} onClick={() => setSimulatedPos(null)}>
           📍 SIM-POSITION
           <span style={{ opacity: 0.7 }}>✕</span>
@@ -15909,20 +15897,20 @@ export default function PlannerPage() {
           zIndex: 400,
           maxWidth: '260px',
           lineHeight: '1.5',
-          border: `2px solid ${effectiveUserPos ? '#22c55e' : '#ef4444'}`,
-          boxShadow: '0 2px 10px rgba(0,0,0,0.5)',
+          border: `2px solid ${effectiveUserPos ? '#30d158' : '#ff453a'}`,
+
         }}>
-          <div style={{ fontWeight: '700', fontSize: '13px', color: effectiveUserPos ? '#22c55e' : '#ef4444', marginBottom: '4px' }}>
+          <div style={{ fontWeight: '700', fontSize: '13px', color: effectiveUserPos ? '#30d158' : '#ff453a', marginBottom: '4px' }}>
             PROXIMITY DEBUG
           </div>
-          <div>drivingMode: <span style={{ color: '#22c55e' }}>true</span></div>
-          <div>warningShowAll: <span style={{ color: warningShowAll ? '#ef4444' : '#22c55e' }}>{String(warningShowAll)}</span></div>
-          <div>effectiveUserPos: <span style={{ color: effectiveUserPos ? '#22c55e' : '#ef4444' }}>
+          <div>drivingMode: <span style={{ color: '#30d158' }}>true</span></div>
+          <div>warningShowAll: <span style={{ color: warningShowAll ? '#ff453a' : '#30d158' }}>{String(warningShowAll)}</span></div>
+          <div>effectiveUserPos: <span style={{ color: effectiveUserPos ? '#30d158' : '#ff453a' }}>
             {effectiveUserPos ? `${effectiveUserPos.latLng.lat.toFixed(5)},${effectiveUserPos.latLng.lng.toFixed(5)}` : 'NULL'}
           </span></div>
           <div>userSvg: {effectiveUserPos?.svg ? `x=${effectiveUserPos.svg.x.toFixed(0)},y=${effectiveUserPos.svg.y.toFixed(0)}` : 'null'}</div>
           <div>simulatedPos: {simulatedPos ? `${simulatedPos.lat.toFixed(5)},${simulatedPos.lng.toFixed(5)}` : 'null'}</div>
-          <div>gpsPosition: <span style={{ color: gpsPosition ? '#22c55e' : '#ef4444' }}>{gpsPosition ? `${gpsPosition.lat.toFixed(5)},${gpsPosition.lng.toFixed(5)}` : 'NULL'}</span></div>
+          <div>gpsPosition: <span style={{ color: gpsPosition ? '#30d158' : '#ff453a' }}>{gpsPosition ? `${gpsPosition.lat.toFixed(5)},${gpsPosition.lng.toFixed(5)}` : 'NULL'}</span></div>
           <div>isTracking: {String(isTracking)}</div>
           <div>markers: {markers.length} (isMarker: {markers.filter(m => m.isMarker).length})</div>
           <div>scale: {scale.toFixed(3)} m/px</div>
@@ -15945,7 +15933,7 @@ export default function PlannerPage() {
           to { opacity: 1; transform: translateY(0); }
         }
         @keyframes warningFlash {
-          0% { background: #dc2626; }
+          0% { background: #ff453a; }
           100% { background: #991b1b; }
         }
         @keyframes simPulse {
@@ -16000,10 +15988,10 @@ export default function PlannerPage() {
 
         const typeConfig: Record<string, { icon: string; color: string; label: string; link?: string }> = {
           vattenskydd: { icon: '⚠️', color: '#3b82f6', label: 'Vattenskyddsområde', link: 'https://skyddadnatur.naturvardsverket.se/' },
-          naturreservat: { icon: '🛑', color: '#22c55e', label: 'Naturreservat', link: 'https://skyddadnatur.naturvardsverket.se/' },
+          naturreservat: { icon: '🛑', color: '#30d158', label: 'Naturreservat', link: 'https://skyddadnatur.naturvardsverket.se/' },
           natura2000: { icon: '🇪🇺', color: '#6366f1', label: 'Natura 2000', link: 'https://skyddadnatur.naturvardsverket.se/' },
           fornlamning: { icon: '🏛️', color: '#f59e0b', label: 'Fornlämning' },
-          nyckelbiotop: { icon: '🌿', color: '#22c55e', label: 'Nyckelbiotop', link: 'https://www.skogsstyrelsen.se/skogensparlor' },
+          nyckelbiotop: { icon: '🌿', color: '#30d158', label: 'Nyckelbiotop', link: 'https://www.skogsstyrelsen.se/skogensparlor' },
           biotopskydd: { icon: '🛡️', color: '#16a34a', label: 'Biotopskydd', link: 'https://www.skogsstyrelsen.se/skogensparlor' },
           skogochhistoria: { icon: '🏚️', color: '#a16207', label: 'Skog och Historia' },
         };
@@ -16073,7 +16061,7 @@ export default function PlannerPage() {
                     textAlign: 'center',
                   }}>
                     <div style={{ fontSize: '32px', marginBottom: '8px' }}>✅</div>
-                    <div style={{ fontSize: '16px', fontWeight: '600', color: '#22c55e' }}>Inga kända restriktioner</div>
+                    <div style={{ fontSize: '16px', fontWeight: '600', color: '#30d158' }}>Inga kända restriktioner</div>
                     <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
                       Inga träffar i vattenskydd, naturreservat, Natura 2000, nyckelbiotoper, biotopskydd eller fornlämningsregister
                     </div>
@@ -16268,7 +16256,7 @@ export default function PlannerPage() {
               cursor: 'pointer',
               maxWidth: '90vw',
               textAlign: 'center',
-              boxShadow: '0 2px 12px rgba(0,0,0,0.4)',
+
             }}>
             ⚠️ Denna trakt har: {parts.join(', ')}
           </div>
@@ -16515,7 +16503,7 @@ export default function PlannerPage() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontSize: '18px',
               }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="2">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2">
                   <circle cx="12" cy="12" r="10" />
                   <path d="M8 12l3 3 5-5" />
                 </svg>
@@ -16581,7 +16569,7 @@ export default function PlannerPage() {
                     <div style={{
                       width: '22px', height: '22px', borderRadius: '6px',
                       border: multiSelectChecked[i] ? 'none' : '2px solid rgba(255,255,255,0.2)',
-                      background: multiSelectChecked[i] ? '#22c55e' : 'transparent',
+                      background: multiSelectChecked[i] ? '#30d158' : 'transparent',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       flexShrink: 0,
                     }}>
@@ -16620,7 +16608,7 @@ export default function PlannerPage() {
                   <span style={{ color: 'rgba(255,255,255,0.5)' }}>
                     {Object.values(multiSelectChecked).filter(Boolean).length} av {grouped.length} sortiment valda
                   </span>
-                  <span style={{ color: '#22c55e', fontWeight: '600' }}>
+                  <span style={{ color: '#30d158', fontWeight: '600' }}>
                     {grouped.filter((_, i) => multiSelectChecked[i]).reduce((s, h) => s + h.volym, 0).toFixed(1)} m³
                   </span>
                 </div>
@@ -16628,7 +16616,7 @@ export default function PlannerPage() {
                   <div style={{
                     padding: '14px', borderRadius: '12px',
                     background: 'rgba(34,197,94,0.15)',
-                    textAlign: 'center', color: '#22c55e',
+                    textAlign: 'center', color: '#30d158',
                     fontSize: '14px', fontWeight: '600',
                   }}>
                     Sparat!
@@ -16784,7 +16772,7 @@ export default function PlannerPage() {
                     style={{
                       width: '100%', padding: '14px',
                       borderRadius: '12px', border: 'none',
-                      background: '#22c55e', color: '#fff',
+                      background: '#30d158', color: '#fff',
                       fontSize: '15px', fontWeight: '600',
                       cursor: 'pointer',
                     }}
