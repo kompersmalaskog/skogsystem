@@ -7586,7 +7586,7 @@ export default function PlannerPage() {
       onExit: () => setIsMeasuring(false),
       exitLabel: 'Avsluta',
     } : (skotningDrawing && !skotningPanel) ? {
-      label: 'Ritar produktionshögar · dra på kartan',
+      label: 'Ny produktionshög · dra på kartan',
       onExit: () => {
         setSkotningDrawing(false);
         const map = mapInstanceRef.current;
@@ -7896,7 +7896,7 @@ export default function PlannerPage() {
                   { label: 'Pilar', icon: 'arrow_outward', action: () => { setActiveCategory('arrows'); setMenuOpen(true); } },
                   { label: 'Mätning', icon: 'straighten', action: () => { setActiveCategory('measure'); setMenuOpen(true); } },
                   { label: 'Skotning', icon: 'local_shipping', action: () => { setActiveCategory('skotning'); setMenuOpen(true); } },
-                  { label: 'Rita produktionshögar', icon: 'edit', action: () => {
+                  { label: 'Ny produktionshög', icon: 'edit', action: () => {
                     const map = mapInstanceRef.current;
                     setSkotningDrawing(true);
                     setSkotningPolygon(null);
@@ -7931,7 +7931,7 @@ export default function PlannerPage() {
                 title: 'FLÖDEN',
                 items: [
                   { label: 'Briefing', icon: 'menu_book', action: () => { setBriefingMode(true); setActiveCategory(null); } },
-                  { label: 'Kvittering', icon: 'task_alt', action: () => { setBriefingChecklistMode(true); } },
+                  { label: 'Kvittera markeringar', icon: 'task_alt', action: () => { setBriefingChecklistMode(true); } },
                   { label: 'Checklista', icon: 'check_circle', action: () => { setChecklistOpen(true); } },
                 ],
               },
