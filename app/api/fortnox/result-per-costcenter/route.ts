@@ -152,36 +152,47 @@ export async function GET(req: NextRequest) {
     const totalRader = aggrPerKonto(() => true);
     const foretagetTotalt = { ok: true, konton: totalRader, ...grupperaKonto(totalRader) };
 
-    // 2) Per maskin
-    const koder = new Set(mappningar.map(m => m.kostnadsstalle_kod));
-    const maskiner: any[] = [];
+    // 2) Per maskin — aggregera över ALLA kopplade kostnadsställen per maskin.
+    // En maskin kan ha flera CC (Scorpion Gigant har t.ex. SCO + M13).
+    const mappadeKoder = new Set(mappningar.map(m => m.kostnadsstalle_kod));
+    const koderPerMaskin: Record<string, string[]> = {};
     for (const m of mappningar) {
-      const cc = costCenters.find(c => c.Code === m.kostnadsstalle_kod);
-      const namnFort = cc?.Description || m.kostnadsstalle_kod;
-      const maskinInfo = maskinMap[m.maskin_id];
-      const kontoRader = aggrPerKonto(r => r.costcenter === m.kostnadsstalle_kod);
+      (koderPerMaskin[m.maskin_id] = koderPerMaskin[m.maskin_id] || []).push(m.kostnadsstalle_kod);
+    }
+    const maskiner: any[] = [];
+    for (const [maskinId, koder] of Object.entries(koderPerMaskin)) {
+      const koderSet = new Set(koder);
+      const kontoRader = aggrPerKonto(r => !!r.costcenter && koderSet.has(r.costcenter));
       const grupp = grupperaKonto(kontoRader);
+      const maskinInfo = maskinMap[maskinId];
+      const kostnadsstallen = koder.map(k => {
+        const cc = costCenters.find(c => c.Code === k);
+        return { kod: k, namn: cc?.Description || k };
+      });
       maskiner.push({
-        maskin_id: m.maskin_id,
-        maskin_namn: maskinInfo?.modell || m.maskin_id,
+        maskin_id: maskinId,
+        maskin_namn: maskinInfo?.modell || maskinId,
         maskin_typ: maskinInfo?.maskin_typ || null,
-        kostnadsstalle: { kod: m.kostnadsstalle_kod, namn: namnFort },
+        // Bevara primär-fältet för bakåtkompat — första CC:n
+        kostnadsstalle: kostnadsstallen[0],
+        kostnadsstallen, // hela listan för UI-chips
         ok: true,
         ...grupp,
         konton: kontoRader,
       });
     }
+    maskiner.sort((a, b) => String(a.maskin_namn).localeCompare(String(b.maskin_namn), 'sv'));
 
     // 3) Utan kostnadsställe — costcenter IS NULL eller ''
     const utanKostRader = aggrPerKonto(r => !r.costcenter || r.costcenter === "");
     const utanKostnadsstalle = { ok: true, konton: utanKostRader, ...grupperaKonto(utanKostRader) };
 
-    // 4) Övriga kostnadsställen (inte mappade till maskin) — kan vara bra
-    //    att visa för att täcka alla rader. Grupperat per kod.
+    // 4) Övriga kostnadsställen (finns i rader men inte mappade). M8 (Lastbil),
+    //    TRA (VM Trailer), EWA — egna kostnadsobjekt som inte är maskiner.
     const ovrigaMap: Record<string, { account: string; sum: number }[]> = {};
     for (const r of rader) {
       if (!r.costcenter) continue;
-      if (koder.has(r.costcenter)) continue;
+      if (mappadeKoder.has(r.costcenter)) continue;
       if (!ovrigaMap[r.costcenter]) ovrigaMap[r.costcenter] = [];
       const accList = ovrigaMap[r.costcenter];
       const hittad = accList.find(a => a.account === r.account);
@@ -192,6 +203,7 @@ export async function GET(req: NextRequest) {
       const cc = costCenters.find(c => c.Code === kod);
       return { kod, namn: cc?.Description || kod, ...grupperaKonto(konton), konton };
     });
+    ovrigaKostnadsstallen.sort((a, b) => (b.intakter + b.kostnader.total) - (a.intakter + a.kostnader.total));
 
     return NextResponse.json({
       ok: true,

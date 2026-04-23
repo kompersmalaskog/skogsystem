@@ -10,6 +10,7 @@ type MaskinResult = {
   maskin_namn: string;
   maskin_typ: string | null;
   kostnadsstalle: { kod: string; namn?: string };
+  kostnadsstallen?: { kod: string; namn?: string }[];
   ok: boolean;
   fel?: string;
   intakter?: number;
@@ -19,6 +20,14 @@ type MaskinResult = {
 
 type Sammanfattning = {
   ok: boolean;
+  intakter: number;
+  kostnader: { drivmedel: number; drift_service: number; loner: number; ovrigt: number; total: number };
+  resultat: number;
+};
+
+type OvrigtCc = {
+  kod: string;
+  namn?: string;
   intakter: number;
   kostnader: { drivmedel: number; drift_service: number; loner: number; ovrigt: number; total: number };
   resultat: number;
@@ -81,6 +90,7 @@ export default function ResultatClient() {
   const [maskiner, setMaskiner] = useState<MaskinResult[]>([]);
   const [foretagetTotalt, setForetagetTotalt] = useState<Sammanfattning | null>(null);
   const [utanKost, setUtanKost] = useState<Sammanfattning | null>(null);
+  const [ovriga, setOvriga] = useState<OvrigtCc[]>([]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -93,17 +103,20 @@ export default function ResultatClient() {
         setMaskiner([]);
         setForetagetTotalt(null);
         setUtanKost(null);
+        setOvriga([]);
         setError(body.meddelande || `HTTP ${r.status}`);
         return;
       }
       setMaskiner(body.maskiner || []);
       setForetagetTotalt(body.foretaget_totalt || null);
       setUtanKost(body.utan_kostnadsstalle || null);
+      setOvriga(body.ovriga_kostnadsstallen || []);
     } catch (e: any) {
       setError(e?.message || String(e));
       setMaskiner([]);
       setForetagetTotalt(null);
       setUtanKost(null);
+      setOvriga([]);
     }
     setLoading(false);
   }, [period, periodOffset]);
@@ -192,9 +205,11 @@ export default function ResultatClient() {
               <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 600 }}>{m.maskin_namn}</div>
-                  <div style={{ marginTop: 3, display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <span style={s.pill}>{m.kostnadsstalle.kod}</span>
-                    {m.kostnadsstalle.namn && <span style={{ fontSize: 11, color: '#7a7a72' }}>{m.kostnadsstalle.namn}</span>}
+                  <div style={{ marginTop: 3, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {(m.kostnadsstallen && m.kostnadsstallen.length > 0 ? m.kostnadsstallen : [m.kostnadsstalle]).map(cc => (
+                      <span key={cc.kod} style={s.pill} title={cc.namn || ''}>{cc.kod}</span>
+                    ))}
+                    {m.kostnadsstalle.namn && (!m.kostnadsstallen || m.kostnadsstallen.length <= 1) && <span style={{ fontSize: 11, color: '#7a7a72' }}>{m.kostnadsstalle.namn}</span>}
                     {m.maskin_typ && (
                       <span style={{ ...s.pill, color: m.maskin_typ === 'Harvester' ? 'rgba(90,255,140,0.85)' : 'rgba(91,143,255,0.9)', background: m.maskin_typ === 'Harvester' ? 'rgba(90,255,140,0.08)' : 'rgba(91,143,255,0.1)' }}>
                         {m.maskin_typ === 'Harvester' ? 'SKÖRD' : 'SKOT'}
@@ -226,6 +241,38 @@ export default function ResultatClient() {
               )}
             </div>
           ))}
+
+          {/* Övriga kostnadsställen — finns i Fortnox men är inte maskin (M8 Lastbil, TRA VM Trailer, EWA osv). */}
+          {ovriga.length > 0 && (
+            <>
+              <div style={s.sectionTitle}>Övriga kostnadsställen</div>
+              {ovriga.map(o => (
+                <div key={o.kod} style={{ ...s.card, marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 600 }}>{o.namn || o.kod}</div>
+                      <div style={{ marginTop: 3, display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span style={s.pill}>{o.kod}</span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 22, color: o.resultat >= 0 ? 'rgba(90,255,140,0.95)' : 'rgba(255,90,90,0.9)' }}>
+                        {formatKr(o.resultat)}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#7a7a72', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>Resultat</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 6, fontSize: 12 }}>
+                    <Kpi label="Intäkter" value={o.intakter} color="rgba(90,255,140,0.9)" />
+                    <Kpi label="Drivmedel" value={o.kostnader.drivmedel} color="#bfcab9" />
+                    <Kpi label="Drift & service" value={o.kostnader.drift_service} color="#bfcab9" />
+                    <Kpi label="Löner" value={o.kostnader.loner} color="#bfcab9" />
+                    <Kpi label="Övrigt" value={o.kostnader.ovrigt} color="#bfcab9" />
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
 
           {/* Utan kostnadsställe — rader som saknar CC. Ofta lastbil/löner/OH. */}
           {utanKost && (utanKost.intakter !== 0 || utanKost.kostnader.total !== 0) && (

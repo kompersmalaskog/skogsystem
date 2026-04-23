@@ -26,12 +26,9 @@ type OvrigtRad = {
   id?: string; nyckel: string; beskrivning: string; varde: Num; enhet: string;
   giltig_fran: string | null; isNew?: boolean; dirty?: boolean;
 };
-type KostnadsstalleRad = {
-  maskin_id: string;
-  maskin_namn: string;
-  kostnadsstalle_kod: string;
-  dirty?: boolean;
-};
+type Mappning = { id: string; maskin_id: string; kostnadsstalle_kod: string };
+type FortnoxCc = { kod: string; namn?: string; aktiv?: boolean; har_trafik?: boolean };
+type Maskinopt = { maskin_id: string; modell: string | null; maskin_typ?: string | null };
 type OmappadFaktura = {
   id: number;
   document_number: number;
@@ -83,8 +80,13 @@ export default function InstallningarClient() {
   const [sortiment, setSortiment] = useState<SortConfig>({ grundantal: '', kr_per_extra_sortiment: '', giltig_fran: null });
   const [flytt, setFlytt] = useState<FlyttRad[]>([]);
   const [ovrigt, setOvrigt] = useState<OvrigtRad[]>([]);
-  const [kostnadsstallen, setKostnadsstallen] = useState<KostnadsstalleRad[]>([]);
-  const [savingKS, setSavingKS] = useState<string | null>(null);
+  const [mappningar, setMappningar] = useState<Mappning[]>([]);
+  const [maskinOptLista, setMaskinOptLista] = useState<Maskinopt[]>([]);
+  const [fortnoxCc, setFortnoxCc] = useState<FortnoxCc[]>([]);
+  const [omappadeCc, setOmappadeCc] = useState<FortnoxCc[]>([]);
+  const [savingCcMap, setSavingCcMap] = useState(false);
+  // Per-omappad: vald maskin i dropdown innan tryck på Spara
+  const [omappadVal, setOmappadVal] = useState<Record<string, string>>({});
   const [omappade, setOmappade] = useState<OmappadFaktura[]>([]);
   const [objektVal, setObjektVal] = useState<ObjektVal[]>([]);
   const [savingMap, setSavingMap] = useState<number | null>(null);
@@ -144,14 +146,18 @@ export default function InstallningarClient() {
     setFlytt((flRes.data || []).map((a: any) => ({ id: a.id, km_fran: a.km_fran, km_till: a.km_till ?? '', fast_kr: a.fast_kr ?? '', timpris_trailer_kr: a.timpris_trailer_kr ?? '', beskrivning: a.beskrivning || '', giltig_fran: a.giltig_fran })));
     setOvrigt((ovRes.data || []).map((a: any) => ({ id: a.id, nyckel: a.nyckel, beskrivning: a.beskrivning || '', varde: a.varde, enhet: a.enhet || '', giltig_fran: a.giltig_fran })));
 
-    // Kostnadsställe-mappning — bygg en rad per maskin i dim_maskin, fyll i från maskin_kostnadsstalle
-    const ksMap: Record<string, string> = {};
-    for (const r of (ksRes.data || [])) ksMap[r.maskin_id] = r.kostnadsstalle_kod;
-    setKostnadsstallen((dimMaskinRes.data || []).map((m: any) => ({
-      maskin_id: m.maskin_id,
-      maskin_namn: m.modell || m.maskin_id,
-      kostnadsstalle_kod: ksMap[m.maskin_id] || '',
-    })));
+    // Kostnadsställe-mappning (flera CC per maskin tillåtna) — hämtas via
+    // dedikerat API som även returnerar omappade CC och Fortnox-listan.
+    try {
+      const mapResp = await fetch('/api/fortnox/mappning', { cache: 'no-store' });
+      const mapBody = await mapResp.json();
+      if (mapResp.ok && mapBody.ok) {
+        setMappningar(mapBody.mappningar || []);
+        setMaskinOptLista(mapBody.maskiner || []);
+        setFortnoxCc(mapBody.fortnox_kostnadsstallen || []);
+        setOmappadeCc(mapBody.omappade || []);
+      }
+    } catch { /* behåll tidigare state vid fel */ }
 
     setOmappade((omappadRes.data || []).map((r: any) => ({
       id: r.id,
@@ -404,25 +410,28 @@ export default function InstallningarClient() {
     flashMsg(`Sparad: ${row.namn || row.sortiment_id} → ${row.grupp || '(exkluderad)'}`);
   };
 
-  // ── Kostnadsställe-mappning ──
-  const updateKS = (idx: number, p: Partial<KostnadsstalleRad>) => setKostnadsstallen(prev => prev.map((k, i) => i === idx ? { ...k, ...p, dirty: true } : k));
-  const saveKS = async (idx: number) => {
-    const row = kostnadsstallen[idx];
-    setSavingKS(row.maskin_id);
-    const kod = row.kostnadsstalle_kod.trim();
-    if (!kod) {
-      // Tom kod → ta bort mappning
-      const { error } = await supabase.from('maskin_kostnadsstalle').delete().eq('maskin_id', row.maskin_id);
-      setSavingKS(null);
-      if (error) { flashMsg(`Fel: ${error.message}`); return; }
-      flashMsg(`Mappning borttagen för ${row.maskin_namn}`);
-    } else {
-      const { error } = await supabase.from('maskin_kostnadsstalle')
-        .upsert({ maskin_id: row.maskin_id, kostnadsstalle_kod: kod, updated_at: new Date().toISOString() }, { onConflict: 'maskin_id' });
-      setSavingKS(null);
-      if (error) { flashMsg(`Fel: ${error.message}`); return; }
-      flashMsg(`Sparat: ${row.maskin_namn} → ${kod}`);
-    }
+  // ── Kostnadsställe-mappning (flera CC per maskin) ──
+  const läggTillMappning = async (maskin_id: string, kod: string) => {
+    if (!maskin_id || !kod) return;
+    setSavingCcMap(true);
+    const r = await fetch('/api/fortnox/mappning', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ maskin_id, kostnadsstalle_kod: kod }),
+    });
+    const body = await r.json();
+    setSavingCcMap(false);
+    if (!r.ok || !body.ok) { flashMsg(`Fel: ${body.error || r.status}`); return; }
+    flashMsg(`Mappning tillagd: ${kod} → ${maskin_id}`);
+    setOmappadVal(prev => { const n = { ...prev }; delete n[kod]; return n; });
+    await fetchData();
+  };
+  const taBortMappning = async (id: string) => {
+    setSavingCcMap(true);
+    const r = await fetch(`/api/fortnox/mappning/${id}`, { method: 'DELETE' });
+    const body = await r.json();
+    setSavingCcMap(false);
+    if (!r.ok || !body.ok) { flashMsg(`Fel: ${body.error || r.status}`); return; }
+    flashMsg('Mappning borttagen');
     await fetchData();
   };
 
@@ -752,36 +761,83 @@ export default function InstallningarClient() {
           </div>
           <button style={s.btnGhost as CSSProperties} onClick={addOvrigt}>+ Lägg till övrig post</button>
 
-          {/* Kostnadsställe per maskin */}
+          {/* Kostnadsställe per maskin — stöder flera CC per maskin */}
           <div style={s.sectionTitle as CSSProperties}>Kostnadsställe per maskin (Fortnox)</div>
-          <div style={s.sectionBlurb as CSSProperties}>Mappa varje maskin till sitt kostnadsställe i Fortnox — används av Resultat-fliken.</div>
+          <div style={s.sectionBlurb as CSSProperties}>Flera kostnadsställen kan kopplas till samma maskin — används när Fortnox har skilda CC för intäkter och kostnader (t.ex. Scorpion Gigant med både SCO och M13).</div>
           <div style={s.card}>
-            {kostnadsstallen.map((k, idx) => {
-              const isSaving = savingKS === k.maskin_id;
+            {maskinOptLista.map((m, idx) => {
+              const kopplade = mappningar.filter(x => x.maskin_id === m.maskin_id);
               return (
-                <div key={k.maskin_id} style={{ padding: '12px 0', borderBottom: idx < kostnadsstallen.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 8, alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>{k.maskin_namn}</div>
-                      <div style={{ fontSize: 10, color: '#7a7a72', fontFamily: 'ui-monospace, monospace', marginTop: 2 }}>{k.maskin_id}</div>
+                <div key={m.maskin_id} style={{ padding: '12px 0', borderBottom: idx < maskinOptLista.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>{m.modell || m.maskin_id}</div>
+                      <div style={{ fontSize: 10, color: '#7a7a72', fontFamily: 'ui-monospace, monospace', marginTop: 2 }}>{m.maskin_id}</div>
                     </div>
-                    <input
-                      style={s.input}
-                      value={k.kostnadsstalle_kod}
-                      onChange={e => updateKS(idx, { kostnadsstalle_kod: e.target.value.toUpperCase() })}
-                      placeholder="t.ex. M13"
-                    />
-                    <button
-                      style={{ ...s.btnDark, opacity: isSaving ? 0.6 : 1 } as CSSProperties}
-                      disabled={isSaving}
-                      onClick={() => saveKS(idx)}>
-                      {isSaving ? 'Sparar...' : 'Spara'}
-                    </button>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
+                      {kopplade.length === 0 && (
+                        <span style={{ fontSize: 11, color: '#7a7a72', fontStyle: 'italic' as const }}>inga kostnadsställen</span>
+                      )}
+                      {kopplade.map(k => {
+                        const cc = fortnoxCc.find(c => c.kod === k.kostnadsstalle_kod);
+                        return (
+                          <span key={k.id}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, padding: '4px 6px 4px 10px', background: 'rgba(173,198,255,0.08)', border: '1px solid rgba(173,198,255,0.2)', borderRadius: 999, color: '#adc6ff' }}
+                            title={cc?.namn || ''}>
+                            <span style={{ fontWeight: 600 }}>{k.kostnadsstalle_kod}</span>
+                            {cc?.namn && <span style={{ color: '#7a7a72' }}>{cc.namn}</span>}
+                            <button
+                              onClick={() => taBortMappning(k.id)}
+                              disabled={savingCcMap}
+                              style={{ background: 'transparent', border: 'none', color: '#7a7a72', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0, marginLeft: 2 }}
+                              aria-label="Ta bort mappning">×</button>
+                          </span>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               );
             })}
-            {kostnadsstallen.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga maskiner i dim_maskin.</div>}
+            {maskinOptLista.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Inga maskiner i dim_maskin.</div>}
+          </div>
+
+          {/* Omappade kostnadsställen från Fortnox */}
+          <div style={s.sectionTitle as CSSProperties}>Omappade kostnadsställen</div>
+          <div style={s.sectionBlurb as CSSProperties}>
+            Kostnadsställen i Fortnox som inte är kopplade till någon maskin. Välj maskin och tryck Koppla — eller lämna som ”egna kostnadsobjekt” (t.ex. M8 Lastbil, TRA Trailer).
+          </div>
+          <div style={s.card}>
+            {omappadeCc.length === 0 && <div style={{ color: '#7a7a72', fontSize: 12, padding: '8px 0' }}>Alla kostnadsställen är mappade.</div>}
+            {omappadeCc.map((cc, idx) => (
+              <div key={cc.kod} style={{ padding: '12px 0', borderBottom: idx < omappadeCc.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1.6fr auto', gap: 8, alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>
+                      {cc.kod}
+                      {cc.aktiv === false && <span style={{ marginLeft: 6, fontSize: 10, color: '#7a7a72' }}>(inaktiv)</span>}
+                      {cc.har_trafik && <span style={{ marginLeft: 6, fontSize: 10, color: 'rgba(255,179,64,0.95)' }}>• data finns</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: '#7a7a72', marginTop: 2 }}>{cc.namn || '—'}</div>
+                  </div>
+                  <select
+                    style={{ ...s.input, fontSize: 12 } as CSSProperties}
+                    value={omappadVal[cc.kod] || ''}
+                    onChange={e => setOmappadVal(prev => ({ ...prev, [cc.kod]: e.target.value }))}>
+                    <option value="">Välj maskin…</option>
+                    {maskinOptLista.map(m => (
+                      <option key={m.maskin_id} value={m.maskin_id}>{m.modell || m.maskin_id}</option>
+                    ))}
+                  </select>
+                  <button
+                    style={{ ...s.btnDark, opacity: !omappadVal[cc.kod] || savingCcMap ? 0.4 : 1 } as CSSProperties}
+                    disabled={!omappadVal[cc.kod] || savingCcMap}
+                    onClick={() => läggTillMappning(omappadVal[cc.kod], cc.kod)}>
+                    Koppla
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* Omappade fakturarader */}
