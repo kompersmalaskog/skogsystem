@@ -1356,7 +1356,7 @@ export default function SkotareVy() {
 .hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 16px; }
 .hero-main, .kpi { background: #1c1c1e; border: 1px solid var(--border); border-radius: 12px; padding: 22px 22px 20px; min-height: 112px; position: relative; overflow: hidden; transition: border-color 0.2s; }
 .kpi:hover { border-color: var(--border2); }
-.hero-label, .k-label { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.hero-label, .k-label { font-size: 13px; font-weight: 500; color: var(--muted); margin-bottom: 10px; }
 .hero-val, .k-val {
   font-family: 'Geist', system-ui, sans-serif;
   font-size: 36px; line-height: 1; font-weight: 600;
@@ -1368,7 +1368,7 @@ export default function SkotareVy() {
 .card { background: #1c1c1e; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; transition: border-color 0.2s; }
 .card:hover { border-color: var(--border2); }
 .card-h { padding: 20px 24px 0; display: flex; align-items: center; justify-content: space-between; }
-.card-t { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.card-t { font-size: 13px; font-weight: 500; color: var(--muted); }
 .card-b { padding: 16px 24px 24px; }
 .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
 .g3 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
@@ -1391,7 +1391,7 @@ export default function SkotareVy() {
 .tli { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
 .tld { width: 6px; height: 6px; border-radius: 2px; }
 .cal-names { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; margin-bottom: 5px; }
-.cal-dn { text-align: center; font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); padding-bottom: 3px; }
+.cal-dn { text-align: center; font-size: 11px; font-weight: 500; color: var(--muted); padding-bottom: 6px; }
 .cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
 .cal-cell { aspect-ratio: 1; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 500; cursor: default; transition: transform 0.1s; }
 .cal-cell:hover { transform: scale(1.1); }
@@ -1788,7 +1788,7 @@ export default function SkotareVy() {
                       </svg>
                     </div>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', letterSpacing: '0.06em', }}>Bästa dagen</div>
+                      <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', }}>Bästa dagen</div>
                       <div style={{ fontSize: 14, fontWeight: 500, color: '#ffffff', marginTop: 2 }}>
                         {datumStr} · <span style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--accent)', fontWeight: 600 }}>{bestVal} m³</span>{lass > 0 ? <span style={{ color: 'var(--muted)' }}> · {lass} lass</span> : null}
                       </div>
@@ -2109,14 +2109,14 @@ export default function SkotareVy() {
                     <div className="fkpi"><div className="fkpi-v">{d.medelavstand}m</div><div className="fkpi-l">Medelavstånd</div></div>
                     <div className="fkpi"><div className="fkpi-v">{d.diesel}</div><div className="fkpi-l">Diesel l/m³</div></div>
                   </div>
-                  <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.2px', color: 'var(--muted)', marginBottom: 8 }}>Skiftinfo</div>
+                  <div style={{ fontSize: 10, fontWeight: 500, color: 'var(--muted)', marginBottom: 8 }}>Skiftinfo</div>
                   <div style={{ background: 'var(--surface2)', borderRadius: 10, padding: '4px 16px', marginBottom: 16 }}>
                     <div className="frow"><span className="frow-l">Förare</span><span className="frow-v">{d.forare}</span></div>
                     <div className="frow"><span className="frow-l">Objekt</span><span className="frow-v">{d.objekt}</span></div>
                     <div className="frow"><span className="frow-l">Start</span><span className="frow-v">{d.start}</span></div>
                     <div className="frow" style={{ borderBottom: 'none' }}><span className="frow-l">Slut</span><span className="frow-v">{d.slut}</span></div>
                   </div>
-                  <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.2px', color: 'var(--muted)', marginBottom: 8 }}>Avbrott</div>
+                  <div style={{ fontSize: 10, fontWeight: 500, color: 'var(--muted)', marginBottom: 8 }}>Avbrott</div>
                   <div style={{ background: 'var(--surface2)', borderRadius: 10, padding: '4px 16px' }}>
                     {d.avbrott.length > 0 ? d.avbrott.map((a, ai) => (
                       <div key={ai} className="frow"><span className="frow-l">{a.orsak}</span><span className="frow-v">{a.tid}</span></div>

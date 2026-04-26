@@ -103,26 +103,13 @@ function ScoreCard({
   return (
     <div style={{
       flex: 1,
-      background: isWinner
-        ? 'linear-gradient(145deg, #1e1e1c 0%, #141412 100%)'
-        : C.surface,
-      border: `1px solid ${isWinner ? C.border3 : C.border}`,
+      background: C.surface,
+      border: `1px solid ${isWinner ? 'rgba(48,209,88,0.28)' : C.border}`,
       borderRadius: 12,
       padding: '22px 20px 18px',
       position: 'relative',
       overflow: 'hidden',
-      transform: isWinner ? 'translateY(-3px)' : 'none',
-      boxShadow: isWinner
-        ? '0 20px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(0,0,0,0.5)'
-        : 'none',
     }}>
-      {/* Top edge glow */}
-      {isWinner && (
-        <div style={{
-          position: 'absolute', top: 0, left: '10%', right: '10%', height: 1,
-          background: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent)',
-        }} />
-      )}
 
       {/* Rank badge */}
       <div style={{
@@ -152,7 +139,7 @@ function ScoreCard({
         {value > 0 ? value.toFixed(1) : '—'}
       </div>
       <div style={{ fontSize: 11, color: isWinner ? '#666' : '#444', marginBottom: 3 }}>{unit}</div>
-      <div style={{ fontSize: 9, color: C.t4, letterSpacing: '0.06em', marginBottom: 12, fontFamily: 'monospace' }}>
+      <div style={{ fontSize: 11, color: C.t4, marginBottom: 12 }}>
         viktat snitt
       </div>
 
@@ -351,7 +338,7 @@ export default function Jamforelse() {
   if (loading) {
     return (
       <div style={{
-        position: 'fixed', top: 100, left: 0, right: 0, bottom: 0,
+        position: 'fixed', top: 108, left: 0, right: 0, bottom: 0,
         background: C.bg, display: 'flex', alignItems: 'center',
         justifyContent: 'center', color: C.t3, fontFamily: ff, fontSize: 13, zIndex: 1,
       }}>
@@ -362,7 +349,7 @@ export default function Jamforelse() {
 
   return (
     <div style={{
-      position: 'fixed', top: 100, left: 0, right: 0, bottom: 0,
+      position: 'fixed', top: 108, left: 0, right: 0, bottom: 0,
       overflow: 'auto', WebkitOverflowScrolling: 'touch' as const,
       background: C.bg, fontFamily: ff, color: C.t1, zIndex: 1,
     }}>
@@ -380,7 +367,7 @@ export default function Jamforelse() {
 
       {/* ── EK CONFIG SELECTOR ── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-        <span style={{ fontSize: 11, color: C.t3, fontWeight: 600, letterSpacing: '0.08em', }}>
+        <span style={{ fontSize: 13, color: C.t3, fontWeight: 500 }}>
           EK konfiguration:
         </span>
         <div style={{
@@ -455,7 +442,7 @@ export default function Jamforelse() {
         padding: '18px 18px 14px', marginBottom: 14,
       }}>
         <div style={{
-          fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: C.t4, marginBottom: 16,
+          fontSize: 13, fontWeight: 500, color: C.t3, marginBottom: 16,
         }}>
           {currentMetric.label} per avståndsklass
         </div>
@@ -470,7 +457,7 @@ export default function Jamforelse() {
         overflow: 'hidden',
       }}>
         <div style={{
-          fontSize: 10, fontWeight: 700, letterSpacing: '0.14em', color: C.t4, padding: '16px 18px 12px',
+          fontSize: 13, fontWeight: 500, color: C.t3, padding: '16px 18px 12px',
           borderBottom: `1px solid ${C.border}`,
         }}>
           Detaljer per avståndsklass

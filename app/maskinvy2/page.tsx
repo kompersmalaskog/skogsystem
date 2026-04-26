@@ -353,7 +353,7 @@ function BarChart({ bars, prevAvg, color }: {
 function SectionTitle({ children }: { children: string }) {
   return (
     <div style={{
-      fontSize: 13, fontWeight: 600, letterSpacing: '0.08em',
+      fontSize: 13, fontWeight: 500,
       color: C.t3, marginBottom: 12, fontFamily: ff,
     }}>{children}</div>
   );
@@ -576,10 +576,10 @@ export default function Maskinvy2Page() {
   // ── Toggle bar (always visible) ──
   const toggleBar = (
     <div style={{
-      position: 'fixed', top: 56, left: 0, right: 0, height: 44,
-      background: 'rgba(17,17,16,0.95)', backdropFilter: 'blur(20px)',
+      position: 'fixed', top: 56, left: 0, right: 0, height: 52,
+      background: 'rgba(0,0,0,0.85)', backdropFilter: 'saturate(180%) blur(24px)', WebkitBackdropFilter: 'saturate(180%) blur(24px)',
       borderBottom: `1px solid ${C.border}`,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 16px',
       zIndex: 60, fontFamily: ff,
     }}>
       <div style={{ display: 'flex', gap: 2, background: 'rgba(120,120,128,0.16)', borderRadius: 10, padding: 2, height: 44 }}>
@@ -611,7 +611,7 @@ export default function Maskinvy2Page() {
       <>
         {toggleBar}
         <div style={{
-          position: 'fixed', top: 100, left: 0, right: 0, bottom: 0,
+          position: 'fixed', top: 108, left: 0, right: 0, bottom: 0,
           background: C.bg, fontFamily: ff, zIndex: 1, overflow: 'auto', padding: '24px 28px',
         }}>
           <style>{`@keyframes mv2Skel { 0% { background-position: -200px 0; } 100% { background-position: calc(200px + 100%) 0; } } .mv2-skel { background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 100%); background-size: 200px 100%; border-radius: 8px; animation: mv2Skel 1.4s ease-in-out infinite; }`}</style>
@@ -644,7 +644,7 @@ export default function Maskinvy2Page() {
     <>
       {toggleBar}
       <div style={{
-        position: 'fixed', top: 100, left: 0, right: 0, bottom: 0,
+        position: 'fixed', top: 108, left: 0, right: 0, bottom: 0,
         overflow: 'auto', WebkitOverflowScrolling: 'touch' as any,
         background: C.bg, fontFamily: ff, color: C.t1, zIndex: 1,
       }}>
@@ -714,10 +714,9 @@ export default function Maskinvy2Page() {
                   border: `1px solid ${active ? 'rgba(48,209,88,0.3)' : 'rgba(255,255,255,0.08)'}`,
                   borderRadius: 12, padding: 24, cursor: 'pointer',
                   transition: 'all 0.2s',
-                  boxShadow: active ? '0 0 0 1px rgba(48,209,88,0.15)' : 'none',
                 }}>
                   <div style={{
-                    fontSize: 11, color: C.t3, fontWeight: 600, letterSpacing: '0.08em',
+                    fontSize: 13, color: C.t3, fontWeight: 500,
                     marginBottom: 12,
                   }}>
                     {meta.label}
@@ -861,7 +860,7 @@ export default function Maskinvy2Page() {
               { label: 'Diesel', value: fN(aggCurr.bransle, 0), unit: 'liter' },
             ].map(s => (
               <div key={s.label}>
-                <div style={{ fontSize: 10, color: C.t4, fontWeight: 600, letterSpacing: '0.06em', marginBottom: 4 }}>{s.label}</div>
+                <div style={{ fontSize: 12, color: C.t4, fontWeight: 500, marginBottom: 4 }}>{s.label}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
                   <span style={{ fontSize: 20, fontWeight: 700, color: C.t1, fontVariantNumeric: 'tabular-nums' }}>{s.value}</span>
                   <span style={{ fontSize: 11, color: C.t3 }}>{s.unit}</span>
@@ -882,13 +881,13 @@ export default function Maskinvy2Page() {
         {activeKpi && (
           <>
             <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: C.t4, fontWeight: 500, marginBottom: 12 }}>
                 {periodType === 'vecka' ? 'Per dag' : periodType === 'manad' ? 'Per dag' : 'Per månad'}
               </div>
               <BarChart bars={chartBars} prevAvg={prevChartAvg} color={chartColor(activeKpi)} />
             </div>
 
-            <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', marginBottom: 12 }}>
+            <div style={{ fontSize: 13, color: C.t4, fontWeight: 500, marginBottom: 12 }}>
               Förare
             </div>
             {opsCurr.length === 0 && (
@@ -960,7 +959,7 @@ export default function Maskinvy2Page() {
                     background: C.surface, border: '1px solid rgba(255,255,255,0.08)',
                     borderRadius: 12, padding: '16px 18px',
                   }}>
-                    <div style={{ fontSize: 10, color: C.t4, fontWeight: 600, letterSpacing: '0.06em', marginBottom: 6 }}>{meta.label}</div>
+                    <div style={{ fontSize: 12, color: C.t4, fontWeight: 500, marginBottom: 6 }}>{meta.label}</div>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                       <span style={{ fontSize: 24, fontWeight: 700, color: C.t1, fontVariantNumeric: 'tabular-nums' }}>
                         {fN(v, meta.dec)}
@@ -978,7 +977,7 @@ export default function Maskinvy2Page() {
               })}
             </div>
 
-            <div style={{ fontSize: 11, color: C.t4, fontWeight: 600, letterSpacing: '0.1em', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, color: C.t4, fontWeight: 500, marginBottom: 10 }}>
               {periodType === 'vecka' ? 'Per dag' : 'Per månad'}
             </div>
             <div style={{ overflowX: 'auto' }}>
@@ -988,7 +987,7 @@ export default function Maskinvy2Page() {
                     {['', 'Volym', 'Prod.', 'Diesel', 'Utnyttj.'].map((h, i) => (
                       <th key={i} style={{
                         padding: '10px 6px', textAlign: i === 0 ? 'left' : 'right',
-                        fontSize: 10, fontWeight: 600, color: C.t4, letterSpacing: '0.06em',
+                        fontSize: 12, fontWeight: 500, color: C.t4,
                       }}>{h}</th>
                     ))}
                   </tr>
