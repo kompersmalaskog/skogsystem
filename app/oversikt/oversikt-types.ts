@@ -84,21 +84,21 @@ export interface OversiktObjekt {
 
 export type TabId = 'karta' | 'maskiner' | 'grot';
 
-/* Design tokens — matched to UppfoljningVy design language */
+/* Design tokens — Apple iOS dark mode (flat) */
 export const C = {
-  bg: '#070708',
-  surface: '#0f0f10',
-  surface3: '#1a1a1c',
-  card: '#0f0f10',
-  cardGrad: 'linear-gradient(160deg, #1a1a1c 0%, #0f0f10 100%)',
+  bg: '#000',
+  surface: '#1c1c1e',
+  surface3: '#1c1c1e',
+  card: '#1c1c1e',
+  cardGrad: '#1c1c1e',
   border: 'rgba(255,255,255,0.07)',
   borderTop: 'rgba(255,255,255,0.18)',
   borderStrong: 'rgba(255,255,255,0.13)',
-  shadowSm: '0 2px 8px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.6)',
-  shadowMd: '0 8px 24px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.7)',
-  t1: '#f5f5f7',
+  shadowSm: 'none',
+  shadowMd: 'none',
+  t1: '#fff',
   t2: '#a1a1a6',
-  t3: '#6e6e73',
+  t3: '#8e8e93',
   t4: 'rgba(255,255,255,0.2)',
   yellow: '#FFD60A',
   green: '#30D158',
@@ -127,13 +127,13 @@ export const TF: Record<string, string> = {
   slut: C.yellow,
 };
 
-/* ── Typography system ── */
+/* ── Typography system — Apple iOS ── */
 export const T = {
-  h1: { fontSize: 22, fontWeight: 700, color: C.t1, letterSpacing: '-0.02em', lineHeight: 1.2 } as React.CSSProperties,
-  h2: { fontSize: 18, fontWeight: 600, color: C.t1, letterSpacing: '-0.01em', lineHeight: 1.3 } as React.CSSProperties,
-  body: { fontSize: 15, fontWeight: 500, color: C.t1 } as React.CSSProperties,
-  caption: { fontSize: 12, fontWeight: 400, color: C.t3 } as React.CSSProperties,
-  label: { fontSize: 11, fontWeight: 600, color: C.t3, textTransform: 'uppercase', letterSpacing: '0.06em' } as React.CSSProperties,
+  h1: { fontSize: 28, fontWeight: 700, color: C.t1, letterSpacing: '-0.02em', lineHeight: 1.2 } as React.CSSProperties,
+  h2: { fontSize: 17, fontWeight: 600, color: C.t1, letterSpacing: '-0.01em', lineHeight: 1.3 } as React.CSSProperties,
+  body: { fontSize: 17, fontWeight: 500, color: C.t1 } as React.CSSProperties,
+  caption: { fontSize: 13, fontWeight: 400, color: C.t3 } as React.CSSProperties,
+  label: { fontSize: 13, fontWeight: 600, color: C.t3 } as React.CSSProperties,
 };
 
 /* ── Button styles ── */

@@ -60,7 +60,7 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
 
   const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
     <div style={{ marginBottom: 20 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: C.t3, marginBottom: 8 }}>{title}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8 }}>{title}</div>
       {children}
     </div>
   );
@@ -71,9 +71,8 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
       <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.6)' }} />
       <div onClick={e => e.stopPropagation()} style={{
         position: 'relative', width: '100%', maxWidth: 500, maxHeight: '85vh',
-        background: C.cardGrad, borderRadius: '20px 20px 0 0',
-        borderTop: `1px solid ${C.borderTop}`, borderLeft: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`, borderBottom: 'none',
-        boxShadow: C.shadowMd,
+        background: C.cardGrad, borderRadius: '12px 12px 0 0',
+        borderLeft: `1px solid ${C.border}`, borderRight: `1px solid ${C.border}`, borderTop: `1px solid ${C.border}`, borderBottom: 'none',
         overflowY: 'auto', WebkitOverflowScrolling: 'touch',
       }}>
         {/* Top accent line */}
@@ -99,13 +98,13 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
 
           {/* Volym + Produktion */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
-            <div style={{ background: C.cardGrad, borderRadius: 14, padding: '14px 12px', border: `1px solid ${C.border}`, borderTop: `1px solid ${C.borderTop}`, boxShadow: C.shadowSm }}>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(obj.volym || 0)}<span style={{ fontSize: 12, fontWeight: 400, color: C.t3 }}> m³</span></div>
-              <div style={{ fontSize: 11, color: C.t3, marginTop: 4 }}>Planerad volym</div>
+            <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(obj.volym || 0)}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
+              <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Planerad volym</div>
             </div>
-            <div style={{ background: C.cardGrad, borderRadius: 14, padding: '14px 12px', border: `1px solid ${C.border}`, borderTop: `1px solid ${C.borderTop}`, boxShadow: C.shadowSm }}>
-              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(Math.round(skVol))}<span style={{ fontSize: 12, fontWeight: 400, color: C.t3 }}> m³</span></div>
-              <div style={{ fontSize: 11, color: C.t3, marginTop: 4 }}>Skördat ({skP}%)</div>
+            <div style={{ background: C.cardGrad, borderRadius: 12, padding: '14px 12px', border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 24, fontWeight: 700 }}>{formatVolym(Math.round(skVol))}<span style={{ fontSize: 13, fontWeight: 400, color: C.t3 }}> m³</span></div>
+              <div style={{ fontSize: 13, color: C.t3, marginTop: 4 }}>Skördat ({skP}%)</div>
             </div>
           </div>
 
@@ -128,7 +127,7 @@ function ObjektDetalj({ obj, prodMap, onClose }: { obj: OversiktObjekt; prodMap:
 
           {/* Restriktioner — only if present */}
           {ber?.restriktioner && ber.restriktioner.length > 0 && (
-            <div style={{ background: C.rd, border: `1px solid rgba(239,68,68,0.15)`, borderRadius: 14, padding: '14px 16px', marginBottom: 20, boxShadow: C.shadowSm }}>
+            <div style={{ background: C.rd, border: `1px solid rgba(255,69,58,0.15)`, borderRadius: 12, padding: '14px 16px', marginBottom: 20 }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: C.red, marginBottom: 8 }}>Restriktioner</div>
               {ber.restriktioner.map((r, i) => (
                 <div key={i} style={{ fontSize: 12, color: C.t1, marginBottom: 4 }}>
@@ -304,8 +303,8 @@ export default function OversiktObjektLista({ objekt, prodMap }: Props) {
           <div key={o.id} onClick={() => setSel(o.id)} style={{
             display: 'flex', alignItems: 'center', gap: 12,
             padding: '14px 14px', minHeight: 44,
-            background: C.cardGrad, border: `1px solid ${C.border}`, borderTop: `1px solid ${C.borderTop}`,
-            borderRadius: 16, boxShadow: C.shadowSm, marginBottom: 8,
+            background: C.cardGrad, border: `1px solid ${C.border}`,
+            borderRadius: 12, marginBottom: 8,
             cursor: 'pointer',
           }}>
             {/* Left color bar */}

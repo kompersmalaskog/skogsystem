@@ -8,33 +8,19 @@ export const globalCss = `
   @keyframes ovk-dot-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.55;transform:scale(0.85)}}
   *::-webkit-scrollbar{width:0}
 
-  /* Card design — matched to UppfoljningVy */
+  /* Card design — Apple iOS flat */
   .ovk-card {
     background: ${C.cardGrad};
     border: 1px solid ${C.border};
-    border-top-color: ${C.borderTop};
-    border-radius: 16px;
-    box-shadow: ${C.shadowSm};
+    border-radius: 12px;
     position: relative;
     overflow: hidden;
   }
-  .ovk-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -20%;
-    right: -20%;
-    height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
-    pointer-events: none;
-  }
 
-  /* Section header — matched to UppfoljningVy .sec-label */
+  /* Section header — Apple iOS */
   .ovk-sec {
-    font-size: 11px;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-size: 13px;
+    font-weight: 600;
     color: ${C.t3};
     margin-bottom: 12px;
     display: flex;

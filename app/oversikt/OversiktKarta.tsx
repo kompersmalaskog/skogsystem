@@ -87,8 +87,8 @@ function Tag({ children, w }: { children: React.ReactNode; w?: boolean }) {
 function InfoRow({ label, val, warn }: { label: string; val: string; warn?: boolean }) {
   return (
     <div style={{ flex: 1, background: 'rgba(255,255,255,0.025)', padding: '6px 4px', textAlign: 'center' }}>
-      <div style={{ fontSize: 11, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>{label}</div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: warn ? C.yellow : C.t2 }}>{val}</div>
+      <div style={{ fontSize: 13, color: C.t4, marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 600, color: warn ? C.yellow : C.t2 }}>{val}</div>
     </div>
   );
 }
@@ -154,7 +154,7 @@ function ObjCard({ obj, prod }: { obj: OversiktObjekt; prod?: ProdAgg }) {
         width: 380, maxWidth: 'calc(100% - 24px)',
         background: C.surface3,
         backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-        borderRadius: SP.xl, overflow: 'hidden',
+        borderRadius: 12, overflow: 'hidden',
         border: `1px solid ${C.border}`,
         boxShadow: C.shadowMd, zIndex: 20,
       }}
@@ -325,8 +325,8 @@ function GrotCard({ obj }: { obj: OversiktObjekt }) {
     <div onClick={(e) => e.stopPropagation()} style={{
       position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
       width: 300, maxWidth: 'calc(100% - 24px)',
-      background: 'linear-gradient(160deg, rgba(26,26,28,0.97) 0%, rgba(15,15,16,0.97) 100%)', backdropFilter: 'blur(24px)',
-      borderRadius: 16, overflow: 'hidden', border: `1px solid ${C.border}`, borderTopColor: C.borderTop, boxShadow: C.shadowMd, zIndex: 20,
+      background: 'rgba(28,28,30,0.97)', backdropFilter: 'blur(24px)',
+      borderRadius: 12, overflow: 'hidden', border: `1px solid ${C.border}`, zIndex: 20,
       animation: 'fadeUp .2s ease-out',
     }}>
       <div style={{ height: 2, background: `linear-gradient(90deg,${clr},transparent)` }} />
@@ -365,12 +365,12 @@ function GrotCard({ obj }: { obj: OversiktObjekt }) {
 
         <div style={{ display: 'flex', gap: 2, borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
           <div style={{ flex: 1, background: bgTint, padding: '8px 4px', textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Volym</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{obj.grot_volym ? formatVolym(obj.grot_volym) : '–'} <span style={{ fontSize: 11, fontWeight: 400, color: C.t4 }}>m³</span></div>
+            <div style={{ fontSize: 13, color: C.t4, marginBottom: 2 }}>Volym</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{obj.grot_volym ? formatVolym(obj.grot_volym) : '–'} <span style={{ fontSize: 13, fontWeight: 400, color: C.t4 }}>m³</span></div>
           </div>
           <div style={{ flex: 1, background: bgTint, padding: '8px 4px', textAlign: 'center' }}>
-            <div style={{ fontSize: 11, color: C.t4, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Lass</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{lass || '–'} <span style={{ fontSize: 11, fontWeight: 400, color: C.t4 }}>st</span></div>
+            <div style={{ fontSize: 13, color: C.t4, marginBottom: 2 }}>Lass</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{lass || '–'} <span style={{ fontSize: 13, fontWeight: 400, color: C.t4 }}>st</span></div>
           </div>
         </div>
         {obj.grot_deadline && (
@@ -1039,14 +1039,19 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
         overflow: 'auto', padding: '16px',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: C.t1, fontFamily: ff }}>Filter</span>
-          <button onClick={() => setShowFilterPanel(false)} style={{
-            background: 'none', border: 'none', color: C.t3, fontSize: 18, cursor: 'pointer',
-          }}>✕</button>
+          <span style={{ fontSize: 17, fontWeight: 600, color: C.t1, fontFamily: ff }}>Filter</span>
+          <button onClick={() => setShowFilterPanel(false)}
+            aria-label="Stäng filter"
+            style={{
+              background: 'none', border: 'none', color: C.t3, cursor: 'pointer',
+              width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>close</span>
+          </button>
         </div>
 
         {/* Typ */}
-        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Typ</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8, fontFamily: ff }}>Typ</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
           {([
             { k: 'alla' as const, l: 'Alla' },
@@ -1062,25 +1067,25 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
         </div>
 
         {/* Visa */}
-        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Visa</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8, fontFamily: ff }}>Visa</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
           <button onClick={() => setShowHist(h => !h)} style={{
-            padding: '10px 14px', background: showHist ? 'rgba(255,255,255,0.08)' : 'transparent',
-            color: showHist ? C.t1 : C.t2, border: 'none', borderRadius: 8, fontSize: 12,
+            padding: '12px 14px', minHeight: 44, background: showHist ? 'rgba(255,255,255,0.08)' : 'transparent',
+            color: showHist ? C.t1 : C.t2, border: 'none', borderRadius: 8, fontSize: 17,
             fontWeight: showHist ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>Historik <span style={{ fontSize: 11, color: showHist ? C.green : C.t4 }}>{showHist ? 'PÅ' : 'AV'}</span></button>
+          }}>Historik <span style={{ fontSize: 13, color: showHist ? C.green : C.t4 }}>{showHist ? 'På' : 'Av'}</span></button>
           <button onClick={() => { setShowGrot(g => !g); if (showGrot) setSelectedGrotId(null); }} style={{
-            padding: '10px 14px', background: showGrot ? C.yd : 'transparent',
-            color: showGrot ? C.yellow : C.t2, border: 'none', borderRadius: 8, fontSize: 12,
+            padding: '12px 14px', minHeight: 44, background: showGrot ? C.yd : 'transparent',
+            color: showGrot ? C.yellow : C.t2, border: 'none', borderRadius: 8, fontSize: 17,
             fontWeight: showGrot ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>GROT <span style={{ fontSize: 11, color: showGrot ? C.yellow : C.t4 }}>{showGrot ? 'PÅ' : 'AV'}</span></button>
+          }}>GROT <span style={{ fontSize: 13, color: showGrot ? C.yellow : C.t4 }}>{showGrot ? 'På' : 'Av'}</span></button>
         </div>
 
         {/* Maskin */}
         {maskiner.length > 0 && (<>
-          <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: C.t3, marginBottom: 8, fontFamily: ff }}>Maskin</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8, fontFamily: ff }}>Maskin</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <button onClick={() => { setMaskinFilter(null); setSelectedId(null); }} style={{
               padding: '10px 14px', background: !maskinFilter ? 'rgba(255,255,255,0.08)' : 'transparent',
@@ -1094,9 +1099,9 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
               return (
                 <div key={typ}>
                   <div style={{
-                    padding: '8px 14px 4px', fontSize: 11, fontWeight: 600, color: C.t4,
-                    textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: ff,
-                  }}>{typ}</div>
+                    padding: '8px 14px 4px', fontSize: 13, fontWeight: 600, color: C.t4,
+                    fontFamily: ff,
+                  }}>{typ === 'skördare' ? 'Skördare' : 'Skotare'}</div>
                   {group.map(m => {
                     const on = maskinFilter === m.maskin_id;
                     return (

@@ -233,7 +233,7 @@ export default function OversiktGrot({ objekt, grotAnpassadVo, supabase, onRefre
 
         return (
           <div key={obj.id} onClick={() => handleExpand(obj.id)} style={{
-            background: expanded ? C.cardGrad : 'transparent', borderRadius: SP.lg,
+            background: expanded ? C.cardGrad : 'transparent', borderRadius: 12,
             padding: expanded ? SP.lg : SP.md, margin: expanded ? `${SP.sm}px 0` : 0,
             borderLeft: expanded ? `1px solid ${C.border}` : 'none',
             borderRight: expanded ? `1px solid ${C.border}` : 'none',

@@ -79,18 +79,20 @@ function SortableRow({
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>{objName}</div>
 
-        {/* ⋮ meny-knapp */}
+        {/* meny-knapp */}
         <button
           onClick={(e) => { e.stopPropagation(); onMenuToggle(); }}
           aria-label="Öppna meny"
           style={{
             width: 44, height: 44, flexShrink: 0,
             background: 'none', border: 'none',
-            color: C.t4, cursor: 'pointer',
+            color: C.t3, cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, fontFamily: ff,
+            fontFamily: ff,
           }}
-        >⋮</button>
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>more_vert</span>
+        </button>
 
         {/* Drag handle — touch-aktiverad */}
         <div
@@ -421,7 +423,7 @@ export default function OversiktMaskiner({ maskiner, maskinKo, objekt, supabase,
             transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.9 }}
             style={{
               background: C.surface3,
-              borderRadius: `${SP.xl}px ${SP.xl}px 0 0`,
+              borderRadius: `12px 12px 0 0`,
               padding: `${SP.md}px ${SP.xl}px ${SP.xxxl}px`,
               width: '100%', maxWidth: 500,
               border: `1px solid ${C.border}`,
