@@ -7602,15 +7602,15 @@ export default function PlannerPage() {
       onExit: finishZone,
       exitLabel: 'Avsluta',
     } : isArrowMode ? {
-      label: 'Placerar pil · tryck på kartan',
+      label: 'Placerar pil',
       onExit: () => { setIsArrowMode(false); setArrowType(null); },
-      exitLabel: 'Avbryt',
+      exitLabel: 'Avsluta',
     } : isMeasuring ? {
-      label: 'Mäter · dra på kartan',
+      label: 'Mäter',
       onExit: () => setIsMeasuring(false),
       exitLabel: 'Avsluta',
     } : (skotningDrawing && !skotningPanel) ? {
-      label: 'Ny produktionshög · dra på kartan',
+      label: 'Ny produktionshög',
       onExit: () => {
         setSkotningDrawing(false);
         const map = mapInstanceRef.current;
@@ -7637,13 +7637,15 @@ export default function PlannerPage() {
       WebkitTouchCallout: 'none',
       WebkitTapHighlightColor: 'transparent',
     }}>
-      {/* === APPLE PRESS-FEEDBACK (alla knappar med .press-scale eller .press-row) === */}
+      {/* === APPLE PRESS-FEEDBACK (alla knappar med .press-scale, .press-row, .press-dim, .btn-press) === */}
       <style>{`
         .press-scale { transition: transform 0.12s cubic-bezier(0.32, 0.72, 0, 1); }
         .press-scale:active { transform: scale(0.94); }
         .press-row { transition: background 0.1s ease; }
         .press-row:active { background: rgba(255,255,255,0.1) !important; }
         .press-dim:active { filter: brightness(0.88); }
+        .btn-press { transition: transform 0.1s ease; }
+        .btn-press:active { transform: scale(0.96); }
       `}</style>
 
       {/* === MINIMAL HEADER === */}
@@ -11173,7 +11175,7 @@ export default function PlannerPage() {
                             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Varningsavstånd</div>
                             <div style={segWrap}>
                               {warnPresets.map(p => (
-                                <button key={p.value} type="button" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], warnDist: p.value } }))} style={segBtn(pickClosest(warnPresets, curWarn) === p.value)}>
+                                <button key={p.value} type="button" className="btn-press" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], warnDist: p.value } }))} style={segBtn(pickClosest(warnPresets, curWarn) === p.value)}>
                                   {p.label} <span style={{ opacity: 0.6, fontSize: 12 }}>{p.value}m</span>
                                 </button>
                               ))}
@@ -11184,7 +11186,7 @@ export default function PlannerPage() {
                             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Synlighetsavstånd</div>
                             <div style={segWrap}>
                               {fadePresets.map(p => (
-                                <button key={p.value} type="button" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], fadeDist: p.value } }))} style={segBtn(pickClosest(fadePresets, curFade) === p.value)}>
+                                <button key={p.value} type="button" className="btn-press" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], fadeDist: p.value } }))} style={segBtn(pickClosest(fadePresets, curFade) === p.value)}>
                                   {p.label} <span style={{ opacity: 0.6, fontSize: 12 }}>{p.value}m</span>
                                 </button>
                               ))}
@@ -11195,7 +11197,7 @@ export default function PlannerPage() {
                             <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Synlighet på avstånd</div>
                             <div style={segWrap}>
                               {opacityPresets.map(p => (
-                                <button key={p.value} type="button" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], minOpacity: p.value } }))} style={segBtn(pickClosest(opacityPresets, curOpacity) === p.value)}>
+                                <button key={p.value} type="button" className="btn-press" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], minOpacity: p.value } }))} style={segBtn(pickClosest(opacityPresets, curOpacity) === p.value)}>
                                   {p.label} <span style={{ opacity: 0.6, fontSize: 12 }}>{Math.round(p.value * 100)}%</span>
                                 </button>
                               ))}
@@ -11217,6 +11219,30 @@ export default function PlannerPage() {
 
       {/* === PANEL-SHEET (tidigare helskärmsmeny — nu glas-bottom-sheet) === */}
       {menuOpen && !briefingMode && (
+        <>
+          {/* Backdrop — tap-utanför stänger sheet */}
+          <div
+            onClick={() => {
+              setShowCamera(false);
+              setDetectedColor(null);
+              setShowColorPicker(false);
+              setSelectedVagColor(null);
+              setSubMenu(null);
+              setActiveCategory(null);
+              setMenuOpen(false);
+              setMenuHeight(0);
+            }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0,0,0,0.3)',
+              backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+              zIndex: 499,
+              animation: 'fadeIn 0.2s ease',
+            }}
+            aria-hidden="true"
+          />
         <div style={{
           position: 'fixed',
           left: 0,
@@ -13309,11 +13335,11 @@ export default function PlannerPage() {
                   {/* === SOS === */}
                   <div style={{ marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' }}>
                     <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '16px' }}>SOS</div>
-                    <a href="tel:112" style={{ textDecoration: 'none', display: 'block', marginBottom: '12px' }}>
+                    <a href="tel:112" className="btn-press" style={{ textDecoration: 'none', display: 'block', marginBottom: '12px' }}>
                       <div style={{ fontSize: '48px', fontWeight: '700', color: '#fff', lineHeight: '1' }}>112</div>
                       <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>SOS Alarm – Nödsamtal</div>
                     </a>
-                    <a href="tel:1177" style={{ textDecoration: 'none', display: 'block' }}>
+                    <a href="tel:1177" className="btn-press" style={{ textDecoration: 'none', display: 'block' }}>
                       <div style={{ fontSize: '32px', fontWeight: '700', color: '#fff', lineHeight: '1' }}>1177</div>
                       <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>Sjukvårdsrådgivningen</div>
                     </a>
@@ -13332,7 +13358,9 @@ export default function PlannerPage() {
                             {posText}
                           </div>
                           <button
+                            type="button"
                             onClick={() => { navigator.clipboard.writeText(posText); }}
+                            className="btn-press"
                             style={{
                               padding: '8px 16px', borderRadius: '8px',
                               border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)',
@@ -13365,6 +13393,7 @@ export default function PlannerPage() {
                             href={`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lon}`}
                             target="_blank"
                             rel="noopener noreferrer"
+                            className="btn-press"
                             style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)' }}
                           >
                             <span style={{ fontSize: '20px' }}>🏥</span>
@@ -13392,6 +13421,7 @@ export default function PlannerPage() {
                             href={`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lon}`}
                             target="_blank"
                             rel="noopener noreferrer"
+                            className="btn-press"
                             style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)' }}
                           >
                             <span style={{ fontSize: '20px' }}>🏥</span>
@@ -13470,6 +13500,7 @@ export default function PlannerPage() {
 
           </div>
         </div>
+        </>
       )}
 
 

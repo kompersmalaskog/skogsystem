@@ -388,6 +388,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
   return (
     <div style={{ padding: '12px' }}>
+      <style>{`.btn-press{transition:transform 0.1s ease}.btn-press:active{transform:scale(0.96)}`}</style>
       <div style={{ background: '#000', color: '#fff', fontFamily: "-apple-system, 'SF Pro Display', 'Helvetica Neue', sans-serif", maxWidth: 430, margin: '0 auto', WebkitFontSmoothing: 'antialiased' }}>
 
         {/* TESTLÄGE banner */}
@@ -400,7 +401,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
               {testMode !== null ? 'Data nedan är simulerad. Avsluta via Inställningar.' : 'Visar simulerad data.'}
             </div>
             {isTestFallback && testMode === null && (
-              <button type="button" onClick={() => { lastFetchRef.current = ''; fetchData(); }} style={{ marginTop: 10, padding: '8px 18px', borderRadius: 10, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', minHeight: 40 }}>Försök igen</button>
+              <button className="btn-press" type="button" onClick={() => { lastFetchRef.current = ''; fetchData(); }} style={{ marginTop: 10, padding: '8px 18px', borderRadius: 10, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', minHeight: 40 }}>Försök igen</button>
             )}
           </div>
         )}
@@ -657,7 +658,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                     <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>Datum & tid</div>
                     <input type="datetime-local" value={brandSamrad.datum} onChange={e => onSamradChange({ ...brandSamrad, datum: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
                   </div>
-                  <button onClick={() => onSamradChange({ ...brandSamrad, kvitterad: !brandSamrad.kvitterad })}
+                  <button className="btn-press" onClick={() => onSamradChange({ ...brandSamrad, kvitterad: !brandSamrad.kvitterad })}
                     style={{ flex: 1, padding: 14, borderRadius: 12, border: 'none', background: brandSamrad.kvitterad ? 'rgba(34,197,94,0.15)' : '#30d158', color: brandSamrad.kvitterad ? '#30d158' : '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                     {brandSamrad.kvitterad ? 'Kvitterat \u2713' : 'Kvittera samråd'}
                   </button>
@@ -746,7 +747,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
               <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', fontFamily: 'monospace', marginBottom: 4 }}>
                 {mapCenter.lat.toFixed(4)}°N, {mapCenter.lng.toFixed(4)}°E
               </div>
-              <button onClick={() => navigator.clipboard?.writeText(`${mapCenter.lat.toFixed(6)}, ${mapCenter.lng.toFixed(6)}`)}
+              <button className="btn-press" onClick={() => navigator.clipboard?.writeText(`${mapCenter.lat.toFixed(6)}, ${mapCenter.lng.toFixed(6)}`)}
                 style={{ fontSize: 12, color: '#60a5fa', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 12 }}>
                 Kopiera koordinater
               </button>
@@ -788,7 +789,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                     <div style={{ position: 'relative', width: 160 }}>
                       <input type="tel" placeholder={telKey === 'forsakringsnummer' ? 'Nummer' : 'Telefon'} value={(brandKontakter as any)[telKey]} onChange={e => onKontakterChange({ ...brandKontakter, [telKey]: e.target.value })} style={inputStyle} />
                       {(brandKontakter as any)[telKey] && telKey !== 'forsakringsnummer' && (
-                        <a href={`tel:${(brandKontakter as any)[telKey]}`} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, textDecoration: 'none' }}>{'\u{1F4DE}'}</a>
+                        <a className="btn-press" href={`tel:${(brandKontakter as any)[telKey]}`} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', fontSize: 16, textDecoration: 'none' }}>{'\u{1F4DE}'}</a>
                       )}
                     </div>
                   </div>
@@ -812,7 +813,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 <textarea placeholder="Vad hände?" value={brandNewTillbud.beskrivning} onChange={e => onNewTillbudChange({ ...brandNewTillbud, beskrivning: e.target.value })} style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} />
                 <textarea placeholder="Åtgärd vidtagen" value={brandNewTillbud.atgard} onChange={e => onNewTillbudChange({ ...brandNewTillbud, atgard: e.target.value })} style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} />
                 <input type="text" placeholder="Rapporterad till (namn)" value={brandNewTillbud.rapporteradTill} onChange={e => onNewTillbudChange({ ...brandNewTillbud, rapporteradTill: e.target.value })} style={inputStyle} />
-                <button onClick={onSaveTillbud}
+                <button className="btn-press" onClick={onSaveTillbud}
                   style={{ padding: 14, borderRadius: 12, border: 'none', background: '#60a5fa', color: '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                   Spara tillbud
                 </button>
@@ -852,7 +853,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                   </div>
                 </div>
                 <textarea placeholder="Noteringar" value={brandBrandvakt.noteringar} onChange={e => onBrandvaktChange({ ...brandBrandvakt, noteringar: e.target.value })} style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} />
-                <button onClick={onSaveBrandvakt}
+                <button className="btn-press" onClick={onSaveBrandvakt}
                   style={{ padding: 14, borderRadius: 12, border: 'none', background: '#60a5fa', color: '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                   Spara brandvaktslogg
                 </button>
@@ -875,7 +876,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                   <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>Datum & tid</div>
                   <input type="datetime-local" value={brandEfterkontroll.datum} onChange={e => onEfterkontrollChange({ ...brandEfterkontroll, datum: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
                 </div>
-                <button onClick={() => onEfterkontrollChange({ ...brandEfterkontroll, kvitterad: !brandEfterkontroll.kvitterad })}
+                <button className="btn-press" onClick={() => onEfterkontrollChange({ ...brandEfterkontroll, kvitterad: !brandEfterkontroll.kvitterad })}
                   style={{ flex: 1, padding: 14, borderRadius: 12, border: 'none', background: brandEfterkontroll.kvitterad ? 'rgba(34,197,94,0.15)' : '#30d158', color: brandEfterkontroll.kvitterad ? '#30d158' : '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                   {brandEfterkontroll.kvitterad ? 'Utförd \u2713' : 'Efterkontroll utförd'}
                 </button>
@@ -888,7 +889,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
         {/* Dev test toggle */}
         {process.env.NODE_ENV === 'development' && testMode === null && (
           <div style={{ margin: '0 16px 8px', textAlign: 'center' }}>
-            <button
+            <button className="btn-press"
               onClick={() => {
                 if (devSimulating) {
                   // Restore real data
