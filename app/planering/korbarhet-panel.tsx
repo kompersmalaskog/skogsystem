@@ -114,7 +114,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
 
   return (
     <div style={{ marginTop: '16px' }}>
-      <div style={{ fontSize: '13px', opacity: 0.7, textTransform: 'uppercase', letterSpacing: '1px', padding: '0 4px', marginBottom: '8px' }}>
+      <div style={{ fontSize: '13px', opacity: 0.7, padding: '0 4px', marginBottom: '8px' }}>
         Körbarhetsanalys
       </div>
 
@@ -203,7 +203,6 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
                       <div style={{
                         fontSize: '13px',
                         opacity: isToday ? 0.95 : 0.75,
-                        textTransform: 'uppercase',
                         fontWeight: isToday ? '600' : '400',
                         color: isToday ? '#93c5fd' : 'inherit',
                         marginBottom: '2px',

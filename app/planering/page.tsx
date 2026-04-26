@@ -7803,8 +7803,8 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === PLUS-KNAPP (nere höger) === */}
-      {!briefingMode && (
+      {/* === PLUS-KNAPP (nere höger) — döljs när volym-panelen är öppen */}
+      {!briefingMode && !(volymLoading || volymResultat) && (
         <button
           type="button"
           onClick={() => { if (navigator.vibrate) navigator.vibrate(10); setPlusMenuOpen(o => !o); }}
@@ -7974,7 +7974,6 @@ export default function PlannerPage() {
                   fontSize: 13,
                   fontWeight: 600,
                   color: 'rgba(255,255,255,0.55)',
-                  letterSpacing: 1.2,
                 }}>
                   {group.title}
                 </div>
@@ -8926,8 +8925,8 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === CENTRERA-KNAPP (centrerar kartan på objektet, ovanför plus) === */}
-      {!briefingMode && valtObjekt && (
+      {/* === CENTRERA-KNAPP (centrerar kartan på objektet, ovanför plus) — döljs när volym-panelen är öppen */}
+      {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && (
         <button
           type="button"
           onClick={() => {
@@ -9167,7 +9166,7 @@ export default function PlannerPage() {
 
               // Style-helpers
               const sectionStyle = { marginTop: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' };
-              const sectionHeadingStyle = { fontSize: '13px', fontWeight: '600' as const, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '12px' };
+              const sectionHeadingStyle = { fontSize: '13px', fontWeight: '600' as const, color: 'rgba(255,255,255,0.35)', marginBottom: '12px' };
               const ruleStyle = { fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.7', margin: 0 as const };
               const bulletStyle = { fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.8', margin: 0 as const, paddingLeft: '4px' };
 
@@ -10386,8 +10385,8 @@ export default function PlannerPage() {
                 padding: '12px 16px 8px', 
                 fontSize: '13px', 
                 opacity: 0.4, 
-                textTransform: 'uppercase', 
-                letterSpacing: '1px' 
+ 
+ 
               }}>
                 Bakgrundskarta
               </div>
@@ -10442,8 +10441,8 @@ export default function PlannerPage() {
                 padding: '12px 16px 8px', 
                 fontSize: '13px', 
                 opacity: 0.4, 
-                textTransform: 'uppercase', 
-                letterSpacing: '1px' 
+ 
+ 
               }}>
                 Overlay
               </div>
@@ -10506,8 +10505,6 @@ export default function PlannerPage() {
                   padding: '12px 16px 8px',
                   fontSize: '13px',
                   opacity: 0.4,
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px'
                 }}>
                   {group.group}
                 </div>
@@ -10571,8 +10568,6 @@ export default function PlannerPage() {
                 padding: '12px 16px 8px',
                 fontSize: '13px',
                 opacity: 0.4,
-                textTransform: 'uppercase',
-                letterSpacing: '1px'
               }}>
                 SMHI
               </div>
@@ -10632,8 +10627,6 @@ export default function PlannerPage() {
                 padding: '12px 16px 8px',
                 fontSize: '13px',
                 opacity: 0.4,
-                textTransform: 'uppercase',
-                letterSpacing: '1px'
               }}>
                 Dina markeringar
               </div>
@@ -10692,8 +10685,6 @@ export default function PlannerPage() {
                 padding: '12px 16px 8px',
                 fontSize: '13px',
                 opacity: 0.4,
-                textTransform: 'uppercase',
-                letterSpacing: '1px'
               }}>
                 Produktionsdata
               </div>
@@ -10713,7 +10704,7 @@ export default function PlannerPage() {
                   height: '28px',
                   borderRadius: '50%',
                   background: overlays.produktionshogar
-                    ? 'radial-gradient(circle, #2d6a4f 40%, #a0522d 100%)'
+                    ? '#2d6a4f'
                     : 'rgba(255,255,255,0.1)',
                   display: 'flex',
                   alignItems: 'center',
@@ -10797,8 +10788,8 @@ export default function PlannerPage() {
                   padding: '12px 16px 8px', 
                   fontSize: '13px', 
                   opacity: 0.4, 
-                  textTransform: 'uppercase', 
-                  letterSpacing: '1px' 
+ 
+ 
                 }}>
                   Zontyper
                 </div>
@@ -10857,8 +10848,6 @@ export default function PlannerPage() {
                   padding: '12px 16px 8px',
                   fontSize: '13px',
                   opacity: 0.4,
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px'
                 }}>
                   Linjetyper
                 </div>
@@ -11072,8 +11061,6 @@ export default function PlannerPage() {
                   padding: '12px 16px 8px',
                   fontSize: '13px',
                   opacity: 0.4,
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px',
                 }}>
                   {section.section}
                 </div>
@@ -11387,7 +11374,7 @@ export default function PlannerPage() {
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: '20px', padding: '16px',
                 }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>
                     Skotningsstatus
                   </div>
                   {kvarData.length === 0 ? (
@@ -12114,7 +12101,7 @@ export default function PlannerPage() {
                   padding: '20px',
                   textAlign: 'center',
                 }}>
-                  <div style={{ fontSize: '13px', opacity: 0.3, textTransform: 'uppercase', letterSpacing: '1px' }}>
+                  <div style={{ fontSize: '13px', opacity: 0.3, }}>
                     Sparade stickvägar
                   </div>
                   <div style={{ fontSize: '36px', fontWeight: '300', marginTop: '8px', opacity: 0.9 }}>
@@ -12596,7 +12583,7 @@ export default function PlannerPage() {
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: '20px', padding: '16px', marginBottom: '16px',
                 }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Markförhållanden</div>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markförhållanden</div>
 
                   {/* Bärighet */}
                   <div style={{ marginBottom: '16px' }}>
@@ -12638,7 +12625,7 @@ export default function PlannerPage() {
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: '20px', padding: '16px', marginBottom: '16px',
                 }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '12px' }}>Hinder & hänsyn</div>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Hinder & hänsyn</div>
                   {(() => {
                     const hinderSymboler = markers.filter(m => m.isMarker !== false && !m.isZone && !m.isLine && !m.isArrow && ['powerline', 'ditch', 'bridge', 'corduroy', 'wet', 'steep', 'warning', 'culturemonument', 'culturestump', 'eternitytree', 'naturecorner', 'trail'].includes(m.type || ''));
                     const hinderZoner = markers.filter(m => m.isZone);
@@ -12669,7 +12656,7 @@ export default function PlannerPage() {
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: '20px', padding: '16px', marginBottom: '16px',
                 }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Skördare</div>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skördare</div>
 
                   {/* Maskin dropdown */}
                   <div style={{ marginBottom: '16px' }}>
@@ -12746,7 +12733,7 @@ export default function PlannerPage() {
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: '20px', padding: '16px', marginBottom: '16px',
                 }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Skotare</div>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skotare</div>
 
                   {/* Maskin dropdown */}
                   <div style={{ marginBottom: '16px' }}>
@@ -12840,7 +12827,7 @@ export default function PlannerPage() {
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: '20px', padding: '16px', marginBottom: '16px',
                 }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Transport</div>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Transport</div>
 
                   {/* Trailer kan köra in */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: !infoTrailerIn ? '12px' : '16px' }}>
@@ -12884,7 +12871,7 @@ export default function PlannerPage() {
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: '20px', padding: '16px', marginBottom: '16px',
                 }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '16px' }}>Markägare</div>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markägare</div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoMarkagareVed ? '12px' : '0' }}>
                     <span style={{ fontSize: '14px', color: '#fff' }}>Ska ha ved</span>
@@ -12915,7 +12902,7 @@ export default function PlannerPage() {
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
                   borderRadius: '20px', padding: '16px', marginBottom: '16px',
                 }}>
-                  <div style={{ fontSize: '13px', opacity: 0.4, textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '12px' }}>Anteckningar</div>
+                  <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Anteckningar</div>
                   <textarea
                     value={infoAnteckningar}
                     onChange={e => setInfoAnteckningar(e.target.value)}
@@ -13251,7 +13238,7 @@ export default function PlannerPage() {
 
                   {/* Brandrisk testläge */}
                   <div style={{ marginTop: '24px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '20px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '12px' }}>Testläge</div>
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: 'rgba(255,255,255,0.3)', marginBottom: '12px' }}>Testläge</div>
                     {brandTestMode === null ? (
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <button
@@ -13321,7 +13308,7 @@ export default function PlannerPage() {
                 }}>
                   {/* === SOS === */}
                   <div style={{ marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '16px' }}>SOS</div>
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '16px' }}>SOS</div>
                     <a href="tel:112" style={{ textDecoration: 'none', display: 'block', marginBottom: '12px' }}>
                       <div style={{ fontSize: '48px', fontWeight: '700', color: '#fff', lineHeight: '1' }}>112</div>
                       <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '4px' }}>SOS Alarm – Nödsamtal</div>
@@ -13334,7 +13321,7 @@ export default function PlannerPage() {
 
                   {/* === DIN POSITION === */}
                   <div style={{ marginBottom: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' }}>
-                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '12px' }}>Din position</div>
+                    <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '12px' }}>Din position</div>
                     {(() => {
                       const centerLat = mapCenter.lat.toFixed(4);
                       const centerLon = mapCenter.lng.toFixed(4);
@@ -13370,7 +13357,7 @@ export default function PlannerPage() {
                   {/* Sjukhus */}
                   {emergencyHealthcare && emergencyHealthcare.filter(h => h.type === 'hospital').length > 0 && (
                     <div style={{ marginBottom: '20px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '16px' }}>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '12px' }}>Närmaste sjukhus</div>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '12px' }}>Närmaste sjukhus</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {emergencyHealthcare.filter(h => h.type === 'hospital').map((h, i) => (
                           <a
@@ -13397,7 +13384,7 @@ export default function PlannerPage() {
                   {/* Vårdcentraler */}
                   {emergencyHealthcare && emergencyHealthcare.filter(h => h.type === 'clinic').length > 0 && (
                     <div>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', textTransform: 'uppercase' as const, letterSpacing: '1.5px', marginBottom: '12px' }}>Närmaste vårdcentral</div>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '12px' }}>Närmaste vårdcentral</div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         {emergencyHealthcare.filter(h => h.type === 'clinic').map((h, i) => (
                           <a
@@ -13811,7 +13798,7 @@ export default function PlannerPage() {
           }}>
             <div style={{ 
               fontSize: '13px', opacity: 0.4, marginBottom: '16px',
-              textTransform: 'uppercase', letterSpacing: '1.5px', textAlign: 'center', color: '#fff',
+ textAlign: 'center', color: '#fff',
             }}>
               Nästa väg
             </div>
@@ -14310,7 +14297,6 @@ export default function PlannerPage() {
             fontSize: '28px', 
             fontWeight: '900', 
             color: '#fff',
-            letterSpacing: '10px',
             marginBottom: '30px',
             textShadow: '0 2px 10px rgba(0,0,0,0.5)',
           }}>
@@ -14333,7 +14319,6 @@ export default function PlannerPage() {
             color: '#fff',
             marginBottom: '10px',
             textShadow: '0 2px 10px rgba(0,0,0,0.5)',
-            textTransform: 'uppercase',
           }}>
             {activeWarning.name}
           </div>
@@ -14399,7 +14384,6 @@ export default function PlannerPage() {
               cursor: 'pointer',
               marginTop: '20px',
 
-              textTransform: 'uppercase',
             }}
           >
             ✓ KVITTERA
@@ -14703,7 +14687,7 @@ export default function PlannerPage() {
 
         // Styles – identiska med avläggspanelen
         const secStyle = { marginTop: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' };
-        const headStyle: React.CSSProperties = { fontSize: '13px', fontWeight: '600', color: '#fff', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '12px' };
+        const headStyle: React.CSSProperties = { fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '12px' };
         const summaryStyle: React.CSSProperties = { ...headStyle, cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' };
         const textStyle = { fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.7' as const };
         const linkStyle = { fontSize: '13px', color: '#60a5fa', textDecoration: 'none' as const };
@@ -15139,8 +15123,6 @@ export default function PlannerPage() {
               <div style={{ 
                 fontSize: '13px', 
                 color: 'rgba(255,255,255,0.4)', 
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
                 marginBottom: '20px',
               }}>
                 Uppskattad tid
@@ -15216,8 +15198,6 @@ export default function PlannerPage() {
               <div style={{ 
                 fontSize: '13px', 
                 color: 'rgba(255,255,255,0.4)', 
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
                 marginBottom: '20px',
               }}>
                 Traktdata
@@ -15326,8 +15306,6 @@ export default function PlannerPage() {
                 <div style={{
                   fontSize: '13px',
                   color: 'rgba(255,255,255,0.4)',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.5px',
                   marginBottom: '12px',
                 }}>
                   Vägsäkerhet
@@ -15369,8 +15347,6 @@ export default function PlannerPage() {
                   <div style={{
                     fontSize: '13px',
                     color: 'rgba(255,255,255,0.4)',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.5px',
                     marginBottom: '20px',
                   }}>
                     Förhållanden
@@ -15470,7 +15446,7 @@ export default function PlannerPage() {
                         height: '100%',
                         width: `${prognosSettings.terpipirangSvar || forhallanden.brantProcent}%`,
                         background: draggingSlider === 'terrang' 
-                          ? 'linear-gradient(90deg, rgba(10,132,255,0.6), rgba(10,132,255,0.8))'
+                          ? 'rgba(10,132,255,0.7)'
                           : 'rgba(255,255,255,0.3)',
                         borderRadius: 'inherit',
                         transition: 'background 0.15s ease',
@@ -15584,7 +15560,7 @@ export default function PlannerPage() {
                         height: '100%',
                         width: `${prognosSettings.barighetDalig || forhallanden.blottProcent}%`,
                         background: draggingSlider === 'barighet' 
-                          ? 'linear-gradient(90deg, rgba(10,132,255,0.6), rgba(10,132,255,0.8))'
+                          ? 'rgba(10,132,255,0.7)'
                           : 'rgba(255,255,255,0.3)',
                         borderRadius: 'inherit',
                         transition: 'background 0.15s ease',
@@ -15649,8 +15625,6 @@ export default function PlannerPage() {
                   fontSize: '14px', 
                   color: 'rgba(255,255,255,0.5)', 
                   marginBottom: '20px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '1px',
                 }}>
                   {editingField === 'skordare' && 'Skördare (timmar)'}
                   {editingField === 'skotare' && 'Skotare (timmar)'}
@@ -16952,8 +16926,7 @@ export default function PlannerPage() {
                     <div key={i}>
                       {showHeader && (
                         <div style={{
-                          fontSize: '13px', fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
-                          color: h.typ === 'grot' ? '#8B5E3C' : 'rgba(255,255,255,0.4)',
+                          fontSize: '13px', fontWeight: 600,                          color: h.typ === 'grot' ? '#8B5E3C' : 'rgba(255,255,255,0.4)',
                           padding: '12px 0 6px', marginTop: i > 0 ? '8px' : 0,
                           borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none',
                         }}>

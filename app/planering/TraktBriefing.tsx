@@ -144,10 +144,12 @@ function MarkerIconSvg({ marker, fallbackEmoji, size = 28 }: { marker?: Marker; 
   const svgPath = ICON_SVG[typeId];
   const r = size / 2;
   if (!svgPath) {
-    // Fallback: emoji in a subtle circle
+    // Fallback: Material Symbol i en diskret cirkel
     return (
-      <div style={{ width: size, height: size, borderRadius: r, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: size * 0.5 }}>
-        {fallbackEmoji || '📍'}
+      <div style={{ width: size, height: size, borderRadius: r, background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+        <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: size * 0.6, color: 'rgba(255,255,255,0.85)' }}>
+          {fallbackEmoji || 'pin_drop'}
+        </span>
       </div>
     );
   }
@@ -204,35 +206,36 @@ function getSymbolName(marker: Marker, symbolCategories: SymbolCategory[], zoneT
   return 'Markering';
 }
 
+// Returns Material Symbols Outlined-namn för marker-typ (renderas via .material-symbols-outlined span)
 function getSymbolIcon(marker: Marker): string {
-  if (marker.type === 'landing') return '📦';
-  if (marker.type === 'eternitytree') return '🌳';
-  if (marker.type === 'naturecorner') return '🌿';
-  if (marker.type === 'culturemonument') return '🏛️';
-  if (marker.type === 'culturestump') return '🪵';
-  if (marker.type === 'highstump') return '🪓';
-  if (marker.type === 'brashpile') return '🪹';
-  if (marker.type === 'windfall') return '🌪️';
-  if (marker.type === 'manualfelling') return '🪓';
-  if (marker.type === 'powerline') return '⚡';
-  if (marker.type === 'road') return '🛤️';
-  if (marker.type === 'turningpoint') return '🔄';
-  if (marker.type === 'ditch') return '💧';
-  if (marker.type === 'bridge') return '🌉';
-  if (marker.type === 'corduroy') return '🪵';
-  if (marker.type === 'wet') return '💦';
-  if (marker.type === 'steep') return '⛰️';
-  if (marker.type === 'trail') return '🥾';
-  if (marker.type === 'warning') return '⚠️';
+  if (marker.type === 'landing') return 'inventory_2';
+  if (marker.type === 'eternitytree') return 'park';
+  if (marker.type === 'naturecorner') return 'eco';
+  if (marker.type === 'culturemonument') return 'museum';
+  if (marker.type === 'culturestump') return 'forest';
+  if (marker.type === 'highstump') return 'handyman';
+  if (marker.type === 'brashpile') return 'grass';
+  if (marker.type === 'windfall') return 'cyclone';
+  if (marker.type === 'manualfelling') return 'handyman';
+  if (marker.type === 'powerline') return 'bolt';
+  if (marker.type === 'road') return 'route';
+  if (marker.type === 'turningpoint') return 'loop';
+  if (marker.type === 'ditch') return 'water_drop';
+  if (marker.type === 'bridge') return 'directions_walk';
+  if (marker.type === 'corduroy') return 'forest';
+  if (marker.type === 'wet') return 'water';
+  if (marker.type === 'steep') return 'terrain';
+  if (marker.type === 'trail') return 'hiking';
+  if (marker.type === 'warning') return 'warning';
   if (marker.isZone) {
-    if (marker.zoneType === 'wet') return '💦';
-    if (marker.zoneType === 'steep') return '⛰️';
-    if (marker.zoneType === 'protected') return '🌿';
-    if (marker.zoneType === 'culture') return '🏛️';
-    if (marker.zoneType === 'noentry') return '🚫';
-    if (marker.zoneType === 'fornlamning') return '🏛️';
+    if (marker.zoneType === 'wet') return 'water';
+    if (marker.zoneType === 'steep') return 'terrain';
+    if (marker.zoneType === 'protected') return 'eco';
+    if (marker.zoneType === 'culture') return 'museum';
+    if (marker.zoneType === 'noentry') return 'block';
+    if (marker.zoneType === 'fornlamning') return 'museum';
   }
-  return '📍';
+  return 'pin_drop';
 }
 
 function getBearing(from: {lat:number;lon:number}, to: {lat:number;lon:number}) {
@@ -346,7 +349,7 @@ export default function TraktBriefing({
       arcCDF.push(arcCDF[i] + arcWeightsArr[i] / wTotal);
     }
     built.push({
-      id: 'overview', type: 'overview', title: 'Överflygning', icon: '🗺️',
+      id: 'overview', type: 'overview', title: 'Överflygning', icon: 'map',
       center: { lat: centerLat, lon: centerLon }, zoom: overviewZoom, pitch: 60,
       path: arcPoints, arcCDF,
     });
@@ -358,7 +361,7 @@ export default function TraktBriefing({
     for (const m of landings) {
       const ll = svgToLatLon(m.x, m.y);
       built.push({
-        id: `landing-${m.id}`, type: 'landing', title: 'Avlägg', icon: '📦',
+        id: `landing-${m.id}`, type: 'landing', title: 'Avlägg', icon: 'inventory_2',
         comment: m.comment || undefined,
         center: ll, zoom: 18, pitch: 62, marker: m,
         tag: 'info', tagText: 'AVLÄGG', categoryColor: A, photoData: m.photoData || undefined, audioData: m.audioData || undefined,
@@ -370,7 +373,7 @@ export default function TraktBriefing({
       const pathLL = m.path!.map(p => svgToLatLon(p.x, p.y));
       const mid = pathLL[Math.floor(pathLL.length / 2)];
       built.push({
-        id: `mainroad-${m.id}`, type: 'mainroad', title: 'Basväg', icon: '🛤️',
+        id: `mainroad-${m.id}`, type: 'mainroad', title: 'Basväg', icon: 'route',
         comment: m.comment || undefined,
         center: mid, zoom: 17, pitch: 60, path: pathLL, marker: m,
         tag: 'info', tagText: 'BASVÄG', categoryColor: A,
@@ -728,7 +731,6 @@ export default function TraktBriefing({
     fontSize: '16px',
     fontWeight: '600',
     cursor: 'pointer',
-    letterSpacing: '0.3px',
   };
 
   // ============================================================
@@ -826,7 +828,7 @@ export default function TraktBriefing({
           {/* Om trakten — anteckningar (direkt från boundary marker) */}
           {aboutNotes.length > 0 && (
             <div>
-              <div style={{ padding: '12px 20px 6px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'rgba(138,180,96,0.4)' }}>
+              <div style={{ padding: '12px 20px 6px', fontSize: '11px', fontWeight: '700', color: 'rgba(138,180,96,0.4)' }}>
                 Anteckningar
               </div>
               {aboutNotes.map((note, idx) => {
@@ -890,7 +892,7 @@ export default function TraktBriefing({
                   >
                     {isChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
                   </div>
-                  <div style={{ fontSize: '18px', flexShrink: 0 }}>📝</div>
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18, flexShrink: 0, color: 'rgba(255,255,255,0.85)' }}>edit_note</span>
                   <div style={{ flex: 1, fontSize: '14px', fontWeight: '500', color: isChecked ? 'rgba(255,255,255,0.25)' : '#e8f0e0' }}>Om trakten</div>
                 </div>
                 {isExpanded && (
@@ -913,7 +915,7 @@ export default function TraktBriefing({
 
           {/* Markeringar — flat list, no category grouping */}
           {mandatorySteps.length > 0 && aboutNotes.length > 0 && (
-            <div style={{ padding: '12px 20px 6px', fontSize: '11px', fontWeight: '700', letterSpacing: '0.5px', textTransform: 'uppercase', color: 'rgba(138,180,96,0.4)' }}>
+            <div style={{ padding: '12px 20px 6px', fontSize: '11px', fontWeight: '700', color: 'rgba(138,180,96,0.4)' }}>
               Markeringar
             </div>
           )}
@@ -970,7 +972,7 @@ export default function TraktBriefing({
                           }
                         }}
                         style={{ padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(138,180,96,0.15)', background: 'rgba(138,180,96,0.06)', color: A, fontSize: '13px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                      >📍 Visa på kartan</button>
+                      ><span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 16 }}>pin_drop</span> Visa på kartan</button>
                     )}
                     {!item.audioData && !item.comment && !item.photoData && (
                       <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>Ingen extra information</div>
@@ -1048,7 +1050,7 @@ export default function TraktBriefing({
     const cbx = (isChecked: boolean): React.CSSProperties => ({
       width: '22px', height: '22px', borderRadius: '11px',
       border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.12)',
-      background: isChecked ? 'linear-gradient(135deg, #6abf40, #8ab460)' : 'transparent',
+      background: isChecked ? '#30d158' : 'transparent',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       flexShrink: 0, cursor: 'pointer', transition: 'all 0.2s',
     });
@@ -1079,7 +1081,7 @@ export default function TraktBriefing({
           <div style={{ height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.04)', marginBottom: '12px' }}>
             <div style={{
               height: '100%', borderRadius: '2px',
-              background: 'linear-gradient(90deg, #6abf40, #8ab460)',
+              background: '#30d158',
               width: `${progressPctCL}%`, transition: 'width 0.4s ease',
 
             }} />
@@ -1101,8 +1103,8 @@ export default function TraktBriefing({
               {/* Section header */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '15px' }}>📝</span>
-                  <span style={{ fontSize: '14px', fontWeight: '600', color: 'rgba(138,180,96,0.7)', letterSpacing: '0.5px' }}>Från planeraren</span>
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 15 }}>edit_note</span>
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: 'rgba(138,180,96,0.7)', }}>Från planeraren</span>
                 </div>
                 {newNotesCount > 0 && (
                   <div style={{
@@ -1235,7 +1237,7 @@ export default function TraktBriefing({
           {/* ══════════ MARKERINGAR ══════════ */}
           {checklistSteps.length > 0 && (
             <div style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.15)', letterSpacing: '0.8px', textTransform: 'uppercase', padding: '0 4px 10px' }}>
+              <div style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.15)', padding: '0 4px 10px' }}>
                 Markeringar
               </div>
 
@@ -1304,7 +1306,7 @@ export default function TraktBriefing({
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               cursor: 'pointer', fontSize: '14px',
                             }}
-                          >📍</button>
+                          ><span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 16 }}>pin_drop</span></button>
                         )}
                       </div>
                     </div>
@@ -1325,7 +1327,7 @@ export default function TraktBriefing({
         <div style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
           padding: '16px 20px', paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
-          background: 'linear-gradient(transparent, #0c0f0a 40%)',
+          background: '#0c0f0a',
           pointerEvents: 'none',
         }}>
           <button
@@ -1333,7 +1335,7 @@ export default function TraktBriefing({
             style={{
               width: '100%', padding: '16px', borderRadius: '14px', border: 'none',
               background: allDone
-                ? 'linear-gradient(135deg, #6abf40, #8ab460)'
+                ? '#30d158'
                 : 'rgba(255,255,255,0.06)',
               color: allDone ? '#0c0f0a' : 'rgba(255,255,255,0.3)',
               fontSize: '15px', fontWeight: '700', cursor: 'pointer',
@@ -1364,7 +1366,7 @@ export default function TraktBriefing({
           }}
           style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}
         >
-          Klar – börja köra 🌲
+          Klar – börja köra
         </button>
       </div>
     );
@@ -1387,7 +1389,7 @@ export default function TraktBriefing({
 
       <div style={{
         pointerEvents: 'auto',
-        background: 'linear-gradient(transparent, rgba(10,15,8,0.92) 35%)',
+        background: 'rgba(10,15,8,0.92)',
         padding: '80px 20px 32px',
         paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
       }}>
@@ -1410,7 +1412,7 @@ export default function TraktBriefing({
 
           {/* Icon + title */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-            <div style={{ fontSize: '28px' }}>{step.icon}</div>
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 28, color: '#fff' }}>{step.icon}</span>
             <div style={{ fontSize: '18px', fontWeight: '600', color: '#e8f0e0' }}>
               {step.type === 'overview' ? (overviewPhase === 'orbit' ? 'Överflygning' : 'Hela trakten') : step.title}
             </div>

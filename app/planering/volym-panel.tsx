@@ -155,7 +155,7 @@ export default function VolymPanel({ resultat, loading, onClose, onRetry, korbar
           {/* Gallringsanalys */}
           {resultat.gallring && (
             <div style={{ marginTop: '16px' }}>
-              <div style={{ fontSize: '13px', opacity: 0.7, textTransform: 'uppercase', letterSpacing: '1px', padding: '0 4px', marginBottom: '8px' }}>
+              <div style={{ fontSize: '13px', opacity: 0.7, padding: '0 4px', marginBottom: '8px' }}>
                 Gallringsanalys
               </div>
               <div style={{

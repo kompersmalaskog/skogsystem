@@ -431,14 +431,14 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
         {/* Current + Peak */}
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', gap: 32, padding: '20px 24px 8px' }}>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 500, letterSpacing: 0.5, marginBottom: 4 }}>JUST NU KL {nowHour.toString().padStart(2, '0')}</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 500, marginBottom: 4 }}>JUST NU KL {nowHour.toString().padStart(2, '0')}</div>
             <div style={{ fontSize: 44, fontWeight: 700, letterSpacing: -2, lineHeight: 1, color: MCF_COLORS[currentIdx] }}>{currentIdx}</div>
             <div style={{ fontSize: 11, marginTop: 6, fontWeight: 600, color: MCF_COLORS[currentIdx] }}>{MCF_TEXTS[currentIdx]?.short || ''} brandrisk</div>
             <div style={{ fontSize: 10, marginTop: 2, color: 'rgba(255,255,255,0.3)' }}>FWI {currentFwi}</div>
           </div>
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.12)', paddingBottom: 14 }}>&rarr;</div>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 500, letterSpacing: 0.5, marginBottom: 4 }}>DAGENS TOPP KL {peakHour.toString().padStart(2, '0')}</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 500, marginBottom: 4 }}>DAGENS TOPP KL {peakHour.toString().padStart(2, '0')}</div>
             <div style={{ fontSize: 44, fontWeight: 700, letterSpacing: -2, lineHeight: 1, color: MCF_COLORS[peakIdx] }}>{peakIdx}</div>
             <div style={{ fontSize: 11, marginTop: 6, fontWeight: 600, color: MCF_COLORS[peakIdx] }}>{MCF_TEXTS[peakIdx]?.short || ''} brandrisk</div>
             <div style={{ fontSize: 10, marginTop: 2, color: 'rgba(255,255,255,0.3)' }}>FWI {peakFwi}</div>
@@ -460,19 +460,19 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
         {/* LAGER 2: PLANERING - Fire Clock */}
         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 20, margin: '12px 16px 10px', padding: '24px 16px 20px', textAlign: 'center' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 16, textAlign: 'left', paddingLeft: 4 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 16, textAlign: 'left', paddingLeft: 4 }}>
             Brandriskklocka – {clockLabel} {clockDate && `${clockDate}`}
           </div>
           <div style={{ position: 'relative', width: 320, height: 320, margin: '0 auto' }}>
             <FireClock hourlyIdx={clockHourlyIdx} nowHour={activeDay === 0 ? nowHour : 12} nowMinute={activeDay === 0 ? nowMinute : undefined} />
             <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none' }}>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 2 }}>Lägre beräknad risk</div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, marginBottom: 2 }}>Lägre beräknad risk</div>
               <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5, color: MCF_COLORS[lowestIdx] || MCF_COLORS[1] }}>
                 {lowestStart.toString().padStart(2, '0')}–{lowestEnd.toString().padStart(2, '0')}
               </div>
               <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginBottom: 8 }}>Nivå {lowestIdx} · {MCF_TEXTS[lowestIdx]?.short || ''}</div>
               <div style={{ width: 30, height: 1, background: 'rgba(255,255,255,0.06)', margin: '6px auto 8px' }} />
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 2 }}>Högst beräknad risk</div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, marginBottom: 2 }}>Högst beräknad risk</div>
               <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5, color: MCF_COLORS[highestIdx] || MCF_COLORS[4] }}>
                 {highestStart.toString().padStart(2, '0')}–{highestEnd.toString().padStart(2, '0')}
               </div>
@@ -504,7 +504,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
         {/* VECKA - Week forecast with bars */}
         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '18px 20px' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 14 }}>Vecka – högsta nivå per dag</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 14 }}>Vecka – högsta nivå per dag</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {sortedDaily.map((d, i) => (
               <div key={i}>
@@ -567,7 +567,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <div style={{ padding: '8px 0' }}>
               {DOCS.map((group, gi) => (
                 <div key={gi}>
-                  <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8, color: 'rgba(255,255,255,0.9)', padding: gi === 0 ? '0 0 6px' : '14px 0 6px' }}>{group.group}</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.9)', padding: gi === 0 ? '0 0 6px' : '14px 0 6px' }}>{group.group}</div>
                   {group.items.map((doc, di) => (
                     <a key={di} href={doc.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', textDecoration: 'none', borderBottom: di < group.items.length - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none', color: '#60a5fa' }}>
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
@@ -591,7 +591,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <details open>
               <summary style={summaryStyle}>
                 <span>Samråd brandrisk</span>
-                {brandSamrad.kvitterad ? <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, textTransform: 'none' as const, color: '#30d158' }}>Kvitterat</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
+                {brandSamrad.kvitterad ? <span style={{ fontSize: 11, fontWeight: 500, textTransform: 'none' as const, color: '#30d158' }}>Kvitterat</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
               </summary>
               <div style={{ marginTop: 12 }}>
                 <div style={textStyle}>Enligt Skogforsks branschgemensamma riktlinjer (2022) krävs samråd mellan uppdragstagare och uppdragsgivare vid FWI &#x2265; 4.</div>
@@ -673,7 +673,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <details>
               <summary style={summaryStyle}>
                 <span>Utrustning</span>
-                <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, textTransform: 'none' as const, color: brandUtrustning.every(Boolean) ? '#30d158' : 'rgba(255,255,255,0.3)' }}>{brandUtrustning.filter(Boolean).length}/{brandUtrustning.length}</span>
+                <span style={{ fontSize: 11, fontWeight: 500, textTransform: 'none' as const, color: brandUtrustning.every(Boolean) ? '#30d158' : 'rgba(255,255,255,0.3)' }}>{brandUtrustning.filter(Boolean).length}/{brandUtrustning.length}</span>
               </summary>
               <div style={{ marginTop: 12 }}>
                 <div style={{ ...textStyle, marginBottom: 12 }}>Källa: Brandskyddsföreningens SBF 127</div>
@@ -866,7 +866,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           <details>
             <summary style={summaryStyle}>
               <span>Efterkontroll</span>
-              {brandEfterkontroll.kvitterad ? <span style={{ fontSize: 11, fontWeight: 500, letterSpacing: 0, textTransform: 'none' as const, color: '#30d158' }}>Utförd &#x2713;</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
+              {brandEfterkontroll.kvitterad ? <span style={{ fontSize: 11, fontWeight: 500, textTransform: 'none' as const, color: '#30d158' }}>Utförd &#x2713;</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
             </summary>
             <div style={{ marginTop: 12 }}>
               <div style={textStyle}>Trakten ska avsynas efter avslutat arbete (Skogforsk).</div>
