@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase';
 
 const f = "-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif";
 const card = { backgroundColor: '#1c1c1e', borderRadius: 12 } as const;
-const labelStyle = { fontSize: 13, color: 'rgba(255,255,255,0.45)', fontFamily: f, fontWeight: 400 as const, letterSpacing: 0.2, margin: 0 };
+const labelStyle = { fontSize: 13, color: 'rgba(255,255,255,0.45)', fontFamily: f, fontWeight: 400 as const, margin: 0 };
 
 interface Maskin {
   id: string;

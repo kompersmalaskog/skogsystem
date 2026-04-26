@@ -305,25 +305,23 @@ export default function MaskinvyNyPage() {
   const currentMaskin = maskiner.find(m => m.maskin_id.toString() === valdMaskin)
   const fmt = (n: number, d = 1) => n.toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
 
-  const SIDEBAR_W = 240
+  const SIDEBAR_W = 220
 
   return (
     <>
-      {/* Google Fonts */}
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
       <style>{`
         @keyframes sfSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes sfPulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
       `}</style>
 
-      <div style={{ background: '#000000', color: '#ffffff', minHeight: '100vh', fontFamily: "'Inter', sans-serif" }}>
+      <div style={{ background: '#000000', color: '#ffffff', minHeight: '100vh', fontFamily: "'Geist', system-ui, sans-serif" }}>
 
         {/* ===== SIDEBAR ===== */}
         <aside style={{
           position: 'fixed', left: 0, top: TOPBAR_H, bottom: 0,
           width: SIDEBAR_W, background: '#0e0e0e',
-          fontFamily: "'Manrope', sans-serif",
+          fontFamily: "'Geist', system-ui, sans-serif",
           display: 'flex', flexDirection: 'column',
           padding: '24px 0', zIndex: 40, overflowY: 'auto',
         }}>
@@ -361,13 +359,13 @@ export default function MaskinvyNyPage() {
           {/* Machine selector */}
           <div style={{ marginTop: 'auto', padding: '0 16px' }}>
             <div style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: 12 }}>
-              <p style={{ fontSize: 11, letterSpacing: '0.1em', color: '#8e8e93', fontWeight: 600, marginBottom: 6 }}>Maskin</p>
+              <p style={{ fontSize: 13, color: '#8e8e93', fontWeight: 500, marginBottom: 6 }}>Maskin</p>
               <select
                 value={valdMaskin}
                 onChange={e => setValdMaskin(e.target.value)}
                 style={{
                   width: '100%', background: '#201f1f', border: 'none', borderRadius: 8,
-                  color: '#ffffff', padding: '8px 10px', fontSize: 13, fontFamily: "'Inter', sans-serif",
+                  color: '#ffffff', padding: '8px 10px', fontSize: 13, fontFamily: "'Geist', system-ui, sans-serif",
                   outline: 'none',
                 }}
               >
@@ -401,11 +399,11 @@ export default function MaskinvyNyPage() {
           padding: '0 28px', zIndex: 30,
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontFamily: "'Manrope', sans-serif", letterSpacing: '0.15em', fontSize: 11, fontWeight: 700, color: '#30d158' }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: '#30d158' }}>
               Skördare
             </span>
             <span style={{ color: 'rgba(255,255,255,0.2)' }}>/</span>
-            <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700, fontSize: 16, color: '#ffffff' }}>
+            <span style={{ fontFamily: "'Geist', system-ui, sans-serif", fontWeight: 700, fontSize: 16, color: '#ffffff' }}>
               {currentMaskin?.modell || (loading ? 'Laddar...' : 'Ingen maskin vald')}
             </span>
           </div>
@@ -414,7 +412,7 @@ export default function MaskinvyNyPage() {
             color: loading ? '#ffb340' : loadError ? '#ff453a' : '#30d158',
             padding: '6px 16px', borderRadius: 9999,
             fontSize: 13, fontWeight: 500,
-            fontFamily: "'Manrope', sans-serif",
+            fontFamily: "'Geist', system-ui, sans-serif",
           }}>
             {loading ? 'Laddar' : loadError ? 'Fel' : 'Live'}
           </div>
@@ -425,10 +423,41 @@ export default function MaskinvyNyPage() {
           <div style={{ padding: '24px 28px', maxWidth: 1400, margin: '0 auto' }}>
 
             {loading ? (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 400, color: '#8e8e93', gap: 12 }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" style={{ animation: 'sfSpin 1s linear infinite' }}><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
-                Laddar data...
-              </div>
+              <>
+                <style>{`@keyframes mvnySkel { 0% { background-position: -200px 0; } 100% { background-position: calc(200px + 100%) 0; } } .mvny-skel { background: linear-gradient(90deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.1) 50%, rgba(255,255,255,0.04) 100%); background-size: 200px 100%; border-radius: 8px; animation: mvnySkel 1.4s ease-in-out infinite; display: block; }`}</style>
+                {/* KPI Cards skeleton */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
+                  {[1, 2, 3, 4].map(i => (
+                    <div key={i} style={{ ...cardStyle, padding: 22 }}>
+                      <div className="mvny-skel" style={{ height: 13, width: '50%', marginBottom: 16 }} />
+                      <div className="mvny-skel" style={{ height: 32, width: '70%', marginBottom: 8 }} />
+                      <div className="mvny-skel" style={{ height: 11, width: '30%' }} />
+                    </div>
+                  ))}
+                </div>
+                {/* Chart skeleton */}
+                <div style={{ ...cardStyle, padding: 24, marginBottom: 20 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                    <div style={{ flex: 1 }}>
+                      <div className="mvny-skel" style={{ height: 13, width: 140, marginBottom: 8 }} />
+                      <div className="mvny-skel" style={{ height: 11, width: 200 }} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 16 }}>
+                      <div className="mvny-skel" style={{ height: 12, width: 60 }} />
+                      <div className="mvny-skel" style={{ height: 12, width: 60 }} />
+                    </div>
+                  </div>
+                  <div className="mvny-skel" style={{ height: 280 }} />
+                </div>
+                {/* Tidsfördelning skeleton */}
+                <div style={{ ...cardStyle, padding: 24, marginBottom: 20 }}>
+                  <div className="mvny-skel" style={{ height: 13, width: 120, marginBottom: 18 }} />
+                  <div className="mvny-skel" style={{ height: 18, width: '100%', marginBottom: 14 }} />
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    {[1, 2, 3, 4].map(i => <div key={i} className="mvny-skel" style={{ height: 12, width: 80 }} />)}
+                  </div>
+                </div>
+              </>
             ) : loadError ? (
               <div style={{
                 background: 'rgba(255,69,58,0.1)', border: '1px solid rgba(255,69,58,0.3)',
@@ -444,7 +473,7 @@ export default function MaskinvyNyPage() {
                     style={{
                       marginTop: 14, minHeight: 44, padding: '0 18px', borderRadius: 10,
                       background: 'rgba(48,209,88,0.12)', border: '1px solid rgba(48,209,88,0.28)',
-                      color: '#30d158', fontFamily: "'Inter', sans-serif", fontSize: 14, fontWeight: 600,
+                      color: '#30d158', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 14, fontWeight: 600,
                       cursor: 'pointer',
                     }}
                   >
@@ -534,7 +563,7 @@ export default function MaskinvyNyPage() {
                 {/* Table */}
                 <div id="section-table" style={{ ...cardStyle, overflow: 'hidden', marginBottom: 20, scrollMarginTop: TOPBAR_H + 64 + 16 }}>
                   <div style={{ padding: '16px 24px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontFamily: "'Manrope', sans-serif", fontWeight: 700 }}>Dagsdata</span>
+                    <span style={{ fontFamily: "'Geist', system-ui, sans-serif", fontWeight: 700 }}>Dagsdata</span>
                     <span style={{ fontSize: 11, color: '#8e8e93' }}>{daily.filter(d => d.volym > 0).length} produktionsdagar</span>
                   </div>
                   <div style={{ overflowX: 'auto' }}>
@@ -589,13 +618,12 @@ const cardStyle: React.CSSProperties = {
 }
 
 const labelStyle: React.CSSProperties = {
-  fontSize: 11, letterSpacing: '0.1em',
-  color: '#8e8e93', fontWeight: 600,
+  fontSize: 13, color: '#8e8e93', fontWeight: 500,
 }
 
 const thStyle: React.CSSProperties = {
-  padding: '12px 16px', textAlign: 'left' as const, fontSize: 11,
-  letterSpacing: '0.05em', color: '#8e8e93', fontWeight: 600,
+  padding: '12px 16px', textAlign: 'left' as const, fontSize: 13,
+  color: '#8e8e93', fontWeight: 500,
 }
 
 const tdStyle: React.CSSProperties = {
@@ -613,7 +641,7 @@ function KPICard({ label, value, unit, accent, border }: { label: string; value:
     }}>
       <p style={labelStyle}>{label}</p>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-        <span style={{ fontSize: 30, fontWeight: 800, color: accent ? '#30d158' : '#ffffff', fontFamily: "'Manrope', sans-serif", lineHeight: 1.2 }}>
+        <span style={{ fontSize: 30, fontWeight: 800, color: accent ? '#30d158' : '#ffffff', fontFamily: "'Geist', system-ui, sans-serif", lineHeight: 1.2 }}>
           {value}
         </span>
         <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.3)' }}>{unit}</span>
@@ -647,7 +675,7 @@ function StatRow({ label, value, highlight }: { label: string; value: string; hi
   return (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
       <span style={{ fontSize: 13, color: '#8e8e93' }}>{label}</span>
-      <span style={{ fontSize: 14, fontWeight: 700, color: highlight ? '#30d158' : '#ffffff', fontFamily: "'Manrope', sans-serif" }}>{value}</span>
+      <span style={{ fontSize: 14, fontWeight: 700, color: highlight ? '#30d158' : '#ffffff', fontFamily: "'Geist', system-ui, sans-serif" }}>{value}</span>
     </div>
   )
 }

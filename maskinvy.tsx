@@ -3217,7 +3217,7 @@ export default function Maskinvy() {
           {/* Date pickers */}
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', marginBottom: 24, flexWrap: 'wrap' }}>
             <div style={{ background: '#1c1c1e', border: '1px solid rgba(48,209,88,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 500, color: '#30d158', letterSpacing: '0.08em' }}>A</span>
+              <span style={{ fontSize: 10, fontWeight: 500, color: '#30d158', }}>A</span>
               <input type="date" value={cmpDateA.start} onChange={e => setCmpDateA(p => ({ ...p, start: e.target.value }))}
                 style={{ background: 'transparent', border: 'none', color: '#ffffff', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
               <span style={{ color: '#48484a' }}>–</span>
@@ -3226,7 +3226,7 @@ export default function Maskinvy() {
             </div>
             <span style={{ fontSize: 11, fontWeight: 500, color: '#48484a' }}>VS</span>
             <div style={{ background: '#1c1c1e', border: '1px solid rgba(255,179,64,0.15)', borderRadius: 10, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 500, color: '#ffb340', letterSpacing: '0.08em' }}>B</span>
+              <span style={{ fontSize: 10, fontWeight: 500, color: '#ffb340', }}>B</span>
               <input type="date" value={cmpDateB.start} onChange={e => setCmpDateB(p => ({ ...p, start: e.target.value }))}
                 style={{ background: 'transparent', border: 'none', color: '#ffffff', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
               <span style={{ color: '#48484a' }}>–</span>
@@ -3235,7 +3235,7 @@ export default function Maskinvy() {
             </div>
             <button onClick={runComparison} style={{
               padding: '10px 20px', border: 'none', borderRadius: 8,
-              background: '#1a4a2e', color: '#30d158', fontFamily: "'Geist', system-ui, sans-serif",
+              background: 'rgba(48,209,88,0.16)', color: '#30d158', fontFamily: "'Geist', system-ui, sans-serif",
               fontSize: 13, fontWeight: 500, cursor: 'pointer', letterSpacing: -0.2,
             }}>
               {cmpLoading ? 'Laddar...' : 'Visa →'}
@@ -3263,7 +3263,7 @@ export default function Maskinvy() {
                 const fmt = (v: number) => v > 100 ? v.toLocaleString('sv-SE') : v;
                 return (
                   <div key={m.lbl} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 32px 1fr', gap: 7, alignItems: 'center', marginBottom: 7 }}>
-                    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#8e8e93' }}>{m.lbl}</div>
+                    <div style={{ fontSize: 10, fontWeight: 500, color: '#8e8e93' }}>{m.lbl}</div>
                     <div style={{ background: '#2c2c2e', borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'baseline', gap: 5 }}>
                       <span style={{ fontFamily: "'Fraunces', serif", fontSize: 26, color: '#ffffff' }}>{fmt(m.a)}</span>
                       <span style={{ fontSize: 11, color: '#8e8e93' }}>{m.unit}</span>
@@ -3322,7 +3322,7 @@ export default function Maskinvy() {
                 style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, padding: '7px 10px', color: '#ffffff', fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, outline: 'none' }} />
               <button onClick={runMachCmp} disabled={machCmpA === machCmpB} style={{
                 padding: '7px 16px', border: 'none', borderRadius: 8,
-                background: machCmpA !== machCmpB ? '#1a4a2e' : '#1c1c1e',
+                background: machCmpA !== machCmpB ? 'rgba(48,209,88,0.16)' : '#1c1c1e',
                 color: machCmpA !== machCmpB ? '#ffffff' : '#555',
                 fontFamily: "'Geist', system-ui, sans-serif", fontSize: 12, fontWeight: 500,
                 cursor: machCmpA !== machCmpB ? 'pointer' : 'default',
@@ -3368,7 +3368,7 @@ export default function Maskinvy() {
                 {/* Monthly m³/G15h chart */}
                 {machCmpMonths.length > 0 && (
                   <div style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '16px 16px 12px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#48484a', marginBottom: 12 }}>
+                    <div style={{ fontSize: 10, fontWeight: 500, color: '#48484a', marginBottom: 12 }}>
                       m³/G15h per månad
                     </div>
                     <div style={{ height: 240, position: 'relative' }}>
@@ -3413,7 +3413,7 @@ export default function Maskinvy() {
                   minHeight: 100,
                   ...(c.hero ? { gridColumn: 'span 2' } : {}),
                 }}>
-                  <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.02em', color: '#666', marginBottom: 8 }}>{c.label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: '#666', marginBottom: 8 }}>{c.label}</div>
                   <div style={{ fontSize: c.hero ? 48 : 32, fontWeight: 500, color: '#ffffff', letterSpacing: -1, marginBottom: 4 }}>{c.value}</div>
                 </div>
               ))}
@@ -3422,7 +3422,7 @@ export default function Maskinvy() {
             {/* Chart: stacked bars per month if multi-month, horizontal bars per category if single month */}
             {pk.length > 0 && (
               <div style={{ background: '#1c1c1e', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12, padding: '18px', marginBottom: 16 }}>
-                <div style={{ fontSize: 10, fontWeight: 500, letterSpacing: '0.02em', color: '#48484a', marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 500, color: '#48484a', marginBottom: 14 }}>
                   {isMultiMonth ? 'Avbrottstid per månad & kategori' : 'Avbrottstid per kategori'}
                 </div>
                 <div style={{ height: isMultiMonth ? 280 : Math.max(180, pk.length * 36), position: 'relative' }}>
@@ -3493,7 +3493,7 @@ export default function Maskinvy() {
   --muted:    #8e8e93;
   --dim:      #48484a;
   --accent:   #30d158;
-  --accent2:  #1a4a2e;
+  --accent2:  rgba(48,209,88,0.16);
   --warn:     #ffb340;
   --danger:   #ff453a;
   --blue:     #5b8fff;
@@ -3720,7 +3720,7 @@ body {
 
 /* ── CALENDAR ── */
 .cal-names { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; margin-bottom: 5px; }
-.cal-dn { text-align: center; font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; color: var(--dim); padding-bottom: 3px; }
+.cal-dn { text-align: center; font-size: 11px; font-weight: 500; color: var(--muted); padding-bottom: 6px; }
 .cal-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
 .cal-cell {
   aspect-ratio: 1; border-radius: 6px; display: flex; align-items: center; justify-content: center;
@@ -4627,7 +4627,7 @@ body {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           }}>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 500, letterSpacing: '0.02em', color: '#666', marginBottom: 8 }}>Jämför perioder</div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: '#666', marginBottom: 8 }}>Jämför perioder</div>
               <div style={{ fontSize: 13, color: '#ffffff' }}>
                 {valdMaskin ? `${valdMaskin.tillverkare} ${valdMaskin.modell}` : ''} — sida vid sida
               </div>

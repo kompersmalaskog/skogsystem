@@ -32,7 +32,7 @@ const C = {
   bg: '#000000', surface: '#1c1c1e', surface2: '#2c2c2e',
   border: 'rgba(255,255,255,0.07)', border2: 'rgba(255,255,255,0.12)',
   t1: '#ffffff', t3: '#8e8e93', t4: '#48484a',
-  accent: '#30d158', accent2: '#1a4a2e', blue: '#5b8fff', warn: '#ffb340',
+  accent: '#30d158', accent2: 'rgba(48,209,88,0.16)', blue: '#5b8fff', warn: '#ffb340',
 };
 
 export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
@@ -346,7 +346,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
             background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
             padding: 16, marginBottom: 16,
           }}>
-            <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.8, color: C.t3, marginBottom: 12 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: C.t3, marginBottom: 12 }}>
               Produktion & åtgärder – {maskinNamn}
             </div>
             <div style={{ height: 200, position: 'relative' }}>
@@ -388,7 +388,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
               background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`,
               padding: 16, marginBottom: 16,
             }}>
-              <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.8, color: C.t3, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: C.t3, marginBottom: 12 }}>
                 Ny åtgärd
               </div>
               <input
@@ -444,7 +444,7 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
           )}
 
           {/* Log list */}
-          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: 0.8, color: C.t3, marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: C.t3, marginBottom: 10 }}>
             Loggade åtgärder ({logg.length})
           </div>
           {logg.length === 0 ? (
