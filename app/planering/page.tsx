@@ -5202,13 +5202,13 @@ export default function PlannerPage() {
   }, [korvyNextItems, korvyActive]);
 
   // === GPS-PRICK på kartan (Apple Maps-stil pulsande blå punkt) ===
-  // Skapar en MapLibre HTML-Marker första gången currentPosition finns; därefter bara updates lngLat.
+  // Använder MapLibre HTML-Marker (DOM ovanpå kanvas, inte WebGL-layer).
+  // Inline styles + Web Animations API för max robusthet.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
     if (!pos || pos.lat == null || pos.lon == null) {
-      // Ingen position → ta bort befintlig marker om någon
       if (gpsDotMarkerRef.current) {
         try { gpsDotMarkerRef.current.remove(); } catch {}
         gpsDotMarkerRef.current = null;
@@ -5216,7 +5216,10 @@ export default function PlannerPage() {
       return;
     }
     if (gpsDotMarkerRef.current) {
-      try { gpsDotMarkerRef.current.setLngLat([pos.lon, pos.lat]); } catch {}
+      try {
+        gpsDotMarkerRef.current.setLngLat([pos.lon, pos.lat]);
+        console.log('[GPS-prick] setLngLat', [pos.lon.toFixed(6), pos.lat.toFixed(6)]);
+      } catch (e) { console.error('[GPS-prick] setLngLat failed:', e); }
       return;
     }
     // Skapa marker (engångsskapning, sen bara setLngLat)
@@ -5224,21 +5227,67 @@ export default function PlannerPage() {
     import('maplibre-gl').then((maplibregl) => {
       if (cancelled) return;
       const MarkerClass = maplibregl.Marker;
-      if (!MarkerClass) return;
+      if (!MarkerClass) { console.error('[GPS-prick] MarkerClass unavailable'); return; }
+
+      // Container — relativ för att absoluta children ska centreras
       const wrap = document.createElement('div');
-      wrap.className = 'gps-dot-wrap';
       wrap.setAttribute('aria-label', 'Din GPS-position');
+      Object.assign(wrap.style, {
+        position: 'relative',
+        width: '22px',
+        height: '22px',
+        zIndex: '500',
+        pointerEvents: 'none',
+      });
+
+      // Pulsande halo (skalas med Web Animations API)
       const pulse = document.createElement('div');
-      pulse.className = 'gps-dot-pulse';
+      Object.assign(pulse.style, {
+        position: 'absolute',
+        left: '0',
+        top: '0',
+        width: '22px',
+        height: '22px',
+        borderRadius: '50%',
+        background: 'rgba(10,132,255,0.45)',
+        transformOrigin: 'center center',
+      });
+      try {
+        pulse.animate(
+          [
+            { transform: 'scale(1)', opacity: 0.9 },
+            { transform: 'scale(3.5)', opacity: 0 },
+          ],
+          { duration: 2000, iterations: Infinity, easing: 'ease-out' }
+        );
+      } catch (e) { console.warn('[GPS-prick] pulse animation failed:', e); }
+
+      // Vit ring runt blå core
       const core = document.createElement('div');
-      core.className = 'gps-dot-core';
+      Object.assign(core.style, {
+        position: 'absolute',
+        left: '0',
+        top: '0',
+        width: '22px',
+        height: '22px',
+        borderRadius: '50%',
+        background: '#0a84ff',
+        border: '3px solid #ffffff',
+        boxSizing: 'border-box',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
+      });
+
       wrap.appendChild(pulse);
       wrap.appendChild(core);
+
       try {
-        const m = new MarkerClass({ element: wrap, anchor: 'center', pitchAlignment: 'map', rotationAlignment: 'map' as any })
+        // OBS: ingen pitchAlignment/rotationAlignment → default "viewport" så pricken
+        // alltid är vänd mot kameran (Apple Maps-stil), även i 3D Körvy-pitch.
+        const m = new MarkerClass({ element: wrap, anchor: 'center' })
           .setLngLat([pos.lon, pos.lat])
           .addTo(map);
         gpsDotMarkerRef.current = m;
+        console.log('[GPS-prick] marker skapad vid', [pos.lon.toFixed(6), pos.lat.toFixed(6)]);
       } catch (e) {
         console.error('[GPS-prick] marker creation failed:', e);
       }
@@ -8042,7 +8091,7 @@ export default function PlannerPage() {
       WebkitTouchCallout: 'none',
       WebkitTapHighlightColor: 'transparent',
     }}>
-      {/* === APPLE PRESS-FEEDBACK + GPS-PRICK CSS === */}
+      {/* === APPLE PRESS-FEEDBACK === */}
       <style>{`
         .press-scale { transition: transform 0.12s cubic-bezier(0.32, 0.72, 0, 1); }
         .press-scale:active { transform: scale(0.94); }
@@ -8051,27 +8100,6 @@ export default function PlannerPage() {
         .press-dim:active { filter: brightness(0.88); }
         .btn-press { transition: transform 0.1s ease; }
         .btn-press:active { transform: scale(0.96); }
-        /* Apple Maps-stil pulsande blå GPS-prick */
-        .gps-dot-wrap { position: relative; width: 18px; height: 18px; }
-        .gps-dot-core {
-          position: absolute; inset: 0;
-          width: 18px; height: 18px;
-          border-radius: 50%;
-          background: #0a84ff;
-          border: 3px solid #fff;
-          box-shadow: 0 0 4px rgba(0,0,0,0.4);
-        }
-        .gps-dot-pulse {
-          position: absolute; inset: 0;
-          width: 18px; height: 18px;
-          border-radius: 50%;
-          background: rgba(10,132,255,0.4);
-          animation: gpsDotPulse 2s ease-out infinite;
-        }
-        @keyframes gpsDotPulse {
-          0%   { transform: scale(1);   opacity: 0.9; }
-          100% { transform: scale(3.5); opacity: 0; }
-        }
       `}</style>
 
       {/* === MINIMAL HEADER === */}
