@@ -5458,7 +5458,7 @@ export default function PlannerPage() {
             'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 17, 0.8, 19, 1.0],
             'icon-rotate': ['get', 'heading'],
             'icon-rotation-alignment': 'map',
-            'icon-pitch-alignment': 'map',
+            'icon-pitch-alignment': 'viewport',
             'icon-allow-overlap': true,
             'icon-ignore-placement': true,
             'visibility': 'none',
@@ -5481,7 +5481,7 @@ export default function PlannerPage() {
     }
   }, [korvyActive, mapLibreReady]);
 
-  // === KÖRVY: terrain exaggeration toggle (1.0 normalt → 1.8 i Körvy) ===
+  // === KÖRVY: terrain exaggeration (1.0 → 1.8) + maxPitch (60° → 85°) toggle ===
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -5490,6 +5490,12 @@ export default function PlannerPage() {
         map.setTerrain({ source: 'terrain-dem', exaggeration: korvyActive ? 1.8 : 1.0 } as any);
       }
     } catch (e) { console.error('[Körvy] setTerrain:', e); }
+    // Höj maxPitch i Körvy så 78° easeTo verkligen får 78° (annars kläms till 60)
+    try {
+      if (typeof (map as any).setMaxPitch === 'function') {
+        (map as any).setMaxPitch(korvyActive ? 85 : 60);
+      }
+    } catch (e) { console.error('[Körvy] setMaxPitch:', e); }
   }, [korvyActive, mapLibreReady]);
 
   // === KÖRVY: uppdatera eternitytree-source-data (cirkel-polygoner) när markers/korvy ändras ===
