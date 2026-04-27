@@ -131,14 +131,16 @@ export default function CesiumScene({ objektId }: Props) {
         })
         viewerRef.current = viewer
 
-        // Esri World Imagery — gratis, ingen token. Lägg till efter Viewer-init.
+        // Esri World Imagery via ArcGisMapServerImageryProvider — gratis, ingen token.
+        // Cesium 1.114+ kräver async fromUrl-mönster (gamla constructor-vägen ger "Map data not yet available")
         try {
           viewer.imageryLayers.removeAll()
-          viewer.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
-            url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            credit: 'Esri World Imagery',
-            maximumLevel: 19,
-          }))
+          const arcgisImagery = await Cesium.ArcGisMapServerImageryProvider.fromUrl(
+            'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
+          )
+          if (cancelled) return
+          viewer.imageryLayers.addImageryProvider(arcgisImagery)
+          console.log('[Körvy3D] Esri World Imagery loaded')
         } catch (e) { console.warn('[Körvy3D] imagery setup:', e) }
 
         // Sky/Atmosphere för Tesla-känsla
@@ -179,9 +181,9 @@ export default function CesiumScene({ objektId }: Props) {
     const viewer = viewerRef.current
     if (objekt.lat == null || objekt.lng == null) return
     viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, 800),
-      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-45), roll: 0 },
-      duration: 2.0,
+      destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, 200),
+      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-30), roll: 0 },
+      duration: 1.5,
     })
   }, [ready, objekt])
 
@@ -189,9 +191,13 @@ export default function CesiumScene({ objektId }: Props) {
   useEffect(() => {
     if (!ready || !viewerRef.current || markers.length === 0 || !objekt) return
     const viewer = viewerRef.current
-    // SVG-koord (x, y) → lat/lng baserat på objektets center (samma som i planeringen)
+    // SVG-koord (x, y) → lat/lng — EXAKT samma formel som planering/page.tsx svgToLatLon.
+    // Markeringar är skärm-relativa till mapCenter+mapZoom. Vi antar planeringens initial-state:
+    // mapCenter = objektets lat/lng, mapZoom = 15 (samma som setMapZoom(15) vid objektval).
+    // OBS: om föraren panorerade/zoomade kraftigt INNAN markeringen ritades så stämmer detta inte.
     const mapCenter = { lat: objekt.lat, lng: objekt.lng }
-    const scale = 0.5 // grov heuristic — riktig värde sätts av MapLibre-zoom som vi inte har här
+    const mapZoom = 15
+    const scale = 156543.03392 * Math.cos(mapCenter.lat * Math.PI / 180) / Math.pow(2, mapZoom)
     const svgToLatLon = (x: number, y: number) => {
       const mPerDegLat = 111320
       const mPerDegLon = 111320 * Math.cos(mapCenter.lat * Math.PI / 180)
