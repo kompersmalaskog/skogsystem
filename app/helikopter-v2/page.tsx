@@ -58,7 +58,6 @@ const ff = 'system-ui, sans-serif'
 
 const card: React.CSSProperties = {
   background: '#1c1c1e',
-  border: '1px solid rgba(255,255,255,0.07)',
   borderRadius: 12,
   padding: '1.25rem',
   position: 'relative',
@@ -106,13 +105,13 @@ function dagarSedan(datum: string | null): number {
 
 function statusColor(dagar: number): string {
   if (dagar > 3) return '#ff453a'
-  if (dagar >= 1) return '#f59e0b'
+  if (dagar >= 1) return '#FF9F0A'
   return '#30d158'
 }
 
 function procentColor(p: number): string {
   if (p >= 90) return '#30d158'
-  if (p >= 60) return '#f59e0b'
+  if (p >= 60) return '#FF9F0A'
   return '#ff453a'
 }
 
@@ -153,6 +152,45 @@ function KpiCard({ label, value, unit }: { label: string; value: string; unit: s
   )
 }
 
+function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+        background: 'rgba(0,0,0,0.5)', zIndex: 1000,
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#1c1c1e', color: text, fontFamily: ff,
+          width: '100%', maxHeight: '85vh',
+          borderTopLeftRadius: 12, borderTopRightRadius: 12,
+          display: 'flex', flexDirection: 'column',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+        }}
+      >
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '16px 20px', borderBottom: `1px solid ${divider}`,
+        }}>
+          <span style={{ fontSize: 17, fontWeight: 600 }}>{title}</span>
+          <button
+            onClick={onClose}
+            style={{
+              minHeight: 44, padding: '0 4px', fontSize: 17, color: '#0a84ff',
+              background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: ff,
+            }}
+          >Klar</button>
+        </div>
+        <div style={{ overflowY: 'auto', padding: '8px 20px 20px' }}>{children}</div>
+      </div>
+    </div>
+  )
+}
+
 // ============================================================
 // Main page
 // ============================================================
@@ -168,6 +206,8 @@ export default function HelikopterV2Page() {
   const [bolagFilter, setBolagFilter] = useState<TypFilter>('alla')
   const [oskotatFilter, setOskotatFilter] = useState<TypFilter>('alla')
   const [oskotatExpanded, setOskotatExpanded] = useState(false)
+  const [selectedBolag, setSelectedBolag] = useState<string | null>(null)
+  const [selectedObjekt, setSelectedObjekt] = useState<ObjektRow | null>(null)
 
   // Fetch data
   useEffect(() => {
@@ -229,15 +269,12 @@ export default function HelikopterV2Page() {
     return { skordat, skotat, oskotat, takt }
   }, [manadData, ar, manad, manadAvslutad, kpiFilter])
 
-  // Beställning defaults
-  const slutBest = useMemo(() => {
-    const v = bestallningar.filter(b => b.typ === 'slutavverkning').reduce((s, b) => s + (b.volym || 0), 0)
-    return v || 2000
-  }, [bestallningar])
-  const gallBest = useMemo(() => {
-    const v = bestallningar.filter(b => b.typ === 'gallring').reduce((s, b) => s + (b.volym || 0), 0)
-    return v || 500
-  }, [bestallningar])
+  const slutBest = useMemo(() =>
+    bestallningar.filter(b => b.typ === 'slutavverkning').reduce((s, b) => s + (b.volym || 0), 0),
+  [bestallningar])
+  const gallBest = useMemo(() =>
+    bestallningar.filter(b => b.typ === 'gallring').reduce((s, b) => s + (b.volym || 0), 0),
+  [bestallningar])
 
   // ============================================================
   // Section 2: Bolag — levererat vs lovat
@@ -297,9 +334,9 @@ export default function HelikopterV2Page() {
     const now = new Date()
     const isCurrentMonth = ar === now.getFullYear() && manad === now.getMonth() + 1
 
-    // Find last data index for glow points
     let lastSkordareIdx = -1
     let lastSkotareIdx = -1
+    let passedWorkdays = 0
 
     for (let i = 0; i < days.length; i++) {
       const day = days[i]
@@ -320,64 +357,142 @@ export default function HelikopterV2Page() {
       skotareAcc.push(Math.round(cumSkotare))
       lastSkordareIdx = i
       lastSkotareIdx = i
+      if (!day.isWeekend) passedWorkdays++
     }
 
-    // Point radius arrays — glow on last data point only
     const skordarePointRadius = skordareAcc.map((_, i) => i === lastSkordareIdx ? 5 : 0)
     const skotarePointRadius = skotareAcc.map((_, i) => i === lastSkotareIdx ? 5 : 0)
     const skordarePointBg = skordareAcc.map((_, i) => i === lastSkordareIdx ? '#FF9F0A' : 'transparent')
     const skotarePointBg = skotareAcc.map((_, i) => i === lastSkotareIdx ? '#30D158' : 'transparent')
 
-    return {
-      labels,
-      datasets: [
-        {
-          label: 'Skördare (ack.)',
-          data: skordareAcc,
-          borderColor: '#FF9F0A',
-          backgroundColor: (ctx: any) => {
-            const chart = ctx.chart
-            const { ctx: c, chartArea } = chart
-            if (!chartArea) return 'rgba(255,159,10,0.15)'
-            const gradient = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
-            gradient.addColorStop(0, 'rgba(255,159,10,0.25)')
-            gradient.addColorStop(1, 'rgba(255,159,10,0.02)')
-            return gradient
-          },
-          fill: true,
-          tension: 0.4,
-          pointRadius: skordarePointRadius,
-          pointBackgroundColor: skordarePointBg,
-          pointBorderColor: skordarePointBg,
-          pointHoverRadius: 7,
-          borderWidth: 2.5,
-          spanGaps: false,
-        },
-        {
-          label: 'Skotare (ack.)',
-          data: skotareAcc,
-          borderColor: '#30D158',
-          backgroundColor: (ctx: any) => {
-            const chart = ctx.chart
-            const { ctx: c, chartArea } = chart
-            if (!chartArea) return 'rgba(48,209,88,0.15)'
-            const gradient = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
-            gradient.addColorStop(0, 'rgba(48,209,88,0.25)')
-            gradient.addColorStop(1, 'rgba(48,209,88,0.02)')
-            return gradient
-          },
-          fill: true,
-          tension: 0.4,
-          pointRadius: skotarePointRadius,
-          pointBackgroundColor: skotarePointBg,
-          pointBorderColor: skotarePointBg,
-          pointHoverRadius: 7,
-          borderWidth: 2.5,
-          spanGaps: false,
-        },
-      ],
+    // Beställningslinje (mål)
+    const targetVolym =
+      trendFilter === 'slutavverkning' ? slutBest :
+      trendFilter === 'gallring' ? gallBest :
+      slutBest + gallBest
+    const malLine: (number | null)[] = targetVolym > 0
+      ? days.map(() => targetVolym)
+      : []
+
+    // Prognoslinje (extrapolerad takt)
+    const prognosSkordare: (number | null)[] = []
+    const prognosSkotare: (number | null)[] = []
+    if (isCurrentMonth && lastSkordareIdx >= 0 && lastSkordareIdx < days.length - 1 && passedWorkdays > 0) {
+      const skordareRate = cumSkordare / passedWorkdays
+      const skotareRate = cumSkotare / passedWorkdays
+      let pSkord = cumSkordare
+      let pSkot = cumSkotare
+      for (let i = 0; i < days.length; i++) {
+        if (i < lastSkordareIdx) {
+          prognosSkordare.push(null)
+          prognosSkotare.push(null)
+        } else if (i === lastSkordareIdx) {
+          prognosSkordare.push(Math.round(cumSkordare))
+          prognosSkotare.push(Math.round(cumSkotare))
+        } else {
+          if (!days[i].isWeekend) {
+            pSkord += skordareRate
+            pSkot += skotareRate
+          }
+          prognosSkordare.push(Math.round(pSkord))
+          prognosSkotare.push(Math.round(pSkot))
+        }
+      }
     }
-  }, [manadData, ar, manad, trendFilter])
+
+    const datasets: any[] = [
+      {
+        label: 'Skördare (ack.)',
+        data: skordareAcc,
+        borderColor: '#FF9F0A',
+        backgroundColor: (ctx: any) => {
+          const chart = ctx.chart
+          const { ctx: c, chartArea } = chart
+          if (!chartArea) return 'rgba(255,159,10,0.15)'
+          const gradient = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
+          gradient.addColorStop(0, 'rgba(255,159,10,0.25)')
+          gradient.addColorStop(1, 'rgba(255,159,10,0.02)')
+          return gradient
+        },
+        fill: true,
+        tension: 0.4,
+        pointRadius: skordarePointRadius,
+        pointBackgroundColor: skordarePointBg,
+        pointBorderColor: skordarePointBg,
+        pointHoverRadius: 7,
+        borderWidth: 2.5,
+        spanGaps: false,
+      },
+      {
+        label: 'Skotare (ack.)',
+        data: skotareAcc,
+        borderColor: '#30D158',
+        backgroundColor: (ctx: any) => {
+          const chart = ctx.chart
+          const { ctx: c, chartArea } = chart
+          if (!chartArea) return 'rgba(48,209,88,0.15)'
+          const gradient = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
+          gradient.addColorStop(0, 'rgba(48,209,88,0.25)')
+          gradient.addColorStop(1, 'rgba(48,209,88,0.02)')
+          return gradient
+        },
+        fill: true,
+        tension: 0.4,
+        pointRadius: skotarePointRadius,
+        pointBackgroundColor: skotarePointBg,
+        pointBorderColor: skotarePointBg,
+        pointHoverRadius: 7,
+        borderWidth: 2.5,
+        spanGaps: false,
+      },
+    ]
+
+    if (prognosSkordare.length > 0) {
+      datasets.push({
+        label: 'Prognos skördare',
+        data: prognosSkordare,
+        borderColor: 'rgba(255,159,10,0.5)',
+        backgroundColor: 'transparent',
+        borderDash: [4, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        fill: false,
+        tension: 0.4,
+        spanGaps: false,
+      })
+      datasets.push({
+        label: 'Prognos skotare',
+        data: prognosSkotare,
+        borderColor: 'rgba(48,209,88,0.5)',
+        backgroundColor: 'transparent',
+        borderDash: [4, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        fill: false,
+        tension: 0.4,
+        spanGaps: false,
+      })
+    }
+
+    if (malLine.length > 0) {
+      datasets.push({
+        label: 'Beställning',
+        data: malLine,
+        borderColor: 'rgba(255,255,255,0.4)',
+        backgroundColor: 'transparent',
+        borderDash: [6, 4],
+        borderWidth: 1,
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        fill: false,
+        tension: 0,
+      })
+    }
+
+    return { labels, datasets }
+  }, [manadData, ar, manad, trendFilter, slutBest, gallBest])
 
   // Today line plugin
   const todayLinePlugin = useMemo(() => ({
@@ -456,15 +571,17 @@ export default function HelikopterV2Page() {
     const gallSkordat = gallData.reduce((s, o) => s + (o.skordat_m3 || 0), 0)
     const gallSkotat = gallData.reduce((s, o) => s + (o.skotat_m3 || 0), 0)
 
-    return {
-      kvar,
-      rows: [
-        { label: 'Skördare slutavverkning', kvar: Math.max(0, slutBest - slutSkordat), perDag: kvar > 0 ? Math.max(0, slutBest - slutSkordat) / kvar : 0 },
-        { label: 'Skördare gallring', kvar: Math.max(0, gallBest - gallSkordat), perDag: kvar > 0 ? Math.max(0, gallBest - gallSkordat) / kvar : 0 },
-        { label: 'Skotare slutavverkning', kvar: Math.max(0, slutBest - slutSkotat), perDag: kvar > 0 ? Math.max(0, slutBest - slutSkotat) / kvar : 0 },
-        { label: 'Skotare gallring', kvar: Math.max(0, gallBest - gallSkotat), perDag: kvar > 0 ? Math.max(0, gallBest - gallSkotat) / kvar : 0 },
-      ],
+    const rows: { label: string; kvar: number; perDag: number }[] = []
+    if (slutBest > 0) {
+      rows.push({ label: 'Skördare slutavverkning', kvar: Math.max(0, slutBest - slutSkordat), perDag: Math.max(0, slutBest - slutSkordat) / kvar })
+      rows.push({ label: 'Skotare slutavverkning', kvar: Math.max(0, slutBest - slutSkotat), perDag: Math.max(0, slutBest - slutSkotat) / kvar })
     }
+    if (gallBest > 0) {
+      rows.push({ label: 'Skördare gallring', kvar: Math.max(0, gallBest - gallSkordat), perDag: Math.max(0, gallBest - gallSkordat) / kvar })
+      rows.push({ label: 'Skotare gallring', kvar: Math.max(0, gallBest - gallSkotat), perDag: Math.max(0, gallBest - gallSkotat) / kvar })
+    }
+
+    return { kvar, rows }
   }, [manadData, ar, manad, slutBest, gallBest])
 
   // ============================================================
@@ -511,7 +628,7 @@ export default function HelikopterV2Page() {
             fontSize: 20, cursor: 'pointer', fontFamily: ff,
           }}>&#8249;</button>
           <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.5px' }}>{MANAD[manad]} {ar}</div>
+            <div style={{ fontSize: 28, fontWeight: 700 }}>{MANAD[manad]} {ar}</div>
             <div style={{ fontSize: 13, color: muted, marginTop: 2 }}>
               {manadAvslutad ? 'Avslutad' : `${kvarDagar} arbetsdagar kvar`}
             </div>
@@ -563,7 +680,15 @@ export default function HelikopterV2Page() {
             )}
 
             {bolagRows.map((row, i) => (
-              <div key={row.namn} style={{ paddingBottom: 12, marginBottom: 12, borderBottom: `1px solid ${divider}` }}>
+              <div
+                key={row.namn}
+                onClick={() => setSelectedBolag(row.namn)}
+                style={{
+                  paddingBottom: 12, marginBottom: 12,
+                  borderBottom: `1px solid ${divider}`,
+                  cursor: 'pointer',
+                }}
+              >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
                   <span style={{ fontSize: 17, fontWeight: 500 }}>{row.namn}</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -572,7 +697,7 @@ export default function HelikopterV2Page() {
                         <span style={{ fontSize: 13, color: muted }}>
                           {Math.round(row.skotat).toLocaleString()} / {Math.round(row.best).toLocaleString()}
                         </span>
-                        <span style={{ fontSize: 18, fontWeight: 700, color: procentColor(row.procent), fontVariantNumeric: 'tabular-nums' }}>
+                        <span style={{ fontSize: 17, fontWeight: 700, color: procentColor(row.procent), fontVariantNumeric: 'tabular-nums' }}>
                           {row.procent}%
                         </span>
                       </>
@@ -620,7 +745,7 @@ export default function HelikopterV2Page() {
           <div style={{ ...card, marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <span style={{ fontSize: 17, fontWeight: 600 }}>Oskotat virke</span>
-              <span style={{ fontSize: 18, fontWeight: 700, color: muted, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ fontSize: 17, fontWeight: 700, color: muted, fontVariantNumeric: 'tabular-nums' }}>
                 {Math.round(totalOskotat).toLocaleString()} m³fub
               </span>
             </div>
@@ -635,10 +760,15 @@ export default function HelikopterV2Page() {
             )}
 
             {(oskotatExpanded ? oskotatLista : oskotatLista.slice(0, 3)).map((o) => (
-              <div key={o.objekt_id} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '12px 0', borderBottom: `1px solid ${divider}`,
-              }}>
+              <div
+                key={o.objekt_id}
+                onClick={() => setSelectedObjekt(o)}
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '12px 0', borderBottom: `1px solid ${divider}`,
+                  cursor: 'pointer',
+                }}
+              >
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 17, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {o.object_name || o.objekt_id}
@@ -648,7 +778,7 @@ export default function HelikopterV2Page() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, marginLeft: 8 }}>
-                  <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{Math.round(o.oskotat_m3)} m³fub</span>
+                  <span style={{ fontSize: 17, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{Math.round(o.oskotat_m3)} m³fub</span>
                   <span style={{
                     fontSize: 13, fontWeight: 600, padding: '2px 8px', borderRadius: 8,
                     background: `${statusColor(o.dagarLive)}20`,
@@ -676,7 +806,13 @@ export default function HelikopterV2Page() {
           {/* ============================================================ */}
           {/* Section 5: Dagsmål resterande månad */}
           {/* ============================================================ */}
-          {dagsmal && dagsmal.kvar > 0 && (
+          {dagsmal && dagsmal.kvar > 0 && dagsmal.rows.length === 0 && (
+            <div style={{ ...card, marginBottom: 20, textAlign: 'center', color: muted, fontSize: 13 }}>
+              Beställning ej satt
+            </div>
+          )}
+
+          {dagsmal && dagsmal.kvar > 0 && dagsmal.rows.length > 0 && (
             <div style={{ ...card, marginBottom: 20 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 12 }}>
                 <span style={{ fontSize: 17, fontWeight: 600 }}>Dagsmål resterande</span>
@@ -694,7 +830,7 @@ export default function HelikopterV2Page() {
                     <span style={{ fontSize: 13, color: muted }}>
                       {Math.round(row.kvar).toLocaleString()} m³fub
                     </span>
-                    <span style={{ fontSize: 18, fontWeight: 700, color: text, fontVariantNumeric: 'tabular-nums' }}>
+                    <span style={{ fontSize: 17, fontWeight: 700, color: text, fontVariantNumeric: 'tabular-nums' }}>
                       {Math.round(row.perDag)} m³fub/d
                     </span>
                   </div>
@@ -715,6 +851,74 @@ export default function HelikopterV2Page() {
             </div>
           )}
         </div>
+      )}
+
+      {selectedBolag && (
+        <Sheet title={selectedBolag} onClose={() => setSelectedBolag(null)}>
+          {(() => {
+            const objekt = manadData.filter(o => normalizeBolag(o.bolag) === selectedBolag)
+            if (objekt.length === 0) {
+              return <div style={{ padding: '16px 0', textAlign: 'center', color: muted, fontSize: 13 }}>Inga objekt</div>
+            }
+            return objekt.map(o => (
+              <div
+                key={o.objekt_id}
+                onClick={() => { setSelectedBolag(null); setSelectedObjekt(o) }}
+                style={{
+                  padding: '12px 0', borderBottom: `1px solid ${divider}`, cursor: 'pointer',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                  <span style={{ fontSize: 17, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1, minWidth: 0, marginRight: 8 }}>
+                    {o.object_name || o.objekt_id}
+                  </span>
+                  <span style={{ fontSize: 13, color: muted }}>{o.huvudtyp || '—'}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 16, fontSize: 13, color: muted }}>
+                  <span>Skördat {Math.round(o.skordat_m3 || 0).toLocaleString()}</span>
+                  <span>Skotat {Math.round(o.skotat_m3 || 0).toLocaleString()}</span>
+                  {(o.oskotat_m3 || 0) > 0 && (
+                    <span style={{ color: '#FF9F0A' }}>Oskotat {Math.round(o.oskotat_m3).toLocaleString()}</span>
+                  )}
+                </div>
+              </div>
+            ))
+          })()}
+        </Sheet>
+      )}
+
+      {selectedObjekt && (
+        <Sheet title={selectedObjekt.object_name || selectedObjekt.objekt_id} onClose={() => setSelectedObjekt(null)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {[
+              { label: 'VO-nummer', value: selectedObjekt.vo_nummer || '—' },
+              { label: 'Bolag', value: normalizeBolag(selectedObjekt.bolag) },
+              { label: 'Huvudtyp', value: selectedObjekt.huvudtyp || '—' },
+              { label: 'Skogsägare', value: selectedObjekt.skogsagare || '—' },
+              { label: 'Inköpare', value: selectedObjekt.inkopare || '—' },
+              { label: 'Skördat', value: `${Math.round(selectedObjekt.skordat_m3 || 0).toLocaleString()} m³fub` },
+              { label: 'Skotat', value: `${Math.round(selectedObjekt.skotat_m3 || 0).toLocaleString()} m³fub` },
+              { label: 'Oskotat', value: `${Math.round(selectedObjekt.oskotat_m3 || 0).toLocaleString()} m³fub` },
+              { label: 'Skördare klar', value: selectedObjekt.skordare_klar || '—' },
+              { label: 'Skotare start', value: selectedObjekt.skotare_start || 'Ej startad' },
+              ...(selectedObjekt.skordare_klar && !selectedObjekt.skotare_start
+                ? [{ label: 'Dagar väntar', value: `${dagarSedan(selectedObjekt.skordare_klar)} d` }]
+                : []),
+            ].map((row, i, arr) => (
+              <div
+                key={row.label}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                  padding: '12px 0',
+                  borderBottom: i < arr.length - 1 ? `1px solid ${divider}` : 'none',
+                }}
+              >
+                <span style={{ fontSize: 13, color: muted }}>{row.label}</span>
+                <span style={{ fontSize: 17, color: text, fontVariantNumeric: 'tabular-nums' }}>{row.value}</span>
+              </div>
+            ))}
+          </div>
+        </Sheet>
       )}
     </div>
   )
