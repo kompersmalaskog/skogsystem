@@ -5059,6 +5059,30 @@ export default function PlannerPage() {
     );
     return [(lon2 * 180) / Math.PI, (lat2 * 180) / Math.PI];
   };
+  // Helper: cirkel-polygon (för fill-extrusion-pelare av enstaka punkter)
+  const circlePolygon = (lat: number, lon: number, radiusM: number, segments = 16): [number, number][][] => {
+    const earthR = 6371000;
+    const coords: [number, number][] = [];
+    for (let i = 0; i <= segments; i++) {
+      const angle = (i / segments) * 2 * Math.PI;
+      const dLat = (radiusM * Math.cos(angle)) / earthR * (180 / Math.PI);
+      const dLon = (radiusM * Math.sin(angle)) / (earthR * Math.cos(lat * Math.PI / 180)) * (180 / Math.PI);
+      coords.push([lon + dLon, lat + dLat]);
+    }
+    return [coords];
+  };
+  // Helper: kon/sektor-polygon (siktfält framåt från position)
+  const conePolygon = (lat: number, lon: number, headingDeg: number, lengthM: number, halfAngleDeg: number, segments = 8): [number, number][][] => {
+    const coords: [number, number][] = [[lon, lat]];
+    for (let i = 0; i <= segments; i++) {
+      const a = -halfAngleDeg + (2 * halfAngleDeg * i / segments);
+      const bearing = (headingDeg + a + 360) % 360;
+      const [eLon, eLat] = offsetLatLngByBearing(lat, lon, lengthM, bearing);
+      coords.push([eLon, eLat]);
+    }
+    coords.push([lon, lat]);
+    return [coords];
+  };
 
   // Effective heading för Körvy: GPS-heading prioriteras (faktisk rörelse), annars enhetens kompass
   const korvyHeading: number = gpsHeading != null ? gpsHeading : (deviceHeading || 0);
@@ -5296,6 +5320,241 @@ export default function PlannerPage() {
       console.error('[GPS-prick] source/layers update failed:', e);
     }
   }, [currentPosition, mapLibreReady]);
+
+  // === KÖRVY 3D-IMMERSION: setup engångsadditioner av sources/layers ===
+  // Skapas vid mapLibreReady. Default visibility: 'none'. Toggleras av separat effekt.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+
+    // 1) Basväg-glow (yellow halo runt mainRoad inom 200m)
+    if (!map.getLayer('lines-korvy-mainroad-glow')) {
+      try {
+        map.addLayer({
+          id: 'lines-korvy-mainroad-glow',
+          type: 'line',
+          source: 'lines-source',
+          filter: ['all', ['==', ['get', 'lineType'], 'mainRoad'], ['==', ['get', 'nearby'], true]],
+          paint: {
+            'line-color': '#ffd60a',
+            'line-opacity': 0.4,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 14, 14, 17, 28, 19, 42],
+            'line-blur': 4,
+          },
+          layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Körvy] mainroad-glow:', e); }
+    }
+
+    // 2) Zon-extrusioner (wet/steep/culture)
+    const zoneExtrudes = [
+      { id: 'zones-korvy-wet-extrusion',     filterValue: 'wet',     color: '#0a84ff', height: 3 },
+      { id: 'zones-korvy-steep-extrusion',   filterValue: 'steep',   color: '#ff453a', height: 3 },
+      { id: 'zones-korvy-culture-extrusion', filterValue: 'culture', color: '#ff9f0a', height: 1 },
+    ];
+    for (const z of zoneExtrudes) {
+      if (!map.getLayer(z.id)) {
+        try {
+          map.addLayer({
+            id: z.id,
+            type: 'fill-extrusion',
+            source: 'zones-source',
+            filter: ['==', ['get', 'zoneType'], z.filterValue],
+            paint: {
+              'fill-extrusion-color': z.color,
+              'fill-extrusion-opacity': 0.5,
+              'fill-extrusion-height': z.height,
+              'fill-extrusion-base': 0,
+            },
+            layout: { 'visibility': 'none' },
+          });
+        } catch (e) { console.error('[Körvy] zone-extrusion', z.id, e); }
+      }
+    }
+
+    // 3) Evighetsträd-pelare (lyser uppåt, 12m)
+    if (!map.getSource('eternitytree-source')) {
+      try {
+        map.addSource('eternitytree-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      } catch (e) { console.error('[Körvy] eternitytree-source:', e); }
+    }
+    if (!map.getLayer('eternitytree-extrusion')) {
+      try {
+        map.addLayer({
+          id: 'eternitytree-extrusion',
+          type: 'fill-extrusion',
+          source: 'eternitytree-source',
+          paint: {
+            'fill-extrusion-color': '#30d158',
+            'fill-extrusion-opacity': 0.85,
+            'fill-extrusion-height': 12,
+            'fill-extrusion-base': 0,
+          },
+          layout: { 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Körvy] eternitytree-extrusion:', e); }
+    }
+
+    // 4) Siktfält-kon (framåt 30°, 150m)
+    if (!map.getSource('gps-cone-source')) {
+      try {
+        map.addSource('gps-cone-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      } catch (e) { console.error('[Körvy] gps-cone-source:', e); }
+    }
+    if (!map.getLayer('gps-cone-fill')) {
+      try {
+        map.addLayer({
+          id: 'gps-cone-fill',
+          type: 'fill',
+          source: 'gps-cone-source',
+          paint: {
+            'fill-color': '#0a84ff',
+            'fill-opacity': 0.18,
+          },
+          layout: { 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Körvy] gps-cone-fill:', e); }
+    }
+
+    // 5) Maskin-ikon: addImage (SVG → canvas → mapImage), sen symbol-layer
+    if (!map.hasImage('maskin-ikon')) {
+      const size = 48;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48">
+        <path d="M24 4 L36 18 L36 38 L30 44 L18 44 L12 38 L12 18 Z"
+              fill="#0a84ff" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/>
+        <circle cx="24" cy="20" r="4" fill="#ffffff"/>
+      </svg>`;
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const c = document.createElement('canvas');
+          c.width = size; c.height = size;
+          const ctx = c.getContext('2d');
+          if (!ctx) return;
+          ctx.drawImage(img, 0, 0, size, size);
+          const data = ctx.getImageData(0, 0, size, size);
+          if (!map.hasImage('maskin-ikon')) {
+            map.addImage('maskin-ikon', { width: size, height: size, data: new Uint8Array(data.data.buffer) });
+            console.log('[Körvy] maskin-ikon image added');
+          }
+        } catch (e) { console.error('[Körvy] maskin-ikon canvas:', e); }
+      };
+      img.onerror = (e) => console.error('[Körvy] maskin-ikon image load:', e);
+      img.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+    }
+    if (!map.getSource('maskin-source')) {
+      try {
+        map.addSource('maskin-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      } catch (e) { console.error('[Körvy] maskin-source:', e); }
+    }
+    if (!map.getLayer('maskin-symbol')) {
+      try {
+        map.addLayer({
+          id: 'maskin-symbol',
+          type: 'symbol',
+          source: 'maskin-source',
+          layout: {
+            'icon-image': 'maskin-ikon',
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 17, 0.8, 19, 1.0],
+            'icon-rotate': ['get', 'heading'],
+            'icon-rotation-alignment': 'map',
+            'icon-pitch-alignment': 'map',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
+            'visibility': 'none',
+          },
+          paint: { 'icon-opacity': 1 },
+        });
+      } catch (e) { console.error('[Körvy] maskin-symbol:', e); }
+    }
+    console.log('[Körvy] immersion-layers setup klar');
+  }, [mapLibreReady]);
+
+  // === KÖRVY: visibility-toggle för alla immersion-layers ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const vis = korvyActive ? 'visible' : 'none';
+    const layers = ['lines-korvy-mainroad-glow', 'zones-korvy-wet-extrusion', 'zones-korvy-steep-extrusion', 'zones-korvy-culture-extrusion', 'eternitytree-extrusion', 'gps-cone-fill', 'maskin-symbol'];
+    for (const id of layers) {
+      try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
+    }
+  }, [korvyActive, mapLibreReady]);
+
+  // === KÖRVY: terrain exaggeration toggle (1.0 normalt → 1.8 i Körvy) ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      if (map.getSource('terrain-dem')) {
+        map.setTerrain({ source: 'terrain-dem', exaggeration: korvyActive ? 1.8 : 1.0 } as any);
+      }
+    } catch (e) { console.error('[Körvy] setTerrain:', e); }
+  }, [korvyActive, mapLibreReady]);
+
+  // === KÖRVY: uppdatera eternitytree-source-data (cirkel-polygoner) när markers/korvy ändras ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !korvyActive) return;
+    try {
+      const src = map.getSource('eternitytree-source') as any;
+      if (!src) return;
+      const features = markers
+        .filter(m => m.isMarker && m.type === 'eternitytree')
+        .map(m => {
+          const ll = svgToLatLon(m.x, m.y);
+          return {
+            type: 'Feature' as const,
+            properties: { id: m.id },
+            geometry: { type: 'Polygon' as const, coordinates: circlePolygon(ll.lat, ll.lon, 1.2) },
+          };
+        });
+      src.setData({ type: 'FeatureCollection', features });
+    } catch (e) { console.error('[Körvy] eternitytree-source update:', e); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markers, korvyActive, mapLibreReady]);
+
+  // === KÖRVY: uppdatera gps-cone-source (siktfält) vid varje GPS/heading-tick ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !korvyActive) return;
+    const pos = currentPosition as any;
+    if (!pos || pos.lat == null || pos.lon == null) return;
+    try {
+      const src = map.getSource('gps-cone-source') as any;
+      if (!src) return;
+      src.setData({
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature' as const,
+          properties: {},
+          geometry: { type: 'Polygon' as const, coordinates: conePolygon(pos.lat, pos.lon, korvyHeading, 150, 15) },
+        }],
+      });
+    } catch (e) { console.error('[Körvy] gps-cone update:', e); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
+
+  // === KÖRVY: uppdatera maskin-source (Point + heading) vid varje tick ===
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !korvyActive) return;
+    const pos = currentPosition as any;
+    if (!pos || pos.lat == null || pos.lon == null) return;
+    try {
+      const src = map.getSource('maskin-source') as any;
+      if (!src) return;
+      src.setData({
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature' as const,
+          properties: { heading: korvyHeading },
+          geometry: { type: 'Point' as const, coordinates: [pos.lon, pos.lat] },
+        }],
+      });
+    } catch (e) { console.error('[Körvy] maskin-source update:', e); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
 
   // Pulse-animation för gps-halo (radie 22→50 + opacity 0.4→0, 2s loop)
   useEffect(() => {
