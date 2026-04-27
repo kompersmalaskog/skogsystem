@@ -937,46 +937,66 @@ export default function Arbetsrapport() {
     if (steg !== 'kalender' && steg !== 'redigera' && steg !== 'tidslinje' && steg !== 'morgon') return;
     const förstadag = new Date(kalÅr, kalMånad, 1).toISOString().slice(0, 10);
     const sistadag = new Date(kalÅr, kalMånad + 1, 0).toISOString().slice(0, 10);
-    supabase.from('arbetsdag')
-      .select('*')
-      .eq('medarbetare_id', medarbetare.id)
-      .gte('datum', förstadag)
-      .lte('datum', sistadag)
-      .then(res => {
-        if (res.data) {
-          const map: Record<string, any> = {};
-          for (const r of res.data) {
-            map[r.datum] = {
-              id: r.id,
-              status: r.bekraftad ? 'ok' : 'saknas',
-              arbMin: r.arbetad_min || 0,
-              km: r.km_totalt || 0,
-              km_morgon: r.km_morgon || 0,
-              km_kvall: r.km_kvall || 0,
-              km_totalt: r.km_totalt || 0,
-              trak: !!r.traktamente,
-              traktamente: !!r.traktamente,
-              dagtyp: r.dagtyp,
-              bekraftad: !!r.bekraftad,
-              bekraftad_tid: r.bekraftad_tid,
-              // Bevara null-värden — villkor på slut_tid styr avslutat-pass-logiken
-              start_tid: r.start_tid || null,
-              slut_tid: r.slut_tid || null,
-              // Använd ?? så att DB-värde 0 bevaras (|| tolkar 0 som falsy)
-              rast_min: r.rast_min ?? 0,
-              start: r.start_tid ? r.start_tid.slice(0,5) : '06:00',
-              slut: r.slut_tid ? r.slut_tid.slice(0,5) : '',
-              rast: r.rast_min ?? 0,
-              maskin_id: r.maskin_id,
-              maskin_namn: maskinNamnMap[r.maskin_id] || r.maskin_id || null,
-              objekt_id: r.objekt_id || null,
-              objekt_namn: objektLista.find(o => o.id === r.objekt_id)?.namn || r.objekt_id || null,
-              objekt_ägare: objektLista.find(o => o.id === r.objekt_id)?.ägare || null,
-            };
-          }
-          setDagData(map);
+    // Hämta arbetsdag + arbetsdag_objekt parallellt så vi kan visa flera
+    // objekt per dag i UI:t (Hössjömåla + Flytt etc.).
+    Promise.all([
+      supabase.from('arbetsdag')
+        .select('*')
+        .eq('medarbetare_id', medarbetare.id)
+        .gte('datum', förstadag)
+        .lte('datum', sistadag),
+      supabase.from('arbetsdag_objekt')
+        .select('id, arbetsdag_id, objekt_id, objekt_namn, start_tid, slut_tid, arbetad_min, ordning')
+        .order('ordning', { ascending: true }),
+    ]).then(([adRes, ojRes]) => {
+      if (adRes.data) {
+        const objektPerDag: Record<string, any[]> = {};
+        for (const o of (ojRes.data || [])) {
+          if (!objektPerDag[o.arbetsdag_id]) objektPerDag[o.arbetsdag_id] = [];
+          objektPerDag[o.arbetsdag_id].push(o);
         }
-      });
+        const map: Record<string, any> = {};
+        for (const r of adRes.data) {
+          map[r.datum] = {
+            id: r.id,
+            status: r.bekraftad ? 'ok' : 'saknas',
+            arbMin: r.arbetad_min || 0,
+            km: r.km_totalt || 0,
+            km_morgon: r.km_morgon || 0,
+            km_kvall: r.km_kvall || 0,
+            km_totalt: r.km_totalt || 0,
+            trak: !!r.traktamente,
+            traktamente: !!r.traktamente,
+            dagtyp: r.dagtyp,
+            bekraftad: !!r.bekraftad,
+            bekraftad_tid: r.bekraftad_tid,
+            start_tid: r.start_tid || null,
+            slut_tid: r.slut_tid || null,
+            rast_min: r.rast_min ?? 0,
+            start: r.start_tid ? r.start_tid.slice(0,5) : '06:00',
+            slut: r.slut_tid ? r.slut_tid.slice(0,5) : '',
+            rast: r.rast_min ?? 0,
+            maskin_id: r.maskin_id,
+            maskin_namn: maskinNamnMap[r.maskin_id] || r.maskin_id || null,
+            // Primärt objekt (bakåtkompat)
+            objekt_id: r.objekt_id || null,
+            objekt_namn: objektLista.find(o => o.id === r.objekt_id)?.namn || r.objekt_id || null,
+            objekt_ägare: objektLista.find(o => o.id === r.objekt_id)?.ägare || null,
+            // Hela listan av objekt för dagen (kan vara flera vid objekt-byte)
+            objekt_lista: (objektPerDag[r.id] || []).map(o => ({
+              id: o.id,
+              objekt_id: o.objekt_id,
+              objekt_namn: o.objekt_namn || objektLista.find(x => x.id === o.objekt_id)?.namn || o.objekt_id,
+              start_tid: o.start_tid,
+              slut_tid: o.slut_tid,
+              arbetad_min: o.arbetad_min,
+              ordning: o.ordning,
+            })),
+          };
+        }
+        setDagData(map);
+      }
+    });
     // Hämta extra_tid för månaden — gruppera per datum
     supabase.from('extra_tid')
       .select('*')
@@ -1671,7 +1691,28 @@ export default function Arbetsrapport() {
                 {harObjBlock&&(
                   <div style={{ paddingBottom:10,borderBottom:harKmBlock?"1px solid rgba(255,255,255,0.08)":"none",marginBottom:harKmBlock?10:0 }}>
                     {maskinNamnLång && sammanRad("Maskin", maskinNamnLång)}
-                    {dagObjNamn     && sammanRad("Objekt", dagObjNamn)}
+                    {(()=>{
+                      // Flera objekt per dag (Hössjömåla + Flytt etc.) — visa varje
+                      // som egen rad. Faller tillbaka på primärt objekt om listan saknas.
+                      const objLista = idagArb?.objekt_lista || [];
+                      if (objLista.length > 1) {
+                        return objLista.map((o:any, i:number) => {
+                          const tidStr = o.start_tid && o.slut_tid
+                            ? ` (${o.start_tid.slice(0,5)}–${o.slut_tid.slice(0,5)})`
+                            : o.arbetad_min ? ` (${fmt(o.arbetad_min)})` : '';
+                          return (
+                            <div key={o.id} style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",alignItems:"center" }}>
+                              <span style={{ color:"rgba(255,255,255,0.6)",fontSize:15 }}>{i === 0 ? "Objekt" : ""}</span>
+                              <span style={{ color:"#fff",fontSize:15,fontWeight:500,textAlign:"right" as const }}>
+                                {o.objekt_namn || o.objekt_id}
+                                <span style={{ color:"rgba(255,255,255,0.5)",fontSize:13 }}>{tidStr}</span>
+                              </span>
+                            </div>
+                          );
+                        });
+                      }
+                      return dagObjNamn ? sammanRad("Objekt", dagObjNamn) : null;
+                    })()}
                   </div>
                 )}
                 {/* Körning — bara för maskinpass */}
@@ -4147,14 +4188,35 @@ export default function Arbetsrapport() {
                   <ChevronRight/>
                 </div>
               </div>
-              {/* Objekt — klickbar */}
-              <div onClick={()=>setVisaRedObjektVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
-                <span style={{ fontSize:16,color:"#fff" }}>Objekt</span>
-                <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-                  <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(formatObjektNamn(redDag.objekt_namn)||redDag.objekt_id||"—");})()}</span>
-                  <ChevronRight/>
-                </div>
-              </div>
+              {/* Objekt — flera vid byte under dagen, annars klickbar enstaka */}
+              {(()=>{
+                const objLista = redDag?.objekt_lista || [];
+                if (objLista.length > 1) {
+                  return objLista.map((o:any, i:number) => {
+                    const tidStr = o.start_tid && o.slut_tid
+                      ? ` (${o.start_tid.slice(0,5)}–${o.slut_tid.slice(0,5)})`
+                      : o.arbetad_min ? ` (${fmt(o.arbetad_min)})` : '';
+                    return (
+                      <div key={o.id} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}` }}>
+                        <span style={{ fontSize:16,color:"#fff" }}>{i === 0 ? "Objekt" : ""}</span>
+                        <span style={{ fontSize:16,fontWeight:500,color:"#fff",textAlign:"right" as const }}>
+                          {o.objekt_namn || o.objekt_id}
+                          <span style={{ color:"rgba(255,255,255,0.5)",fontSize:13 }}>{tidStr}</span>
+                        </span>
+                      </div>
+                    );
+                  });
+                }
+                return (
+                  <div onClick={()=>setVisaRedObjektVäljare(true)} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:`1px solid ${C.line}`,cursor:"pointer" }}>
+                    <span style={{ fontSize:16,color:"#fff" }}>Objekt</span>
+                    <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                      <span style={{ fontSize:16,fontWeight:500,color:"#fff" }}>{(()=>{const o=redObjektId?objektLista.find(x=>x.id===redObjektId):null; return o?o.namn:(formatObjektNamn(redDag.objekt_namn)||redDag.objekt_id||"—");})()}</span>
+                      <ChevronRight/>
+                    </div>
+                  </div>
+                );
+              })()}
               {redDag.extra>0&&(
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0",borderBottom:redDag.trak?`1px solid ${C.line}`:"none" }}>
                   <span style={{ fontSize:16,color:"#fff" }}>Extra tid</span>

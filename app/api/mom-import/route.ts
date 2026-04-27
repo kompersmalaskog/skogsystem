@@ -85,6 +85,10 @@ export async function POST(req: NextRequest) {
     let rastMap: Record<string, number> = {};
     let objektMap: Record<string, string> = {}; // key: medarbetare_id_datum → objekt_id
 
+    // objektListaMap: alla objekt per (medarbetare, datum) sorterade på engine_time
+    // → används för arbetsdag_objekt-tabellen så vi kan visa flera objekt per dag.
+    const objektListaMap: Record<string, { objekt_id: string; engine_time_sek: number }[]> = {};
+
     if (operatorIds.length && datumSet.length) {
       const { data: rastData } = await supabase
         .from('fakt_tid')
@@ -93,7 +97,6 @@ export async function POST(req: NextRequest) {
         .in('datum', datumSet);
 
       if (rastData) {
-        // Aggregera rast_sek och hitta dominant objekt per medarbetare+datum
         const objektTid: Record<string, Record<string, number>> = {};
         for (const r of rastData) {
           const medId = opMap[r.operator_id];
@@ -105,10 +108,14 @@ export async function POST(req: NextRequest) {
             objektTid[key][r.objekt_id] = (objektTid[key][r.objekt_id] || 0) + (r.engine_time_sek || 0);
           }
         }
-        // Välj objekt med mest engine_time per dag
+        // Dominant objekt → arbetsdag.objekt_id (bakåtkompat)
+        // Hela listan → arbetsdag_objekt
         for (const [key, objs] of Object.entries(objektTid)) {
-          const best = Object.entries(objs).sort((a, b) => b[1] - a[1])[0];
-          if (best) objektMap[key] = best[0];
+          const sorterade = Object.entries(objs)
+            .map(([oid, sek]) => ({ objekt_id: oid, engine_time_sek: sek }))
+            .sort((a, b) => b.engine_time_sek - a.engine_time_sek);
+          if (sorterade.length) objektMap[key] = sorterade[0].objekt_id;
+          objektListaMap[key] = sorterade;
         }
       }
     }
@@ -248,17 +255,71 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 7. Insert nya rader
+    // 7. Insert nya rader. Hämta också medarbetare_id+datum för att kunna
+    // skriva arbetsdag_objekt-rader i nästa steg.
     const { data: inserted, error: insertErr } = await supabase
       .from('arbetsdag')
       .insert(rows)
-      .select('id');
+      .select('id, medarbetare_id, datum, start_tid, slut_tid, arbetad_min, maskin_id');
 
     if (insertErr) {
       return NextResponse.json(
         { error: 'Kunde inte skapa arbetsdagar', details: insertErr.message },
         { status: 500 }
       );
+    }
+
+    // 7b. Skapa arbetsdag_objekt-rader. CASCADE från delete i steg 6 har redan
+    // tagit bort gamla rader. För varje arbetsdag, fördela tiden proportionellt
+    // mot engine_time per objekt. Hämta objekt-namn från dim_objekt.
+    if (inserted && inserted.length > 0) {
+      const allaObjektIds = new Set<string>();
+      for (const lista of Object.values(objektListaMap)) {
+        for (const o of lista) allaObjektIds.add(o.objekt_id);
+      }
+      let objektNamnMap: Record<string, string> = {};
+      if (allaObjektIds.size > 0) {
+        const { data: objektData } = await supabase
+          .from('dim_objekt')
+          .select('objekt_id, object_name')
+          .in('objekt_id', Array.from(allaObjektIds));
+        for (const o of objektData || []) {
+          objektNamnMap[o.objekt_id] = o.object_name;
+        }
+      }
+
+      const objektRader: any[] = [];
+      for (const ad of inserted) {
+        const key = `${ad.medarbetare_id}_${ad.datum}`;
+        const objLista = objektListaMap[key] || [];
+        if (objLista.length === 0) continue;
+        const totalEngine = objLista.reduce((s, o) => s + o.engine_time_sek, 0);
+        objLista.forEach((o, i) => {
+          const andel = totalEngine > 0 ? o.engine_time_sek / totalEngine : 1 / objLista.length;
+          const arbMin = ad.arbetad_min ? Math.round(ad.arbetad_min * andel) : null;
+          objektRader.push({
+            arbetsdag_id: ad.id,
+            objekt_id: o.objekt_id,
+            objekt_namn: objektNamnMap[o.objekt_id] || null,
+            maskin_id: ad.maskin_id,
+            // start/slut för enskilt objekt går inte att exakt rekonstruera från
+            // fakt_tid (saknar tidsstämplar per WorkTime). Lämnar null —
+            // användaren kan korrigera manuellt om det behövs.
+            start_tid: i === 0 ? ad.start_tid : null,
+            slut_tid: i === objLista.length - 1 ? ad.slut_tid : null,
+            arbetad_min: arbMin,
+            ordning: i + 1,
+            skapad_av: 'mom',
+          });
+        });
+      }
+      if (objektRader.length > 0) {
+        const { error: ojErr } = await supabase.from('arbetsdag_objekt').insert(objektRader);
+        if (ojErr) {
+          // Logga men fail-not — arbetsdag är redan skapad.
+          console.warn('arbetsdag_objekt-insert fel:', ojErr.message);
+        }
+      }
     }
 
     // 8. Fallback: skapa arbetsdag från fakt_tid för datum som saknar rad
