@@ -1926,6 +1926,8 @@ export default function PlannerPage() {
   // GPS-heading (pos.coords.heading) — sätts när användaren rör sig (speed >= ~1 m/s).
   // Föredras framför deviceHeading i Körvy eftersom det är faktisk färdriktning, inte enhetens orientering.
   const [gpsHeading, setGpsHeading] = useState<number | null>(null);
+  // TEMP DEBUG: synlig overlay nere-vänster för att felsöka GPS-prick på telefon
+  const [gpsDebug, setGpsDebug] = useState<{ sourceExists: boolean; layerCount: number; pos: string; ticks: number; mapReady: boolean }>({ sourceExists: false, layerCount: 0, pos: 'väntar...', ticks: 0, mapReady: false });
   // Spara mapType före Körvy så vi kan återställa vid avsluta
   const korvyPrevMapTypeRef = useRef<typeof mapType | null>(null);
   // Nästa-kö (3 närmaste framåt) + akut varning
@@ -5271,8 +5273,23 @@ export default function PlannerPage() {
       if (features.length > 0) {
         console.log('[GPS-prick] setData + moveLayer', [pos.lon.toFixed(6), pos.lat.toFixed(6)]);
       }
+      // TEMP DEBUG: uppdatera synlig overlay
+      const layerCount =
+        (map.getLayer('gps-halo') ? 1 : 0) +
+        (map.getLayer('gps-ring') ? 1 : 0) +
+        (map.getLayer('gps-dot') ? 1 : 0);
+      setGpsDebug(prev => ({
+        sourceExists: !!map.getSource('gps-position'),
+        layerCount,
+        pos: (pos && pos.lat != null && pos.lon != null)
+          ? `${pos.lat.toFixed(5)}, ${pos.lon.toFixed(5)}`
+          : 'väntar...',
+        ticks: prev.ticks + 1,
+        mapReady: true,
+      }));
     } catch (e) {
       console.error('[GPS-prick] source/layers update failed:', e);
+      setGpsDebug(prev => ({ ...prev, ticks: prev.ticks + 1 }));
     }
   }, [currentPosition, mapLibreReady]);
 
@@ -8369,6 +8386,31 @@ export default function PlannerPage() {
           </div>
         );
       })()}
+
+      {/* === TEMP DEBUG: GPS-prick-overlay (tas bort när buggen är fixad) === */}
+      <div
+        aria-hidden="true"
+        style={{
+          position: 'fixed',
+          left: 8,
+          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 8px)',
+          padding: '6px 10px',
+          background: 'rgba(0,0,0,0.7)',
+          color: '#fff',
+          fontFamily: '"SF Mono", Menlo, monospace',
+          fontSize: 11,
+          lineHeight: 1.4,
+          borderRadius: 6,
+          opacity: 0.85,
+          zIndex: 999,
+          pointerEvents: 'none',
+          maxWidth: '70vw',
+        }}
+      >
+        <div>Map: {gpsDebug.mapReady ? 'ready' : 'WAIT'} · ticks: {gpsDebug.ticks}</div>
+        <div>Source: {gpsDebug.sourceExists ? 'finns' : 'SAKNAS'} · Layers: {gpsDebug.layerCount}/3</div>
+        <div>GPS: {gpsDebug.pos}</div>
+      </div>
 
       {/* === PLUS-KNAPP (nere höger) — döljs när volym-panelen eller Körvy är öppna */}
       {!briefingMode && !(volymLoading || volymResultat) && !korvyActive && (
