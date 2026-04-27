@@ -9063,7 +9063,8 @@ export default function PlannerPage() {
                   { label: 'Zoner', icon: 'crop_square', action: () => { setActiveCategory('zones'); setMenuOpen(true); } },
                   { label: 'Pilar', icon: 'arrow_outward', action: () => { setActiveCategory('arrows'); setMenuOpen(true); } },
                   { label: 'Mätning', icon: 'straighten', action: () => { setActiveCategory('measure'); setMenuOpen(true); } },
-                  { label: 'Körvy', icon: 'navigation', action: () => { setKorvyActive(true); } },
+                  { label: 'Körvy 2D', icon: 'navigation', action: () => { setKorvyActive(true); } },
+                  { label: 'Körvy 3D', icon: 'view_in_ar', action: () => { window.location.href = `/korvy${valtObjekt?.id ? `?objekt=${valtObjekt.id}` : ''}`; } },
                   { label: 'Skotning', icon: 'local_shipping', action: () => { setActiveCategory('skotning'); setMenuOpen(true); } },
                   { label: 'Ny produktionshög', icon: 'edit', action: () => {
                     const map = mapInstanceRef.current;
