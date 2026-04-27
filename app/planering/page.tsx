@@ -1926,6 +1926,15 @@ export default function PlannerPage() {
   // GPS-heading (pos.coords.heading) — sätts när användaren rör sig (speed >= ~1 m/s).
   // Föredras framför deviceHeading i Körvy eftersom det är faktisk färdriktning, inte enhetens orientering.
   const [gpsHeading, setGpsHeading] = useState<number | null>(null);
+  // Spara mapType före Körvy så vi kan återställa vid avsluta
+  const korvyPrevMapTypeRef = useRef<typeof mapType | null>(null);
+  // Nästa-kö (3 närmaste framåt) + akut varning
+  type NextItem = { id: string; type: string; comment?: string; dist: number; color: string; bearing: number };
+  const [korvyNextItems, setKorvyNextItems] = useState<NextItem[]>([]);
+  type AcuteWarning = { id: string; type: string; comment?: string; dist: number; color: string; photoData?: string; audioData?: string; expireAt: number };
+  const [korvyAcuteWarning, setKorvyAcuteWarning] = useState<AcuteWarning | null>(null);
+  const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());
+  const korvyAudioRef = useRef<HTMLAudioElement | null>(null);
   const lastHeadingRef = useRef(0); // För smooth rotation
   
   // Zoom funktioner - delegerar till MapLibre
@@ -4988,6 +4997,30 @@ export default function PlannerPage() {
   useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyBlinkOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === KÖRVY (3D-förarvy) effekter ===
+  // Helper: bearing från (lat1,lon1) → (lat2,lon2), 0-360°
+  const bearingTo = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+    const phi1 = (lat1 * Math.PI) / 180;
+    const phi2 = (lat2 * Math.PI) / 180;
+    const dLam = ((lon2 - lon1) * Math.PI) / 180;
+    const y = Math.sin(dLam) * Math.cos(phi2);
+    const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLam);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  };
+  // Cyklisk vinkelskillnad |a-b| 0-180°
+  const angleDiff = (a: number, b: number): number => {
+    const d = (((a - b) % 360) + 540) % 360 - 180;
+    return Math.abs(d);
+  };
+  // Färgkodning per markeringstyp för Körvy-prick (matchar spec)
+  const korvyColorForType = (type?: string): string => {
+    if (!type) return '#8e8e93';
+    if (type === 'landing') return '#30d158';                                                                           // grön (avlägg/spara)
+    if (['ditch', 'wet', 'bridge'].includes(type)) return '#0a84ff';                                                    // blå (vatten)
+    if (['corduroy', 'brashpile', 'road', 'trail', 'manualfelling', 'highstump'].includes(type)) return '#8e8e93';       // grå (mark)
+    if (['culturemonument', 'culturestump', 'eternitytree', 'naturecorner', 'warning', 'powerline'].includes(type)) return '#ff9f0a'; // orange (kultur/varning)
+    if (['steep', 'windfall'].includes(type)) return '#ff453a';                                                          // röd (brant/farligt)
+    return '#8e8e93';
+  };
   // Helper: flytta lat/lng dist meter i bearing-riktning (Tesla-stil offset 50m bakom användaren)
   const offsetLatLngByBearing = (lat: number, lon: number, distM: number, bearingDeg: number): [number, number] => {
     const R = 6371000; // jordens radie i meter
@@ -5084,6 +5117,106 @@ export default function PlannerPage() {
     const t = setInterval(() => setKorvyBlinkOn(b => !b), 600);
     return () => clearInterval(t);
   }, [korvyActive]);
+
+  // 6) Mapping: dölj satellit i Körvy, visa terräng. Restore vid avsluta.
+  useEffect(() => {
+    if (korvyActive) {
+      if (korvyPrevMapTypeRef.current === null) {
+        korvyPrevMapTypeRef.current = mapType;
+      }
+      if (mapType !== 'terrain') setMapType('terrain');
+    } else if (korvyPrevMapTypeRef.current !== null) {
+      setMapType(korvyPrevMapTypeRef.current);
+      korvyPrevMapTypeRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyActive]);
+
+  // 7) Beräkna nästa-kö (3 närmaste markeringar framåt baserat på heading) + nollställ vid avsluta
+  useEffect(() => {
+    if (!korvyActive) {
+      setKorvyNextItems([]);
+      korvyTriggeredIdsRef.current.clear();
+      return;
+    }
+    const pos = currentPosition as any;
+    if (!pos || pos.lat == null || pos.lon == null) { setKorvyNextItems([]); return; }
+    const symbolMarkers = markers.filter(m => m.isMarker);
+    const items: NextItem[] = [];
+    for (const m of symbolMarkers) {
+      const ll = svgToLatLon(m.x, m.y);
+      const dist = haversineM(pos.lat, pos.lon, ll.lat, ll.lon);
+      if (dist > 300) continue; // kö-fönster
+      const brg = bearingTo(pos.lat, pos.lon, ll.lat, ll.lon);
+      const fwdDiff = angleDiff(brg, korvyHeading);
+      if (fwdDiff > 90) continue; // bara framåt (±90°)
+      items.push({
+        id: String(m.id),
+        type: m.type || 'default',
+        comment: m.comment,
+        dist: Math.round(dist),
+        color: korvyColorForType(m.type),
+        bearing: brg,
+      });
+    }
+    items.sort((a, b) => a.dist - b.dist);
+    setKorvyNextItems(items.slice(0, 3));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyActive, currentPosition, korvyHeading, markers]);
+
+  // 8) Akut varning: när närmsta marker är ≤50m, trigga vibration + kort. Per ID en gång.
+  useEffect(() => {
+    if (!korvyActive) { setKorvyAcuteWarning(null); return; }
+    const closest = korvyNextItems[0];
+    if (!closest) return;
+    if (closest.dist > 50) return;
+    if (korvyTriggeredIdsRef.current.has(closest.id)) return;
+    // Hämta full marker för foto/audio
+    const m = markers.find(mm => String(mm.id) === closest.id);
+    korvyTriggeredIdsRef.current.add(closest.id);
+    if (navigator.vibrate) navigator.vibrate([30, 50, 30]);
+    setKorvyAcuteWarning({
+      id: closest.id,
+      type: closest.type,
+      comment: closest.comment,
+      dist: closest.dist,
+      color: closest.color,
+      photoData: m?.photoData,
+      audioData: m?.audioData,
+      expireAt: Date.now() + 8000,
+    });
+    // Audio-uppspelning
+    if (m?.audioData) {
+      try {
+        if (korvyAudioRef.current) { korvyAudioRef.current.pause(); }
+        korvyAudioRef.current = new Audio(m.audioData);
+        korvyAudioRef.current.play().catch(() => {});
+      } catch { /* audio kan misslyckas på vissa enheter */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyNextItems, korvyActive]);
+
+  // 9b) Stoppa eventuell pågående audio när Körvy avslutas
+  useEffect(() => {
+    if (!korvyActive && korvyAudioRef.current) {
+      try { korvyAudioRef.current.pause(); } catch {}
+      korvyAudioRef.current = null;
+    }
+  }, [korvyActive]);
+
+  // 9) Akut varning auto-dismiss: efter 8s eller när dist > 80m
+  useEffect(() => {
+    if (!korvyAcuteWarning) return;
+    const checkDist = korvyNextItems.find(i => i.id === korvyAcuteWarning.id);
+    if (checkDist && checkDist.dist > 80) {
+      setKorvyAcuteWarning(null);
+      return;
+    }
+    const remaining = korvyAcuteWarning.expireAt - Date.now();
+    if (remaining <= 0) { setKorvyAcuteWarning(null); return; }
+    const t = setTimeout(() => setKorvyAcuteWarning(null), remaining);
+    return () => clearTimeout(t);
+  }, [korvyAcuteWarning, korvyNextItems]);
 
   // 5) Visa/dölj Körvy-labels (typ + avstånd) på markeringar inom 200m + lines emphasis
   useEffect(() => {
@@ -8016,8 +8149,127 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === PLUS-KNAPP (nere höger) — döljs när volym-panelen är öppen */}
-      {!briefingMode && !(volymLoading || volymResultat) && (
+      {/* === KÖRVY: NÄSTA-KÖ (3 närmaste markeringar framåt) === */}
+      {korvyActive && korvyNextItems.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          left: 12,
+          right: 12,
+          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+          maxHeight: 140,
+          background: 'rgba(28,28,30,0.92)',
+          backdropFilter: 'blur(20px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 16,
+          padding: '6px 12px',
+          overflow: 'hidden',
+          zIndex: 250,
+          color: '#fff',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+        }}>
+          {korvyNextItems.map((item, i) => (
+            <div key={item.id} style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              padding: '8px 4px',
+              borderBottom: i < korvyNextItems.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+              minHeight: 44,
+            }}>
+              <span style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                background: item.color,
+                flexShrink: 0,
+              }} aria-hidden="true" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {item.type}
+                </div>
+                {item.comment && (
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {item.comment}
+                  </div>
+                )}
+              </div>
+              <div style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                {item.dist} m
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* === KÖRVY: AKUT VARNING (≤50m) === */}
+      {korvyActive && korvyAcuteWarning && (() => {
+        const w = korvyAcuteWarning;
+        // Tonad bakgrund i markeringsfärg (rgba 0.15)
+        const bgTint = (() => {
+          const c = w.color;
+          if (c === '#30d158') return 'rgba(48,209,88,0.15)';
+          if (c === '#0a84ff') return 'rgba(10,132,255,0.15)';
+          if (c === '#ff9f0a') return 'rgba(255,159,10,0.15)';
+          if (c === '#ff453a') return 'rgba(255,69,58,0.15)';
+          return 'rgba(142,142,147,0.15)';
+        })();
+        return (
+          <div style={{
+            position: 'fixed',
+            left: 12,
+            right: 12,
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px + 140px + 12px)',
+            background: 'rgba(28,28,30,0.94)',
+            backdropFilter: 'blur(24px) saturate(180%)',
+            WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+            border: `2px solid ${w.color}`,
+            borderRadius: 16,
+            padding: 16,
+            zIndex: 260,
+            color: '#fff',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 14,
+            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+            animation: 'korvySlideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
+          }}>
+            <style>{`@keyframes korvySlideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }`}</style>
+            {/* Tonad bg-overlay för markeringsfärg */}
+            <div style={{ position: 'absolute', inset: 0, background: bgTint, borderRadius: 14, pointerEvents: 'none' }} aria-hidden="true" />
+            {/* Innehåll */}
+            {w.photoData ? (
+              <img
+                src={w.photoData}
+                alt=""
+                style={{ width: 44, height: 44, borderRadius: 8, objectFit: 'cover', flexShrink: 0, position: 'relative', zIndex: 1 }}
+              />
+            ) : (
+              <span style={{
+                width: 44, height: 44, borderRadius: 8, background: w.color, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 1,
+              }} aria-hidden="true">
+                <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#fff' }}>warning</span>
+              </span>
+            )}
+            <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
+              <div style={{ fontSize: 17, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {w.type}
+              </div>
+              {w.comment && (
+                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {w.comment}
+                </div>
+              )}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: w.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0, position: 'relative', zIndex: 1 }}>
+              {w.dist} m
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* === PLUS-KNAPP (nere höger) — döljs när volym-panelen eller Körvy är öppna */}
+      {!briefingMode && !(volymLoading || volymResultat) && !korvyActive && (
         <button
           type="button"
           onClick={() => { if (navigator.vibrate) navigator.vibrate(10); setPlusMenuOpen(o => !o); }}
@@ -9139,8 +9391,8 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === CENTRERA-KNAPP (centrerar kartan på objektet, ovanför plus) — döljs när volym-panelen är öppen */}
-      {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && (
+      {/* === CENTRERA-KNAPP (centrerar kartan på objektet, ovanför plus) — döljs när volym-panelen eller Körvy är öppna */}
+      {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && !korvyActive && (
         <button
           type="button"
           onClick={() => {
