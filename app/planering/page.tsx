@@ -8,6 +8,8 @@ import BrandriskPanel from './brandrisk-panel'
 import VolymPanel from './volym-panel'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
+import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
+import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
 const DynamicMapLibre = dynamic(() => import('@/components/MapLibreMap'), { ssr: false })
 const TraktBriefing = dynamic(() => import('./TraktBriefing'), { ssr: false })
@@ -1992,6 +1994,9 @@ export default function PlannerPage() {
   const [korvyAcuteWarning, setKorvyAcuteWarning] = useState<AcuteWarning | null>(null);
   const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());
   const korvyAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Geofence: när maskinen är inne i en wet/steep/noentry-zon
+  type ZoneAlert = { markerId: string; zoneType: string; label: string; color: string };
+  const [korvyZoneAlert, setKorvyZoneAlert] = useState<ZoneAlert | null>(null);
   // Long-press på centrera-knappen: kort tryck = GPS, långt tryck (500ms) = objekt
   const centreLongPressRef = useRef<NodeJS.Timeout | null>(null);
   const centreLongPressFiredRef = useRef(false);
@@ -5071,6 +5076,14 @@ export default function PlannerPage() {
     const d = (((a - b) % 360) + 540) % 360 - 180;
     return Math.abs(d);
   };
+  // Riktnings-pil för nästa-kö: bearing relativt heading → ↑ ← → ↓
+  const bearingArrow = (bearing: number, heading: number): string => {
+    const diff = (((bearing - heading) % 360) + 540) % 360 - 180; // -180..180
+    if (diff < -135 || diff > 135) return '↓';
+    if (diff < -45) return '←';
+    if (diff > 45) return '→';
+    return '↑';
+  };
   // Färgkodning per markeringstyp för Körvy-prick (matchar spec)
   const korvyColorForType = (type?: string): string => {
     if (!type) return '#8e8e93';
@@ -5217,7 +5230,7 @@ export default function PlannerPage() {
       }
       korvyPrevVisRef.current = prev;
       // WHITELIST: dessa renderas i Körvy. Allt annat döljs.
-      const SHOW = new Set<string>(['bg-korvy', 'hillshade-korvy']);
+      const SHOW = new Set<string>(['bg-korvy', 'hillshade-korvy', 'lm-skuggning-layer', 'sks-markfuktighet-layer']);
       // Våra ritade data + immersion-layers
       const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-'];
       for (const l of allLayers) {
@@ -5233,7 +5246,7 @@ export default function PlannerPage() {
     }
   }, [korvyActive, mapLibreReady]);
 
-  // 7) Beräkna nästa-kö (3 närmaste markeringar framåt baserat på heading) + nollställ vid avsluta
+  // 7) Beräkna nästa-kö (3 närmaste markeringar inom 300m, alla riktningar) + nollställ vid avsluta
   useEffect(() => {
     if (!korvyActive) {
       setKorvyNextItems([]);
@@ -5247,10 +5260,8 @@ export default function PlannerPage() {
     for (const m of symbolMarkers) {
       const ll = svgToLatLon(m.x, m.y);
       const dist = haversineM(pos.lat, pos.lon, ll.lat, ll.lon);
-      if (dist > 300) continue; // kö-fönster
+      if (dist > 300) continue; // kö-fönster — alla riktningar nu (var ±90°)
       const brg = bearingTo(pos.lat, pos.lon, ll.lat, ll.lon);
-      const fwdDiff = angleDiff(brg, korvyHeading);
-      if (fwdDiff > 90) continue; // bara framåt (±90°)
       items.push({
         id: String(m.id),
         type: m.type || 'default',
@@ -5379,6 +5390,55 @@ export default function PlannerPage() {
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
+
+    // 0a) Lantmäteriet 1m hillshade-WMS som Körvy-bakgrund (riktig 1m DEM-baserad skuggning)
+    if (!map.getSource('lm-skuggning-source')) {
+      try {
+        map.addSource('lm-skuggning-source', {
+          type: 'raster',
+          tiles: ['/api/wms-proxy?layer=lm_skuggning&bbox={bbox-epsg-3857}&width=256&height=256'],
+          tileSize: 256,
+        });
+      } catch (e) { console.error('[Körvy] lm-skuggning-source:', e); }
+    }
+    if (!map.getLayer('lm-skuggning-layer')) {
+      try {
+        map.addLayer({
+          id: 'lm-skuggning-layer',
+          type: 'raster',
+          source: 'lm-skuggning-source',
+          paint: { 'raster-opacity': 0.85, 'raster-brightness-max': 0.6, 'raster-contrast': 0.2 },
+          layout: { 'visibility': 'none' },
+        });
+        // Flytta strax ovanför hillshade-korvy / bg-korvy så våra data ligger ovanpå
+        try { map.moveLayer('lm-skuggning-layer', 'osm-layer'); } catch {}
+      } catch (e) { console.error('[Körvy] lm-skuggning-layer:', e); }
+    }
+
+    // 0b) Markfuktighet som halvtransparent overlay (SLU 2.0 via Skogsstyrelsen WMS)
+    if (!map.getSource('sks-markfuktighet-source')) {
+      try {
+        map.addSource('sks-markfuktighet-source', {
+          type: 'raster',
+          tiles: ['/api/wms-proxy?layer=sks_markfuktighet&bbox={bbox-epsg-3857}&width=256&height=256'],
+          tileSize: 256,
+        });
+      } catch (e) { console.error('[Körvy] sks-markfuktighet-source:', e); }
+    }
+    if (!map.getLayer('sks-markfuktighet-layer')) {
+      try {
+        map.addLayer({
+          id: 'sks-markfuktighet-layer',
+          type: 'raster',
+          source: 'sks-markfuktighet-source',
+          paint: { 'raster-opacity': 0.45 },
+          layout: { 'visibility': 'none' },
+        });
+        // Lägg precis ovanför hillshade — under vår övriga data
+        try { map.moveLayer('sks-markfuktighet-layer', 'osm-layer'); } catch {}
+      } catch (e) { console.error('[Körvy] sks-markfuktighet-layer:', e); }
+    }
+
 
     // 1) Basväg-glow (yellow halo runt mainRoad inom 200m)
     if (!map.getLayer('lines-korvy-mainroad-glow')) {
@@ -5716,6 +5776,52 @@ export default function PlannerPage() {
     raf = requestAnimationFrame(tick);
     return () => { if (raf) cancelAnimationFrame(raf); };
   }, [mapLibreReady]);
+
+  // 9c) GEOFENCE: detektera när maskinen är inne i wet/steep/noentry-zon
+  // Triggar varningskort + vibration. Försvinner när maskinen lämnar zonen.
+  useEffect(() => {
+    if (!korvyActive) { setKorvyZoneAlert(null); return; }
+    const pos = currentPosition as any;
+    if (!pos || pos.lat == null || pos.lon == null) return;
+    const ZONE_TYPES = ['wet', 'steep', 'noentry'];
+    const ZONE_LABELS: Record<string, { label: string; color: string }> = {
+      wet:     { label: 'Du är i blöt zon',  color: '#0a84ff' },
+      steep:   { label: 'Du är i brant zon', color: '#ff453a' },
+      noentry: { label: 'EJ TILLTRÄDE',      color: '#ff453a' },
+    };
+    let inside: ZoneAlert | null = null;
+    for (const m of markers) {
+      if (!m.isZone || !m.path || m.path.length < 3) continue;
+      if (!ZONE_TYPES.includes(m.zoneType || '')) continue;
+      try {
+        const coords = m.path.map((p: any) => {
+          const ll = svgToLatLon(p.x, p.y);
+          return [ll.lon, ll.lat] as [number, number];
+        });
+        // Stäng polygonen om den inte redan är stängd
+        if (coords[0][0] !== coords[coords.length - 1][0] || coords[0][1] !== coords[coords.length - 1][1]) {
+          coords.push(coords[0]);
+        }
+        const poly = turfPolygon([coords]);
+        const pt = turfPoint([pos.lon, pos.lat]);
+        if (booleanPointInPolygon(pt, poly)) {
+          const cfg = ZONE_LABELS[m.zoneType!];
+          inside = { markerId: String(m.id), zoneType: m.zoneType!, label: cfg.label, color: cfg.color };
+          break;
+        }
+      } catch { /* ogiltig polygon */ }
+    }
+    if (inside) {
+      // Trigger ny varning bara om annan zon (eller ingen tidigare)
+      if (!korvyZoneAlert || korvyZoneAlert.markerId !== inside.markerId) {
+        setKorvyZoneAlert(inside);
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 100]);
+      }
+    } else if (korvyZoneAlert) {
+      setKorvyZoneAlert(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition, korvyActive, markers]);
 
   // 9b) Stoppa eventuell pågående audio när Körvy avslutas
   useEffect(() => {
@@ -8670,6 +8776,43 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* === KÖRVY: GEOFENCE-VARNING (maskinen är inne i en zon) === */}
+      {korvyActive && korvyZoneAlert && (
+        <div style={{
+          position: 'fixed',
+          left: 12,
+          right: 12,
+          // Placera ovanför både nästa-kö (max 140px + 12) och akut-varning
+          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px + 140px + 12px + 90px)',
+          background: 'rgba(28,28,30,0.96)',
+          backdropFilter: 'blur(24px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(24px) saturate(180%)',
+          border: `2px solid ${korvyZoneAlert.color}`,
+          borderRadius: 16,
+          padding: '14px 18px',
+          zIndex: 270,
+          color: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 14,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+          animation: 'korvyZoneIn 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
+        }}>
+          <style>{`@keyframes korvyZoneIn { from { transform: translateY(-12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }`}</style>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 30, color: korvyZoneAlert.color, flexShrink: 0 }}>
+            {korvyZoneAlert.zoneType === 'noentry' ? 'block' : 'warning'}
+          </span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: korvyZoneAlert.color }}>
+              {korvyZoneAlert.label}
+            </div>
+            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>
+              Försvinner när du lämnar zonen
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* === KÖRVY: NÄSTA-KÖ (3 närmaste markeringar framåt) === */}
       {korvyActive && korvyNextItems.length > 0 && (
         <div style={{
@@ -8689,37 +8832,52 @@ export default function PlannerPage() {
           color: '#fff',
           fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
         }}>
-          {korvyNextItems.map((item, i) => (
-            <div key={item.id} style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 12,
-              padding: '8px 4px',
-              borderBottom: i < korvyNextItems.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
-              minHeight: 44,
-            }}>
-              <span style={{
-                width: 10,
-                height: 10,
-                borderRadius: '50%',
-                background: item.color,
-                flexShrink: 0,
-              }} aria-hidden="true" />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {item.type}
-                </div>
-                {item.comment && (
-                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {item.comment}
+          {korvyNextItems.map((item, i) => {
+            // Svensk översättning för item.type — matchar markers-korvy-label
+            const typeName = ({
+              landing:'Avlägg', eternitytree:'Evighetsträd', naturecorner:'Naturhörn',
+              culturemonument:'Kulturminne', culturestump:'Kulturstubbe', highstump:'Högstubbe',
+              brashpile:'Risrep', windfall:'Vindfälle', manualfelling:'Fäll manuellt',
+              powerline:'Kraftledning', road:'Väg', turningpoint:'Vändplats',
+              ditch:'Dike', bridge:'Bro', corduroy:'Kavlebro', wet:'Blött',
+              steep:'Brant', trail:'Stig', warning:'Varning',
+            } as Record<string, string>)[item.type] || 'Markering';
+            const arrow = bearingArrow(item.bearing, korvyHeading);
+            return (
+              <div key={item.id} style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '8px 4px',
+                borderBottom: i < korvyNextItems.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                minHeight: 44,
+              }}>
+                <span style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: '50%',
+                  background: item.color,
+                  flexShrink: 0,
+                }} aria-hidden="true" />
+                <span style={{ fontSize: 18, fontWeight: 700, color: '#fff', minWidth: 18, textAlign: 'center', flexShrink: 0 }} aria-hidden="true">
+                  {arrow}
+                </span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {item.comment || typeName}
                   </div>
-                )}
+                  {item.comment && (
+                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {typeName}
+                    </div>
+                  )}
+                </div>
+                <div style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                  {item.dist} m
+                </div>
               </div>
-              <div style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                {item.dist} m
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
