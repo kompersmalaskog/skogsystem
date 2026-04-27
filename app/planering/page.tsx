@@ -1116,7 +1116,7 @@ export default function PlannerPage() {
       } catch (e) {
         console.error('[MapLibre] markers-layer error:', e);
       }
-      // KÖRVY-labels: typ + avstånd under markeringar inom 200m. Default dold (filter nearby=true).
+      // KÖRVY-labels: svensk översättning + comment-fallback + avstånds-färgkodning
       try {
         map.addLayer({
           id: 'markers-korvy-label',
@@ -1124,8 +1124,38 @@ export default function PlannerPage() {
           source: 'markers-source',
           filter: ['==', ['get', 'nearby'], true],
           layout: {
-            'text-field': ['concat', ['get', 'type'], '\n', ['get', 'dist'], ' m'],
-            'text-size': 13,
+            // Använd comment om finns, annars svensk översättning av type
+            'text-field': [
+              'concat',
+              ['case',
+                ['has', 'comment'], ['get', 'comment'],
+                ['match', ['get', 'type'],
+                  'landing',         'Avlägg',
+                  'eternitytree',    'Evighetsträd',
+                  'naturecorner',    'Naturhörn',
+                  'culturemonument', 'Kulturminne',
+                  'culturestump',    'Kulturstubbe',
+                  'highstump',       'Högstubbe',
+                  'brashpile',       'Risrep',
+                  'windfall',        'Vindfälle',
+                  'manualfelling',   'Fäll manuellt',
+                  'powerline',       'Kraftledning',
+                  'road',            'Väg',
+                  'turningpoint',    'Vändplats',
+                  'ditch',           'Dike',
+                  'bridge',          'Bro',
+                  'corduroy',        'Kavlebro',
+                  'wet',             'Blött',
+                  'steep',           'Brant',
+                  'trail',           'Stig',
+                  'warning',         'Varning',
+                  /* fallback */     'Markering',
+                ],
+              ],
+              '\n',
+              ['get', 'dist'], ' m',
+            ],
+            'text-size': 14,
             'text-offset': [0, 1.6],
             'text-anchor': 'top',
             'text-allow-overlap': true,
@@ -1136,9 +1166,15 @@ export default function PlannerPage() {
             'visibility': 'none',
           },
           paint: {
-            'text-color': '#ffffff',
-            'text-halo-color': 'rgba(0,0,0,0.85)',
-            'text-halo-width': 1.4,
+            // Färgkoda efter avstånd: röd nära, gul medel, vit långt bort
+            'text-color': [
+              'interpolate', ['linear'], ['number', ['get', 'dist'], 999],
+              0,   '#ff453a',
+              50,  '#ff9f0a',
+              200, '#ffffff',
+            ],
+            'text-halo-color': 'rgba(0,0,0,0.92)',
+            'text-halo-width': 1.6,
           },
         });
       } catch (e) {
@@ -5166,19 +5202,36 @@ export default function PlannerPage() {
     return () => clearInterval(t);
   }, [korvyActive]);
 
-  // 6) Mapping: dölj satellit i Körvy, visa terräng. Restore vid avsluta.
+  // 6) Whitelist-baserad layer-visibility: i Körvy, dölj alla overlays och basemap-rasters
+  // utom våra egna data + bg-korvy + hillshade-korvy. Restore vid avsluta.
+  const korvyPrevVisRef = useRef<Record<string, string> | null>(null);
   useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
     if (korvyActive) {
-      if (korvyPrevMapTypeRef.current === null) {
-        korvyPrevMapTypeRef.current = mapType;
+      const allLayers = (map.getStyle()?.layers || []) as any[];
+      // Spara nuvarande visibility för restore
+      const prev: Record<string, string> = {};
+      for (const l of allLayers) {
+        try { prev[l.id] = (map.getLayoutProperty(l.id, 'visibility') as string) || 'visible'; } catch {}
       }
-      if (mapType !== 'terrain') setMapType('terrain');
-    } else if (korvyPrevMapTypeRef.current !== null) {
-      setMapType(korvyPrevMapTypeRef.current);
-      korvyPrevMapTypeRef.current = null;
+      korvyPrevVisRef.current = prev;
+      // WHITELIST: dessa renderas i Körvy. Allt annat döljs.
+      const SHOW = new Set<string>(['bg-korvy', 'hillshade-korvy']);
+      // Våra ritade data + immersion-layers
+      const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-'];
+      for (const l of allLayers) {
+        const keep = SHOW.has(l.id) || KEEP_PREFIX.some(pref => l.id.startsWith(pref));
+        try { map.setLayoutProperty(l.id, 'visibility', keep ? 'visible' : 'none'); } catch {}
+      }
+    } else if (korvyPrevVisRef.current) {
+      // Restore
+      for (const [id, vis] of Object.entries(korvyPrevVisRef.current)) {
+        try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
+      }
+      korvyPrevVisRef.current = null;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [korvyActive]);
+  }, [korvyActive, mapLibreReady]);
 
   // 7) Beräkna nästa-kö (3 närmaste markeringar framåt baserat på heading) + nollställ vid avsluta
   useEffect(() => {
@@ -5416,13 +5469,12 @@ export default function PlannerPage() {
       } catch (e) { console.error('[Körvy] gps-cone-fill:', e); }
     }
 
-    // 5) Maskin-ikon: addImage (SVG → canvas → mapImage), sen symbol-layer
+    // 5) Maskin-ikon: cirkel-chassi + stor pil framåt (mer synlig än pentagon)
     if (!map.hasImage('maskin-ikon')) {
-      const size = 48;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 48 48">
-        <path d="M24 4 L36 18 L36 38 L30 44 L18 44 L12 38 L12 18 Z"
-              fill="#0a84ff" stroke="#ffffff" stroke-width="3" stroke-linejoin="round"/>
-        <circle cx="24" cy="20" r="4" fill="#ffffff"/>
+      const size = 64;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64">
+        <circle cx="32" cy="32" r="22" fill="#ffffff" stroke="#0a84ff" stroke-width="3"/>
+        <path d="M32 8 L48 36 L32 28 L16 36 Z" fill="#0a84ff"/>
       </svg>`;
       const img = new Image();
       img.onload = () => {
@@ -5447,6 +5499,43 @@ export default function PlannerPage() {
         map.addSource('maskin-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
       } catch (e) { console.error('[Körvy] maskin-source:', e); }
     }
+    // Pulse-halo BAKOM maskinen (cirkel-layer på samma source)
+    if (!map.getLayer('maskin-halo')) {
+      try {
+        map.addLayer({
+          id: 'maskin-halo',
+          type: 'circle',
+          source: 'maskin-source',
+          paint: {
+            'circle-radius': 35,
+            'circle-color': '#0a84ff',
+            'circle-opacity': 0.35,
+            'circle-blur': 0.6,
+            'circle-pitch-alignment': 'viewport',
+          },
+          layout: { 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Körvy] maskin-halo:', e); }
+    }
+    // Vit ring under ikonen
+    if (!map.getLayer('maskin-ring')) {
+      try {
+        map.addLayer({
+          id: 'maskin-ring',
+          type: 'circle',
+          source: 'maskin-source',
+          paint: {
+            'circle-radius': 18,
+            'circle-color': '#ffffff',
+            'circle-opacity': 0.4,
+            'circle-stroke-color': '#0a84ff',
+            'circle-stroke-width': 2,
+            'circle-pitch-alignment': 'viewport',
+          },
+          layout: { 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Körvy] maskin-ring:', e); }
+    }
     if (!map.getLayer('maskin-symbol')) {
       try {
         map.addLayer({
@@ -5455,7 +5544,7 @@ export default function PlannerPage() {
           source: 'maskin-source',
           layout: {
             'icon-image': 'maskin-ikon',
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 17, 0.8, 19, 1.0],
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.8, 17, 1.4, 19, 1.8],
             'icon-rotate': ['get', 'heading'],
             'icon-rotation-alignment': 'map',
             'icon-pitch-alignment': 'viewport',
@@ -5467,6 +5556,43 @@ export default function PlannerPage() {
         });
       } catch (e) { console.error('[Körvy] maskin-symbol:', e); }
     }
+    // 6) BG + HILLSHADE (Tesla-mörk bakgrund i Körvy)
+    if (!map.getLayer('bg-korvy')) {
+      try {
+        // Lägg som första layer (under allt). MapLibre lägger sist by default — vi flyttar.
+        map.addLayer({
+          id: 'bg-korvy',
+          type: 'background',
+          paint: { 'background-color': '#0d1929' },
+          layout: { 'visibility': 'none' },
+        });
+        // Flytta längst NER så den ligger under alla raster-basemaps + våra lager
+        const allLayers = map.getStyle().layers || [];
+        if (allLayers.length > 1) {
+          try { map.moveLayer('bg-korvy', allLayers[1].id); } catch {}
+        }
+      } catch (e) { console.error('[Körvy] bg-korvy:', e); }
+    }
+    if (!map.getLayer('hillshade-korvy') && map.getSource('terrain-dem')) {
+      try {
+        map.addLayer({
+          id: 'hillshade-korvy',
+          type: 'hillshade',
+          source: 'terrain-dem',
+          paint: {
+            'hillshade-shadow-color': '#000000',
+            'hillshade-highlight-color': '#1a3a5c',
+            'hillshade-accent-color': '#0a1525',
+            'hillshade-exaggeration': 0.7,
+            'hillshade-illumination-anchor': 'viewport',
+            'hillshade-illumination-direction': 335,
+          },
+          layout: { 'visibility': 'none' },
+        });
+        // Lägg precis ovanför bg-korvy (under alla andra basemaps)
+        try { map.moveLayer('hillshade-korvy', 'osm-layer'); } catch {}
+      } catch (e) { console.error('[Körvy] hillshade-korvy:', e); }
+    }
     console.log('[Körvy] immersion-layers setup klar');
   }, [mapLibreReady]);
 
@@ -5475,7 +5601,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const vis = korvyActive ? 'visible' : 'none';
-    const layers = ['lines-korvy-mainroad-glow', 'zones-korvy-wet-extrusion', 'zones-korvy-steep-extrusion', 'zones-korvy-culture-extrusion', 'eternitytree-extrusion', 'gps-cone-fill', 'maskin-symbol'];
+    const layers = ['lines-korvy-mainroad-glow', 'zones-korvy-wet-extrusion', 'zones-korvy-steep-extrusion', 'zones-korvy-culture-extrusion', 'eternitytree-extrusion', 'gps-cone-fill', 'maskin-halo', 'maskin-ring', 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
     for (const id of layers) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
     }
@@ -5562,23 +5688,30 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
 
-  // Pulse-animation för gps-halo (radie 22→50 + opacity 0.4→0, 2s loop)
+  // Pulse-animation för gps-halo (22→50px) + maskin-halo (25→50px, ur fas så de inte synkar)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     let raf: number = 0;
     let start = performance.now();
+    let lastTickTs = 0;
     const tick = (now: number) => {
-      const t = ((now - start) % 2000) / 2000;
-      const radius = 22 + t * 28;
-      const opacity = 0.4 * (1 - t);
+      raf = requestAnimationFrame(tick);
+      // Throttla till ~30 fps för batteri-vänligt
+      if (now - lastTickTs < 33) return;
+      lastTickTs = now;
+      const tg = ((now - start) % 2000) / 2000;          // gps-halo-fas
+      const tm = ((now - start + 800) % 2000) / 2000;    // maskin-halo offset 800ms
       try {
         if (map.getLayer('gps-halo')) {
-          map.setPaintProperty('gps-halo', 'circle-radius', radius);
-          map.setPaintProperty('gps-halo', 'circle-opacity', opacity);
+          map.setPaintProperty('gps-halo', 'circle-radius', 22 + tg * 28);
+          map.setPaintProperty('gps-halo', 'circle-opacity', 0.4 * (1 - tg));
+        }
+        if (map.getLayer('maskin-halo')) {
+          map.setPaintProperty('maskin-halo', 'circle-radius', 25 + tm * 25);
+          map.setPaintProperty('maskin-halo', 'circle-opacity', 0.4 * (1 - tm));
         }
       } catch { /* layer not ready */ }
-      raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => { if (raf) cancelAnimationFrame(raf); };
