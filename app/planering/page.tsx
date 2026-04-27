@@ -1116,6 +1116,52 @@ export default function PlannerPage() {
       } catch (e) {
         console.error('[MapLibre] markers-layer error:', e);
       }
+      // === GPS-PRICK: source + 3 circle-layers (halo/ring/dot) — alltid överst ===
+      try {
+        map.addSource('gps-position', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        // Halo (pulsar via raf-loop som muterar circle-radius/opacity)
+        map.addLayer({
+          id: 'gps-halo',
+          type: 'circle',
+          source: 'gps-position',
+          paint: {
+            'circle-radius': 20,
+            'circle-color': '#0a84ff',
+            'circle-opacity': 0.4,
+            'circle-pitch-alignment': 'viewport',
+            'circle-pitch-scale': 'viewport',
+          },
+        });
+        // Vit ring (kontrast mot mörk karta)
+        map.addLayer({
+          id: 'gps-ring',
+          type: 'circle',
+          source: 'gps-position',
+          paint: {
+            'circle-radius': 11,
+            'circle-color': '#ffffff',
+            'circle-opacity': 1,
+            'circle-pitch-alignment': 'viewport',
+            'circle-pitch-scale': 'viewport',
+          },
+        });
+        // Blå dot
+        map.addLayer({
+          id: 'gps-dot',
+          type: 'circle',
+          source: 'gps-position',
+          paint: {
+            'circle-radius': 8,
+            'circle-color': '#0a84ff',
+            'circle-opacity': 1,
+            'circle-pitch-alignment': 'viewport',
+            'circle-pitch-scale': 'viewport',
+          },
+        });
+        console.log('[MapLibre] gps-position source + 3 layers added');
+      } catch (e) {
+        console.error('[MapLibre] gps-position layers error:', e);
+      }
       // KÖRVY-labels: typ + avstånd under markeringar inom 200m. Default dold (filter nearby=true).
       try {
         map.addLayer({
@@ -1938,8 +1984,6 @@ export default function PlannerPage() {
   // Long-press på centrera-knappen: kort tryck = GPS, långt tryck (500ms) = objekt
   const centreLongPressRef = useRef<NodeJS.Timeout | null>(null);
   const centreLongPressFiredRef = useRef(false);
-  // GPS-prick MapLibre marker (Apple Maps-stil pulsande blå punkt)
-  const gpsDotMarkerRef = useRef<any>(null);
   const lastHeadingRef = useRef(0); // För smooth rotation
   
   // Zoom funktioner - delegerar till MapLibre
@@ -5201,110 +5245,68 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyNextItems, korvyActive]);
 
-  // === GPS-PRICK på kartan (Apple Maps-stil pulsande blå punkt) ===
-  // Använder MapLibre HTML-Marker (DOM ovanpå kanvas, inte WebGL-layer).
-  // Inline styles + Web Animations API för max robusthet.
+  // === GPS-PRICK på kartan (Apple Maps-stil) — WebGL circle-layers ===
+  // Tre cirklar staplade: halo (pulserar 20→45px) → vit ring 11px → blå dot 8px.
+  // Alla med circle-pitch-alignment 'viewport' så de alltid är runda mot kameran.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
-    if (!pos || pos.lat == null || pos.lon == null) {
-      if (gpsDotMarkerRef.current) {
-        try { gpsDotMarkerRef.current.remove(); } catch {}
-        gpsDotMarkerRef.current = null;
+    try {
+      const src = map.getSource('gps-position') as any;
+      if (!src) return;
+      const features = (pos && pos.lat != null && pos.lon != null) ? [{
+        type: 'Feature' as const,
+        properties: {},
+        geometry: { type: 'Point' as const, coordinates: [pos.lon, pos.lat] },
+      }] : [];
+      src.setData({ type: 'FeatureCollection', features });
+      if (features.length > 0) {
+        console.log('[GPS-prick] setData', [pos.lon.toFixed(6), pos.lat.toFixed(6)]);
       }
-      return;
+    } catch (e) {
+      console.error('[GPS-prick] source update failed:', e);
     }
-    if (gpsDotMarkerRef.current) {
-      try {
-        gpsDotMarkerRef.current.setLngLat([pos.lon, pos.lat]);
-        console.log('[GPS-prick] setLngLat', [pos.lon.toFixed(6), pos.lat.toFixed(6)]);
-      } catch (e) { console.error('[GPS-prick] setLngLat failed:', e); }
-      return;
-    }
-    // Skapa marker (engångsskapning, sen bara setLngLat)
-    let cancelled = false;
-    import('maplibre-gl').then((maplibregl) => {
-      if (cancelled) return;
-      const MarkerClass = maplibregl.Marker;
-      if (!MarkerClass) { console.error('[GPS-prick] MarkerClass unavailable'); return; }
-
-      // Container — relativ för att absoluta children ska centreras
-      const wrap = document.createElement('div');
-      wrap.setAttribute('aria-label', 'Din GPS-position');
-      Object.assign(wrap.style, {
-        position: 'relative',
-        width: '22px',
-        height: '22px',
-        zIndex: '500',
-        pointerEvents: 'none',
-      });
-
-      // Pulsande halo (skalas med Web Animations API)
-      const pulse = document.createElement('div');
-      Object.assign(pulse.style, {
-        position: 'absolute',
-        left: '0',
-        top: '0',
-        width: '22px',
-        height: '22px',
-        borderRadius: '50%',
-        background: 'rgba(10,132,255,0.45)',
-        transformOrigin: 'center center',
-      });
-      try {
-        pulse.animate(
-          [
-            { transform: 'scale(1)', opacity: 0.9 },
-            { transform: 'scale(3.5)', opacity: 0 },
-          ],
-          { duration: 2000, iterations: Infinity, easing: 'ease-out' }
-        );
-      } catch (e) { console.warn('[GPS-prick] pulse animation failed:', e); }
-
-      // Vit ring runt blå core
-      const core = document.createElement('div');
-      Object.assign(core.style, {
-        position: 'absolute',
-        left: '0',
-        top: '0',
-        width: '22px',
-        height: '22px',
-        borderRadius: '50%',
-        background: '#0a84ff',
-        border: '3px solid #ffffff',
-        boxSizing: 'border-box',
-        boxShadow: '0 1px 4px rgba(0,0,0,0.5)',
-      });
-
-      wrap.appendChild(pulse);
-      wrap.appendChild(core);
-
-      try {
-        // OBS: ingen pitchAlignment/rotationAlignment → default "viewport" så pricken
-        // alltid är vänd mot kameran (Apple Maps-stil), även i 3D Körvy-pitch.
-        const m = new MarkerClass({ element: wrap, anchor: 'center' })
-          .setLngLat([pos.lon, pos.lat])
-          .addTo(map);
-        gpsDotMarkerRef.current = m;
-        console.log('[GPS-prick] marker skapad vid', [pos.lon.toFixed(6), pos.lat.toFixed(6)]);
-      } catch (e) {
-        console.error('[GPS-prick] marker creation failed:', e);
-      }
-    });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, mapLibreReady]);
 
-  // Ta bort GPS-prick när komponenten unmountas
+  // GPS-layers ska alltid renderas sist (ovanpå allt). moveLayer utan beforeId flyttar längst upp.
   useEffect(() => {
-    return () => {
-      if (gpsDotMarkerRef.current) {
-        try { gpsDotMarkerRef.current.remove(); } catch {}
-        gpsDotMarkerRef.current = null;
-      }
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const lift = () => {
+      try {
+        if (map.getLayer('gps-halo')) map.moveLayer('gps-halo');
+        if (map.getLayer('gps-ring')) map.moveLayer('gps-ring');
+        if (map.getLayer('gps-dot')) map.moveLayer('gps-dot');
+      } catch { /* layer not ready */ }
     };
-  }, []);
+    lift();
+    // Vid styledata-ändringar kan layer-ordning återställas — lyft då igen
+    map.on('styledata', lift);
+    return () => { try { map.off('styledata', lift); } catch {} };
+  }, [mapLibreReady]);
+
+  // Pulse-animation för gps-halo (radie 20→45 + opacity 0.45→0, 2s loop)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    let raf: number = 0;
+    let start = performance.now();
+    const tick = (now: number) => {
+      const t = ((now - start) % 2000) / 2000;
+      const radius = 20 + t * 25;
+      const opacity = 0.45 * (1 - t);
+      try {
+        if (map.getLayer('gps-halo')) {
+          map.setPaintProperty('gps-halo', 'circle-radius', radius);
+          map.setPaintProperty('gps-halo', 'circle-opacity', opacity);
+        }
+      } catch { /* layer not ready */ }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => { if (raf) cancelAnimationFrame(raf); };
+  }, [mapLibreReady]);
 
   // 9b) Stoppa eventuell pågående audio när Körvy avslutas
   useEffect(() => {
