@@ -707,6 +707,33 @@ export default function PlannerPage() {
     // === Line hitbox layer ===
     map.addLayer({ id: 'line-hitbox', type: 'line', source: 'lines-source', paint: { 'line-color': 'rgba(0,0,0,0)', 'line-width': 20 } });
 
+    // KÖRVY emphasis: vit halo under linjer inom 200m, 2× width. Default dold.
+    try {
+      map.addLayer({
+        id: 'lines-korvy-emphasis',
+        type: 'line',
+        source: 'lines-source',
+        filter: ['==', ['get', 'nearby'], true],
+        paint: {
+          'line-color': '#ffffff',
+          'line-opacity': 0.55,
+          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 6, 17, 12, 19, 18],
+          'line-blur': 2,
+        },
+        layout: { 'line-cap': 'round', 'line-join': 'round', 'visibility': 'none' },
+      });
+    } catch (e) {
+      console.error('[MapLibre] lines-korvy-emphasis error:', e);
+    }
+    // Försök att flytta emphasis under första line-base så den ligger som halo bakom linjer
+    try {
+      const layers = map.getStyle()?.layers || [];
+      const firstLineBase = layers.find((l: any) => /^line-.*-base$/.test(l.id));
+      if (firstLineBase && map.getLayer('lines-korvy-emphasis')) {
+        map.moveLayer('lines-korvy-emphasis', firstLineBase.id);
+      }
+    } catch { /* layers not ready */ }
+
     // === TMA road layers ===
     map.addLayer({ id: 'tma-roads-glow', type: 'line', source: 'tma-roads-source', paint: { 'line-color': 'rgba(239,68,68,0.3)', 'line-width': 20, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'tma-roads-line', type: 'line', source: 'tma-roads-source', paint: { 'line-color': '#ff453a', 'line-width': 8 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
@@ -1896,6 +1923,9 @@ export default function PlannerPage() {
   const [korvyActive, setKorvyActive] = useState(false);
   const [korvyBlinkOn, setKorvyBlinkOn] = useState(true);
   const korvyPrevCameraRef = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
+  // GPS-heading (pos.coords.heading) — sätts när användaren rör sig (speed >= ~1 m/s).
+  // Föredras framför deviceHeading i Körvy eftersom det är faktisk färdriktning, inte enhetens orientering.
+  const [gpsHeading, setGpsHeading] = useState<number | null>(null);
   const lastHeadingRef = useRef(0); // För smooth rotation
   
   // Zoom funktioner - delegerar till MapLibre
@@ -4825,14 +4855,23 @@ export default function PlannerPage() {
       const src = map.getSource('lines-source') as any;
       if (!src) return;
       const features: any[] = [];
+      const korvyPos = korvyActive ? (currentPosition as any) : null;
       markers.filter(m => m.isLine && m.path && m.path.length > 1).forEach(m => {
         const coords = m.path.map((p: any) => {
           const ll = svgToLatLon(p.x, p.y);
           return [ll.lon, ll.lat];
         });
+        // KÖRVY: en linje räknas som "nearby" om någon punkt i pathen är ≤200m från användaren
+        let nearby = false;
+        if (korvyPos && korvyPos.lat != null && korvyPos.lon != null) {
+          for (const c of coords) {
+            const d = haversineM(korvyPos.lat, korvyPos.lon, c[1], c[0]);
+            if (d <= 200) { nearby = true; break; }
+          }
+        }
         features.push({
           type: 'Feature',
-          properties: { lineType: m.lineType, id: m.id },
+          properties: { lineType: m.lineType, id: m.id, nearby },
           geometry: { type: 'LineString', coordinates: coords },
         });
       });
@@ -4842,7 +4881,7 @@ export default function PlannerPage() {
         console.log('[MapLibre] lines-source synced:', features.length, 'features', types);
       }
     } catch (e) { /* source not ready */ }
-  }, [markers, mapLibreReady, mapCenter, visibleLines]);
+  }, [markers, mapLibreReady, mapCenter, visibleLines, korvyActive, currentPosition]);
 
   // 2) Synka zoner → MapLibre zones-source
   useEffect(() => {
@@ -4949,6 +4988,24 @@ export default function PlannerPage() {
   useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyBlinkOn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === KÖRVY (3D-förarvy) effekter ===
+  // Helper: flytta lat/lng dist meter i bearing-riktning (Tesla-stil offset 50m bakom användaren)
+  const offsetLatLngByBearing = (lat: number, lon: number, distM: number, bearingDeg: number): [number, number] => {
+    const R = 6371000; // jordens radie i meter
+    const ang = distM / R;
+    const brg = (bearingDeg * Math.PI) / 180;
+    const lat1 = (lat * Math.PI) / 180;
+    const lon1 = (lon * Math.PI) / 180;
+    const lat2 = Math.asin(Math.sin(lat1) * Math.cos(ang) + Math.cos(lat1) * Math.sin(ang) * Math.cos(brg));
+    const lon2 = lon1 + Math.atan2(
+      Math.sin(brg) * Math.sin(ang) * Math.cos(lat1),
+      Math.cos(ang) - Math.sin(lat1) * Math.sin(lat2),
+    );
+    return [(lon2 * 180) / Math.PI, (lat2 * 180) / Math.PI];
+  };
+
+  // Effective heading för Körvy: GPS-heading prioriteras (faktisk rörelse), annars enhetens kompass
+  const korvyHeading: number = gpsHeading != null ? gpsHeading : (deviceHeading || 0);
+
   // 1) Camera setup när korvyActive togglas: spara nuvarande kamera, sätt 3D-perspektiv. Avsluta → restore.
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -4964,14 +5021,16 @@ export default function PlannerPage() {
         };
       }
       const pos = currentPosition as any;
+      // Centrum = 50m bakom användaren längs heading (= heading + 180°), så användarens position
+      // hamnar framför kameran och vägen framåt syns
       const targetCenter: [number, number] = pos && pos.lon != null && pos.lat != null
-        ? [pos.lon, pos.lat]
+        ? offsetLatLngByBearing(pos.lat, pos.lon, 50, (korvyHeading + 180) % 360)
         : [map.getCenter().lng, map.getCenter().lat];
       map.easeTo({
         center: targetCenter,
         zoom: 18,
         pitch: 78,
-        bearing: deviceHeading || 0,
+        bearing: korvyHeading,
         duration: 800,
       });
     } else if (korvyPrevCameraRef.current) {
@@ -4982,20 +5041,21 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyActive, mapLibreReady]);
 
-  // 2) GPS-following + heading när korvyActive (mjuk easing per uppdatering)
+  // 2) GPS-following + heading när korvyActive (mjuk easing per uppdatering, behåll offset)
   useEffect(() => {
     if (!korvyActive) return;
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
     if (!pos || pos.lon == null || pos.lat == null) return;
+    const camCenter = offsetLatLngByBearing(pos.lat, pos.lon, 50, (korvyHeading + 180) % 360);
     map.easeTo({
-      center: [pos.lon, pos.lat],
-      bearing: deviceHeading || 0,
+      center: camCenter,
+      bearing: korvyHeading,
       duration: 500,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, deviceHeading, korvyActive]);
+  }, [currentPosition, korvyHeading, korvyActive]);
 
   // 3) Större ikoner i Körvy via icon-size paint expression
   useEffect(() => {
@@ -5025,13 +5085,16 @@ export default function PlannerPage() {
     return () => clearInterval(t);
   }, [korvyActive]);
 
-  // 5) Visa/dölj Körvy-labels (typ + avstånd) på markeringar inom 200m
+  // 5) Visa/dölj Körvy-labels (typ + avstånd) på markeringar inom 200m + lines emphasis
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     try {
       if (map.getLayer('markers-korvy-label')) {
         map.setLayoutProperty('markers-korvy-label', 'visibility', korvyActive ? 'visible' : 'none');
+      }
+      if (map.getLayer('lines-korvy-emphasis')) {
+        map.setLayoutProperty('lines-korvy-emphasis', 'visibility', korvyActive ? 'visible' : 'none');
       }
     } catch { /* layer not ready */ }
   }, [korvyActive, mapLibreReady]);
@@ -6171,6 +6234,13 @@ export default function PlannerPage() {
         setCurrentPosition(newPos);
         setGpsPosition({ lat: newPos.lat, lng: newPos.lon });
         setGpsAccuracy(accuracy);
+
+        // GPS-heading (faktisk färdriktning) — bara giltigt vid rörelse ≥1 m/s
+        const spd = pos.coords.speed;
+        const hdg = pos.coords.heading;
+        if (hdg != null && !isNaN(hdg) && spd != null && spd >= 1) {
+          setGpsHeading(((hdg % 360) + 360) % 360);
+        }
 
         // Ignorera osäkra positioner för linjespårning (kräver precision)
         const isAccurate = accuracy <= 15;
