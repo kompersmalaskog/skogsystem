@@ -1144,48 +1144,6 @@ export default function PlannerPage() {
       } catch (e) {
         console.error('[MapLibre] markers-korvy-label error:', e);
       }
-
-      // === GPS-PRICK: ALLRA SIST så de hamnar överst i layer-stacken ===
-      // Matchar exakt /gps-test-mönstret som bevisat funkar.
-      try {
-        map.addSource('gps-position', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-        map.addLayer({
-          id: 'gps-halo',
-          type: 'circle',
-          source: 'gps-position',
-          paint: {
-            'circle-radius': 22,
-            'circle-color': '#0a84ff',
-            'circle-opacity': 0.4,
-            'circle-pitch-alignment': 'viewport',
-          },
-        });
-        map.addLayer({
-          id: 'gps-ring',
-          type: 'circle',
-          source: 'gps-position',
-          paint: {
-            'circle-radius': 11,
-            'circle-color': '#ffffff',
-            'circle-opacity': 1,
-            'circle-pitch-alignment': 'viewport',
-          },
-        });
-        map.addLayer({
-          id: 'gps-dot',
-          type: 'circle',
-          source: 'gps-position',
-          paint: {
-            'circle-radius': 8,
-            'circle-color': '#0a84ff',
-            'circle-opacity': 1,
-            'circle-pitch-alignment': 'viewport',
-          },
-        });
-        console.log('[MapLibre] gps-position source + 3 layers added (sist i handleMapReady)');
-      } catch (e) {
-        console.error('[MapLibre] gps-position layers error:', e);
-      }
     });
 
     setMapLibreReady(true);
@@ -5242,26 +5200,79 @@ export default function PlannerPage() {
   }, [korvyNextItems, korvyActive]);
 
   // === GPS-PRICK på kartan (Apple Maps-stil) — WebGL circle-layers ===
-  // Tre cirklar staplade: halo (pulserar 20→45px) → vit ring 11px → blå dot 8px.
-  // Alla med circle-pitch-alignment 'viewport' så de alltid är runda mot kameran.
+  // Skapar source/layers vid första GPS-fix om de saknas. Uppdaterar data vid varje
+  // GPS-tick. Flyttar ALLTID alla 3 layers överst (moveLayer utan beforeId) så de inte
+  // skyms av andra layers som lagts till av React-effekter (HPR-stammar, kartbilder etc).
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
     try {
-      const src = map.getSource('gps-position') as any;
-      if (!src) return;
+      // Skapa source om saknas
+      if (!map.getSource('gps-position')) {
+        map.addSource('gps-position', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        console.log('[GPS-prick] gps-position source skapad');
+      }
+      // Skapa de 3 layers om saknas
+      if (!map.getLayer('gps-halo')) {
+        map.addLayer({
+          id: 'gps-halo',
+          type: 'circle',
+          source: 'gps-position',
+          paint: {
+            'circle-radius': 22,
+            'circle-color': '#0a84ff',
+            'circle-opacity': 0.4,
+            'circle-pitch-alignment': 'viewport',
+          },
+        });
+      }
+      if (!map.getLayer('gps-ring')) {
+        map.addLayer({
+          id: 'gps-ring',
+          type: 'circle',
+          source: 'gps-position',
+          paint: {
+            'circle-radius': 11,
+            'circle-color': '#ffffff',
+            'circle-opacity': 1,
+            'circle-pitch-alignment': 'viewport',
+          },
+        });
+      }
+      if (!map.getLayer('gps-dot')) {
+        map.addLayer({
+          id: 'gps-dot',
+          type: 'circle',
+          source: 'gps-position',
+          paint: {
+            'circle-radius': 8,
+            'circle-color': '#0a84ff',
+            'circle-opacity': 1,
+            'circle-pitch-alignment': 'viewport',
+          },
+        });
+        console.log('[GPS-prick] alla 3 layers skapade');
+      }
+      // Uppdatera data
       const features = (pos && pos.lat != null && pos.lon != null) ? [{
         type: 'Feature' as const,
         properties: {},
         geometry: { type: 'Point' as const, coordinates: [pos.lon, pos.lat] },
       }] : [];
-      src.setData({ type: 'FeatureCollection', features });
+      const src = map.getSource('gps-position') as any;
+      if (src) {
+        src.setData({ type: 'FeatureCollection', features });
+      }
+      // ALLTID lyft överst (vid varje GPS-tick) — andra effects kan ha lagt layers ovanpå
+      try { map.moveLayer('gps-halo'); } catch {}
+      try { map.moveLayer('gps-ring'); } catch {}
+      try { map.moveLayer('gps-dot'); } catch {}
       if (features.length > 0) {
-        console.log('[GPS-prick] setData', [pos.lon.toFixed(6), pos.lat.toFixed(6)]);
+        console.log('[GPS-prick] setData + moveLayer', [pos.lon.toFixed(6), pos.lat.toFixed(6)]);
       }
     } catch (e) {
-      console.error('[GPS-prick] source update failed:', e);
+      console.error('[GPS-prick] source/layers update failed:', e);
     }
   }, [currentPosition, mapLibreReady]);
 
