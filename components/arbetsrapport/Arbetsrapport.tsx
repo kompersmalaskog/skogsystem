@@ -194,14 +194,14 @@ const secHead: CSSProperties = { margin:"0 0 10px",fontSize:13,fontWeight:600,co
 
 function BottomNavBar({ aktiv, onNav }: { aktiv: string; onNav: (s: string) => void }) {
   return (
-    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"12px 16px 24px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"16px 16px 0 0" }}>
+    <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"12px 16px 24px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
       {[
         {icon:"today",key:"morgon",label:"Dag"},
         {icon:"calendar_month",key:"kalender",label:"Kalender"},
         {icon:"bar_chart",key:"mintid",label:"Min tid"},
         {icon:"settings",key:"inst",label:"Inställningar"},
       ].map(n=>(
-        <button key={n.key} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#adc6ff":"#8e8e93",background:"none",border:"none",cursor:"pointer",fontFamily:"'Inter',sans-serif",borderRadius:12,height:48,width:64,padding:0 }}>
+        <button key={n.key} onClick={()=>onNav(n.key)} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:aktiv===n.key?"#0a84ff":"#8e8e93",background:"none",border:"none",cursor:"pointer",fontFamily:"'Inter',sans-serif",borderRadius:12,height:48,width:64,padding:0 }}>
           <span className="material-symbols-outlined" style={{ fontSize:22,marginBottom:2,fontVariationSettings:aktiv===n.key?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
           <span style={{ fontSize:10,fontWeight:aktiv===n.key?600:500 }}>{n.label}</span>
         </button>
@@ -415,7 +415,7 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
         <div style={{ display:"flex",flexDirection:"column",gap:24 }}>
 
           {/* Tid-väljare — iOS-stil scroll-wheels */}
-          <section style={{ background:"#1c1c1e",borderRadius:16,padding:"20px 16px",border:"1px solid rgba(255,255,255,0.06)" }}>
+          <section style={{ background:"#1c1c1e",borderRadius:12,padding:"20px 16px",border:"1px solid rgba(255,255,255,0.06)" }}>
             <MinPicker value={min} onChange={setMin}/>
             <div style={{ marginTop:4,paddingTop:16,borderTop:"1px solid rgba(255,255,255,0.04)",textAlign:"center" }}>
               <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#30d158" }}>Total tid: {fmt(min)}</p>
@@ -423,7 +423,7 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
           </section>
 
           {/* Beskrivning */}
-          <section style={{ background:"#1c1c1e",borderRadius:16,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+          <section style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
             <label style={{ ...secHead,display:"block",marginBottom:12 }}>Vad gjorde du?</label>
             <textarea
               placeholder="T.ex. hämtat reservdelar, träffat markägare..."
@@ -435,11 +435,11 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
           </section>
 
           {/* Debiterbar */}
-          <section style={{ background:"#1c1c1e",borderRadius:16,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
+          <section style={{ background:"#1c1c1e",borderRadius:12,padding:20,border:"1px solid rgba(255,255,255,0.06)" }}>
             <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between" }}>
               <span style={{ fontSize:17,fontWeight:500,color:"#fff" }}>Debiterbar</span>
               <div onClick={()=>{setDeb(v=>!v); if(deb)setObj(null);}}
-                style={{ width:51,height:31,borderRadius:16,background:deb?"#30d158":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
+                style={{ width:51,height:31,borderRadius:999,background:deb?"#30d158":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
                 <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:deb?22:2,transition:"left 0.2s" }}/>
               </div>
             </div>
@@ -522,6 +522,7 @@ export default function Arbetsrapport() {
   const [redDagar, setRedDagar] = useState<Record<string, {start:string;slut:string;rast:number;km:number;anl:string}>>({});
   const [lönSkickat, setLönSkickat] = useState(false);
   const [lönBekräfta, setLönBekräfta] = useState(false);
+  const [lönOffset, setLönOffset] = useState(0);
   const [lönVy, setLönVy] = useState<'översikt'|'detaljer'>('översikt');
   const [sparatToast, setSparatToast] = useState(false);
   const [pamOpen, setPamOpen] = useState<null | 'obekraftad' | 'pagaende' | 'dagligTid'>(null);
@@ -1139,7 +1140,7 @@ export default function Arbetsrapport() {
       padding:"0 14px", gap:10,
       fontFamily:"'Inter',-apple-system,sans-serif",
     }}>
-      <div style={{ width:8,height:8,borderRadius:"50%",background:"#ff453a",boxShadow:"0 0 8px #ff453a",animation:"pulseDot 2s infinite",flexShrink:0 }} />
+      <div style={{ width:8,height:8,borderRadius:"50%",background:"#ff453a",animation:"pulseDot 2s infinite",flexShrink:0 }} />
       <span style={{ fontSize:13,fontWeight:600,color:"#fff",flexShrink:0 }}>
         Tidlogg pågår {(aktivTimer.start_tid||'').slice(0,5)}
       </span>
@@ -1231,7 +1232,7 @@ export default function Arbetsrapport() {
                 aspectRatio:"1/1",
                 background:"#1c1c1e",
                 border:"1px solid rgba(255,255,255,0.06)",
-                borderRadius:16,
+                borderRadius:12,
                 display:"flex",
                 flexDirection:"column",
                 alignItems:"center",
@@ -1241,7 +1242,7 @@ export default function Arbetsrapport() {
                 fontFamily:"inherit",
                 padding:16,
               }}>
-              <span className="material-symbols-outlined" style={{ fontSize:40,color:"#adc6ff" }}>{a.icon}</span>
+              <span className="material-symbols-outlined" style={{ fontSize:40,color:"#0a84ff" }}>{a.icon}</span>
               <span style={{ fontSize:15,fontWeight:600,color:"#fff",textAlign:"center",lineHeight:1.2 }}>{a.label}</span>
               {a.debDefault&&<span style={{ fontSize:10,color:C.green,fontWeight:600 }}>DEBITERBAR</span>}
             </button>
@@ -1298,7 +1299,7 @@ export default function Arbetsrapport() {
               <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>Faktureras kunden</p>
             </div>
             <div onClick={()=>{setAktDeb(v=>!v); if(aktDeb) setAktObjekt(null);}}
-              style={{ width:51,height:31,borderRadius:16,background:aktDeb?C.green:"rgba(120,120,128,0.2)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
+              style={{ width:51,height:31,borderRadius:999,background:aktDeb?C.green:"rgba(120,120,128,0.2)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
               <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:aktDeb?22:2,transition:"left 0.2s" }}/>
             </div>
           </Card>
@@ -1437,8 +1438,8 @@ export default function Arbetsrapport() {
 
       {/* Top bar */}
       <header style={{ position:"fixed",top:0,width:"100%",height:64,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",zIndex:50,display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",boxSizing:"border-box" }}>
-        <span style={{ fontSize:13,fontWeight:500,color:"#adc6ff" }}>{datumStr}</span>
-        <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:22 }}>sync</span>
+        <span style={{ fontSize:13,fontWeight:500,color:"#0a84ff" }}>{datumStr}</span>
+        <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:22 }}>sync</span>
       </header>
 
       <main style={{ paddingTop:96,paddingBottom:128,paddingLeft:24,paddingRight:24,flex:1,width:"100%",boxSizing:"border-box" }}>
@@ -1524,10 +1525,10 @@ export default function Arbetsrapport() {
         {/* Shift Status Card — döljs efter bekräftning och när pass redan avslutats
             (då finns sammanfattningen i stället). */}
         {!dagData[idagKey]?.bekraftad && !dagData[idagKey]?.slut_tid && (
-        <section style={{ background:isWorking?"#1c1c1e":"rgba(255,255,255,0.04)",borderRadius:16,padding:"20px 24px",marginBottom:32,position:"relative",overflow:"hidden",animation:"fadeUp 0.5s ease 0.05s both",border:isWorking?"1px solid rgba(255,255,255,0.06)":"1px solid rgba(255,255,255,0.05)" }}>
+        <section style={{ background:isWorking?"#1c1c1e":"rgba(255,255,255,0.04)",borderRadius:12,padding:"20px 24px",marginBottom:32,position:"relative",overflow:"hidden",animation:"fadeUp 0.5s ease 0.05s both",border:isWorking?"1px solid rgba(255,255,255,0.06)":"1px solid rgba(255,255,255,0.05)" }}>
           <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:isWorking?12:4 }}>
             {isWorking
-              ? <div style={{ width:8,height:8,borderRadius:"50%",background:"#adc6ff",boxShadow:"0 0 8px #adc6ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />
+              ? <div style={{ width:8,height:8,borderRadius:"50%",background:"#0a84ff",flexShrink:0,animation:"pulseDot 2s infinite" }} />
               : <span className="material-symbols-outlined" style={{ fontSize:18,color:"#8e8e93" }}>schedule</span>
             }
             {(()=>{
@@ -1666,7 +1667,7 @@ export default function Arbetsrapport() {
           const öppnaKm    = () => { setTMK(kmM?.km||0); setTKK(kmK?.km||0); setVisaKmSheet(true); };
           return (
             <section style={{ marginBottom:32 }}>
-              <div style={{ background:"#1c1c1e",borderRadius:16,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ background:"#1c1c1e",borderRadius:12,padding:"20px",border:"1px solid rgba(255,255,255,0.06)" }}>
                 <p style={{ margin:"0 0 6px",fontSize:17,fontWeight:600,color:"#fff" }}>{datumRubrik}</p>
                 {redanBekräftad && (
                   <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:12 }}>
@@ -1786,7 +1787,7 @@ export default function Arbetsrapport() {
                             else setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], traktamente: !!opt.v } }));
                           }
                         }}
-                          style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 6px",color:valt?"#adc6ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>{opt.l}</button>
+                          style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 6px",color:valt?"#0a84ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>{opt.l}</button>
                       );
                     })}
                   </div>
@@ -1843,7 +1844,7 @@ export default function Arbetsrapport() {
           <div onClick={()=>setSteg("lön")} style={{ background:"rgba(255,149,0,0.08)",border:"1px solid rgba(255,149,0,0.25)",borderRadius:12,padding:16,marginBottom:24,cursor:"pointer",animation:"fadeUp 0.4s ease" }}>
             <p style={{ margin:"0 0 6px",fontSize:13,fontWeight:500,color:C.orange }}>Månaden är slut</p>
             <p style={{ margin:"0 0 8px",fontSize:15,fontWeight:600,color:"#fff" }}>Granska löneunderlaget för {månadsNamn()}</p>
-            <span style={{ fontSize:14,color:"#adc6ff",fontWeight:500 }}>Öppna →</span>
+            <span style={{ fontSize:14,color:"#0a84ff",fontWeight:500 }}>Öppna →</span>
           </div>
         )}
 
@@ -1851,7 +1852,7 @@ export default function Arbetsrapport() {
         {!isWorking && !dagData[idagKey]?.bekraftad && (
           <section style={{ marginTop:32,marginBottom:16,animation:"fadeUp 0.5s ease 0.15s both" }}>
             <button onClick={()=>setVisaÖvrigt(v=>!v)}
-              style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 20px",background:"#1c1c1e",borderRadius:16,border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
+              style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 20px",background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
               <div>
                 <p style={{ margin:0,fontSize:16,fontWeight:600,color:"#fff" }}>Frånvaro</p>
                 <p style={{ margin:"3px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Sjuk, VAB</p>
@@ -1923,8 +1924,8 @@ export default function Arbetsrapport() {
             <h3 style={secHead}>Maskinstatus</h3>
             <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
               {maskinNamn || medarbetare?.maskin_id ? <>
-                {maskinNamn && <div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{maskinNamn}</div>}
-                {medarbetare?.maskin_id && <div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:20,fontSize:13,fontWeight:500,color:"#fff" }}>{medarbetare.maskin_id}</div>}
+                {maskinNamn && <div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:999,fontSize:13,fontWeight:500,color:"#fff" }}>{maskinNamn}</div>}
+                {medarbetare?.maskin_id && <div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:999,fontSize:13,fontWeight:500,color:"#fff" }}>{medarbetare.maskin_id}</div>}
               </> : <p style={{ margin:0,fontSize:13,color:"#636366" }}>Ingen maskin inloggad</p>}
             </div>
           </div>
@@ -1941,7 +1942,7 @@ export default function Arbetsrapport() {
                 </div>
               );
               return (
-                <button onClick={()=>setVisaObjektVäljare(true)} style={{ background:"none",border:"none",padding:0,fontSize:13,fontWeight:500,color:"#adc6ff",cursor:"pointer",fontFamily:"inherit" }}>Välj objekt</button>
+                <button onClick={()=>setVisaObjektVäljare(true)} style={{ background:"none",border:"none",padding:0,fontSize:13,fontWeight:500,color:"#0a84ff",cursor:"pointer",fontFamily:"inherit" }}>Välj objekt</button>
               );
             })()}
           </div>
@@ -1951,7 +1952,7 @@ export default function Arbetsrapport() {
         {/* Objektväljare */}
         {visaObjektVäljare&&(
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
-            <div style={{ background:"#1c1c1e",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+            <div style={{ background:"#1c1c1e",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
               <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                 <h3 style={{ margin:0,fontSize:17,fontWeight:600 }}>Välj objekt</h3>
                 <button onClick={()=>setVisaObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
@@ -1963,7 +1964,7 @@ export default function Arbetsrapport() {
                       <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff" }}>{o.namn}</p>
                       {o.ägare&&<p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{o.ägare}</p>}
                     </div>
-                    {valtObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#adc6ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
+                    {valtObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
                   </button>
                 ))}
               </div>
@@ -2068,7 +2069,7 @@ export default function Arbetsrapport() {
                   <p style={{ margin:"2px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>Faktureras kunden</p>
                 </div>
                 <div onClick={()=>setKvAvDeb(v=>!v)}
-                  style={{ width:51,height:31,borderRadius:16,background:kvAvDeb?"#30d158":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
+                  style={{ width:51,height:31,borderRadius:999,background:kvAvDeb?"#30d158":"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
                   <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:kvAvDeb?22:2,transition:"left 0.2s" }}/>
                 </div>
               </div>
@@ -2239,7 +2240,7 @@ export default function Arbetsrapport() {
 
       {bekräftelseVisa && (
         <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:2000,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",animation:"dimIn 0.2s ease" }}>
-          <div style={{ width:120,height:120,borderRadius:"50%",background:"#30D158",display:"flex",alignItems:"center",justifyContent:"center",animation:"checkPop 0.5s cubic-bezier(0.2,0.8,0.3,1.2)",boxShadow:"0 0 60px rgba(48,209,88,0.4)" }}>
+          <div style={{ width:120,height:120,borderRadius:"50%",background:"#30D158",display:"flex",alignItems:"center",justifyContent:"center",animation:"checkPop 0.5s cubic-bezier(0.2,0.8,0.3,1.2)" }}>
             <svg width="56" height="56" viewBox="0 0 52 52">
               <path d="M14 27 L23 36 L38 18" stroke="#fff" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" strokeDasharray="60" style={{ animation:"checkDraw 0.4s 0.2s both ease-out" }}/>
             </svg>
@@ -2309,7 +2310,7 @@ export default function Arbetsrapport() {
                 <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>Faktureras kunden</p>
               </div>
               <div onClick={()=>{setAvDeb(v=>!v);if(avDeb)setAvObj(null);}}
-                style={{ width:51,height:31,borderRadius:16,background:avDeb?C.green:"rgba(120,120,128,0.2)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
+                style={{ width:51,height:31,borderRadius:999,background:avDeb?C.green:"rgba(120,120,128,0.2)",cursor:"pointer",position:"relative",transition:"background 0.2s" }}>
                 <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:avDeb?22:2,transition:"left 0.2s" }}/>
               </div>
             </Card>
@@ -2502,9 +2503,9 @@ export default function Arbetsrapport() {
               <div style={{ display:"flex",alignItems:"flex-end",justifyContent:"space-between",height:120,gap:6,marginBottom:8 }}>
                 {veckoDagar.map(d=>(
                   <div key={d.datum} style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",height:"100%" }}>
-                    {d.h>0&&<span style={{ fontSize:10,fontWeight:600,color:"#adc6ff",marginBottom:4 }}>{d.h}</span>}
+                    {d.h>0&&<span style={{ fontSize:10,fontWeight:600,color:"#0a84ff",marginBottom:4 }}>{d.h}</span>}
                     <div style={{ flex:1,display:"flex",alignItems:"flex-end",width:"100%" }}>
-                      <div style={{ width:"100%",height:`${d.h>0?Math.max(8,d.h/maxH*100):8}%`,background:d.h>0?"#adc6ff":"rgba(255,255,255,0.08)",borderRadius:4,transition:"height 0.4s ease" }} />
+                      <div style={{ width:"100%",height:`${d.h>0?Math.max(8,d.h/maxH*100):8}%`,background:d.h>0?"#0a84ff":"rgba(255,255,255,0.08)",borderRadius:4,transition:"height 0.4s ease" }} />
                     </div>
                   </div>
                 ))}
@@ -2569,7 +2570,7 @@ export default function Arbetsrapport() {
                       <span style={{ fontSize:28,fontWeight:700,color:"#fff" }}>{semKvar} <span style={{ fontSize:14,fontWeight:400,color:"#8e8e93" }}>dagar kvar</span></span>
                     </div>
                     <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,marginBottom:12,overflow:"hidden" }}>
-                      <div style={{ height:"100%",width:`${semPct}%`,background:"#adc6ff",borderRadius:2 }} />
+                      <div style={{ height:"100%",width:`${semPct}%`,background:"#0a84ff",borderRadius:2 }} />
                     </div>
                     <div style={{ display:"flex",flexDirection:"column",gap:8 }}>
                       {[
@@ -2678,7 +2679,7 @@ export default function Arbetsrapport() {
                         {k:'pension' as const,label:'Pension',sub:`≈ ${atkKr.toLocaleString('sv-SE')} kr`,sub2:'till pension'},
                       ]).map(o=>(
                         <button key={o.k} onClick={()=>setAtkVal(o.k)} style={{ background:atkVal===o.k?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:atkVal===o.k?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"14px 8px",cursor:"pointer",fontFamily:"inherit",textAlign:"center" }}>
-                          <p style={{ margin:0,fontSize:13,fontWeight:600,color:atkVal===o.k?"#adc6ff":"#fff" }}>{o.label}</p>
+                          <p style={{ margin:0,fontSize:13,fontWeight:600,color:atkVal===o.k?"#0a84ff":"#fff" }}>{o.label}</p>
                           <p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>{o.sub}</p>
                           {'sub2' in o&&<p style={{ margin:"2px 0 0",fontSize:11,color:"#636366" }}>{(o as any).sub2}</p>}
                         </button>
@@ -2884,9 +2885,9 @@ export default function Arbetsrapport() {
               </div>
               {vilaPeriod==='månad'&&(
                 <div style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:16,marginBottom:16 }}>
-                  <button onClick={()=>setVilaMånad(m=>(m-1+12)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>chevron_left</span></button>
+                  <button onClick={()=>setVilaMånad(m=>(m-1+12)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_left</span></button>
                   <span style={{ fontSize:15,fontWeight:600,color:"#fff",minWidth:120,textAlign:"center",textTransform:"capitalize" }}>{periodLabel}</span>
-                  <button onClick={()=>setVilaMånad(m=>(m+1)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>chevron_right</span></button>
+                  <button onClick={()=>setVilaMånad(m=>(m+1)%12)} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}><span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_right</span></button>
                 </div>
               )}
 
@@ -2899,13 +2900,13 @@ export default function Arbetsrapport() {
                         <span className="material-symbols-outlined" style={{ fontSize:18,color:"#30d158" }}>check</span>
                         <span style={{ fontSize:14,color:"#fff" }}>Dygnsviolan uppfylld</span>
                       </div>
-                      <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#adc6ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>
+                      <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>
                     </div>
                   ):(
                     <>
                       {brott.map((r,i)=><VilaKort key={i} r={r} />)}
                       <div style={{ padding:"10px 0 14px",borderTop:"1px solid rgba(255,255,255,0.04)" }}>
-                        <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#adc6ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla {filtVila.length} perioder →</button>
+                        <button onClick={()=>setVisaAllaDygnsvila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla {filtVila.length} perioder →</button>
                       </div>
                     </>
                   )}
@@ -2951,7 +2952,7 @@ export default function Arbetsrapport() {
                       <span className="material-symbols-outlined" style={{ fontSize:18,color:vvHarProblem?"#ff453a":"#30d158" }}>{vvHarProblem?"warning":"check"}</span>
                       <span style={{ fontSize:14,color:"#fff" }}>{vvHarProblem?"Problem med veckovila":"Veckovila uppfylld"}</span>
                     </div>
-                    <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:"#adc6ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>
+                    <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>
                   </div>
                 </div>
               ):(
@@ -3046,7 +3047,7 @@ export default function Arbetsrapport() {
                       return (
                         <Card key={s.typ} style={{ padding:"16px 18px" }}>
                           <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:8 }}>
-                            <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:22 }}>{aktIcon(s.typ)}</span>
+                            <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:22 }}>{aktIcon(s.typ)}</span>
                             <div style={{ flex:1 }}>
                               <p style={{ margin:0,fontSize:15,fontWeight:600,color:"#fff" }}>{aktLabel(s.typ)}</p>
                               <p style={{ margin:"2px 0 0",fontSize:12,color:C.label }}>{pct}% av dagarna · snitt {fmt(s.medel)}</p>
@@ -3055,7 +3056,7 @@ export default function Arbetsrapport() {
                           </div>
                           {/* Bar */}
                           <div style={{ height:4,background:"rgba(255,255,255,0.06)",borderRadius:2,overflow:"hidden",marginBottom:6 }}>
-                            <div style={{ height:"100%",width:`${Math.min(100,pct)}%`,background:"#adc6ff",borderRadius:2 }}/>
+                            <div style={{ height:"100%",width:`${Math.min(100,pct)}%`,background:"#0a84ff",borderRadius:2 }}/>
                           </div>
                           <p style={{ margin:0,fontSize:12,color:C.label }}>
                             {s.antal} gånger{s.deb>0?` · ${s.deb} debiterbar${s.deb>1?'a':''}`:''}{kallText?` · ${kallText}`:''}
@@ -3069,13 +3070,13 @@ export default function Arbetsrapport() {
                       <div style={{ display:"flex",height:24,borderRadius:6,overflow:"hidden" }}>
                         {stats.map((s,i) => {
                           const w = totMin>0 ? (s.minTot/totMin*100) : 0;
-                          const färger = ["#adc6ff","#30d158","#ff9f0a","#ff453a","#bf5af2","#64d2ff"];
+                          const färger = ["#0a84ff","#30d158","#ff9f0a","#ff453a","#bf5af2","#64d2ff"];
                           return <div key={s.typ} title={aktLabel(s.typ)} style={{ width:`${w}%`,background:färger[i%färger.length] }}/>;
                         })}
                       </div>
                       <div style={{ display:"flex",flexWrap:"wrap",gap:8,marginTop:12 }}>
                         {stats.map((s,i) => {
-                          const färger = ["#adc6ff","#30d158","#ff9f0a","#ff453a","#bf5af2","#64d2ff"];
+                          const färger = ["#0a84ff","#30d158","#ff9f0a","#ff453a","#bf5af2","#64d2ff"];
                           return (
                             <div key={s.typ} style={{ display:"flex",alignItems:"center",gap:6 }}>
                               <div style={{ width:10,height:10,borderRadius:2,background:färger[i%färger.length] }}/>
@@ -3105,9 +3106,15 @@ export default function Arbetsrapport() {
     const kmErs2 = gsAvtal?.km_ersattning_kr ?? 27.50;
     const trakHel = gsAvtal?.traktamente_hel_kr ?? 300;
 
-    // Filtrera historik på aktuell månad
-    const nu = new Date();
+    // Filtrera historik på vald månad (lönOffset 0 = innevarande, -1 = förra)
+    const _nuRef = new Date();
+    const nu = new Date(_nuRef.getFullYear(), _nuRef.getMonth() + lönOffset, 1);
     const lönePeriod = `${nu.getFullYear()}-${String(nu.getMonth()+1).padStart(2,"0")}`;
+    const lönMånadsLabel = nu.toLocaleString('sv-SE', { month: 'long', year: 'numeric' });
+    const kanLönBak = lönOffset > -12;
+    const kanLönFram = lönOffset < 0;
+    const stegLönBak = () => { if (kanLönBak) setLönOffset(o => o - 1); };
+    const stegLönFram = () => { if (kanLönFram) setLönOffset(o => o + 1); };
     const månadsHistorik = historik.filter(d => d.datum && d.datum.startsWith(lönePeriod));
 
     // Extra tid filtrerad på månad
@@ -3219,14 +3226,14 @@ export default function Arbetsrapport() {
     const objektEntries = Object.values(maskinAgg).sort((a,b) => b.dagar-a.dagar);
 
     const bottomNav = (
-      <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",height:80,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"0 16px 8px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",zIndex:50,borderRadius:"16px 16px 0 0" }}>
+      <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",height:80,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"0 16px 8px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",zIndex:50,borderRadius:"12px 12px 0 0" }}>
         {[
           {icon:"today",label:"Dag",action:()=>setSteg("morgon"),active:false},
           {icon:"calendar_today",label:"Kalender",action:()=>setSteg("kalender"),active:false},
           {icon:"payments",label:"Löneunderlag",action:()=>{},active:true},
           {icon:"settings",label:"Inställningar",action:()=>setSteg("inst"),active:false},
         ].map(n=>(
-          <button key={n.label} onClick={n.action} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:n.active?"#adc6ff":"#8e8e93",background:n.active?"#1f1f1f":"none",border:"none",cursor:"pointer",fontFamily:"inherit",borderRadius:12,height:56,width:64,padding:0 }}>
+          <button key={n.label} onClick={n.action} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:n.active?"#0a84ff":"#8e8e93",background:n.active?"#1f1f1f":"none",border:"none",cursor:"pointer",fontFamily:"inherit",borderRadius:12,height:56,width:64,padding:0 }}>
             <span className="material-symbols-outlined" style={{ fontSize:24,marginBottom:2,fontVariationSettings:n.active?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
             <span style={{ fontSize:10,fontWeight:n.active?600:500 }}>{n.label}</span>
           </button>
@@ -3239,17 +3246,21 @@ export default function Arbetsrapport() {
       const dagNamn = ['söndag','måndag','tisdag','onsdag','torsdag','fredag','lördag'];
       const månNamn = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
       return (
-        <div style={{ minHeight:"100vh",background:"#131313",color:"#fff",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased" }}>
+        <div style={{ minHeight:"100vh",background:"#000",color:"#fff",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased" }}>
           <style>{css}</style>{timerBanner}
-          <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(19,19,19,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
+          <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",padding:"0 16px",height:64 }}>
             <button onClick={()=>setLönVy('översikt')} style={{ background:"none",border:"none",cursor:"pointer",padding:"8px 12px 8px 8px",fontFamily:"inherit",display:"flex",alignItems:"center",gap:4 }}>
-              <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>chevron_left</span>
-              <span style={{ color:"#adc6ff",fontSize:15,fontWeight:500 }}>Löneunderlag</span>
+              <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_left</span>
+              <span style={{ color:"#0a84ff",fontSize:15,fontWeight:500 }}>Löneunderlag</span>
             </button>
             <div style={{ flex:1,display:"flex",alignItems:"center",justifyContent:"flex-end",gap:8 }}>
-              <span className="material-symbols-outlined" style={{ color:"#adc6ff",cursor:"pointer",fontSize:20 }}>chevron_left</span>
-              <span style={{ fontSize:15,fontWeight:600,color:"#fff" }}>{månadsNamn()}</span>
-              <span className="material-symbols-outlined" style={{ color:"#adc6ff",cursor:"pointer",fontSize:20 }}>chevron_right</span>
+              <button onClick={stegLönBak} disabled={!kanLönBak} style={{ background:"none",border:"none",cursor:kanLönBak?"pointer":"default",padding:4,opacity:kanLönBak?1:0.3 }}>
+                <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_left</span>
+              </button>
+              <span style={{ fontSize:15,fontWeight:600,color:"#fff",textTransform:"capitalize" }}>{lönMånadsLabel}</span>
+              <button onClick={stegLönFram} disabled={!kanLönFram} style={{ background:"none",border:"none",cursor:kanLönFram?"pointer":"default",padding:4,opacity:kanLönFram?1:0.3 }}>
+                <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>chevron_right</span>
+              </button>
             </div>
           </header>
 
@@ -3270,7 +3281,7 @@ export default function Arbetsrapport() {
                       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:16 }}>
                         <h3 style={{ margin:0,fontSize:15,fontWeight:600,color:"#fff" }}>Vecka {weekNum} <span style={{ color:"#8e8e93",fontWeight:400,fontSize:14 }}>{rangeStr}</span></h3>
                         <div style={{ display:"flex",alignItems:"baseline",gap:4 }}>
-                          <span style={{ fontSize:24,fontWeight:700,color:"#adc6ff" }}>{Math.round(week.sumH*10)/10}{week.helglönH>0?` + ${week.helglönH}`:''}</span>
+                          <span style={{ fontSize:24,fontWeight:700,color:"#0a84ff" }}>{Math.round(week.sumH*10)/10}{week.helglönH>0?` + ${week.helglönH}`:''}</span>
                           <span style={{ fontSize:12,color:"#8e8e93" }}>tim{week.helglönH>0?' (inkl helglön)':''}</span>
                         </div>
                       </div>
@@ -3312,7 +3323,7 @@ export default function Arbetsrapport() {
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
                 <div style={{ gridColumn:"1/-1",background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                   <div><p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Total körning</p><p style={{ fontSize:20,fontWeight:600,margin:0 }}>{totalKm} km</p></div>
-                  <div style={{ textAlign:"right" }}><p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Ersättning</p><p style={{ fontSize:20,fontWeight:700,color:"#adc6ff",margin:0 }}>{löneErsKr} kr</p></div>
+                  <div style={{ textAlign:"right" }}><p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Ersättning</p><p style={{ fontSize:20,fontWeight:700,color:"#0a84ff",margin:0 }}>{löneErsKr} kr</p></div>
                 </div>
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:16,border:"1px solid rgba(255,255,255,0.03)" }}>
                   <p style={{ fontSize:12,color:"#8e8e93",margin:"0 0 4px" }}>Ersättningsgrundande</p><p style={{ fontSize:18,fontWeight:500,margin:0 }}>{löneErsKm} km</p>
@@ -3330,7 +3341,7 @@ export default function Arbetsrapport() {
                 {objektEntries.map((o,i) => (
                   <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:20,display:"flex",alignItems:"center",gap:16 }}>
                     <div style={{ width:40,height:40,borderRadius:"50%",background:"rgba(75,142,255,0.2)",display:"flex",alignItems:"center",justifyContent:"center" }}>
-                      <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:20 }}>precision_manufacturing</span>
+                      <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:20 }}>precision_manufacturing</span>
                     </div>
                     <div>
                       <p style={{ margin:0,fontSize:14,fontWeight:500 }}>{o.namn ? `${o.namn} / ${o.maskin}` : o.maskin}</p>
@@ -3418,16 +3429,16 @@ export default function Arbetsrapport() {
 
         {/* Header */}
         <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",height:64 }}>
-          <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-            <button onClick={()=>{setSteg("morgon");setLönVy('översikt');}} style={{ background:"none",border:"none",cursor:"pointer",padding:8,borderRadius:"50%" }}>
-              <span className="material-symbols-outlined" style={{ color:"#adc6ff" }}>chevron_left</span>
+          <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+            <button onClick={stegLönBak} disabled={!kanLönBak} style={{ background:"none",border:"none",cursor:kanLönBak?"pointer":"default",padding:8,borderRadius:"50%",opacity:kanLönBak?1:0.3 }}>
+              <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_left</span>
             </button>
-            <h1 style={{ margin:0,fontSize:18,fontWeight:600,color:"#fff",letterSpacing:"-0.02em" }}>{månadsNamn()}</h1>
-            <button onClick={()=>{}} style={{ background:"none",border:"none",cursor:"pointer",padding:8,borderRadius:"50%" }}>
-              <span className="material-symbols-outlined" style={{ color:"#adc6ff" }}>chevron_right</span>
+            <h1 style={{ margin:0,fontSize:17,fontWeight:600,color:"#fff",letterSpacing:"-0.02em",textTransform:"capitalize",minWidth:120,textAlign:"center" }}>{lönMånadsLabel}</h1>
+            <button onClick={stegLönFram} disabled={!kanLönFram} style={{ background:"none",border:"none",cursor:kanLönFram?"pointer":"default",padding:8,borderRadius:"50%",opacity:kanLönFram?1:0.3 }}>
+              <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_right</span>
             </button>
           </div>
-          <span className="material-symbols-outlined" style={{ color:"#adc6ff" }}>calendar_month</span>
+          <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>calendar_month</span>
         </header>
 
         <main style={{ paddingTop:96,paddingBottom:192,padding:"96px 16px 192px",maxWidth:448,margin:"0 auto",width:"100%" }}>
@@ -3463,8 +3474,8 @@ export default function Arbetsrapport() {
           {/* Se detaljer-länk */}
           <div style={{ padding:"0 4px",marginBottom:32 }}>
             <button onClick={()=>setLönVy('detaljer')} style={{ display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",background:"none",border:"none",cursor:"pointer",padding:"4px 0",fontFamily:"inherit" }}>
-              <span style={{ fontSize:15,fontWeight:500,color:"#adc6ff" }}>Se detaljer</span>
-              <span className="material-symbols-outlined" style={{ color:"#adc6ff",fontSize:18 }}>arrow_forward</span>
+              <span style={{ fontSize:15,fontWeight:500,color:"#0a84ff" }}>Se detaljer</span>
+              <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:18 }}>arrow_forward</span>
             </button>
           </div>
 
@@ -3478,7 +3489,7 @@ export default function Arbetsrapport() {
           {/* Action */}
           <div style={{ paddingTop:32 }}>
             {!lönSkickat?(
-              <button onClick={()=>setLönBekräfta(true)} disabled={lönSparar} style={{ width:"100%",height:56,background:"#1c1c1e",color:"#fff",border:"none",borderRadius:12,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit",opacity:lönSparar?0.6:1 }}>
+              <button onClick={()=>setLönBekräfta(true)} disabled={lönSparar} style={{ width:"100%",height:56,background:"#0a84ff",color:"#fff",border:"none",borderRadius:12,fontSize:17,fontWeight:600,cursor:"pointer",fontFamily:"inherit",opacity:lönSparar?0.6:1 }}>
                 {lönSparar?"Sparar...":"Skicka löneunderlag"}
               </button>
             ):(
@@ -3643,7 +3654,7 @@ export default function Arbetsrapport() {
 
           const Toggle = ({ on, onChange }: { on: boolean; onChange: (v: boolean) => void }) => (
             <div onClick={()=>onChange(!on)}
-              style={{ width:51,height:31,borderRadius:16,background:on?C.green:"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
+              style={{ width:51,height:31,borderRadius:999,background:on?C.green:"rgba(120,120,128,0.3)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
               <div style={{ width:27,height:27,borderRadius:"50%",background:"#fff",position:"absolute",top:2,left:on?22:2,transition:"left 0.2s" }}/>
             </div>
           );
@@ -3654,7 +3665,7 @@ export default function Arbetsrapport() {
                 const valt = o.v === selected;
                 return (
                   <button key={o.l} onClick={()=>onPick(o.v)}
-                    style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 4px",color:valt?"#adc6ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+                    style={{ background:valt?"rgba(173,198,255,0.12)":"rgba(255,255,255,0.04)",border:valt?"1px solid rgba(173,198,255,0.3)":"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"10px 4px",color:valt?"#0a84ff":"#fff",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                     {o.l}
                   </button>
                 );
@@ -3824,7 +3835,7 @@ export default function Arbetsrapport() {
     <div style={shell}><style>{css}</style>{timerBanner}
       <div style={topBar}><p style={{ margin:0,fontSize:15,color:C.label }}>{datumStr}</p></div>
       <div style={mid}>
-        <div style={{ width:80,height:80,borderRadius:24,background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:28,animation:"scalePop 0.4s ease" }}>
+        <div style={{ width:80,height:80,borderRadius:12,background:"rgba(255,255,255,0.08)",display:"flex",alignItems:"center",justifyContent:"center",marginBottom:28,animation:"scalePop 0.4s ease" }}>
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none">
             <path d={dagTyp==="sjuk"?"M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15v-4H7l5-8v4h4l-5 8z":"M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"} fill="#8e8e93"/>
           </svg>
@@ -3951,7 +3962,7 @@ export default function Arbetsrapport() {
         <div style={{ flex:1,overflowY:"auto",paddingTop:24 }}>
 
           {/* Start, Slut, Rast — iOS-stil scroll-wheels */}
-          <div style={{ background:C.card,borderRadius:16,padding:"20px 16px",marginBottom:16,display:"flex",flexDirection:"column",gap:18 }}>
+          <div style={{ background:C.card,borderRadius:12,padding:"20px 16px",marginBottom:16,display:"flex",flexDirection:"column",gap:18 }}>
             <div>
               <span style={{ ...secHead,display:"block",textAlign:"center",marginBottom:8,color:redStart!==(redDag.start||"00:00")?C.orange:"#8e8e93" }}>Start</span>
               <TimePicker value={redStart} onChange={setRedStart}/>
@@ -3970,7 +3981,7 @@ export default function Arbetsrapport() {
           </div>
 
           {/* Resultat */}
-          <div style={{ textAlign:"center",padding:"18px 20px",background:"rgba(48,209,88,0.07)",borderRadius:14 }}>
+          <div style={{ textAlign:"center",padding:"18px 20px",background:"rgba(48,209,88,0.07)",borderRadius:12 }}>
             <p style={{ margin:"0 0 4px",fontSize:12,fontWeight:700,color:C.label,textTransform:"none",letterSpacing:"0" }}>Arbetstid</p>
             <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{fmt(redArbMin)}</p>
           </div>
@@ -3984,7 +3995,7 @@ export default function Arbetsrapport() {
         <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setRedVy("översikt")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>Ändra körning</h1></div></div>
         <div style={{ flex:1,paddingTop:20 }}>
           <KmPicker value={redKm} onChange={setRedKm} label="Totalt"/>
-          <div style={{ textAlign:"center",padding:20,background:"rgba(48,209,88,0.07)",borderRadius:14 }}>
+          <div style={{ textAlign:"center",padding:20,background:"rgba(48,209,88,0.07)",borderRadius:12 }}>
             <Label>Körning</Label>
             <p style={{ margin:0,fontSize:44,fontWeight:700,color:C.green }}>{redKm} km</p>
             {redKmBerakning!=null&&redKmBerakning>0&&<p style={{ margin:"4px 0 0",fontSize:12,color:"#8e8e93" }}>Beräknat: {redKmBerakning} km (vägavstånd)</p>}
@@ -4460,7 +4471,7 @@ export default function Arbetsrapport() {
         {/* Objektväljare för redigering */}
         {visaRedObjektVäljare&&(
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
-            <div style={{ background:"#1c1c1e",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+            <div style={{ background:"#1c1c1e",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
               <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                 <h3 style={{ margin:0,fontSize:17,fontWeight:600 }}>Välj objekt</h3>
                 <button onClick={()=>setVisaRedObjektVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
@@ -4472,7 +4483,7 @@ export default function Arbetsrapport() {
                       <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff" }}>{o.namn}</p>
                       {o.ägare&&<p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{o.ägare}</p>}
                     </div>
-                    {redObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#adc6ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
+                    {redObjektId===o.id&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
                   </button>
                 ))}
               </div>
@@ -4483,7 +4494,7 @@ export default function Arbetsrapport() {
         {/* Maskinväljare */}
         {visaRedMaskinVäljare&&(
           <div style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.8)",zIndex:100,display:"flex",alignItems:"flex-end",justifyContent:"center" }}>
-            <div style={{ background:"#1c1c1e",borderRadius:"16px 16px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
+            <div style={{ background:"#1c1c1e",borderRadius:"12px 12px 0 0",width:"100%",maxWidth:500,maxHeight:"70vh",display:"flex",flexDirection:"column" }}>
               <div style={{ padding:"16px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                 <h3 style={{ margin:0,fontSize:17,fontWeight:600 }}>Välj maskin</h3>
                 <button onClick={()=>setVisaRedMaskinVäljare(false)} style={{ background:"none",border:"none",color:"#8e8e93",fontSize:14,cursor:"pointer",fontFamily:"inherit" }}>Stäng</button>
@@ -4495,7 +4506,7 @@ export default function Arbetsrapport() {
                       <p style={{ margin:0,fontSize:15,fontWeight:500,color:"#fff" }}>{namn}</p>
                       <p style={{ margin:"2px 0 0",fontSize:12,color:"#8e8e93" }}>{mid}</p>
                     </div>
-                    {redMaskinId===mid&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#adc6ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
+                    {redMaskinId===mid&&<div style={{ width:20,height:20,borderRadius:"50%",background:"#0a84ff",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>}
                   </button>
                 ))}
               </div>
@@ -4506,7 +4517,7 @@ export default function Arbetsrapport() {
         {/* Rast-picker — centrerad iOS-stil wheel */}
         {visaRedRastPicker&&(
           <div onClick={()=>setVisaRedRastPicker(false)} style={{ position:"fixed",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,0.7)",zIndex:100,display:"flex",alignItems:"center",justifyContent:"center" }}>
-            <div onClick={e=>e.stopPropagation()} style={{ background:"#1c1c1e",borderRadius:16,padding:24,width:240 }}>
+            <div onClick={e=>e.stopPropagation()} style={{ background:"#1c1c1e",borderRadius:12,padding:24,width:240 }}>
               <p style={{ margin:"0 0 16px",fontSize:13,fontWeight:600,color:"#8e8e93",textAlign:"center" }}>Rast</p>
               <div style={{ display:"flex",justifyContent:"center",alignItems:"center",gap:8 }}>
                 <Wheel value={redRast} onChange={setRedRast} min={0} max={120} step={5}/>
@@ -4684,13 +4695,13 @@ export default function Arbetsrapport() {
         <style>{css}</style>{timerBanner}
 
         {/* Header — sticky nav with month + arrows */}
-        <header style={{ position:"sticky",top:0,background:"#131313",zIndex:50,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 24px",height:64 }}>
+        <header style={{ position:"sticky",top:0,background:"#000",zIndex:50,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 24px",height:64 }}>
           <button onClick={()=>kanBakåt&&navigera(-1)} style={{ background:"none",border:"none",cursor:"pointer",opacity:kanBakåt?1:0.3,padding:4 }}>
-            <span className="material-symbols-outlined" style={{ color:"#adc6ff" }}>chevron_left</span>
+            <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_left</span>
           </button>
-          <h1 style={{ margin:0,fontSize:18,fontWeight:600,letterSpacing:"-0.02em",color:"#adc6ff" }}>{kalMånadLabel}</h1>
+          <h1 style={{ margin:0,fontSize:18,fontWeight:600,letterSpacing:"-0.02em",color:"#0a84ff" }}>{kalMånadLabel}</h1>
           <button onClick={()=>kanFramåt&&navigera(1)} style={{ background:"none",border:"none",cursor:"pointer",opacity:kanFramåt?1:0.3,padding:4 }}>
-            <span className="material-symbols-outlined" style={{ color:"#adc6ff" }}>chevron_right</span>
+            <span className="material-symbols-outlined" style={{ color:"#0a84ff" }}>chevron_right</span>
           </button>
         </header>
 
@@ -4781,17 +4792,17 @@ export default function Arbetsrapport() {
                     }}
                     style={{ position:"relative",display:"flex",flexDirection:"column",alignItems:"center",cursor:"pointer",padding:"8px 0" }}>
                     {/* Ring: idag=blå, redigerad=gul, idag har prioritet */}
-                    {isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #adc6ff",borderRadius:"50%" }} />}
-                    {erRedigerad && !isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #f5c518",borderRadius:"50%" }} />}
+                    {isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #0a84ff",borderRadius:"50%" }} />}
+                    {erRedigerad && !isToday && <div style={{ position:"absolute",top:4,width:36,height:36,border:"2px solid #ffd60a",borderRadius:"50%" }} />}
                     <span style={{
                       fontSize:15,
                       fontWeight: isToday ? 700 : 500,
-                      color: s==="röd" ? "#FF3B30" : "#fff",
+                      color: s==="röd" ? "#ff453a" : "#fff",
                       position:"relative",zIndex:1,
                       lineHeight:"36px",
                     }}>{d}</span>
                     {/* Helgdag namn */}
-                    {helgNamn && <span style={{ fontSize:8,color:s==="röd"?"#FF3B30":"#8e8e93",marginTop:1,lineHeight:1.2,maxWidth:44,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{helgNamn}</span>}
+                    {helgNamn && <span style={{ fontSize:8,color:s==="röd"?"#ff453a":"#8e8e93",marginTop:1,lineHeight:1.2,maxWidth:44,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{helgNamn}</span>}
                     {/* Status dot: bekräftad=grön, saknas=orange, + blå punkt för extra tid.
                         Visas även på helgdagar — helgtexten döljer inte pricken. */}
                     {(dotFärg[s]||harExtra)?(
@@ -4827,11 +4838,11 @@ export default function Arbetsrapport() {
                 <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>Extra tid (klicka för tidslinje)</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:20,height:20,border:"2px solid #f5c518",borderRadius:"50%" }} />
+                <div style={{ width:20,height:20,border:"2px solid #ffd60a",borderRadius:"50%" }} />
                 <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>Redigerad</span>
               </div>
               <div style={{ display:"flex",alignItems:"center",gap:16 }}>
-                <div style={{ width:20,height:20,border:"2px solid #adc6ff",borderRadius:"50%" }} />
+                <div style={{ width:20,height:20,border:"2px solid #0a84ff",borderRadius:"50%" }} />
                 <span style={{ fontSize:14,fontWeight:500,color:"#fff" }}>Idag</span>
               </div>
             </div>
@@ -4839,7 +4850,7 @@ export default function Arbetsrapport() {
         </main>
 
         {/* Bottom nav */}
-        <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"12px 16px 24px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"16px 16px 0 0" }}>
+        <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"12px 16px 24px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
           {[
             {icon:"today",label:"Dag",action:()=>setSteg("morgon"),active:false},
             {icon:"calendar_month",label:"Kalender",action:()=>{},active:true},
@@ -4848,7 +4859,7 @@ export default function Arbetsrapport() {
           ].map(n=>(
             <button key={n.label} onClick={n.action} style={{
               display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-              color:n.active?"#adc6ff":"#8e8e93",
+              color:n.active?"#0a84ff":"#8e8e93",
               background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",
             }}>
               <span className="material-symbols-outlined" style={{ fontSize:24,marginBottom:4,fontVariationSettings:n.active?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
