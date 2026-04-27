@@ -525,6 +525,7 @@ export default function Arbetsrapport() {
   const [lönOffset, setLönOffset] = useState(0);
   const [lönVy, setLönVy] = useState<'översikt'|'detaljer'>('översikt');
   const [sparatToast, setSparatToast] = useState(false);
+  const [igårKopierat, setIgårKopierat] = useState(false);
   const [pamOpen, setPamOpen] = useState<null | 'obekraftad' | 'pagaende' | 'dagligTid'>(null);
   const [pushEnhetsNamn, setPushEnhetsNamn] = useState<string | null>(null);
   const [visaÖvrigt, setVisaÖvrigt] = useState(false);
@@ -1510,9 +1511,9 @@ export default function Arbetsrapport() {
             }
             if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
           }}
-            style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",padding:"10px 16px",background:"#0a84ff",border:"none",borderRadius:10,color:"#fff",fontSize:14,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
-            <span className="material-symbols-outlined" style={{ fontSize:18 }}>play_arrow</span>
-            Logga tid
+            style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",padding:"10px 16px",background:"#0a84ff",border:"none",borderRadius:12,color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+            <span className="material-symbols-outlined" style={{ fontSize:18 }}>add</span>
+            Extra arbete
           </button>
         )}
 
@@ -1623,6 +1624,51 @@ export default function Arbetsrapport() {
           </div>
         </section>
         )}
+
+        {/* "Samma som igår" — visas när dagen ännu inte startat och igår var bekräftad
+            med data värd att kopiera (objekt, km eller traktamente). */}
+        {!isWorking && !dagData[idagKey]?.bekraftad && (() => {
+          const igår = historik.find(d => d.datum === igårKey);
+          if (!igår?.bekraftad) return null;
+          const harObjekt = !!igår.objekt_id;
+          const igårKmTot = (igår.km_morgon || 0) + (igår.km_kvall || 0);
+          const harKm = igårKmTot > 0;
+          const harTrak = !!igår.traktamente;
+          if (!harObjekt && !harKm && !harTrak) return null;
+          const igårObjNamn = igår.objekt_id ? (objektLista.find(o => o.id === igår.objekt_id)?.namn || null) : null;
+          const sammanfattning: string[] = [];
+          if (igårObjNamn) sammanfattning.push(igårObjNamn);
+          if (harKm) sammanfattning.push(`${igårKmTot} km`);
+          if (harTrak) sammanfattning.push('traktamente');
+          return (
+            <section style={{ marginBottom:24 }}>
+              <button onClick={() => {
+                if (igår.objekt_id) setValtObjektId(igår.objekt_id);
+                if (igår.km_morgon != null) setKmM({ km: igår.km_morgon });
+                if (igår.km_kvall != null) setKmK({ km: igår.km_kvall });
+                if (igår.traktamente) setTrak({ summa: gsAvtal?.traktamente_hel_kr ?? 300 });
+                setIgårKopierat(true);
+                setTimeout(() => setIgårKopierat(false), 2000);
+                if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(60);
+              }} style={{
+                width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"14px 16px", background:"#1c1c1e",
+                border:"1px solid rgba(255,255,255,0.06)", borderRadius:12,
+                cursor:"pointer", fontFamily:"inherit", textAlign:"left",
+              }}>
+                <div style={{ minWidth:0, flex:1 }}>
+                  <p style={{ margin:0, fontSize:15, fontWeight:600, color:"#fff" }}>
+                    {igårKopierat ? "Använt — redo att bekräfta" : "Samma som igår"}
+                  </p>
+                  {!igårKopierat && (
+                    <p style={{ margin:"3px 0 0", fontSize:13, color:"#8e8e93", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sammanfattning.join(' · ')}</p>
+                  )}
+                </div>
+                <span className="material-symbols-outlined" style={{ fontSize:22, color: igårKopierat ? "#30d158" : "#0a84ff", flexShrink:0, marginLeft:12 }}>{igårKopierat ? "check_circle" : "history"}</span>
+              </button>
+            </section>
+          );
+        })()}
 
         {/* Dagssammanfattning + Bekräfta — när maskin-passet är avslutat,
             eller när det bara finns färdiga extra-aktiviteter för idag. */}
@@ -3137,6 +3183,10 @@ export default function Arbetsrapport() {
     const trakKr = trakDagar * trakHel;
     const redigeringar = Object.entries(redDagar);
 
+    // Lönedelar i kr (totalt beräknas efter helglön nedan). Riktvärde, ej netto.
+    const normalH = Math.min(jobbadH, målH);
+    const grundLönKr = Math.round(normalH * timlon);
+
     const skickaLön = async () => {
       setLönSparar(true);
       setLönFel("");
@@ -3210,6 +3260,8 @@ export default function Arbetsrapport() {
     const sortedWeeks = Object.entries(veckoData).sort(([a],[b]) => Number(a)-Number(b));
     const totalHelglönH = Object.values(veckoData).reduce((a,w)=>a+w.helglönH,0);
     const totalHelglönDagar = Math.round(totalHelglönH/8);
+    const helglönKr = Math.round(totalHelglönH * timlon);
+    const totalLönKr = grundLönKr + övKr + helglönKr + löneErsKr + trakKr;
 
     // Build objekt/maskin aggregation — filtered to current month
     const maskinAgg: Record<string,{namn:string;maskin:string;dagar:number}> = {};
@@ -3444,27 +3496,50 @@ export default function Arbetsrapport() {
         <main style={{ paddingTop:96,paddingBottom:192,padding:"96px 16px 192px",maxWidth:448,margin:"0 auto",width:"100%" }}>
 
           {/* Summary Card */}
-          <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:32 }}>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20 }}>
-              <p style={{ margin:0,fontSize:13,fontWeight:500,color:"#8e8e93" }}>Status</p>
+          {/* Total kronor — föraren ser ungefärlig brutto direkt */}
+          <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:16 }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8 }}>
+              <p style={{ margin:0,fontSize:13,fontWeight:500,color:"#8e8e93" }}>Beräknad lön</p>
               {lönSkickat ? (
                 <span style={{ display:"inline-flex",alignItems:"center",padding:"4px 10px",borderRadius:12,background:"rgba(48,209,88,0.1)",color:C.green,fontSize:13,fontWeight:600,border:"1px solid rgba(48,209,88,0.2)" }}>Skickat</span>
               ) : (
                 <span style={{ display:"inline-flex",alignItems:"center",padding:"4px 10px",borderRadius:12,background:"rgba(255,149,0,0.1)",color:C.orange,fontSize:13,fontWeight:600,border:"1px solid rgba(255,149,0,0.2)" }}>Ej skickat</span>
               )}
             </div>
-            <div style={{ display:"flex",flexDirection:"column",gap:16,paddingTop:8 }}>
+            <p style={{ margin:"0 0 4px",fontSize:36,fontWeight:700,color:"#fff",letterSpacing:"-0.02em" }}>≈ {totalLönKr.toLocaleString('sv-SE')} kr</p>
+            <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>Riktvärde brutto · ej skatt eller avdrag</p>
+          </section>
+
+          {/* Breakdown i kr */}
+          <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:16 }}>
+            <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
+              {[
+                [`Lön (${normalH} tim × ${timlon} kr)`, `${grundLönKr.toLocaleString('sv-SE')} kr`],
+                ...(övH > 0 ? [[`Övertid (${övH} tim)`, `${övKr.toLocaleString('sv-SE')} kr`]] : []),
+                ...(totalHelglönH > 0 ? [[`Helglön (${totalHelglönDagar} dagar)`, `${helglönKr.toLocaleString('sv-SE')} kr`]] : []),
+                ...(löneErsKr > 0 ? [[`Körersättning (${löneErsKm} km)`, `${löneErsKr.toLocaleString('sv-SE')} kr`]] : []),
+                ...(trakKr > 0 ? [[`Traktamente (${trakDagar} dagar)`, `${trakKr.toLocaleString('sv-SE')} kr`]] : []),
+              ].map(([l,v])=>(
+                <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
+                  <span style={{ fontSize:15,color:"#8e8e93" }}>{l}</span>
+                  <span style={{ fontSize:17,fontWeight:600,color:"#fff",fontVariantNumeric:"tabular-nums" }}>{v}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Statistik (timmar/dagar) */}
+          <section style={{ background:"#1c1c1e",borderRadius:12,padding:24,marginBottom:32 }}>
+            <p style={{ margin:"0 0 14px",fontSize:13,fontWeight:500,color:"#8e8e93" }}>Statistik</p>
+            <div style={{ display:"flex",flexDirection:"column",gap:14 }}>
               {[
                 ["Jobbat",`${jobbadH} tim`],
                 ["Mål",`${målH} tim`],
-                ...(övH > 0 ? [["Övertid",`${övH} tim`]] : []),
                 ...(extraTidH > 0 ? [["Extra tid",`${extraTidH} tim`]] : []),
-                ["Traktamente",`${trakDagar} dagar`],
-                ...(totalHelglönH>0?[["Helglön",`${totalHelglönDagar} dagar (${totalHelglönH}h)`]]:[]),
-                ["Körersättning",`${löneErsKr} kr`],
+                ["Total körning",`${totalKm} km`],
               ].map(([l,v])=>(
-                <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <span style={{ fontSize:15,color:"#fff" }}>{l}</span>
+                <div key={l as string} style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline" }}>
+                  <span style={{ fontSize:15,color:"#8e8e93" }}>{l}</span>
                   <span style={{ fontSize:17,fontWeight:600,color:"#fff" }}>{v}</span>
                 </div>
               ))}
