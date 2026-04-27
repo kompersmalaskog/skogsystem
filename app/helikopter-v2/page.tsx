@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useEffect, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import Link from 'next/link'
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -208,23 +209,27 @@ export default function HelikopterV2Page() {
   const [oskotatExpanded, setOskotatExpanded] = useState(false)
   const [selectedBolag, setSelectedBolag] = useState<string | null>(null)
   const [selectedObjekt, setSelectedObjekt] = useState<ObjektRow | null>(null)
+  const [pullDistance, setPullDistance] = useState(0)
+  const [refreshing, setRefreshing] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const touchStartY = useRef<number | null>(null)
 
-  // Fetch data
-  useEffect(() => {
-    async function load() {
-      setLoading(true)
-      try {
-        const [hRes, bRes] = await Promise.all([
-          fetch(`${SUPABASE_URL}/rest/v1/helikopter_vy?select=*`, { headers: HEADERS }),
-          fetch(`${SUPABASE_URL}/rest/v1/bestallningar?select=*&ar=eq.${ar}&manad=eq.${manad}`, { headers: HEADERS }),
-        ])
-        if (hRes.ok) setData(await hRes.json())
-        if (bRes.ok) setBestallningar(await bRes.json())
-      } catch { /* use empty */ }
-      setLoading(false)
-    }
-    load()
+  const load = useCallback(async () => {
+    try {
+      const [hRes, bRes] = await Promise.all([
+        fetch(`${SUPABASE_URL}/rest/v1/helikopter_vy?select=*`, { headers: HEADERS }),
+        fetch(`${SUPABASE_URL}/rest/v1/bestallningar?select=*&ar=eq.${ar}&manad=eq.${manad}`, { headers: HEADERS }),
+      ])
+      if (hRes.ok) setData(await hRes.json())
+      if (bRes.ok) setBestallningar(await bRes.json())
+    } catch { /* use empty */ }
   }, [ar, manad])
+
+  useEffect(() => {
+    setLoading(true)
+    load().finally(() => setLoading(false))
+  }, [load])
 
   const manadAvslutad = useMemo(() => {
     const now = new Date()
@@ -521,7 +526,7 @@ export default function HelikopterV2Page() {
       legend: {
         display: true,
         position: 'top' as const,
-        labels: { color: muted, font: { size: 10 }, boxWidth: 10, padding: 8 },
+        labels: { color: muted, font: { size: 11 }, boxWidth: 10, padding: 8 },
       },
       tooltip: {
         callbacks: {
@@ -531,11 +536,11 @@ export default function HelikopterV2Page() {
     },
     scales: {
       x: {
-        ticks: { color: muted, font: { size: 10 }, maxTicksLimit: 10 },
+        ticks: { color: muted, font: { size: 11 }, maxTicksLimit: 10 },
         grid: { display: false },
       },
       y: {
-        ticks: { color: muted, font: { size: 10 }, callback: (v: any) => `${v}` },
+        ticks: { color: muted, font: { size: 11 }, callback: (v: any) => `${v}` },
         grid: { color: 'rgba(255,255,255,0.04)' },
       },
     },
@@ -609,35 +614,200 @@ export default function HelikopterV2Page() {
     return max
   }, [data])
 
+  const workdaysInfo = useMemo(() => {
+    const totalDays = new Date(ar, manad, 0).getDate()
+    const now = new Date()
+    let total = 0, passed = 0
+    for (let d = 1; d <= totalDays; d++) {
+      const dow = new Date(ar, manad - 1, d).getDay()
+      if (dow !== 0 && dow !== 6) {
+        total++
+        const dayDate = new Date(ar, manad - 1, d)
+        if (dayDate.getTime() <= now.getTime()) passed++
+      }
+    }
+    return { total, passed }
+  }, [ar, manad])
+
+  const totalSkotat = useMemo(() =>
+    manadData.reduce((s, o) => s + (o.skotat_m3 || 0), 0),
+  [manadData])
+
+  const manadsmal = useMemo(() => {
+    const totalBest = slutBest + gallBest
+    if (totalBest === 0) return null
+    const procent = Math.round((totalSkotat / totalBest) * 100)
+    const forvantadProcent = workdaysInfo.total > 0
+      ? Math.round((workdaysInfo.passed / workdaysInfo.total) * 100)
+      : 0
+    const onTrack = procent >= forvantadProcent
+    return { procent, forvantadProcent, onTrack }
+  }, [slutBest, gallBest, totalSkotat, workdaysInfo])
+
+  const prognosManad = useMemo(() => {
+    if (workdaysInfo.passed === 0 || workdaysInfo.total === 0) return null
+    const skotareRate = totalSkotat / workdaysInfo.passed
+    const prognos = Math.round(skotareRate * workdaysInfo.total)
+    const totalBest = slutBest + gallBest
+    const prognosProcent = totalBest > 0 ? Math.round((prognos / totalBest) * 100) : null
+    return { prognos, prognosProcent }
+  }, [totalSkotat, slutBest, gallBest, workdaysInfo])
+
+  const veckoSammanfattning = useMemo(() => {
+    const now = new Date()
+    if (now.getDay() !== 1) return null
+    const lastMonday = new Date(now)
+    lastMonday.setDate(now.getDate() - 7)
+    const lastSunday = new Date(now)
+    lastSunday.setDate(now.getDate() - 1)
+    const fromStr = lastMonday.toISOString().slice(0, 10)
+    const toStr = lastSunday.toISOString().slice(0, 10)
+    let weekSkordat = 0, weekSkotat = 0
+    for (const o of data) {
+      if (o.skordare_klar && o.skordare_klar >= fromStr && o.skordare_klar <= toStr) {
+        weekSkordat += o.skordat_m3 || 0
+      }
+      if (o.skotare_start && o.skotare_start >= fromStr && o.skotare_start <= toStr) {
+        weekSkotat += o.skotat_m3 || 0
+      }
+    }
+    const totalBest = slutBest + gallBest
+    const procent = totalBest > 0 ? Math.round((weekSkotat / totalBest) * 100) : null
+    return { weekSkordat: Math.round(weekSkordat), weekSkotat: Math.round(weekSkotat), procent }
+  }, [data, slutBest, gallBest])
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    if (scrollRef.current && scrollRef.current.scrollTop === 0) {
+      touchStartY.current = e.touches[0].clientY
+    } else {
+      touchStartY.current = null
+    }
+  }
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    if (touchStartY.current === null) return
+    if (scrollRef.current && scrollRef.current.scrollTop > 0) {
+      touchStartY.current = null
+      setPullDistance(0)
+      return
+    }
+    const dist = e.touches[0].clientY - touchStartY.current
+    if (dist > 0) setPullDistance(Math.min(120, dist * 0.5))
+  }
+
+  const onTouchEnd = async () => {
+    if (pullDistance > 60 && !refreshing) {
+      setRefreshing(true)
+      setPullDistance(50)
+      await load()
+      setRefreshing(false)
+    }
+    setPullDistance(0)
+    touchStartY.current = null
+  }
+
+  const buildCsv = () => {
+    const header = ['Objekt', 'VO-nummer', 'Bolag', 'Huvudtyp', 'Skogsägare', 'Inköpare', 'Skördat_m3fub', 'Skotat_m3fub', 'Oskotat_m3fub', 'Skördare_klar', 'Skotare_start']
+    const escape = (v: any) => {
+      const s = v == null ? '' : String(v)
+      return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+    }
+    const rows = manadData.map(o => [
+      o.object_name || o.objekt_id, o.vo_nummer || '', normalizeBolag(o.bolag),
+      o.huvudtyp || '', o.skogsagare || '', o.inkopare || '',
+      Math.round(o.skordat_m3 || 0), Math.round(o.skotat_m3 || 0), Math.round(o.oskotat_m3 || 0),
+      o.skordare_klar || '', o.skotare_start || '',
+    ].map(escape).join(';'))
+    return [header.join(';'), ...rows].join('\n')
+  }
+
+  const exportCsv = () => {
+    const csv = buildCsv()
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `helikopter-${ar}-${String(manad).padStart(2, '0')}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+    setExportOpen(false)
+  }
+
+  const sharaSammanfattning = async () => {
+    const totalBest = slutBest + gallBest
+    const proc = manadsmal ? `${manadsmal.procent}% av månadens beställning (förväntat ${manadsmal.forvantadProcent}%)` : 'Ingen beställning satt'
+    const text = `Helikopter — ${MANAD[manad]} ${ar}\n${proc}\nSkördat: ${Math.round(kpi.skordat).toLocaleString()} m³fub\nSkotat: ${Math.round(kpi.skotat).toLocaleString()} m³fub\nOskotat: ${Math.round(kpi.oskotat).toLocaleString()} m³fub`
+    const navAny = navigator as any
+    if (navAny.share) {
+      try { await navAny.share({ title: `Helikopter ${MANAD[manad]} ${ar}`, text }) } catch { /* avbruten */ }
+    } else {
+      try { await navigator.clipboard.writeText(text); alert('Kopierat till urklipp') } catch { alert(text) }
+    }
+    setExportOpen(false)
+  }
+
   // ============================================================
   // Render
   // ============================================================
 
   return (
-    <div style={{
-      position: 'fixed', top: 56, left: 0, right: 0, bottom: 0,
-      background: bg, color: text, fontFamily: ff,
-      WebkitFontSmoothing: 'antialiased', overflowY: 'auto',
-    }}>
+    <div
+      ref={scrollRef}
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      style={{
+        position: 'fixed', top: 56, left: 0, right: 0, bottom: 0,
+        background: bg, color: text, fontFamily: ff,
+        WebkitFontSmoothing: 'antialiased', overflowY: 'auto',
+      }}
+    >
+      {(pullDistance > 0 || refreshing) && (
+        <div style={{
+          height: pullDistance, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: muted, fontSize: 13, transition: refreshing ? 'height 0.2s' : 'none',
+        }}>
+          {refreshing ? 'Uppdaterar…' : pullDistance > 60 ? 'Släpp för att uppdatera' : 'Dra ned för att uppdatera'}
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ padding: '32px 24px 0' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-          <button onClick={() => bytManad('prev')} style={{
-            width: 44, height: 44, borderRadius: 22, background: 'transparent',
-            border: `1px solid ${divider}`, color: muted,
-            fontSize: 20, cursor: 'pointer', fontFamily: ff,
-          }}>&#8249;</button>
+        <div style={{
+          display: 'grid', gridTemplateColumns: '92px 1fr 92px',
+          alignItems: 'center', marginBottom: 28,
+        }}>
+          <div>
+            <button onClick={() => bytManad('prev')} style={{
+              width: 44, height: 44, borderRadius: 22, background: 'transparent',
+              border: `1px solid ${divider}`, color: muted,
+              fontSize: 22, cursor: 'pointer', fontFamily: ff,
+            }}>&#8249;</button>
+          </div>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 28, fontWeight: 700 }}>{MANAD[manad]} {ar}</div>
             <div style={{ fontSize: 13, color: muted, marginTop: 2 }}>
               {manadAvslutad ? 'Avslutad' : `${kvarDagar} arbetsdagar kvar`}
             </div>
           </div>
-          <button onClick={() => bytManad('next')} style={{
-            width: 44, height: 44, borderRadius: 22, background: 'transparent',
-            border: `1px solid ${divider}`, color: muted,
-            fontSize: 20, cursor: 'pointer', fontFamily: ff,
-          }}>&#8250;</button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+            <button onClick={() => bytManad('next')} style={{
+              width: 44, height: 44, borderRadius: 22, background: 'transparent',
+              border: `1px solid ${divider}`, color: muted,
+              fontSize: 22, cursor: 'pointer', fontFamily: ff,
+            }}>&#8250;</button>
+            <button
+              onClick={() => setExportOpen(true)}
+              style={{
+                width: 44, height: 44, borderRadius: 22, background: 'transparent',
+                border: `1px solid ${divider}`, color: muted,
+                fontSize: 17, cursor: 'pointer', fontFamily: ff,
+              }}
+              aria-label="Exportera"
+            >&#x2BAD;</button>
+          </div>
         </div>
       </div>
 
@@ -647,6 +817,47 @@ export default function HelikopterV2Page() {
 
       {!loading && (
         <div style={{ padding: '0 24px 120px' }}>
+          {/* Procent månadsmål — primärt tal */}
+          {manadsmal && (
+            <div style={{ textAlign: 'center', padding: '8px 0 28px' }}>
+              <div style={{
+                fontSize: 64, fontWeight: 700, lineHeight: 1,
+                color: manadsmal.onTrack ? '#30d158' : '#ff453a',
+                fontVariantNumeric: 'tabular-nums',
+              }}>
+                {manadsmal.procent}%
+              </div>
+              <div style={{ fontSize: 13, color: muted, marginTop: 8 }}>
+                av månadens beställning · förväntat {manadsmal.forvantadProcent}%
+              </div>
+            </div>
+          )}
+          {!manadsmal && !manadAvslutad && (
+            <div style={{ textAlign: 'center', padding: '8px 0 28px', color: muted, fontSize: 13 }}>
+              Beställning ej satt
+            </div>
+          )}
+
+          {/* Veckosammanfattning (bara måndagar) */}
+          {veckoSammanfattning && (
+            <div style={{ ...card, marginBottom: 20 }}>
+              <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>Förra veckan</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 12 }}>
+                <div style={{ fontSize: 13, color: muted }}>
+                  Skördat <span style={{ fontSize: 17, color: text, fontWeight: 600, marginLeft: 4 }}>{veckoSammanfattning.weekSkordat.toLocaleString()}</span> m³fub
+                </div>
+                <div style={{ fontSize: 13, color: muted }}>
+                  Skotat <span style={{ fontSize: 17, color: text, fontWeight: 600, marginLeft: 4 }}>{veckoSammanfattning.weekSkotat.toLocaleString()}</span> m³fub
+                </div>
+                {veckoSammanfattning.procent !== null && (
+                  <div style={{ fontSize: 13, color: muted }}>
+                    <span style={{ fontSize: 17, color: text, fontWeight: 600, marginRight: 4 }}>{veckoSammanfattning.procent}%</span> av månadsmål
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ============================================================ */}
           {/* Section 1: KPI-kort */}
           {/* ============================================================ */}
@@ -737,6 +948,14 @@ export default function HelikopterV2Page() {
             <div style={{ height: 280 }}>
               <Line data={chartData} options={chartOptions} plugins={[todayLinePlugin]} />
             </div>
+            {prognosManad && (
+              <div style={{ fontSize: 13, color: muted, marginTop: 12, textAlign: 'center' }}>
+                I nuvarande takt landar månaden på <span style={{ color: text, fontWeight: 600 }}>{prognosManad.prognos.toLocaleString()}</span> m³fub
+                {prognosManad.prognosProcent !== null && (
+                  <> (<span style={{ color: text, fontWeight: 600 }}>{prognosManad.prognosProcent}%</span> av beställning)</>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ============================================================ */}
@@ -820,11 +1039,15 @@ export default function HelikopterV2Page() {
               </div>
 
               {dagsmal.rows.map((row, i) => (
-                <div key={i} style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '10px 0',
-                  borderBottom: i < dagsmal.rows.length - 1 ? `1px solid ${divider}` : 'none',
-                }}>
+                <Link
+                  key={i}
+                  href="/maskinvy"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 0', textDecoration: 'none', color: 'inherit',
+                    borderBottom: i < dagsmal.rows.length - 1 ? `1px solid ${divider}` : 'none',
+                  }}
+                >
                   <span style={{ fontSize: 13, color: muted }}>{row.label}</span>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                     <span style={{ fontSize: 13, color: muted }}>
@@ -834,7 +1057,7 @@ export default function HelikopterV2Page() {
                       {Math.round(row.perDag)} m³fub/d
                     </span>
                   </div>
-                </div>
+                </Link>
               ))}
             </div>
           )}
@@ -918,6 +1141,36 @@ export default function HelikopterV2Page() {
               </div>
             ))}
           </div>
+        </Sheet>
+      )}
+
+      {exportOpen && (
+        <Sheet title="Exportera" onClose={() => setExportOpen(false)}>
+          <button
+            onClick={exportCsv}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              width: '100%', minHeight: 56, padding: '12px 0',
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: text, fontFamily: ff, fontSize: 17, textAlign: 'left',
+              borderBottom: `1px solid ${divider}`,
+            }}
+          >
+            <span>Ladda ner CSV</span>
+            <span style={{ fontSize: 13, color: muted }}>{`${ar}-${String(manad).padStart(2, '0')}.csv`}</span>
+          </button>
+          <button
+            onClick={sharaSammanfattning}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              width: '100%', minHeight: 56, padding: '12px 0',
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: text, fontFamily: ff, fontSize: 17, textAlign: 'left',
+            }}
+          >
+            <span>Dela sammanfattning</span>
+            <span style={{ fontSize: 13, color: muted }}>iOS Share / kopiera</span>
+          </button>
         </Sheet>
       )}
     </div>
