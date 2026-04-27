@@ -1690,6 +1690,27 @@ export default function PlannerPage() {
   const [gpsMapPosition, setGpsMapPosition] = useState<Point>({ x: 200, y: 300 }); // Var på kartan GPS-punkten är
   const [gpsPosition, setGpsPosition] = useState<{lat: number, lng: number} | null>(null); // GPS lat/lng
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null); // GPS accuracy i meter
+
+  // === PASSIV GPS-WATCHER (sätter currentPosition automatiskt vid mount) ===
+  // Befintliga toggleTracking/startGpsTracking startar SINA EGNA watchers för
+  // körspår-inspelning — denna är bara för passiv positionsuppdatering så att
+  // GPS-pricken, Körvy och proximity-systemet alltid har en position att jobba med.
+  // Matchar /gps-test-mönstret som bevisat fungerar på telefon.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return;
+    const id = navigator.geolocation.watchPosition(
+      (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        setCurrentPosition({ lat, lon } as any);
+        setGpsPosition({ lat, lng: lon });
+        setGpsAccuracy(pos.coords.accuracy);
+      },
+      (err) => console.warn('[GPS passiv]', err.code, err.message),
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+    );
+    return () => { try { navigator.geolocation.clearWatch(id); } catch {} };
+  }, []);
   const [trackingPath, setTrackingPath] = useState<Point[]>([]);
   const [gpsLineType, setGpsLineType] = useState<string | null>(null); // Vilken linjetyp som spåras
   const gpsLineTypeRef = useRef<string | null>(null); // Ref för callback
