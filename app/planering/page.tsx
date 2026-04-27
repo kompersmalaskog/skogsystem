@@ -1089,6 +1089,34 @@ export default function PlannerPage() {
       } catch (e) {
         console.error('[MapLibre] markers-layer error:', e);
       }
+      // KÖRVY-labels: typ + avstånd under markeringar inom 200m. Default dold (filter nearby=true).
+      try {
+        map.addLayer({
+          id: 'markers-korvy-label',
+          type: 'symbol',
+          source: 'markers-source',
+          filter: ['==', ['get', 'nearby'], true],
+          layout: {
+            'text-field': ['concat', ['get', 'type'], '\n', ['get', 'dist'], ' m'],
+            'text-size': 13,
+            'text-offset': [0, 1.6],
+            'text-anchor': 'top',
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+            'text-pitch-alignment': 'viewport',
+            'text-rotation-alignment': 'viewport',
+            'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+            'visibility': 'none',
+          },
+          paint: {
+            'text-color': '#ffffff',
+            'text-halo-color': 'rgba(0,0,0,0.85)',
+            'text-halo-width': 1.4,
+          },
+        });
+      } catch (e) {
+        console.error('[MapLibre] markers-korvy-label error:', e);
+      }
     });
 
     setMapLibreReady(true);
@@ -1863,6 +1891,11 @@ export default function PlannerPage() {
   // Kompass-rotation
   const [compassMode, setCompassMode] = useState(false);
   const [deviceHeading, setDeviceHeading] = useState(0);
+
+  // === KÖRVY (3D-förarläge, MapLibre custom camera) ===
+  const [korvyActive, setKorvyActive] = useState(false);
+  const [korvyBlinkOn, setKorvyBlinkOn] = useState(true);
+  const korvyPrevCameraRef = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
   const lastHeadingRef = useRef(0); // För smooth rotation
   
   // Zoom funktioner - delegerar till MapLibre
@@ -4868,6 +4901,7 @@ export default function PlannerPage() {
         console.log(`[Proximity] tick=${proximityTick}, symbols=${symbolMarkers.length}, userPos=${userPos ? `(${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)})` : 'NULL'}, showAll=${warningShowAll}, gps=${gpsPosition ? 'SET' : 'null'}, sim=${simulatedPos ? 'SET' : 'null'}`);
       }
       let minOp = 1, maxOp = 0;
+      const korvyPos = korvyActive ? (currentPosition as any) : null;
       symbolMarkers.forEach(m => {
         const ll = svgToLatLon(m.x, m.y);
         let opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id }, m);
@@ -4879,11 +4913,26 @@ export default function PlannerPage() {
         if (checklistMapView && briefingHighlightId) {
           opacity = m.id === briefingHighlightId ? 1 : 0.3;
         }
+        // KÖRVY: beräkna avstånd, flagga nearby (≤200m) och pulse (≤50m blink)
+        let dist: number | null = null;
+        let nearby = false;
+        let pulse = false;
+        if (korvyPos && korvyPos.lat != null && korvyPos.lon != null) {
+          dist = Math.round(haversineM(korvyPos.lat, korvyPos.lon, ll.lat, ll.lon));
+          if (dist <= 200) {
+            nearby = true;
+            opacity = 1; // Körvy: alltid full opacity inom 200m
+          }
+          if (dist <= 50) {
+            pulse = korvyBlinkOn; // alterneras 600ms — när false → ej pulse → fall till nearby
+            if (!korvyBlinkOn) opacity = 0.55; // blink-effekt via opacity
+          }
+        }
         if (opacity < minOp) minOp = opacity;
         if (opacity > maxOp) maxOp = opacity;
         features.push({
           type: 'Feature',
-          properties: { type: m.type || 'default', id: m.id, opacity },
+          properties: { type: m.type || 'default', id: m.id, opacity, dist, nearby, pulse },
           geometry: { type: 'Point', coordinates: [ll.lon, ll.lat] },
         });
       });
@@ -4897,7 +4946,95 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId, checklistMapView]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyBlinkOn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // === KÖRVY (3D-förarvy) effekter ===
+  // 1) Camera setup när korvyActive togglas: spara nuvarande kamera, sätt 3D-perspektiv. Avsluta → restore.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    if (korvyActive) {
+      if (!korvyPrevCameraRef.current) {
+        const c = map.getCenter();
+        korvyPrevCameraRef.current = {
+          center: [c.lng, c.lat],
+          zoom: map.getZoom(),
+          bearing: map.getBearing(),
+          pitch: map.getPitch(),
+        };
+      }
+      const pos = currentPosition as any;
+      const targetCenter: [number, number] = pos && pos.lon != null && pos.lat != null
+        ? [pos.lon, pos.lat]
+        : [map.getCenter().lng, map.getCenter().lat];
+      map.easeTo({
+        center: targetCenter,
+        zoom: 18,
+        pitch: 78,
+        bearing: deviceHeading || 0,
+        duration: 800,
+      });
+    } else if (korvyPrevCameraRef.current) {
+      const prev = korvyPrevCameraRef.current;
+      map.easeTo({ center: prev.center, zoom: prev.zoom, bearing: prev.bearing, pitch: prev.pitch, duration: 800 });
+      korvyPrevCameraRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [korvyActive, mapLibreReady]);
+
+  // 2) GPS-following + heading när korvyActive (mjuk easing per uppdatering)
+  useEffect(() => {
+    if (!korvyActive) return;
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const pos = currentPosition as any;
+    if (!pos || pos.lon == null || pos.lat == null) return;
+    map.easeTo({
+      center: [pos.lon, pos.lat],
+      bearing: deviceHeading || 0,
+      duration: 500,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition, deviceHeading, korvyActive]);
+
+  // 3) Större ikoner i Körvy via icon-size paint expression
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    if (!map.getLayer('markers-layer')) return;
+    const baseSize: any = ['interpolate', ['linear'], ['zoom'], 10, 0.15, 12, 0.2, 13, 0.3, 14, 0.4, 15, 0.5, 16, 0.6, 17, 0.75, 19, 1.0];
+    try {
+      if (korvyActive) {
+        // Pulse: 50m → 1.4x, Nearby: 200m → 1.0x, övrigt → baseSize
+        map.setLayoutProperty('markers-layer', 'icon-size', [
+          'case',
+          ['==', ['get', 'pulse'], true], 1.4,
+          ['==', ['get', 'nearby'], true], 1.0,
+          baseSize,
+        ] as any);
+      } else {
+        map.setLayoutProperty('markers-layer', 'icon-size', baseSize);
+      }
+    } catch { /* layer not ready */ }
+  }, [korvyActive, mapLibreReady]);
+
+  // 4) Pulse-blink för markers inom 50m: alterneras flag var 600ms
+  useEffect(() => {
+    if (!korvyActive) { setKorvyBlinkOn(true); return; }
+    const t = setInterval(() => setKorvyBlinkOn(b => !b), 600);
+    return () => clearInterval(t);
+  }, [korvyActive]);
+
+  // 5) Visa/dölj Körvy-labels (typ + avstånd) på markeringar inom 200m
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    try {
+      if (map.getLayer('markers-korvy-label')) {
+        map.setLayoutProperty('markers-korvy-label', 'visibility', korvyActive ? 'visible' : 'none');
+      }
+    } catch { /* layer not ready */ }
+  }, [korvyActive, mapLibreReady]);
 
   // 2c) Visa/dölj markers-layer beroende på visibleLayers.symbols
   useEffect(() => {
@@ -7609,6 +7746,10 @@ export default function PlannerPage() {
       label: 'Mäter',
       onExit: () => setIsMeasuring(false),
       exitLabel: 'Avsluta',
+    } : korvyActive ? {
+      label: 'Körvy',
+      onExit: () => setKorvyActive(false),
+      exitLabel: 'Avsluta',
     } : (skotningDrawing && !skotningPanel) ? {
       label: 'Ny produktionshög',
       onExit: () => {
@@ -7921,6 +8062,7 @@ export default function PlannerPage() {
                   { label: 'Zoner', icon: 'crop_square', action: () => { setActiveCategory('zones'); setMenuOpen(true); } },
                   { label: 'Pilar', icon: 'arrow_outward', action: () => { setActiveCategory('arrows'); setMenuOpen(true); } },
                   { label: 'Mätning', icon: 'straighten', action: () => { setActiveCategory('measure'); setMenuOpen(true); } },
+                  { label: 'Körvy', icon: 'navigation', action: () => { setKorvyActive(true); } },
                   { label: 'Skotning', icon: 'local_shipping', action: () => { setActiveCategory('skotning'); setMenuOpen(true); } },
                   { label: 'Ny produktionshög', icon: 'edit', action: () => {
                     const map = mapInstanceRef.current;
