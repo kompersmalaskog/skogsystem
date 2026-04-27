@@ -1116,52 +1116,6 @@ export default function PlannerPage() {
       } catch (e) {
         console.error('[MapLibre] markers-layer error:', e);
       }
-      // === GPS-PRICK: source + 3 circle-layers (halo/ring/dot) — alltid överst ===
-      try {
-        map.addSource('gps-position', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-        // Halo (pulsar via raf-loop som muterar circle-radius/opacity)
-        map.addLayer({
-          id: 'gps-halo',
-          type: 'circle',
-          source: 'gps-position',
-          paint: {
-            'circle-radius': 20,
-            'circle-color': '#0a84ff',
-            'circle-opacity': 0.4,
-            'circle-pitch-alignment': 'viewport',
-            'circle-pitch-scale': 'viewport',
-          },
-        });
-        // Vit ring (kontrast mot mörk karta)
-        map.addLayer({
-          id: 'gps-ring',
-          type: 'circle',
-          source: 'gps-position',
-          paint: {
-            'circle-radius': 11,
-            'circle-color': '#ffffff',
-            'circle-opacity': 1,
-            'circle-pitch-alignment': 'viewport',
-            'circle-pitch-scale': 'viewport',
-          },
-        });
-        // Blå dot
-        map.addLayer({
-          id: 'gps-dot',
-          type: 'circle',
-          source: 'gps-position',
-          paint: {
-            'circle-radius': 8,
-            'circle-color': '#0a84ff',
-            'circle-opacity': 1,
-            'circle-pitch-alignment': 'viewport',
-            'circle-pitch-scale': 'viewport',
-          },
-        });
-        console.log('[MapLibre] gps-position source + 3 layers added');
-      } catch (e) {
-        console.error('[MapLibre] gps-position layers error:', e);
-      }
       // KÖRVY-labels: typ + avstånd under markeringar inom 200m. Default dold (filter nearby=true).
       try {
         map.addLayer({
@@ -1189,6 +1143,48 @@ export default function PlannerPage() {
         });
       } catch (e) {
         console.error('[MapLibre] markers-korvy-label error:', e);
+      }
+
+      // === GPS-PRICK: ALLRA SIST så de hamnar överst i layer-stacken ===
+      // Matchar exakt /gps-test-mönstret som bevisat funkar.
+      try {
+        map.addSource('gps-position', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({
+          id: 'gps-halo',
+          type: 'circle',
+          source: 'gps-position',
+          paint: {
+            'circle-radius': 22,
+            'circle-color': '#0a84ff',
+            'circle-opacity': 0.4,
+            'circle-pitch-alignment': 'viewport',
+          },
+        });
+        map.addLayer({
+          id: 'gps-ring',
+          type: 'circle',
+          source: 'gps-position',
+          paint: {
+            'circle-radius': 11,
+            'circle-color': '#ffffff',
+            'circle-opacity': 1,
+            'circle-pitch-alignment': 'viewport',
+          },
+        });
+        map.addLayer({
+          id: 'gps-dot',
+          type: 'circle',
+          source: 'gps-position',
+          paint: {
+            'circle-radius': 8,
+            'circle-color': '#0a84ff',
+            'circle-opacity': 1,
+            'circle-pitch-alignment': 'viewport',
+          },
+        });
+        console.log('[MapLibre] gps-position source + 3 layers added (sist i handleMapReady)');
+      } catch (e) {
+        console.error('[MapLibre] gps-position layers error:', e);
       }
     });
 
@@ -5269,24 +5265,7 @@ export default function PlannerPage() {
     }
   }, [currentPosition, mapLibreReady]);
 
-  // GPS-layers ska alltid renderas sist (ovanpå allt). moveLayer utan beforeId flyttar längst upp.
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady) return;
-    const lift = () => {
-      try {
-        if (map.getLayer('gps-halo')) map.moveLayer('gps-halo');
-        if (map.getLayer('gps-ring')) map.moveLayer('gps-ring');
-        if (map.getLayer('gps-dot')) map.moveLayer('gps-dot');
-      } catch { /* layer not ready */ }
-    };
-    lift();
-    // Vid styledata-ändringar kan layer-ordning återställas — lyft då igen
-    map.on('styledata', lift);
-    return () => { try { map.off('styledata', lift); } catch {} };
-  }, [mapLibreReady]);
-
-  // Pulse-animation för gps-halo (radie 20→45 + opacity 0.45→0, 2s loop)
+  // Pulse-animation för gps-halo (radie 22→50 + opacity 0.4→0, 2s loop)
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -5294,8 +5273,8 @@ export default function PlannerPage() {
     let start = performance.now();
     const tick = (now: number) => {
       const t = ((now - start) % 2000) / 2000;
-      const radius = 20 + t * 25;
-      const opacity = 0.45 * (1 - t);
+      const radius = 22 + t * 28;
+      const opacity = 0.4 * (1 - t);
       try {
         if (map.getLayer('gps-halo')) {
           map.setPaintProperty('gps-halo', 'circle-radius', radius);
