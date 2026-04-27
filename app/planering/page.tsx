@@ -1935,6 +1935,11 @@ export default function PlannerPage() {
   const [korvyAcuteWarning, setKorvyAcuteWarning] = useState<AcuteWarning | null>(null);
   const korvyTriggeredIdsRef = useRef<Set<string>>(new Set());
   const korvyAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Long-press på centrera-knappen: kort tryck = GPS, långt tryck (500ms) = objekt
+  const centreLongPressRef = useRef<NodeJS.Timeout | null>(null);
+  const centreLongPressFiredRef = useRef(false);
+  // GPS-prick MapLibre marker (Apple Maps-stil pulsande blå punkt)
+  const gpsDotMarkerRef = useRef<any>(null);
   const lastHeadingRef = useRef(0); // För smooth rotation
   
   // Zoom funktioner - delegerar till MapLibre
@@ -5196,6 +5201,62 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [korvyNextItems, korvyActive]);
 
+  // === GPS-PRICK på kartan (Apple Maps-stil pulsande blå punkt) ===
+  // Skapar en MapLibre HTML-Marker första gången currentPosition finns; därefter bara updates lngLat.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    const pos = currentPosition as any;
+    if (!pos || pos.lat == null || pos.lon == null) {
+      // Ingen position → ta bort befintlig marker om någon
+      if (gpsDotMarkerRef.current) {
+        try { gpsDotMarkerRef.current.remove(); } catch {}
+        gpsDotMarkerRef.current = null;
+      }
+      return;
+    }
+    if (gpsDotMarkerRef.current) {
+      try { gpsDotMarkerRef.current.setLngLat([pos.lon, pos.lat]); } catch {}
+      return;
+    }
+    // Skapa marker (engångsskapning, sen bara setLngLat)
+    let cancelled = false;
+    import('maplibre-gl').then((maplibregl) => {
+      if (cancelled) return;
+      const MarkerClass = maplibregl.Marker;
+      if (!MarkerClass) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'gps-dot-wrap';
+      wrap.setAttribute('aria-label', 'Din GPS-position');
+      const pulse = document.createElement('div');
+      pulse.className = 'gps-dot-pulse';
+      const core = document.createElement('div');
+      core.className = 'gps-dot-core';
+      wrap.appendChild(pulse);
+      wrap.appendChild(core);
+      try {
+        const m = new MarkerClass({ element: wrap, anchor: 'center', pitchAlignment: 'map', rotationAlignment: 'map' as any })
+          .setLngLat([pos.lon, pos.lat])
+          .addTo(map);
+        gpsDotMarkerRef.current = m;
+      } catch (e) {
+        console.error('[GPS-prick] marker creation failed:', e);
+      }
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPosition, mapLibreReady]);
+
+  // Ta bort GPS-prick när komponenten unmountas
+  useEffect(() => {
+    return () => {
+      if (gpsDotMarkerRef.current) {
+        try { gpsDotMarkerRef.current.remove(); } catch {}
+        gpsDotMarkerRef.current = null;
+      }
+    };
+  }, []);
+
   // 9b) Stoppa eventuell pågående audio när Körvy avslutas
   useEffect(() => {
     if (!korvyActive && korvyAudioRef.current) {
@@ -7981,7 +8042,7 @@ export default function PlannerPage() {
       WebkitTouchCallout: 'none',
       WebkitTapHighlightColor: 'transparent',
     }}>
-      {/* === APPLE PRESS-FEEDBACK (alla knappar med .press-scale, .press-row, .press-dim, .btn-press) === */}
+      {/* === APPLE PRESS-FEEDBACK + GPS-PRICK CSS === */}
       <style>{`
         .press-scale { transition: transform 0.12s cubic-bezier(0.32, 0.72, 0, 1); }
         .press-scale:active { transform: scale(0.94); }
@@ -7990,6 +8051,27 @@ export default function PlannerPage() {
         .press-dim:active { filter: brightness(0.88); }
         .btn-press { transition: transform 0.1s ease; }
         .btn-press:active { transform: scale(0.96); }
+        /* Apple Maps-stil pulsande blå GPS-prick */
+        .gps-dot-wrap { position: relative; width: 18px; height: 18px; }
+        .gps-dot-core {
+          position: absolute; inset: 0;
+          width: 18px; height: 18px;
+          border-radius: 50%;
+          background: #0a84ff;
+          border: 3px solid #fff;
+          box-shadow: 0 0 4px rgba(0,0,0,0.4);
+        }
+        .gps-dot-pulse {
+          position: absolute; inset: 0;
+          width: 18px; height: 18px;
+          border-radius: 50%;
+          background: rgba(10,132,255,0.4);
+          animation: gpsDotPulse 2s ease-out infinite;
+        }
+        @keyframes gpsDotPulse {
+          0%   { transform: scale(1);   opacity: 0.9; }
+          100% { transform: scale(3.5); opacity: 0; }
+        }
       `}</style>
 
       {/* === MINIMAL HEADER === */}
@@ -9391,23 +9473,64 @@ export default function PlannerPage() {
         </div>
       )}
 
-      {/* === CENTRERA-KNAPP (centrerar kartan på objektet, ovanför plus) — döljs när volym-panelen eller Körvy är öppna */}
+      {/* === CENTRERA-KNAPP — kort tryck: GPS, långt tryck (500ms): objekt. Döljs i Körvy/volym/briefing. */}
       {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && !korvyActive && (
         <button
           type="button"
-          onClick={() => {
-            if (navigator.vibrate) navigator.vibrate(15);
+          onPointerDown={() => {
+            centreLongPressFiredRef.current = false;
+            centreLongPressRef.current = setTimeout(() => {
+              centreLongPressFiredRef.current = true;
+              const map = mapInstanceRef.current;
+              if (map && valtObjekt && valtObjekt.lat && valtObjekt.lng) {
+                map.flyTo({
+                  center: [valtObjekt.lng, valtObjekt.lat],
+                  zoom: Math.max(map.getZoom(), 14),
+                  duration: 600,
+                });
+              }
+              if (navigator.vibrate) navigator.vibrate([15, 60, 25]);
+            }, 500);
+          }}
+          onPointerUp={() => {
+            if (centreLongPressRef.current) {
+              clearTimeout(centreLongPressRef.current);
+              centreLongPressRef.current = null;
+            }
+            if (centreLongPressFiredRef.current) return; // long press redan firad
+            // Kort tryck → centrera på GPS-position
             const map = mapInstanceRef.current;
-            if (!map || !valtObjekt) return;
-            if (valtObjekt.lat && valtObjekt.lng) {
+            const pos = currentPosition as any;
+            if (map && pos && pos.lat != null && pos.lon != null) {
+              map.flyTo({
+                center: [pos.lon, pos.lat],
+                zoom: Math.max(map.getZoom(), 16),
+                duration: 600,
+              });
+              if (navigator.vibrate) navigator.vibrate(15);
+            } else if (map && valtObjekt && valtObjekt.lat && valtObjekt.lng) {
+              // Fallback om GPS saknas: centrera på objekt
               map.flyTo({
                 center: [valtObjekt.lng, valtObjekt.lat],
                 zoom: Math.max(map.getZoom(), 14),
                 duration: 600,
               });
+              if (navigator.vibrate) navigator.vibrate(15);
             }
           }}
-          aria-label="Centrera kartan på objektet"
+          onPointerLeave={() => {
+            if (centreLongPressRef.current) {
+              clearTimeout(centreLongPressRef.current);
+              centreLongPressRef.current = null;
+            }
+          }}
+          onPointerCancel={() => {
+            if (centreLongPressRef.current) {
+              clearTimeout(centreLongPressRef.current);
+              centreLongPressRef.current = null;
+            }
+          }}
+          aria-label="Kort tryck centrera på GPS, långt tryck centrera på objektet"
           className="press-scale"
           style={{
             position: 'fixed',
@@ -9425,7 +9548,6 @@ export default function PlannerPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-
             zIndex: 200,
           }}
         >
