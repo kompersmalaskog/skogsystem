@@ -104,7 +104,12 @@ function colorForType(type?: string): string {
   return '#8e8e93'
 }
 
-// === Höjd-färgramp (cachas globalt) ===
+// === Konstanter ===
+// verticalExaggeration skalar terrängen visuellt men INTE entiteters
+// absolutpositioner. Vi multiplicerar därför entitet-höjder manuellt.
+const VERTICAL_EXAG = 2.5
+
+// === Höjd-färgramp — svensk skog (grönt/brunt, inte Mars) ===
 let _rampCache: HTMLCanvasElement | null = null
 function getElevationRamp(): HTMLCanvasElement {
   if (_rampCache) return _rampCache
@@ -113,12 +118,12 @@ function getElevationRamp(): HTMLCanvasElement {
   canvas.height = 1
   const ctx = canvas.getContext('2d')!
   const grad = ctx.createLinearGradient(0, 0, 256, 0)
-  grad.addColorStop(0.00, '#0a2438')
-  grad.addColorStop(0.20, '#1a4830')
-  grad.addColorStop(0.45, '#3a6028')
-  grad.addColorStop(0.70, '#a08850')
-  grad.addColorStop(0.90, '#c44a30')
-  grad.addColorStop(1.00, '#ff8855')
+  grad.addColorStop(0.00, '#0a2010')   // mörk dal
+  grad.addColorStop(0.20, '#1a3a20')   // mörk skogsgrön (lågt/platt)
+  grad.addColorStop(0.45, '#3a5a28')   // olivgrön (medel)
+  grad.addColorStop(0.70, '#6a7a40')   // ljusgrön/brun (högt)
+  grad.addColorStop(0.90, '#8a8a7a')   // grå (mycket högt)
+  grad.addColorStop(1.00, '#a8a8a0')   // ljusgrå (toppar)
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, 256, 1)
   _rampCache = canvas
@@ -245,11 +250,11 @@ export default function CesiumScene({ objektId }: Props) {
 
         viewer.imageryLayers.removeAll()
 
-        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0d1929')
-        viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a2a1a')
+        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0a1520')
+        viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#0a1a0a')
 
-        try { (viewer.scene as any).verticalExaggeration = 2.5 } catch {}
-        try { (viewer.scene.globe as any).terrainExaggeration = 2.5 } catch {}
+        try { (viewer.scene as any).verticalExaggeration = VERTICAL_EXAG } catch {}
+        try { (viewer.scene.globe as any).terrainExaggeration = VERTICAL_EXAG } catch {}
 
         viewer.scene.globe.enableLighting = true
 
@@ -265,7 +270,7 @@ export default function CesiumScene({ objektId }: Props) {
         viewer.scene.fog.enabled = true
         viewer.scene.fog.density = 0.003
         viewer.scene.fog.minimumBrightness = 0.1
-        try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0d1929') } catch {}
+        try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0a1520') } catch {}
 
         // Initialt fallback-ljus i ECEF; ersätts av lokal ENU-baserat när objektet är känt.
         viewer.scene.light = new Cesium.DirectionalLight({
@@ -320,10 +325,10 @@ export default function CesiumScene({ objektId }: Props) {
       }
     } else {
       if (imageryLayerRef.current) imageryLayerRef.current.show = false
-      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0d1929')
-      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a2a1a')
-      try { (viewer.scene as any).verticalExaggeration = 2.5 } catch {}
-      try { (viewer.scene.globe as any).terrainExaggeration = 2.5 } catch {}
+      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0a1520')
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#0a1a0a')
+      try { (viewer.scene as any).verticalExaggeration = VERTICAL_EXAG } catch {}
+      try { (viewer.scene.globe as any).terrainExaggeration = VERTICAL_EXAG } catch {}
       const baseH = groundHeightRef.current
       viewer.scene.globe.material = Cesium.Material.fromType('ElevationRamp', {
         minimumHeight: baseH - 60,
@@ -334,7 +339,7 @@ export default function CesiumScene({ objektId }: Props) {
       viewer.scene.fog.enabled = true
       viewer.scene.fog.density = 0.003
       viewer.scene.fog.minimumBrightness = 0.1
-      try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0d1929') } catch {}
+      try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0a1520') } catch {}
       viewer.scene.requestRender()
     }
 
@@ -382,9 +387,10 @@ export default function CesiumScene({ objektId }: Props) {
         console.warn('[Körvy3D] terrain sample (init):', e)
       }
 
+      // Kamera 30 m över exaggererad terräng (Tesla-låg, framåtblickande -12°)
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, groundH + 150),
-        orientation: { heading: 0, pitch: Cesium.Math.toRadians(-25), roll: 0 },
+        destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, groundH * VERTICAL_EXAG + 30),
+        orientation: { heading: 0, pitch: Cesium.Math.toRadians(-12), roll: 0 },
         duration: 1.5,
       })
     })()
@@ -453,15 +459,17 @@ export default function CesiumScene({ objektId }: Props) {
         disableDepthTestDistance: 200,
       })
 
-      // 4) Rendera punkt-markeringar med absoluta höjder (groundH + offset)
+      // 4) Rendera punkt-markeringar med exaggererade höjder
+      // Cylinder/ellipsoid/box stödjer inte heightReference — vi måste manuellt
+      // skala ground-höjden med VERTICAL_EXAG eftersom terrängen är exaggererad.
       for (let i = 0; i < pointMarkers.length; i++) {
         const { m, lat, lon } = pointMarkers[i]
-        const groundH = pointHeights[i]
+        const exH = pointHeights[i] * VERTICAL_EXAG
         try {
           if (m.type === 'eternitytree') {
             viewer.entities.add({
               id: `mk-${m.id}-trunk`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, groundH + 10),
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 10),
               cylinder: {
                 length: 20, topRadius: 1.5, bottomRadius: 2.0,
                 material: Cesium.Color.fromCssColorString('#3a2818'),
@@ -470,26 +478,26 @@ export default function CesiumScene({ objektId }: Props) {
             })
             viewer.entities.add({
               id: `mk-${m.id}-crown`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, groundH + 22),
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 22),
               ellipsoid: {
                 radii: new Cesium.Cartesian3(4.0, 4.0, 5.0),
                 material: Cesium.Color.fromCssColorString('#30d158'),
               },
               label: m.comment ? makeLabel(m.comment) : undefined,
             })
-            // Glow-skal
+            // Glow-skal — lysande halo runt kronan
             viewer.entities.add({
               id: `mk-${m.id}-glow`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, groundH + 22),
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 22),
               ellipsoid: {
-                radii: new Cesium.Cartesian3(6.0, 6.0, 7.5),
-                material: Cesium.Color.fromCssColorString('#30d158').withAlpha(0.25),
+                radii: new Cesium.Cartesian3(7.0, 7.0, 9.0),
+                material: Cesium.Color.fromCssColorString('#30d158').withAlpha(0.3),
               },
             })
           } else if (m.type === 'culturestump' || m.type === 'highstump' || m.type === 'brashpile') {
             viewer.entities.add({
               id: `mk-${m.id}`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, groundH + 1.5),
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 1.5),
               box: {
                 dimensions: new Cesium.Cartesian3(6.0, 6.0, 3.0),
                 material: Cesium.Color.fromCssColorString('#8e8e93').withAlpha(0.85),
@@ -510,7 +518,7 @@ export default function CesiumScene({ objektId }: Props) {
           } else if (m.type === 'culturemonument') {
             viewer.entities.add({
               id: `mk-${m.id}`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, groundH + 3),
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 3),
               cylinder: {
                 length: 6, topRadius: 1.5, bottomRadius: 1.5,
                 material: Cesium.Color.fromCssColorString('#ff9f0a'),
@@ -520,7 +528,7 @@ export default function CesiumScene({ objektId }: Props) {
           } else {
             viewer.entities.add({
               id: `mk-${m.id}`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, groundH + 3),
+              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 3),
               cylinder: {
                 length: 6, topRadius: 1.2, bottomRadius: 1.2,
                 material: Cesium.Color.fromCssColorString('#ff453a'),
@@ -617,10 +625,10 @@ export default function CesiumScene({ objektId }: Props) {
         groundH = sampled[0].height || groundHeightRef.current
       } catch {}
 
-      // Kamera 55 m bakom föraren (motsatt heading), 25 m över marken
+      // Kamera 55 m bakom föraren (motsatt heading), 25 m över exaggererad terräng
       const back = offsetLatLngByBearing(pos.lat, pos.lon, 55, (heading + 180) % 360)
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(back[0], back[1], groundH + 25),
+        destination: Cesium.Cartesian3.fromDegrees(back[0], back[1], groundH * VERTICAL_EXAG + 25),
         orientation: {
           heading: Cesium.Math.toRadians(heading),
           pitch: Cesium.Math.toRadians(-12),
@@ -633,21 +641,47 @@ export default function CesiumScene({ objektId }: Props) {
     return () => { cancelled = true }
   }, [ready, pos])
 
-  // === Maskin-ikon: billboard som roterar med heading, klampad till mark ===
+  // === Maskin-ikon + pulserande halo (klampad till mark) ===
   useEffect(() => {
     if (!ready || !viewerRef.current || !pos) return
     const viewer = viewerRef.current
     const heading = pos.heading != null ? pos.heading : 0
+    const position = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat)
 
-    const existing = viewer.entities.getById('machine-icon')
-    if (existing) viewer.entities.remove(existing)
+    // Rensa befintliga maskin-entiteter
+    for (const id of ['machine-icon', 'machine-halo']) {
+      const e = viewer.entities.getById(id)
+      if (e) viewer.entities.remove(e)
+    }
+
+    // Pulserande halo: ellipse-radie animeras 8 → 18 m via CallbackProperty
+    const pulseRadius = new Cesium.CallbackProperty(() => {
+      const t = (Date.now() % 1800) / 1800   // 0..1 över 1.8 s
+      return 8 + t * 10
+    }, false)
+    const pulseColor = new Cesium.ColorMaterialProperty(
+      new Cesium.CallbackProperty(() => {
+        const t = (Date.now() % 1800) / 1800
+        return Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.45 * (1 - t))
+      }, false) as any
+    )
+    viewer.entities.add({
+      id: 'machine-halo',
+      position,
+      ellipse: {
+        semiMajorAxis: pulseRadius,
+        semiMinorAxis: pulseRadius,
+        material: pulseColor,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      },
+    })
 
     viewer.entities.add({
       id: 'machine-icon',
-      position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
+      position,
       billboard: {
         image: getMachineIconCanvas(),
-        scale: 0.7,
+        scale: 1.1,
         rotation: Cesium.Math.toRadians(-heading),
         alignedAxis: Cesium.Cartesian3.UNIT_Z,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
@@ -655,6 +689,24 @@ export default function CesiumScene({ objektId }: Props) {
       },
     })
     viewer.scene.requestRender()
+  }, [ready, pos])
+
+  // === Animation-loop: trigga render ~30 fps medan maskin-halo finns ===
+  // requestRenderMode: true innebär att scenen bara renderar vid ändringar.
+  // CallbackProperty triggar inte render automatiskt, så vi pinger den.
+  useEffect(() => {
+    if (!ready || !viewerRef.current || !pos) return
+    const viewer = viewerRef.current
+    let raf = 0
+    let lastTick = 0
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick)
+      if (now - lastTick < 33) return  // ~30 fps
+      lastTick = now
+      viewer.scene.requestRender()
+    }
+    raf = requestAnimationFrame(tick)
+    return () => { if (raf) cancelAnimationFrame(raf) }
   }, [ready, pos])
 
   // === Siktfält-kon: blå polygon 30°×150 m framåt, klampad till mark ===
