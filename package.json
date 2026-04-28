@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "vercel-build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "download-lm-dem": "node scripts/download-lm-dem.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

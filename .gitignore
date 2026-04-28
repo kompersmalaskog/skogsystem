@@ -34,6 +34,8 @@ yarn-error.log*
 
 # Lantmäteriet DEM raw data (temp processing files)
 /data/terrain-tmp/
+/data/lm-dem/
+/data/lm-dem.zip
 
 # Generated terrain tiles (run scripts/build-terrain-tiles.py to create)
 /public/terrain-tiles/
