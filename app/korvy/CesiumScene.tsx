@@ -53,13 +53,13 @@ function createElevationRamp(): HTMLCanvasElement {
   canvas.height = 1
   const ctx = canvas.getContext('2d')!
   const grad = ctx.createLinearGradient(0, 0, 256, 0)
-  grad.addColorStop(0.00, '#15324a')   // dalar — mörkblå
-  grad.addColorStop(0.15, '#1f4a3a')   // låg mark — mörkgrön
-  grad.addColorStop(0.35, '#2f6a3d')   // grön — normal mark
-  grad.addColorStop(0.55, '#5a7a3d')   // höglänt — olivgrön
-  grad.addColorStop(0.75, '#8a7a4d')   // brun — höjder
-  grad.addColorStop(0.90, '#b59a72')   // ljusbrun — toppar
-  grad.addColorStop(1.00, '#e0d4b8')   // ljus — högsta toppar
+  grad.addColorStop(0.00, '#0a2a1a')   // dalar/lågt — mörkt blågrön
+  grad.addColorStop(0.25, '#1a4028')   // svackor
+  grad.addColorStop(0.45, '#3a5a2a')   // medel — olivgrön
+  grad.addColorStop(0.65, '#6a6a3a')   // höglänt övergång
+  grad.addColorStop(0.80, '#8a7a5a')   // högt — ljusbrun
+  grad.addColorStop(0.95, '#6a3a2a')   // brant/topp — rödbrun
+  grad.addColorStop(1.00, '#7a4030')
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, 256, 1)
   return canvas
@@ -161,7 +161,12 @@ export default function CesiumScene({ objektId }: Props) {
         viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0d1929')
         viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a2a1a')
 
-        // Hillshade: terrain lighting från solens position + vertex normals (redan begärda).
+        // Höjdöverdrift så kullar och dalar syns tydligt.
+        // Cesium 1.107+ använder scene.verticalExaggeration; äldre globe.terrainExaggeration.
+        try { (viewer.scene as any).verticalExaggeration = 2.5 } catch {}
+        try { (viewer.scene.globe as any).terrainExaggeration = 2.5 } catch {}
+
+        // Hillshade: terrain lighting från sol-positionen + vertex normals (redan begärda).
         viewer.scene.globe.enableLighting = true
 
         // Höjd-baserad färg på terrängen — låg = blå, hög = brun, så föraren ser dalar/kullar.
@@ -176,10 +181,14 @@ export default function CesiumScene({ objektId }: Props) {
         viewer.scene.fog.enabled = true
         viewer.scene.fog.density = 0.0006
 
-        // Riktat ljus för tydlig hillshade på terrängens normaler.
+        // Riktat ljus från nordväst (hög sol) → tydliga skuggor på terrängens normaler.
+        // Direction-vektorn pekar från ljuset mot scenen: nordväst = (+x öst, +y nord) → riktning (-x, -y, -z).
         viewer.scene.light = new Cesium.DirectionalLight({
-          direction: new Cesium.Cartesian3(-0.5, -0.7, -0.5),
-          intensity: 2.0,
+          direction: Cesium.Cartesian3.normalize(
+            new Cesium.Cartesian3(0.6, -0.6, -0.5),
+            new Cesium.Cartesian3()
+          ),
+          intensity: 3.5,
         })
 
         setReady(true)
@@ -227,10 +236,12 @@ export default function CesiumScene({ objektId }: Props) {
         }).catch((e) => console.warn('[Körvy3D] imagery load:', e))
       }
     } else {
-      // Terräng: göm imagery, sätt höjd-ramp + dark bakgrund.
+      // Terräng: göm imagery, sätt höjd-ramp + dark bakgrund + exaggering.
       if (imageryLayerRef.current) imageryLayerRef.current.show = false
       viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0d1929')
       viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a2a1a')
+      try { (viewer.scene as any).verticalExaggeration = 2.5 } catch {}
+      try { (viewer.scene.globe as any).terrainExaggeration = 2.5 } catch {}
       viewer.scene.globe.material = Cesium.Material.fromType('ElevationRamp', {
         minimumHeight: 30,
         maximumHeight: 350,
@@ -249,8 +260,8 @@ export default function CesiumScene({ objektId }: Props) {
     const viewer = viewerRef.current
     if (objekt.lat == null || objekt.lng == null) return
     viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, 200),
-      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-30), roll: 0 },
+      destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, 150),
+      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-25), roll: 0 },
       duration: 1.5,
     })
   }, [ready, objekt])
@@ -281,78 +292,98 @@ export default function CesiumScene({ objektId }: Props) {
     const oldEntities = viewer.entities.values.filter((e: any) => e.id?.toString().startsWith('mk-'))
     for (const e of oldEntities) viewer.entities.remove(e)
 
+    // Hjälp för att skapa label-property som syns tydligt vid alla zoom-nivåer.
+    const makeLabel = (text: string) => ({
+      text,
+      font: 'bold 18px -apple-system, "SF Pro Display", sans-serif',
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      pixelOffset: new Cesium.Cartesian2(0, -28),
+      showBackground: true,
+      backgroundColor: Cesium.Color.fromCssColorString('rgba(20,20,22,0.78)') as any,
+      backgroundPadding: new Cesium.Cartesian2(8, 4),
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    })
+
     for (const m of markers) {
       try {
         if (m.isMarker) {
           const ll = svgToLatLon(m.x, m.y)
           const pos = Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat)
           if (m.type === 'eternitytree') {
-            // Stam: cylinder
+            // Stam: tjock cylinder, 20m hög
             viewer.entities.add({
               id: `mk-${m.id}-trunk`,
-              position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 6),
+              position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 10),
               cylinder: {
-                length: 12,
-                topRadius: 0.3,
-                bottomRadius: 0.5,
+                length: 20,
+                topRadius: 1.5,
+                bottomRadius: 2.0,
                 material: Cesium.Color.fromCssColorString('#3a2818'),
                 outline: false,
               },
             })
-            // Krona: sfär
+            // Krona: stor sfär
             viewer.entities.add({
               id: `mk-${m.id}-crown`,
-              position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 14),
+              position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 22),
               ellipsoid: {
-                radii: new Cesium.Cartesian3(2.5, 2.5, 3.0),
+                radii: new Cesium.Cartesian3(4.0, 4.0, 5.0),
                 material: Cesium.Color.fromCssColorString('#30d158'),
               },
+              label: m.comment ? makeLabel(m.comment) : undefined,
             })
           } else if (m.type === 'culturestump' || m.type === 'highstump' || m.type === 'brashpile') {
-            // Klump: liten box på marken
+            // Klump: större box på marken
             viewer.entities.add({
               id: `mk-${m.id}`,
-              position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 0.5),
+              position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 1.5),
               box: {
-                dimensions: new Cesium.Cartesian3(2.0, 2.0, 1.0),
-                material: Cesium.Color.fromCssColorString('#8e8e93').withAlpha(0.8),
+                dimensions: new Cesium.Cartesian3(6.0, 6.0, 3.0),
+                material: Cesium.Color.fromCssColorString('#8e8e93').withAlpha(0.85),
               },
+              label: m.comment ? makeLabel(m.comment) : undefined,
             })
           } else if (m.type === 'ditch' || m.type === 'wet') {
-            // Blå fläck på marken (litet)
+            // Blå fläck på marken — större
             viewer.entities.add({
               id: `mk-${m.id}`,
               position: pos,
               ellipse: {
-                semiMajorAxis: 1.5,
-                semiMinorAxis: 1.5,
-                material: Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.6),
+                semiMajorAxis: 4.5,
+                semiMinorAxis: 4.5,
+                material: Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.65),
                 heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
               },
+              label: m.comment ? makeLabel(m.comment) : undefined,
             })
-          } else if (m.type === 'culturemonument' || m.type === 'culturestump') {
-            // Liten orange pelare
+          } else if (m.type === 'culturemonument') {
+            // Orange pelare, större
             viewer.entities.add({
               id: `mk-${m.id}`,
-              position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 1),
+              position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 3),
               cylinder: {
-                length: 2,
-                topRadius: 0.5,
-                bottomRadius: 0.5,
+                length: 6,
+                topRadius: 1.5,
+                bottomRadius: 1.5,
                 material: Cesium.Color.fromCssColorString('#ff9f0a'),
               },
+              label: m.comment ? makeLabel(m.comment) : undefined,
             })
           } else {
-            // Default: liten röd cylinder
+            // Default: röd cylinder, större
             viewer.entities.add({
               id: `mk-${m.id}`,
-              position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 1),
+              position: Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat, 3),
               cylinder: {
-                length: 2,
-                topRadius: 0.4,
-                bottomRadius: 0.4,
+                length: 6,
+                topRadius: 1.2,
+                bottomRadius: 1.2,
                 material: Cesium.Color.fromCssColorString('#ff453a'),
               },
+              label: m.comment ? makeLabel(m.comment) : undefined,
             })
           }
         } else if (m.isLine && m.path && m.path.length > 1) {
@@ -362,7 +393,7 @@ export default function CesiumScene({ objektId }: Props) {
             positions.push(Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat))
           }
           const color = m.lineType === 'boundary'
-            ? Cesium.Color.fromCssColorString('#ff8c00')   // orange traktgräns
+            ? Cesium.Color.fromCssColorString('#ffaa00')   // lysande orange traktgräns
             : m.lineType === 'mainRoad'
               ? Cesium.Color.fromCssColorString('#ffd60a')  // gul basväg
               : Cesium.Color.fromCssColorString('#ffffff')
@@ -370,10 +401,10 @@ export default function CesiumScene({ objektId }: Props) {
             id: `mk-${m.id}`,
             polyline: {
               positions,
-              width: m.lineType === 'mainRoad' ? 6 : 4,
+              width: m.lineType === 'boundary' ? 8 : m.lineType === 'mainRoad' ? 8 : 6,
               clampToGround: true,
               material: m.lineType === 'boundary'
-                ? new Cesium.PolylineDashMaterialProperty({ color, dashLength: 16 })
+                ? new Cesium.PolylineDashMaterialProperty({ color, dashLength: 24 })
                 : color,
             },
           })
