@@ -104,10 +104,18 @@ function colorForType(type?: string): string {
   return '#8e8e93'
 }
 
-// === Konstanter ===
+// === Konstanter / defaults för debug-state ===
 // verticalExaggeration skalar terrängen visuellt men INTE entiteters
 // absolutpositioner. Vi multiplicerar därför entitet-höjder manuellt.
-const VERTICAL_EXAG = 2.5
+const DEFAULT_EXAG = 2.5
+const DEFAULT_CAM_HEIGHT = 25
+const DEFAULT_CAM_PITCH = -12
+const DEFAULT_CAM_BACK = 55
+const DEFAULT_FOG_DENSITY = 0.003
+const DEFAULT_LIGHT_INTENSITY = 3.5
+const DEFAULT_HUE = 110     // skogsgrön
+const DEFAULT_SAT = 35
+const DEFAULT_LIGHT = 18
 
 // === Höjd-färgramp — svensk skog (grönt/brunt, inte Mars) ===
 let _rampCache: HTMLCanvasElement | null = null
@@ -118,15 +126,36 @@ function getElevationRamp(): HTMLCanvasElement {
   canvas.height = 1
   const ctx = canvas.getContext('2d')!
   const grad = ctx.createLinearGradient(0, 0, 256, 0)
-  grad.addColorStop(0.00, '#0a2010')   // mörk dal
-  grad.addColorStop(0.20, '#1a3a20')   // mörk skogsgrön (lågt/platt)
-  grad.addColorStop(0.45, '#3a5a28')   // olivgrön (medel)
-  grad.addColorStop(0.70, '#6a7a40')   // ljusgrön/brun (högt)
-  grad.addColorStop(0.90, '#8a8a7a')   // grå (mycket högt)
-  grad.addColorStop(1.00, '#a8a8a0')   // ljusgrå (toppar)
+  grad.addColorStop(0.00, '#0a2010')
+  grad.addColorStop(0.20, '#1a3a20')
+  grad.addColorStop(0.45, '#3a5a28')
+  grad.addColorStop(0.70, '#6a7a40')
+  grad.addColorStop(0.90, '#8a8a7a')
+  grad.addColorStop(1.00, '#a8a8a0')
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, 256, 1)
   _rampCache = canvas
+  return canvas
+}
+
+// === HSL-baserad ramp för debug-panel — bygger ny canvas vid varje anrop ===
+function buildElevationRampHSL(baseH: number, baseS: number, baseL: number): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 1
+  const ctx = canvas.getContext('2d')!
+  const grad = ctx.createLinearGradient(0, 0, 256, 0)
+  const clamp = (v: number) => Math.max(0, Math.min(100, v))
+  // L går från låg (mörk dal) → hög (ljus topp). S minskar svagt mot toppen
+  // (gråare högt). H driftar -60° mot toppen → grönt på låg, mer brunt högt.
+  grad.addColorStop(0.00, `hsl(${baseH}, ${clamp(baseS)}%, ${clamp(baseL - 12)}%)`)
+  grad.addColorStop(0.20, `hsl(${baseH}, ${clamp(baseS)}%, ${clamp(baseL - 4)}%)`)
+  grad.addColorStop(0.45, `hsl(${baseH}, ${clamp(baseS - 5)}%, ${clamp(baseL + 6)}%)`)
+  grad.addColorStop(0.70, `hsl(${(baseH - 30 + 360) % 360}, ${clamp(baseS - 10)}%, ${clamp(baseL + 16)}%)`)
+  grad.addColorStop(0.90, `hsl(${(baseH - 50 + 360) % 360}, ${clamp(baseS - 25)}%, ${clamp(baseL + 28)}%)`)
+  grad.addColorStop(1.00, `hsl(${(baseH - 60 + 360) % 360}, ${clamp(baseS - 35)}%, ${clamp(baseL + 38)}%)`)
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, 256, 1)
   return canvas
 }
 
@@ -157,6 +186,30 @@ function getMachineIconCanvas(): HTMLCanvasElement {
   return c
 }
 
+// === Debug-slider — kompakt, en rad med label + värde + range ===
+function DebugSlider({ label, min, max, step, value, onChange }: {
+  label: string; min: number; max: number; step: number;
+  value: number; onChange: (v: number) => void;
+}) {
+  // Visa decimaler endast om step kräver det
+  const decimals = step >= 1 ? 0 : Math.min(4, Math.max(0, -Math.floor(Math.log10(step))))
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
+        <span style={{ color: 'rgba(255,255,255,0.72)' }}>{label}</span>
+        <span style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', color: '#0a84ff', fontWeight: 600 }}>
+          {value.toFixed(decimals)}
+        </span>
+      </div>
+      <input
+        type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(parseFloat(e.target.value))}
+        style={{ width: '100%', accentColor: '#0a84ff', display: 'block' }}
+      />
+    </div>
+  )
+}
+
 export default function CesiumScene({ objektId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<CesiumNS.Viewer | null>(null)
@@ -173,6 +226,19 @@ export default function CesiumScene({ objektId }: Props) {
   const [mode, setMode] = useState<'terrain' | 'satellite'>('terrain')
   const [nextItems, setNextItems] = useState<NextItem[]>([])
   const [acuteWarning, setAcuteWarning] = useState<AcuteWarning | null>(null)
+
+  // === Debug-state (tunable via panel uppe till höger) ===
+  const [debugPanelOpen, setDebugPanelOpen] = useState(true)
+  const [debugColorH, setDebugColorH] = useState(DEFAULT_HUE)
+  const [debugColorS, setDebugColorS] = useState(DEFAULT_SAT)
+  const [debugColorL, setDebugColorL] = useState(DEFAULT_LIGHT)
+  const [debugExag, setDebugExag] = useState(DEFAULT_EXAG)
+  const [debugCamHeight, setDebugCamHeight] = useState(DEFAULT_CAM_HEIGHT)
+  const [debugCamPitch, setDebugCamPitch] = useState(DEFAULT_CAM_PITCH)
+  const [debugCamBack, setDebugCamBack] = useState(DEFAULT_CAM_BACK)
+  const [debugFogDensity, setDebugFogDensity] = useState(DEFAULT_FOG_DENSITY)
+  const [debugLightIntensity, setDebugLightIntensity] = useState(DEFAULT_LIGHT_INTENSITY)
+  const [debugCopiedAt, setDebugCopiedAt] = useState(0)
 
   // === Hämta objekt + markeringar ===
   useEffect(() => {
@@ -253,8 +319,8 @@ export default function CesiumScene({ objektId }: Props) {
         viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0a1520')
         viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#0a1a0a')
 
-        try { (viewer.scene as any).verticalExaggeration = VERTICAL_EXAG } catch {}
-        try { (viewer.scene.globe as any).terrainExaggeration = VERTICAL_EXAG } catch {}
+        try { (viewer.scene as any).verticalExaggeration = DEFAULT_EXAG } catch {}
+        try { (viewer.scene.globe as any).terrainExaggeration = DEFAULT_EXAG } catch {}
 
         viewer.scene.globe.enableLighting = true
 
@@ -327,8 +393,8 @@ export default function CesiumScene({ objektId }: Props) {
       if (imageryLayerRef.current) imageryLayerRef.current.show = false
       viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0a1520')
       viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#0a1a0a')
-      try { (viewer.scene as any).verticalExaggeration = VERTICAL_EXAG } catch {}
-      try { (viewer.scene.globe as any).terrainExaggeration = VERTICAL_EXAG } catch {}
+      try { (viewer.scene as any).verticalExaggeration = debugExag } catch {}
+      try { (viewer.scene.globe as any).terrainExaggeration = debugExag } catch {}
       const baseH = groundHeightRef.current
       viewer.scene.globe.material = Cesium.Material.fromType('ElevationRamp', {
         minimumHeight: baseH - 60,
@@ -345,6 +411,49 @@ export default function CesiumScene({ objektId }: Props) {
 
     return () => { cancelled = true }
   }, [ready, mode])
+
+  // === DEBUG: höjd-ramp HSL i realtid ===
+  useEffect(() => {
+    if (!ready || !viewerRef.current || mode !== 'terrain') return
+    const viewer = viewerRef.current
+    const baseH = groundHeightRef.current
+    viewer.scene.globe.material = Cesium.Material.fromType('ElevationRamp', {
+      minimumHeight: baseH - 60,
+      maximumHeight: baseH + 60,
+      image: buildElevationRampHSL(debugColorH, debugColorS, debugColorL),
+    })
+    viewer.scene.requestRender()
+  }, [ready, mode, debugColorH, debugColorS, debugColorL])
+
+  // === DEBUG: terrängexaggering i realtid ===
+  useEffect(() => {
+    if (!ready || !viewerRef.current) return
+    const viewer = viewerRef.current
+    try { (viewer.scene as any).verticalExaggeration = debugExag } catch {}
+    try { (viewer.scene.globe as any).terrainExaggeration = debugExag } catch {}
+    viewer.scene.requestRender()
+  }, [ready, debugExag])
+
+  // === DEBUG: fog density i realtid ===
+  useEffect(() => {
+    if (!ready || !viewerRef.current) return
+    viewerRef.current.scene.fog.density = debugFogDensity
+    viewerRef.current.scene.requestRender()
+  }, [ready, debugFogDensity])
+
+  // === DEBUG: ljusintensitet i realtid (behåll riktning) ===
+  useEffect(() => {
+    if (!ready || !viewerRef.current) return
+    const viewer = viewerRef.current
+    const oldLight: any = viewer.scene.light
+    const dir = oldLight?.direction
+    if (!dir) return
+    viewer.scene.light = new Cesium.DirectionalLight({
+      direction: Cesium.Cartesian3.clone(dir),
+      intensity: debugLightIntensity,
+    })
+    viewer.scene.requestRender()
+  }, [ready, debugLightIntensity])
 
   // === Initial-vy: sampla objektets terränghöjd → anpassa ramp + ljus + flyTo ===
   useEffect(() => {
@@ -381,7 +490,7 @@ export default function CesiumScene({ objektId }: Props) {
         Cesium.Cartesian3.normalize(worldDir, worldDir)
         viewer.scene.light = new Cesium.DirectionalLight({
           direction: worldDir,
-          intensity: 3.5,
+          intensity: debugLightIntensity,
         })
       } catch (e) {
         console.warn('[Körvy3D] terrain sample (init):', e)
@@ -389,8 +498,8 @@ export default function CesiumScene({ objektId }: Props) {
 
       // Kamera 30 m över exaggererad terräng (Tesla-låg, framåtblickande -12°)
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, groundH * VERTICAL_EXAG + 30),
-        orientation: { heading: 0, pitch: Cesium.Math.toRadians(-12), roll: 0 },
+        destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, groundH * debugExag + 30),
+        orientation: { heading: 0, pitch: Cesium.Math.toRadians(debugCamPitch), roll: 0 },
         duration: 1.5,
       })
     })()
@@ -461,10 +570,10 @@ export default function CesiumScene({ objektId }: Props) {
 
       // 4) Rendera punkt-markeringar med exaggererade höjder
       // Cylinder/ellipsoid/box stödjer inte heightReference — vi måste manuellt
-      // skala ground-höjden med VERTICAL_EXAG eftersom terrängen är exaggererad.
+      // skala ground-höjden med debugExag eftersom terrängen är exaggererad.
       for (let i = 0; i < pointMarkers.length; i++) {
         const { m, lat, lon } = pointMarkers[i]
-        const exH = pointHeights[i] * VERTICAL_EXAG
+        const exH = pointHeights[i] * debugExag
         try {
           if (m.type === 'eternitytree') {
             viewer.entities.add({
@@ -607,7 +716,7 @@ export default function CesiumScene({ objektId }: Props) {
     })()
 
     return () => { cancelled = true }
-  }, [ready, markers, objekt])
+  }, [ready, markers, objekt, debugExag])
 
   // === GPS-follow: smooth flyTo med terräng-sampling ===
   useEffect(() => {
@@ -625,13 +734,13 @@ export default function CesiumScene({ objektId }: Props) {
         groundH = sampled[0].height || groundHeightRef.current
       } catch {}
 
-      // Kamera 55 m bakom föraren (motsatt heading), 25 m över exaggererad terräng
-      const back = offsetLatLngByBearing(pos.lat, pos.lon, 55, (heading + 180) % 360)
+      // Kamera bakom föraren (motsatt heading), över exaggererad terräng
+      const back = offsetLatLngByBearing(pos.lat, pos.lon, debugCamBack, (heading + 180) % 360)
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(back[0], back[1], groundH * VERTICAL_EXAG + 25),
+        destination: Cesium.Cartesian3.fromDegrees(back[0], back[1], groundH * debugExag + debugCamHeight),
         orientation: {
           heading: Cesium.Math.toRadians(heading),
-          pitch: Cesium.Math.toRadians(-12),
+          pitch: Cesium.Math.toRadians(debugCamPitch),
           roll: 0,
         },
         duration: 0.4,
@@ -639,7 +748,7 @@ export default function CesiumScene({ objektId }: Props) {
     })()
 
     return () => { cancelled = true }
-  }, [ready, pos])
+  }, [ready, pos, debugExag, debugCamBack, debugCamHeight, debugCamPitch])
 
   // === Maskin-ikon + pulserande halo (klampad till mark) ===
   useEffect(() => {
@@ -951,6 +1060,87 @@ export default function CesiumScene({ objektId }: Props) {
             </div>
           ))}
         </div>
+      )}
+
+      {/* DEBUG-PANEL — uppe till höger, glasig, sliders för live-tuning */}
+      {debugPanelOpen ? (
+        <div style={{
+          position: 'fixed',
+          top: 'calc(env(safe-area-inset-top, 0px) + 68px)',
+          right: 12, width: 280,
+          maxHeight: '70vh', overflowY: 'auto',
+          padding: '12px 14px', borderRadius: 14,
+          background: 'rgba(20,20,22,0.86)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          color: '#fff', fontSize: 12,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+          zIndex: 105,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: 0.2 }}>Debug</div>
+            <button
+              onClick={() => setDebugPanelOpen(false)}
+              aria-label="Stäng debug-panel"
+              style={{
+                background: 'rgba(255,255,255,0.1)', border: 'none',
+                width: 24, height: 24, borderRadius: 12,
+                color: '#fff', cursor: 'pointer', fontSize: 14, lineHeight: 1,
+              }}
+            >×</button>
+          </div>
+
+          <DebugSlider label="Färg H (hue)"   min={0}     max={360}  step={1}      value={debugColorH}        onChange={setDebugColorH} />
+          <DebugSlider label="Färg S (sat)"   min={0}     max={100}  step={1}      value={debugColorS}        onChange={setDebugColorS} />
+          <DebugSlider label="Färg L (light)" min={0}     max={100}  step={1}      value={debugColorL}        onChange={setDebugColorL} />
+          <DebugSlider label="Exaggering"     min={1.0}   max={5.0}  step={0.1}    value={debugExag}          onChange={setDebugExag} />
+          <DebugSlider label="Kamerahöjd (m)" min={10}    max={200}  step={1}      value={debugCamHeight}     onChange={setDebugCamHeight} />
+          <DebugSlider label="Kamera pitch°"  min={-45}   max={-5}   step={1}      value={debugCamPitch}      onChange={setDebugCamPitch} />
+          <DebugSlider label="Avstånd bak (m)" min={20}   max={100}  step={1}      value={debugCamBack}       onChange={setDebugCamBack} />
+          <DebugSlider label="Dimma density"  min={0.001} max={0.01} step={0.0001} value={debugFogDensity}    onChange={setDebugFogDensity} />
+          <DebugSlider label="Ljusintensitet" min={1.0}   max={6.0}  step={0.1}    value={debugLightIntensity} onChange={setDebugLightIntensity} />
+
+          <button
+            onClick={() => {
+              const text = [
+                '// === Cesium körvy debug-värden ===',
+                `// Höjdramp HSL: H=${debugColorH}, S=${debugColorS}, L=${debugColorL}`,
+                `verticalExaggeration: ${debugExag}`,
+                `camera height (m): ${debugCamHeight}`,
+                `camera pitch (deg): ${debugCamPitch}`,
+                `camera back distance (m): ${debugCamBack}`,
+                `fog density: ${debugFogDensity}`,
+                `light intensity: ${debugLightIntensity}`,
+              ].join('\n')
+              try {
+                navigator.clipboard.writeText(text).then(() => setDebugCopiedAt(Date.now()))
+              } catch {}
+            }}
+            style={{
+              marginTop: 8, width: '100%', padding: '8px 0',
+              borderRadius: 10, background: '#0a84ff', color: '#fff',
+              border: 'none', cursor: 'pointer',
+              fontSize: 13, fontWeight: 600, fontFamily: 'inherit',
+            }}
+          >
+            {Date.now() - debugCopiedAt < 1500 ? 'Kopierat ✓' : 'Kopiera värden'}
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setDebugPanelOpen(true)}
+          aria-label="Öppna debug-panel"
+          style={{
+            position: 'fixed',
+            top: 'calc(env(safe-area-inset-top, 0px) + 68px)',
+            right: 12, width: 36, height: 36, borderRadius: 18,
+            background: 'rgba(20,20,22,0.72)',
+            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.12)',
+            color: '#fff', cursor: 'pointer', fontSize: 16,
+            zIndex: 105, lineHeight: 1,
+          }}
+        >⚙</button>
       )}
 
       {/* Status-overlay nere-vänster */}
