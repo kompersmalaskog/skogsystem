@@ -215,6 +215,7 @@ export default function CesiumScene({ objektId }: Props) {
   const viewerRef = useRef<CesiumNS.Viewer | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const imageryLayerRef = useRef<CesiumNS.ImageryLayer | null>(null)
+  const soilImageryLayerRef = useRef<CesiumNS.ImageryLayer | null>(null)
   const tilesetRef = useRef<CesiumNS.Cesium3DTileset | null>(null)
   const groundHeightRef = useRef<number>(150)
   const triggeredIdsRef = useRef<Set<string>>(new Set())
@@ -224,7 +225,7 @@ export default function CesiumScene({ objektId }: Props) {
   const [pos, setPos] = useState<{ lat: number; lon: number; heading: number | null; speed: number | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
-  const [mode, setMode] = useState<'terrain' | 'hillshade' | 'satellite' | 'photo3d'>('terrain')
+  const [mode, setMode] = useState<'terrain' | 'hillshade' | 'soilmoisture' | 'satellite' | 'photo3d'>('soilmoisture')
   const [nextItems, setNextItems] = useState<NextItem[]>([])
   const [acuteWarning, setAcuteWarning] = useState<AcuteWarning | null>(null)
 
@@ -372,6 +373,7 @@ export default function CesiumScene({ objektId }: Props) {
 
     // Visa/dölj layers baserat på mode
     if (imageryLayerRef.current) imageryLayerRef.current.show = (mode === 'satellite')
+    if (soilImageryLayerRef.current) soilImageryLayerRef.current.show = (mode === 'soilmoisture')
     if (tilesetRef.current) tilesetRef.current.show = (mode === 'photo3d')
     // Globen göms i photo3d (Google-tiles ersätter den)
     viewer.scene.globe.show = (mode !== 'photo3d')
@@ -403,6 +405,30 @@ export default function CesiumScene({ objektId }: Props) {
       viewer.scene.fog.enabled = true
       viewer.scene.fog.density = debugFogDensity
       try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0a1520') } catch {}
+    } else if (mode === 'soilmoisture') {
+      // Markfuktighet (Skogsstyrelsen / SLU 2.0) draperad på 1 m DEM-terrängen.
+      // Använder samma interna proxy som /planering så CORS/auth/caching delas.
+      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0a1520')
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#3a3a3a')
+      viewer.scene.globe.material = undefined as any
+      try { (viewer.scene as any).verticalExaggeration = debugExag } catch {}
+      try { (viewer.scene.globe as any).terrainExaggeration = debugExag } catch {}
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
+      viewer.scene.fog.enabled = true
+      viewer.scene.fog.density = debugFogDensity
+      try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0a1520') } catch {}
+
+      if (!soilImageryLayerRef.current) {
+        try {
+          const provider = new Cesium.UrlTemplateImageryProvider({
+            url: '/api/wms-proxy?layer=sks_markfuktighet&bbox={westProjected},{southProjected},{eastProjected},{northProjected}&width={width}&height={height}',
+            tilingScheme: new Cesium.WebMercatorTilingScheme(),
+          })
+          soilImageryLayerRef.current = viewer.imageryLayers.addImageryProvider(provider)
+        } catch (e) {
+          console.warn('[Körvy3D] markfuktighet load:', e)
+        }
+      }
     } else if (mode === 'satellite') {
       viewer.scene.globe.material = undefined as any
       viewer.scene.globe.baseColor = Cesium.Color.WHITE
@@ -1014,19 +1040,20 @@ export default function CesiumScene({ objektId }: Props) {
           border: '1px solid rgba(255,255,255,0.08)',
         }}>
           {([
-            { id: 'terrain' as const,   label: 'Terräng' },
-            { id: 'hillshade' as const, label: 'Hillshade' },
-            { id: 'satellite' as const, label: 'Satellit' },
-            { id: 'photo3d' as const,   label: '3D Foto' },
+            { id: 'terrain' as const,      label: 'Terräng' },
+            { id: 'hillshade' as const,    label: 'Hillshade' },
+            { id: 'soilmoisture' as const, label: 'Markfuktighet' },
+            { id: 'satellite' as const,    label: 'Satellit' },
+            { id: 'photo3d' as const,      label: '3D Foto' },
           ]).map(({ id, label }) => (
             <button
               key={id}
               onClick={() => setMode(id)}
               aria-pressed={mode === id}
               style={{
-                padding: '0 12px',
+                padding: '0 9px',
                 background: mode === id ? 'rgba(10,132,255,0.85)' : 'transparent',
-                color: '#fff', fontSize: 12, fontWeight: 600,
+                color: '#fff', fontSize: 11, fontWeight: 600,
                 border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                 fontFamily: 'inherit',
               }}
