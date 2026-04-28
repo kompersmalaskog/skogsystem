@@ -268,10 +268,26 @@ export default function CesiumScene({ objektId }: Props) {
         viewerRef.current = viewer
 
         // === Kamerakontroll: matcha MapLibre 2D så användaren får samma gester ===
-        // Cesium kör reactToInput sekventiellt för rotate och tilt utan early-return
-        // (verifierat i ScreenSpaceCameraController.js update3D), så samma event
-        // (RIGHT_DRAG) i båda listorna kör spin3D+tilt3D parallellt — horisontell
-        // rörelse roterar, vertikal tiltar. Matchar MapLibre dragRotateHandler.
+        // Cesium kräver OBJEKT-syntax {eventType, modifier} för modifier-bindings,
+        // INTE array-syntax [eventType, modifier]. reactToInput läser
+        // eventType.eventType och eventType.modifier — array tolkas som
+        // separata entries och blir no-op (verifierat i SSC.js rad 504).
+        //
+        // I 3D anropas reactToInput INTE för translateEventTypes (det är 2D-
+        // /Columbus-only enligt update3D rad 2874). LEFT_DRAG måste därför
+        // vara i en av {rotate, look, tilt}EventTypes för att göra något.
+        //
+        // Mappning (matchar MapLibre dragPan + dragRotate):
+        //   vänster-drag (1 finger)        → spin3D (pan via globe-rotation
+        //                                      på låg altitud = förflyttning
+        //                                      över terräng — motsvarar
+        //                                      MapLibres DragPan)
+        //   höger-drag                     → look3D (hanterar yaw + pitch i
+        //                                      samma drag = rotera + tilta,
+        //                                      motsvarar MapLibres DragRotate)
+        //   Ctrl + vänster-drag            → look3D (alternativ för enknappsmus)
+        //   hjul / pinch (spread)          → zoom
+        //   pinch (vertikal 2-finger drag) → tilt3D
         const ssc = viewer.scene.screenSpaceCameraController
         ssc.enableInputs = true
         ssc.enableTranslate = true
@@ -279,26 +295,17 @@ export default function CesiumScene({ objektId }: Props) {
         ssc.enableRotate = true
         ssc.enableTilt = true
         ssc.enableLook = true
-        // Mus + touch:
-        //  vänster-drag / 1 finger    → pan
-        //  höger-drag / Ctrl+vänster  → rotera + tilta (som MapLibre right-drag)
-        //  hjul / pinch               → zoom
-        //  pinch (vertikal)           → tilta (Cesium delar pinch på rörelseaxel)
-        ssc.translateEventTypes = Cesium.CameraEventType.LEFT_DRAG
-        ssc.rotateEventTypes = [
+        ssc.translateEventTypes = Cesium.CameraEventType.LEFT_DRAG  // no-op i 3D, gäller 2D
+        ssc.rotateEventTypes = Cesium.CameraEventType.LEFT_DRAG     // → spin3D = pan
+        ssc.lookEventTypes = [
           Cesium.CameraEventType.RIGHT_DRAG,
-          [Cesium.CameraEventType.LEFT_DRAG, Cesium.KeyboardEventModifier.CTRL],
+          { eventType: Cesium.CameraEventType.LEFT_DRAG, modifier: Cesium.KeyboardEventModifier.CTRL },
         ]
-        ssc.tiltEventTypes = [
-          Cesium.CameraEventType.RIGHT_DRAG,
-          [Cesium.CameraEventType.LEFT_DRAG, Cesium.KeyboardEventModifier.CTRL],
-          Cesium.CameraEventType.PINCH,
-        ]
+        ssc.tiltEventTypes = [Cesium.CameraEventType.PINCH]
         ssc.zoomEventTypes = [
           Cesium.CameraEventType.WHEEL,
           Cesium.CameraEventType.PINCH,
         ]
-        ssc.lookEventTypes = []   // bort — finns inte i MapLibre, ger förvirring
 
         viewer.imageryLayers.removeAll()
 
