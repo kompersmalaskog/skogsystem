@@ -267,10 +267,11 @@ export default function CesiumScene({ objektId }: Props) {
         })
         viewerRef.current = viewer
 
-        // === Kamerakontroll: explicit konfig för rotate/tilt/translate ===
-        // Cesium-defaults har rotate på LEFT_DRAG men vid låg altitud (vår körvy
-        // är ~25 m över marken) blir orbit kring globe-centrum praktiskt
-        // omärkbar. Vi sätter explicita event-mappningar i Google Earth-stil.
+        // === Kamerakontroll: matcha MapLibre 2D så användaren får samma gester ===
+        // Cesium kör reactToInput sekventiellt för rotate och tilt utan early-return
+        // (verifierat i ScreenSpaceCameraController.js update3D), så samma event
+        // (RIGHT_DRAG) i båda listorna kör spin3D+tilt3D parallellt — horisontell
+        // rörelse roterar, vertikal tiltar. Matchar MapLibre dragRotateHandler.
         const ssc = viewer.scene.screenSpaceCameraController
         ssc.enableInputs = true
         ssc.enableTranslate = true
@@ -278,21 +279,26 @@ export default function CesiumScene({ objektId }: Props) {
         ssc.enableRotate = true
         ssc.enableTilt = true
         ssc.enableLook = true
-        // Mus: vänster=pan, höger=zoom, mitten=rotera, hjul=zoom,
-        // Shift+vänster=tilta, Ctrl+vänster=look
+        // Mus + touch:
+        //  vänster-drag / 1 finger    → pan
+        //  höger-drag / Ctrl+vänster  → rotera + tilta (som MapLibre right-drag)
+        //  hjul / pinch               → zoom
+        //  pinch (vertikal)           → tilta (Cesium delar pinch på rörelseaxel)
         ssc.translateEventTypes = Cesium.CameraEventType.LEFT_DRAG
-        ssc.rotateEventTypes = Cesium.CameraEventType.MIDDLE_DRAG
-        ssc.zoomEventTypes = [
-          Cesium.CameraEventType.WHEEL,
+        ssc.rotateEventTypes = [
           Cesium.CameraEventType.RIGHT_DRAG,
-          Cesium.CameraEventType.PINCH,
+          [Cesium.CameraEventType.LEFT_DRAG, Cesium.KeyboardEventModifier.CTRL],
         ]
         ssc.tiltEventTypes = [
+          Cesium.CameraEventType.RIGHT_DRAG,
+          [Cesium.CameraEventType.LEFT_DRAG, Cesium.KeyboardEventModifier.CTRL],
           Cesium.CameraEventType.PINCH,
-          [Cesium.CameraEventType.LEFT_DRAG, Cesium.KeyboardEventModifier.SHIFT],
-          [Cesium.CameraEventType.RIGHT_DRAG, Cesium.KeyboardEventModifier.CTRL],
         ]
-        ssc.lookEventTypes = [Cesium.CameraEventType.LEFT_DRAG, Cesium.KeyboardEventModifier.CTRL]
+        ssc.zoomEventTypes = [
+          Cesium.CameraEventType.WHEEL,
+          Cesium.CameraEventType.PINCH,
+        ]
+        ssc.lookEventTypes = []   // bort — finns inte i MapLibre, ger förvirring
 
         viewer.imageryLayers.removeAll()
 
