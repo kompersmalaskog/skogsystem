@@ -188,6 +188,10 @@ export default function CesiumScene({ objektId }: Props) {
   const [overlays, setOverlays] = useMapLayers()
   const [layerMenuOpen, setLayerMenuOpen] = useState(false)
   const [bgType, setBgType] = useState<'satellite' | 'none'>('satellite')
+  // === Kamerakontroll ===
+  // followGps=true → kameran följer GPS bakom maskinen (default).
+  // followGps=false → användaren snurrar/tiltar/panar fritt; visa centrera-knapp.
+  const [followGps, setFollowGps] = useState(true)
 
   // === Hämta objekt + markeringar ===
   useEffect(() => {
@@ -316,6 +320,34 @@ export default function CesiumScene({ objektId }: Props) {
       viewerRef.current = null
     }
   }, [])
+
+  // === Detektera användar-input på Cesium-canvas → pausa GPS-följning ===
+  // Cesium.Camera.moveStart fyrar för både programmatiska flyTo OCH user-input,
+  // så vi kan inte använda den för att skilja. Lyssnar istället på DOM-events
+  // direkt på canvas (mousedown/touchstart/wheel) som bara fyrar på riktig
+  // user-input.
+  useEffect(() => {
+    if (!ready || !viewerRef.current) return
+    const viewer = viewerRef.current
+    const canvas = viewer.canvas
+    if (!canvas) return
+
+    const onUserInput = () => {
+      // Avbryt eventuell pågående GPS-follow-flyTo så användarens drag inte
+      // fightar med en flyto-animation.
+      try { viewer.camera.cancelFlight() } catch {}
+      setFollowGps((prev) => (prev ? false : prev))
+    }
+
+    canvas.addEventListener('mousedown', onUserInput)
+    canvas.addEventListener('touchstart', onUserInput, { passive: true })
+    canvas.addEventListener('wheel', onUserInput, { passive: true })
+    return () => {
+      canvas.removeEventListener('mousedown', onUserInput)
+      canvas.removeEventListener('touchstart', onUserInput)
+      canvas.removeEventListener('wheel', onUserInput)
+    }
+  }, [ready])
 
   // === Bakgrund-toggle: visa/dölj Esri-imagery + matcha basfärg & fog ===
   useEffect(() => {
@@ -628,8 +660,11 @@ export default function CesiumScene({ objektId }: Props) {
   }, [ready, markers, objekt])
 
   // === GPS-follow: smooth flyTo med terräng-sampling ===
+  // Pausas när followGps=false (användaren snurrar/tiltar manuellt). Centrera-
+  // knappen sätter followGps=true → effekten kör igen och snäpper kameran tillbaka.
   useEffect(() => {
     if (!ready || !viewerRef.current || !pos) return
+    if (!followGps) return
     const viewer = viewerRef.current
     let cancelled = false
 
@@ -657,7 +692,7 @@ export default function CesiumScene({ objektId }: Props) {
     })()
 
     return () => { cancelled = true }
-  }, [ready, pos])
+  }, [ready, pos, followGps])
 
   // === Maskin-ikon + pulserande halo (klampad till mark) ===
   useEffect(() => {
@@ -970,6 +1005,45 @@ export default function CesiumScene({ objektId }: Props) {
         </div>
         {error && <div style={{ color: '#ff453a', marginTop: 4 }}>{error}</div>}
       </div>
+
+      {/* CENTRERA-KNAPP (nere vänster) — bara synlig när GPS-följning är pausad */}
+      {!followGps && (
+        <button
+          type="button"
+          onClick={() => {
+            if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10)
+            setFollowGps(true)
+          }}
+          aria-label="Centrera på min position"
+          style={{
+            position: 'fixed',
+            bottom: 'calc(env(safe-area-inset-bottom, 0px) + 88px)',
+            left: '16px',
+            width: '56px',
+            height: '56px',
+            borderRadius: '50%',
+            background: 'rgba(20,20,22,0.72)',
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            color: '#fff',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 200,
+          }}
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#0a84ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" fill="#0a84ff" />
+            <circle cx="12" cy="12" r="9" />
+            <line x1="12" y1="1" x2="12" y2="4" />
+            <line x1="12" y1="20" x2="12" y2="23" />
+            <line x1="1" y1="12" x2="4" y2="12" />
+            <line x1="20" y1="12" x2="23" y2="12" />
+          </svg>
+        </button>
+      )}
 
       {/* PLUS-KNAPP (nere höger) — öppnar lager-menyn. Identisk styling som /planering. */}
       <button
