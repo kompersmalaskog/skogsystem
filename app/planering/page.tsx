@@ -9,6 +9,7 @@ import VolymPanel from './volym-panel'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
+import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
@@ -397,85 +398,7 @@ export default function PlannerPage() {
   // Overlay-lager — persistas i localStorage via useMapLayers
   const [overlays, setOverlays] = useMapLayers();
 
-  const wmsLayerGroups = [
-    {
-      group: 'Skogsstyrelsen',
-      layers: [
-        { id: 'nyckelbiotoper', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNyckelbiotop/MapServer/WmsServer', layers: 'Nyckelbiotop_Skogsstyrelsen', name: 'Nyckelbiotoper', color: '#a855f7' },
-        { id: 'naturvarde', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaObjektnaturvarde/MapServer/WmsServer', layers: 'Objektnaturvarde_Skogsstyrelsen', name: 'Naturvärde', color: '#30d158' },
-        { id: 'sumpskog', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSumpskog/MapServer/WmsServer', layers: 'Sumpskog_Skogsstyrelsen', name: 'Sumpskogar', color: '#3b82f6' },
-        { id: 'biotopskydd', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaBiotopskydd/MapServer/WmsServer', layers: 'Biotopskydd_Skogsstyrelsen', name: 'Biotopskydd', color: '#166534' },
-        { id: 'naturvardsavtal', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaNaturvardsavtal/MapServer/WmsServer', layers: 'Naturvardsavtal_Skogsstyrelsen', name: 'Naturvårdsavtal', color: '#14b8a6' },
-        { id: 'skoghistoria', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaSkoghistoria/MapServer/WmsServer', layers: 'SkoghistoriaYta_Skogsstyrelsen,SkoghistoriaLinje_Skogsstyrelsen,SkoghistoriaPunkt_Skogsstyrelsen', name: 'Skog & historia', color: '#f59e0b' },
-        { id: 'avverkningsanmalan', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaAvverkningsanmalan/MapServer/WmsServer', layers: 'Avverkningsanmalan_Skogsstyrelsen', name: 'Avverkningsanmälningar', color: '#eab308' },
-        { id: 'utfordavverkning', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaUtfordavverkning/MapServer/WmsServer', layers: 'UtfordAvverkning_Skogsstyrelsen', name: 'Utförda avverkningar', color: '#92400e' },
-        { id: 'hydrografi', url: 'https://geodpags.skogsstyrelsen.se/arcgis/services/Geodataportal/GeodataportalVisaFlodesackumulation/MapServer/WmsServer', layers: 'Vattenyta,Flödesackumulation__70ha41670,Flödesackumulation_20ha-70ha48822,Flödesackumulation_10ha-20ha19752', name: 'Diken & vattendrag', color: '#38bdf8' },
-      ],
-    },
-    {
-      group: 'Riksantikvarieämbetet',
-      layers: [
-        { id: 'fornlamningar', url: 'https://pub.raa.se/visning/lamningar/wms', layers: 'fornlamningar', name: 'Fornlämningar', color: '#ff453a', srs: 'EPSG:3857' },
-      ],
-    },
-    {
-      group: 'Naturvårdsverket',
-      layers: [
-        { id: 'naturreservat', url: 'https://geodata.naturvardsverket.se/naturvardsregistret/wms', layers: 'Naturreservat', name: 'Naturreservat', color: '#15803d' },
-        { id: 'natura2000', url: 'https://geodata.naturvardsverket.se/n2000/wms', layers: 'Habitatdirektivet,Fageldirektivet', name: 'Natura 2000', color: '#4ade80' },
-        { id: 'vattenskydd', url: 'https://geodata.naturvardsverket.se/naturvardsregistret/wms', layers: 'Vattenskyddsomrade', name: 'Vattenskyddsområden', color: '#7dd3fc' },
-      ],
-    },
-    {
-      group: 'MSB',
-      layers: [
-        { id: 'oversvamning', url: 'https://inspire.msb.se/oversvamning/wms', layers: 'NZ_Oversvamning_100,NZ_Oversvamning_200,NZ_Oversvamning_BHF', name: 'Översvämningskarteringar', color: '#1e3a8a' },
-      ],
-    },
-    {
-      group: 'SGU',
-      layers: [
-        { id: 'jordarter', url: 'https://maps3.sgu.se/geoserver/jord/ows', layers: 'jord:SE.GOV.SGU.JORD.GRUNDLAGER.25K', name: 'Jordarter', color: '#92400e' },
-      ],
-    },
-    {
-      group: 'Trafikverket',
-      layers: [
-        { id: 'barighet', url: 'https://geo-netinfo.trafikverket.se/mapservice/wms.axd/NetInfo_1_8', layers: 'Barighet', name: 'Bärighet (BK-klass)', color: '#f97316' },
-      ],
-    },
-    {
-      group: 'Svenska Kraftnät',
-      layers: [
-        { id: 'kraftledningar', url: 'https://inspire-skn.metria.se/geoserver/skn/ows', layers: 'US.ElectricityNetwork.Lines', name: 'Kraftledningar (stamnätet)', color: '#ff453a' },
-      ],
-    },
-    {
-      group: 'Analys',
-      layers: [
-        { id: 'korbarhet', url: '/api/korbarhet-tiles', layers: '', name: 'Körbarhet', color: '#30d158', customApi: true, desc: 'Baserat på markfuktighet och lutning. Rita trakt för full analys inkl jordart.' },
-      ],
-    },
-    {
-      group: 'Skogsstyrelsen Raster',
-      layers: [
-        { id: 'sks_markfuktighet', url: '/api/wms-proxy', layers: 'Markfuktighet_SLU_2_0', name: 'Markfuktighet (SLU)', color: '#4FC3F7', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer' },
-        { id: 'sks_virkesvolym', url: '/api/wms-proxy', layers: 'SkogligaGrunddata_3_1', name: 'Virkesvolym', color: '#66BB6A', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer' },
-        { id: 'sks_tradhojd', url: '/api/wms-proxy', layers: 'Tradhojd_3_1', name: 'Trädhöjd', color: '#AED581', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer' },
-        { id: 'sks_lutning', url: '/api/wms-proxy', layers: 'Lutning_1_0', name: 'Lutning', color: '#FF8A65', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer' },
-        { id: 'sks_gallringsindex', url: '/api/wms-proxy', layers: '', name: 'Gallringsindex', color: '#E91E63', exportImage: 'https://geodata.skogsstyrelsen.se/arcgis/rest/services/Publikt/SkogligaGrunddata_3_1/ImageServer', renderingRule: '{"rasterFunction":"Gallringsindex","rasterFunctionArguments":{"sis":"g16-g22"}}' },
-      ],
-    },
-    {
-      group: 'Lantmäteriet',
-      layers: [
-        { id: 'lm_skuggning', url: '/api/wms-proxy', layers: 'terrangskuggning', name: 'Höjdmodell (skuggning)', color: '#78909C', proxyTarget: 'https://minkarta.lantmateriet.se/map/hojdmodell' },
-        { id: 'lm_ortofoto', url: '/api/wms-proxy', layers: 'Ortofoto_0.5', name: 'Ortofoto LM', color: '#8D6E63', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto' },
-        { id: 'fastighetsgranser', url: 'https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3', layers: 'granser', name: 'Fastighetsgränser', color: '#f59e0b' },
-      ],
-    },
-  ];
-  const wmsLayers = wmsLayerGroups.flatMap(g => g.layers);
+  // wmsLayerGroups + wmsLayers importeras nu från lib/mapLayers.ts
 
   // SMHI Brandrisk (API-baserad, inte WMS)
   const [brandriskData, setBrandriskData] = useState<{fwiindex: number, grassfire: number, fwi: number, date: string} | null>(null);

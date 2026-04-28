@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@supabase/supabase-js'
 import type * as CesiumNS from 'cesium'
+import { wmsLayerGroups, wmsLayers, type LayerDef } from '@/lib/mapLayers'
+import { useMapLayers } from '@/lib/hooks/useMapLayers'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -113,6 +115,32 @@ const CAM_PITCH = -12
 const CAM_BACK = 55
 const LIGHT_INTENSITY = 3.5
 
+// === Lager-grupper synliga i 3D (filtrerade på show3D) ===
+const layerGroups3D = wmsLayerGroups
+  .map((g) => ({ ...g, layers: g.layers.filter((l) => l.show3D) }))
+  .filter((g) => g.layers.length > 0)
+
+// Bygg en Cesium ImageryProvider för en LayerDef. Returnerar null för
+// lager-typer vi inte stödjer (t.ex. ArcGIS exportImage).
+function createImageryProviderForLayer(d: LayerDef): CesiumNS.ImageryProvider | null {
+  // /api/wms-proxy → URL-template med proxyns query-format
+  if (d.url === '/api/wms-proxy') {
+    return new Cesium.UrlTemplateImageryProvider({
+      url: `/api/wms-proxy?layer=${d.id}&bbox={westProjected},{southProjected},{eastProjected},{northProjected}&width={width}&height={height}`,
+      tilingScheme: new Cesium.WebMercatorTilingScheme(),
+    })
+  }
+  // Direkt WMS — Cesium WebMapServiceImageryProvider sköter GetMap-anrop
+  if (d.url.startsWith('http') && d.layers) {
+    return new Cesium.WebMapServiceImageryProvider({
+      url: d.url,
+      layers: d.layers,
+      parameters: { format: 'image/png', transparent: true },
+    })
+  }
+  return null
+}
+
 // === Maskin-ikon canvas (cachas) — vit cirkel + blå pil uppåt ===
 let _machineIconCache: HTMLCanvasElement | null = null
 function getMachineIconCanvas(): HTMLCanvasElement {
@@ -145,6 +173,7 @@ export default function CesiumScene({ objektId }: Props) {
   const viewerRef = useRef<CesiumNS.Viewer | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const imageryLayerRef = useRef<CesiumNS.ImageryLayer | null>(null)
+  const overlayLayersMapRef = useRef<Map<string, CesiumNS.ImageryLayer>>(new Map())
   const groundHeightRef = useRef<number>(150)
   const triggeredIdsRef = useRef<Set<string>>(new Set())
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -155,6 +184,10 @@ export default function CesiumScene({ objektId }: Props) {
   const [ready, setReady] = useState(false)
   const [nextItems, setNextItems] = useState<NextItem[]>([])
   const [acuteWarning, setAcuteWarning] = useState<AcuteWarning | null>(null)
+  // === Lager-väljare ===
+  const [overlays, setOverlays] = useMapLayers()
+  const [layerMenuOpen, setLayerMenuOpen] = useState(false)
+  const [bgType, setBgType] = useState<'satellite' | 'none'>('satellite')
 
   // === Hämta objekt + markeringar ===
   useEffect(() => {
@@ -283,6 +316,63 @@ export default function CesiumScene({ objektId }: Props) {
       viewerRef.current = null
     }
   }, [])
+
+  // === Bakgrund-toggle: visa/dölj Esri-imagery + matcha basfärg & fog ===
+  useEffect(() => {
+    if (!ready || !viewerRef.current) return
+    const viewer = viewerRef.current
+    if (imageryLayerRef.current) {
+      imageryLayerRef.current.show = (bgType === 'satellite')
+    }
+    if (bgType === 'satellite') {
+      viewer.scene.globe.baseColor = Cesium.Color.WHITE
+      try { (viewer.scene.fog as any).color = Cesium.Color.WHITE.clone() } catch {}
+    } else {
+      // 'none': bara 1 m DEM med hillshade-skuggning, mörk basfärg
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a1a1a')
+      try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0a1520') } catch {}
+    }
+    viewer.scene.requestRender()
+  }, [ready, bgType])
+
+  // === Overlay-management: synka aktiva overlays mot Cesium imagery-lager ===
+  useEffect(() => {
+    if (!ready || !viewerRef.current) return
+    const viewer = viewerRef.current
+    const map = overlayLayersMapRef.current
+
+    // 1) Ta bort lager som är avstängda eller inte längre i listan
+    const activeIds = new Set<string>()
+    for (const def of wmsLayers) {
+      if (def.show3D && overlays[def.id]) activeIds.add(def.id)
+    }
+    for (const [id, imLayer] of Array.from(map.entries())) {
+      if (!activeIds.has(id)) {
+        try { viewer.imageryLayers.remove(imLayer, true) } catch {}
+        map.delete(id)
+      }
+    }
+
+    // 2) Lägg till nya aktiva lager
+    for (const def of wmsLayers) {
+      if (!def.show3D) continue
+      if (!overlays[def.id]) continue
+      if (map.has(def.id)) continue
+      const provider = createImageryProviderForLayer(def)
+      if (!provider) {
+        console.warn('[Körvy3D] kunde inte bygga imagery-provider för', def.id)
+        continue
+      }
+      try {
+        const imLayer = viewer.imageryLayers.addImageryProvider(provider)
+        map.set(def.id, imLayer)
+      } catch (e) {
+        console.warn('[Körvy3D] addImageryProvider', def.id, e)
+      }
+    }
+
+    viewer.scene.requestRender()
+  }, [ready, overlays])
 
   // === Initial-vy: sampla objektets terränghöjd → ENU-ljus + flyTo ===
   useEffect(() => {
@@ -880,6 +970,165 @@ export default function CesiumScene({ objektId }: Props) {
         </div>
         {error && <div style={{ color: '#ff453a', marginTop: 4 }}>{error}</div>}
       </div>
+
+      {/* PLUS-KNAPP (nere höger) — öppnar lager-menyn. Identisk styling som /planering. */}
+      <button
+        type="button"
+        onClick={() => { if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(10); setLayerMenuOpen((o) => !o) }}
+        aria-label={layerMenuOpen ? 'Stäng lager-meny' : 'Öppna lager-meny'}
+        aria-expanded={layerMenuOpen}
+        style={{
+          position: 'fixed',
+          bottom: 'calc(env(safe-area-inset-bottom, 0px) + 20px)',
+          right: '16px',
+          width: '56px',
+          height: '56px',
+          borderRadius: '50%',
+          background: 'rgba(20,20,22,0.72)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          color: '#fff',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 200,
+          transition: 'transform 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
+          transform: layerMenuOpen ? 'rotate(45deg)' : 'rotate(0deg)',
+        }}
+      >
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+          <path d="M12 5 L12 19" />
+          <path d="M5 12 L19 12" />
+        </svg>
+      </button>
+
+      {/* === LAGER-MENY (overlay zIndex 500, samma struktur som /planering) === */}
+      {layerMenuOpen && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: '#000',
+          zIndex: 500,
+          display: 'flex', flexDirection: 'column',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", sans-serif',
+        }}>
+          {/* Header */}
+          <div style={{
+            padding: '55px 20px 20px',
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          }}>
+            <div
+              onClick={() => setLayerMenuOpen(false)}
+              style={{ padding: '8px', marginLeft: '-8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" style={{ opacity: 0.6 }}>
+                <path d="M15 18l-6-6 6-6" />
+              </svg>
+              <span style={{ fontSize: '17px', opacity: 0.6 }}>Tillbaka</span>
+            </div>
+            <span style={{ fontSize: '17px', fontWeight: 600, color: '#fff' }}>Lager</span>
+            <div style={{ width: '80px' }} />
+          </div>
+
+          {/* Content */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
+            {/* Bakgrundskarta — 2 val i 3D */}
+            <div style={{
+              background: '#0a0a0a',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              <div style={{ padding: '12px 16px 8px', fontSize: '13px', opacity: 0.4 }}>
+                Bakgrundskarta
+              </div>
+              {([
+                { id: 'satellite' as const, name: 'Satellit', desc: 'Esri World Imagery' },
+                { id: 'none' as const, name: 'Ingen', desc: 'Endast 1 m DEM-terräng' },
+              ]).map((type) => (
+                <div
+                  key={type.id}
+                  onClick={() => setBgType(type.id)}
+                  style={{
+                    padding: '14px 16px',
+                    display: 'flex', alignItems: 'center', gap: '16px',
+                    borderRadius: '12px', cursor: 'pointer',
+                  }}
+                >
+                  <div style={{
+                    width: '24px', height: '24px', borderRadius: '50%',
+                    border: bgType === type.id ? 'none' : '2px solid rgba(255,255,255,0.2)',
+                    background: bgType === type.id ? '#30d158' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {bgType === type.id && (
+                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#fff' }} />
+                    )}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '15px', color: '#fff' }}>{type.name}</div>
+                    <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>{type.desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* WMS-lager grupperade — show3D-filtrerade */}
+            {layerGroups3D.map((group) => (
+              <div key={group.group} style={{
+                background: '#0a0a0a',
+                border: '1px solid rgba(255,255,255,0.08)',
+                borderRadius: '20px',
+                padding: '8px',
+                marginBottom: '16px',
+              }}>
+                <div style={{ padding: '12px 16px 8px', fontSize: '13px', opacity: 0.4 }}>
+                  {group.group}
+                </div>
+                {group.layers.map((layer) => (
+                  <div
+                    key={layer.id}
+                    onClick={() => setOverlays((prev) => ({ ...prev, [layer.id]: !prev[layer.id] }))}
+                    style={{
+                      padding: '14px 16px',
+                      display: 'flex', alignItems: 'center', gap: '14px',
+                      borderRadius: '12px', cursor: 'pointer',
+                    }}
+                  >
+                    <div style={{
+                      width: '10px', height: '10px', borderRadius: '50%',
+                      background: layer.color, flexShrink: 0,
+                      opacity: overlays[layer.id] ? 1 : 0.3,
+                      transition: 'opacity 0.2s ease',
+                    }} />
+                    <span style={{ flex: 1 }}>
+                      <div style={{ fontSize: '15px', color: '#fff' }}>{layer.name}</div>
+                      {layer.desc && <div style={{ fontSize: '13px', opacity: 0.4, marginTop: '2px' }}>{layer.desc}</div>}
+                    </span>
+                    <div style={{
+                      width: '44px', height: '26px',
+                      borderRadius: '13px',
+                      background: overlays[layer.id] ? '#30d158' : 'rgba(255,255,255,0.1)',
+                      padding: '2px',
+                      transition: 'background 0.2s ease',
+                    }}>
+                      <div style={{
+                        width: '22px', height: '22px',
+                        borderRadius: '50%', background: '#fff',
+                        transform: overlays[layer.id] ? 'translateX(18px)' : 'translateX(0)',
+                        transition: 'transform 0.2s ease',
+                      }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
