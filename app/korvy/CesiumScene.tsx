@@ -294,7 +294,7 @@ export default function CesiumScene({ objektId }: Props) {
       try {
         Cesium.Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_ION_TOKEN || ''
 
-        const terrain = await Cesium.createWorldTerrainAsync({ requestVertexNormals: true, requestWaterMask: false })
+        const terrain = await Cesium.CesiumTerrainProvider.fromIonAssetId(4683565, { requestVertexNormals: true })
         if (cancelled || !containerRef.current) return
 
         const viewer = new Cesium.Viewer(containerRef.current, {
