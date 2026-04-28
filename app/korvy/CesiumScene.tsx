@@ -141,6 +141,52 @@ function createImageryProviderForLayer(d: LayerDef): CesiumNS.ImageryProvider | 
   return null
 }
 
+// === Linje-stilar — speglar lineTypeDefs i app/planering/page.tsx:496–509 ===
+// Två-färgs randmönster (boundary/mainRoad/nature/ditch) använder
+// PolylineDashMaterialProperty med color + gapColor (Cesium ≥1.114).
+// Övriga är streckade en-färgs (samma som 2D:s [2.5,1.5] dasharray).
+function lineStyleFor(lineType: string | undefined): { material: any; width: number } {
+  const stripe = (c1: string, c2: string, dashLength = 16) =>
+    new Cesium.PolylineDashMaterialProperty({
+      color: Cesium.Color.fromCssColorString(c1),
+      gapColor: Cesium.Color.fromCssColorString(c2),
+      dashLength,
+    })
+  const dashed = (c: string, dashLength = 12) =>
+    new Cesium.PolylineDashMaterialProperty({
+      color: Cesium.Color.fromCssColorString(c),
+      dashLength,
+    })
+  switch (lineType) {
+    case 'boundary':       return { material: stripe('#ff453a', '#fbbf24'), width: 8 }
+    case 'mainRoad':       return { material: stripe('#3b82f6', '#fbbf24'), width: 8 }
+    case 'nature':         return { material: stripe('#30d158', '#ff453a'), width: 6 }
+    case 'ditch':          return { material: stripe('#06b6d4', '#0e7490'), width: 6 }
+    case 'trail':          return { material: dashed('#ffffff', 10),         width: 4 }
+    case 'backRoadRed':
+    case 'sideRoadRed':    return { material: dashed('#ff453a'),              width: 4 }
+    case 'backRoadYellow':
+    case 'sideRoadYellow': return { material: dashed('#fbbf24'),              width: 4 }
+    case 'backRoadBlue':
+    case 'sideRoadBlue':   return { material: dashed('#3b82f6'),              width: 4 }
+    case 'stickvag':       return { material: dashed('#ff00ff'),              width: 4 }
+    default:               return { material: dashed('#ffffff'),              width: 4 }
+  }
+}
+
+// === Zon-färger — speglar zoneTypes i app/planering/page.tsx:4686–4693 ===
+function zoneColorFor(zoneType: string | undefined): string {
+  switch (zoneType) {
+    case 'wet':         return '#3b82f6'
+    case 'steep':       return '#a855f7'
+    case 'protected':   return '#30d158'
+    case 'culture':     return '#f59e0b'
+    case 'noentry':     return '#ff453a'
+    case 'fornlamning': return '#ff453a'
+    default:            return '#8e8e93'
+  }
+}
+
 // === Maskin-ikon canvas (cachas) — vit cirkel + blå pil uppåt ===
 let _machineIconCache: HTMLCanvasElement | null = null
 function getMachineIconCanvas(): HTMLCanvasElement {
@@ -631,7 +677,7 @@ export default function CesiumScene({ objektId }: Props) {
         }
       }
 
-      // 5) Linjer (clampToGround → följer terrängen)
+      // 5) Linjer — clampToGround + matchar 2D-vyns färger/streckmönster
       for (const m of markers) {
         if (!m.isLine || !m.path || m.path.length <= 1) continue
         try {
@@ -640,28 +686,17 @@ export default function CesiumScene({ objektId }: Props) {
             const ll = svgToLatLon(p.x, p.y)
             positions.push(Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat))
           }
-          const color = m.lineType === 'boundary'
-            ? Cesium.Color.fromCssColorString('#ffaa00')
-            : m.lineType === 'mainRoad'
-              ? Cesium.Color.fromCssColorString('#ffd60a')
-              : Cesium.Color.fromCssColorString('#ffffff')
+          const { material, width } = lineStyleFor(m.lineType)
           viewer.entities.add({
             id: `mk-${m.id}`,
-            polyline: {
-              positions,
-              width: m.lineType === 'boundary' ? 8 : m.lineType === 'mainRoad' ? 8 : 6,
-              clampToGround: true,
-              material: m.lineType === 'boundary'
-                ? new Cesium.PolylineDashMaterialProperty({ color, dashLength: 24 })
-                : color,
-            },
+            polyline: { positions, width, clampToGround: true, material },
           })
         } catch (e) {
           console.error('[Körvy3D] Line render fel:', m.id, e)
         }
       }
 
-      // 6) Zoner (clampToGround utan extrudering — extruderad polygon stödjer ej CLAMP)
+      // 6) Zoner — clampToGround, alpha 0.2 + solid outline (matchar 2D fill+outline)
       for (const m of markers) {
         if (!m.isZone || !m.path || m.path.length < 3) continue
         try {
@@ -670,15 +705,12 @@ export default function CesiumScene({ objektId }: Props) {
             const ll = svgToLatLon(p.x, p.y)
             hierarchy.push(Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat))
           }
-          const zoneColor = m.zoneType === 'wet' ? '#0a84ff'
-            : m.zoneType === 'steep' ? '#ff453a'
-            : m.zoneType === 'culture' ? '#ff9f0a'
-            : '#8e8e93'
+          const zoneColor = zoneColorFor(m.zoneType)
           viewer.entities.add({
             id: `mk-${m.id}`,
             polygon: {
               hierarchy: new Cesium.PolygonHierarchy(hierarchy),
-              material: Cesium.Color.fromCssColorString(zoneColor).withAlpha(0.5),
+              material: Cesium.Color.fromCssColorString(zoneColor).withAlpha(0.2),
               heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
               outline: true,
               outlineColor: Cesium.Color.fromCssColorString(zoneColor),
