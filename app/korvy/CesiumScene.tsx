@@ -45,16 +45,38 @@ interface Props {
   objektId: string | null
 }
 
+// Höjd-färgramp för ElevationRamp-materialet på globen.
+// Låga partier = mörkblått (dalar/svackor), medel = grönt, höjder = brunt/ljust.
+function createElevationRamp(): HTMLCanvasElement {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 1
+  const ctx = canvas.getContext('2d')!
+  const grad = ctx.createLinearGradient(0, 0, 256, 0)
+  grad.addColorStop(0.00, '#15324a')   // dalar — mörkblå
+  grad.addColorStop(0.15, '#1f4a3a')   // låg mark — mörkgrön
+  grad.addColorStop(0.35, '#2f6a3d')   // grön — normal mark
+  grad.addColorStop(0.55, '#5a7a3d')   // höglänt — olivgrön
+  grad.addColorStop(0.75, '#8a7a4d')   // brun — höjder
+  grad.addColorStop(0.90, '#b59a72')   // ljusbrun — toppar
+  grad.addColorStop(1.00, '#e0d4b8')   // ljus — högsta toppar
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, 256, 1)
+  return canvas
+}
+
 export default function CesiumScene({ objektId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<CesiumNS.Viewer | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const cameraTickRef = useRef<CesiumNS.Event.RemoveCallback | null>(null)
+  const imageryLayerRef = useRef<CesiumNS.ImageryLayer | null>(null)
   const [objekt, setObjekt] = useState<Objekt | null>(null)
   const [markers, setMarkers] = useState<Marker[]>([])
   const [pos, setPos] = useState<{ lat: number; lon: number; heading: number | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
+  const [mode, setMode] = useState<'terrain' | 'satellite'>('terrain')
 
   // === Hämta objekt + markeringar ===
   useEffect(() => {
@@ -131,26 +153,30 @@ export default function CesiumScene({ objektId }: Props) {
         })
         viewerRef.current = viewer
 
-        // Esri World Imagery via ArcGisMapServerImageryProvider — gratis, ingen token.
-        // Cesium 1.114+ kräver async fromUrl-mönster (gamla constructor-vägen ger "Map data not yet available")
-        try {
-          viewer.imageryLayers.removeAll()
-          const arcgisImagery = await Cesium.ArcGisMapServerImageryProvider.fromUrl(
-            'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
-          )
-          if (cancelled) return
-          viewer.imageryLayers.addImageryProvider(arcgisImagery)
-          console.log('[Körvy3D] Esri World Imagery loaded')
-        } catch (e) { console.warn('[Körvy3D] imagery setup:', e) }
+        // Inga imagery-lager by default — vi visar ren terräng med höjd-färgramp + hillshade.
+        // Esri imagery laddas on-demand när användaren togglar till satellit-läget.
+        viewer.imageryLayers.removeAll()
 
-        // Sky/Atmosphere för Tesla-känsla
-        if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
+        // Mörk bakgrund + dimmad globe baseColor
+        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0d1929')
+        viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a2a1a')
+
+        // Hillshade: terrain lighting från solens position + vertex normals (redan begärda).
+        viewer.scene.globe.enableLighting = true
+
+        // Höjd-baserad färg på terrängen — låg = blå, hög = brun, så föraren ser dalar/kullar.
+        viewer.scene.globe.material = Cesium.Material.fromType('ElevationRamp', {
+          minimumHeight: 30,
+          maximumHeight: 350,
+          image: createElevationRamp(),
+        })
+
+        // Sky/atmosphere av i terrängläget — vi vill ha rent schematiskt utseende.
+        if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
         viewer.scene.fog.enabled = true
-        viewer.scene.fog.density = 0.0008
+        viewer.scene.fog.density = 0.0006
 
-        // Skog: Cesium har OSM Buildings men inte trädmodeller. Vi renderar bara
-        // markeringar som 3D-objekt — terrängen är bar mark + hillshade från terrängens normaler.
-        // Sätt scen-ljus så hillshade blir tydlig
+        // Riktat ljus för tydlig hillshade på terrängens normaler.
         viewer.scene.light = new Cesium.DirectionalLight({
           direction: new Cesium.Cartesian3(-0.5, -0.7, -0.5),
           intensity: 2.0,
@@ -174,6 +200,48 @@ export default function CesiumScene({ objektId }: Props) {
       viewerRef.current = null
     }
   }, [])
+
+  // === Mode-toggle: terräng vs satellit ===
+  useEffect(() => {
+    if (!ready || !viewerRef.current) return
+    const viewer = viewerRef.current
+    let cancelled = false
+
+    if (mode === 'satellite') {
+      // Lägg till Esri imagery (eller visa befintligt lager) + neutralisera höjd-rampen.
+      viewer.scene.globe.material = undefined as any
+      viewer.scene.globe.baseColor = Cesium.Color.WHITE
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
+      viewer.scene.backgroundColor = Cesium.Color.BLACK
+
+      if (imageryLayerRef.current) {
+        imageryLayerRef.current.show = true
+        viewer.scene.requestRender()
+      } else {
+        Cesium.ArcGisMapServerImageryProvider.fromUrl(
+          'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
+        ).then((provider) => {
+          if (cancelled || !viewerRef.current) return
+          imageryLayerRef.current = viewer.imageryLayers.addImageryProvider(provider)
+          viewer.scene.requestRender()
+        }).catch((e) => console.warn('[Körvy3D] imagery load:', e))
+      }
+    } else {
+      // Terräng: göm imagery, sätt höjd-ramp + dark bakgrund.
+      if (imageryLayerRef.current) imageryLayerRef.current.show = false
+      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0d1929')
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a2a1a')
+      viewer.scene.globe.material = Cesium.Material.fromType('ElevationRamp', {
+        minimumHeight: 30,
+        maximumHeight: 350,
+        image: createElevationRamp(),
+      })
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
+      viewer.scene.requestRender()
+    }
+
+    return () => { cancelled = true }
+  }, [ready, mode])
 
   // === Initial-vy: zooma till objektet ===
   useEffect(() => {
@@ -397,7 +465,25 @@ export default function CesiumScene({ objektId }: Props) {
             · 3D Körvy
           </span>
         </div>
-        <div style={{ width: 44, flexShrink: 0 }} />
+        <button
+          onClick={() => setMode((m) => m === 'terrain' ? 'satellite' : 'terrain')}
+          aria-label="Växla satellit/terräng"
+          style={{
+            pointerEvents: 'auto',
+            height: 44, padding: '0 14px', borderRadius: 22,
+            background: 'rgba(20,20,22,0.72)',
+            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            color: '#fff', fontSize: 13, fontWeight: 600,
+            cursor: 'pointer', whiteSpace: 'nowrap',
+            display: 'flex', alignItems: 'center', gap: 6,
+            fontFamily: 'inherit',
+          }}
+        >
+          <span style={{ opacity: mode === 'terrain' ? 1 : 0.45 }}>Terräng</span>
+          <span style={{ opacity: 0.4 }}>/</span>
+          <span style={{ opacity: mode === 'satellite' ? 1 : 0.45 }}>Satellit</span>
+        </button>
       </div>
 
       {/* Status-overlay nere-vänster */}
