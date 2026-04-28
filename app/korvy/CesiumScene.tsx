@@ -187,6 +187,250 @@ function zoneColorFor(zoneType: string | undefined): string {
   }
 }
 
+// === Markerings-3D — geometriska former per typ. Färgen matchar 2D-symbolens
+// cirkelfärg så typen är igenkännbar. Cylinder/ellipsoid/box stödjer inte
+// heightReference, så positions-höjden får exH (groundH * VERTICAL_EXAG)
+// adderat med en lokal offset för att stå ovanpå exaggererad terräng.
+// ===
+function addMarkerEntities(
+  viewer: CesiumNS.Viewer,
+  m: Marker,
+  lat: number,
+  lon: number,
+  exH: number,
+  labelOpt: any,
+): void {
+  const baseId = `mk-${m.id}`
+  const at = (h: number) => Cesium.Cartesian3.fromDegrees(lon, lat, exH + h)
+  const colorOf = (hex: string) => Cesium.Color.fromCssColorString(hex)
+
+  switch (m.type) {
+    case 'eternitytree': {
+      // Stam + krona + glow-skal (oförändrat från Omgång A)
+      viewer.entities.add({
+        id: `${baseId}-trunk`,
+        position: at(10),
+        cylinder: { length: 20, topRadius: 1.5, bottomRadius: 2.0, material: colorOf('#3a2818') },
+      })
+      viewer.entities.add({
+        id: `${baseId}-crown`,
+        position: at(22),
+        ellipsoid: { radii: new Cesium.Cartesian3(4, 4, 5), material: colorOf('#30d158') },
+        label: labelOpt,
+      })
+      viewer.entities.add({
+        id: `${baseId}-glow`,
+        position: at(22),
+        ellipsoid: { radii: new Cesium.Cartesian3(7, 7, 9), material: colorOf('#30d158').withAlpha(0.3) },
+      })
+      break
+    }
+    case 'naturecorner': {
+      // Grön smal stam + grön kon ovanpå (mindre än evighetsträd)
+      viewer.entities.add({
+        id: `${baseId}-trunk`,
+        position: at(2),
+        cylinder: { length: 4, topRadius: 0.3, bottomRadius: 0.3, material: colorOf('#30d158') },
+      })
+      viewer.entities.add({
+        id: `${baseId}-top`,
+        position: at(5),
+        cylinder: { length: 2, topRadius: 0, bottomRadius: 1, material: colorOf('#30d158') },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'culturemonument': {
+      // Orange stolpe + liten orange sfär (R-symbol i 2D)
+      viewer.entities.add({
+        id: `${baseId}-pole`,
+        position: at(1),
+        cylinder: { length: 2, topRadius: 0.4, bottomRadius: 0.4, material: colorOf('#f59e0b') },
+      })
+      viewer.entities.add({
+        id: `${baseId}-top`,
+        position: at(2.3),
+        ellipsoid: { radii: new Cesium.Cartesian3(0.6, 0.6, 0.6), material: colorOf('#f59e0b') },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'culturestump': {
+      // Grå stubbe — låg box på marken
+      viewer.entities.add({
+        id: baseId,
+        position: at(0.25),
+        box: { dimensions: new Cesium.Cartesian3(1, 1, 0.5), material: colorOf('#8e8e93') },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'highstump': {
+      // Brun cylinder med platt avskuren topp, 4 m hög
+      viewer.entities.add({
+        id: baseId,
+        position: at(2),
+        cylinder: { length: 4, topRadius: 0.4, bottomRadius: 0.4, material: colorOf('#8e6b3d') },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'brashpile': {
+      // Brun klump — två överlappande boxar för oregelbunden silhuett
+      viewer.entities.add({
+        id: `${baseId}-base`,
+        position: at(0.5),
+        box: { dimensions: new Cesium.Cartesian3(5, 3, 1), material: colorOf('#6b4423') },
+      })
+      viewer.entities.add({
+        id: `${baseId}-top`,
+        position: at(1),
+        box: { dimensions: new Cesium.Cartesian3(3, 2, 1), material: colorOf('#6b4423') },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'landing': {
+      // Mörk grå platt cylinder, markerar lagringsyta
+      viewer.entities.add({
+        id: baseId,
+        position: at(0.15),
+        cylinder: { length: 0.3, topRadius: 2, bottomRadius: 2, material: colorOf('#3a3a3a') },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'windfall': {
+      // Liggande brun cylinder (fallet träd), pekar mot NE och lutad 5°
+      const center = at(0.5)
+      const hpr = new Cesium.HeadingPitchRoll(
+        Cesium.Math.toRadians(30),   // riktning NE
+        Cesium.Math.toRadians(90),    // ligger horisontellt
+        Cesium.Math.toRadians(5),     // lutad lite
+      )
+      const orientation = Cesium.Transforms.headingPitchRollQuaternion(center, hpr)
+      viewer.entities.add({
+        id: baseId,
+        position: center,
+        orientation: orientation as any,
+        cylinder: { length: 8, topRadius: 0.5, bottomRadius: 0.5, material: colorOf('#8e6b3d') },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'manualfelling': {
+      // Mörk pole + orange varningsskylt
+      viewer.entities.add({
+        id: `${baseId}-pole`,
+        position: at(1),
+        cylinder: { length: 2, topRadius: 0.1, bottomRadius: 0.1, material: colorOf('#3a2818') },
+      })
+      viewer.entities.add({
+        id: `${baseId}-sign`,
+        position: at(2.5),
+        box: { dimensions: new Cesium.Cartesian3(1.5, 0.2, 1.0), material: colorOf('#ff9f0a') },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'powerline': {
+      // Grå pylon — torn med horisontellt cross-arm
+      viewer.entities.add({
+        id: `${baseId}-tower`,
+        position: at(6),
+        cylinder: { length: 12, topRadius: 0.3, bottomRadius: 0.5, material: colorOf('#5a5a5a') },
+      })
+      viewer.entities.add({
+        id: `${baseId}-arm`,
+        position: at(11.5),
+        box: { dimensions: new Cesium.Cartesian3(3, 0.3, 0.3), material: colorOf('#5a5a5a') },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'ditch': {
+      // Cyan nedsänkt cylinder, 0.5 m djup. Topp precis ovan mark så den
+      // syns som en grund pöl/ränna. Färg matchar 2D dike-linjens cyan.
+      viewer.entities.add({
+        id: baseId,
+        position: at(0.05),
+        cylinder: {
+          length: 0.5,
+          topRadius: 1.5,
+          bottomRadius: 1.5,
+          material: colorOf('#06b6d4').withAlpha(0.7),
+        },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'bridge': {
+      // Grå platta, något upphöjd över mark
+      viewer.entities.add({
+        id: baseId,
+        position: at(0.4),
+        box: { dimensions: new Cesium.Cartesian3(4, 1, 0.3), material: colorOf('#5a5a5a') },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'corduroy': {
+      // 3 parallella liggande timmer i öst-västlig riktning, offset i nord-syd
+      for (let i = 0; i < 3; i++) {
+        const offM = (i - 1) * 0.6
+        const bearingDeg = offM >= 0 ? 0 : 180
+        const [olon, olat] = offsetLatLngByBearing(lat, lon, Math.abs(offM), bearingDeg)
+        const pos = Cesium.Cartesian3.fromDegrees(olon, olat, exH + 0.25)
+        const orientation = Cesium.Transforms.headingPitchRollQuaternion(
+          pos,
+          new Cesium.HeadingPitchRoll(0, Cesium.Math.toRadians(90), 0),
+        )
+        viewer.entities.add({
+          id: `${baseId}-log${i}`,
+          position: pos,
+          orientation: orientation as any,
+          cylinder: { length: 3, topRadius: 0.25, bottomRadius: 0.25, material: colorOf('#6b4423') },
+          ...(i === 1 ? { label: labelOpt } : {}),
+        })
+      }
+      break
+    }
+    case 'wet': {
+      // Halvtransparent blå sfär halvt nedsänkt — översta halvan synlig
+      viewer.entities.add({
+        id: baseId,
+        position: at(0),
+        ellipsoid: {
+          radii: new Cesium.Cartesian3(1.5, 1.5, 1.5),
+          material: colorOf('#3b82f6').withAlpha(0.6),
+        },
+        label: labelOpt,
+      })
+      break
+    }
+    case 'warning': {
+      // Röd kon (cylinder med topRadius=0) — varningsskylt-känsla
+      viewer.entities.add({
+        id: baseId,
+        position: at(1),
+        cylinder: { length: 2, topRadius: 0, bottomRadius: 1, material: colorOf('#ff453a') },
+        label: labelOpt,
+      })
+      break
+    }
+    default: {
+      // Okänd typ — neutral grå cylinder så den ändå syns
+      viewer.entities.add({
+        id: baseId,
+        position: at(1.5),
+        cylinder: { length: 3, topRadius: 0.6, bottomRadius: 0.6, material: colorOf('#8e8e93') },
+        label: labelOpt,
+      })
+      break
+    }
+  }
+}
+
 // === Maskin-ikon canvas (cachas) — vit cirkel + blå pil uppåt ===
 let _machineIconCache: HTMLCanvasElement | null = null
 function getMachineIconCanvas(): HTMLCanvasElement {
@@ -595,83 +839,15 @@ export default function CesiumScene({ objektId }: Props) {
         disableDepthTestDistance: 200,
       })
 
-      // 4) Rendera punkt-markeringar med exaggererade höjder
-      // Cylinder/ellipsoid/box stödjer inte heightReference — vi måste manuellt
-      // skala ground-höjden med VERTICAL_EXAG eftersom terrängen är exaggererad.
+      // 4) Rendera punkt-markeringar via addMarkerEntities-helpern (typ-specifika
+      // 3D-former). Cylinder/ellipsoid/box stödjer inte heightReference — vi
+      // skalar ground-höjden med VERTICAL_EXAG och passerar exH till helpern.
       for (let i = 0; i < pointMarkers.length; i++) {
         const { m, lat, lon } = pointMarkers[i]
         const exH = pointHeights[i] * VERTICAL_EXAG
+        const labelOpt = m.comment ? makeLabel(m.comment) : undefined
         try {
-          if (m.type === 'eternitytree') {
-            viewer.entities.add({
-              id: `mk-${m.id}-trunk`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 10),
-              cylinder: {
-                length: 20, topRadius: 1.5, bottomRadius: 2.0,
-                material: Cesium.Color.fromCssColorString('#3a2818'),
-                outline: false,
-              },
-            })
-            viewer.entities.add({
-              id: `mk-${m.id}-crown`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 22),
-              ellipsoid: {
-                radii: new Cesium.Cartesian3(4.0, 4.0, 5.0),
-                material: Cesium.Color.fromCssColorString('#30d158'),
-              },
-              label: m.comment ? makeLabel(m.comment) : undefined,
-            })
-            // Glow-skal — lysande halo runt kronan
-            viewer.entities.add({
-              id: `mk-${m.id}-glow`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 22),
-              ellipsoid: {
-                radii: new Cesium.Cartesian3(7.0, 7.0, 9.0),
-                material: Cesium.Color.fromCssColorString('#30d158').withAlpha(0.3),
-              },
-            })
-          } else if (m.type === 'culturestump' || m.type === 'highstump' || m.type === 'brashpile') {
-            viewer.entities.add({
-              id: `mk-${m.id}`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 1.5),
-              box: {
-                dimensions: new Cesium.Cartesian3(6.0, 6.0, 3.0),
-                material: Cesium.Color.fromCssColorString('#8e8e93').withAlpha(0.85),
-              },
-              label: m.comment ? makeLabel(m.comment) : undefined,
-            })
-          } else if (m.type === 'ditch' || m.type === 'wet') {
-            viewer.entities.add({
-              id: `mk-${m.id}`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat),
-              ellipse: {
-                semiMajorAxis: 4.5, semiMinorAxis: 4.5,
-                material: Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.65),
-                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-              },
-              label: m.comment ? makeLabel(m.comment) : undefined,
-            })
-          } else if (m.type === 'culturemonument') {
-            viewer.entities.add({
-              id: `mk-${m.id}`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 3),
-              cylinder: {
-                length: 6, topRadius: 1.5, bottomRadius: 1.5,
-                material: Cesium.Color.fromCssColorString('#ff9f0a'),
-              },
-              label: m.comment ? makeLabel(m.comment) : undefined,
-            })
-          } else {
-            viewer.entities.add({
-              id: `mk-${m.id}`,
-              position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + 3),
-              cylinder: {
-                length: 6, topRadius: 1.2, bottomRadius: 1.2,
-                material: Cesium.Color.fromCssColorString('#ff453a'),
-              },
-              label: m.comment ? makeLabel(m.comment) : undefined,
-            })
-          }
+          addMarkerEntities(viewer, m, lat, lon, exH, labelOpt)
         } catch (e) {
           console.error('[Körvy3D] Marker render fel:', m.id, e)
         }
