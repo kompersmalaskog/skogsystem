@@ -178,8 +178,13 @@ export default function CesiumScene({ objektId }: Props) {
 
         // Sky/atmosphere av i terrängläget — vi vill ha rent schematiskt utseende.
         if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
+
+        // Dimma: terrängen fadear ut efter ~200 m så föraren fokuserar på det nära.
+        // Fog-färgen matchar bakgrunden så fjärran terräng smälter in i mörkret.
         viewer.scene.fog.enabled = true
-        viewer.scene.fog.density = 0.0006
+        viewer.scene.fog.density = 0.003
+        viewer.scene.fog.minimumBrightness = 0.1
+        try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0d1929') } catch {}
 
         // Riktat ljus från nordväst (hög sol) → tydliga skuggor på terrängens normaler.
         // Direction-vektorn pekar från ljuset mot scenen: nordväst = (+x öst, +y nord) → riktning (-x, -y, -z).
@@ -222,6 +227,9 @@ export default function CesiumScene({ objektId }: Props) {
       viewer.scene.globe.baseColor = Cesium.Color.WHITE
       if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
       viewer.scene.backgroundColor = Cesium.Color.BLACK
+      // I satellitläget: dämpad fog så vyn ser mer naturlig ut.
+      viewer.scene.fog.density = 0.0006
+      try { (viewer.scene.fog as any).color = Cesium.Color.WHITE } catch {}
 
       if (imageryLayerRef.current) {
         imageryLayerRef.current.show = true
@@ -248,6 +256,11 @@ export default function CesiumScene({ objektId }: Props) {
         image: createElevationRamp(),
       })
       if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
+      // Tät fog som matchar mörk bakgrund — fjärran terräng döljs i dimma.
+      viewer.scene.fog.enabled = true
+      viewer.scene.fog.density = 0.003
+      viewer.scene.fog.minimumBrightness = 0.1
+      try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0d1929') } catch {}
       viewer.scene.requestRender()
     }
 
