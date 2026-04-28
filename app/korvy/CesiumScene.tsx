@@ -215,6 +215,7 @@ export default function CesiumScene({ objektId }: Props) {
   const viewerRef = useRef<CesiumNS.Viewer | null>(null)
   const watchIdRef = useRef<number | null>(null)
   const imageryLayerRef = useRef<CesiumNS.ImageryLayer | null>(null)
+  const tilesetRef = useRef<CesiumNS.Cesium3DTileset | null>(null)
   const groundHeightRef = useRef<number>(150)
   const triggeredIdsRef = useRef<Set<string>>(new Set())
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -223,7 +224,7 @@ export default function CesiumScene({ objektId }: Props) {
   const [pos, setPos] = useState<{ lat: number; lon: number; heading: number | null; speed: number | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
-  const [mode, setMode] = useState<'terrain' | 'satellite'>('terrain')
+  const [mode, setMode] = useState<'terrain' | 'hillshade' | 'satellite' | 'photo3d'>('terrain')
   const [nextItems, setNextItems] = useState<NextItem[]>([])
   const [acuteWarning, setAcuteWarning] = useState<AcuteWarning | null>(null)
 
@@ -363,34 +364,19 @@ export default function CesiumScene({ objektId }: Props) {
     }
   }, [])
 
-  // === Mode-toggle: terräng vs satellit ===
+  // === Mode-toggle: terräng / hillshade / satellit / 3D foto ===
   useEffect(() => {
     if (!ready || !viewerRef.current) return
     const viewer = viewerRef.current
     let cancelled = false
 
-    if (mode === 'satellite') {
-      viewer.scene.globe.material = undefined as any
-      viewer.scene.globe.baseColor = Cesium.Color.WHITE
-      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
-      viewer.scene.backgroundColor = Cesium.Color.BLACK
-      viewer.scene.fog.density = 0.0006
-      try { (viewer.scene.fog as any).color = Cesium.Color.WHITE.clone() } catch {}
+    // Visa/dölj layers baserat på mode
+    if (imageryLayerRef.current) imageryLayerRef.current.show = (mode === 'satellite')
+    if (tilesetRef.current) tilesetRef.current.show = (mode === 'photo3d')
+    // Globen göms i photo3d (Google-tiles ersätter den)
+    viewer.scene.globe.show = (mode !== 'photo3d')
 
-      if (imageryLayerRef.current) {
-        imageryLayerRef.current.show = true
-        viewer.scene.requestRender()
-      } else {
-        Cesium.ArcGisMapServerImageryProvider.fromUrl(
-          'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
-        ).then((provider) => {
-          if (cancelled || !viewerRef.current) return
-          imageryLayerRef.current = viewer.imageryLayers.addImageryProvider(provider)
-          viewer.scene.requestRender()
-        }).catch((e) => console.warn('[Körvy3D] imagery load:', e))
-      }
-    } else {
-      if (imageryLayerRef.current) imageryLayerRef.current.show = false
+    if (mode === 'terrain') {
       viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0a1520')
       viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#0a1a0a')
       try { (viewer.scene as any).verticalExaggeration = debugExag } catch {}
@@ -403,13 +389,59 @@ export default function CesiumScene({ objektId }: Props) {
       })
       if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
       viewer.scene.fog.enabled = true
-      viewer.scene.fog.density = 0.003
+      viewer.scene.fog.density = debugFogDensity
       viewer.scene.fog.minimumBrightness = 0.1
       try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0a1520') } catch {}
-      viewer.scene.requestRender()
+    } else if (mode === 'hillshade') {
+      // Ren hillshade: ingen färgramp, mellangrå basfärg + lighting → skuggor från terräng-normaler
+      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#0a1520')
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#5a5a5a')
+      viewer.scene.globe.material = undefined as any
+      try { (viewer.scene as any).verticalExaggeration = debugExag } catch {}
+      try { (viewer.scene.globe as any).terrainExaggeration = debugExag } catch {}
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
+      viewer.scene.fog.enabled = true
+      viewer.scene.fog.density = debugFogDensity
+      try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0a1520') } catch {}
+    } else if (mode === 'satellite') {
+      viewer.scene.globe.material = undefined as any
+      viewer.scene.globe.baseColor = Cesium.Color.WHITE
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
+      viewer.scene.backgroundColor = Cesium.Color.BLACK
+      viewer.scene.fog.density = 0.0006
+      try { (viewer.scene.fog as any).color = Cesium.Color.WHITE.clone() } catch {}
+
+      if (!imageryLayerRef.current) {
+        Cesium.ArcGisMapServerImageryProvider.fromUrl(
+          'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
+        ).then((provider) => {
+          if (cancelled || !viewerRef.current) return
+          imageryLayerRef.current = viewer.imageryLayers.addImageryProvider(provider)
+          viewer.scene.requestRender()
+        }).catch((e) => console.warn('[Körvy3D] imagery load:', e))
+      }
+    } else if (mode === 'photo3d') {
+      // Google Photorealistic 3D Tiles via Cesium Ion (asset 2275207, gratis i Ion)
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
+      viewer.scene.backgroundColor = Cesium.Color.BLACK
+      viewer.scene.fog.enabled = false   // Google-tiles ser bättre ut utan vår täta fog
+
+      if (!tilesetRef.current) {
+        Cesium.Cesium3DTileset.fromIonAssetId(2275207).then((tileset) => {
+          if (cancelled || !viewerRef.current) return
+          tilesetRef.current = tileset
+          viewer.scene.primitives.add(tileset)
+          viewer.scene.requestRender()
+        }).catch((e) => {
+          console.warn('[Körvy3D] photo3d load:', e)
+          setError('3D Foto kunde inte laddas: ' + (e?.message || String(e)))
+        })
+      }
     }
 
+    viewer.scene.requestRender()
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, mode])
 
   // === DEBUG: höjd-ramp HSL i realtid ===
@@ -947,7 +979,7 @@ export default function CesiumScene({ objektId }: Props) {
           </svg>
         </Link>
         <div style={{
-          pointerEvents: 'auto', flex: '0 1 auto', maxWidth: 'calc(100% - 220px)',
+          pointerEvents: 'auto', flex: '0 1 auto', maxWidth: 'calc(100% - 70px)',
           padding: '10px 18px', borderRadius: 22,
           background: 'rgba(20,20,22,0.72)',
           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
@@ -961,32 +993,55 @@ export default function CesiumScene({ objektId }: Props) {
             · 3D Körvy
           </span>
         </div>
-        <button
-          onClick={() => setMode((m) => m === 'terrain' ? 'satellite' : 'terrain')}
-          aria-label="Växla satellit/terräng"
-          style={{
-            pointerEvents: 'auto',
-            height: 44, padding: '0 14px', borderRadius: 22,
-            background: 'rgba(20,20,22,0.72)',
-            backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            color: '#fff', fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', whiteSpace: 'nowrap',
-            display: 'flex', alignItems: 'center', gap: 6,
-            fontFamily: 'inherit',
-          }}
-        >
-          <span style={{ opacity: mode === 'terrain' ? 1 : 0.45 }}>Terräng</span>
-          <span style={{ opacity: 0.4 }}>/</span>
-          <span style={{ opacity: mode === 'satellite' ? 1 : 0.45 }}>Satellit</span>
-        </button>
+        <div style={{ width: 44, flexShrink: 0 }} />
+      </div>
+
+      {/* Mode-toggle: egen rad under topbar (segmented control, 4 val) */}
+      <div style={{
+        position: 'fixed',
+        top: 'calc(env(safe-area-inset-top, 0px) + 64px)',
+        left: 12, right: 12,
+        display: 'flex', justifyContent: 'center',
+        zIndex: 100, pointerEvents: 'none',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+      }}>
+        <div style={{
+          pointerEvents: 'auto',
+          display: 'flex',
+          height: 38, borderRadius: 19, overflow: 'hidden',
+          background: 'rgba(20,20,22,0.72)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}>
+          {([
+            { id: 'terrain' as const,   label: 'Terräng' },
+            { id: 'hillshade' as const, label: 'Hillshade' },
+            { id: 'satellite' as const, label: 'Satellit' },
+            { id: 'photo3d' as const,   label: '3D Foto' },
+          ]).map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setMode(id)}
+              aria-pressed={mode === id}
+              style={{
+                padding: '0 12px',
+                background: mode === id ? 'rgba(10,132,255,0.85)' : 'transparent',
+                color: '#fff', fontSize: 12, fontWeight: 600,
+                border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                fontFamily: 'inherit',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Akut varning (≤50 m) */}
       {acuteWarning && (
         <div style={{
           position: 'fixed',
-          top: 'calc(env(safe-area-inset-top, 0px) + 80px)',
+          top: 'calc(env(safe-area-inset-top, 0px) + 112px)',
           left: 12, right: 12,
           padding: '14px 18px', borderRadius: 16,
           background: 'rgba(20,20,22,0.92)',
@@ -1066,7 +1121,7 @@ export default function CesiumScene({ objektId }: Props) {
       {debugPanelOpen ? (
         <div style={{
           position: 'fixed',
-          top: 'calc(env(safe-area-inset-top, 0px) + 68px)',
+          top: 'calc(env(safe-area-inset-top, 0px) + 112px)',
           right: 12, width: 280,
           maxHeight: '70vh', overflowY: 'auto',
           padding: '12px 14px', borderRadius: 14,
@@ -1132,7 +1187,7 @@ export default function CesiumScene({ objektId }: Props) {
           aria-label="Öppna debug-panel"
           style={{
             position: 'fixed',
-            top: 'calc(env(safe-area-inset-top, 0px) + 68px)',
+            top: 'calc(env(safe-area-inset-top, 0px) + 112px)',
             right: 12, width: 36, height: 36, borderRadius: 18,
             background: 'rgba(20,20,22,0.72)',
             backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
