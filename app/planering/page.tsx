@@ -8825,8 +8825,8 @@ export default function PlannerPage() {
         );
       })()}
 
-      {/* === PLUS-KNAPP (nere höger) — döljs när volym-panelen eller Körvy är öppna */}
-      {!briefingMode && !(volymLoading || volymResultat) && !korvyActive && (
+      {/* === PLUS-KNAPP (nere höger) — döljs bara när briefing eller volym-panel är öppna */}
+      {!briefingMode && !(volymLoading || volymResultat) && (
         <button
           type="button"
           onClick={() => { if (navigator.vibrate) navigator.vibrate(10); setPlusMenuOpen(o => !o); }}

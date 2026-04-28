@@ -267,6 +267,33 @@ export default function CesiumScene({ objektId }: Props) {
         })
         viewerRef.current = viewer
 
+        // === Kamerakontroll: explicit konfig för rotate/tilt/translate ===
+        // Cesium-defaults har rotate på LEFT_DRAG men vid låg altitud (vår körvy
+        // är ~25 m över marken) blir orbit kring globe-centrum praktiskt
+        // omärkbar. Vi sätter explicita event-mappningar i Google Earth-stil.
+        const ssc = viewer.scene.screenSpaceCameraController
+        ssc.enableInputs = true
+        ssc.enableTranslate = true
+        ssc.enableZoom = true
+        ssc.enableRotate = true
+        ssc.enableTilt = true
+        ssc.enableLook = true
+        // Mus: vänster=pan, höger=zoom, mitten=rotera, hjul=zoom,
+        // Shift+vänster=tilta, Ctrl+vänster=look
+        ssc.translateEventTypes = Cesium.CameraEventType.LEFT_DRAG
+        ssc.rotateEventTypes = Cesium.CameraEventType.MIDDLE_DRAG
+        ssc.zoomEventTypes = [
+          Cesium.CameraEventType.WHEEL,
+          Cesium.CameraEventType.RIGHT_DRAG,
+          Cesium.CameraEventType.PINCH,
+        ]
+        ssc.tiltEventTypes = [
+          Cesium.CameraEventType.PINCH,
+          [Cesium.CameraEventType.LEFT_DRAG, Cesium.KeyboardEventModifier.SHIFT],
+          [Cesium.CameraEventType.RIGHT_DRAG, Cesium.KeyboardEventModifier.CTRL],
+        ]
+        ssc.lookEventTypes = [Cesium.CameraEventType.LEFT_DRAG, Cesium.KeyboardEventModifier.CTRL]
+
         viewer.imageryLayers.removeAll()
 
         viewer.scene.backgroundColor = Cesium.Color.BLACK
