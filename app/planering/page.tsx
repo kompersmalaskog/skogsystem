@@ -8,6 +8,7 @@ import BrandriskPanel from './brandrisk-panel'
 import VolymPanel from './volym-panel'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
+import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
@@ -393,54 +394,8 @@ export default function PlannerPage() {
   const [showMap, setShowMap] = useState(true);
   const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain'>('satellite');
   
-  // Overlay-lager
-  const [overlays, setOverlays] = useState({
-    vidaKartbild: true,    // VIDA traktdirektiv-kartbild
-    propertyLines: false,  // Fastighetsgränser (legacy, unused)
-    fastighetsgranser: false, // Fastighetsgränser LM WMS
-    hydrografi: false,     // Diken & vattendrag (SKS Flödesackumulation)
-    moisture: false,       // Markfuktighet (kräver konto)
-    contours: false,       // Höjdkurvor
-    wetlands: false,       // Sumpskog (öppet)
-    // Skogsstyrelsen
-    nyckelbiotoper: false,
-    naturvarde: false,
-    sumpskog: false,
-    skoghistoria: false,
-    biotopskydd: false,
-    naturvardsavtal: false,
-    avverkningsanmalan: false,
-    utfordavverkning: false,
-    // Riksantikvarieämbetet
-    fornlamningar: false,
-    // Naturvårdsverket
-    naturreservat: false,
-    natura2000: false,
-    vattenskydd: false,
-    // MSB
-    brandrisk: false,
-    oversvamning: false,
-    // SGU
-    jordarter: false,
-    // Trafikverket
-    barighet: false,
-    // Svenska Kraftnät
-    kraftledningar: false,
-    // Körbarhet (kombinerat lager)
-    korbarhet: false,
-    // Skogsstyrelsen Raster (via proxy)
-    sks_markfuktighet: false,
-    sks_virkesvolym: false,
-    sks_tradhojd: false,
-    sks_lutning: false,
-    sks_gallringsindex: false,
-    // Lantmäteriet (via proxy)
-    lm_skuggning: false,
-    lm_ortofoto: false,
-    // HPR produktionshögar
-    produktionshogar: false,
-    grothogar: false,
-  });
+  // Overlay-lager — persistas i localStorage via useMapLayers
+  const [overlays, setOverlays] = useMapLayers();
 
   const wmsLayerGroups = [
     {
