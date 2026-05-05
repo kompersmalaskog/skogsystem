@@ -209,6 +209,32 @@ function zoneColorFor(zoneType: string | undefined): string {
   }
 }
 
+// === Outlier-filter för markeringar (SVG-units) ===
+// Skyddar mot felaktiga markeringar med koordinater >1000 SVG-units från
+// objekt-centrum. De har troligen ritats när mapCenter stod på fel referens
+// (ex. Stenshult-default innan ett objekt valdes), och hamnar km bort när
+// rekonverterade. Filtreras klient-side i båda 2D- och 3D-vyer.
+//
+// SQL för manuell rensning i Supabase (kör inte automatiskt — verifiera först):
+// DELETE FROM planering_markeringar WHERE marker_id IN (
+//   '1772898258170', '1772898638712',
+//   '1772445281097', '1777998752739', '1777304162620'
+// );
+const OUTLIER_LIMIT = 1000
+function isOutlierPoint(p: { x: number; y: number }): boolean {
+  return Math.abs(p.x) > OUTLIER_LIMIT || Math.abs(p.y) > OUTLIER_LIMIT
+}
+function filterMarkerOutliers(m: Marker): Marker | null {
+  if ((m.isMarker || m.isArrow) && isOutlierPoint(m)) return null
+  if (m.path && m.path.length > 0) {
+    const cleanPath = m.path.filter((p) => !isOutlierPoint(p))
+    const minPath = m.isLine ? 2 : m.isZone ? 3 : 1
+    if (cleanPath.length < minPath) return null
+    return { ...m, path: cleanPath }
+  }
+  return m
+}
+
 // Alpha för overlay-imagery beroende på cockpit/satellit-läget. I cockpit
 // vill vi att markfuktighet bara "glöder" mot mörk bas — annars solid.
 function alphaForOverlay(layerId: string, bg: 'cockpit' | 'satellite'): number {
@@ -982,10 +1008,16 @@ export default function CesiumScene({ objektId }: Props) {
       }
     }
 
+    // Filtrera bort outlier-markeringar (>1000 SVG-units från objekt-centrum)
+    // som annars syns som "streck genom kartan"
+    const safeMarkers = markers
+      .map(filterMarkerOutliers)
+      .filter((m): m is Marker => m !== null)
+
     ;(async () => {
       // 1) Konvertera punkt-markeringar till lat/lng
       const pointMarkers: { m: Marker; lat: number; lon: number }[] = []
-      for (const m of markers) {
+      for (const m of safeMarkers) {
         if (m.isMarker) {
           const ll = svgToLatLon(m.x, m.y)
           pointMarkers.push({ m, lat: ll.lat, lon: ll.lon })
@@ -1038,7 +1070,7 @@ export default function CesiumScene({ objektId }: Props) {
       }
 
       // 4b) Pilar — triangulär polygon clampToGround, riktning från m.rotation
-      for (const m of markers) {
+      for (const m of safeMarkers) {
         if (!m.isArrow) continue
         try {
           const ll = svgToLatLon(m.x, m.y)
@@ -1056,7 +1088,7 @@ export default function CesiumScene({ objektId }: Props) {
       // tyst skippar hela primitiven. Filtrera därför bort sista pixel-
       // identiska punkten innan vi bygger Cartesian3-array. Geometriskt blir
       // polygonen ändå sluten via [N-2]→[0]-segmentet.
-      for (const m of markers) {
+      for (const m of safeMarkers) {
         if (!m.isLine || !m.path || m.path.length <= 1) continue
         try {
           let pts = m.path
@@ -1081,7 +1113,7 @@ export default function CesiumScene({ objektId }: Props) {
       }
 
       // 6) Zoner — clampToGround, alpha 0.2 + solid outline (matchar 2D fill+outline)
-      for (const m of markers) {
+      for (const m of safeMarkers) {
         if (!m.isZone || !m.path || m.path.length < 3) continue
         try {
           const hierarchy: CesiumNS.Cartesian3[] = []
@@ -1112,8 +1144,9 @@ export default function CesiumScene({ objektId }: Props) {
 
       console.log(
         '[Körvy3D]', pointMarkers.length, 'pelare,',
-        markers.filter(m => m.isLine).length, 'linjer,',
-        markers.filter(m => m.isZone).length, 'zoner renderade'
+        safeMarkers.filter(m => m.isLine).length, 'linjer,',
+        safeMarkers.filter(m => m.isZone).length, 'zoner renderade',
+        markers.length - safeMarkers.length > 0 ? `(${markers.length - safeMarkers.length} outliers filtrerade)` : '',
       )
     })()
 
@@ -1365,102 +1398,29 @@ export default function CesiumScene({ objektId }: Props) {
     return () => { cancelled = true }
   }, [ready, pos, followGps])
 
-  // === Maskin-ikon + pulserande halo (klampad till mark) ===
+  // === Maskin-ikon — minimal, statisk (Apple-stil) ===
+  // En liten vit cirkel + blå pil som roterar med heading. Ingen pulserande
+  // halo, ingen siktfält-kon, ingen animation-loop — vyn är lugnare och
+  // fokuserar på markeringar/HPR-högar. Halvstor scale 0.5.
   useEffect(() => {
     if (!ready || !viewerRef.current || !pos) return
     const viewer = viewerRef.current
     const heading = pos.heading != null ? pos.heading : 0
     const position = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat)
 
-    // Rensa befintliga maskin-entiteter
-    for (const id of ['machine-icon', 'machine-halo']) {
-      const e = viewer.entities.getById(id)
-      if (e) viewer.entities.remove(e)
-    }
-
-    // Pulserande halo: ellipse-radie animeras 8 → 18 m via CallbackProperty
-    const pulseRadius = new Cesium.CallbackProperty(() => {
-      const t = (Date.now() % 1800) / 1800   // 0..1 över 1.8 s
-      return 8 + t * 10
-    }, false)
-    const pulseColor = new Cesium.ColorMaterialProperty(
-      new Cesium.CallbackProperty(() => {
-        const t = (Date.now() % 1800) / 1800
-        return Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.45 * (1 - t))
-      }, false) as any
-    )
-    viewer.entities.add({
-      id: 'machine-halo',
-      position,
-      ellipse: {
-        semiMajorAxis: pulseRadius,
-        semiMinorAxis: pulseRadius,
-        material: pulseColor,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      },
-    })
+    const existing = viewer.entities.getById('machine-icon')
+    if (existing) viewer.entities.remove(existing)
 
     viewer.entities.add({
       id: 'machine-icon',
       position,
       billboard: {
         image: getMachineIconCanvas(),
-        scale: 1.1,
+        scale: 0.5,
         rotation: Cesium.Math.toRadians(-heading),
         alignedAxis: Cesium.Cartesian3.UNIT_Z,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
         disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      },
-    })
-    viewer.scene.requestRender()
-  }, [ready, pos])
-
-  // === Animation-loop: trigga render ~30 fps medan maskin-halo finns ===
-  // requestRenderMode: true innebär att scenen bara renderar vid ändringar.
-  // CallbackProperty triggar inte render automatiskt, så vi pinger den.
-  useEffect(() => {
-    if (!ready || !viewerRef.current || !pos) return
-    const viewer = viewerRef.current
-    let raf = 0
-    let lastTick = 0
-    const tick = (now: number) => {
-      raf = requestAnimationFrame(tick)
-      if (now - lastTick < 33) return  // ~30 fps
-      lastTick = now
-      viewer.scene.requestRender()
-    }
-    raf = requestAnimationFrame(tick)
-    return () => { if (raf) cancelAnimationFrame(raf) }
-  }, [ready, pos])
-
-  // === Siktfält-kon: blå polygon 30°×150 m framåt, klampad till mark ===
-  useEffect(() => {
-    if (!ready || !viewerRef.current || !pos) return
-    const viewer = viewerRef.current
-    const heading = pos.heading != null ? pos.heading : 0
-
-    const existing = viewer.entities.getById('sight-cone')
-    if (existing) viewer.entities.remove(existing)
-
-    const halfAngle = 15
-    const segments = 8
-    const lengthM = 150
-    const coords: [number, number][] = [[pos.lon, pos.lat]]
-    for (let i = 0; i <= segments; i++) {
-      const a = -halfAngle + (2 * halfAngle * i / segments)
-      const bearing = (heading + a + 360) % 360
-      const [eLon, eLat] = offsetLatLngByBearing(pos.lat, pos.lon, lengthM, bearing)
-      coords.push([eLon, eLat])
-    }
-
-    viewer.entities.add({
-      id: 'sight-cone',
-      polygon: {
-        hierarchy: new Cesium.PolygonHierarchy(
-          coords.map(c => Cesium.Cartesian3.fromDegrees(c[0], c[1]))
-        ),
-        material: Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.18),
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
       },
     })
     viewer.scene.requestRender()
@@ -1522,6 +1482,7 @@ export default function CesiumScene({ objektId }: Props) {
     const items: NextItem[] = []
     for (const m of markers) {
       if (!m.isMarker) continue
+      if (isOutlierPoint(m)) continue   // skip outlier-markeringar (filterMarkerOutliers-spegel)
       const ll = svgToLatLon(m.x, m.y)
       const dist = haversineM(pos.lat, pos.lon, ll.lat, ll.lon)
       if (dist > 300) continue
