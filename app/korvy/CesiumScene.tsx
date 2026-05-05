@@ -556,6 +556,57 @@ function getMachineIconCanvas(): HTMLCanvasElement {
   return c
 }
 
+// === Tunnelvision-mask: radial gradient som mörkar terrängen utanför 100 m ===
+// Cesium ImageMaterialProperty på en stor ellipse ger oss en clampToGround-
+// "skugga" runt maskinen. Inom 60 m är canvasen helt transparent → full
+// klarhet. 60–100 m gradvis mörkare. Bortom 100 m konstant 85 % mörkning
+// så terräng/imagery dämpas till ~15 % synlighet.
+//
+// Ellipse-radie 1000 m → 60 m motsvarar 0.060 av canvasens radial-axel,
+// 100 m motsvarar 0.100. Bortom 100 m (canvas-radie 0.100–1.000) konstant
+// dämpning. Bortom ellipsen (ovanlig på Tesla-altitud) syns globen direkt
+// men kameravinkel + avstånd håller det utanför vy.
+let _tunnelMaskCache: HTMLCanvasElement | null = null
+function getTunnelMaskCanvas(): HTMLCanvasElement {
+  if (_tunnelMaskCache) return _tunnelMaskCache
+  const size = 512
+  const c = document.createElement('canvas')
+  c.width = size; c.height = size
+  const ctx = c.getContext('2d')!
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+  grad.addColorStop(0.000, 'rgba(20,20,20,0)')        // 0 m   — full klarhet
+  grad.addColorStop(0.060, 'rgba(20,20,20,0)')        // 60 m  — fortfarande klar
+  grad.addColorStop(0.100, 'rgba(20,20,20,0.85)')     // 100 m — 85 % mörkning
+  grad.addColorStop(1.000, 'rgba(20,20,20,0.85)')     // bortom — konstant
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, size, size)
+  _tunnelMaskCache = c
+  return c
+}
+
+// DistanceDisplayCondition: 3D-markörer (cylinder/box/ellipsoid) göms hårt
+// bortom 105 m camera-avstånd ≈ ~100 m maskin-avstånd. ClampToGround-objekt
+// (polygons/polylines/ellipse) berörs INTE — de fadeas naturligt av
+// tunnel-mask-overlayen som ligger på marken.
+let _markerDdc: any = null
+function getMarkerDdc() {
+  if (!_markerDdc) _markerDdc = new Cesium.DistanceDisplayCondition(0, 105)
+  return _markerDdc
+}
+
+// Applicera DDC på alla 3D-formade entiteter med given id-prefix.
+// 3D-form = har cylinder, box eller ellipsoid (inte ellipse/polygon/polyline).
+function applyTunnelDDC(viewer: CesiumNS.Viewer, prefix: string): void {
+  const ddc = getMarkerDdc()
+  for (const e of viewer.entities.values) {
+    const id = e.id?.toString() || ''
+    if (!id.startsWith(prefix)) continue
+    if (e.cylinder || e.box || e.ellipsoid) {
+      e.distanceDisplayCondition = ddc
+    }
+  }
+}
+
 export default function CesiumScene({ objektId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<CesiumNS.Viewer | null>(null)
@@ -1046,6 +1097,11 @@ export default function CesiumScene({ objektId }: Props) {
         }
       }
 
+      // Tunnelvision: hård hide bortom 105 m camera-avstånd för 3D-formade
+      // markörer (cylinder/box/ellipsoid). ClampToGround-objekt fadeas
+      // naturligt av tunnel-mask-overlayen.
+      applyTunnelDDC(viewer, 'mk-')
+
       console.log(
         '[Körvy3D]', pointMarkers.length, 'pelare,',
         markers.filter(m => m.isLine).length, 'linjer,',
@@ -1257,6 +1313,9 @@ export default function CesiumScene({ objektId }: Props) {
         })
       }
 
+      // Tunnelvision: hård hide bortom 105 m för HPR-halvsfärerna också
+      applyTunnelDDC(viewer, 'hpr-')
+
       viewer.scene.requestRender()
     })()
 
@@ -1393,6 +1452,34 @@ export default function CesiumScene({ objektId }: Props) {
           coords.map(c => Cesium.Cartesian3.fromDegrees(c[0], c[1]))
         ),
         material: Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.18),
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      },
+    })
+    viewer.scene.requestRender()
+  }, [ready, pos])
+
+  // === Tunnelvision-mask: gradient-mörkning runt maskinen ===
+  // Stor ellipse (1000 m) följer GPS-position, drapas på marken med
+  // ImageMaterialProperty från radial gradient-canvasen (clear inom 60 m,
+  // gradient 60–100 m, 85 % mörk bortom). Effekten påverkar mark/imagery —
+  // 3D-extruderade markörer hanteras separat via DistanceDisplayCondition.
+  useEffect(() => {
+    if (!ready || !viewerRef.current || !pos) return
+    const viewer = viewerRef.current
+
+    const existing = viewer.entities.getById('tunnel-mask')
+    if (existing) viewer.entities.remove(existing)
+
+    viewer.entities.add({
+      id: 'tunnel-mask',
+      position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
+      ellipse: {
+        semiMajorAxis: 1000,
+        semiMinorAxis: 1000,
+        material: new Cesium.ImageMaterialProperty({
+          image: getTunnelMaskCanvas(),
+          transparent: true,
+        }),
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
       },
     })
