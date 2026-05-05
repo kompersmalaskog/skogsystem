@@ -209,6 +209,14 @@ function zoneColorFor(zoneType: string | undefined): string {
   }
 }
 
+// Alpha för overlay-imagery beroende på cockpit/satellit-läget. I cockpit
+// vill vi att markfuktighet bara "glöder" mot mörk bas — annars solid.
+function alphaForOverlay(layerId: string, bg: 'cockpit' | 'satellite'): number {
+  if (bg !== 'cockpit') return 1.0
+  if (layerId === 'sks_markfuktighet') return 0.45
+  return 1.0
+}
+
 // === Trädslag-färg för HPR-högar (matchar 2D pie-chart-paletten) ===
 function colorForSlag(slag: string): string {
   switch (slag.toUpperCase()) {
@@ -576,7 +584,7 @@ export default function CesiumScene({ objektId }: Props) {
   // === Lager-väljare ===
   const [overlays, setOverlays] = useMapLayers()
   const [layerMenuOpen, setLayerMenuOpen] = useState(false)
-  const [bgType, setBgType] = useState<'satellite' | 'none'>('satellite')
+  const [bgType, setBgType] = useState<'cockpit' | 'satellite'>('cockpit')
   // === Kamerakontroll ===
   // followGps=true → kameran följer GPS bakom maskinen (default).
   // followGps=false → användaren snurrar/tiltar/panar fritt; visa centrera-knapp.
@@ -698,9 +706,11 @@ export default function CesiumScene({ objektId }: Props) {
 
         viewer.imageryLayers.removeAll()
 
-        viewer.scene.backgroundColor = Cesium.Color.BLACK
-        viewer.scene.globe.baseColor = Cesium.Color.WHITE
-        if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
+        // === Cockpit-default — mörk bas, ingen satellit. Esri-imagery
+        // lazy-laddas först om föraren togglar till "Satellit" via lager-menyn.
+        viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a1a')
+        viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#3a3a3a')
+        if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
 
         try { (viewer.scene as any).verticalExaggeration = VERTICAL_EXAG } catch {}
         try { (viewer.scene.globe as any).terrainExaggeration = VERTICAL_EXAG } catch {}
@@ -710,7 +720,7 @@ export default function CesiumScene({ objektId }: Props) {
         viewer.scene.fog.enabled = true
         viewer.scene.fog.density = 0.0006
         viewer.scene.fog.minimumBrightness = 0.1
-        try { (viewer.scene.fog as any).color = Cesium.Color.WHITE.clone() } catch {}
+        try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#1a1a1a') } catch {}
 
         // Initialt fallback-ljus i ECEF; ersätts av lokal ENU-baserat när objektet är känt.
         viewer.scene.light = new Cesium.DirectionalLight({
@@ -720,19 +730,6 @@ export default function CesiumScene({ objektId }: Props) {
           ),
           intensity: LIGHT_INTENSITY,
         })
-
-        // Lazy-load Esri World Imagery som bas (gratis, ingen token).
-        try {
-          const provider = await Cesium.ArcGisMapServerImageryProvider.fromUrl(
-            'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
-          )
-          if (!cancelled && viewerRef.current) {
-            imageryLayerRef.current = viewer.imageryLayers.addImageryProvider(provider)
-            viewer.scene.requestRender()
-          }
-        } catch (e) {
-          console.warn('[Körvy3D] imagery load:', e)
-        }
 
         setReady(true)
         console.log('[Körvy3D] Viewer initialiserad')
@@ -778,22 +775,50 @@ export default function CesiumScene({ objektId }: Props) {
     }
   }, [ready])
 
-  // === Bakgrund-toggle: visa/dölj Esri-imagery + matcha basfärg & fog ===
+  // === Bakgrund-toggle: cockpit (mörk) vs satellit ===
+  // Esri lazy-laddas först vid första 'satellite'-toggle. I cockpit får
+  // markfuktighet låg alpha så den glöder mot mörk bas (alphaForOverlay).
   useEffect(() => {
     if (!ready || !viewerRef.current) return
     const viewer = viewerRef.current
-    if (imageryLayerRef.current) {
-      imageryLayerRef.current.show = (bgType === 'satellite')
-    }
+    let cancelled = false
+
     if (bgType === 'satellite') {
+      viewer.scene.backgroundColor = Cesium.Color.BLACK
       viewer.scene.globe.baseColor = Cesium.Color.WHITE
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
       try { (viewer.scene.fog as any).color = Cesium.Color.WHITE.clone() } catch {}
+
+      if (imageryLayerRef.current) {
+        imageryLayerRef.current.show = true
+      } else {
+        Cesium.ArcGisMapServerImageryProvider.fromUrl(
+          'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer'
+        ).then((provider) => {
+          if (cancelled || !viewerRef.current) return
+          const layer = viewer.imageryLayers.addImageryProvider(provider)
+          imageryLayerRef.current = layer
+          // Lägg satellit-baslagret längst ner så overlays (markfuktighet etc) hamnar ovanpå
+          try { viewer.imageryLayers.lowerToBottom(layer) } catch {}
+          viewer.scene.requestRender()
+        }).catch((e) => console.warn('[Körvy3D] satellite lazy-load:', e))
+      }
     } else {
-      // 'none': bara 1 m DEM med hillshade-skuggning, mörk basfärg
-      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#1a1a1a')
-      try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#0a1520') } catch {}
+      // 'cockpit' — mörk bas + atmosfär av
+      if (imageryLayerRef.current) imageryLayerRef.current.show = false
+      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a1a')
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#3a3a3a')
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
+      try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#1a1a1a') } catch {}
     }
+
+    // Applicera alpha på alla aktiva overlays — sks_markfuktighet glöder i cockpit
+    for (const [id, layer] of Array.from(overlayLayersMapRef.current.entries())) {
+      try { (layer as any).alpha = alphaForOverlay(id, bgType) } catch {}
+    }
+
     viewer.scene.requestRender()
+    return () => { cancelled = true }
   }, [ready, bgType])
 
   // === Overlay-management: synka aktiva overlays mot Cesium imagery-lager ===
@@ -826,6 +851,7 @@ export default function CesiumScene({ objektId }: Props) {
       }
       try {
         const imLayer = viewer.imageryLayers.addImageryProvider(provider)
+        try { (imLayer as any).alpha = alphaForOverlay(def.id, bgType) } catch {}
         map.set(def.id, imLayer)
       } catch (e) {
         console.warn('[Körvy3D] addImageryProvider', def.id, e)
@@ -833,7 +859,7 @@ export default function CesiumScene({ objektId }: Props) {
     }
 
     viewer.scene.requestRender()
-  }, [ready, overlays])
+  }, [ready, overlays, bgType])
 
   // === Initial-vy: sampla objektets terränghöjd → ENU-ljus + flyTo ===
   useEffect(() => {
@@ -1697,8 +1723,8 @@ export default function CesiumScene({ objektId }: Props) {
                 Bakgrundskarta
               </div>
               {([
+                { id: 'cockpit' as const,   name: 'Cockpit', desc: 'Mörk bas + markfuktighets-glow' },
                 { id: 'satellite' as const, name: 'Satellit', desc: 'Esri World Imagery' },
-                { id: 'none' as const, name: 'Ingen', desc: 'Endast 1 m DEM-terräng' },
               ]).map((type) => (
                 <div
                   key={type.id}
