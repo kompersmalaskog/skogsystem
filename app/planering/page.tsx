@@ -25,7 +25,7 @@ const supabase = createClient(
 // koordinater >1000 SVG-units från objekt-centrum (typiskt ritade när
 // mapCenter stod på fel referens innan ett objekt valts → hamnar km bort).
 // Sammma logik som CesiumScene.tsx — verifierat-ID:n se kommentar där.
-const OUTLIER_LIMIT = 1000;
+const OUTLIER_LIMIT = 200;
 function isOutlierPoint(p: { x: number; y: number }): boolean {
   return Math.abs(p.x) > OUTLIER_LIMIT || Math.abs(p.y) > OUTLIER_LIMIT;
 }

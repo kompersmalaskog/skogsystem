@@ -16,7 +16,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 
-const STORAGE_KEY = 'mapLayers'
+// v2: höjde nyckeln så alla användare får nya defaults (sks_lutning + lm_skuggning
+// PÅ, sks_markfuktighet AV) vid nästa besök. Gamla 'mapLayers'-värdet i
+// localStorage lämnas orört — bara den som vill nedgradera måste rensa manuellt.
+const STORAGE_KEY = 'mapLayers_v2'
 
 export type MapLayers = Record<string, boolean>
 
@@ -56,16 +59,19 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   // Körbarhet
   korbarhet: false,
   // Skogsstyrelsen Raster
-  // sks_markfuktighet är ren cockpit-vy default OFF — SLU-rastret är en
-  // heltäckande fyrklassig färgkarta (inte glow), passar bättre toggla på
-  // manuellt vid behov. Föraren kan slå på via lager-menyn när som helst.
+  // sks_markfuktighet är cockpit-vy default OFF — SLU-rastret är en heltäckande
+  // fyrklassig färgkarta (inte glow), passar bättre toggla på manuellt.
+  // sks_lutning default ON — föraren tycker kombo lutning + skuggning + ingen
+  // markfuktighet ger bästa läsbarhet i både 2D och 3D.
   sks_markfuktighet: false,
   sks_virkesvolym: false,
   sks_tradhojd: false,
-  sks_lutning: false,
+  sks_lutning: true,
   sks_gallringsindex: false,
   // Lantmäteriet
-  lm_skuggning: false,
+  // lm_skuggning default ON — bättre hillshade-läsbarhet än Cesiums egna
+  // vertex-normaler i 3D-vyn enligt förartest.
+  lm_skuggning: true,
   lm_ortofoto: false,
   // HPR-högar
   produktionshogar: false,

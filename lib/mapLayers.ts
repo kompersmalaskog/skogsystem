@@ -19,13 +19,16 @@ export interface LayerDef {
    * false = filtreras bort i 3D (2D fortsätter visa det).
    *
    * 3D-värdelösa lager just nu:
-   * - lm_skuggning: hillshade-WMS från LM. Vår 1m DEM-terräng ger redan
-   *   hillshade via vertex-normaler + lighting → dubblerad skuggning.
    * - korbarhet: kräver dragen trakt-polygon för full analys (jordart
    *   m.m.) — den interaktionen finns bara i 2D-planeringsvyn.
    * - sks_gallringsindex: ArcGIS ImageServer "exportImage"-anrop med
    *   renderingRule, inte WMS. Vår Cesium-mapping stödjer bara WMS
    *   och URL-template-tiles — gallringsindex kräver egen adapter.
+   *
+   * lm_skuggning är PÅ i 3D nu (var av tidigare): 1m DEM ger hillshade via
+   * vertex-normaler + lighting i teorin, men föraren tycker LMs hillshade-WMS
+   * ger tydligare topografi i kombination med lutning + cockpit-bg. Den
+   * dubblerade skuggningen är medveten — bättre läsbarhet > teoretisk renhet.
    */
   show3D: boolean
   desc?: string
@@ -113,7 +116,7 @@ export const wmsLayerGroups: LayerGroup[] = [
   {
     group: 'Lantmäteriet',
     layers: [
-      { id: 'lm_skuggning', url: '/api/wms-proxy', layers: 'terrangskuggning', name: 'Höjdmodell (skuggning)', color: '#78909C', proxyTarget: 'https://minkarta.lantmateriet.se/map/hojdmodell', show3D: false },
+      { id: 'lm_skuggning', url: '/api/wms-proxy', layers: 'terrangskuggning', name: 'Höjdmodell (skuggning)', color: '#78909C', proxyTarget: 'https://minkarta.lantmateriet.se/map/hojdmodell', show3D: true },
       { id: 'lm_ortofoto', url: '/api/wms-proxy', layers: 'Ortofoto_0.5', name: 'Ortofoto LM', color: '#8D6E63', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto', show3D: true },
       { id: 'fastighetsgranser', url: 'https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3', layers: 'granser', name: 'Fastighetsgränser', color: '#f59e0b', show3D: true },
     ],

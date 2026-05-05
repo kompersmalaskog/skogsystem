@@ -210,17 +210,22 @@ function zoneColorFor(zoneType: string | undefined): string {
 }
 
 // === Outlier-filter för markeringar (SVG-units) ===
-// Skyddar mot felaktiga markeringar med koordinater >1000 SVG-units från
+// Skyddar mot felaktiga markeringar med koordinater >200 SVG-units från
 // objekt-centrum. De har troligen ritats när mapCenter stod på fel referens
-// (ex. Stenshult-default innan ett objekt valdes), och hamnar km bort när
-// rekonverterade. Filtreras klient-side i båda 2D- och 3D-vyer.
+// (ex. Stenshult-default innan ett objekt valdes), och hamnar hundratals m
+// till km bort när rekonverterade. Filtreras klient-side i båda 2D- och 3D-vyer.
+//
+// Tröskel-resonemang: vid zoom 16 är 1 SVG-unit ≈ 1.32 m på 56°N (zoom 15: 2.65 m).
+// 200 units → ~265 m (zoom 16) / ~530 m (zoom 15). Realistisk objekt-area får
+// rejäl marginal, men markeringar som hamnat på fel kartbild-mitten klipps.
+// Tidigare värde 1000 (≈ 1.3–2.6 km) släppte fortfarande igenom långa streck.
 //
 // SQL för manuell rensning i Supabase (kör inte automatiskt — verifiera först):
 // DELETE FROM planering_markeringar WHERE marker_id IN (
 //   '1772898258170', '1772898638712',
 //   '1772445281097', '1777998752739', '1777304162620'
 // );
-const OUTLIER_LIMIT = 1000
+const OUTLIER_LIMIT = 200
 function isOutlierPoint(p: { x: number; y: number }): boolean {
   return Math.abs(p.x) > OUTLIER_LIMIT || Math.abs(p.y) > OUTLIER_LIMIT
 }
