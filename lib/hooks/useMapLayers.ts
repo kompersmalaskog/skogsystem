@@ -56,7 +56,10 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   // Körbarhet
   korbarhet: false,
   // Skogsstyrelsen Raster
-  sks_markfuktighet: true,    // default på — vanligaste lagret för förare
+  // sks_markfuktighet är ren cockpit-vy default OFF — SLU-rastret är en
+  // heltäckande fyrklassig färgkarta (inte glow), passar bättre toggla på
+  // manuellt vid behov. Föraren kan slå på via lager-menyn när som helst.
+  sks_markfuktighet: false,
   sks_virkesvolym: false,
   sks_tradhojd: false,
   sks_lutning: false,
