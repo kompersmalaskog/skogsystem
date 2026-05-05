@@ -209,6 +209,25 @@ function zoneColorFor(zoneType: string | undefined): string {
   }
 }
 
+// === Trädslag-färg för HPR-högar (matchar 2D pie-chart-paletten) ===
+function colorForSlag(slag: string): string {
+  switch (slag.toUpperCase()) {
+    case 'GRAN':              return '#1d9e75'
+    case 'TALL':              return '#f59e0b'
+    case 'BJÖRK':
+    case 'BJORK':             return '#ffffff'
+    default:                  return '#8e8e93'   // ÖVR_LÖV och allt annat
+  }
+}
+
+// Dominant trädslag = det med mest m³. Vid lika m³ → alfabetisk ordning.
+function dominantSlagFor(volymPerSlag: Record<string, number>): string {
+  const entries = Object.entries(volymPerSlag)
+  if (entries.length === 0) return ''
+  entries.sort((a, b) => (b[1] - a[1]) || a[0].localeCompare(b[0]))
+  return entries[0][0]
+}
+
 // === Pil-färg — speglar arrowTypes i app/planering/page.tsx:4713–4716 ===
 function arrowColorFor(arrowType: string | undefined): string {
   switch (arrowType) {
@@ -535,10 +554,14 @@ export default function CesiumScene({ objektId }: Props) {
   const watchIdRef = useRef<number | null>(null)
   const imageryLayerRef = useRef<CesiumNS.ImageryLayer | null>(null)
   const overlayLayersMapRef = useRef<Map<string, CesiumNS.ImageryLayer>>(new Map())
-  // Cachar fetched + clustered HPR-data per objekt så toggle inte refetchar
+  // Cachar fetched + clustered HPR-data per objekt så toggle inte refetchar.
+  // dominantSlag bestämmer halvsfärens färg per kluster.
   const hprCacheRef = useRef<{
     objektId: string
-    clusters: Array<{ lat: number; lng: number; volym: number; isGrot: boolean; exH: number }>
+    clusters: Array<{
+      lat: number; lng: number; volym: number; isGrot: boolean
+      exH: number; dominantSlag: string
+    }>
   } | null>(null)
   const groundHeightRef = useRef<number>(150)
   const triggeredIdsRef = useRef<Set<string>>(new Set())
@@ -1147,6 +1170,7 @@ export default function CesiumScene({ objektId }: Props) {
               clusters: clusters.map((c, i) => ({
                 lat: c.lat, lng: c.lng, volym: c.volym, isGrot: c.isGrot,
                 exH: heights[i] * VERTICAL_EXAG,
+                dominantSlag: dominantSlagFor(c.volymPerSlag),
               })),
             }
             console.log('[Körvy3D] HPR:', clusters.length, 'kluster (', clusters.filter((c) => c.isGrot).length, 'grot)')
@@ -1185,22 +1209,23 @@ export default function CesiumScene({ objektId }: Props) {
         if (c.isGrot && !showGrot) continue
         if (!c.isGrot && !showProd) continue
 
-        // Höjd ∝ volym, clamp 0.5–5 m. Radie fast (1 m prod, 0.7 m grot).
-        const cylH = Math.min(Math.max(c.volym / 5, 0.5), 5)
-        const radius = c.isGrot ? 0.7 : 1.0
-        const color = c.isGrot ? '#f59e0b' : '#1d9e75'
-        const labelText = c.isGrot
-          ? `GROT ${Math.round(c.volym)} m³`
-          : `${Math.round(c.volym)} m³`
+        // Dramatisk skalning så stora högar visuellt dominerar:
+        //   radie  ∈ [0.5, 4.0] m, formel 0.5 + sqrt(volym/10)
+        //   höjd   ∈ [0.4, 3.5] m, formel 0.4 + sqrt(volym/15)
+        const radius = Math.min(Math.max(0.5 + Math.sqrt(c.volym / 10), 0.5), 4.0)
+        const height = Math.min(Math.max(0.4 + Math.sqrt(c.volym / 15), 0.4), 3.5)
+        // Färg = dominant trädslags färg (samma logik prod & grot — toggle skiljer)
+        const color = colorForSlag(c.dominantSlag)
+        const labelText = `${Math.round(c.volym)} m³`
 
+        // Halvsfär: ellipsoid centrerad vid markhöjd → övre halvan synlig,
+        // nedre halvan göms av terrängen. Mer organisk än cylinder.
         viewer.entities.add({
           id: `hpr-${c.isGrot ? 'g' : 'p'}-${i}`,
-          position: Cesium.Cartesian3.fromDegrees(c.lng, c.lat, c.exH + cylH / 2),
-          cylinder: {
-            length: cylH,
-            topRadius: radius,
-            bottomRadius: radius,
-            material: Cesium.Color.fromCssColorString(color).withAlpha(0.9),
+          position: Cesium.Cartesian3.fromDegrees(c.lng, c.lat, c.exH),
+          ellipsoid: {
+            radii: new Cesium.Cartesian3(radius, radius, height),
+            material: Cesium.Color.fromCssColorString(color).withAlpha(0.95),
           },
           label: hprLabel(labelText),
         })
