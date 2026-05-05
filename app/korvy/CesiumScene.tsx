@@ -923,11 +923,23 @@ export default function CesiumScene({ objektId }: Props) {
       }
 
       // 5) Linjer — clampToGround + matchar 2D-vyns färger/streckmönster
+      // OBS: traktgräns-polygoner från 2D lagras med sista punkten = första
+      // (closed loop). Cesium GroundPolylineGeometry hanterar inte den
+      // duplicerade slut-punkten väl — segmentet [N-1]→[0] blir 0-längd och
+      // tyst skippar hela primitiven. Filtrera därför bort sista pixel-
+      // identiska punkten innan vi bygger Cartesian3-array. Geometriskt blir
+      // polygonen ändå sluten via [N-2]→[0]-segmentet.
       for (const m of markers) {
         if (!m.isLine || !m.path || m.path.length <= 1) continue
         try {
+          let pts = m.path
+          if (pts.length >= 3) {
+            const f = pts[0]
+            const l = pts[pts.length - 1]
+            if (f.x === l.x && f.y === l.y) pts = pts.slice(0, -1)
+          }
           const positions: CesiumNS.Cartesian3[] = []
-          for (const p of m.path) {
+          for (const p of pts) {
             const ll = svgToLatLon(p.x, p.y)
             positions.push(Cesium.Cartesian3.fromDegrees(ll.lon, ll.lat))
           }
