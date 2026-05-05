@@ -43,6 +43,10 @@ interface Objekt {
   lng: number
   areal?: number
   typ?: string
+  // VIDA-traktdirektivets georefererade kartbild. När satt använder 2D
+  // bounds-mitten som svgToLatLon-referens (page.tsx:8395–8409). 3D måste
+  // matcha eller markeringar driftar relativt HPR-data.
+  kartbild_bounds?: [[number, number], [number, number]]
 }
 
 interface Props {
@@ -99,6 +103,21 @@ function bearingArrow(bearing: number, heading: number): string {
   if (diff > 45) return '→'
   return '↑'
 }
+// Beräkna mapCenter + mapZoom som matchar 2D-vyns referens när markeringar
+// sparades (page.tsx:8395–8409): bounds-mitten + zoom 15 om kartbild_bounds
+// finns på objektet, annars obj.lat/lng + zoom 16. Utan denna matchning
+// driftar alla markeringar relativt HPR-data (som lagras med absoluta lat/lng).
+function svgRefForObjekt(o: Objekt): { mapCenter: { lat: number; lng: number }; mapZoom: number } {
+  const b = o.kartbild_bounds
+  if (b && b[0] && b[1]) {
+    return {
+      mapCenter: { lat: (b[0][0] + b[1][0]) / 2, lng: (b[0][1] + b[1][1]) / 2 },
+      mapZoom: 15,
+    }
+  }
+  return { mapCenter: { lat: o.lat, lng: o.lng }, mapZoom: 16 }
+}
+
 function colorForType(type?: string): string {
   if (!type) return '#8e8e93'
   if (type === 'landing') return '#30d158'
@@ -842,9 +861,9 @@ export default function CesiumScene({ objektId }: Props) {
     const viewer = viewerRef.current
     let cancelled = false
 
-    // SVG-koord → lat/lng (samma formel som planering/page.tsx)
-    const mapCenter = { lat: objekt.lat, lng: objekt.lng }
-    const mapZoom = 15
+    // SVG-koord → lat/lng — referens MÅSTE matcha 2D vid spara-tillfället
+    // (annars driftar markeringar relativt HPR-data, ~70 m för Järnemåla Rapp Au)
+    const { mapCenter, mapZoom } = svgRefForObjekt(objekt)
     const scale = 156543.03392 * Math.cos(mapCenter.lat * Math.PI / 180) / Math.pow(2, mapZoom)
     const svgToLatLon = (x: number, y: number) => {
       const mPerDegLat = 111320
@@ -1333,8 +1352,7 @@ export default function CesiumScene({ objektId }: Props) {
   useEffect(() => {
     if (!pos || markers.length === 0 || !objekt) { setNextItems([]); return }
 
-    const mapCenter = { lat: objekt.lat, lng: objekt.lng }
-    const mapZoom = 15
+    const { mapCenter, mapZoom } = svgRefForObjekt(objekt)
     const scale = 156543.03392 * Math.cos(mapCenter.lat * Math.PI / 180) / Math.pow(2, mapZoom)
     const svgToLatLon = (x: number, y: number) => {
       const mPerDegLat = 111320
