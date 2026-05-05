@@ -27,8 +27,11 @@ interface Marker {
   isMarker?: boolean
   isLine?: boolean
   isZone?: boolean
+  isArrow?: boolean
   lineType?: string
   zoneType?: string
+  arrowType?: string
+  rotation?: number   // grader, för pilar
   path?: { x: number; y: number }[]
   comment?: string
 }
@@ -185,6 +188,55 @@ function zoneColorFor(zoneType: string | undefined): string {
     case 'fornlamning': return '#ff453a'
     default:            return '#8e8e93'
   }
+}
+
+// === Pil-färg — speglar arrowTypes i app/planering/page.tsx:4713–4716 ===
+function arrowColorFor(arrowType: string | undefined): string {
+  switch (arrowType) {
+    case 'fellingdirection': return '#30d158'  // grön
+    case 'drivedirection':   return '#3b82f6'  // blå
+    default:                 return '#ffffff'
+  }
+}
+
+// === Pil som triangulär polygon, klampad till mark + roterad enligt
+// m.rotation (grader). Spetsen pekar i riktningen. Storlek 6 m totalt
+// så pilen syns på 50–100 m avstånd från Tesla-höjd.
+function addArrowEntity(
+  viewer: CesiumNS.Viewer,
+  m: Marker,
+  lat: number,
+  lon: number,
+  labelOpt: any,
+): void {
+  const baseId = `mk-${m.id}`
+  const color = Cesium.Color.fromCssColorString(arrowColorFor(m.arrowType))
+  const rot = m.rotation || 0
+
+  // Triangulär pil-spets: tip 4 m framåt, bak-bas 2 m bakåt × 1.5 m bredd
+  const tip = offsetLatLngByBearing(lat, lon, 4, rot)
+  const back = offsetLatLngByBearing(lat, lon, 2, (rot + 180) % 360)
+  const left = offsetLatLngByBearing(back[1], back[0], 1.5, (rot + 270) % 360)
+  const right = offsetLatLngByBearing(back[1], back[0], 1.5, (rot + 90) % 360)
+
+  const positions = [
+    Cesium.Cartesian3.fromDegrees(tip[0], tip[1]),
+    Cesium.Cartesian3.fromDegrees(right[0], right[1]),
+    Cesium.Cartesian3.fromDegrees(left[0], left[1]),
+  ]
+
+  viewer.entities.add({
+    id: baseId,
+    position: Cesium.Cartesian3.fromDegrees(lon, lat),
+    polygon: {
+      hierarchy: new Cesium.PolygonHierarchy(positions),
+      material: color.withAlpha(0.85),
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      outline: true,
+      outlineColor: color,
+    },
+    label: labelOpt,
+  })
 }
 
 // === Markerings-3D — geometriska former per typ. Färgen matchar 2D-symbolens
@@ -464,6 +516,11 @@ export default function CesiumScene({ objektId }: Props) {
   const watchIdRef = useRef<number | null>(null)
   const imageryLayerRef = useRef<CesiumNS.ImageryLayer | null>(null)
   const overlayLayersMapRef = useRef<Map<string, CesiumNS.ImageryLayer>>(new Map())
+  // Cachar fetched + clustered HPR-data per objekt så toggle inte refetchar
+  const hprCacheRef = useRef<{
+    objektId: string
+    clusters: Array<{ lat: number; lng: number; volym: number; isGrot: boolean; exH: number }>
+  } | null>(null)
   const groundHeightRef = useRef<number>(150)
   const triggeredIdsRef = useRef<Set<string>>(new Set())
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -853,6 +910,18 @@ export default function CesiumScene({ objektId }: Props) {
         }
       }
 
+      // 4b) Pilar — triangulär polygon clampToGround, riktning från m.rotation
+      for (const m of markers) {
+        if (!m.isArrow) continue
+        try {
+          const ll = svgToLatLon(m.x, m.y)
+          const labelOpt = m.comment ? makeLabel(m.comment) : undefined
+          addArrowEntity(viewer, m, ll.lat, ll.lon, labelOpt)
+        } catch (e) {
+          console.error('[Körvy3D] Arrow render fel:', m.id, e)
+        }
+      }
+
       // 5) Linjer — clampToGround + matchar 2D-vyns färger/streckmönster
       for (const m of markers) {
         if (!m.isLine || !m.path || m.path.length <= 1) continue
@@ -906,6 +975,211 @@ export default function CesiumScene({ objektId }: Props) {
 
     return () => { cancelled = true }
   }, [ready, markers, objekt])
+
+  // === HPR-högar (produktion + GROT) — fetch från Supabase, klustra, rendera ===
+  // Datakällor:
+  //  - hpr_filer: hittar senaste filen för objektet (högst stammar_count)
+  //  - hpr_stammar: enskilda stammar med lat/lng/volym/trädslag/grot-flagga
+  //  - skotning_uttag: redan skotade volymer som dras av globalt per trädslag
+  //
+  // Klustringen följer 2D-logik: stammar inom ~10 m grupperas till en hög,
+  // separat per produktion vs GROT. Färgerna matchar 2D:
+  //  - produktion: #1d9e75 grön
+  //  - grot:       #f59e0b orange
+  //
+  // Cylinder-höjd skalas med volym (clamp 0.5–5 m) så större högar syns.
+  // Toggling via overlays.produktionshogar / overlays.grothogar; data cachas
+  // per objekt-id i hprCacheRef så att toggle inte triggar refetch.
+  useEffect(() => {
+    if (!ready || !viewerRef.current || !objekt) return
+    const viewer = viewerRef.current
+    let cancelled = false
+
+    ;(async () => {
+      // Stäng av båda → bara rensa
+      const showProd = !!overlays.produktionshogar
+      const showGrot = !!overlays.grothogar
+
+      // 1) Fetch + cluster om inte cached för detta objekt
+      if (hprCacheRef.current?.objektId !== objekt.id) {
+        try {
+          // a) Senaste hpr-filen
+          const { data: filer } = await supabase
+            .from('hpr_filer')
+            .select('id, stammar_count')
+            .eq('objekt_id', objekt.id)
+            .order('stammar_count', { ascending: false })
+            .limit(1)
+          if (cancelled) return
+          if (!filer || filer.length === 0) {
+            hprCacheRef.current = { objektId: objekt.id, clusters: [] }
+          } else {
+            const filId = filer[0].id
+
+            // b) Paginera stammar (1000 åt gången)
+            const allStammar: any[] = []
+            let offset = 0
+            while (true) {
+              const { data, error } = await supabase
+                .from('hpr_stammar')
+                .select('lat, lng, total_volym, tradslag, bio_energy_adaption, sortiment')
+                .eq('hpr_fil_id', filId)
+                .not('lat', 'is', null)
+                .range(offset, offset + 999)
+              if (cancelled) return
+              if (error || !data || data.length === 0) break
+              allStammar.push(...data)
+              if (data.length < 1000) break
+              offset += 1000
+            }
+
+            // c) Skotning_uttag (för subtraktion)
+            const { data: uttag } = await supabase
+              .from('skotning_uttag')
+              .select('tradslag, volym')
+              .eq('objekt_id', objekt.id)
+            if (cancelled) return
+
+            // d) Klustra inom ~10 m (0.00009° lat, 0.00016° lng på 56°N)
+            type C = {
+              lat: number; lng: number; isGrot: boolean
+              volym: number; volymPerSlag: Record<string, number>; count: number
+            }
+            const LAT_T = 0.00009
+            const LNG_T = 0.00016
+            const clusters: C[] = []
+            for (const s of allStammar) {
+              const isGrot = !!s.bio_energy_adaption
+              const vol = s.total_volym || 0
+              const slag = s.tradslag || 'okänd'
+              const c = clusters.find((cc) =>
+                cc.isGrot === isGrot &&
+                Math.abs(cc.lat - s.lat) < LAT_T &&
+                Math.abs(cc.lng - s.lng) < LNG_T
+              )
+              if (c) {
+                c.lat = (c.lat * c.count + s.lat) / (c.count + 1)
+                c.lng = (c.lng * c.count + s.lng) / (c.count + 1)
+                c.volym += vol
+                c.volymPerSlag[slag] = (c.volymPerSlag[slag] || 0) + vol
+                c.count += 1
+              } else {
+                clusters.push({
+                  lat: s.lat, lng: s.lng, isGrot,
+                  volym: vol,
+                  volymPerSlag: { [slag]: vol },
+                  count: 1,
+                })
+              }
+            }
+
+            // e) Subtrahera uttag globalt per trädslag (proportionellt mot kluster-andel)
+            const totalPerSlag: Record<string, number> = {}
+            for (const c of clusters) {
+              for (const [s, v] of Object.entries(c.volymPerSlag)) {
+                totalPerSlag[s] = (totalPerSlag[s] || 0) + v
+              }
+            }
+            const uttagPerSlag: Record<string, number> = {}
+            for (const u of (uttag || [])) {
+              const s = u.tradslag || 'okänd'
+              uttagPerSlag[s] = (uttagPerSlag[s] || 0) + (u.volym || 0)
+            }
+            for (const c of clusters) {
+              let newTotal = 0
+              for (const [s, v] of Object.entries(c.volymPerSlag)) {
+                const total = totalPerSlag[s] || 1
+                const fraction = v / total
+                const sub = (uttagPerSlag[s] || 0) * fraction
+                const remaining = Math.max(0, v - sub)
+                c.volymPerSlag[s] = remaining
+                newTotal += remaining
+              }
+              c.volym = newTotal
+            }
+
+            // f) Sampla terränghöjd för varje kluster (en batch)
+            const carts = clusters.map((c) => Cesium.Cartographic.fromDegrees(c.lng, c.lat))
+            let heights: number[] = clusters.map(() => groundHeightRef.current)
+            if (carts.length > 0) {
+              try {
+                const sampled = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider as any, carts)
+                if (cancelled) return
+                heights = sampled.map((sc) => sc.height || groundHeightRef.current)
+              } catch (e) {
+                console.warn('[Körvy3D] HPR terrain sample fel:', e)
+              }
+            }
+
+            hprCacheRef.current = {
+              objektId: objekt.id,
+              clusters: clusters.map((c, i) => ({
+                lat: c.lat, lng: c.lng, volym: c.volym, isGrot: c.isGrot,
+                exH: heights[i] * VERTICAL_EXAG,
+              })),
+            }
+            console.log('[Körvy3D] HPR:', clusters.length, 'kluster (', clusters.filter((c) => c.isGrot).length, 'grot)')
+          }
+        } catch (e) {
+          console.warn('[Körvy3D] HPR fetch fel:', e)
+          hprCacheRef.current = { objektId: objekt.id, clusters: [] }
+        }
+      }
+
+      // 2) Rensa befintliga hpr-entiteter
+      const oldEnts = viewer.entities.values.filter((e: any) => e.id?.toString().startsWith('hpr-'))
+      for (const e of oldEnts) viewer.entities.remove(e)
+
+      // 3) Rendera enligt overlays-state
+      const cache = hprCacheRef.current
+      if (!cache) return
+
+      const hprLabel = (text: string) => ({
+        text,
+        font: 'bold 14px -apple-system, "SF Pro Display", sans-serif',
+        fillColor: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 3,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset: new Cesium.Cartesian2(0, -16),
+        showBackground: true,
+        backgroundColor: Cesium.Color.fromCssColorString('rgba(20,20,22,0.78)') as any,
+        backgroundPadding: new Cesium.Cartesian2(6, 3),
+        disableDepthTestDistance: 200,
+      })
+
+      for (let i = 0; i < cache.clusters.length; i++) {
+        const c = cache.clusters[i]
+        if (c.volym <= 0.01) continue
+        if (c.isGrot && !showGrot) continue
+        if (!c.isGrot && !showProd) continue
+
+        // Höjd ∝ volym, clamp 0.5–5 m. Radie fast (1 m prod, 0.7 m grot).
+        const cylH = Math.min(Math.max(c.volym / 5, 0.5), 5)
+        const radius = c.isGrot ? 0.7 : 1.0
+        const color = c.isGrot ? '#f59e0b' : '#1d9e75'
+        const labelText = c.isGrot
+          ? `GROT ${Math.round(c.volym)} m³`
+          : `${Math.round(c.volym)} m³`
+
+        viewer.entities.add({
+          id: `hpr-${c.isGrot ? 'g' : 'p'}-${i}`,
+          position: Cesium.Cartesian3.fromDegrees(c.lng, c.lat, c.exH + cylH / 2),
+          cylinder: {
+            length: cylH,
+            topRadius: radius,
+            bottomRadius: radius,
+            material: Cesium.Color.fromCssColorString(color).withAlpha(0.9),
+          },
+          label: hprLabel(labelText),
+        })
+      }
+
+      viewer.scene.requestRender()
+    })()
+
+    return () => { cancelled = true }
+  }, [ready, objekt, overlays.produktionshogar, overlays.grothogar])
 
   // === GPS-follow: smooth flyTo med terräng-sampling ===
   // Pausas när followGps=false (användaren snurrar/tiltar manuellt). Centrera-
