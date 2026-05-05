@@ -72,6 +72,43 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   grothogar: false,
 }
 
+/**
+ * useNumericSetting — generisk number-state med localStorage-persistens.
+ * Samma SSR-säkra hydration-mönster som useMapLayers (read i useEffect,
+ * skip av första write innan hydration så DEFAULT inte skriver över sparade
+ * värden). Används för viewfield_distance + viewfield_softness i 3D-körvyn.
+ */
+export function useNumericSetting(
+  key: string,
+  defaultValue: number,
+): [number, Dispatch<SetStateAction<number>>] {
+  const [val, setVal] = useState<number>(defaultValue)
+  const hydratedRef = useRef(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!hydratedRef.current) return
+    try { window.localStorage.setItem(key, String(val)) } catch {}
+  }, [key, val])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      hydratedRef.current = true
+      return
+    }
+    try {
+      const raw = window.localStorage.getItem(key)
+      if (raw !== null) {
+        const n = Number(raw)
+        if (!isNaN(n)) setVal(n)
+      }
+    } catch {}
+    hydratedRef.current = true
+  }, [key])
+
+  return [val, setVal]
+}
+
 export function useMapLayers(): [MapLayers, Dispatch<SetStateAction<MapLayers>>] {
   // Initialt DEFAULT (matchar SSR så ingen hydration-mismatch). localStorage
   // läses i useEffect efter mount.

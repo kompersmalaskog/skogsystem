@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { createClient } from '@supabase/supabase-js'
 import type * as CesiumNS from 'cesium'
 import { wmsLayerGroups, wmsLayers, type LayerDef } from '@/lib/mapLayers'
-import { useMapLayers } from '@/lib/hooks/useMapLayers'
+import { useMapLayers, useNumericSetting } from '@/lib/hooks/useMapLayers'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -556,48 +556,52 @@ function getMachineIconCanvas(): HTMLCanvasElement {
   return c
 }
 
-// === Tunnelvision-mask: radial gradient som mörkar terrängen utanför 100 m ===
-// Cesium ImageMaterialProperty på en stor ellipse ger oss en clampToGround-
-// "skugga" runt maskinen. Inom 60 m är canvasen helt transparent → full
-// klarhet. 60–100 m gradvis mörkare. Bortom 100 m konstant 85 % mörkning
-// så terräng/imagery dämpas till ~15 % synlighet.
+// === Tunnelvision-mask: radial gradient som mörkar terrängen utanför Synfält ===
+// Cesium ImageMaterialProperty på en stor (5000 m) ellipse ger en
+// clampToGround "skugga" runt maskinen. Gradient-stoparna beräknas
+// dynamiskt från distance + softness:
+//   total radie     = distance (m)
+//   fadeout-zon     = distance × softness/100
+//   full klarhet    = distance - fadeout
 //
-// Ellipse-radie 1000 m → 60 m motsvarar 0.060 av canvasens radial-axel,
-// 100 m motsvarar 0.100. Bortom 100 m (canvas-radie 0.100–1.000) konstant
-// dämpning. Bortom ellipsen (ovanlig på Tesla-altitud) syns globen direkt
-// men kameravinkel + avstånd håller det utanför vy.
-let _tunnelMaskCache: HTMLCanvasElement | null = null
-function getTunnelMaskCanvas(): HTMLCanvasElement {
-  if (_tunnelMaskCache) return _tunnelMaskCache
+// Mappning till canvasens radial-axel (0..1) över ellipsens 5000 m semi-major:
+//   0           → transparent
+//   clarityEnd  → transparent (sista helt klara stoppet)
+//   distance    → 85 % mörkt (första helmörka stoppet)
+//   1.0         → 85 % mörkt (konstant utåt så terräng > distance dämpas)
+function buildTunnelMaskCanvas(distance: number, softness: number): HTMLCanvasElement {
   const size = 512
+  const ELLIPSE_R = 5000
   const c = document.createElement('canvas')
   c.width = size; c.height = size
   const ctx = c.getContext('2d')!
   const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
-  grad.addColorStop(0.000, 'rgba(20,20,20,0)')        // 0 m   — full klarhet
-  grad.addColorStop(0.060, 'rgba(20,20,20,0)')        // 60 m  — fortfarande klar
-  grad.addColorStop(0.100, 'rgba(20,20,20,0.85)')     // 100 m — 85 % mörkning
-  grad.addColorStop(1.000, 'rgba(20,20,20,0.85)')     // bortom — konstant
+
+  const fade = distance * (softness / 100)
+  const clarityEnd = Math.max(0, distance - fade)
+
+  const clarityStop = Math.max(0, Math.min(1, clarityEnd / ELLIPSE_R))
+  const darkStop = Math.max(clarityStop, Math.min(1, distance / ELLIPSE_R))
+
+  grad.addColorStop(0.0, 'rgba(20,20,20,0)')
+  // Hoppa över duplicerat stopp om clarityStop = 0 (softness 100 %)
+  if (clarityStop > 0.0001) {
+    grad.addColorStop(clarityStop, 'rgba(20,20,20,0)')
+  }
+  grad.addColorStop(darkStop, 'rgba(20,20,20,0.85)')
+  grad.addColorStop(1.0, 'rgba(20,20,20,0.85)')
+
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, size, size)
-  _tunnelMaskCache = c
   return c
 }
 
-// DistanceDisplayCondition: 3D-markörer (cylinder/box/ellipsoid) göms hårt
-// bortom 105 m camera-avstånd ≈ ~100 m maskin-avstånd. ClampToGround-objekt
-// (polygons/polylines/ellipse) berörs INTE — de fadeas naturligt av
-// tunnel-mask-overlayen som ligger på marken.
-let _markerDdc: any = null
-function getMarkerDdc() {
-  if (!_markerDdc) _markerDdc = new Cesium.DistanceDisplayCondition(0, 105)
-  return _markerDdc
-}
-
-// Applicera DDC på alla 3D-formade entiteter med given id-prefix.
-// 3D-form = har cylinder, box eller ellipsoid (inte ellipse/polygon/polyline).
-function applyTunnelDDC(viewer: CesiumNS.Viewer, prefix: string): void {
-  const ddc = getMarkerDdc()
+// Applicera DistanceDisplayCondition på 3D-formade entiteter med given prefix.
+// Hård hide bortom (distance + 5 m camera-buffer) — ClampToGround-objekt
+// (polygons/polylines/ellipse) berörs INTE; de fadeas naturligt av tunnel-
+// mask-overlayen.
+function applyTunnelDDC(viewer: CesiumNS.Viewer, prefix: string, distance: number): void {
+  const ddc = new Cesium.DistanceDisplayCondition(0, distance + 5)
   for (const e of viewer.entities.values) {
     const id = e.id?.toString() || ''
     if (!id.startsWith(prefix)) continue
@@ -635,7 +639,11 @@ export default function CesiumScene({ objektId }: Props) {
   // === Lager-väljare ===
   const [overlays, setOverlays] = useMapLayers()
   const [layerMenuOpen, setLayerMenuOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [bgType, setBgType] = useState<'cockpit' | 'satellite'>('cockpit')
+  // === Tunnelvision — Synfält (m) + Mjukhet (%) ===
+  const [viewfieldDistance, setViewfieldDistance] = useNumericSetting('viewfield_distance', 300)
+  const [viewfieldSoftness, setViewfieldSoftness] = useNumericSetting('viewfield_softness', 40)
   // === Kamerakontroll ===
   // followGps=true → kameran följer GPS bakom maskinen (default).
   // followGps=false → användaren snurrar/tiltar/panar fritt; visa centrera-knapp.
@@ -1097,10 +1105,10 @@ export default function CesiumScene({ objektId }: Props) {
         }
       }
 
-      // Tunnelvision: hård hide bortom 105 m camera-avstånd för 3D-formade
-      // markörer (cylinder/box/ellipsoid). ClampToGround-objekt fadeas
-      // naturligt av tunnel-mask-overlayen.
-      applyTunnelDDC(viewer, 'mk-')
+      // Tunnelvision: hård hide bortom Synfält + 5 m för 3D-formade markörer
+      // (cylinder/box/ellipsoid). ClampToGround-objekt fadeas naturligt
+      // av tunnel-mask-overlayen.
+      applyTunnelDDC(viewer, 'mk-', viewfieldDistance)
 
       console.log(
         '[Körvy3D]', pointMarkers.length, 'pelare,',
@@ -1313,8 +1321,8 @@ export default function CesiumScene({ objektId }: Props) {
         })
       }
 
-      // Tunnelvision: hård hide bortom 105 m för HPR-halvsfärerna också
-      applyTunnelDDC(viewer, 'hpr-')
+      // Tunnelvision: hård hide bortom Synfält + 5 m för HPR-halvsfärerna
+      applyTunnelDDC(viewer, 'hpr-', viewfieldDistance)
 
       viewer.scene.requestRender()
     })()
@@ -1459,10 +1467,11 @@ export default function CesiumScene({ objektId }: Props) {
   }, [ready, pos])
 
   // === Tunnelvision-mask: gradient-mörkning runt maskinen ===
-  // Stor ellipse (1000 m) följer GPS-position, drapas på marken med
-  // ImageMaterialProperty från radial gradient-canvasen (clear inom 60 m,
-  // gradient 60–100 m, 85 % mörk bortom). Effekten påverkar mark/imagery —
-  // 3D-extruderade markörer hanteras separat via DistanceDisplayCondition.
+  // Stor ellipse (5000 m) följer GPS-position, drapas på marken med
+  // ImageMaterialProperty från radial gradient-canvasen. Stop-positioner
+  // beräknas dynamiskt från viewfieldDistance + viewfieldSoftness — bygger
+  // om canvas vid varje slider-tick. Påverkar mark/imagery + clampToGround-
+  // objekt; 3D-extruderade markörer hanteras separat via DDC.
   useEffect(() => {
     if (!ready || !viewerRef.current || !pos) return
     const viewer = viewerRef.current
@@ -1474,17 +1483,26 @@ export default function CesiumScene({ objektId }: Props) {
       id: 'tunnel-mask',
       position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
       ellipse: {
-        semiMajorAxis: 1000,
-        semiMinorAxis: 1000,
+        semiMajorAxis: 5000,
+        semiMinorAxis: 5000,
         material: new Cesium.ImageMaterialProperty({
-          image: getTunnelMaskCanvas(),
+          image: buildTunnelMaskCanvas(viewfieldDistance, viewfieldSoftness),
           transparent: true,
         }),
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
       },
     })
     viewer.scene.requestRender()
-  }, [ready, pos])
+  }, [ready, pos, viewfieldDistance, viewfieldSoftness])
+
+  // === Re-applicera DDC på alla 3D-markörer/HPR-pelare när Synfält ändras ===
+  useEffect(() => {
+    if (!ready || !viewerRef.current) return
+    const viewer = viewerRef.current
+    applyTunnelDDC(viewer, 'mk-', viewfieldDistance)
+    applyTunnelDDC(viewer, 'hpr-', viewfieldDistance)
+    viewer.scene.requestRender()
+  }, [ready, viewfieldDistance])
 
   // === Nästa-kö: 3 närmaste markeringar inom 300 m ===
   useEffect(() => {
@@ -1890,6 +1908,84 @@ export default function CesiumScene({ objektId }: Props) {
                 ))}
               </div>
             ))}
+
+            {/* Avancerat — kollapsbar sektion längst ner */}
+            <div style={{
+              background: '#0a0a0a',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              <div
+                onClick={() => setAdvancedOpen((o) => !o)}
+                style={{
+                  padding: '12px 16px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  borderRadius: '12px',
+                }}
+              >
+                <span style={{ fontSize: '13px', opacity: 0.6 }}>Avancerat</span>
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"
+                  style={{
+                    opacity: 0.5,
+                    transform: advancedOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.2s ease',
+                  }}
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </div>
+
+              {advancedOpen && (
+                <div style={{ padding: '4px 16px 16px' }}>
+                  {/* Synfält */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                      marginBottom: '8px',
+                    }}>
+                      <span style={{ fontSize: '15px', color: '#fff' }}>Synfält</span>
+                      <span style={{ fontSize: '15px', color: '#0a84ff', fontVariantNumeric: 'tabular-nums' }}>
+                        {viewfieldDistance} m
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={100} max={500} step={25}
+                      value={viewfieldDistance}
+                      onChange={(e) => setViewfieldDistance(parseInt(e.target.value, 10))}
+                      style={{ width: '100%', accentColor: '#0a84ff', display: 'block' }}
+                    />
+                  </div>
+
+                  {/* Mjukhet */}
+                  <div>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                      marginBottom: '4px',
+                    }}>
+                      <span style={{ fontSize: '15px', color: '#fff' }}>Mjukhet</span>
+                      <span style={{ fontSize: '15px', color: '#0a84ff', fontVariantNumeric: 'tabular-nums' }}>
+                        {viewfieldSoftness}%
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '8px' }}>
+                      Andel av synfältet som fadeas
+                    </div>
+                    <input
+                      type="range"
+                      min={0} max={100} step={5}
+                      value={viewfieldSoftness}
+                      onChange={(e) => setViewfieldSoftness(parseInt(e.target.value, 10))}
+                      style={{ width: '100%', accentColor: '#0a84ff', display: 'block' }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
