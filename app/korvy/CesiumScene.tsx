@@ -96,6 +96,53 @@ function offsetLatLngByBearing(lat: number, lon: number, distM: number, bearingD
   )
   return [lon2 * 180 / Math.PI, lat2 * 180 / Math.PI]
 }
+// === Dev-mock GPS-loop (aktiveras endast via ?devmock=1) ===
+// 60-sekunders lopp N → E → S → tillbaka, med 5 s stillastående mellan
+// varje fas. Hastighet 2 m/s ≈ 7.2 km/h vilket matchar realistisk skördarfart
+// i fält. Används för att testa kameralogik (följning, heading-rotation,
+// stillastående-beteende) utan att vara ute på riktigt.
+const DEVMOCK_PHASES: Array<{ duration: number; heading: number; speed: number }> = [
+  { duration: 15, heading: 0,   speed: 2.0 },  // N, ~7 km/h, 30 m
+  { duration: 5,  heading: 0,   speed: 0   },  // stopp
+  { duration: 15, heading: 90,  speed: 2.0 },  // E, ~7 km/h, 30 m
+  { duration: 5,  heading: 90,  speed: 0   },  // stopp
+  { duration: 15, heading: 180, speed: 2.0 },  // S, ~7 km/h, 30 m
+  { duration: 5,  heading: 180, speed: 0   },  // stopp (totalt 60 s)
+]
+
+// Beräkna mock-pos vid en given tid (sekunder sedan loop-start, modulo 60).
+// Returnerar samma form som GPS-watcher: heading=null vid stillastående
+// (matchar browser-GPS-beteende när hastighet < 1 m/s).
+function computeDevMockPos(
+  elapsedSec: number,
+  baseLat: number,
+  baseLng: number,
+): { lat: number; lon: number; heading: number | null; speed: number | null } {
+  let lat = baseLat
+  let lng = baseLng
+  let phaseStart = 0
+  for (const phase of DEVMOCK_PHASES) {
+    const phaseEnd = phaseStart + phase.duration
+    if (elapsedSec < phaseEnd) {
+      const tInPhase = elapsedSec - phaseStart
+      if (phase.speed > 0) {
+        const dist = tInPhase * phase.speed
+        const [olon, olat] = offsetLatLngByBearing(lat, lng, dist, phase.heading)
+        return { lat: olat, lon: olon, heading: phase.heading, speed: phase.speed }
+      }
+      return { lat, lon: lng, heading: null, speed: 0 }
+    }
+    if (phase.speed > 0) {
+      const dist = phase.duration * phase.speed
+      const [olon, olat] = offsetLatLngByBearing(lat, lng, dist, phase.heading)
+      lng = olon
+      lat = olat
+    }
+    phaseStart = phaseEnd
+  }
+  return { lat, lon: lng, heading: null, speed: 0 }
+}
+
 function bearingArrow(bearing: number, heading: number): string {
   const diff = (((bearing - heading) % 360) + 540) % 360 - 180
   if (diff < -135 || diff > 135) return '↓'
@@ -690,6 +737,14 @@ export default function CesiumScene({ objektId }: Props) {
   // followGps=false → användaren snurrar/tiltar/panar fritt; visa centrera-knapp.
   const [followGps, setFollowGps] = useState(true)
 
+  // === Dev-mock-flagga: aktiveras via ?devmock=1 ===
+  // page.tsx laddar CesiumScene med ssr:false så window är alltid tillgänglig
+  // i useState-initializern — ingen hydration-mismatch.
+  const [isDevMock] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return new URLSearchParams(window.location.search).get('devmock') === '1'
+  })
+
   // === Hämta objekt + markeringar ===
   useEffect(() => {
     if (!objektId) return
@@ -714,8 +769,9 @@ export default function CesiumScene({ objektId }: Props) {
     return () => { cancelled = true }
   }, [objektId])
 
-  // === GPS-watcher ===
+  // === GPS-watcher (skippas i dev-mock-läget) ===
   useEffect(() => {
+    if (isDevMock) return  // dev-mock-loopen tar över i en separat effekt
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return
     watchIdRef.current = navigator.geolocation.watchPosition(
       (p) => {
@@ -732,7 +788,64 @@ export default function CesiumScene({ objektId }: Props) {
     return () => {
       if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current)
     }
-  }, [])
+  }, [isDevMock])
+
+  // === Dev-mock GPS-loop (aktiveras via ?devmock=1) ===
+  // Tickar 2 Hz med en pos beräknad från DEVMOCK_PHASES, modulo 60 s. Loggar
+  // maskin- och kamera-state varje sekund så man kan verifiera att kameran
+  // hamnar där matematiken säger. Effekten är helt no-op när isDevMock=false.
+  useEffect(() => {
+    if (!isDevMock) return
+    if (!objekt || objekt.lat == null || objekt.lng == null) return
+    const baseLat = objekt.lat
+    const baseLng = objekt.lng
+    const t0 = Date.now()
+    let lastLogSec = -1
+
+    const tick = () => {
+      const elapsed = ((Date.now() - t0) / 1000) % 60
+      const mock = computeDevMockPos(elapsed, baseLat, baseLng)
+      setPos(mock)
+
+      // Logga endast en gång per sekund (annars 2 Hz ger för mycket spam)
+      const sec = Math.floor(elapsed)
+      if (sec !== lastLogSec) {
+        lastLogSec = sec
+        const cam = viewerRef.current?.camera
+        const carto = cam?.positionCartographic
+        // eslint-disable-next-line no-console
+        console.log('[devmock]', JSON.stringify({
+          t: elapsed.toFixed(1),
+          machine: {
+            lat: +mock.lat.toFixed(6),
+            lon: +mock.lon.toFixed(6),
+            heading: mock.heading,
+            speed: mock.speed,
+          },
+          camera: cam && carto ? {
+            lat: +Cesium.Math.toDegrees(carto.latitude).toFixed(6),
+            lon: +Cesium.Math.toDegrees(carto.longitude).toFixed(6),
+            height: +carto.height.toFixed(1),
+            heading: +Cesium.Math.toDegrees(cam.heading).toFixed(1),
+            pitch: +Cesium.Math.toDegrees(cam.pitch).toFixed(1),
+          } : null,
+        }))
+      }
+    }
+
+    tick()
+    const id = setInterval(tick, 500)
+    return () => clearInterval(id)
+  }, [isDevMock, objekt])
+
+  // === Exponera viewerRef till window i dev-mock så Cesium-API:et kan
+  // inspekteras från konsolen (window.viewerRef.scene, .camera, etc.) ===
+  useEffect(() => {
+    if (!isDevMock) return
+    if (!ready || !viewerRef.current) return
+    ;(window as any).viewerRef = viewerRef.current
+    return () => { delete (window as any).viewerRef }
+  }, [isDevMock, ready])
 
   // === Cesium init: 1 m DEM-terräng + Esri satellit-imagery som default-bas ===
   useEffect(() => {
@@ -1565,6 +1678,28 @@ export default function CesiumScene({ objektId }: Props) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* DEV-badge — visas bara i dev-mock-läget. Centrerad just under topbar. */}
+      {isDevMock && (
+        <div style={{
+          position: 'fixed',
+          top: 'calc(env(safe-area-inset-top, 0px) + 64px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '4px 12px',
+          borderRadius: 8,
+          background: '#ff453a',
+          color: '#fff',
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: 0.8,
+          zIndex: 1000,
+          pointerEvents: 'none',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+        }}>
+          DEV · MOCK GPS
+        </div>
+      )}
 
       {/* Topp-overlay: tillbaka + objektnamn */}
       <div style={{
