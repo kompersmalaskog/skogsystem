@@ -21,6 +21,25 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// === Outlier-filter: skydda 2D-rendering mot felaktiga markeringar med
+// koordinater >1000 SVG-units från objekt-centrum (typiskt ritade när
+// mapCenter stod på fel referens innan ett objekt valts → hamnar km bort).
+// Sammma logik som CesiumScene.tsx — verifierat-ID:n se kommentar där.
+const OUTLIER_LIMIT = 200;
+function isOutlierPoint(p: { x: number; y: number }): boolean {
+  return Math.abs(p.x) > OUTLIER_LIMIT || Math.abs(p.y) > OUTLIER_LIMIT;
+}
+function filterMarkerOutliers<T extends { x: number; y: number; isMarker?: boolean; isLine?: boolean; isZone?: boolean; isArrow?: boolean; path?: { x: number; y: number }[] }>(m: T): T | null {
+  if ((m.isMarker || m.isArrow) && isOutlierPoint(m)) return null;
+  if (m.path && m.path.length > 0) {
+    const cleanPath = m.path.filter((p) => !isOutlierPoint(p));
+    const minPath = m.isLine ? 2 : m.isZone ? 3 : 1;
+    if (cleanPath.length < minPath) return null;
+    return { ...m, path: cleanPath };
+  }
+  return m;
+}
+
 // === TYPES ===
 interface Point {
   x: number;
@@ -4808,7 +4827,10 @@ export default function PlannerPage() {
       if (!src) return;
       const features: any[] = [];
       const korvyPos = korvyActive ? (currentPosition as any) : null;
-      markers.filter(m => m.isLine && m.path && m.path.length > 1).forEach(m => {
+      markers
+        .map((m: any) => filterMarkerOutliers(m))
+        .filter((m: any): m is any => m && m.isLine && m.path && m.path.length > 1)
+        .forEach((m: any) => {
         const coords = m.path.map((p: any) => {
           const ll = svgToLatLon(p.x, p.y);
           return [ll.lon, ll.lat];
@@ -4843,7 +4865,10 @@ export default function PlannerPage() {
       const src = map.getSource('zones-source') as any;
       if (!src) return;
       const features: any[] = [];
-      markers.filter(m => m.isZone && m.path && m.path.length > 2).forEach(m => {
+      markers
+        .map((m: any) => filterMarkerOutliers(m))
+        .filter((m: any): m is any => m && m.isZone && m.path && m.path.length > 2)
+        .forEach((m: any) => {
         const coords = m.path.map((p: any) => {
           const ll = svgToLatLon(p.x, p.y);
           return [ll.lon, ll.lat];
@@ -4886,7 +4911,8 @@ export default function PlannerPage() {
         return;
       }
       const features: any[] = [];
-      const symbolMarkers = markers.filter(m => m.isMarker);
+      // Filtrera bort outlier-markeringar (samma logik som linjer/zoner)
+      const symbolMarkers = markers.filter((m: any) => m.isMarker && !isOutlierPoint(m));
       const userPos = effectiveUserPos;
       if (drivingMode && proximityTick % 5 === 0) {
         console.log(`[Proximity] tick=${proximityTick}, symbols=${symbolMarkers.length}, userPos=${userPos ? `(${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)})` : 'NULL'}, showAll=${warningShowAll}, gps=${gpsPosition ? 'SET' : 'null'}, sim=${simulatedPos ? 'SET' : 'null'}`);

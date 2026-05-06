@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { createClient } from '@supabase/supabase-js'
 import type * as CesiumNS from 'cesium'
 import { wmsLayerGroups, wmsLayers, type LayerDef } from '@/lib/mapLayers'
-import { useMapLayers } from '@/lib/hooks/useMapLayers'
+import { useMapLayers, useNumericSetting } from '@/lib/hooks/useMapLayers'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -131,10 +131,19 @@ function colorForType(type?: string): string {
 // === Konstanter ===
 // verticalExaggeration skalar terrängen visuellt men INTE entiteters
 // absolutpositioner. Vi multiplicerar därför entitet-höjder manuellt.
-const VERTICAL_EXAG = 2.5
-const CAM_HEIGHT = 25
-const CAM_PITCH = -12
-const CAM_BACK = 55
+// 1.5 är en "naturlig" exaggerering — backar och sänkor syns tydligt utan
+// att terrängen blir cartoony.
+const VERTICAL_EXAG = 1.5
+// GPS-navigations-stil körvy: maskin-pil i nedre tredjedelen av skärmen,
+// 100 m framåt syns tydligt, horisonten ligger ovanför skärmens övre kant.
+//   CAM_BACK 18 m   → tight bakom maskinen, pilen blir stor nog
+//   CAM_HEIGHT 13 m → låg kamera, "inne i" landskapet
+//   CAM_PITCH -20°  → atan(13/18) ≈ 36° gör att maskinen hamnar ~16° under
+//                     bild-centrum (nedre tredjedel); horisonten 20° över
+//                     centrum ligger utanför normal-FOV på liggande mobil
+const CAM_HEIGHT = 13
+const CAM_PITCH = -20
+const CAM_BACK = 18
 const LIGHT_INTENSITY = 3.5
 
 // === Lager-grupper synliga i 3D (filtrerade på show3D) ===
@@ -207,6 +216,37 @@ function zoneColorFor(zoneType: string | undefined): string {
     case 'fornlamning': return '#ff453a'
     default:            return '#8e8e93'
   }
+}
+
+// === Outlier-filter för markeringar (SVG-units) ===
+// Skyddar mot felaktiga markeringar med koordinater >200 SVG-units från
+// objekt-centrum. De har troligen ritats när mapCenter stod på fel referens
+// (ex. Stenshult-default innan ett objekt valdes), och hamnar hundratals m
+// till km bort när rekonverterade. Filtreras klient-side i båda 2D- och 3D-vyer.
+//
+// Tröskel-resonemang: vid zoom 16 är 1 SVG-unit ≈ 1.32 m på 56°N (zoom 15: 2.65 m).
+// 200 units → ~265 m (zoom 16) / ~530 m (zoom 15). Realistisk objekt-area får
+// rejäl marginal, men markeringar som hamnat på fel kartbild-mitten klipps.
+// Tidigare värde 1000 (≈ 1.3–2.6 km) släppte fortfarande igenom långa streck.
+//
+// SQL för manuell rensning i Supabase (kör inte automatiskt — verifiera först):
+// DELETE FROM planering_markeringar WHERE marker_id IN (
+//   '1772898258170', '1772898638712',
+//   '1772445281097', '1777998752739', '1777304162620'
+// );
+const OUTLIER_LIMIT = 200
+function isOutlierPoint(p: { x: number; y: number }): boolean {
+  return Math.abs(p.x) > OUTLIER_LIMIT || Math.abs(p.y) > OUTLIER_LIMIT
+}
+function filterMarkerOutliers(m: Marker): Marker | null {
+  if ((m.isMarker || m.isArrow) && isOutlierPoint(m)) return null
+  if (m.path && m.path.length > 0) {
+    const cleanPath = m.path.filter((p) => !isOutlierPoint(p))
+    const minPath = m.isLine ? 2 : m.isZone ? 3 : 1
+    if (cleanPath.length < minPath) return null
+    return { ...m, path: cleanPath }
+  }
+  return m
 }
 
 // Alpha för overlay-imagery beroende på cockpit/satellit-läget. I cockpit
@@ -556,6 +596,69 @@ function getMachineIconCanvas(): HTMLCanvasElement {
   return c
 }
 
+// === Tunnelvision-mask: radial gradient som mörkar terrängen utanför Synfält ===
+// Cesium ImageMaterialProperty på en stor (5000 m) ellipse ger en
+// clampToGround "skugga" runt maskinen. Gradient-stoparna beräknas
+// dynamiskt från distance + softness, alpha från darkness (0–100 %):
+//   total radie     = distance (m)
+//   fadeout-zon     = distance × softness/100
+//   full klarhet    = distance - fadeout
+//   mörker-alpha    = darkness/100  (100 % = helt svart utanför Synfält)
+//
+// Mappning till canvasens radial-axel (0..1) över ellipsens 5000 m semi-major:
+//   0           → transparent
+//   clarityEnd  → transparent (sista helt klara stoppet)
+//   distance    → mörker-alpha
+//   1.0         → mörker-alpha (konstant utåt så terräng > distance dämpas)
+function buildTunnelMaskCanvas(
+  distance: number,
+  softness: number,
+  darkness: number,
+): HTMLCanvasElement {
+  const size = 512
+  const ELLIPSE_R = 5000
+  const c = document.createElement('canvas')
+  c.width = size; c.height = size
+  const ctx = c.getContext('2d')!
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
+
+  const fade = distance * (softness / 100)
+  const clarityEnd = Math.max(0, distance - fade)
+
+  const clarityStop = Math.max(0, Math.min(1, clarityEnd / ELLIPSE_R))
+  const darkStop = Math.max(clarityStop, Math.min(1, distance / ELLIPSE_R))
+
+  // Helt svart bas; alpha kontrollerar hur mycket mörker som visas.
+  const alpha = Math.max(0, Math.min(1, darkness / 100))
+
+  grad.addColorStop(0.0, 'rgba(0,0,0,0)')
+  // Hoppa över duplicerat stopp om clarityStop = 0 (softness 100 %)
+  if (clarityStop > 0.0001) {
+    grad.addColorStop(clarityStop, 'rgba(0,0,0,0)')
+  }
+  grad.addColorStop(darkStop, `rgba(0,0,0,${alpha})`)
+  grad.addColorStop(1.0, `rgba(0,0,0,${alpha})`)
+
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, size, size)
+  return c
+}
+
+// Applicera DistanceDisplayCondition på 3D-formade entiteter med given prefix.
+// Hård hide bortom (distance + 5 m camera-buffer) — ClampToGround-objekt
+// (polygons/polylines/ellipse) berörs INTE; de fadeas naturligt av tunnel-
+// mask-overlayen.
+function applyTunnelDDC(viewer: CesiumNS.Viewer, prefix: string, distance: number): void {
+  const ddc = new Cesium.DistanceDisplayCondition(0, distance + 5)
+  for (const e of viewer.entities.values) {
+    const id = e.id?.toString() || ''
+    if (!id.startsWith(prefix)) continue
+    if (e.cylinder || e.box || e.ellipsoid) {
+      e.distanceDisplayCondition = ddc
+    }
+  }
+}
+
 export default function CesiumScene({ objektId }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewerRef = useRef<CesiumNS.Viewer | null>(null)
@@ -584,7 +687,12 @@ export default function CesiumScene({ objektId }: Props) {
   // === Lager-väljare ===
   const [overlays, setOverlays] = useMapLayers()
   const [layerMenuOpen, setLayerMenuOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [bgType, setBgType] = useState<'cockpit' | 'satellite'>('cockpit')
+  // === Tunnelvision — Synfält (m) + Mjukhet (%) + Mörker utanför (%) ===
+  const [viewfieldDistance, setViewfieldDistance] = useNumericSetting('viewfield_distance', 300)
+  const [viewfieldSoftness, setViewfieldSoftness] = useNumericSetting('viewfield_softness', 40)
+  const [viewfieldDarkness, setViewfieldDarkness] = useNumericSetting('viewfield_darkness', 100)
   // === Kamerakontroll ===
   // followGps=true → kameran följer GPS bakom maskinen (default).
   // followGps=false → användaren snurrar/tiltar/panar fritt; visa centrera-knapp.
@@ -706,10 +814,14 @@ export default function CesiumScene({ objektId }: Props) {
 
         viewer.imageryLayers.removeAll()
 
-        // === Cockpit-default — mörk bas, ingen satellit. Esri-imagery
-        // lazy-laddas först om föraren togglar till "Satellit" via lager-menyn.
+        // === Cockpit-default — mörk himmel, ljus grå mark, ingen satellit-imagery.
+        // baseColor = #c0c0c0 (RGB 192) ger en ljus neutral yta som mottar
+        // shading från enableLighting + DirectionalLight (rad nedan). Vertex-
+        // normaler på 1m DEM-terrängen ger oändligt skarpt hillshade vid alla
+        // zoom-nivåer — bättre än WMS-rasters fasta tile-upplösning.
+        // Esri-imagery lazy-laddas först om föraren togglar till "Satellit".
         viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a1a')
-        viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#3a3a3a')
+        viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#c0c0c0')
         if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
 
         try { (viewer.scene as any).verticalExaggeration = VERTICAL_EXAG } catch {}
@@ -804,10 +916,10 @@ export default function CesiumScene({ objektId }: Props) {
         }).catch((e) => console.warn('[Körvy3D] satellite lazy-load:', e))
       }
     } else {
-      // 'cockpit' — mörk bas + atmosfär av
+      // 'cockpit' — ljus grå mark (för 1m DEM-hillshade), mörk himmel, atmosfär av
       if (imageryLayerRef.current) imageryLayerRef.current.show = false
       viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a1a')
-      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#3a3a3a')
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#c0c0c0')
       if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
       try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#1a1a1a') } catch {}
     }
@@ -877,11 +989,15 @@ export default function CesiumScene({ objektId }: Props) {
         groundH = sampled[0].height || 150
         groundHeightRef.current = groundH
 
-        // Bygg ljusriktning från lokal ENU-frame: solen kommer från NW (östkomponent +1,
-        // nordkomponent -1, ned -1 → ljuset träffar terrängen från NW och nedåt)
+        // Bygg ljusriktning från lokal ENU-frame: klassisk hillshade-belysning
+        // azimuth 315° (NW), elevation 45° över horisonten.
+        //   sol-position = (sin(315°)·cos(45°), cos(315°)·cos(45°), sin(45°))
+        //                ≈ (-0.5, 0.5, 0.707)  [East, North, Up]
+        //   ljus-direktion (FRÅN sol TILL mark) = -sol-position
+        //                ≈ (0.5, -0.5, -0.707)
         const center = Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat)
         const enuFrame = Cesium.Transforms.eastNorthUpToFixedFrame(center)
-        const localDir = new Cesium.Cartesian3(1, -1, -1)
+        const localDir = new Cesium.Cartesian3(0.5, -0.5, -0.707)
         Cesium.Cartesian3.normalize(localDir, localDir)
         const worldDir = Cesium.Matrix4.multiplyByPointAsVector(enuFrame, localDir, new Cesium.Cartesian3())
         Cesium.Cartesian3.normalize(worldDir, worldDir)
@@ -893,9 +1009,11 @@ export default function CesiumScene({ objektId }: Props) {
         console.warn('[Körvy3D] terrain sample (init):', e)
       }
 
-      // Kamera 30 m över exaggererad terräng (Tesla-låg, framåtblickande -12°)
+      // Initial preview innan GPS-follow tar över. Lite högre än CAM_HEIGHT
+      // (50 m vs 20 m) så hela objektet syns utan att kameran tippar ner i
+      // marken vid -25° pitch utan back-offset.
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, groundH * VERTICAL_EXAG + 30),
+        destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, groundH * VERTICAL_EXAG + 50),
         orientation: { heading: 0, pitch: Cesium.Math.toRadians(CAM_PITCH), roll: 0 },
         duration: 1.5,
       })
@@ -923,10 +1041,16 @@ export default function CesiumScene({ objektId }: Props) {
       }
     }
 
+    // Filtrera bort outlier-markeringar (>1000 SVG-units från objekt-centrum)
+    // som annars syns som "streck genom kartan"
+    const safeMarkers = markers
+      .map(filterMarkerOutliers)
+      .filter((m): m is Marker => m !== null)
+
     ;(async () => {
       // 1) Konvertera punkt-markeringar till lat/lng
       const pointMarkers: { m: Marker; lat: number; lon: number }[] = []
-      for (const m of markers) {
+      for (const m of safeMarkers) {
         if (m.isMarker) {
           const ll = svgToLatLon(m.x, m.y)
           pointMarkers.push({ m, lat: ll.lat, lon: ll.lon })
@@ -979,7 +1103,7 @@ export default function CesiumScene({ objektId }: Props) {
       }
 
       // 4b) Pilar — triangulär polygon clampToGround, riktning från m.rotation
-      for (const m of markers) {
+      for (const m of safeMarkers) {
         if (!m.isArrow) continue
         try {
           const ll = svgToLatLon(m.x, m.y)
@@ -997,7 +1121,7 @@ export default function CesiumScene({ objektId }: Props) {
       // tyst skippar hela primitiven. Filtrera därför bort sista pixel-
       // identiska punkten innan vi bygger Cartesian3-array. Geometriskt blir
       // polygonen ändå sluten via [N-2]→[0]-segmentet.
-      for (const m of markers) {
+      for (const m of safeMarkers) {
         if (!m.isLine || !m.path || m.path.length <= 1) continue
         try {
           let pts = m.path
@@ -1022,7 +1146,7 @@ export default function CesiumScene({ objektId }: Props) {
       }
 
       // 6) Zoner — clampToGround, alpha 0.2 + solid outline (matchar 2D fill+outline)
-      for (const m of markers) {
+      for (const m of safeMarkers) {
         if (!m.isZone || !m.path || m.path.length < 3) continue
         try {
           const hierarchy: CesiumNS.Cartesian3[] = []
@@ -1046,10 +1170,16 @@ export default function CesiumScene({ objektId }: Props) {
         }
       }
 
+      // Tunnelvision: hård hide bortom Synfält + 5 m för 3D-formade markörer
+      // (cylinder/box/ellipsoid). ClampToGround-objekt fadeas naturligt
+      // av tunnel-mask-overlayen.
+      applyTunnelDDC(viewer, 'mk-', viewfieldDistance)
+
       console.log(
         '[Körvy3D]', pointMarkers.length, 'pelare,',
-        markers.filter(m => m.isLine).length, 'linjer,',
-        markers.filter(m => m.isZone).length, 'zoner renderade'
+        safeMarkers.filter(m => m.isLine).length, 'linjer,',
+        safeMarkers.filter(m => m.isZone).length, 'zoner renderade',
+        markers.length - safeMarkers.length > 0 ? `(${markers.length - safeMarkers.length} outliers filtrerade)` : '',
       )
     })()
 
@@ -1257,6 +1387,9 @@ export default function CesiumScene({ objektId }: Props) {
         })
       }
 
+      // Tunnelvision: hård hide bortom Synfält + 5 m för HPR-halvsfärerna
+      applyTunnelDDC(viewer, 'hpr-', viewfieldDistance)
+
       viewer.scene.requestRender()
     })()
 
@@ -1298,106 +1431,85 @@ export default function CesiumScene({ objektId }: Props) {
     return () => { cancelled = true }
   }, [ready, pos, followGps])
 
-  // === Maskin-ikon + pulserande halo (klampad till mark) ===
-  useEffect(() => {
-    if (!ready || !viewerRef.current || !pos) return
-    const viewer = viewerRef.current
-    const heading = pos.heading != null ? pos.heading : 0
-    const position = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat)
-
-    // Rensa befintliga maskin-entiteter
-    for (const id of ['machine-icon', 'machine-halo']) {
-      const e = viewer.entities.getById(id)
-      if (e) viewer.entities.remove(e)
-    }
-
-    // Pulserande halo: ellipse-radie animeras 8 → 18 m via CallbackProperty
-    const pulseRadius = new Cesium.CallbackProperty(() => {
-      const t = (Date.now() % 1800) / 1800   // 0..1 över 1.8 s
-      return 8 + t * 10
-    }, false)
-    const pulseColor = new Cesium.ColorMaterialProperty(
-      new Cesium.CallbackProperty(() => {
-        const t = (Date.now() % 1800) / 1800
-        return Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.45 * (1 - t))
-      }, false) as any
-    )
-    viewer.entities.add({
-      id: 'machine-halo',
-      position,
-      ellipse: {
-        semiMajorAxis: pulseRadius,
-        semiMinorAxis: pulseRadius,
-        material: pulseColor,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      },
-    })
-
-    viewer.entities.add({
-      id: 'machine-icon',
-      position,
-      billboard: {
-        image: getMachineIconCanvas(),
-        scale: 1.1,
-        rotation: Cesium.Math.toRadians(-heading),
-        alignedAxis: Cesium.Cartesian3.UNIT_Z,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      },
-    })
-    viewer.scene.requestRender()
-  }, [ready, pos])
-
-  // === Animation-loop: trigga render ~30 fps medan maskin-halo finns ===
-  // requestRenderMode: true innebär att scenen bara renderar vid ändringar.
-  // CallbackProperty triggar inte render automatiskt, så vi pinger den.
-  useEffect(() => {
-    if (!ready || !viewerRef.current || !pos) return
-    const viewer = viewerRef.current
-    let raf = 0
-    let lastTick = 0
-    const tick = (now: number) => {
-      raf = requestAnimationFrame(tick)
-      if (now - lastTick < 33) return  // ~30 fps
-      lastTick = now
-      viewer.scene.requestRender()
-    }
-    raf = requestAnimationFrame(tick)
-    return () => { if (raf) cancelAnimationFrame(raf) }
-  }, [ready, pos])
-
-  // === Siktfält-kon: blå polygon 30°×150 m framåt, klampad till mark ===
+  // === Maskin-pil — flat triangulär ground-polygon (Apple-stil) ===
+  // Tidigare implementation (billboard + heightReference: CLAMP_TO_GROUND)
+  // svävade synligt över terrängen och försvann från fågelperspektiv.
+  // Ground-polygon drapas direkt på 1m DEM:en så pilen ser ut som målad
+  // på marken, följer naturligt sluttningar, och syns oavsett kameravinkel.
+  //   tip      8 m framåt        (heading)
+  //   back     3 m bakåt         (heading + 180°)
+  //   left/right 3 m vinkelrätt  (heading ±90°, från back-punkten)
+  // Total längd 11 m, bredd 6 m — stor nog att synas tydligt på 18 m håll.
   useEffect(() => {
     if (!ready || !viewerRef.current || !pos) return
     const viewer = viewerRef.current
     const heading = pos.heading != null ? pos.heading : 0
 
-    const existing = viewer.entities.getById('sight-cone')
+    const existing = viewer.entities.getById('machine-arrow')
     if (existing) viewer.entities.remove(existing)
 
-    const halfAngle = 15
-    const segments = 8
-    const lengthM = 150
-    const coords: [number, number][] = [[pos.lon, pos.lat]]
-    for (let i = 0; i <= segments; i++) {
-      const a = -halfAngle + (2 * halfAngle * i / segments)
-      const bearing = (heading + a + 360) % 360
-      const [eLon, eLat] = offsetLatLngByBearing(pos.lat, pos.lon, lengthM, bearing)
-      coords.push([eLon, eLat])
-    }
+    const tip = offsetLatLngByBearing(pos.lat, pos.lon, 8, heading)
+    const back = offsetLatLngByBearing(pos.lat, pos.lon, 3, (heading + 180) % 360)
+    const left = offsetLatLngByBearing(back[1], back[0], 3, (heading + 270) % 360)
+    const right = offsetLatLngByBearing(back[1], back[0], 3, (heading + 90) % 360)
+
+    const positions = [
+      Cesium.Cartesian3.fromDegrees(tip[0], tip[1]),
+      Cesium.Cartesian3.fromDegrees(right[0], right[1]),
+      Cesium.Cartesian3.fromDegrees(left[0], left[1]),
+    ]
 
     viewer.entities.add({
-      id: 'sight-cone',
+      id: 'machine-arrow',
       polygon: {
-        hierarchy: new Cesium.PolygonHierarchy(
-          coords.map(c => Cesium.Cartesian3.fromDegrees(c[0], c[1]))
-        ),
-        material: Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.18),
+        hierarchy: new Cesium.PolygonHierarchy(positions),
+        material: Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.92),
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        outline: true,
+        outlineColor: Cesium.Color.WHITE,
+        outlineWidth: 2,
       },
     })
     viewer.scene.requestRender()
   }, [ready, pos])
+
+  // === Tunnelvision-mask: gradient-mörkning runt maskinen ===
+  // Stor ellipse (5000 m) följer GPS-position, drapas på marken med
+  // ImageMaterialProperty från radial gradient-canvasen. Stop-positioner
+  // beräknas dynamiskt från viewfieldDistance + viewfieldSoftness — bygger
+  // om canvas vid varje slider-tick. Påverkar mark/imagery + clampToGround-
+  // objekt; 3D-extruderade markörer hanteras separat via DDC.
+  useEffect(() => {
+    if (!ready || !viewerRef.current || !pos) return
+    const viewer = viewerRef.current
+
+    const existing = viewer.entities.getById('tunnel-mask')
+    if (existing) viewer.entities.remove(existing)
+
+    viewer.entities.add({
+      id: 'tunnel-mask',
+      position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
+      ellipse: {
+        semiMajorAxis: 5000,
+        semiMinorAxis: 5000,
+        material: new Cesium.ImageMaterialProperty({
+          image: buildTunnelMaskCanvas(viewfieldDistance, viewfieldSoftness, viewfieldDarkness),
+          transparent: true,
+        }),
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      },
+    })
+    viewer.scene.requestRender()
+  }, [ready, pos, viewfieldDistance, viewfieldSoftness, viewfieldDarkness])
+
+  // === Re-applicera DDC på alla 3D-markörer/HPR-pelare när Synfält ändras ===
+  useEffect(() => {
+    if (!ready || !viewerRef.current) return
+    const viewer = viewerRef.current
+    applyTunnelDDC(viewer, 'mk-', viewfieldDistance)
+    applyTunnelDDC(viewer, 'hpr-', viewfieldDistance)
+    viewer.scene.requestRender()
+  }, [ready, viewfieldDistance])
 
   // === Nästa-kö: 3 närmaste markeringar inom 300 m ===
   useEffect(() => {
@@ -1417,6 +1529,7 @@ export default function CesiumScene({ objektId }: Props) {
     const items: NextItem[] = []
     for (const m of markers) {
       if (!m.isMarker) continue
+      if (isOutlierPoint(m)) continue   // skip outlier-markeringar (filterMarkerOutliers-spegel)
       const ll = svgToLatLon(m.x, m.y)
       const dist = haversineM(pos.lat, pos.lon, ll.lat, ll.lon)
       if (dist > 300) continue
@@ -1803,6 +1916,107 @@ export default function CesiumScene({ objektId }: Props) {
                 ))}
               </div>
             ))}
+
+            {/* Avancerat — kollapsbar sektion längst ner */}
+            <div style={{
+              background: '#0a0a0a',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '20px',
+              padding: '8px',
+              marginBottom: '16px',
+            }}>
+              <div
+                onClick={() => setAdvancedOpen((o) => !o)}
+                style={{
+                  padding: '12px 16px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  cursor: 'pointer',
+                  borderRadius: '12px',
+                }}
+              >
+                <span style={{ fontSize: '13px', opacity: 0.6 }}>Avancerat</span>
+                <svg
+                  width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2"
+                  style={{
+                    opacity: 0.5,
+                    transform: advancedOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.2s ease',
+                  }}
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </div>
+
+              {advancedOpen && (
+                <div style={{ padding: '4px 16px 16px' }}>
+                  {/* Synfält */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                      marginBottom: '8px',
+                    }}>
+                      <span style={{ fontSize: '15px', color: '#fff' }}>Synfält</span>
+                      <span style={{ fontSize: '15px', color: '#0a84ff', fontVariantNumeric: 'tabular-nums' }}>
+                        {viewfieldDistance} m
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={100} max={500} step={25}
+                      value={viewfieldDistance}
+                      onChange={(e) => setViewfieldDistance(parseInt(e.target.value, 10))}
+                      style={{ width: '100%', accentColor: '#0a84ff', display: 'block' }}
+                    />
+                  </div>
+
+                  {/* Mjukhet */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                      marginBottom: '4px',
+                    }}>
+                      <span style={{ fontSize: '15px', color: '#fff' }}>Mjukhet</span>
+                      <span style={{ fontSize: '15px', color: '#0a84ff', fontVariantNumeric: 'tabular-nums' }}>
+                        {viewfieldSoftness}%
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '8px' }}>
+                      Andel av synfältet som fadeas
+                    </div>
+                    <input
+                      type="range"
+                      min={0} max={100} step={5}
+                      value={viewfieldSoftness}
+                      onChange={(e) => setViewfieldSoftness(parseInt(e.target.value, 10))}
+                      style={{ width: '100%', accentColor: '#0a84ff', display: 'block' }}
+                    />
+                  </div>
+
+                  {/* Mörker utanför */}
+                  <div>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                      marginBottom: '4px',
+                    }}>
+                      <span style={{ fontSize: '15px', color: '#fff' }}>Mörker utanför</span>
+                      <span style={{ fontSize: '15px', color: '#0a84ff', fontVariantNumeric: 'tabular-nums' }}>
+                        {viewfieldDarkness}%
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '8px' }}>
+                      100 % = helt svart utanför fokuszonen
+                    </div>
+                    <input
+                      type="range"
+                      min={0} max={100} step={5}
+                      value={viewfieldDarkness}
+                      onChange={(e) => setViewfieldDarkness(parseInt(e.target.value, 10))}
+                      style={{ width: '100%', accentColor: '#0a84ff', display: 'block' }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

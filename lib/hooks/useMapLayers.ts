@@ -16,7 +16,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 
-const STORAGE_KEY = 'mapLayers'
+// v3: alla raster-overlays AV som default. Hillshade i 3D kommer nu direkt
+// från 1m DEM via Cesium vertex-normaler + DirectionalLight (oändligt skarp
+// vid alla zoom-nivåer), så lm_skuggning och sks_lutning behövs inte längre
+// som default — föraren kan toggla på dem som komplement vid behov.
+// Gamla 'mapLayers' / 'mapLayers_v2'-nycklar lämnas orörda i localStorage.
+const STORAGE_KEY = 'mapLayers_v3'
 
 export type MapLayers = Record<string, boolean>
 
@@ -56,20 +61,59 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   // Körbarhet
   korbarhet: false,
   // Skogsstyrelsen Raster
-  // sks_markfuktighet är ren cockpit-vy default OFF — SLU-rastret är en
-  // heltäckande fyrklassig färgkarta (inte glow), passar bättre toggla på
-  // manuellt vid behov. Föraren kan slå på via lager-menyn när som helst.
+  // sks_lutning default OFF — 1m DEM-hillshade i 3D-vyn ger nu skarpare
+  // topografi-läsning än SKS-rastret. Föraren kan toggla på som komplement.
   sks_markfuktighet: false,
   sks_virkesvolym: false,
   sks_tradhojd: false,
   sks_lutning: false,
   sks_gallringsindex: false,
   // Lantmäteriet
+  // lm_skuggning default OFF — Cesium renderar hillshade direkt från 1m DEM
+  // via vertex-normaler i realtid (skarpt vid alla zoom-nivåer); WMS-rastret
+  // blir pixligt vid nära zoom så det är inte längre default i 3D.
   lm_skuggning: false,
   lm_ortofoto: false,
   // HPR-högar
   produktionshogar: false,
   grothogar: false,
+}
+
+/**
+ * useNumericSetting — generisk number-state med localStorage-persistens.
+ * Samma SSR-säkra hydration-mönster som useMapLayers (read i useEffect,
+ * skip av första write innan hydration så DEFAULT inte skriver över sparade
+ * värden). Används för viewfield_distance + viewfield_softness i 3D-körvyn.
+ */
+export function useNumericSetting(
+  key: string,
+  defaultValue: number,
+): [number, Dispatch<SetStateAction<number>>] {
+  const [val, setVal] = useState<number>(defaultValue)
+  const hydratedRef = useRef(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (!hydratedRef.current) return
+    try { window.localStorage.setItem(key, String(val)) } catch {}
+  }, [key, val])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      hydratedRef.current = true
+      return
+    }
+    try {
+      const raw = window.localStorage.getItem(key)
+      if (raw !== null) {
+        const n = Number(raw)
+        if (!isNaN(n)) setVal(n)
+      }
+    } catch {}
+    hydratedRef.current = true
+  }, [key])
+
+  return [val, setVal]
 }
 
 export function useMapLayers(): [MapLayers, Dispatch<SetStateAction<MapLayers>>] {
