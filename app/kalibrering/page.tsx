@@ -556,20 +556,15 @@ export default function KalibreringPage() {
 
         .kalib-report{background:#1C1C1E;border-radius:14px;padding:24px 20px;border:1px solid rgba(255,255,255,0.06)}
         .kalib-report-header{display:flex;align-items:center;gap:14px;padding-bottom:18px;border-bottom:0.5px solid #2C2C2E;margin-bottom:20px}
-        .kalib-report-logo{width:44px;height:44px;border-radius:12px;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;color:#fff}
-        .kalib-report-logo .material-symbols-outlined{font-size:28px}
         .kalib-report-title-block{flex:1}
         .kalib-report-title{font-size:18px;font-weight:600;color:#fff}
-        .kalib-report-subtitle{font-size:12px;color:#8E8E93}
         .kalib-report-date{font-size:12px;color:#8E8E93;text-align:right}
         .kalib-report-section{margin-bottom:22px}
         .kalib-report-section-title{font-size:13px;font-weight:600;color:#fff;margin:0 0 4px}
-        .kalib-report-section-desc{font-size:12px;color:#8E8E93;margin:0 0 14px}
         .kalib-report-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
         .kalib-report-metric{text-align:center;padding:14px 8px;background:rgba(255,255,255,0.04);border-radius:10px}
         .kalib-report-metric-value{font-size:24px;font-weight:700;line-height:1;color:#fff;letter-spacing:-0.02em}
         .kalib-report-metric-value.bad{color:#FF3B30}
-        .kalib-report-metric-unit{font-size:11px;color:#8E8E93;margin-top:2px}
         .kalib-report-metric-label{font-size:11px;color:#8E8E93;margin-top:8px}
         .kalib-report-results{display:flex;flex-direction:column;gap:14px;margin-bottom:18px}
         .kalib-report-result{display:flex;align-items:center;gap:14px}
@@ -594,9 +589,7 @@ export default function KalibreringPage() {
         .kalib-table-header{display:grid;grid-template-columns:1fr 70px 70px 80px;padding:10px 14px;background:rgba(255,255,255,0.04);font-size:11px;color:#8E8E93;font-weight:500}
         .kalib-table-row{display:grid;grid-template-columns:1fr 70px 70px 80px;padding:14px;border-top:0.5px solid #2C2C2E;font-size:13px;cursor:pointer;color:#fff;align-items:center}
         .kalib-table-row > span.bad{color:#FF3B30;font-weight:600}
-        .kalib-report-footer{display:flex;justify-content:space-between;padding-top:18px;border-top:0.5px solid #2C2C2E;margin-top:22px}
-        .kalib-report-sig-name{font-size:14px;font-weight:500;color:#fff}
-        .kalib-report-sig-role{font-size:11px;color:#8E8E93;margin-top:2px}
+        .kalib-report-footer{display:flex;justify-content:flex-end;padding-top:18px;border-top:0.5px solid #2C2C2E;margin-top:22px}
         .kalib-report-machine{text-align:right;font-size:13px;color:#fff}
         .kalib-report-machine-sub{font-size:11px;color:#8E8E93;margin-top:2px}
 
@@ -840,10 +833,8 @@ export default function KalibreringPage() {
           {activeTab === 'report' && (
             <div className="kalib-report">
               <div className="kalib-report-header">
-                <div className="kalib-report-logo"><MSym name="forest" size={28} color="#fff" /></div>
                 <div className="kalib-report-title-block">
                   <div className="kalib-report-title">Kvalitetsrapport</div>
-                  <div className="kalib-report-subtitle">Kontrollmätning skördare</div>
                 </div>
                 <div className="kalib-report-date">{reportDate}</div>
               </div>
@@ -853,30 +844,25 @@ export default function KalibreringPage() {
                 <div className="kalib-report-metrics">
                   <div className="kalib-report-metric">
                     <div className="kalib-report-metric-value">{allKalib.length}</div>
-                    <div className="kalib-report-metric-unit">st</div>
                     <div className="kalib-report-metric-label">Kontroller</div>
                   </div>
                   <div className="kalib-report-metric">
                     <div className="kalib-report-metric-value">{totalStockar}</div>
-                    <div className="kalib-report-metric-unit">st</div>
                     <div className="kalib-report-metric-label">Kontrollstockar</div>
                   </div>
                   <div className="kalib-report-metric">
                     <div className="kalib-report-metric-value">{calibCount}</div>
-                    <div className="kalib-report-metric-unit">st</div>
                     <div className="kalib-report-metric-label">Kalibreringar</div>
                   </div>
                   <div className="kalib-report-metric">
                     <div className={`kalib-report-metric-value ${allKalib.filter(k => k.status === 'VARNING').length > 0 ? 'bad' : ''}`}>{allKalib.filter(k => k.status === 'VARNING').length}</div>
-                    <div className="kalib-report-metric-unit">st</div>
                     <div className="kalib-report-metric-label">Varningar</div>
                   </div>
                 </div>
               </div>
 
               <div className="kalib-report-section">
-                <div className="kalib-report-section-title">Genomsnittlig avvikelse</div>
-                <div className="kalib-report-section-desc">Maskin jämfört med operatör (viktat snitt)</div>
+                <div className="kalib-report-section-title">Avvikelse</div>
                 <div className="kalib-report-results">
                   <div className="kalib-report-result">
                     <div className="kalib-report-result-label">Längd</div>
@@ -930,10 +916,6 @@ export default function KalibreringPage() {
 
               {latestKalib && (
                 <div className="kalib-report-footer">
-                  <div>
-                    <div className="kalib-report-sig-name">Kontrolldata</div>
-                    <div className="kalib-report-sig-role">Automatiskt genererad från HQC-filer</div>
-                  </div>
                   <div className="kalib-report-machine">
                     <div>{latestKalib.maskin_id}</div>
                     <div className="kalib-report-machine-sub">{allKalib.length} kontroller totalt</div>
