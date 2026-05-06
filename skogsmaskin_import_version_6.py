@@ -32,6 +32,7 @@ from collections import defaultdict, Counter
 _UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.IGNORECASE)
 from typing import Dict, List, Optional, Any
 import hashlib
+import uuid
 
 # Tredjepartsbibliotek
 try:
@@ -41,6 +42,36 @@ try:
 except ImportError:
     print("Saknade bibliotek. Kör: py -m pip install requests watchdog")
     sys.exit(1)
+
+# UUID-namespace för deterministisk mom_event_id (uuid5).
+# Får ALDRIG ändras — gör vi det krockar inte uppslag, men varje
+# omimporterat repair-event blir en NY rad istället för en dedup.
+NS_SKOGSYSTEM_MOM = uuid.UUID('5e08e95e-4b6a-5e8b-9e07-d0e7e0e7e0e7')
+
+def _strip_ns(tag: str) -> str:
+    """Strippa '{namespace}'-prefix från ett ElementTree-taggnamn."""
+    if tag and tag.startswith('{'):
+        return tag.split('}', 1)[1]
+    return tag
+
+def _compute_mom_event_id(maskin_id: str, monitoring_start_iso: str) -> str:
+    """Deterministisk uuid5 för ett repair-event. Samma input = samma uuid."""
+    return str(uuid.uuid5(NS_SKOGSYSTEM_MOM, f"{maskin_id}|{monitoring_start_iso}"))
+
+def _map_repair_to_kategori(delsystem: str, underorsak: Optional[str]) -> str:
+    """Mappa Stanford repair-orsakskategori till maskin_service.kategori
+    (CHECK: service|hydraulik|slang|punktering|motor|kran|aggregat|elektrisk|ovrigt)."""
+    if delsystem == 'LoaderLinkage' and underorsak == 'Hydraulics':
+        return 'hydraulik'
+    if delsystem == 'LoaderLinkage':
+        return 'kran'
+    if delsystem == 'Engine':
+        return 'motor'
+    if delsystem == 'Electrical':
+        return 'elektrisk'
+    if delsystem in ('Assortment', 'Sawing', 'Measuring', 'Feeding', 'Cutting'):
+        return 'aggregat'
+    return 'ovrigt'
 
 # ============================================================
 # KONFIGURATION
@@ -240,6 +271,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         'produktion': [],
         'skift': [],
         'avbrott': [],
+        'maskin_service': [],
         'gps_spar': [],
         'filnamn': filnamn,
         'filtyp': 'MOM'
@@ -585,6 +617,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         elif down_time is not None:
             maint = find_element(down_time, 'Maintenance', ns)
             dist = find_element(down_time, 'Disturbance', ns)
+            repair = find_element(down_time, 'Repair', ns)
 
             if maint is not None:
                 entry['maintenance_sek'] = duration
@@ -615,7 +648,92 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                     'filnamn': filnamn
                 })
             else:
+                # Tid landar i avbrott_sek oavsett om Repair-element finns.
+                # Uppföljningsvyns "Avbrott Xh" räknas från fakt_tid.avbrott_sek
+                # (regel A) — strukturerade rader till fakt_avbrott + maskin_service
+                # är ADDITION, inte ERSÄTTNING.
                 entry['avbrott_sek'] = duration
+
+                if repair is not None:
+                    repair_children = list(repair)
+                    if repair_children:
+                        # <Repair> har exakt ett barn = orsakskategori (LoaderLinkageRepairReason etc).
+                        orsakskategori_elem = repair_children[0]
+                        kat_tag = _strip_ns(orsakskategori_elem.tag)
+                        delsystem = kat_tag[:-len('RepairReason')] if kat_tag.endswith('RepairReason') else kat_tag
+
+                        # Underorsak = första barn till orsakskategorin (taggnamnet),
+                        # detalj = textinnehållet.
+                        underorsak = None
+                        detalj = None
+                        underorsak_children = list(orsakskategori_elem)
+                        if underorsak_children:
+                            uo_elem = underorsak_children[0]
+                            underorsak = _strip_ns(uo_elem.tag)
+                            detalj = (uo_elem.text or '').strip() or None
+
+                        # SpareParts kan finnas i 0..N block (alt c: konkatenera + summera).
+                        sp_namn_list, sp_beskr_list, sp_antal_total = [], [], 0
+                        for sp in find_all_elements(down_time, 'SpareParts', ns):
+                            sp_id = get_text(sp, 'SparePartIdentity', ns)
+                            sp_desc = get_text(sp, 'SparePartDescription', ns)
+                            sp_n = safe_int(get_text(sp, 'SparePartsNoOfItems', ns))
+                            if sp_id: sp_namn_list.append(sp_id)
+                            if sp_desc: sp_beskr_list.append(sp_desc)
+                            if sp_n: sp_antal_total += sp_n
+                        reservdel_namn = '; '.join(sp_namn_list) or None
+                        reservdel_beskrivning = '; '.join(sp_beskr_list) or None
+                        reservdel_antal = sp_antal_total or None
+
+                        mom_event_id = _compute_mom_event_id(maskin_id, start_time)
+
+                        kategori_kod_parts = ['REPAIR', delsystem.upper()]
+                        if underorsak:
+                            kategori_kod_parts.append(underorsak.upper())
+                        kategori_kod = '_'.join(kategori_kod_parts)
+
+                        ms_kategori = _map_repair_to_kategori(delsystem, underorsak)
+                        ms_del = reservdel_namn or ms_kategori
+                        if reservdel_beskrivning:
+                            ms_beskrivning = reservdel_beskrivning
+                        elif delsystem and detalj:
+                            ms_beskrivning = f"{delsystem}: {detalj}"
+                        else:
+                            ms_beskrivning = None
+
+                        data['avbrott'].append({
+                            'datum': datum,
+                            'klockslag': start_dt.time() if start_dt else None,
+                            'maskin_id': maskin_id,
+                            'operator_id': f"{maskin_id}_{op_key}",
+                            'objekt_id': objekt_id_wt,
+                            'typ': 'Reparation',
+                            'kategori_kod': kategori_kod,
+                            'langd_sek': duration,
+                            'mom_event_id': mom_event_id,
+                            'delsystem': delsystem,
+                            'underorsak': underorsak,
+                            'detalj': detalj,
+                            'filnamn': filnamn
+                        })
+
+                        data['maskin_service'].append({
+                            'mom_event_id': mom_event_id,
+                            'maskin_stanford_id': maskin_id,
+                            'operator_key': op_key,
+                            'kategori': ms_kategori,
+                            'del': ms_del,
+                            'beskrivning': ms_beskrivning,
+                            'datum': datum,
+                            'kalla': 'mom',
+                            'delsystem': delsystem,
+                            'underorsak': underorsak,
+                            'detalj': detalj,
+                            'reservdel_namn': reservdel_namn,
+                            'reservdel_beskrivning': reservdel_beskrivning,
+                            'reservdel_antal': reservdel_antal,
+                            'langd_sek': duration,
+                        })
         elif unutilized is not None:
             entry['rast_sek'] = duration
 
@@ -727,7 +845,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             }
 
     logger.info(f"  Tid: {len(data['tid'])} poster, Produktion: {len(data['produktion'])} poster")
-    logger.info(f"  Avbrott: {len(data['avbrott'])}, Skift: {len(data['skift'])}")
+    logger.info(f"  Avbrott: {len(data['avbrott'])}, Skift: {len(data['skift'])}, Repair-events: {len(data['maskin_service'])}")
 
     # === SYNTETISKA SKIFT för maskiner utan OperatorShiftDefinition (t.ex. Rottne) ===
     # Beräkna min/max MonitoringStartTime per (operator, datum) från WorkTime-entries
@@ -2201,6 +2319,31 @@ def save_mom_to_supabase(data: Dict) -> bool:
                            on_conflict='ignore') == 0:
                 fel.append('fakt_avbrott')
 
+        # MOM-genererade maskin_service-rader (en per Repair-event, dedup på mom_event_id).
+        # Stanford-id (text) konverteras till maskiner.id (uuid) här. Saknas mappningen
+        # skipp:as raden — fakt_avbrott-raden är redan källa-of-truth med text-id.
+        if data.get('maskin_service'):
+            maskin_uuid_map = _fetch_maskin_uuid_map()
+            op_namn_map = {op['operator_id']: op['operator_namn'] for op in data.get('operatorer', [])}
+            ms_rows = []
+            for r in data['maskin_service']:
+                stanford_id = r.pop('maskin_stanford_id', None)
+                op_key = r.pop('operator_key', None)
+                uuid_id = maskin_uuid_map.get(stanford_id)
+                if not uuid_id:
+                    logger.warning(f"  ⚠ maskin_service-rad skippas: ingen maskiner.id-mappning för Stanford-id={stanford_id} (mom_event_id={r.get('mom_event_id')})")
+                    continue
+                r['maskin_id'] = uuid_id
+                if op_key:
+                    r['utford_av'] = op_namn_map.get(f"{stanford_id}_{op_key}")
+                ms_rows.append(r)
+
+            if ms_rows:
+                if upsert_data('maskin_service', ms_rows,
+                               ['mom_event_id'],
+                               on_conflict='ignore') == 0:
+                    fel.append('maskin_service')
+
         # Maskinstatistik
         if data.get('maskin_statistik'):
             if upsert_data('fakt_maskin_statistik', [data['maskin_statistik']], ['maskin_id', 'filnamn']) == 0:
@@ -2223,6 +2366,15 @@ def _fetch_objekt_uuid_map() -> Dict[str, str]:
     if resp.status_code != 200:
         return {}
     return {r['vo_nummer']: r['id'] for r in resp.json() if r.get('vo_nummer')}
+
+
+def _fetch_maskin_uuid_map() -> Dict[str, str]:
+    """Hämta mapping maskiner.maskin_id (Stanford-id, text) → maskiner.id (uuid)."""
+    url = f"{SUPABASE_URL}/rest/v1/maskiner?select=id,maskin_id"
+    resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=30)
+    if resp.status_code != 200:
+        return {}
+    return {r['maskin_id']: r['id'] for r in resp.json() if r.get('maskin_id')}
 
 
 def _save_hpr_tables(data: Dict):
