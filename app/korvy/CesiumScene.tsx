@@ -131,16 +131,18 @@ function colorForType(type?: string): string {
 // === Konstanter ===
 // verticalExaggeration skalar terrängen visuellt men INTE entiteters
 // absolutpositioner. Vi multiplicerar därför entitet-höjder manuellt.
-const VERTICAL_EXAG = 2.5
-// Bil-GPS-stil körvy: maskinen i nedre tredjedelen, marken framåt syns,
-// horisonten tryckt uppåt så den inte dominerar bilden.
+// 1.5 är en "naturlig" exaggerering — backar och sänkor syns tydligt utan
+// att terrängen blir cartoony. Tidigare värde 2.5 var för dramatiskt.
+const VERTICAL_EXAG = 1.5
+// Bil-GPS-stil körvy med fågelperspektiv: marken syns mer ovanifrån än
+// framifrån så hillshade-formen träder fram.
 //   CAM_BACK 30 m   → maskinen blir tillräckligt stor på skärmen
 //   CAM_HEIGHT 20 m → låg, "inne i" landskapet snarare än ovanifrån
-//   CAM_PITCH -25°  → atan(20/30) ≈ 34° gör att maskinen hamnar ~9° under
-//                     bild-centrum (nedre tredjedel); 100 m framåt syns i
-//                     övre tredjedelen utan att horisonten tar över
+//   CAM_PITCH -45°  → ren snedvy: atan(20/30) ≈ 34° < 45°, dvs maskinen
+//                     hamnar något ovanför bildmitten och marken framför
+//                     dominerar bilden — ger hillshade-shading bästa läsbarhet
 const CAM_HEIGHT = 20
-const CAM_PITCH = -25
+const CAM_PITCH = -45
 const CAM_BACK = 30
 const LIGHT_INTENSITY = 3.5
 
