@@ -1446,41 +1446,57 @@ export default function CesiumScene({ objektId }: Props) {
     const oldEnt = viewer.entities.getById('tunnel-mask')
     if (oldEnt) viewer.entities.remove(oldEnt)
 
+    // Cesium API-skifte: wgs84ToWindowCoordinates togs bort i 1.107 →
+    // worldToWindowCoordinates. Feature-detect så koden funkar i båda versioner.
+    const ST: any = Cesium.SceneTransforms as any
+    const wgs2win = ST.worldToWindowCoordinates || ST.wgs84ToWindowCoordinates
+    if (typeof wgs2win !== 'function') {
+      console.warn('[Körvy3D] SceneTransforms world/wgs84 ToWindowCoordinates saknas — tunnelvision-mask inaktiv')
+      if (tunnelOverlayRef.current) tunnelOverlayRef.current.style.background = 'transparent'
+      return
+    }
+
     const update = () => {
       const overlay = tunnelOverlayRef.current
       if (!overlay) return
       const alpha = Math.max(0, Math.min(1, viewfieldDarkness / 100))
       if (alpha < 0.001) { overlay.style.background = 'transparent'; return }
 
-      const machineCart = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat)
-      const machineScreen = (Cesium.SceneTransforms as any).wgs84ToWindowCoordinates(viewer.scene, machineCart)
-      if (!machineScreen) {
-        // Maskin inte på skärm (bakom kameran) — fyll allt med mörker
-        overlay.style.background = `rgba(0,0,0,${alpha})`
-        return
+      try {
+        const machineCart = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat)
+        const machineScreen = wgs2win(viewer.scene, machineCart)
+        if (!machineScreen) {
+          // Maskin inte på skärm (bakom kameran) — fyll allt med mörker
+          overlay.style.background = `rgba(0,0,0,${alpha})`
+          return
+        }
+
+        // Pixels-per-meter via 100 m östlig offset
+        const eastPt = offsetLatLngByBearing(pos.lat, pos.lon, 100, 90)
+        const eastCart = Cesium.Cartesian3.fromDegrees(eastPt[0], eastPt[1])
+        const eastScreen = wgs2win(viewer.scene, eastCart)
+        let ppm = 1
+        if (eastScreen) {
+          const dx = eastScreen.x - machineScreen.x
+          const dy = eastScreen.y - machineScreen.y
+          const sd = Math.sqrt(dx * dx + dy * dy) / 100
+          if (sd > 0.001) ppm = sd
+        }
+
+        const fade = viewfieldDistance * (viewfieldSoftness / 100)
+        const clarityEnd = Math.max(0, viewfieldDistance - fade)
+        const clarityPx = Math.max(0, clarityEnd * ppm)
+        const distancePx = Math.max(clarityPx + 1, viewfieldDistance * ppm)
+
+        overlay.style.background =
+          `radial-gradient(circle at ${machineScreen.x}px ${machineScreen.y}px, ` +
+          `transparent 0px, transparent ${clarityPx}px, ` +
+          `rgba(0,0,0,${alpha}) ${distancePx}px, rgba(0,0,0,${alpha}) 100%)`
+      } catch (e) {
+        // Skydda vyn från att krascha vid framtida API-avvikelser
+        console.warn('[Körvy3D] tunnelvision-update fel:', e)
+        overlay.style.background = 'transparent'
       }
-
-      // Pixels-per-meter via 100 m östlig offset
-      const eastPt = offsetLatLngByBearing(pos.lat, pos.lon, 100, 90)
-      const eastCart = Cesium.Cartesian3.fromDegrees(eastPt[0], eastPt[1])
-      const eastScreen = (Cesium.SceneTransforms as any).wgs84ToWindowCoordinates(viewer.scene, eastCart)
-      let ppm = 1
-      if (eastScreen) {
-        const dx = eastScreen.x - machineScreen.x
-        const dy = eastScreen.y - machineScreen.y
-        const sd = Math.sqrt(dx * dx + dy * dy) / 100
-        if (sd > 0.001) ppm = sd
-      }
-
-      const fade = viewfieldDistance * (viewfieldSoftness / 100)
-      const clarityEnd = Math.max(0, viewfieldDistance - fade)
-      const clarityPx = Math.max(0, clarityEnd * ppm)
-      const distancePx = Math.max(clarityPx + 1, viewfieldDistance * ppm)
-
-      overlay.style.background =
-        `radial-gradient(circle at ${machineScreen.x}px ${machineScreen.y}px, ` +
-        `transparent 0px, transparent ${clarityPx}px, ` +
-        `rgba(0,0,0,${alpha}) ${distancePx}px, rgba(0,0,0,${alpha}) 100%)`
     }
 
     update()
