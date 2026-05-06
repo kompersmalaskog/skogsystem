@@ -618,6 +618,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             maint = find_element(down_time, 'Maintenance', ns)
             dist = find_element(down_time, 'Disturbance', ns)
             repair = find_element(down_time, 'Repair', ns)
+            other = find_element(down_time, 'OtherMachineDownTimeCategory', ns)
 
             if maint is not None:
                 entry['maintenance_sek'] = duration
@@ -644,6 +645,29 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
                     'objekt_id': objekt_id_wt,
                     'typ': 'Störning',
                     'kategori_kod': dist_code,
+                    'langd_sek': duration,
+                    'filnamn': filnamn
+                })
+            elif other is not None:
+                # Stanford v3.6 enum: "Waiting for repair", "Trailer transportation",
+                # "Unproductive terrain work", "Waiting for other machine production",
+                # "Other", "Default". Tid bokförs i avbrott_sek (regel A — konsekvent
+                # med Repair). Ingen maskin_service-rad — operativt avbrott, ej service.
+                entry['avbrott_sek'] = duration
+                other_code = get_text(other, 'OtherMachineDownTimeStandardCode', ns) or None
+                mfg = find_element(other, 'OtherMachineDownTimeManufacturerCode', ns)
+                mfg_desc = get_text(mfg, 'CodeDescription', ns) if mfg is not None else None
+                data['avbrott'].append({
+                    'datum': datum,
+                    'klockslag': start_dt.time() if start_dt else None,
+                    'maskin_id': maskin_id,
+                    'operator_id': f"{maskin_id}_{op_key}",
+                    'objekt_id': objekt_id_wt,
+                    'typ': 'Övrigt',
+                    'kategori_kod': other_code,
+                    'delsystem': None,
+                    'underorsak': None,
+                    'detalj': mfg_desc or None,
                     'langd_sek': duration,
                     'filnamn': filnamn
                 })
@@ -845,7 +869,8 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             }
 
     logger.info(f"  Tid: {len(data['tid'])} poster, Produktion: {len(data['produktion'])} poster")
-    logger.info(f"  Avbrott: {len(data['avbrott'])}, Skift: {len(data['skift'])}, Repair-events: {len(data['maskin_service'])}")
+    ovrigt_count = sum(1 for a in data['avbrott'] if a.get('typ') == 'Övrigt')
+    logger.info(f"  Avbrott: {len(data['avbrott'])}, Skift: {len(data['skift'])}, Repair-events: {len(data['maskin_service'])}, Övrigt: {ovrigt_count}")
 
     # === SYNTETISKA SKIFT för maskiner utan OperatorShiftDefinition (t.ex. Rottne) ===
     # Beräkna min/max MonitoringStartTime per (operator, datum) från WorkTime-entries
