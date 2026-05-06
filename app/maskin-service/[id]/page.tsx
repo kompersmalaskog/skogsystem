@@ -24,10 +24,13 @@ interface ServiceEntry {
   maskin_id: string;
   del: string;
   kategori: string;
-  beskrivning: string;
+  beskrivning: string | null;
   timmar: number | null;
   datum: string;
   skapad_at: string;
+  kalla?: string | null;
+  langd_sek?: number | null;
+  reservdel_antal?: number | null;
 }
 
 const formatTyp = (typ: string) => {
@@ -57,6 +60,22 @@ const KATEGORI_LABEL_MAP: Record<string, string> = {
   'elektrisk': 'Reparation',
 };
 const kategoriLabel = (val: string) => KATEGORI_LABEL_MAP[val] ?? val;
+
+const SPECIFIK_REPARATION = new Set(['hydraulik','slang','motor','kran','aggregat','elektrisk']);
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const kategoriParens = (kategori: string): string | null =>
+  SPECIFIK_REPARATION.has(kategori) ? capitalize(kategori) : null;
+
+const formatLangd = (sek: number | null | undefined): string | null => {
+  if (!sek || sek <= 0) return null;
+  const min = Math.floor(sek / 60);
+  if (min === 0) return null;
+  if (min < 60) return `${min} min`;
+  const tim = Math.floor(min / 60);
+  const restMin = min % 60;
+  return restMin === 0 ? `${tim} tim` : `${tim} tim ${restMin} min`;
+};
+
 const FILTER_TABS = ['Alla', ...KATEGORIER];
 
 const HJUL = [
@@ -264,35 +283,52 @@ export default function MaskinDetailPage() {
           </div>
 
           <div style={{ ...card, overflow: 'hidden', marginBottom: 4 }}>
-            {entries.slice(0, 5).map((e, i) => (
-              <div key={e.id}>
-                {i > 0 && (
-                  <div style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', margin: '0 20px' }} />
-                )}
-                <div style={{ padding: '16px 20px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 3 }}>
-                        <span style={{ fontSize: 16, fontWeight: 600, color: '#fff', fontFamily: f }}>
-                          {kategoriLabel(e.kategori)}
-                        </span>
-                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)', fontFamily: f }}>
-                          {new Date(e.datum).toLocaleDateString('sv-SE')}
-                        </span>
+            {entries.slice(0, 5).map((e, i) => {
+              const langd = formatLangd(e.langd_sek);
+              const showDel = e.del && e.del !== e.kategori;
+              const parens = kategoriParens(e.kategori);
+              const antal = (e.reservdel_antal ?? 0) > 1 ? ` ×${e.reservdel_antal}` : '';
+              return (
+                <div key={e.id}>
+                  {i > 0 && (
+                    <div style={{ height: 0.5, backgroundColor: 'rgba(255,255,255,0.08)', margin: '0 20px' }} />
+                  )}
+                  <div style={{ padding: '16px 20px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 3 }}>
+                          <span style={{ fontSize: 16, fontWeight: 600, color: '#fff', fontFamily: f }}>
+                            {kategoriLabel(e.kategori)}{showDel ? ` — ${e.del}` : ''}{parens ? ` (${parens})` : ''}{antal}
+                          </span>
+                          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.3)', fontFamily: f }}>
+                            {new Date(e.datum).toLocaleDateString('sv-SE')}
+                          </span>
+                        </div>
+                        {e.beskrivning && (
+                          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)', fontFamily: f, margin: '2px 0 0', lineHeight: 1.4 }}>
+                            <span style={{ color: 'rgba(255,255,255,0.3)' }}>Kommentar:</span> {e.beskrivning}
+                          </p>
+                        )}
+                        {(langd || e.timmar) && (
+                          <div style={{ display: 'flex', gap: 12, marginTop: 4 }}>
+                            {langd && (
+                              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', fontFamily: f }}>
+                                {langd}
+                              </span>
+                            )}
+                            {e.timmar && (
+                              <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', fontFamily: f }}>
+                                {e.timmar.toLocaleString('sv-SE')} h
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)', fontFamily: f, margin: '2px 0 0', lineHeight: 1.4 }}>
-                        {e.beskrivning || '—'}
-                      </p>
-                      {e.timmar && (
-                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', fontFamily: f }}>
-                          {e.timmar.toLocaleString('sv-SE')} h
-                        </span>
-                      )}
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {entries.length > 5 && (

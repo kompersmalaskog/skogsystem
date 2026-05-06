@@ -42,4 +42,15 @@
   Risk: dev-reset eller frisk dev-branch
   tappar tabellen tyst. Inte akut.
 
+## TODO efter MOM-reparationsutbyggnad
+- UI: Uppföljningsvyns avbrott-lista visar
+  tekniska kategori_kod (REPAIR_LOADERLINKAGE_
+  HYDRAULICS) istället för human-readable.
+  Behöver samma renderings-logik som
+  maskin_service-historiken.
+- Refactor: TS-felet på
+  app/maskin-service/[id]/page.tsx:41
+  (formatTyp redundant ?? ''). Trivial fix
+  när någon ändå rör filen.
+
 Uppdatera denna fil vid varje commit.
