@@ -33,4 +33,13 @@
 - Semester: 500→5 fix pushat, ej verifierat
 - ATK: kronbelopp OK, timmar kräver timlön
 
+## Schema-skuld
+- fakt_avbrott saknas i supabase/migrations/.
+  Skapad utanför Git. Backfilla som egen
+  migration när vi har tid att verifiera
+  kompletta schemat live (kolumner, defaults,
+  identity-mekanism, index, constraints).
+  Risk: dev-reset eller frisk dev-branch
+  tappar tabellen tyst. Inte akut.
+
 Uppdatera denna fil vid varje commit.
