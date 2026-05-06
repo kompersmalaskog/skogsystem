@@ -132,16 +132,17 @@ function colorForType(type?: string): string {
 // verticalExaggeration skalar terrängen visuellt men INTE entiteters
 // absolutpositioner. Vi multiplicerar därför entitet-höjder manuellt.
 const VERTICAL_EXAG = 2.5
-// Bil-GPS-stil körvy: maskinen i nedre tredjedelen, marken framåt syns,
-// horisonten tryckt uppåt så den inte dominerar bilden.
-//   CAM_BACK 30 m   → maskinen blir tillräckligt stor på skärmen
-//   CAM_HEIGHT 20 m → låg, "inne i" landskapet snarare än ovanifrån
-//   CAM_PITCH -25°  → atan(20/30) ≈ 34° gör att maskinen hamnar ~9° under
-//                     bild-centrum (nedre tredjedel); 100 m framåt syns i
-//                     övre tredjedelen utan att horisonten tar över
-const CAM_HEIGHT = 20
-const CAM_PITCH = -25
-const CAM_BACK = 30
+// Bil-GPS-stil (Tesla/Google Maps navigation): maskinen i nedre tredjedelen,
+// marken framåt fyller övre 2/3, horisonten precis ovanför skärmens övre kant.
+//   CAM_BACK 20 m   → tight bakom maskinen, pilen blir stor och förankrad
+//   CAM_HEIGHT 12 m → låg kamera, "inne i" landskapet
+//   CAM_PITCH -18°  → flack nedåtblick: atan(12/20) ≈ 31° gör att maskinen
+//                     hamnar ~13° under bildmitten (solid nedre tredjedel).
+//                     Horisonten 18° över bildmitt ligger vid övre kanten av
+//                     mobil landscape-FOV (~36° vert).
+const CAM_HEIGHT = 12
+const CAM_PITCH = -18
+const CAM_BACK = 20
 const LIGHT_INTENSITY = 3.5
 
 // === Lager-grupper synliga i 3D (filtrerade på show3D) ===
@@ -661,6 +662,9 @@ export default function CesiumScene({ objektId }: Props) {
     }>
   } | null>(null)
   const groundHeightRef = useRef<number>(150)
+  // Senast kända heading från GPS — används vid stillastående (pos.heading=null
+  // när hastighet < 1 m/s) så kameran inte snäpper till nord-uppåt vid stopp.
+  const lastHeadingRef = useRef<number>(0)
   const triggeredIdsRef = useRef<Set<string>>(new Set())
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [objekt, setObjekt] = useState<Objekt | null>(null)
@@ -997,11 +1001,12 @@ export default function CesiumScene({ objektId }: Props) {
         console.warn('[Körvy3D] terrain sample (init):', e)
       }
 
-      // Initial preview innan GPS-follow tar över. Lite högre än CAM_HEIGHT
-      // (50 m vs 20 m) så hela objektet syns utan att kameran tippar ner i
-      // marken vid -25° pitch utan back-offset.
+      // Initial flyTo med samma offset-logik som GPS-follow så vyn ser ut
+      // som bil-GPS från första frame istället för "drönarvy ovanifrån".
+      // Default heading 0 (nord-uppåt) tills GPS levererar riktigt heading.
+      const initBack = offsetLatLngByBearing(objekt.lat, objekt.lng, CAM_BACK, 180)
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, groundH * VERTICAL_EXAG + 50),
+        destination: Cesium.Cartesian3.fromDegrees(initBack[0], initBack[1], groundH * VERTICAL_EXAG + CAM_HEIGHT),
         orientation: { heading: 0, pitch: Cesium.Math.toRadians(CAM_PITCH), roll: 0 },
         duration: 1.5,
       })
@@ -1394,7 +1399,11 @@ export default function CesiumScene({ objektId }: Props) {
     let cancelled = false
 
     ;(async () => {
-      const heading = pos.heading != null ? pos.heading : 0
+      // Heading: använd GPS:ns heading när det finns (hastighet ≥ 1 m/s),
+      // annars sista kända så kameran inte snäpper till nord vid stopp.
+      if (pos.heading != null) lastHeadingRef.current = pos.heading
+      const heading = pos.heading != null ? pos.heading : lastHeadingRef.current
+
       let groundH = groundHeightRef.current
       try {
         const cart = Cesium.Cartographic.fromDegrees(pos.lon, pos.lat)
@@ -1403,7 +1412,9 @@ export default function CesiumScene({ objektId }: Props) {
         groundH = sampled[0].height || groundHeightRef.current
       } catch {}
 
-      // Kamera bakom föraren (motsatt heading), över exaggererad terräng
+      // Kamera bakom föraren (motsatt heading), över exaggererad terräng.
+      // Duration 1.0 s så animationen överlappar nästa GPS-tick (~1 Hz) och
+      // ger kontinuerlig glidande rörelse istället för rycka-stå-rycka.
       const back = offsetLatLngByBearing(pos.lat, pos.lon, CAM_BACK, (heading + 180) % 360)
       viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(back[0], back[1], groundH * VERTICAL_EXAG + CAM_HEIGHT),
@@ -1412,7 +1423,7 @@ export default function CesiumScene({ objektId }: Props) {
           pitch: Cesium.Math.toRadians(CAM_PITCH),
           roll: 0,
         },
-        duration: 0.4,
+        duration: 1.0,
       })
     })()
 
