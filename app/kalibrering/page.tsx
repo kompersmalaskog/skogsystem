@@ -71,6 +71,8 @@ const MSym = ({ name, size = 18, color }: { name: string; size?: number; color?:
   </span>
 );
 
+const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
+
 export default function KalibreringPage() {
   const [activeTab, setActiveTab] = useState<'today' | 'history' | 'report'>('today');
   const [modalOpen, setModalOpen] = useState(false);
@@ -269,7 +271,7 @@ export default function KalibreringPage() {
 
     setModalContent({
       title: `Kontroll ${new Date(kalib.datum).toLocaleDateString('sv-SE')}`,
-      subtitle: `${kalib.tradslag} • ${kalib.antal_kontrollstockar} stockar • ${kalib.status === 'VARNING' ? 'Varning' : 'Inom tolerans'}`,
+      subtitle: `${cap(kalib.tradslag)} • ${kalib.antal_kontrollstockar} stockar • ${kalib.status === 'VARNING' ? 'Varning' : 'Inom tolerans'}`,
       body: (
         <>
           <div className="kalib-total-summary">
@@ -478,8 +480,8 @@ export default function KalibreringPage() {
         .kalib-hero-metric{flex:1;text-align:center;padding:20px 12px;background:rgba(255,255,255,0.04);border-radius:12px}
         .kalib-hero-metric-value{font-size:36px;font-weight:700;line-height:1;margin-bottom:6px;letter-spacing:-0.02em;color:#fff}
         .kalib-hero-metric-value.bad{color:#FF3B30}
-        .kalib-hero-metric-label{font-size:12px;color:#8E8E93;font-weight:500}
-        .kalib-hero-metric-hint{font-size:11px;color:#8E8E93;margin-top:4px}
+        .kalib-hero-metric-label{font-size:14px;color:#8E8E93;font-weight:500}
+        .kalib-hero-metric-hint{font-size:13px;color:#8E8E93;margin-top:4px}
 
         .kalib-info-box{display:flex;gap:12px;padding:14px 16px;border-radius:12px;align-items:center}
         .kalib-info-box.ok{background:rgba(52,199,89,0.1);border:1px solid rgba(52,199,89,0.2)}
@@ -660,13 +662,12 @@ export default function KalibreringPage() {
           {activeTab === 'today' && latestKalib && (
             <>
               <header className="kalib-page-header">
-                <h1 className="kalib-page-title">{latestKalib.tradslag}</h1>
+                <h1 className="kalib-page-title">{cap(latestKalib.tradslag)}</h1>
                 <p className="kalib-page-subtitle">{latestKalib.antal_kontrollstockar} stockar • {new Date(latestKalib.datum).toLocaleDateString('sv-SE')} • {latestKalib.maskin_id}</p>
               </header>
 
               <div className="kalib-card">
-                <div className="kalib-section-title">Så mätte maskinen</div>
-                <div className="kalib-section-subtitle">Snittavvikelse maskin jämfört med operatör</div>
+                <div className="kalib-section-title" style={{ marginBottom: 18 }}>Avvikelse från operatör</div>
                 <div className="kalib-hero-metrics">
                   <div className="kalib-hero-metric">
                     <div className={`kalib-hero-metric-value ${lenOut(latestKalib.langd_avvikelse_snitt_cm) ? 'bad' : ''}`}>
@@ -688,7 +689,7 @@ export default function KalibreringPage() {
                     <span className="kalib-info-icon"><MSym name="warning" size={22} color="#FF3B30" /></span>
                     <div className="kalib-info-content">
                       <div className="kalib-info-title">Utanför tolerans</div>
-                      <div className="kalib-info-text">Avvikelserna överstiger rekommenderade gränsvärden. Kontrollera kalibreringen.</div>
+                      <div className="kalib-info-text">Utanför tolerans. Kontrollera kalibreringen.</div>
                     </div>
                   </div>
                 ) : (
@@ -696,7 +697,7 @@ export default function KalibreringPage() {
                     <span className="kalib-info-icon"><MSym name="check_circle" size={22} color="#34C759" /></span>
                     <div className="kalib-info-content">
                       <div className="kalib-info-title">Inom tolerans</div>
-                      <div className="kalib-info-text">Avvikelserna ligger inom godkända gränsvärden.</div>
+                      <div className="kalib-info-text">Allt inom tolerans.</div>
                     </div>
                   </div>
                 )}
@@ -705,7 +706,7 @@ export default function KalibreringPage() {
               {latestStockar.length > 0 && (
                 <div className="kalib-card">
                   <div className="kalib-section-title">Stockar</div>
-                  <div className="kalib-section-subtitle">{latestKalib.tradslag} • {latestStockar.length} stockar • {(totalLatestLen / 100).toFixed(1)} meter • Tryck för detaljer</div>
+                  <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {latestStockar.length} stockar • {(totalLatestLen / 100).toFixed(1)} meter • Tryck för detaljer</div>
                   <div className="kalib-stem-viz">
                     <div className="kalib-stem-viz-inner">
                       <span className="kalib-stem-label">Rot</span>
@@ -727,10 +728,12 @@ export default function KalibreringPage() {
                       <span className="kalib-stem-label">Topp</span>
                     </div>
                   </div>
-                  <button className="kalib-btn-stem" onClick={() => openStemOverview(latestKalib)}>
-                    <span>Visa alla stockar</span>
-                    <span className="kalib-btn-stem-arrow"><MSym name="chevron_right" size={20} color="#8E8E93" /></span>
-                  </button>
+                  {latestStockar.length > 1 && (
+                    <button className="kalib-btn-stem" onClick={() => openStemOverview(latestKalib)}>
+                      <span>Visa alla stockar</span>
+                      <span className="kalib-btn-stem-arrow"><MSym name="chevron_right" size={20} color="#8E8E93" /></span>
+                    </button>
+                  )}
                 </div>
               )}
             </>
