@@ -803,10 +803,14 @@ export default function CesiumScene({ objektId }: Props) {
 
         viewer.imageryLayers.removeAll()
 
-        // === Cockpit-default — mörk bas, ingen satellit. Esri-imagery
-        // lazy-laddas först om föraren togglar till "Satellit" via lager-menyn.
+        // === Cockpit-default — mörk himmel, ljus grå mark, ingen satellit-imagery.
+        // baseColor = #c0c0c0 (RGB 192) ger en ljus neutral yta som mottar
+        // shading från enableLighting + DirectionalLight (rad nedan). Vertex-
+        // normaler på 1m DEM-terrängen ger oändligt skarpt hillshade vid alla
+        // zoom-nivåer — bättre än WMS-rasters fasta tile-upplösning.
+        // Esri-imagery lazy-laddas först om föraren togglar till "Satellit".
         viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a1a')
-        viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#3a3a3a')
+        viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#c0c0c0')
         if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
 
         try { (viewer.scene as any).verticalExaggeration = VERTICAL_EXAG } catch {}
@@ -901,10 +905,10 @@ export default function CesiumScene({ objektId }: Props) {
         }).catch((e) => console.warn('[Körvy3D] satellite lazy-load:', e))
       }
     } else {
-      // 'cockpit' — mörk bas + atmosfär av
+      // 'cockpit' — ljus grå mark (för 1m DEM-hillshade), mörk himmel, atmosfär av
       if (imageryLayerRef.current) imageryLayerRef.current.show = false
       viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a1a')
-      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#3a3a3a')
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#c0c0c0')
       if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
       try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#1a1a1a') } catch {}
     }
@@ -974,11 +978,15 @@ export default function CesiumScene({ objektId }: Props) {
         groundH = sampled[0].height || 150
         groundHeightRef.current = groundH
 
-        // Bygg ljusriktning från lokal ENU-frame: solen kommer från NW (östkomponent +1,
-        // nordkomponent -1, ned -1 → ljuset träffar terrängen från NW och nedåt)
+        // Bygg ljusriktning från lokal ENU-frame: klassisk hillshade-belysning
+        // azimuth 315° (NW), elevation 45° över horisonten.
+        //   sol-position = (sin(315°)·cos(45°), cos(315°)·cos(45°), sin(45°))
+        //                ≈ (-0.5, 0.5, 0.707)  [East, North, Up]
+        //   ljus-direktion (FRÅN sol TILL mark) = -sol-position
+        //                ≈ (0.5, -0.5, -0.707)
         const center = Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat)
         const enuFrame = Cesium.Transforms.eastNorthUpToFixedFrame(center)
-        const localDir = new Cesium.Cartesian3(1, -1, -1)
+        const localDir = new Cesium.Cartesian3(0.5, -0.5, -0.707)
         Cesium.Cartesian3.normalize(localDir, localDir)
         const worldDir = Cesium.Matrix4.multiplyByPointAsVector(enuFrame, localDir, new Cesium.Cartesian3())
         Cesium.Cartesian3.normalize(worldDir, worldDir)

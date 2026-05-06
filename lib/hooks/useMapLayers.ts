@@ -16,10 +16,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 
-// v2: höjde nyckeln så alla användare får nya defaults (sks_lutning + lm_skuggning
-// PÅ, sks_markfuktighet AV) vid nästa besök. Gamla 'mapLayers'-värdet i
-// localStorage lämnas orört — bara den som vill nedgradera måste rensa manuellt.
-const STORAGE_KEY = 'mapLayers_v2'
+// v3: alla raster-overlays AV som default. Hillshade i 3D kommer nu direkt
+// från 1m DEM via Cesium vertex-normaler + DirectionalLight (oändligt skarp
+// vid alla zoom-nivåer), så lm_skuggning och sks_lutning behövs inte längre
+// som default — föraren kan toggla på dem som komplement vid behov.
+// Gamla 'mapLayers' / 'mapLayers_v2'-nycklar lämnas orörda i localStorage.
+const STORAGE_KEY = 'mapLayers_v3'
 
 export type MapLayers = Record<string, boolean>
 
@@ -59,19 +61,18 @@ export const DEFAULT_MAP_LAYERS: MapLayers = {
   // Körbarhet
   korbarhet: false,
   // Skogsstyrelsen Raster
-  // sks_markfuktighet är cockpit-vy default OFF — SLU-rastret är en heltäckande
-  // fyrklassig färgkarta (inte glow), passar bättre toggla på manuellt.
-  // sks_lutning default ON — föraren tycker kombo lutning + skuggning + ingen
-  // markfuktighet ger bästa läsbarhet i både 2D och 3D.
+  // sks_lutning default OFF — 1m DEM-hillshade i 3D-vyn ger nu skarpare
+  // topografi-läsning än SKS-rastret. Föraren kan toggla på som komplement.
   sks_markfuktighet: false,
   sks_virkesvolym: false,
   sks_tradhojd: false,
-  sks_lutning: true,
+  sks_lutning: false,
   sks_gallringsindex: false,
   // Lantmäteriet
-  // lm_skuggning default ON — bättre hillshade-läsbarhet än Cesiums egna
-  // vertex-normaler i 3D-vyn enligt förartest.
-  lm_skuggning: true,
+  // lm_skuggning default OFF — Cesium renderar hillshade direkt från 1m DEM
+  // via vertex-normaler i realtid (skarpt vid alla zoom-nivåer); WMS-rastret
+  // blir pixligt vid nära zoom så det är inte längre default i 3D.
+  lm_skuggning: false,
   lm_ortofoto: false,
   // HPR-högar
   produktionshogar: false,
