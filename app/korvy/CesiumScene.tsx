@@ -134,16 +134,16 @@ function colorForType(type?: string): string {
 // 1.5 är en "naturlig" exaggerering — backar och sänkor syns tydligt utan
 // att terrängen blir cartoony.
 const VERTICAL_EXAG = 1.5
-// GPS-navigations-stil körvy: maskin-pil i nedre tredjedelen av skärmen,
-// 100 m framåt syns tydligt, horisonten ligger ovanför skärmens övre kant.
-//   CAM_BACK 18 m   → tight bakom maskinen, pilen blir stor nog
-//   CAM_HEIGHT 13 m → låg kamera, "inne i" landskapet
-//   CAM_PITCH -20°  → atan(13/18) ≈ 36° gör att maskinen hamnar ~16° under
-//                     bild-centrum (nedre tredjedel); horisonten 20° över
-//                     centrum ligger utanför normal-FOV på liggande mobil
-const CAM_HEIGHT = 13
-const CAM_PITCH = -20
-const CAM_BACK = 18
+// GPS-navigations-stil körvy: maskin-pil i nedre tredjedelen, marken framåt
+// dominerar bilden, horisonten utanför skärmens övre kant.
+//   CAM_BACK 14 m   → tight bakom maskinen, pilen syns stor
+//   CAM_HEIGHT 10 m → låg kamera, "inne i" landskapet
+//   CAM_PITCH -13°  → flack nedåtblick: atan(10/14) ≈ 36° gör att maskinen
+//                     hamnar ~23° under bildmitt; mobile portrait-FOV ger
+//                     plats för det i nedre tredjedelen
+const CAM_HEIGHT = 10
+const CAM_PITCH = -13
+const CAM_BACK = 14
 const LIGHT_INTENSITY = 3.5
 
 // === Lager-grupper synliga i 3D (filtrerade på show3D) ===
@@ -596,53 +596,19 @@ function getMachineIconCanvas(): HTMLCanvasElement {
   return c
 }
 
-// === Tunnelvision-mask: radial gradient som mörkar terrängen utanför Synfält ===
-// Cesium ImageMaterialProperty på en stor (5000 m) ellipse ger en
-// clampToGround "skugga" runt maskinen. Gradient-stoparna beräknas
-// dynamiskt från distance + softness, alpha från darkness (0–100 %):
-//   total radie     = distance (m)
-//   fadeout-zon     = distance × softness/100
-//   full klarhet    = distance - fadeout
-//   mörker-alpha    = darkness/100  (100 % = helt svart utanför Synfält)
+// === Tunnelvision: skärm-rymd CSS radial-gradient (FIX 2) ===
+// Tidigare implementation var en CLAMP_TO_GROUND ellipse i 3D-rymden, vilket
+// projicerades som oval i bilden vid pitch/heading p.g.a. perspektiv. Nu är
+// masken en HTML-overlay som ALLTID är en perfekt cirkel runt maskinens
+// skärmposition. Beräknas i en useEffect som hänger på scene.postRender.
 //
-// Mappning till canvasens radial-axel (0..1) över ellipsens 5000 m semi-major:
-//   0           → transparent
-//   clarityEnd  → transparent (sista helt klara stoppet)
-//   distance    → mörker-alpha
-//   1.0         → mörker-alpha (konstant utåt så terräng > distance dämpas)
-function buildTunnelMaskCanvas(
-  distance: number,
-  softness: number,
-  darkness: number,
-): HTMLCanvasElement {
-  const size = 512
-  const ELLIPSE_R = 5000
-  const c = document.createElement('canvas')
-  c.width = size; c.height = size
-  const ctx = c.getContext('2d')!
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2)
-
-  const fade = distance * (softness / 100)
-  const clarityEnd = Math.max(0, distance - fade)
-
-  const clarityStop = Math.max(0, Math.min(1, clarityEnd / ELLIPSE_R))
-  const darkStop = Math.max(clarityStop, Math.min(1, distance / ELLIPSE_R))
-
-  // Helt svart bas; alpha kontrollerar hur mycket mörker som visas.
-  const alpha = Math.max(0, Math.min(1, darkness / 100))
-
-  grad.addColorStop(0.0, 'rgba(0,0,0,0)')
-  // Hoppa över duplicerat stopp om clarityStop = 0 (softness 100 %)
-  if (clarityStop > 0.0001) {
-    grad.addColorStop(clarityStop, 'rgba(0,0,0,0)')
-  }
-  grad.addColorStop(darkStop, `rgba(0,0,0,${alpha})`)
-  grad.addColorStop(1.0, `rgba(0,0,0,${alpha})`)
-
-  ctx.fillStyle = grad
-  ctx.fillRect(0, 0, size, size)
-  return c
-}
+// Pixel-radie räknas ut genom att jämföra screen-avståndet mellan maskinens
+// position och en punkt 100 m öster om maskinen — ger pixels-per-meter vid
+// just maskinens depth, oavsett kameravinkel.
+//
+// FIX 3 fås på köpet: markeringar utanför fokuszonen ligger fysiskt under
+// overlayen → de mörkas/göms automatiskt utan separat per-entitet alpha-loop.
+// applyTunnelDDC kompletterar med binär hårklipp bortom Synfält.
 
 // Applicera DistanceDisplayCondition på 3D-formade entiteter med given prefix.
 // Hård hide bortom (distance + 5 m camera-buffer) — ClampToGround-objekt
@@ -665,6 +631,8 @@ export default function CesiumScene({ objektId }: Props) {
   const watchIdRef = useRef<number | null>(null)
   const imageryLayerRef = useRef<CesiumNS.ImageryLayer | null>(null)
   const overlayLayersMapRef = useRef<Map<string, CesiumNS.ImageryLayer>>(new Map())
+  // Tunnelvision-mask som DOM-overlay (FIX 2 — symmetrisk cirkel oavsett kameravinkel)
+  const tunnelOverlayRef = useRef<HTMLDivElement>(null)
   // Cachar fetched + clustered HPR-data per objekt så toggle inte refetchar.
   // dominantSlag bestämmer halvsfärens färg per kluster.
   const hprCacheRef = useRef<{
@@ -1431,75 +1399,95 @@ export default function CesiumScene({ objektId }: Props) {
     return () => { cancelled = true }
   }, [ready, pos, followGps])
 
-  // === Maskin-pil — flat triangulär ground-polygon (Apple-stil) ===
-  // Tidigare implementation (billboard + heightReference: CLAMP_TO_GROUND)
-  // svävade synligt över terrängen och försvann från fågelperspektiv.
-  // Ground-polygon drapas direkt på 1m DEM:en så pilen ser ut som målad
-  // på marken, följer naturligt sluttningar, och syns oavsett kameravinkel.
-  //   tip      8 m framåt        (heading)
-  //   back     3 m bakåt         (heading + 180°)
-  //   left/right 3 m vinkelrätt  (heading ±90°, från back-punkten)
-  // Total längd 11 m, bredd 6 m — stor nog att synas tydligt på 18 m håll.
+  // === Maskin-ikon — billboard på marken (FIX 1A) ===
+  // Vit cirkel + blå pil (getMachineIconCanvas), CLAMP_TO_GROUND så ikonen
+  // sitter på terrängen. alignedAxis=UNIT_Z låser sprite-rotationen kring
+  // upp-axeln så pilen alltid pekar i heading-riktning oavsett kameravinkel.
+  // Skala 0.75 (var 0.5) — tillräckligt stor för att synas direkt utan halo.
   useEffect(() => {
     if (!ready || !viewerRef.current || !pos) return
     const viewer = viewerRef.current
     const heading = pos.heading != null ? pos.heading : 0
+    const position = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat)
 
-    const existing = viewer.entities.getById('machine-arrow')
-    if (existing) viewer.entities.remove(existing)
-
-    const tip = offsetLatLngByBearing(pos.lat, pos.lon, 8, heading)
-    const back = offsetLatLngByBearing(pos.lat, pos.lon, 3, (heading + 180) % 360)
-    const left = offsetLatLngByBearing(back[1], back[0], 3, (heading + 270) % 360)
-    const right = offsetLatLngByBearing(back[1], back[0], 3, (heading + 90) % 360)
-
-    const positions = [
-      Cesium.Cartesian3.fromDegrees(tip[0], tip[1]),
-      Cesium.Cartesian3.fromDegrees(right[0], right[1]),
-      Cesium.Cartesian3.fromDegrees(left[0], left[1]),
-    ]
+    // Rensa ev. gammal entity oavsett tidigare typ (polygon eller billboard)
+    for (const id of ['machine-icon', 'machine-arrow']) {
+      const e = viewer.entities.getById(id)
+      if (e) viewer.entities.remove(e)
+    }
 
     viewer.entities.add({
-      id: 'machine-arrow',
-      polygon: {
-        hierarchy: new Cesium.PolygonHierarchy(positions),
-        material: Cesium.Color.fromCssColorString('#0a84ff').withAlpha(0.92),
+      id: 'machine-icon',
+      position,
+      billboard: {
+        image: getMachineIconCanvas(),
+        scale: 0.75,
+        rotation: Cesium.Math.toRadians(-heading),
+        alignedAxis: Cesium.Cartesian3.UNIT_Z,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        outline: true,
-        outlineColor: Cesium.Color.WHITE,
-        outlineWidth: 2,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
     })
     viewer.scene.requestRender()
   }, [ready, pos])
 
-  // === Tunnelvision-mask: gradient-mörkning runt maskinen ===
-  // Stor ellipse (5000 m) följer GPS-position, drapas på marken med
-  // ImageMaterialProperty från radial gradient-canvasen. Stop-positioner
-  // beräknas dynamiskt från viewfieldDistance + viewfieldSoftness — bygger
-  // om canvas vid varje slider-tick. Påverkar mark/imagery + clampToGround-
-  // objekt; 3D-extruderade markörer hanteras separat via DDC.
+  // === Tunnelvision: skärm-rymd radial-gradient overlay (FIX 2 + FIX 3) ===
+  // Beräkna maskinens skärmposition + pixels-per-meter varje render. Sätt
+  // background-style direkt på overlay-divens DOM (ingen React state per
+  // frame) för att hålla det billigt.
   useEffect(() => {
-    if (!ready || !viewerRef.current || !pos) return
+    if (!ready || !viewerRef.current || !pos) {
+      if (tunnelOverlayRef.current) tunnelOverlayRef.current.style.background = 'transparent'
+      return
+    }
     const viewer = viewerRef.current
 
-    const existing = viewer.entities.getById('tunnel-mask')
-    if (existing) viewer.entities.remove(existing)
+    // Rensa ev. kvarvarande gammal ground-ellipse-entity (från tidigare versioner)
+    const oldEnt = viewer.entities.getById('tunnel-mask')
+    if (oldEnt) viewer.entities.remove(oldEnt)
 
-    viewer.entities.add({
-      id: 'tunnel-mask',
-      position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
-      ellipse: {
-        semiMajorAxis: 5000,
-        semiMinorAxis: 5000,
-        material: new Cesium.ImageMaterialProperty({
-          image: buildTunnelMaskCanvas(viewfieldDistance, viewfieldSoftness, viewfieldDarkness),
-          transparent: true,
-        }),
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      },
-    })
+    const update = () => {
+      const overlay = tunnelOverlayRef.current
+      if (!overlay) return
+      const alpha = Math.max(0, Math.min(1, viewfieldDarkness / 100))
+      if (alpha < 0.001) { overlay.style.background = 'transparent'; return }
+
+      const machineCart = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat)
+      const machineScreen = (Cesium.SceneTransforms as any).wgs84ToWindowCoordinates(viewer.scene, machineCart)
+      if (!machineScreen) {
+        // Maskin inte på skärm (bakom kameran) — fyll allt med mörker
+        overlay.style.background = `rgba(0,0,0,${alpha})`
+        return
+      }
+
+      // Pixels-per-meter via 100 m östlig offset
+      const eastPt = offsetLatLngByBearing(pos.lat, pos.lon, 100, 90)
+      const eastCart = Cesium.Cartesian3.fromDegrees(eastPt[0], eastPt[1])
+      const eastScreen = (Cesium.SceneTransforms as any).wgs84ToWindowCoordinates(viewer.scene, eastCart)
+      let ppm = 1
+      if (eastScreen) {
+        const dx = eastScreen.x - machineScreen.x
+        const dy = eastScreen.y - machineScreen.y
+        const sd = Math.sqrt(dx * dx + dy * dy) / 100
+        if (sd > 0.001) ppm = sd
+      }
+
+      const fade = viewfieldDistance * (viewfieldSoftness / 100)
+      const clarityEnd = Math.max(0, viewfieldDistance - fade)
+      const clarityPx = Math.max(0, clarityEnd * ppm)
+      const distancePx = Math.max(clarityPx + 1, viewfieldDistance * ppm)
+
+      overlay.style.background =
+        `radial-gradient(circle at ${machineScreen.x}px ${machineScreen.y}px, ` +
+        `transparent 0px, transparent ${clarityPx}px, ` +
+        `rgba(0,0,0,${alpha}) ${distancePx}px, rgba(0,0,0,${alpha}) 100%)`
+    }
+
+    update()
+    viewer.scene.postRender.addEventListener(update)
+    // Trigga en render direkt så postRender fyrar i requestRenderMode-läget
     viewer.scene.requestRender()
+    return () => { viewer.scene.postRender.removeEventListener(update) }
   }, [ready, pos, viewfieldDistance, viewfieldSoftness, viewfieldDarkness])
 
   // === Re-applicera DDC på alla 3D-markörer/HPR-pelare när Synfält ändras ===
@@ -1581,6 +1569,18 @@ export default function CesiumScene({ objektId }: Props) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* Tunnelvision-mask (FIX 2): skärm-rymd radial-gradient överlapp.
+          Ovanpå Cesium-canvasen men under all UI (zIndex 30, UI är 100). */}
+      <div
+        ref={tunnelOverlayRef}
+        style={{
+          position: 'fixed', inset: 0,
+          pointerEvents: 'none',
+          zIndex: 30,
+          background: 'transparent',
+        }}
+      />
 
       {/* Topp-overlay: tillbaka + objektnamn */}
       <div style={{
