@@ -132,9 +132,16 @@ function colorForType(type?: string): string {
 // verticalExaggeration skalar terrängen visuellt men INTE entiteters
 // absolutpositioner. Vi multiplicerar därför entitet-höjder manuellt.
 const VERTICAL_EXAG = 2.5
-const CAM_HEIGHT = 25
-const CAM_PITCH = -12
-const CAM_BACK = 55
+// Bil-GPS-stil körvy: maskinen i nedre tredjedelen, marken framåt syns,
+// horisonten tryckt uppåt så den inte dominerar bilden.
+//   CAM_BACK 30 m   → maskinen blir tillräckligt stor på skärmen
+//   CAM_HEIGHT 20 m → låg, "inne i" landskapet snarare än ovanifrån
+//   CAM_PITCH -25°  → atan(20/30) ≈ 34° gör att maskinen hamnar ~9° under
+//                     bild-centrum (nedre tredjedel); 100 m framåt syns i
+//                     övre tredjedelen utan att horisonten tar över
+const CAM_HEIGHT = 20
+const CAM_PITCH = -25
+const CAM_BACK = 30
 const LIGHT_INTENSITY = 3.5
 
 // === Lager-grupper synliga i 3D (filtrerade på show3D) ===
@@ -983,9 +990,11 @@ export default function CesiumScene({ objektId }: Props) {
         console.warn('[Körvy3D] terrain sample (init):', e)
       }
 
-      // Kamera 30 m över exaggererad terräng (Tesla-låg, framåtblickande -12°)
+      // Initial preview innan GPS-follow tar över. Lite högre än CAM_HEIGHT
+      // (50 m vs 20 m) så hela objektet syns utan att kameran tippar ner i
+      // marken vid -25° pitch utan back-offset.
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, groundH * VERTICAL_EXAG + 30),
+        destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, groundH * VERTICAL_EXAG + 50),
         orientation: { heading: 0, pitch: Cesium.Math.toRadians(CAM_PITCH), roll: 0 },
         duration: 1.5,
       })
