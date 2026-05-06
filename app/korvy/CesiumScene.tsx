@@ -342,7 +342,7 @@ function addMarkerEntities(
 
   switch (m.type) {
     case 'eternitytree': {
-      // Stam + krona + glow-skal (oförändrat från Omgång A)
+      // Stam + krona. Glow-ellipsoiden borttagen (var dekorativ utan funktion).
       viewer.entities.add({
         id: `${baseId}-trunk`,
         position: at(10),
@@ -353,11 +353,6 @@ function addMarkerEntities(
         position: at(22),
         ellipsoid: { radii: new Cesium.Cartesian3(4, 4, 5), material: colorOf('#30d158') },
         label: labelOpt,
-      })
-      viewer.entities.add({
-        id: `${baseId}-glow`,
-        position: at(22),
-        ellipsoid: { radii: new Cesium.Cartesian3(7, 7, 9), material: colorOf('#30d158').withAlpha(0.3) },
       })
       break
     }
@@ -605,8 +600,9 @@ function getMachineIconCanvas(): HTMLCanvasElement {
 // Mappning till canvasens radial-axel (0..1) över ellipsens 5000 m semi-major:
 //   0           → transparent
 //   clarityEnd  → transparent (sista helt klara stoppet)
-//   distance    → 85 % mörkt (första helmörka stoppet)
-//   1.0         → 85 % mörkt (konstant utåt så terräng > distance dämpas)
+//   distance    → 65 % mörkt (första helmörka stoppet)
+//   1.0         → 65 % mörkt (konstant utåt så terräng > distance dämpas)
+// Tidigare 85 % var för mörkt — terrängen utanför fokuszonen drunknade.
 function buildTunnelMaskCanvas(distance: number, softness: number): HTMLCanvasElement {
   const size = 512
   const ELLIPSE_R = 5000
@@ -626,8 +622,8 @@ function buildTunnelMaskCanvas(distance: number, softness: number): HTMLCanvasEl
   if (clarityStop > 0.0001) {
     grad.addColorStop(clarityStop, 'rgba(20,20,20,0)')
   }
-  grad.addColorStop(darkStop, 'rgba(20,20,20,0.85)')
-  grad.addColorStop(1.0, 'rgba(20,20,20,0.85)')
+  grad.addColorStop(darkStop, 'rgba(20,20,20,0.65)')
+  grad.addColorStop(1.0, 'rgba(20,20,20,0.65)')
 
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, size, size)
@@ -681,7 +677,10 @@ export default function CesiumScene({ objektId }: Props) {
   const [bgType, setBgType] = useState<'cockpit' | 'satellite'>('cockpit')
   // === Tunnelvision — Synfält (m) + Mjukhet (%) ===
   const [viewfieldDistance, setViewfieldDistance] = useNumericSetting('viewfield_distance', 300)
-  const [viewfieldSoftness, setViewfieldSoftness] = useNumericSetting('viewfield_softness', 40)
+  // viewfield_softness_v2: bumpad nyckel så befintliga användare får ny default 60
+  // (mjukare fade-zon än tidigare 40). Tillsammans med sänkt mörker-alpha 0.65
+  // ger det en mindre dramatisk tunnelvision.
+  const [viewfieldSoftness, setViewfieldSoftness] = useNumericSetting('viewfield_softness_v2', 60)
   // === Kamerakontroll ===
   // followGps=true → kameran följer GPS bakom maskinen (default).
   // followGps=false → användaren snurrar/tiltar/panar fritt; visa centrera-knapp.
@@ -1551,7 +1550,6 @@ export default function CesiumScene({ objektId }: Props) {
   }, [acuteWarning])
 
   const uiHeading = pos?.heading != null ? pos.heading : 0
-  const speedKmh = pos?.speed != null && pos.speed >= 0 ? Math.round(pos.speed * 3.6) : null
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
@@ -1592,14 +1590,13 @@ export default function CesiumScene({ objektId }: Props) {
           textAlign: 'center',
         }}>
           {objekt?.namn || (objektId ? 'Laddar…' : 'Inget objekt')}
-          <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.65)', marginLeft: 6 }}>
-            · Körvy
-          </span>
         </div>
         <div style={{ width: 44, flexShrink: 0 }} />
       </div>
 
-      {/* Akut varning (≤50 m) */}
+      {/* Akut varning (≤50 m) — minimal Apple-stil: 1px border, ingen aura,
+          typografiskt "!" istället för färgad disk. Vibration + audio bär
+          den emotionella tyngden. */}
       {acuteWarning && (
         <div style={{
           position: 'fixed',
@@ -1608,18 +1605,15 @@ export default function CesiumScene({ objektId }: Props) {
           padding: '14px 18px', borderRadius: 16,
           background: 'rgba(20,20,22,0.92)',
           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          border: `2px solid ${acuteWarning.color}`,
+          border: `1px solid ${acuteWarning.color}`,
           color: '#fff', zIndex: 110,
           fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-          display: 'flex', alignItems: 'center', gap: 12,
-          boxShadow: `0 8px 32px ${acuteWarning.color}40`,
+          display: 'flex', alignItems: 'center', gap: 14,
         }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: 20,
-            background: acuteWarning.color,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, fontWeight: 800, color: '#fff', flexShrink: 0,
-          }}>!</div>
+          <span style={{
+            fontSize: 28, fontWeight: 700, color: acuteWarning.color,
+            flexShrink: 0, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+          }}>!</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 17, fontWeight: 700, color: acuteWarning.color }}>
               {acuteWarning.dist} m — {acuteWarning.type}
@@ -1679,23 +1673,22 @@ export default function CesiumScene({ objektId }: Props) {
         </div>
       )}
 
-      {/* Status-overlay nere-vänster */}
-      <div style={{
-        position: 'fixed', left: 12, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-        padding: '8px 14px', borderRadius: 12,
-        background: 'rgba(20,20,22,0.72)',
-        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        color: '#fff', fontSize: 13,
-        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-        zIndex: 100, opacity: 0.92,
-      }}>
-        <div>
-          {ready ? 'Cesium ✓' : 'Init…'} · {pos ? 'GPS ✓' : 'GPS …'} · {markers.length} mark
-          {speedKmh != null ? ` · ${speedKmh} km/h` : ''}
+      {/* Error-toast — visas bara vid fel. Debug-status (Cesium ✓ / GPS ✓ /
+          mark / km-h) borttagen för att undvika debug-text åt slutanvändaren. */}
+      {error && (
+        <div style={{
+          position: 'fixed', left: 12, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+          padding: '8px 14px', borderRadius: 12,
+          background: 'rgba(20,20,22,0.78)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid #ff453a',
+          color: '#ff453a', fontSize: 13,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+          zIndex: 100, maxWidth: 'calc(100% - 24px)',
+        }}>
+          {error}
         </div>
-        {error && <div style={{ color: '#ff453a', marginTop: 4 }}>{error}</div>}
-      </div>
+      )}
 
       {/* CENTRERA-KNAPP (nere vänster) — bara synlig när GPS-följning är pausad */}
       {!followGps && (
@@ -1811,8 +1804,8 @@ export default function CesiumScene({ objektId }: Props) {
                 Bakgrundskarta
               </div>
               {([
-                { id: 'cockpit' as const,   name: 'Cockpit', desc: 'Mörk bas + markfuktighets-glow' },
-                { id: 'satellite' as const, name: 'Satellit', desc: 'Esri World Imagery' },
+                { id: 'cockpit' as const,   name: 'Mörk' },
+                { id: 'satellite' as const, name: 'Satellit' },
               ]).map((type) => (
                 <div
                   key={type.id}
@@ -1835,7 +1828,6 @@ export default function CesiumScene({ objektId }: Props) {
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '15px', color: '#fff' }}>{type.name}</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>{type.desc}</div>
                   </div>
                 </div>
               ))}
@@ -1871,7 +1863,6 @@ export default function CesiumScene({ objektId }: Props) {
                     }} />
                     <span style={{ flex: 1 }}>
                       <div style={{ fontSize: '15px', color: '#fff' }}>{layer.name}</div>
-                      {layer.desc && <div style={{ fontSize: '13px', opacity: 0.4, marginTop: '2px' }}>{layer.desc}</div>}
                     </span>
                     <div style={{
                       width: '44px', height: '26px',
