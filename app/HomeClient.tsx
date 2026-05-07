@@ -37,6 +37,7 @@ const adminApps = [
   { href: '/personal', label: 'Personal', icon: 'badge' },
 ]
 
+const markagarrapportEntry = { href: '/admin/markagarrapport', label: 'Markägarrapport', icon: 'summarize' }
 const ekonomiAppEntry = { href: '/ekonomi', label: 'Ekonomi', icon: 'payments' }
 const adminAppEntry = { href: '/admin', label: 'Admin', icon: 'shield' }
 
@@ -81,7 +82,7 @@ export default function HomeClient() {
   }, [])
 
   const synligaAdminApps = (roll === 'chef' || roll === 'admin')
-    ? [...adminApps, ekonomiAppEntry, adminAppEntry]
+    ? [...adminApps, markagarrapportEntry, ekonomiAppEntry, adminAppEntry]
     : adminApps
 
   return (

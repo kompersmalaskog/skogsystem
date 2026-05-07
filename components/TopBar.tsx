@@ -30,7 +30,7 @@ export default function TopBar() {
   const isHome = pathname === '/'
   const pageName = pageNames[pathname]
     || (pathname.startsWith('/maskin-service/') ? 'Maskinservice'
-    : pathname.startsWith('/admin/markagarrapport/') ? 'Markägarrapport'
+    : pathname.startsWith('/admin/markagarrapport') ? 'Markägarrapport'
     : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
 
   // Undersida-vyer (t.ex. Arbetsrapport-interna steg) sätter body[data-hide-home]
