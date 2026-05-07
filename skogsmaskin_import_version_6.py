@@ -937,6 +937,7 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
         'maskin': {},
         'objekt': [],
         'sortiment': [],
+        'sortiment_pris': [],
         'tradslag': [],
         'stammar': [],
         'stockar': [],
@@ -1046,15 +1047,12 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
                     break
         product_names[prod_key] = prod_name
 
-        # Price + Color1 (för färgmärkning) från ClassifiedProductDefinition
-        pris = None
+        # Color1 (färgmärkning) från ClassifiedProductDefinition.
+        # Pris hanteras separat per dimensionsklass via ProductMatrixItem nedan.
         fargmarkning = None
         for sub_tag in ['ClassifiedProductDefinition', 'UnclassifiedProductDefinition']:
             sub = find_element(prod_def, sub_tag, ns)
             if sub is not None:
-                pris_txt = get_text(sub, 'Price', ns)
-                if pris_txt:
-                    pris = safe_float(pris_txt)
                 color_txt = (get_text(sub, 'Color1', ns) or '').strip().lower()
                 if color_txt in ('true', 'false'):
                     fargmarkning = color_txt == 'true'
@@ -1066,11 +1064,38 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             'namn': prod_name,
             'maskin_id': maskin_id,
         }
-        if pris is not None:
-            sort_row['pris_per_m3'] = pris
         if fargmarkning is not None:
             sort_row['fargmarkning'] = fargmarkning
         data['sortiment'].append(sort_row)
+
+        # === PRIS-MATRIS (ProductMatrixItem) ===
+        # Verifierat StanForD-2010-nesting:
+        #   ClassifiedProductDefinition
+        #     └── ProductMatrixes (container)
+        #          └── ProductMatrixItem (en per [lengthClass, diameterClass]-tröskel)
+        #               @lengthClassLowerLimit, @diameterClassLowerLimit (attribut)
+        #               <Price>...</Price> (sub-element)
+        # Inga upper-limits — övre gränser är implicita (nästa rads lower-limit).
+        # Lookup görs som "find largest threshold not exceeding stockens dim".
+        classified = find_element(prod_def, 'ClassifiedProductDefinition', ns) \
+                     or find_element(prod_def, 'UnclassifiedProductDefinition', ns)
+        if classified is not None:
+            sortiment_id = f"{maskin_id}_{prod_key}"
+            matrixes = find_element(classified, 'ProductMatrixes', ns)
+            if matrixes is not None:
+                for matrix_item in find_all_elements(matrixes, 'ProductMatrixItem', ns):
+                    lc_lower = safe_int(matrix_item.get('lengthClassLowerLimit'))
+                    dc_lower = safe_int(matrix_item.get('diameterClassLowerLimit'))
+                    pris_txt = get_text(matrix_item, 'Price', ns)
+                    pris = safe_float(pris_txt) if pris_txt else None
+                    # pris > 0 — många matrix-items har Price=0 för otillåtna kombinationer
+                    if pris is not None and pris > 0 and lc_lower and dc_lower:
+                        data['sortiment_pris'].append({
+                            'sortiment_id': sortiment_id,
+                            'langd_min_cm': lc_lower,
+                            'dia_min_mm': dc_lower,
+                            'pris_per_m3': pris,
+                        })
     
     # === TRÄDSLAG ===
     species_names = {}
@@ -1251,7 +1276,10 @@ def parse_hpr_file(filepath: str) -> Dict[str, Any]:
             
             _stock_objekt_id = obj_key_map.get(obj_key) if obj_key else None
             stock_data = {
-                'stock_key': f"{stem_key}_{log_key}_{filnamn}",
+                # Filnamn borta — HPR är kumulativa, dedupe sker på (maskin_id, stem_key, log_key)
+                'stock_key': f"{stem_key}_{log_key}",
+                'stem_key': stem_key,
+                'log_key': safe_int(log_key),
                 'maskin_id': maskin_id,
                 'objekt_id': _stock_objekt_id,
                 'sortiment_id': f"{maskin_id}_{prod_key}" if prod_key else None,
@@ -2522,6 +2550,14 @@ def save_hpr_to_supabase(data: Dict) -> bool:
                 # Bara insert om sortiment saknas, skriv inte över befintliga namn
                 upsert_data('dim_sortiment', sortiment_utan_namn, ['sortiment_id'])
 
+        # Pris-matris från ProductMatrixItem (en rad per lower-threshold-kombination)
+        if data.get('sortiment_pris'):
+            batch_size = 500
+            for i in range(0, len(data['sortiment_pris']), batch_size):
+                batch = data['sortiment_pris'][i:i+batch_size]
+                upsert_data('dim_sortiment_pris', batch,
+                            ['sortiment_id', 'langd_min_cm', 'dia_min_mm'])
+
         if data.get('tradslag'):
             if upsert_data('dim_tradslag', data['tradslag'], ['tradslag_id']) == 0:
                 fel.append('dim_tradslag')
@@ -2549,7 +2585,8 @@ def save_hpr_to_supabase(data: Dict) -> bool:
             batch_size = 500
             for i in range(0, len(data['stockar']), batch_size):
                 batch = data['stockar'][i:i+batch_size]
-                upsert_data('detalj_stock', batch, ['stock_key'])
+                # Composite-dedupe — HPR är kumulativa, filnamn ingår inte i logisk identitet
+                upsert_data('detalj_stock', batch, ['maskin_id', 'stem_key', 'log_key'])
 
         # UPDATE objekt SET cert via PATCH (bara om cert finns)
         if data.get('objekt_cert_updates'):
