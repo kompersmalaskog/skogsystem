@@ -53,4 +53,19 @@
   (formatTyp redundant ?? ''). Trivial fix
   när någon ändå rör filen.
 
+## Pågående arbete
+- Stanford2010-dokumentation pågår — MOM och
+  HPR klara, HQC och FPR återstår. Filer
+  ligger untracked i docs/stanford2010/.
+  Pushas som samlad PR när alla fyra klara.
+- Viktig upptäckt under HPR-arbetet:
+  hpr_filer-tabellen har 538 rader med
+  maskin_id=NULL och 248 med stammar_count=0
+  pga buggar i import_hpr.py (rad 372-374,
+  391) och _save_hpr_tables. Datat finns
+  intakt i detalj_stam + hpr_stammar.
+  Repair-query förberedd i
+  hpr-harvester-production.md. Kör SQL-
+  reparation när dokumentationen är klar.
+
 Uppdatera denna fil vid varje commit.
