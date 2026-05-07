@@ -379,7 +379,9 @@ Detta är en **historisk bugg i hpr_filer-sammanfattningstabellen** — datat i
 **Allvarlighet:** Medium. 100 % omfattning på `maskin_id`-kolumnen, men inget
 data-förlust — bara felaktig metadata i sammanfattningstabellen.
 
-### Omfattning (verifierat via MCP 2026-05-06)
+### Omfattning + reparations-resultat
+
+**Mätt 2026-05-06 (före repair):**
 
 | Mätetal | Värde |
 |---|---|
@@ -389,6 +391,16 @@ data-förlust — bara felaktig metadata i sammanfattningstabellen.
 | Saknar `objekt_id` (NULL) | 370 |
 | `detalj_stam`-rader för Scorpion 26 mars – 1 april | 2 436 (intakt) |
 | `hpr_stammar`-rader länkade till "tomma" Jeppshoka-fil-rad | 160 (intakt) |
+
+**Mätt 2026-05-07 (efter repair via tre strategier — se nedan):**
+
+| Mätetal | Värde |
+|---|---|
+| Totalt antal `hpr_filer`-rader | 544 (6 nya HPR-filer importerade mellan mätningarna) |
+| Saknar `maskin_id` (NULL) | **0 (100 % lagat)** |
+| Har `stammar_count = 0` | 3 (legitimt tomma HPR-filer, inte buggar) |
+| Saknar `objekt_id` (NULL) | 376 (oförändrat — kräver affärsbeslut, se nedan) |
+| Total stammar i `hpr_filer.stammar_count` | 1 355 681 |
 
 ### Orsak
 
@@ -420,19 +432,30 @@ stammar_count=0 för 248 av dem.
 **Sammanfattning:** Konsistensbugg, **inte** produktionskritisk. Vyer som
 beräknar nyckeltal från `detalj_stam`/`fakt_sortiment` är opåverkade.
 
-### Reparbart via SQL (för maskin_id + stammar_count)
+### Reparbart via SQL — tre strategier
+
+Repair gjordes 2026-05-07 i tre kombinerade steg. Strategi 1 är generell
+playbook; strategi 2 och 3 var ad-hoc-lösningar för rester som inte fångas
+av strategi 1 men följer samma princip (hitta maskin via annat fält och
+fyll i).
+
+**Pre-check (kör alltid först):**
 
 ```sql
--- Innan UPDATE: kör denna för att se om någon hpr_filer-rad har dubbletter
--- med samma filnamn (om import_hpr.py skapade NY rad medan huvudparserns
--- gamla finns kvar):
---
---   SELECT filnamn, COUNT(*), array_agg(id::text) AS ids
---   FROM hpr_filer
---   GROUP BY filnamn HAVING COUNT(*) > 1;
---
+-- Se om någon hpr_filer-rad har dubbletter med samma filnamn (om import_hpr.py
+-- skapade NY rad medan huvudparserns gamla finns kvar):
+SELECT filnamn, COUNT(*), array_agg(id::text) AS ids
+FROM hpr_filer
+GROUP BY filnamn HAVING COUNT(*) > 1;
 -- Om träffar: utred manuellt innan UPDATE körs.
+```
 
+#### Strategi 1 — Standard via `meta_importerade_filer` (täcker ~80 %)
+
+För alla filer som finns i `meta_importerade_filer` med status `OK` och `filtyp = 'HPR'` —
+maskin_id hämtas direkt från meta-raden, stammar_count från `hpr_stammar`-COUNT.
+
+```sql
 UPDATE hpr_filer hf
 SET 
   maskin_id = m.maskin_id,
@@ -449,12 +472,73 @@ WHERE hf.filnamn = m.filnamn
   AND (hf.maskin_id IS NULL OR hf.stammar_count = 0);
 ```
 
+#### Strategi 2 — Filnamns-matchning för Stanford-id i filnamn
+
+Vissa filer har Stanford-id direkt i filnamnet (t.ex. `..._PONS20SDJAA270231_...`)
+men saknas i `meta_importerade_filer` (kan ha importerats utanför normal flöde).
+Plocka maskin via LIKE-pattern mot `maskiner.maskin_id`:
+
+```sql
+-- 2 PONS-filer reparerade
+UPDATE hpr_filer hf
+SET maskin_id = mk.maskin_id,
+    stammar_count = COALESCE(s.cnt, 0)
+FROM maskiner mk
+LEFT JOIN (
+  SELECT hpr_fil_id, COUNT(*) AS cnt FROM hpr_stammar GROUP BY hpr_fil_id
+) s ON s.hpr_fil_id = hf.id
+WHERE hf.maskin_id IS NULL
+  AND hf.filnamn LIKE '%' || mk.maskin_id || '%';
+```
+
+Säkerhetsregel: kräver att maskin_id är distinktivt nog att inte ge falska
+träffar i andra filnamn (t.ex. `PONS20SDJAA270231` är unikt; `R64101` är
+också unikt; korta numeriska id:n vore riskabla).
+
+#### Strategi 3 — Objekt-baserat uppslag via `fakt_tid`
+
+Om varken meta-tabellen eller filnamnet ger maskin, men HPR-filen är länkad
+till ett objekt (via `objekt_id`) som bara EN maskin har jobbat på (verifierat
+via `fakt_tid`) — då vet vi vilken maskin det är.
+
+```sql
+-- 99 Hössjömåla-filer reparerade (objektet har bara haft Rottne H8E)
+UPDATE hpr_filer hf
+SET maskin_id = sub.maskin_id,
+    stammar_count = COALESCE(s.cnt, 0)
+FROM (
+  SELECT objekt_id, MIN(maskin_id) AS maskin_id
+  FROM fakt_tid
+  GROUP BY objekt_id
+  HAVING COUNT(DISTINCT maskin_id) = 1   -- bara en maskin på objektet
+) sub
+LEFT JOIN (
+  SELECT hpr_fil_id, COUNT(*) AS cnt FROM hpr_stammar GROUP BY hpr_fil_id
+) s ON s.hpr_fil_id = hf.id
+WHERE hf.maskin_id IS NULL
+  AND hf.objekt_id = sub.objekt_id;
+```
+
+Säkerhetsregel: HAVING-villkoret garanterar att vi bara fyller i när det
+inte finns tvetydighet. Om flera maskiner jobbat på objektet hoppar
+queryn över raden — kräver manuell utredning.
+
+#### Faktiska resultat (2026-05-07-körning)
+
+| Mätetal | Före | Efter |
+|---|---|---|
+| `maskin_id` NULL | 544 | **0** (100 % lagat över alla tre strategier) |
+| `stammar_count = 0` | 248 | 3 (legitimt tomma filer) |
+
 ### INTE reparbart utan affärsbeslut (objekt_id)
 
-`objekt_id`-NULL för 370 filer beror på att deras `vo_nummer` (t.ex.
+`objekt_id`-NULL för 376 filer beror på att deras `vo_nummer` (t.ex.
 `11146159` för Jeppshoka 1:14) saknas i `objekt`-tabellen. Inte parser-fix —
 kräver att Martin/operatör skapar saknade objekt-rader manuellt eller bekräftar
-att de inte ska finnas.
+att de inte ska finnas. **Notera:** antalet ökade från 370 → 376 mellan
+mätningarna eftersom 6 nya filer importerades med vo_nummer som fortfarande
+saknas i `objekt`-tabellen — kod-fix-buggen är fortfarande aktiv tills
+import_hpr.py och _save_hpr_tables patchas.
 
 ### Uppföljning (separat PR)
 
