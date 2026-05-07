@@ -35,6 +35,25 @@ const maskinNamn = (m: Pick<Maskin, "tillverkare" | "modell" | "maskin_id">) => 
 const pad = (n: number) => String(n).padStart(2, "0");
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
+// Supabase JS har 1000-rads default cap. Paginera explicit för att inte tappa rader.
+// Mönstret matchar app/affarsuppfoljning/page.tsx och app/oversikt/page.tsx.
+async function fetchAllRows(
+  queryFn: (from: number, to: number) => PromiseLike<{ data: any[] | null; error: any }>,
+): Promise<{ data: any[]; error: any | null }> {
+  const PAGE = 1000;
+  const all: any[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await queryFn(offset, offset + PAGE - 1);
+    if (error) return { data: [], error };
+    const batch = data ?? [];
+    all.push(...batch);
+    if (batch.length < PAGE) break;
+    offset += PAGE;
+  }
+  return { data: all, error: null };
+}
+
 export async function GET(req: NextRequest) {
   const url = new URL(req.url);
   const key = url.searchParams.get("key");
@@ -72,45 +91,63 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ manad, dagar: [], sammanfattning: { produktionsdagar: 0, kompletta: 0, saknas: 0, varningar: 0, okand_huvudtyp_dagar: 0 } });
   }
 
-  // === 2) Produktion i spannet, för Harvester-maskiner ===
-  const prodRes = await supabase
-    .from("fakt_produktion")
-    .select("datum, maskin_id, objekt_id, volym_m3sub")
-    .gte("datum", startDatum)
-    .lt("datum", slutDatum)
-    .in("maskin_id", harvesterIds);
+  // === 2) Produktion i spannet, för Harvester-maskiner — paginerad ===
+  const prodRes = await fetchAllRows((from, to) =>
+    supabase
+      .from("fakt_produktion")
+      .select("datum, maskin_id, objekt_id, volym_m3sub")
+      .gte("datum", startDatum)
+      .lt("datum", slutDatum)
+      .in("maskin_id", harvesterIds)
+      .order("datum", { ascending: true })
+      .order("maskin_id", { ascending: true })
+      .order("objekt_id", { ascending: true })
+      .order("tradslag_id", { ascending: true })
+      .order("operator_id", { ascending: true })
+      .range(from, to)
+  );
   if (prodRes.error) {
     return NextResponse.json({ ok: false, error: `fakt_produktion: ${prodRes.error.message}` }, { status: 500 });
   }
-  const prodRows: ProdRow[] = prodRes.data ?? [];
+  const prodRows = prodRes.data as ProdRow[];
 
-  // === 3) dim_objekt för referenserade objekt_id ===
+  // === 3) dim_objekt för referenserade objekt_id — paginerad för säkerhets skull ===
   const refObjektIds = Array.from(new Set(prodRows.map(r => r.objekt_id).filter((x): x is string => !!x)));
   const objektMap = new Map<string, string | null>();
   if (refObjektIds.length > 0) {
-    const objRes = await supabase
-      .from("dim_objekt")
-      .select("objekt_id, huvudtyp")
-      .in("objekt_id", refObjektIds);
+    const objRes = await fetchAllRows((from, to) =>
+      supabase
+        .from("dim_objekt")
+        .select("objekt_id, huvudtyp")
+        .in("objekt_id", refObjektIds)
+        .order("objekt_id", { ascending: true })
+        .range(from, to)
+    );
     if (objRes.error) {
       return NextResponse.json({ ok: false, error: `dim_objekt: ${objRes.error.message}` }, { status: 500 });
     }
-    for (const o of (objRes.data ?? []) as ObjektRow[]) {
+    for (const o of objRes.data as ObjektRow[]) {
       objektMap.set(o.objekt_id, o.huvudtyp ?? null);
     }
   }
 
-  // === 4) Kalibreringar i spannet, för Harvester-maskiner ===
-  const kalibRes = await supabase
-    .from("fakt_kalibrering")
-    .select("id, datum, maskin_id, status, tradslag, filnamn")
-    .gte("datum", startDatum)
-    .lt("datum", slutDatum)
-    .in("maskin_id", harvesterIds);
+  // === 4) Kalibreringar i spannet, för Harvester-maskiner — paginerad ===
+  const kalibRes = await fetchAllRows((from, to) =>
+    supabase
+      .from("fakt_kalibrering")
+      .select("id, datum, maskin_id, status, tradslag, filnamn")
+      .gte("datum", startDatum)
+      .lt("datum", slutDatum)
+      .in("maskin_id", harvesterIds)
+      .order("datum", { ascending: true })
+      .order("maskin_id", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to)
+  );
   if (kalibRes.error) {
     return NextResponse.json({ ok: false, error: `fakt_kalibrering: ${kalibRes.error.message}` }, { status: 500 });
   }
-  const kalibRows: KalibRow[] = kalibRes.data ?? [];
+  const kalibRows = kalibRes.data as KalibRow[];
 
   // === 5) Regler ===
   const regelRes = await supabase
@@ -200,11 +237,12 @@ export async function GET(req: NextRequest) {
       const kontroller = kalibByKey.get(dmKey) ?? [];
 
       let status: DagstatusMaskin;
+      const harProblem = kontroller.some(k => k.status === "VARNING" || k.status === "FEL");
       if (total < trosk) {
         status = "inaktiv";
       } else if (kontroller.length === 0) {
         status = "saknas";
-      } else if (kontroller.some(k => k.status === "VARNING")) {
+      } else if (harProblem) {
         status = "varning";
       } else {
         status = "komplett";
