@@ -96,6 +96,53 @@ function offsetLatLngByBearing(lat: number, lon: number, distM: number, bearingD
   )
   return [lon2 * 180 / Math.PI, lat2 * 180 / Math.PI]
 }
+// === Dev-mock GPS-loop (aktiveras endast via ?devmock=1) ===
+// 60-sekunders lopp N → E → S → tillbaka, med 5 s stillastående mellan
+// varje fas. Hastighet 2 m/s ≈ 7.2 km/h vilket matchar realistisk skördarfart
+// i fält. Används för att testa kameralogik (följning, heading-rotation,
+// stillastående-beteende) utan att vara ute på riktigt.
+const DEVMOCK_PHASES: Array<{ duration: number; heading: number; speed: number }> = [
+  { duration: 15, heading: 0,   speed: 2.0 },  // N, ~7 km/h, 30 m
+  { duration: 5,  heading: 0,   speed: 0   },  // stopp
+  { duration: 15, heading: 90,  speed: 2.0 },  // E, ~7 km/h, 30 m
+  { duration: 5,  heading: 90,  speed: 0   },  // stopp
+  { duration: 15, heading: 180, speed: 2.0 },  // S, ~7 km/h, 30 m
+  { duration: 5,  heading: 180, speed: 0   },  // stopp (totalt 60 s)
+]
+
+// Beräkna mock-pos vid en given tid (sekunder sedan loop-start, modulo 60).
+// Returnerar samma form som GPS-watcher: heading=null vid stillastående
+// (matchar browser-GPS-beteende när hastighet < 1 m/s).
+function computeDevMockPos(
+  elapsedSec: number,
+  baseLat: number,
+  baseLng: number,
+): { lat: number; lon: number; heading: number | null; speed: number | null } {
+  let lat = baseLat
+  let lng = baseLng
+  let phaseStart = 0
+  for (const phase of DEVMOCK_PHASES) {
+    const phaseEnd = phaseStart + phase.duration
+    if (elapsedSec < phaseEnd) {
+      const tInPhase = elapsedSec - phaseStart
+      if (phase.speed > 0) {
+        const dist = tInPhase * phase.speed
+        const [olon, olat] = offsetLatLngByBearing(lat, lng, dist, phase.heading)
+        return { lat: olat, lon: olon, heading: phase.heading, speed: phase.speed }
+      }
+      return { lat, lon: lng, heading: null, speed: 0 }
+    }
+    if (phase.speed > 0) {
+      const dist = phase.duration * phase.speed
+      const [olon, olat] = offsetLatLngByBearing(lat, lng, dist, phase.heading)
+      lng = olon
+      lat = olat
+    }
+    phaseStart = phaseEnd
+  }
+  return { lat, lon: lng, heading: null, speed: 0 }
+}
+
 function bearingArrow(bearing: number, heading: number): string {
   const diff = (((bearing - heading) % 360) + 540) % 360 - 180
   if (diff < -135 || diff > 135) return '↓'
@@ -132,16 +179,17 @@ function colorForType(type?: string): string {
 // verticalExaggeration skalar terrängen visuellt men INTE entiteters
 // absolutpositioner. Vi multiplicerar därför entitet-höjder manuellt.
 const VERTICAL_EXAG = 2.5
-// Bil-GPS-stil körvy: maskinen i nedre tredjedelen, marken framåt syns,
-// horisonten tryckt uppåt så den inte dominerar bilden.
-//   CAM_BACK 30 m   → maskinen blir tillräckligt stor på skärmen
-//   CAM_HEIGHT 20 m → låg, "inne i" landskapet snarare än ovanifrån
-//   CAM_PITCH -25°  → atan(20/30) ≈ 34° gör att maskinen hamnar ~9° under
-//                     bild-centrum (nedre tredjedel); 100 m framåt syns i
-//                     övre tredjedelen utan att horisonten tar över
-const CAM_HEIGHT = 20
-const CAM_PITCH = -25
-const CAM_BACK = 30
+// Bil-GPS-stil (Tesla/Google Maps navigation): maskinen i nedre tredjedelen,
+// marken framåt fyller övre 2/3, horisonten precis ovanför skärmens övre kant.
+//   CAM_BACK 20 m   → tight bakom maskinen, pilen blir stor och förankrad
+//   CAM_HEIGHT 12 m → låg kamera, "inne i" landskapet
+//   CAM_PITCH -18°  → flack nedåtblick: atan(12/20) ≈ 31° gör att maskinen
+//                     hamnar ~13° under bildmitten (solid nedre tredjedel).
+//                     Horisonten 18° över bildmitt ligger vid övre kanten av
+//                     mobil landscape-FOV (~36° vert).
+const CAM_HEIGHT = 12
+const CAM_PITCH = -18
+const CAM_BACK = 20
 const LIGHT_INTENSITY = 3.5
 
 // === Lager-grupper synliga i 3D (filtrerade på show3D) ===
@@ -342,7 +390,7 @@ function addMarkerEntities(
 
   switch (m.type) {
     case 'eternitytree': {
-      // Stam + krona + glow-skal (oförändrat från Omgång A)
+      // Stam + krona. Glow-ellipsoiden borttagen (var dekorativ utan funktion).
       viewer.entities.add({
         id: `${baseId}-trunk`,
         position: at(10),
@@ -353,11 +401,6 @@ function addMarkerEntities(
         position: at(22),
         ellipsoid: { radii: new Cesium.Cartesian3(4, 4, 5), material: colorOf('#30d158') },
         label: labelOpt,
-      })
-      viewer.entities.add({
-        id: `${baseId}-glow`,
-        position: at(22),
-        ellipsoid: { radii: new Cesium.Cartesian3(7, 7, 9), material: colorOf('#30d158').withAlpha(0.3) },
       })
       break
     }
@@ -605,8 +648,9 @@ function getMachineIconCanvas(): HTMLCanvasElement {
 // Mappning till canvasens radial-axel (0..1) över ellipsens 5000 m semi-major:
 //   0           → transparent
 //   clarityEnd  → transparent (sista helt klara stoppet)
-//   distance    → 85 % mörkt (första helmörka stoppet)
-//   1.0         → 85 % mörkt (konstant utåt så terräng > distance dämpas)
+//   distance    → 65 % mörkt (första helmörka stoppet)
+//   1.0         → 65 % mörkt (konstant utåt så terräng > distance dämpas)
+// Tidigare 85 % var för mörkt — terrängen utanför fokuszonen drunknade.
 function buildTunnelMaskCanvas(distance: number, softness: number): HTMLCanvasElement {
   const size = 512
   const ELLIPSE_R = 5000
@@ -626,8 +670,8 @@ function buildTunnelMaskCanvas(distance: number, softness: number): HTMLCanvasEl
   if (clarityStop > 0.0001) {
     grad.addColorStop(clarityStop, 'rgba(20,20,20,0)')
   }
-  grad.addColorStop(darkStop, 'rgba(20,20,20,0.85)')
-  grad.addColorStop(1.0, 'rgba(20,20,20,0.85)')
+  grad.addColorStop(darkStop, 'rgba(20,20,20,0.65)')
+  grad.addColorStop(1.0, 'rgba(20,20,20,0.65)')
 
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, size, size)
@@ -665,6 +709,9 @@ export default function CesiumScene({ objektId }: Props) {
     }>
   } | null>(null)
   const groundHeightRef = useRef<number>(150)
+  // Senast kända heading från GPS — används vid stillastående (pos.heading=null
+  // när hastighet < 1 m/s) så kameran inte snäpper till nord-uppåt vid stopp.
+  const lastHeadingRef = useRef<number>(0)
   const triggeredIdsRef = useRef<Set<string>>(new Set())
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [objekt, setObjekt] = useState<Objekt | null>(null)
@@ -681,11 +728,22 @@ export default function CesiumScene({ objektId }: Props) {
   const [bgType, setBgType] = useState<'cockpit' | 'satellite'>('cockpit')
   // === Tunnelvision — Synfält (m) + Mjukhet (%) ===
   const [viewfieldDistance, setViewfieldDistance] = useNumericSetting('viewfield_distance', 300)
-  const [viewfieldSoftness, setViewfieldSoftness] = useNumericSetting('viewfield_softness', 40)
+  // viewfield_softness_v2: bumpad nyckel så befintliga användare får ny default 60
+  // (mjukare fade-zon än tidigare 40). Tillsammans med sänkt mörker-alpha 0.65
+  // ger det en mindre dramatisk tunnelvision.
+  const [viewfieldSoftness, setViewfieldSoftness] = useNumericSetting('viewfield_softness_v2', 60)
   // === Kamerakontroll ===
   // followGps=true → kameran följer GPS bakom maskinen (default).
   // followGps=false → användaren snurrar/tiltar/panar fritt; visa centrera-knapp.
   const [followGps, setFollowGps] = useState(true)
+
+  // === Dev-mock-flagga: aktiveras via ?devmock=1 ===
+  // page.tsx laddar CesiumScene med ssr:false så window är alltid tillgänglig
+  // i useState-initializern — ingen hydration-mismatch.
+  const [isDevMock] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    return new URLSearchParams(window.location.search).get('devmock') === '1'
+  })
 
   // === Hämta objekt + markeringar ===
   useEffect(() => {
@@ -711,8 +769,9 @@ export default function CesiumScene({ objektId }: Props) {
     return () => { cancelled = true }
   }, [objektId])
 
-  // === GPS-watcher ===
+  // === GPS-watcher (skippas i dev-mock-läget) ===
   useEffect(() => {
+    if (isDevMock) return  // dev-mock-loopen tar över i en separat effekt
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return
     watchIdRef.current = navigator.geolocation.watchPosition(
       (p) => {
@@ -729,7 +788,64 @@ export default function CesiumScene({ objektId }: Props) {
     return () => {
       if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current)
     }
-  }, [])
+  }, [isDevMock])
+
+  // === Dev-mock GPS-loop (aktiveras via ?devmock=1) ===
+  // Tickar 2 Hz med en pos beräknad från DEVMOCK_PHASES, modulo 60 s. Loggar
+  // maskin- och kamera-state varje sekund så man kan verifiera att kameran
+  // hamnar där matematiken säger. Effekten är helt no-op när isDevMock=false.
+  useEffect(() => {
+    if (!isDevMock) return
+    if (!objekt || objekt.lat == null || objekt.lng == null) return
+    const baseLat = objekt.lat
+    const baseLng = objekt.lng
+    const t0 = Date.now()
+    let lastLogSec = -1
+
+    const tick = () => {
+      const elapsed = ((Date.now() - t0) / 1000) % 60
+      const mock = computeDevMockPos(elapsed, baseLat, baseLng)
+      setPos(mock)
+
+      // Logga endast en gång per sekund (annars 2 Hz ger för mycket spam)
+      const sec = Math.floor(elapsed)
+      if (sec !== lastLogSec) {
+        lastLogSec = sec
+        const cam = viewerRef.current?.camera
+        const carto = cam?.positionCartographic
+        // eslint-disable-next-line no-console
+        console.log('[devmock]', JSON.stringify({
+          t: elapsed.toFixed(1),
+          machine: {
+            lat: +mock.lat.toFixed(6),
+            lon: +mock.lon.toFixed(6),
+            heading: mock.heading,
+            speed: mock.speed,
+          },
+          camera: cam && carto ? {
+            lat: +Cesium.Math.toDegrees(carto.latitude).toFixed(6),
+            lon: +Cesium.Math.toDegrees(carto.longitude).toFixed(6),
+            height: +carto.height.toFixed(1),
+            heading: +Cesium.Math.toDegrees(cam.heading).toFixed(1),
+            pitch: +Cesium.Math.toDegrees(cam.pitch).toFixed(1),
+          } : null,
+        }))
+      }
+    }
+
+    tick()
+    const id = setInterval(tick, 500)
+    return () => clearInterval(id)
+  }, [isDevMock, objekt])
+
+  // === Exponera viewerRef till window i dev-mock så Cesium-API:et kan
+  // inspekteras från konsolen (window.viewerRef.scene, .camera, etc.) ===
+  useEffect(() => {
+    if (!isDevMock) return
+    if (!ready || !viewerRef.current) return
+    ;(window as any).viewerRef = viewerRef.current
+    return () => { delete (window as any).viewerRef }
+  }, [isDevMock, ready])
 
   // === Cesium init: 1 m DEM-terräng + Esri satellit-imagery som default-bas ===
   useEffect(() => {
@@ -998,11 +1114,12 @@ export default function CesiumScene({ objektId }: Props) {
         console.warn('[Körvy3D] terrain sample (init):', e)
       }
 
-      // Initial preview innan GPS-follow tar över. Lite högre än CAM_HEIGHT
-      // (50 m vs 20 m) så hela objektet syns utan att kameran tippar ner i
-      // marken vid -25° pitch utan back-offset.
+      // Initial flyTo med samma offset-logik som GPS-follow så vyn ser ut
+      // som bil-GPS från första frame istället för "drönarvy ovanifrån".
+      // Default heading 0 (nord-uppåt) tills GPS levererar riktigt heading.
+      const initBack = offsetLatLngByBearing(objekt.lat, objekt.lng, CAM_BACK, 180)
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat, groundH * VERTICAL_EXAG + 50),
+        destination: Cesium.Cartesian3.fromDegrees(initBack[0], initBack[1], groundH * VERTICAL_EXAG + CAM_HEIGHT),
         orientation: { heading: 0, pitch: Cesium.Math.toRadians(CAM_PITCH), roll: 0 },
         duration: 1.5,
       })
@@ -1395,7 +1512,11 @@ export default function CesiumScene({ objektId }: Props) {
     let cancelled = false
 
     ;(async () => {
-      const heading = pos.heading != null ? pos.heading : 0
+      // Heading: använd GPS:ns heading när det finns (hastighet ≥ 1 m/s),
+      // annars sista kända så kameran inte snäpper till nord vid stopp.
+      if (pos.heading != null) lastHeadingRef.current = pos.heading
+      const heading = pos.heading != null ? pos.heading : lastHeadingRef.current
+
       let groundH = groundHeightRef.current
       try {
         const cart = Cesium.Cartographic.fromDegrees(pos.lon, pos.lat)
@@ -1404,7 +1525,9 @@ export default function CesiumScene({ objektId }: Props) {
         groundH = sampled[0].height || groundHeightRef.current
       } catch {}
 
-      // Kamera bakom föraren (motsatt heading), över exaggererad terräng
+      // Kamera bakom föraren (motsatt heading), över exaggererad terräng.
+      // Duration 1.0 s så animationen överlappar nästa GPS-tick (~1 Hz) och
+      // ger kontinuerlig glidande rörelse istället för rycka-stå-rycka.
       const back = offsetLatLngByBearing(pos.lat, pos.lon, CAM_BACK, (heading + 180) % 360)
       viewer.camera.flyTo({
         destination: Cesium.Cartesian3.fromDegrees(back[0], back[1], groundH * VERTICAL_EXAG + CAM_HEIGHT),
@@ -1413,7 +1536,7 @@ export default function CesiumScene({ objektId }: Props) {
           pitch: Cesium.Math.toRadians(CAM_PITCH),
           roll: 0,
         },
-        duration: 0.4,
+        duration: 1.0,
       })
     })()
 
@@ -1551,11 +1674,32 @@ export default function CesiumScene({ objektId }: Props) {
   }, [acuteWarning])
 
   const uiHeading = pos?.heading != null ? pos.heading : 0
-  const speedKmh = pos?.speed != null && pos.speed >= 0 ? Math.round(pos.speed * 3.6) : null
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+
+      {/* DEV-badge — visas bara i dev-mock-läget. Centrerad just under topbar. */}
+      {isDevMock && (
+        <div style={{
+          position: 'fixed',
+          top: 'calc(env(safe-area-inset-top, 0px) + 64px)',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          padding: '4px 12px',
+          borderRadius: 8,
+          background: '#ff453a',
+          color: '#fff',
+          fontSize: 11,
+          fontWeight: 700,
+          letterSpacing: 0.8,
+          zIndex: 1000,
+          pointerEvents: 'none',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+        }}>
+          DEV · MOCK GPS
+        </div>
+      )}
 
       {/* Topp-overlay: tillbaka + objektnamn */}
       <div style={{
@@ -1592,14 +1736,13 @@ export default function CesiumScene({ objektId }: Props) {
           textAlign: 'center',
         }}>
           {objekt?.namn || (objektId ? 'Laddar…' : 'Inget objekt')}
-          <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.65)', marginLeft: 6 }}>
-            · Körvy
-          </span>
         </div>
         <div style={{ width: 44, flexShrink: 0 }} />
       </div>
 
-      {/* Akut varning (≤50 m) */}
+      {/* Akut varning (≤50 m) — minimal Apple-stil: 1px border, ingen aura,
+          typografiskt "!" istället för färgad disk. Vibration + audio bär
+          den emotionella tyngden. */}
       {acuteWarning && (
         <div style={{
           position: 'fixed',
@@ -1608,18 +1751,15 @@ export default function CesiumScene({ objektId }: Props) {
           padding: '14px 18px', borderRadius: 16,
           background: 'rgba(20,20,22,0.92)',
           backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          border: `2px solid ${acuteWarning.color}`,
+          border: `1px solid ${acuteWarning.color}`,
           color: '#fff', zIndex: 110,
           fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-          display: 'flex', alignItems: 'center', gap: 12,
-          boxShadow: `0 8px 32px ${acuteWarning.color}40`,
+          display: 'flex', alignItems: 'center', gap: 14,
         }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: 20,
-            background: acuteWarning.color,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, fontWeight: 800, color: '#fff', flexShrink: 0,
-          }}>!</div>
+          <span style={{
+            fontSize: 28, fontWeight: 700, color: acuteWarning.color,
+            flexShrink: 0, lineHeight: 1, fontVariantNumeric: 'tabular-nums',
+          }}>!</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 17, fontWeight: 700, color: acuteWarning.color }}>
               {acuteWarning.dist} m — {acuteWarning.type}
@@ -1679,23 +1819,22 @@ export default function CesiumScene({ objektId }: Props) {
         </div>
       )}
 
-      {/* Status-overlay nere-vänster */}
-      <div style={{
-        position: 'fixed', left: 12, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
-        padding: '8px 14px', borderRadius: 12,
-        background: 'rgba(20,20,22,0.72)',
-        backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255,255,255,0.08)',
-        color: '#fff', fontSize: 13,
-        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-        zIndex: 100, opacity: 0.92,
-      }}>
-        <div>
-          {ready ? 'Cesium ✓' : 'Init…'} · {pos ? 'GPS ✓' : 'GPS …'} · {markers.length} mark
-          {speedKmh != null ? ` · ${speedKmh} km/h` : ''}
+      {/* Error-toast — visas bara vid fel. Debug-status (Cesium ✓ / GPS ✓ /
+          mark / km-h) borttagen för att undvika debug-text åt slutanvändaren. */}
+      {error && (
+        <div style={{
+          position: 'fixed', left: 12, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+          padding: '8px 14px', borderRadius: 12,
+          background: 'rgba(20,20,22,0.78)',
+          backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          border: '1px solid #ff453a',
+          color: '#ff453a', fontSize: 13,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+          zIndex: 100, maxWidth: 'calc(100% - 24px)',
+        }}>
+          {error}
         </div>
-        {error && <div style={{ color: '#ff453a', marginTop: 4 }}>{error}</div>}
-      </div>
+      )}
 
       {/* CENTRERA-KNAPP (nere vänster) — bara synlig när GPS-följning är pausad */}
       {!followGps && (
@@ -1811,8 +1950,8 @@ export default function CesiumScene({ objektId }: Props) {
                 Bakgrundskarta
               </div>
               {([
-                { id: 'cockpit' as const,   name: 'Cockpit', desc: 'Mörk bas + markfuktighets-glow' },
-                { id: 'satellite' as const, name: 'Satellit', desc: 'Esri World Imagery' },
+                { id: 'cockpit' as const,   name: 'Mörk' },
+                { id: 'satellite' as const, name: 'Satellit' },
               ]).map((type) => (
                 <div
                   key={type.id}
@@ -1835,7 +1974,6 @@ export default function CesiumScene({ objektId }: Props) {
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '15px', color: '#fff' }}>{type.name}</div>
-                    <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '2px' }}>{type.desc}</div>
                   </div>
                 </div>
               ))}
@@ -1871,7 +2009,6 @@ export default function CesiumScene({ objektId }: Props) {
                     }} />
                     <span style={{ flex: 1 }}>
                       <div style={{ fontSize: '15px', color: '#fff' }}>{layer.name}</div>
-                      {layer.desc && <div style={{ fontSize: '13px', opacity: 0.4, marginTop: '2px' }}>{layer.desc}</div>}
                     </span>
                     <div style={{
                       width: '44px', height: '26px',

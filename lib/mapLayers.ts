@@ -106,7 +106,7 @@ export const wmsLayerGroups: LayerGroup[] = [
   {
     group: 'Skogsstyrelsen Raster',
     layers: [
-      { id: 'sks_markfuktighet', url: '/api/wms-proxy', layers: 'Markfuktighet_SLU_2_0', name: 'Markfuktighet (SLU)', color: '#4FC3F7', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer', show3D: true },
+      { id: 'sks_markfuktighet', url: '/api/wms-proxy', layers: 'Markfuktighet_SLU_2_0', name: 'Markfuktighet', color: '#4FC3F7', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Markfuktighet_SLU_2_0/ImageServer/WMSServer', show3D: true },
       { id: 'sks_virkesvolym', url: '/api/wms-proxy', layers: 'SkogligaGrunddata_3_1', name: 'Virkesvolym', color: '#66BB6A', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/SkogligaGrunddata_3_1/ImageServer/WMSServer', show3D: true },
       { id: 'sks_tradhojd', url: '/api/wms-proxy', layers: 'Tradhojd_3_1', name: 'Trädhöjd', color: '#AED581', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Tradhojd_3_1/ImageServer/WMSServer', show3D: true },
       { id: 'sks_lutning', url: '/api/wms-proxy', layers: 'Lutning_1_0', name: 'Lutning', color: '#FF8A65', proxyTarget: 'https://geodata.skogsstyrelsen.se/arcgis/services/Publikt/Lutning_1_0/ImageServer/WMSServer', show3D: true },
@@ -116,7 +116,7 @@ export const wmsLayerGroups: LayerGroup[] = [
   {
     group: 'Lantmäteriet',
     layers: [
-      { id: 'lm_skuggning', url: '/api/wms-proxy', layers: 'terrangskuggning', name: 'Höjdmodell (skuggning)', color: '#78909C', proxyTarget: 'https://minkarta.lantmateriet.se/map/hojdmodell', show3D: true },
+      { id: 'lm_skuggning', url: '/api/wms-proxy', layers: 'terrangskuggning', name: 'Skuggning', color: '#78909C', proxyTarget: 'https://minkarta.lantmateriet.se/map/hojdmodell', show3D: true },
       { id: 'lm_ortofoto', url: '/api/wms-proxy', layers: 'Ortofoto_0.5', name: 'Ortofoto LM', color: '#8D6E63', proxyTarget: 'https://minkarta.lantmateriet.se/map/ortofoto', show3D: true },
       { id: 'fastighetsgranser', url: 'https://minkarta.lantmateriet.se/map/fastighetsindelning/wms/v1.3', layers: 'granser', name: 'Fastighetsgränser', color: '#f59e0b', show3D: true },
     ],

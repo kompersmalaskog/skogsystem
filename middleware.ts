@@ -34,6 +34,27 @@ export async function middleware(request: NextRequest) {
   // Always allow API routes and auth callbacks through
   if (isApiRoute || isAuthCallback) return supabaseResponse;
 
+  // === Dev-mock bypass för /korvy ===
+  // Tillåter åtkomst utan login ENDAST om BÅDA url-paramen är satta:
+  //   ?devmock=1 och ?devkey=skogsystem-debug
+  // Saknas eller fel värde → vanlig auth-flow kör som vanligt (redirect till
+  // /login). Bara /korvy-routen är bypassbar — ingen annan vy. Varje träff
+  // loggas så användning kan upptäckas i Vercel-loggarna.
+  //
+  // Trade-off: devkey är hårdkodad i klartext. För att begränsa skadan
+  // läser /korvy bara från Supabase (objekt, markeringar, HPR-stammar) — inga
+  // skrivoperationer. Eventuell data-exponering begränsas av RLS-policies på
+  // Supabase-tabellerna. Använd inte produktions-URL:en med devkey publikt.
+  if (pathname === '/korvy') {
+    const devmock = request.nextUrl.searchParams.get('devmock');
+    const devkey = request.nextUrl.searchParams.get('devkey');
+    if (devmock === '1' && devkey === 'skogsystem-debug') {
+      const ip = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown';
+      console.log('[DEV-MOCK ACCESS]', pathname, 'from', ip, 'at', new Date().toISOString());
+      return supabaseResponse;
+    }
+  }
+
   // Not logged in and not on login page → redirect to login
   if (!user && !isLoginPage) {
     const url = request.nextUrl.clone();
