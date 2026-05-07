@@ -28,7 +28,10 @@ const pageNames: Record<string, string> = {
 export default function TopBar() {
   const pathname = usePathname()
   const isHome = pathname === '/'
-  const pageName = pageNames[pathname] || (pathname.startsWith('/maskin-service/') ? 'Maskinservice' : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
+  const pageName = pageNames[pathname]
+    || (pathname.startsWith('/maskin-service/') ? 'Maskinservice'
+    : pathname.startsWith('/admin/markagarrapport/') ? 'Markägarrapport'
+    : pathname.replace('/', '').charAt(0).toUpperCase() + pathname.slice(2))
 
   // Undersida-vyer (t.ex. Arbetsrapport-interna steg) sätter body[data-hide-home]
   // för att dölja hemknappen när de har egen bakåt-navigation.

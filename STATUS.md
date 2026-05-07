@@ -9,6 +9,41 @@
 - Anpassat sammanfattningskort per dagtyp
 - Körning alltid synlig
 - Bekräftad dag med re-bekräftelse
+- Markägarrapport-algoritm verifierad mot
+  Husjönäs 2026-05-06
+
+## Markägarrapport — verifierade siffror
+Husjönäs (objekt_id 11124938, slutavverkning):
+- Stammar: 1 349
+- Volym: 678 m³sub
+- Virkesvärde: 433 163 kr
+- Rotstammar: 235 (Bmav 207, Avkap 28)
+- Värdeförlust: −26 382 kr
+- Räddat värde: +2 597 kr
+- Lyckade avkap: 23 av 28
+
+Förväntade siffror i originalprompten
+(375 461 / −16 640 / +2 240) var överslag,
+inte DB-verifierade. Felsök inte mot dem.
+
+## Markägarrapport — framtida tillägg
+
+### Naturhänsyn på kartan
+Lager med eternitytree, naturecorner, highstump
+från planering_markeringar. Aktiveras när nya
+jobb planeras i planeringsvyn INNAN avverkning.
+Husjönäs saknar markeringar, andra slut-
+avverkningsobjekt likadant.
+
+Koordinattransformation: återanvänd från
+app/planering/PlaneringVy.tsx — data->x och
+data->y är planeringsvyns lokala koordinater,
+inte lat/lng.
+
+### GROT-högar
+Ingen explicit symboltyp idag. Lägg till
+`grothög` i planeringsvyn när det blir aktuellt,
+eller härleda från `landing` (avlägg).
 
 ## Kända buggar
 - Kalenderdagar inte klickbara (regression)
