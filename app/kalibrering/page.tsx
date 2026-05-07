@@ -154,24 +154,38 @@ export default function KalibreringPage() {
   const [calData, setCalData] = useState<CalResponse | null>(null);
   const [calLoading, setCalLoading] = useState(false);
   const [calError, setCalError] = useState<string | null>(null);
+
+  // Globalt maskinfilter — persistent över flikar
   const [selectedMaskinId, setSelectedMaskinId] = useState<string | 'all'>('all');
+  const [alleMaskiner, setAlleMaskiner] = useState<{ maskin_id: string; tillverkare: string | null; modell: string | null; aktiv_till: string | null }[]>([]);
+  const [maskinSheetOpen, setMaskinSheetOpen] = useState(false);
+  const [maskinSearchQ, setMaskinSearchQ] = useState('');
 
-  // Unika maskiner i månadens data — base för filter-pillarna
-  const uniqueMaskiner = useMemo<CalMaskin[]>(() => {
-    if (!calData) return [];
-    const seen = new Map<string, CalMaskin>();
-    for (const d of calData.dagar) {
-      for (const m of d.maskiner) {
-        if (!seen.has(m.maskin_id)) seen.set(m.maskin_id, m);
-      }
-    }
-    return Array.from(seen.values()).sort((a, b) => a.maskin_id.localeCompare(b.maskin_id));
-  }, [calData]);
+  // Hämta alla skördare (även sålda) en gång vid mount — listan i sheet:n
+  useEffect(() => {
+    let cancelled = false;
+    supabase
+      .from('dim_maskin')
+      .select('maskin_id, tillverkare, modell, aktiv_till')
+      .eq('maskin_typ', 'Harvester')
+      .order('aktiv_till', { ascending: false, nullsFirst: true })
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return;
+        setAlleMaskiner(data as any);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
-  // Faller tillbaka till 'all' om vald maskin inte finns i månadens data (t.ex. efter månadsbyte)
-  const effectiveSelected: string | 'all' = selectedMaskinId === 'all' || uniqueMaskiner.some(m => m.maskin_id === selectedMaskinId)
+  // Faller tillbaka till 'all' om vald maskin inte längre finns
+  const effectiveSelected: string | 'all' = selectedMaskinId === 'all' || alleMaskiner.some(m => m.maskin_id === selectedMaskinId)
     ? selectedMaskinId
     : 'all';
+
+  const filterLabel = useMemo(() => {
+    if (effectiveSelected === 'all') return 'Alla maskiner';
+    const m = alleMaskiner.find(x => x.maskin_id === effectiveSelected);
+    return m ? maskinNamn(m) : effectiveSelected;
+  }, [effectiveSelected, alleMaskiner]);
 
   const aggregeraDagFiltrerat = (dag: CalDag, valdMaskinId: string | 'all'): CalDagstatus => {
     if (valdMaskinId === 'all') return dag.status;
@@ -255,13 +269,18 @@ export default function KalibreringPage() {
   }, []);
 
   // === Derived data ===
+  // Senaste-fliken använder ALLTID hela datasetet (oberoende av filter)
   const latestKalib = allKalib.length > 0 ? allKalib[0] : null;
   const latestStockar = latestKalib ? (stockMap[latestKalib.filnamn] || []).sort((a, b) => a.stock_nummer - b.stock_nummer) : [];
   const totalLatestLen = latestStockar.reduce((a, s) => a + s.maskin_langd_cm, 0);
 
-  // Per-species stats (weighted by antal_kontrollstockar)
+  // Filtrerade datakällor — Historik och Rapport räknar på dessa
+  const filteredKalib = effectiveSelected === 'all' ? allKalib : allKalib.filter(k => k.maskin_id === effectiveSelected);
+  const filteredHistorik = effectiveSelected === 'all' ? historik : historik.filter(h => h.maskin_id === effectiveSelected);
+
+  // Per-species stats (weighted by antal_kontrollstockar) — Historik bars + Rapport tabell
   const speciesData: Record<string, { count: number; totalStockar: number; lenDiff: number; diaDiff: number }> = {};
-  allKalib.forEach(k => {
+  filteredKalib.forEach(k => {
     const key = k.tradslag.toLowerCase();
     if (!speciesData[key]) speciesData[key] = { count: 0, totalStockar: 0, lenDiff: 0, diaDiff: 0 };
     speciesData[key].count++;
@@ -276,17 +295,17 @@ export default function KalibreringPage() {
     }
   });
 
-  // Report averages (weighted)
-  const totalStockar = allKalib.reduce((a, k) => a + k.antal_kontrollstockar, 0);
-  const avgLenReport = totalStockar > 0 ? Math.round(allKalib.reduce((a, k) => a + k.langd_avvikelse_snitt_cm * k.antal_kontrollstockar, 0) / totalStockar * 10) / 10 : 0;
-  const avgDiaReport = totalStockar > 0 ? Math.round(allKalib.reduce((a, k) => a + k.dia_avvikelse_snitt_mm * k.antal_kontrollstockar, 0) / totalStockar * 10) / 10 : 0;
+  // Report averages (weighted) — Rapport
+  const totalStockar = filteredKalib.reduce((a, k) => a + k.antal_kontrollstockar, 0);
+  const avgLenReport = totalStockar > 0 ? Math.round(filteredKalib.reduce((a, k) => a + k.langd_avvikelse_snitt_cm * k.antal_kontrollstockar, 0) / totalStockar * 10) / 10 : 0;
+  const avgDiaReport = totalStockar > 0 ? Math.round(filteredKalib.reduce((a, k) => a + k.dia_avvikelse_snitt_mm * k.antal_kontrollstockar, 0) / totalStockar * 10) / 10 : 0;
 
-  // Unique calibration adjustments (används av Rapport-fliken)
-  const kalibFileSet = new Set(historik.map(h => h.filnamn));
+  // Unika kalibreringsjusteringar — Rapport
+  const kalibFileSet = new Set(filteredHistorik.map(h => h.filnamn));
   const calibCount = kalibFileSet.size;
 
-  // History list
-  const historyList = allKalib.slice(0, 30).map(k => ({
+  // History list — Historik
+  const historyList = filteredKalib.slice(0, 30).map(k => ({
     kalib: k,
     date: new Date(k.datum),
   }));
@@ -402,7 +421,7 @@ export default function KalibreringPage() {
     const data = speciesData[species];
     if (!data) return;
     const name = species === 'gran' ? 'Gran' : species === 'tall' ? 'Tall' : species.charAt(0).toUpperCase() + species.slice(1);
-    const speciesKalibs = allKalib.filter(k => k.tradslag.toLowerCase() === species).slice(0, 20);
+    const speciesKalibs = filteredKalib.filter(k => k.tradslag.toLowerCase() === species).slice(0, 20);
 
     setModalContent({
       title: name,
@@ -609,7 +628,7 @@ export default function KalibreringPage() {
         .kalib-list-value.bad{color:#FF3B30}
 
         /* === Kalender-fliken === */
-        .kalib-cal-header{position:sticky;top:calc(118px + env(safe-area-inset-top));z-index:50;background:rgba(0,0,0,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-bottom:14px}
+        .kalib-cal-header{display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-bottom:14px}
         .kalib-cal-nav{width:44px;height:44px;border-radius:22px;background:#1C1C1E;border:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-family:inherit}
         .kalib-cal-nav:active{background:#2A2A2C}
         .kalib-cal-title{font-size:18px;font-weight:600;color:#fff;letter-spacing:-0.01em}
@@ -624,10 +643,21 @@ export default function KalibreringPage() {
         .kalib-cal-summary-num{font-size:22px;font-weight:700;line-height:1;letter-spacing:-0.02em;color:#fff}
         .kalib-cal-summary-lbl{font-size:11px;color:#8E8E93;margin-top:6px}
 
-        .kalib-cal-filter{display:flex;gap:6px;overflow-x:auto;padding:0 0 4px;margin-bottom:12px;scrollbar-width:none;-ms-overflow-style:none}
-        .kalib-cal-filter::-webkit-scrollbar{display:none}
-        .kalib-cal-filter-pill{height:32px;padding:0 14px;border-radius:999px;font-size:13px;font-weight:500;color:#8E8E93;background:transparent;border:1px solid rgba(255,255,255,0.06);cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0;transition:background 0.15s,color 0.15s,border-color 0.15s}
-        .kalib-cal-filter-pill.active{background:#fff;color:#000;border-color:#fff;font-weight:600}
+        /* === Globalt maskinfilter — knappband + bottom-sheet === */
+        .kalib-filter-row{position:sticky;top:calc(118px + env(safe-area-inset-top));z-index:90;background:rgba(0,0,0,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:8px 20px;border-bottom:0.5px solid #2C2C2E}
+        .kalib-filter-btn{display:flex;align-items:center;gap:10px;width:100%;height:44px;padding:0 16px;background:#1C1C1E;border:1px solid rgba(255,255,255,0.06);border-radius:12px;font-family:inherit;font-size:14px;font-weight:500;color:#fff;cursor:pointer}
+        .kalib-filter-btn:active{background:#2A2A2C}
+        .kalib-filter-label{flex:1;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+        .kalib-sheet-search{width:100%;height:44px;padding:0 14px;margin-bottom:12px;background:#2C2C2E;border:none;border-radius:10px;color:#fff;font-size:15px;outline:none;font-family:inherit}
+        .kalib-sheet-search::placeholder{color:#8E8E93}
+        .kalib-sheet-list{display:flex;flex-direction:column}
+        .kalib-sheet-row{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:0 8px;background:transparent;border:none;border-bottom:0.5px solid #2C2C2E;text-align:left;cursor:pointer;font-family:inherit}
+        .kalib-sheet-row:last-child{border-bottom:none}
+        .kalib-sheet-row:active{background:rgba(255,255,255,0.04)}
+        .kalib-sheet-check{display:flex;align-items:center;justify-content:center;width:24px;flex-shrink:0}
+        .kalib-sheet-label{flex:1;font-size:15px;color:#fff;font-weight:500}
+        .kalib-sheet-sold{color:#8E8E93;font-weight:400}
 
         .kalib-cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;color:#8E8E93;margin-bottom:8px;font-weight:500}
         .kalib-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
@@ -765,6 +795,16 @@ export default function KalibreringPage() {
           <button className={`kalib-pill ${activeTab === 'calendar' ? 'active' : ''}`} onClick={() => setActiveTab('calendar')}>Kalender</button>
           <button className={`kalib-pill ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>Rapport</button>
         </nav>
+
+        {activeTab !== 'today' && (
+          <div className="kalib-filter-row">
+            <button className="kalib-filter-btn" onClick={() => { setModalOpen(false); setMaskinSearchQ(''); setMaskinSheetOpen(true); }}>
+              <MSym name="tune" size={16} color="#fff" />
+              <span className="kalib-filter-label">{filterLabel}</span>
+              <MSym name="expand_more" size={16} color="#8E8E93" />
+            </button>
+          </div>
+        )}
 
         <div className="kalib-container">
           {activeTab === 'today' && latestKalib && (
@@ -981,22 +1021,6 @@ export default function KalibreringPage() {
                       </div>
                     </div>
 
-                    {uniqueMaskiner.length > 1 && (
-                      <div className="kalib-cal-filter">
-                        <button
-                          className={`kalib-cal-filter-pill ${effectiveSelected === 'all' ? 'active' : ''}`}
-                          onClick={() => setSelectedMaskinId('all')}
-                        >Alla</button>
-                        {uniqueMaskiner.map(m => (
-                          <button
-                            key={m.maskin_id}
-                            className={`kalib-cal-filter-pill ${effectiveSelected === m.maskin_id ? 'active' : ''}`}
-                            onClick={() => setSelectedMaskinId(m.maskin_id)}
-                          >{maskinNamn(m)}</button>
-                        ))}
-                      </div>
-                    )}
-
                     <div className="kalib-card">
                       <div className="kalib-cal-weekdays"><span>M</span><span>T</span><span>O</span><span>T</span><span>F</span><span>L</span><span>S</span></div>
                       <div className="kalib-cal-grid">
@@ -1048,7 +1072,7 @@ export default function KalibreringPage() {
                 <div className="kalib-report-section-title">Nyckeltal</div>
                 <div className="kalib-report-metrics">
                   <div className="kalib-report-metric">
-                    <div className="kalib-report-metric-value">{allKalib.length}</div>
+                    <div className="kalib-report-metric-value">{filteredKalib.length}</div>
                     <div className="kalib-report-metric-label">Kontroller</div>
                   </div>
                   <div className="kalib-report-metric">
@@ -1060,7 +1084,7 @@ export default function KalibreringPage() {
                     <div className="kalib-report-metric-label">Kalibreringar</div>
                   </div>
                   <div className="kalib-report-metric">
-                    <div className={`kalib-report-metric-value ${allKalib.filter(k => k.status === 'VARNING').length > 0 ? 'bad' : ''}`}>{allKalib.filter(k => k.status === 'VARNING').length}</div>
+                    <div className={`kalib-report-metric-value ${filteredKalib.filter(k => k.status === 'VARNING').length > 0 ? 'bad' : ''}`}>{filteredKalib.filter(k => k.status === 'VARNING').length}</div>
                     <div className="kalib-report-metric-label">Varningar</div>
                   </div>
                 </div>
@@ -1119,11 +1143,11 @@ export default function KalibreringPage() {
                 </div>
               </div>
 
-              {latestKalib && (
+              {filteredKalib.length > 0 && (
                 <div className="kalib-report-footer">
                   <div className="kalib-report-machine">
-                    <div>{latestKalib.maskin_id}</div>
-                    <div className="kalib-report-machine-sub">{allKalib.length} kontroller totalt</div>
+                    <div>{filteredKalib[0].maskin_id}</div>
+                    <div className="kalib-report-machine-sub">{filteredKalib.length} kontroller totalt</div>
                   </div>
                 </div>
               )}
@@ -1140,6 +1164,56 @@ export default function KalibreringPage() {
             </div>
             <div>{modalContent?.body}</div>
             <button className="kalib-modal-close" onClick={() => setModalOpen(false)}>Stäng</button>
+          </div>
+        </div>
+
+        {/* === Maskin-filter sheet === */}
+        <div className={`kalib-modal-overlay ${maskinSheetOpen ? 'open' : ''}`} onClick={() => setMaskinSheetOpen(false)}>
+          <div className="kalib-modal" onClick={e => e.stopPropagation()}>
+            <div className="kalib-modal-handle" />
+            <div className="kalib-modal-header">
+              <div className="kalib-modal-title">Maskin</div>
+            </div>
+            {alleMaskiner.length > 10 && (
+              <input
+                type="text"
+                className="kalib-sheet-search"
+                placeholder="Sök maskin"
+                value={maskinSearchQ}
+                onChange={e => setMaskinSearchQ(e.target.value)}
+              />
+            )}
+            <div className="kalib-sheet-list">
+              <button
+                className="kalib-sheet-row"
+                onClick={() => { setSelectedMaskinId('all'); setMaskinSheetOpen(false); }}
+              >
+                <span className="kalib-sheet-check">{selectedMaskinId === 'all' && <MSym name="check" size={20} color="#fff" />}</span>
+                <span className="kalib-sheet-label">Alla maskiner</span>
+              </button>
+              {alleMaskiner
+                .filter(m => {
+                  if (!maskinSearchQ.trim()) return true;
+                  return maskinNamn(m).toLowerCase().includes(maskinSearchQ.trim().toLowerCase());
+                })
+                .map(m => {
+                  const isSold = m.aktiv_till !== null && m.aktiv_till < idagStr();
+                  const namn = maskinNamn(m);
+                  return (
+                    <button
+                      key={m.maskin_id}
+                      className="kalib-sheet-row"
+                      onClick={() => { setSelectedMaskinId(m.maskin_id); setMaskinSheetOpen(false); }}
+                    >
+                      <span className="kalib-sheet-check">{effectiveSelected === m.maskin_id && <MSym name="check" size={20} color="#fff" />}</span>
+                      <span className="kalib-sheet-label">
+                        {namn}
+                        {isSold && <span className="kalib-sheet-sold"> (såld)</span>}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
           </div>
         </div>
       </div>
