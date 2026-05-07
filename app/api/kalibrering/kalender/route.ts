@@ -24,14 +24,6 @@ type RegelRow = { huvudtyp: string; min_volym_m3sub: number };
 type DagstatusMaskin = "komplett" | "saknas" | "varning" | "inaktiv";
 type Dagstatus = "komplett" | "saknas" | "varning" | "inaktiv";
 
-const maskinNamn = (m: Pick<Maskin, "tillverkare" | "modell" | "maskin_id">) => {
-  const t = (m.tillverkare ?? "").trim();
-  const mod = (m.modell ?? "").trim();
-  const kombo = [t, mod].filter(Boolean).join(" ").trim();
-  if (!kombo || mod === m.maskin_id) return m.maskin_id;
-  return kombo;
-};
-
 const pad = (n: number) => String(n).padStart(2, "0");
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
@@ -212,7 +204,8 @@ export async function GET(req: NextRequest) {
   // === Bygg dagar ===
   type MaskinDag = {
     maskin_id: string;
-    maskin_namn: string;
+    tillverkare: string | null;
+    modell: string | null;
     status: DagstatusMaskin;
     volym_m3sub: number;
     huvudtyp: string | null;
@@ -253,7 +246,8 @@ export async function GET(req: NextRequest) {
 
       return {
         maskin_id: h.maskin_id,
-        maskin_namn: maskinNamn(h),
+        tillverkare: h.tillverkare,
+        modell: h.modell,
         status,
         volym_m3sub: round1(total),
         huvudtyp: dominant,

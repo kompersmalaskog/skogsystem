@@ -78,13 +78,25 @@ type CalDagstatus = 'komplett' | 'saknas' | 'varning' | 'inaktiv';
 type CalKontroll = { id: number; tradslag: string | null; status: string; filnamn: string | null };
 type CalMaskin = {
   maskin_id: string;
-  maskin_namn: string;
+  tillverkare: string | null;
+  modell: string | null;
   status: CalDagstatus;
   volym_m3sub: number;
   huvudtyp: string | null;
   huvudtyp_okand: boolean;
   trosklar: { min_volym_m3sub: number };
   kontroller: CalKontroll[];
+};
+
+const maskinNamn = (m: { tillverkare?: string | null; modell?: string | null; maskin_id: string }) => {
+  const t = (m.tillverkare ?? '').trim();
+  const mod = (m.modell ?? '').trim();
+  if (!t && !mod) return m.maskin_id;
+  if (!mod) return t;
+  if (!t) return mod;
+  // Om modell börjar med tillverkare (case-insensitivt), släpp prefixet
+  if (mod.toLowerCase().startsWith(t.toLowerCase())) return mod;
+  return `${t} ${mod}`;
 };
 type CalDag = { datum: string; veckodag: number; status: CalDagstatus; maskiner: CalMaskin[] };
 type CalSammanfattning = { produktionsdagar: number; kompletta: number; saknas: number; varningar: number; okand_huvudtyp_dagar: number };
@@ -397,12 +409,15 @@ export default function KalibreringPage() {
       subtitle: dagstatusText(dag.status),
       body: (
         <>
-          {dag.maskiner.map(m => (
+          {dag.maskiner.map(m => {
+            const namn = maskinNamn(m);
+            const visaIdRad = !namn.includes(m.maskin_id) && namn !== m.maskin_id;
+            return (
             <div key={m.maskin_id} className={`kalib-day-maskin ${m.status === 'inaktiv' ? 'inaktiv' : ''}`}>
               <div className="kalib-day-maskin-header">
                 <div>
-                  <div className="kalib-day-maskin-namn">{m.maskin_namn}</div>
-                  <div className="kalib-day-maskin-id">{m.maskin_id}</div>
+                  <div className="kalib-day-maskin-namn">{namn}</div>
+                  {visaIdRad && <div className="kalib-day-maskin-id">{m.maskin_id}</div>}
                 </div>
                 <span className={`kalib-status-badge ${m.status}`}>{maskinStatusText(m.status)}</span>
               </div>
@@ -425,7 +440,8 @@ export default function KalibreringPage() {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </>
       ),
     });
@@ -473,7 +489,7 @@ export default function KalibreringPage() {
         .kalib-page{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display',sans-serif;background:#000;color:#fff;line-height:1.45;min-height:100vh;-webkit-font-smoothing:antialiased}
         .kalib-page *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 
-        .kalib-nav{display:flex;justify-content:center;gap:8px;padding:12px 20px;background:rgba(0,0,0,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);position:sticky;top:0;z-index:100;border-bottom:0.5px solid #2C2C2E}
+        .kalib-nav{display:flex;justify-content:center;gap:8px;padding:12px 20px;background:rgba(0,0,0,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);position:sticky;top:calc(56px + env(safe-area-inset-top));z-index:100;border-bottom:0.5px solid #2C2C2E}
         .kalib-pill{height:38px;padding:0 18px;border-radius:999px;font-size:14px;font-weight:500;color:#8E8E93;background:transparent;border:none;cursor:pointer;font-family:inherit;transition:background 0.15s,color 0.15s}
         .kalib-pill.active{background:#fff;color:#000;font-weight:600}
 
@@ -550,7 +566,7 @@ export default function KalibreringPage() {
         .kalib-list-value.bad{color:#FF3B30}
 
         /* === Kalender-fliken === */
-        .kalib-cal-header{position:sticky;top:62px;z-index:50;background:rgba(0,0,0,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-bottom:14px}
+        .kalib-cal-header{position:sticky;top:calc(118px + env(safe-area-inset-top));z-index:50;background:rgba(0,0,0,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-bottom:14px}
         .kalib-cal-nav{width:44px;height:44px;border-radius:22px;background:#1C1C1E;border:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-family:inherit}
         .kalib-cal-nav:active{background:#2A2A2C}
         .kalib-cal-title{font-size:18px;font-weight:600;color:#fff;letter-spacing:-0.01em}
@@ -562,9 +578,7 @@ export default function KalibreringPage() {
         .kalib-cal-summary-sub{font-size:13px;color:#8E8E93;margin-top:4px}
         .kalib-cal-summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px}
         .kalib-cal-summary-item{text-align:center;padding:12px 8px;background:rgba(255,255,255,0.04);border-radius:10px}
-        .kalib-cal-summary-num{font-size:22px;font-weight:700;line-height:1;letter-spacing:-0.02em}
-        .kalib-cal-summary-num.red{color:#FF3B30}
-        .kalib-cal-summary-num.grey{color:#8E8E93}
+        .kalib-cal-summary-num{font-size:22px;font-weight:700;line-height:1;letter-spacing:-0.02em;color:#fff}
         .kalib-cal-summary-lbl{font-size:11px;color:#8E8E93;margin-top:6px}
 
         .kalib-cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;color:#8E8E93;margin-bottom:8px;font-weight:500}
@@ -576,13 +590,12 @@ export default function KalibreringPage() {
         .kalib-cal-cell.komplett{background:rgba(52,199,89,0.15)}
         .kalib-cal-cell.saknas{background:rgba(255,59,48,0.15)}
         .kalib-cal-cell.saknas .kalib-cal-num{color:#FF3B30}
-        .kalib-cal-cell.varning{background:rgba(255,59,48,0.15)}
+        .kalib-cal-cell.varning{background:rgba(255,59,48,0.15);border:1.5px solid #FF3B30}
         .kalib-cal-cell.varning .kalib-cal-num{color:#FF3B30}
         .kalib-cal-cell.inaktiv{background:transparent}
         .kalib-cal-cell.inaktiv .kalib-cal-num{color:#8E8E93}
         .kalib-cal-cell.today{box-shadow:inset 0 0 0 1.5px #fff}
         .kalib-cal-cell.skeleton{background:rgba(255,255,255,0.04)}
-        .kalib-cal-warn-dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:#FF3B30}
 
         .kalib-cal-legend{display:flex;flex-direction:column;gap:6px;margin-top:16px;font-size:11px;color:#8E8E93;align-items:flex-start}
         .kalib-cal-legend-row{display:flex;align-items:center;gap:8px}
@@ -906,15 +919,15 @@ export default function KalibreringPage() {
                       <div className="kalib-cal-summary-sub">i {subManad}</div>
                       <div className="kalib-cal-summary-grid">
                         <div className="kalib-cal-summary-item">
-                          <div className="kalib-cal-summary-num red">{sf.saknas}</div>
+                          <div className="kalib-cal-summary-num" style={{ color: '#FF3B30' }}>{sf.saknas}</div>
                           <div className="kalib-cal-summary-lbl">Saknas</div>
                         </div>
                         <div className="kalib-cal-summary-item">
-                          <div className="kalib-cal-summary-num red">{sf.varningar}</div>
+                          <div className="kalib-cal-summary-num" style={{ color: '#FF3B30' }}>{sf.varningar}</div>
                           <div className="kalib-cal-summary-lbl">Varningar</div>
                         </div>
                         <div className="kalib-cal-summary-item">
-                          <div className="kalib-cal-summary-num grey">{sf.okand_huvudtyp_dagar}</div>
+                          <div className="kalib-cal-summary-num" style={{ color: '#8E8E93' }}>{sf.okand_huvudtyp_dagar}</div>
                           <div className="kalib-cal-summary-lbl">Okänd typ</div>
                         </div>
                       </div>
@@ -938,7 +951,6 @@ export default function KalibreringPage() {
                               onClick={isClickable ? () => openCalendarDayModal(dag) : undefined}
                             >
                               <span className="kalib-cal-num">{day}</span>
-                              {dag.status === 'varning' && <span className="kalib-cal-warn-dot" />}
                             </div>
                           );
                         })}
