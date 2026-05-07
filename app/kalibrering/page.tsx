@@ -73,8 +73,62 @@ const MSym = ({ name, size = 18, color }: { name: string; size?: number; color?:
 
 const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 
+// === Kalender-types som matchar /api/kalibrering/kalender response ===
+type CalDagstatus = 'komplett' | 'saknas' | 'varning' | 'inaktiv';
+type CalKontroll = { id: number; tradslag: string | null; status: string; filnamn: string | null };
+type CalMaskin = {
+  maskin_id: string;
+  maskin_namn: string;
+  status: CalDagstatus;
+  volym_m3sub: number;
+  huvudtyp: string | null;
+  huvudtyp_okand: boolean;
+  trosklar: { min_volym_m3sub: number };
+  kontroller: CalKontroll[];
+};
+type CalDag = { datum: string; veckodag: number; status: CalDagstatus; maskiner: CalMaskin[] };
+type CalSammanfattning = { produktionsdagar: number; kompletta: number; saknas: number; varningar: number; okand_huvudtyp_dagar: number };
+type CalResponse = { manad: string; dagar: CalDag[]; sammanfattning: CalSammanfattning };
+
+const padNum = (n: number) => String(n).padStart(2, '0');
+const idagManad = () => { const d = new Date(); return `${d.getFullYear()}-${padNum(d.getMonth() + 1)}`; };
+const idagStr = () => { const d = new Date(); return `${d.getFullYear()}-${padNum(d.getMonth() + 1)}-${padNum(d.getDate())}`; };
+const manadNamn = (manad: string) => {
+  const [y, m] = manad.split('-').map(Number);
+  const s = new Date(y, m - 1, 1).toLocaleDateString('sv-SE', { month: 'long', year: 'numeric' });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+const stegManad = (manad: string, delta: number) => {
+  const [y, m] = manad.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${padNum(d.getMonth() + 1)}`;
+};
+const dagrubrik = (datum: string) => {
+  const d = new Date(datum + 'T00:00:00');
+  const s = d.toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long' });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+const dagstatusText = (s: CalDagstatus): string => {
+  if (s === 'komplett') return 'Inom rutin';
+  if (s === 'saknas') return 'Saknad kontrollstam';
+  if (s === 'varning') return 'Varning från kontroll';
+  return 'Inaktiv';
+};
+const maskinStatusText = (s: CalDagstatus): string => {
+  if (s === 'komplett') return 'Kontroll lämnad';
+  if (s === 'saknas') return 'Saknas';
+  if (s === 'varning') return 'Varning';
+  return 'Inaktiv';
+};
+const kontrollStatusText = (s: string) => {
+  if (s === 'OK') return 'OK';
+  if (s === 'VARNING') return 'Varning';
+  if (s === 'FEL') return 'Fel';
+  return s;
+};
+
 export default function KalibreringPage() {
-  const [activeTab, setActiveTab] = useState<'today' | 'history' | 'report'>('today');
+  const [activeTab, setActiveTab] = useState<'today' | 'history' | 'calendar' | 'report'>('today');
   const [modalOpen, setModalOpen] = useState(false);
   const [modalContent, setModalContent] = useState<{ title: string; subtitle: string; body: React.ReactNode } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -82,6 +136,25 @@ export default function KalibreringPage() {
   const [allKalib, setAllKalib] = useState<FaktKalibrering[]>([]);
   const [stockMap, setStockMap] = useState<Record<string, DetaljKontrollStock[]>>({});
   const [historik, setHistorik] = useState<KalibHistorik[]>([]);
+
+  // === Kalender-fliken: egen state + lazy fetch på tab-byte/manad-byte ===
+  const [calManad, setCalManad] = useState<string>(idagManad);
+  const [calData, setCalData] = useState<CalResponse | null>(null);
+  const [calLoading, setCalLoading] = useState(false);
+  const [calError, setCalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== 'calendar') return;
+    if (calData?.manad === calManad && !calError) return; // har redan datan
+    let cancelled = false;
+    setCalLoading(true);
+    setCalError(null);
+    fetch(`/api/kalibrering/kalender?manad=${calManad}&key=skogsystem-debug`)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: CalResponse) => { if (!cancelled) { setCalData(data); setCalLoading(false); } })
+      .catch(err => { if (!cancelled) { setCalError(err?.message || 'Kunde inte ladda kalendern'); setCalLoading(false); } });
+    return () => { cancelled = true; };
+  }, [activeTab, calManad, calData, calError]);
 
   useEffect(() => {
     async function fetchData() {
@@ -153,48 +226,9 @@ export default function KalibreringPage() {
   const avgLenReport = totalStockar > 0 ? Math.round(allKalib.reduce((a, k) => a + k.langd_avvikelse_snitt_cm * k.antal_kontrollstockar, 0) / totalStockar * 10) / 10 : 0;
   const avgDiaReport = totalStockar > 0 ? Math.round(allKalib.reduce((a, k) => a + k.dia_avvikelse_snitt_mm * k.antal_kontrollstockar, 0) / totalStockar * 10) / 10 : 0;
 
-  // Unique calibration adjustments
+  // Unique calibration adjustments (används av Rapport-fliken)
   const kalibFileSet = new Set(historik.map(h => h.filnamn));
   const calibCount = kalibFileSet.size;
-
-  // Calendar
-  const calendarMonth = allKalib.length > 0 ? new Date(allKalib[0].datum) : new Date();
-  const year = calendarMonth.getFullYear();
-  const month = calendarMonth.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const firstDow = (new Date(year, month, 1).getDay() + 6) % 7;
-  const monthName = new Date(year, month).toLocaleDateString('sv-SE', { month: 'long' });
-
-  // Group kalib by day
-  const kalibByDay: Record<number, FaktKalibrering[]> = {};
-  allKalib.forEach(k => {
-    const d = new Date(k.datum);
-    if (d.getFullYear() === year && d.getMonth() === month) {
-      const day = d.getDate();
-      if (!kalibByDay[day]) kalibByDay[day] = [];
-      kalibByDay[day].push(k);
-    }
-  });
-
-  const calendarDays: { day: number | null; check?: boolean; calib?: boolean; warn?: boolean; off?: boolean; today?: boolean }[] = [];
-  for (let i = 0; i < firstDow; i++) calendarDays.push({ day: null });
-  const todayDate = new Date();
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dow = (firstDow + d - 1) % 7;
-    const isWeekend = dow >= 5;
-    const dayKalibs = kalibByDay[d];
-    const isToday = todayDate.getFullYear() === year && todayDate.getMonth() === month && todayDate.getDate() === d;
-    const hasWarning = dayKalibs?.some(k => k.status === 'VARNING');
-    const hasCalib = dayKalibs?.some(k => kalibFileSet.has(k.filnamn));
-    calendarDays.push({
-      day: d,
-      off: isWeekend && !dayKalibs,
-      check: !!dayKalibs && !hasWarning,
-      warn: hasWarning,
-      calib: hasCalib && !hasWarning,
-      today: isToday,
-    });
-  }
 
   // History list
   const historyList = allKalib.slice(0, 30).map(k => ({
@@ -309,70 +343,6 @@ export default function KalibreringPage() {
     setModalOpen(true);
   };
 
-  const openDayModal = (day: number) => {
-    const dayKalibs = kalibByDay[day];
-    if (!dayKalibs || dayKalibs.length === 0) return;
-    const k = dayKalibs[0];
-    const stocks = (stockMap[k.filnamn] || []).sort((a, b) => a.stock_nummer - b.stock_nummer);
-    const dayHistorik = historik.filter(h => h.filnamn === k.filnamn);
-
-    setModalContent({
-      title: `${day} ${monthName}`,
-      subtitle: `${dayKalibs.length} kontroll${dayKalibs.length > 1 ? 'er' : ''} • ${k.status === 'VARNING' ? 'Varning' : 'Inom tolerans'}`,
-      body: (
-        <>
-          <div className="kalib-total-summary">
-            <div className="kalib-total-title">Dagens mätning</div>
-            <div className="kalib-total-grid">
-              <div className="kalib-total-item"><div className="kalib-total-label">Trädslag</div><div className="kalib-total-value small">{k.tradslag}</div></div>
-              <div className="kalib-total-item"><div className="kalib-total-label">Längd (M−O)</div><div className={`kalib-total-value ${lenOut(k.langd_avvikelse_snitt_cm) ? 'bad' : ''}`}>{k.langd_avvikelse_snitt_cm >= 0 ? '+' : ''}{k.langd_avvikelse_snitt_cm}<span className="kalib-total-unit"> cm</span></div></div>
-              <div className="kalib-total-item"><div className="kalib-total-label">Dia (M−O)</div><div className={`kalib-total-value ${diaOut(k.dia_avvikelse_snitt_mm) ? 'bad' : ''}`}>{k.dia_avvikelse_snitt_mm >= 0 ? '+' : ''}{k.dia_avvikelse_snitt_mm}<span className="kalib-total-unit"> mm</span></div></div>
-            </div>
-          </div>
-          {stocks.length > 0 && (
-            <>
-              <div className="kalib-modal-section-header"><div className="kalib-modal-section-title">Stockar</div></div>
-              <div className="kalib-overview-grid">
-                {stocks.map(stock => {
-                  const cls = Math.abs(stock.dia_avvikelse_mm) > 6 ? 'bad' : Math.abs(stock.dia_avvikelse_mm) > 4 ? 'warn' : 'good';
-                  return (
-                    <div key={stock.id} className="kalib-overview-log" onClick={() => { setModalOpen(false); setTimeout(() => openStockModal(stock), 150); }}>
-                      <div className="kalib-overview-num">{stock.stock_nummer}</div>
-                      <div className="kalib-overview-info">
-                        <div className="kalib-overview-title">Stock {stock.stock_nummer}</div>
-                        <div className="kalib-overview-meta">{stock.maskin_langd_cm} cm • ⌀{stock.maskin_toppdia_mm}</div>
-                      </div>
-                      <div className={`kalib-diff-badge ${cls}`}>{stock.dia_avvikelse_mm >= 0 ? '+' : ''}{stock.dia_avvikelse_mm} mm</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-          {dayHistorik.length > 0 && (
-            <>
-              <div className="kalib-modal-section-header"><div className="kalib-modal-section-title">Kalibreringshistorik</div></div>
-              {dayHistorik.map(h => (
-                <div key={h.id} className="kalib-info-box neutral" style={{ marginBottom: 8 }}>
-                  <span className="kalib-info-icon"><MSym name="tune" size={20} color="#fff" /></span>
-                  <div className="kalib-info-content">
-                    <div className="kalib-info-title">{h.typ === 'langd' ? 'Längdjustering' : 'Diameterjustering'} • {h.tradslag}</div>
-                    <div className="kalib-info-text">
-                      {h.typ === 'langd' ? `${h.langd_justering_mm} mm` : `${h.dia_justering_mm} mm`}
-                      {h.position_cm ? ` vid ${h.position_cm} cm` : ''}
-                      {h.orsak !== 'none' ? ` • ${h.orsak}` : ''}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-        </>
-      )
-    });
-    setModalOpen(true);
-  };
-
   const openSpeciesDetail = (species: string) => {
     const data = speciesData[species];
     if (!data) return;
@@ -417,6 +387,47 @@ export default function KalibreringPage() {
           </div>
         </>
       )
+    });
+    setModalOpen(true);
+  };
+
+  const openCalendarDayModal = (dag: CalDag) => {
+    setModalContent({
+      title: dagrubrik(dag.datum),
+      subtitle: dagstatusText(dag.status),
+      body: (
+        <>
+          {dag.maskiner.map(m => (
+            <div key={m.maskin_id} className={`kalib-day-maskin ${m.status === 'inaktiv' ? 'inaktiv' : ''}`}>
+              <div className="kalib-day-maskin-header">
+                <div>
+                  <div className="kalib-day-maskin-namn">{m.maskin_namn}</div>
+                  <div className="kalib-day-maskin-id">{m.maskin_id}</div>
+                </div>
+                <span className={`kalib-status-badge ${m.status}`}>{maskinStatusText(m.status)}</span>
+              </div>
+              <div className="kalib-day-maskin-meta">
+                {m.volym_m3sub} m³fub · {m.status === 'inaktiv' ? 'Inaktiv' : (m.huvudtyp ?? 'Okänd typ')}
+              </div>
+              {m.huvudtyp_okand && (
+                <div className="kalib-day-maskin-info">
+                  <MSym name="info" size={14} color="#8E8E93" />
+                  <span>Objekttyp ej angiven</span>
+                </div>
+              )}
+              {m.kontroller.length > 0 && (
+                <div className="kalib-day-maskin-kontroller">
+                  {m.kontroller.map(k => (
+                    <div key={k.id} className="kalib-day-maskin-kontroll">
+                      {cap(k.tradslag ?? '')} · {kontrollStatusText(k.status)}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </>
+      ),
     });
     setModalOpen(true);
   };
@@ -538,21 +549,63 @@ export default function KalibreringPage() {
         .kalib-list-value{width:70px;text-align:right;font-size:14px;font-weight:600;color:#fff;flex-shrink:0;white-space:nowrap}
         .kalib-list-value.bad{color:#FF3B30}
 
-        .kalib-mini-cal{margin-top:12px}
-        .kalib-mini-cal-header{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;color:#8E8E93;margin-bottom:8px;font-weight:500}
-        .kalib-mini-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
-        .kalib-mini-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:13px;border-radius:8px;cursor:pointer;color:#fff;font-weight:500}
-        .kalib-mini-day.empty{visibility:hidden}
-        .kalib-mini-day.off{color:#48484A;cursor:default;font-weight:400}
-        .kalib-mini-day.check{background:rgba(52,199,89,0.15);color:#34C759;font-weight:600}
-        .kalib-mini-day.calib{background:rgba(255,255,255,0.08);color:#fff;font-weight:600}
-        .kalib-mini-day.warn{background:rgba(255,59,48,0.15);color:#FF3B30;font-weight:600}
-        .kalib-mini-day.today{box-shadow:inset 0 0 0 1.5px #fff}
-        .kalib-mini-legend{display:flex;justify-content:center;gap:16px;margin-top:14px;font-size:11px;color:#8E8E93}
-        .kalib-mini-legend .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
-        .kalib-mini-legend .dot.green{background:#34C759}
-        .kalib-mini-legend .dot.white{background:#fff}
-        .kalib-mini-legend .dot.red{background:#FF3B30}
+        /* === Kalender-fliken === */
+        .kalib-cal-header{position:sticky;top:62px;z-index:50;background:rgba(0,0,0,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-bottom:14px}
+        .kalib-cal-nav{width:44px;height:44px;border-radius:22px;background:#1C1C1E;border:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-family:inherit}
+        .kalib-cal-nav:active{background:#2A2A2C}
+        .kalib-cal-title{font-size:18px;font-weight:600;color:#fff;letter-spacing:-0.01em}
+
+        .kalib-cal-summary{padding:20px}
+        .kalib-cal-summary.skeleton .kalib-cal-summary-big,
+        .kalib-cal-summary.skeleton .kalib-cal-summary-sub{background:rgba(255,255,255,0.04);border-radius:6px;color:transparent}
+        .kalib-cal-summary-big{font-size:24px;font-weight:600;color:#fff;letter-spacing:-0.01em;line-height:1.2}
+        .kalib-cal-summary-sub{font-size:13px;color:#8E8E93;margin-top:4px}
+        .kalib-cal-summary-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px}
+        .kalib-cal-summary-item{text-align:center;padding:12px 8px;background:rgba(255,255,255,0.04);border-radius:10px}
+        .kalib-cal-summary-num{font-size:22px;font-weight:700;line-height:1;letter-spacing:-0.02em}
+        .kalib-cal-summary-num.red{color:#FF3B30}
+        .kalib-cal-summary-num.grey{color:#8E8E93}
+        .kalib-cal-summary-lbl{font-size:11px;color:#8E8E93;margin-top:6px}
+
+        .kalib-cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;color:#8E8E93;margin-bottom:8px;font-weight:500}
+        .kalib-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+        .kalib-cal-cell{aspect-ratio:1;min-height:44px;display:flex;align-items:center;justify-content:center;border-radius:12px;position:relative;padding:8px;font-family:inherit}
+        .kalib-cal-cell.empty{visibility:hidden}
+        .kalib-cal-cell.clickable{cursor:pointer;min-height:56px}
+        .kalib-cal-num{font-size:14px;font-weight:500;color:#fff}
+        .kalib-cal-cell.komplett{background:rgba(52,199,89,0.15)}
+        .kalib-cal-cell.saknas{background:rgba(255,59,48,0.15)}
+        .kalib-cal-cell.saknas .kalib-cal-num{color:#FF3B30}
+        .kalib-cal-cell.varning{background:rgba(255,59,48,0.15)}
+        .kalib-cal-cell.varning .kalib-cal-num{color:#FF3B30}
+        .kalib-cal-cell.inaktiv{background:transparent}
+        .kalib-cal-cell.inaktiv .kalib-cal-num{color:#8E8E93}
+        .kalib-cal-cell.today{box-shadow:inset 0 0 0 1.5px #fff}
+        .kalib-cal-cell.skeleton{background:rgba(255,255,255,0.04)}
+        .kalib-cal-warn-dot{position:absolute;top:6px;right:6px;width:6px;height:6px;border-radius:50%;background:#FF3B30}
+
+        .kalib-cal-legend{display:flex;flex-direction:column;gap:6px;margin-top:16px;font-size:11px;color:#8E8E93;align-items:flex-start}
+        .kalib-cal-legend-row{display:flex;align-items:center;gap:8px}
+        .kalib-cal-legend-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}
+        .kalib-cal-legend-dot.green{background:#34C759}
+        .kalib-cal-legend-dot.red{background:#FF3B30}
+        .kalib-cal-legend-dot.red-ring{background:#FF3B30;box-shadow:0 0 0 2px rgba(255,59,48,0.3)}
+
+        .kalib-status-badge{font-size:11px;font-weight:600;padding:4px 10px;border-radius:6px;white-space:nowrap;flex-shrink:0}
+        .kalib-status-badge.komplett{color:#34C759;background:rgba(52,199,89,0.15)}
+        .kalib-status-badge.saknas{color:#FF3B30;background:rgba(255,59,48,0.12)}
+        .kalib-status-badge.varning{color:#FF3B30;background:rgba(255,59,48,0.12)}
+        .kalib-status-badge.inaktiv{color:#8E8E93;background:rgba(255,255,255,0.04)}
+
+        .kalib-day-maskin{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:14px;margin-bottom:8px}
+        .kalib-day-maskin.inaktiv{opacity:0.5}
+        .kalib-day-maskin-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:10px}
+        .kalib-day-maskin-namn{font-size:15px;font-weight:600;color:#fff}
+        .kalib-day-maskin-id{font-size:12px;color:#8E8E93;margin-top:2px}
+        .kalib-day-maskin-meta{font-size:13px;color:#fff}
+        .kalib-day-maskin-info{display:flex;align-items:center;gap:6px;font-size:12px;color:#8E8E93;margin-top:4px}
+        .kalib-day-maskin-kontroller{display:flex;flex-direction:column;gap:4px;margin-top:10px;padding-top:10px;border-top:0.5px solid #2C2C2E}
+        .kalib-day-maskin-kontroll{font-size:13px;color:#8E8E93}
 
         .kalib-report{background:#1C1C1E;border-radius:14px;padding:24px 20px;border:1px solid rgba(255,255,255,0.06)}
         .kalib-report-header{display:flex;align-items:center;gap:14px;padding-bottom:18px;border-bottom:0.5px solid #2C2C2E;margin-bottom:20px}
@@ -648,6 +701,7 @@ export default function KalibreringPage() {
         <nav className="kalib-nav">
           <button className={`kalib-pill ${activeTab === 'today' ? 'active' : ''}`} onClick={() => setActiveTab('today')}>Senaste</button>
           <button className={`kalib-pill ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>Historik</button>
+          <button className={`kalib-pill ${activeTab === 'calendar' ? 'active' : ''}`} onClick={() => setActiveTab('calendar')}>Kalender</button>
           <button className={`kalib-pill ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>Rapport</button>
         </nav>
 
@@ -796,30 +850,111 @@ export default function KalibreringPage() {
                 </div>
               </div>
 
-              <div className="kalib-card">
-                <div className="kalib-section-title">{monthName.charAt(0).toUpperCase() + monthName.slice(1)}</div>
-                <div className="kalib-mini-cal">
-                  <div className="kalib-mini-cal-header"><span>M</span><span>T</span><span>O</span><span>T</span><span>F</span><span>L</span><span>S</span></div>
-                  <div className="kalib-mini-cal-grid">
-                    {calendarDays.map((d, i) => {
-                      if (d.day === null) return <div key={i} className="kalib-mini-day empty" />;
-                      let cls = 'kalib-mini-day';
-                      if (d.off) cls += ' off';
-                      if (d.check) cls += ' check';
-                      if (d.calib) cls += ' calib';
-                      if (d.warn) cls += ' warn';
-                      if (d.today) cls += ' today';
-                      const clickable = d.check || d.calib || d.warn;
-                      return <div key={i} className={cls} onClick={clickable ? () => openDayModal(d.day!) : undefined}>{d.day}</div>;
-                    })}
+            </>
+          )}
+
+          {activeTab === 'calendar' && (
+            <>
+              <div className="kalib-cal-header">
+                <button className="kalib-cal-nav" onClick={() => setCalManad(stegManad(calManad, -1))} aria-label="Föregående månad">
+                  <MSym name="chevron_left" size={24} color="#fff" />
+                </button>
+                <div className="kalib-cal-title">{manadNamn(calManad)}</div>
+                <button className="kalib-cal-nav" onClick={() => setCalManad(stegManad(calManad, 1))} aria-label="Nästa månad">
+                  <MSym name="chevron_right" size={24} color="#fff" />
+                </button>
+              </div>
+
+              {calError && !calLoading && (
+                <div className="kalib-info-box neutral" style={{ marginBottom: 12 }}>
+                  <span className="kalib-info-icon"><MSym name="error" size={20} color="#8E8E93" /></span>
+                  <div className="kalib-info-content">
+                    <div className="kalib-info-title">Kunde inte ladda kalendern</div>
+                    <div className="kalib-info-text">{calError}</div>
                   </div>
                 </div>
-                <div className="kalib-mini-legend">
-                  <span><span className="dot green" />Kontroll</span>
-                  <span><span className="dot white" />Kalibrering</span>
-                  <span><span className="dot red" />Varning</span>
-                </div>
-              </div>
+              )}
+
+              {calLoading && (
+                <>
+                  <div className="kalib-card kalib-cal-summary skeleton">
+                    <div className="kalib-cal-summary-big">&nbsp;</div>
+                    <div className="kalib-cal-summary-sub">&nbsp;</div>
+                  </div>
+                  <div className="kalib-card">
+                    <div className="kalib-cal-weekdays"><span>M</span><span>T</span><span>O</span><span>T</span><span>F</span><span>L</span><span>S</span></div>
+                    <div className="kalib-cal-grid">
+                      {Array.from({ length: 35 }).map((_, i) => (
+                        <div key={i} className="kalib-cal-cell skeleton" />
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {!calLoading && calData && (() => {
+                const sf = calData.sammanfattning;
+                const subManad = manadNamn(calManad).toLowerCase();
+                const todayStr = idagStr();
+                const leadingEmpty = calData.dagar.length > 0 ? calData.dagar[0].veckodag - 1 : 0;
+                const totalCells = leadingEmpty + calData.dagar.length;
+                const trailingEmpty = (7 - (totalCells % 7)) % 7;
+                return (
+                  <>
+                    <div className="kalib-card kalib-cal-summary">
+                      <div className="kalib-cal-summary-big">{sf.kompletta} av {sf.produktionsdagar} dagar kompletta</div>
+                      <div className="kalib-cal-summary-sub">i {subManad}</div>
+                      <div className="kalib-cal-summary-grid">
+                        <div className="kalib-cal-summary-item">
+                          <div className="kalib-cal-summary-num red">{sf.saknas}</div>
+                          <div className="kalib-cal-summary-lbl">Saknas</div>
+                        </div>
+                        <div className="kalib-cal-summary-item">
+                          <div className="kalib-cal-summary-num red">{sf.varningar}</div>
+                          <div className="kalib-cal-summary-lbl">Varningar</div>
+                        </div>
+                        <div className="kalib-cal-summary-item">
+                          <div className="kalib-cal-summary-num grey">{sf.okand_huvudtyp_dagar}</div>
+                          <div className="kalib-cal-summary-lbl">Okänd typ</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="kalib-card">
+                      <div className="kalib-cal-weekdays"><span>M</span><span>T</span><span>O</span><span>T</span><span>F</span><span>L</span><span>S</span></div>
+                      <div className="kalib-cal-grid">
+                        {Array.from({ length: leadingEmpty }).map((_, i) => (
+                          <div key={`l${i}`} className="kalib-cal-cell empty" />
+                        ))}
+                        {calData.dagar.map(dag => {
+                          const day = parseInt(dag.datum.slice(-2), 10);
+                          const isToday = dag.datum === todayStr;
+                          const isClickable = dag.status !== 'inaktiv';
+                          const cls = `kalib-cal-cell ${dag.status} ${isToday ? 'today' : ''} ${isClickable ? 'clickable' : ''}`.trim();
+                          return (
+                            <div
+                              key={dag.datum}
+                              className={cls}
+                              onClick={isClickable ? () => openCalendarDayModal(dag) : undefined}
+                            >
+                              <span className="kalib-cal-num">{day}</span>
+                              {dag.status === 'varning' && <span className="kalib-cal-warn-dot" />}
+                            </div>
+                          );
+                        })}
+                        {Array.from({ length: trailingEmpty }).map((_, i) => (
+                          <div key={`t${i}`} className="kalib-cal-cell empty" />
+                        ))}
+                      </div>
+                      <div className="kalib-cal-legend">
+                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot green" />Kontroll lämnad</div>
+                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot red" />Saknas</div>
+                        <div className="kalib-cal-legend-row"><span className="kalib-cal-legend-dot red-ring" />Varning</div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </>
           )}
 
