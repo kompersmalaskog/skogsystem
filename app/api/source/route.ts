@@ -55,6 +55,9 @@ const FIL_KARTA: Record<string, string> = {
   AppState:   'app/api/app-state/route.ts',
   Source:     'app/api/source/route.ts',
 
+  // Kalibrering
+  KalibreringKalender: 'app/api/kalibrering/kalender/route.ts',
+
   // Fortnox
   FortnoxEmployeeDetails: 'app/api/fortnox/employee-details/route.ts',
   FortnoxDebugSaldon:     'app/api/fortnox/debug-saldon/route.ts',
