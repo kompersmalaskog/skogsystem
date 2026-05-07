@@ -179,18 +179,33 @@ function colorForType(type?: string): string {
 // verticalExaggeration skalar terrängen visuellt men INTE entiteters
 // absolutpositioner. Vi multiplicerar därför entitet-höjder manuellt.
 const VERTICAL_EXAG = 2.5
-// Bil-GPS-stil (Tesla/Google Maps navigation): maskinen i nedre tredjedelen,
-// marken framåt fyller övre 2/3, horisonten precis ovanför skärmens övre kant.
-//   CAM_BACK 20 m   → tight bakom maskinen, pilen blir stor och förankrad
+// Bil-GPS-stil körvy. Pitch beräknas dynamiskt från viewport-aspect (se
+// computeDynamicPitch) så maskinen alltid hamnar ~80% Y oberoende av om
+// föraren håller mobilen i landscape eller portrait.
+//   CAM_BACK 20 m   → tight bakom maskinen, pilen syns stor
 //   CAM_HEIGHT 12 m → låg kamera, "inne i" landskapet
-//   CAM_PITCH -18°  → flack nedåtblick: atan(12/20) ≈ 31° gör att maskinen
-//                     hamnar ~13° under bildmitten (solid nedre tredjedel).
-//                     Horisonten 18° över bildmitt ligger vid övre kanten av
-//                     mobil landscape-FOV (~36° vert).
 const CAM_HEIGHT = 12
-const CAM_PITCH = -18
 const CAM_BACK = 20
+// Andel av halv vertikal-FOV som maskinen ska hamna under bildmitt.
+// 0.30 = 30 % från center mot bottom-edge → ~80 % Y från top.
+const MACHINE_Y_OFFSET_FRACTION = 0.30
 const LIGHT_INTENSITY = 3.5
+
+// Beräkna dynamisk pitch (radianer) så maskinen hamnar ungefär på 80% Y
+// oberoende av viewport-aspect. Funkar för både landscape och portrait.
+//
+// Geometri: maskinen är atan(CAM_HEIGHT/CAM_BACK) under camera horizon.
+// Vi vill att den syns på (1 - MACHINE_Y_OFFSET_FRACTION × 2)/2 = 30 % från
+// center mot bottom-edge. Pitch = -(machine_angle - desired_y_offset).
+function computeDynamicPitch(viewer: CesiumNS.Viewer): number {
+  const canvas = viewer.scene.canvas
+  const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight)
+  const fovX = (viewer.camera.frustum as any).fov  // X-FOV (default 60° = 1.047 rad)
+  const halfVertFov = Math.atan(Math.tan(fovX / 2) / aspect)
+  const desiredOffset = MACHINE_Y_OFFSET_FRACTION * halfVertFov
+  const machineAngle = Math.atan(CAM_HEIGHT / CAM_BACK)
+  return -(machineAngle - desiredOffset)
+}
 
 // === Lager-grupper synliga i 3D (filtrerade på show3D) ===
 const layerGroups3D = wmsLayerGroups
@@ -1106,7 +1121,7 @@ export default function CesiumScene({ objektId }: Props) {
     const initBack = offsetLatLngByBearing(objekt.lat, objekt.lng, CAM_BACK, 180)
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(initBack[0], initBack[1], groundH * VERTICAL_EXAG + CAM_HEIGHT),
-      orientation: { heading: 0, pitch: Cesium.Math.toRadians(CAM_PITCH), roll: 0 },
+      orientation: { heading: 0, pitch: computeDynamicPitch(viewer), roll: 0 },
     })
     initialFlightDoneRef.current = true
     viewer.scene.requestRender()
@@ -1559,7 +1574,7 @@ export default function CesiumScene({ objektId }: Props) {
         destination: Cesium.Cartesian3.fromDegrees(back[0], back[1], groundH * VERTICAL_EXAG + CAM_HEIGHT),
         orientation: {
           heading: Cesium.Math.toRadians(heading),
-          pitch: Cesium.Math.toRadians(CAM_PITCH),
+          pitch: computeDynamicPitch(viewer),
           roll: 0,
         },
         duration: 1.0,
@@ -1569,29 +1584,48 @@ export default function CesiumScene({ objektId }: Props) {
     return () => { cancelled = true }
   }, [ready, pos, followGps])
 
-  // === Maskin-ikon — minimal, statisk (Apple-stil) ===
-  // En liten vit cirkel + blå pil som roterar med heading. Ingen pulserande
-  // halo, ingen siktfält-kon, ingen animation-loop — vyn är lugnare och
-  // fokuserar på markeringar/HPR-högar. Halvstor scale 0.5.
+  // === Maskin-pil — polygon med image material, klampad till terrängen ===
+  // Drapas på marken som en målad pil på vägen istället för en stående
+  // billboard. 5 m diameter romb (cardinal corners N/E/S/W) med Image-
+  // MaterialProperty som visar vit cirkel + blå pil. polygon.stRotation
+  // roterar texturen med maskinens heading. lastHeadingRef behåller
+  // orienteringen vid stillastående.
   useEffect(() => {
     if (!ready || !viewerRef.current || !pos) return
     const viewer = viewerRef.current
-    const heading = pos.heading != null ? pos.heading : 0
-    const position = Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat)
+    if (pos.heading != null) lastHeadingRef.current = pos.heading
+    const heading = pos.heading != null ? pos.heading : lastHeadingRef.current
 
-    const existing = viewer.entities.getById('machine-icon')
-    if (existing) viewer.entities.remove(existing)
+    // Rensa ev. gammal entity oavsett tidigare typ
+    for (const id of ['machine-icon', 'machine-arrow']) {
+      const e = viewer.entities.getById(id)
+      if (e) viewer.entities.remove(e)
+    }
+
+    // Romb 5 m diameter — corners cardinal (N, E, S, W)
+    const half = 2.5
+    const corners = [
+      offsetLatLngByBearing(pos.lat, pos.lon, half, 0),
+      offsetLatLngByBearing(pos.lat, pos.lon, half, 90),
+      offsetLatLngByBearing(pos.lat, pos.lon, half, 180),
+      offsetLatLngByBearing(pos.lat, pos.lon, half, 270),
+    ]
+    const polyPositions = corners.map(([lon, lat]) =>
+      Cesium.Cartesian3.fromDegrees(lon, lat),
+    )
 
     viewer.entities.add({
-      id: 'machine-icon',
-      position,
-      billboard: {
-        image: getMachineIconCanvas(),
-        scale: 0.5,
-        rotation: Cesium.Math.toRadians(-heading),
-        alignedAxis: Cesium.Cartesian3.UNIT_Z,
+      id: 'machine-arrow',
+      polygon: {
+        hierarchy: new Cesium.PolygonHierarchy(polyPositions),
+        material: new Cesium.ImageMaterialProperty({
+          image: getMachineIconCanvas(),
+          transparent: true,
+        }),
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        // Bilden ritar pilen pekande "uppåt" (heading 0 = N). stRotation
+        // roterar texturen med −heading så pilen följer maskinens kurs.
+        stRotation: Cesium.Math.toRadians(-heading),
       },
     })
     viewer.scene.requestRender()
