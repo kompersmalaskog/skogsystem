@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // === TYPES (matching actual Supabase tables) ===
@@ -154,6 +154,49 @@ export default function KalibreringPage() {
   const [calData, setCalData] = useState<CalResponse | null>(null);
   const [calLoading, setCalLoading] = useState(false);
   const [calError, setCalError] = useState<string | null>(null);
+  const [selectedMaskinId, setSelectedMaskinId] = useState<string | 'all'>('all');
+
+  // Unika maskiner i månadens data — base för filter-pillarna
+  const uniqueMaskiner = useMemo<CalMaskin[]>(() => {
+    if (!calData) return [];
+    const seen = new Map<string, CalMaskin>();
+    for (const d of calData.dagar) {
+      for (const m of d.maskiner) {
+        if (!seen.has(m.maskin_id)) seen.set(m.maskin_id, m);
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) => a.maskin_id.localeCompare(b.maskin_id));
+  }, [calData]);
+
+  // Faller tillbaka till 'all' om vald maskin inte finns i månadens data (t.ex. efter månadsbyte)
+  const effectiveSelected: string | 'all' = selectedMaskinId === 'all' || uniqueMaskiner.some(m => m.maskin_id === selectedMaskinId)
+    ? selectedMaskinId
+    : 'all';
+
+  const aggregeraDagFiltrerat = (dag: CalDag, valdMaskinId: string | 'all'): CalDagstatus => {
+    if (valdMaskinId === 'all') return dag.status;
+    const m = dag.maskiner.find(x => x.maskin_id === valdMaskinId);
+    if (!m) return 'inaktiv';
+    return m.status;
+  };
+
+  // Sammanfattning omberäknad efter filter
+  const filteredSammanfattning = useMemo<CalSammanfattning | null>(() => {
+    if (!calData) return null;
+    if (effectiveSelected === 'all') return calData.sammanfattning;
+    const rader = calData.dagar.map(d => {
+      const status = aggregeraDagFiltrerat(d, effectiveSelected);
+      const m = d.maskiner.find(x => x.maskin_id === effectiveSelected);
+      return { status, huvudtyp_okand: !!m?.huvudtyp_okand };
+    });
+    return {
+      produktionsdagar: rader.filter(r => r.status !== 'inaktiv').length,
+      kompletta: rader.filter(r => r.status === 'komplett').length,
+      saknas: rader.filter(r => r.status === 'saknas').length,
+      varningar: rader.filter(r => r.status === 'varning').length,
+      okand_huvudtyp_dagar: rader.filter(r => r.huvudtyp_okand).length,
+    };
+  }, [calData, effectiveSelected]);
 
   useEffect(() => {
     if (activeTab !== 'calendar') return;
@@ -581,6 +624,11 @@ export default function KalibreringPage() {
         .kalib-cal-summary-num{font-size:22px;font-weight:700;line-height:1;letter-spacing:-0.02em;color:#fff}
         .kalib-cal-summary-lbl{font-size:11px;color:#8E8E93;margin-top:6px}
 
+        .kalib-cal-filter{display:flex;gap:6px;overflow-x:auto;padding:0 0 4px;margin-bottom:12px;scrollbar-width:none;-ms-overflow-style:none}
+        .kalib-cal-filter::-webkit-scrollbar{display:none}
+        .kalib-cal-filter-pill{height:32px;padding:0 14px;border-radius:999px;font-size:13px;font-weight:500;color:#8E8E93;background:transparent;border:1px solid rgba(255,255,255,0.06);cursor:pointer;font-family:inherit;white-space:nowrap;flex-shrink:0;transition:background 0.15s,color 0.15s,border-color 0.15s}
+        .kalib-cal-filter-pill.active{background:#fff;color:#000;border-color:#fff;font-weight:600}
+
         .kalib-cal-weekdays{display:grid;grid-template-columns:repeat(7,1fr);text-align:center;font-size:11px;color:#8E8E93;margin-bottom:8px;font-weight:500}
         .kalib-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
         .kalib-cal-cell{aspect-ratio:1;min-height:44px;display:flex;align-items:center;justify-content:center;border-radius:12px;position:relative;padding:8px;font-family:inherit}
@@ -905,8 +953,8 @@ export default function KalibreringPage() {
                 </>
               )}
 
-              {!calLoading && calData && (() => {
-                const sf = calData.sammanfattning;
+              {!calLoading && calData && filteredSammanfattning && (() => {
+                const sf = filteredSammanfattning;
                 const subManad = manadNamn(calManad).toLowerCase();
                 const todayStr = idagStr();
                 const leadingEmpty = calData.dagar.length > 0 ? calData.dagar[0].veckodag - 1 : 0;
@@ -933,6 +981,22 @@ export default function KalibreringPage() {
                       </div>
                     </div>
 
+                    {uniqueMaskiner.length > 1 && (
+                      <div className="kalib-cal-filter">
+                        <button
+                          className={`kalib-cal-filter-pill ${effectiveSelected === 'all' ? 'active' : ''}`}
+                          onClick={() => setSelectedMaskinId('all')}
+                        >Alla</button>
+                        {uniqueMaskiner.map(m => (
+                          <button
+                            key={m.maskin_id}
+                            className={`kalib-cal-filter-pill ${effectiveSelected === m.maskin_id ? 'active' : ''}`}
+                            onClick={() => setSelectedMaskinId(m.maskin_id)}
+                          >{maskinNamn(m)}</button>
+                        ))}
+                      </div>
+                    )}
+
                     <div className="kalib-card">
                       <div className="kalib-cal-weekdays"><span>M</span><span>T</span><span>O</span><span>T</span><span>F</span><span>L</span><span>S</span></div>
                       <div className="kalib-cal-grid">
@@ -942,8 +1006,9 @@ export default function KalibreringPage() {
                         {calData.dagar.map(dag => {
                           const day = parseInt(dag.datum.slice(-2), 10);
                           const isToday = dag.datum === todayStr;
-                          const isClickable = dag.status !== 'inaktiv';
-                          const cls = `kalib-cal-cell ${dag.status} ${isToday ? 'today' : ''} ${isClickable ? 'clickable' : ''}`.trim();
+                          const cellStatus = aggregeraDagFiltrerat(dag, effectiveSelected);
+                          const isClickable = cellStatus !== 'inaktiv';
+                          const cls = `kalib-cal-cell ${cellStatus} ${isToday ? 'today' : ''} ${isClickable ? 'clickable' : ''}`.trim();
                           return (
                             <div
                               key={dag.datum}

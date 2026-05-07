@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 const DEBUG_KEY = "skogsystem-debug";
 
-type Maskin = { maskin_id: string; tillverkare: string | null; modell: string | null };
+type Maskin = { maskin_id: string; tillverkare: string | null; modell: string | null; aktiv_till: string | null };
 type ProdRow = { datum: string; maskin_id: string; objekt_id: string | null; volym_m3sub: number | null };
 type ObjektRow = { objekt_id: string; huvudtyp: string | null };
 type KalibRow = { id: number; datum: string; maskin_id: string; status: string; tradslag: string | null; filnamn: string | null };
@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   // === 1) Skördare ===
   const harvRes = await supabase
     .from("dim_maskin")
-    .select("maskin_id, tillverkare, modell")
+    .select("maskin_id, tillverkare, modell, aktiv_till")
     .eq("maskin_typ", "Harvester");
   if (harvRes.error) {
     return NextResponse.json({ ok: false, error: `dim_maskin: ${harvRes.error.message}` }, { status: 500 });
@@ -221,7 +221,10 @@ export async function GET(req: NextRequest) {
     const dow = new Date(`${datum}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
     const veckodag = dow === 0 ? 7 : dow; // ISO: 1=Mon..7=Sun
 
-    const maskiner: MaskinDag[] = harvesters.map(h => {
+    // Filtrera maskiner som var aktiva på dagen — sålda maskiner (aktiv_till < datum)
+    // ska inte alls dyka upp i den dagens lista.
+    const aktivaForDag = harvesters.filter(h => !h.aktiv_till || h.aktiv_till >= datum);
+    const maskiner: MaskinDag[] = aktivaForDag.map(h => {
       const dmKey = `${datum}|${h.maskin_id}`;
       const agg = aggByKey.get(dmKey);
       const total = agg?.total_volym ?? 0;
