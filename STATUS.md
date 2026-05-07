@@ -54,18 +54,36 @@
   när någon ändå rör filen.
 
 ## Pågående arbete
-- Stanford2010-dokumentation pågår — MOM och
-  HPR klara, HQC och FPR återstår. Filer
-  ligger untracked i docs/stanford2010/.
-  Pushas som samlad PR när alla fyra klara.
-- Viktig upptäckt under HPR-arbetet:
-  hpr_filer-tabellen har 538 rader med
-  maskin_id=NULL och 248 med stammar_count=0
-  pga buggar i import_hpr.py (rad 372-374,
-  391) och _save_hpr_tables. Datat finns
-  intakt i detalj_stam + hpr_stammar.
-  Repair-query förberedd i
-  hpr-harvester-production.md. Kör SQL-
-  reparation när dokumentationen är klar.
+- Stanford2010-dokumentation KLAR — alla
+  fyra filtyper pushade på main (commit
+  02a63df + 16f38fd). hpr_filer-reparation
+  körd 2026-05-07 via MCP — 544 rader
+  fix:ade till 0 utan maskin_id, 245 av
+  248 stammar_count uppdaterade. Datat var
+  intakt hela tiden i detalj_stam +
+  hpr_stammar — bara summary-tabellen var
+  fel.
+
+## HPR-import buggar (kvarstår)
+Kommer skapa trasiga rader vid varje ny
+HPR-import tills patchad:
+
+- import_hpr.py rad 372-374: fil_row
+  saknar 'maskin_id' och 'stammar_count'
+  — lägg till 'maskin_id':
+  parsed['maskin_id'] och
+  'stammar_count': len(parsed['stammar'])
+- import_hpr.py rad 391: föråldrad
+  kommentar om "tom maskiner-tabell" —
+  ta bort
+- skogsmaskin_import_version_6.py
+  _save_hpr_tables: fil_row saknar
+  'maskin_id' — lägg till 'maskin_id':
+  maskin_id (variabeln finns redan
+  deklarerad)
+
+Repair-strategier för redan-skapade
+rader finns i docs/stanford2010/
+hpr-harvester-production.md.
 
 Uppdatera denna fil vid varje commit.
