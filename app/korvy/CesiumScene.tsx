@@ -712,6 +712,10 @@ export default function CesiumScene({ objektId }: Props) {
   // Senast kända heading från GPS — används vid stillastående (pos.heading=null
   // när hastighet < 1 m/s) så kameran inte snäpper till nord-uppåt vid stopp.
   const lastHeadingRef = useRef<number>(0)
+  // True efter initial-setView. GPS-follow bailar tills detta är true så
+  // kameran inte börjar fly:To medan den fortfarande är i sin default-startpos
+  // (rakt ner mot Earth-mitten). Skyddar mot async-race vid mount.
+  const initialFlightDoneRef = useRef<boolean>(false)
   const triggeredIdsRef = useRef<Set<string>>(new Set())
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [objekt, setObjekt] = useState<Objekt | null>(null)
@@ -872,8 +876,12 @@ export default function CesiumScene({ objektId }: Props) {
           vrButton: false,
           infoBox: false,
           selectionIndicator: false,
-          requestRenderMode: true,
-          maximumRenderTimeChange: Infinity,
+          // requestRenderMode default false (continuous rendering): flyTo:s
+          // tween-animation behöver frames varje 16ms för att glida fram. Med
+          // requestRenderMode=true triggas frames bara vid explicita
+          // requestRender()-anrop, så tween-progressen körs aldrig och
+          // kameran fastnar på sin start-position.
+          requestRenderMode: false,
         })
         viewerRef.current = viewer
 
@@ -1078,28 +1086,44 @@ export default function CesiumScene({ objektId }: Props) {
     viewer.scene.requestRender()
   }, [ready, overlays, bgType])
 
-  // === Initial-vy: sampla objektets terränghöjd → ENU-ljus + flyTo ===
+  // === Initial-vy: setView (instant) + ENU-ljus async ===
+  // setView görs synkront FÖRE terrain-sample så kameran landar direkt på
+  // rätt plats. Annars cancellerade flyTo-cancellation från GPS-follow's
+  // 2 Hz mock-tickar (eller 1 Hz riktig GPS) den initiala flygningen innan
+  // den hann komma fram, och kameran fastnade tusentals km från målet.
+  // Terrain-sample körs async efteråt — uppdaterar groundHeightRef + ljus
+  // riktning men påverkar inte den redan placerade kameran.
   useEffect(() => {
     if (!ready || !objekt || !viewerRef.current) return
     const viewer = viewerRef.current
     if (objekt.lat == null || objekt.lng == null) return
-    let cancelled = false
 
+    // 1) Synkront setView med default groundH (150 m fallback). Cesium
+    //    klampar inte mot exakt terränghöjd här, men fel-marginal är ~1-2 m
+    //    pga 1m DEM och dev-mock kan godta det. GPS-follow-flytten plockar
+    //    upp den exakta höjden via terrain-sample (utom i dev-mock-läget).
+    const groundH = groundHeightRef.current
+    const initBack = offsetLatLngByBearing(objekt.lat, objekt.lng, CAM_BACK, 180)
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(initBack[0], initBack[1], groundH * VERTICAL_EXAG + CAM_HEIGHT),
+      orientation: { heading: 0, pitch: Cesium.Math.toRadians(CAM_PITCH), roll: 0 },
+    })
+    initialFlightDoneRef.current = true
+    viewer.scene.requestRender()
+
+    // 2) Async terrain-sample + ljus — uppdaterar refs i bakgrunden
+    let cancelled = false
     ;(async () => {
-      let groundH = 150
       try {
         const cart = Cesium.Cartographic.fromDegrees(objekt.lng, objekt.lat)
         const sampled = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider as any, [cart])
         if (cancelled) return
-        groundH = sampled[0].height || 150
-        groundHeightRef.current = groundH
+        groundHeightRef.current = sampled[0].height || 150
 
         // Bygg ljusriktning från lokal ENU-frame: klassisk hillshade-belysning
         // azimuth 315° (NW), elevation 45° över horisonten.
-        //   sol-position = (sin(315°)·cos(45°), cos(315°)·cos(45°), sin(45°))
-        //                ≈ (-0.5, 0.5, 0.707)  [East, North, Up]
-        //   ljus-direktion (FRÅN sol TILL mark) = -sol-position
-        //                ≈ (0.5, -0.5, -0.707)
+        //   sol-position ≈ (-0.5, 0.5, 0.707)  [East, North, Up]
+        //   ljus-direktion = -sol-position ≈ (0.5, -0.5, -0.707)
         const center = Cesium.Cartesian3.fromDegrees(objekt.lng, objekt.lat)
         const enuFrame = Cesium.Transforms.eastNorthUpToFixedFrame(center)
         const localDir = new Cesium.Cartesian3(0.5, -0.5, -0.707)
@@ -1110,19 +1134,10 @@ export default function CesiumScene({ objektId }: Props) {
           direction: worldDir,
           intensity: LIGHT_INTENSITY,
         })
+        viewer.scene.requestRender()
       } catch (e) {
         console.warn('[Körvy3D] terrain sample (init):', e)
       }
-
-      // Initial flyTo med samma offset-logik som GPS-follow så vyn ser ut
-      // som bil-GPS från första frame istället för "drönarvy ovanifrån".
-      // Default heading 0 (nord-uppåt) tills GPS levererar riktigt heading.
-      const initBack = offsetLatLngByBearing(objekt.lat, objekt.lng, CAM_BACK, 180)
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(initBack[0], initBack[1], groundH * VERTICAL_EXAG + CAM_HEIGHT),
-        orientation: { heading: 0, pitch: Cesium.Math.toRadians(CAM_PITCH), roll: 0 },
-        duration: 1.5,
-      })
     })()
 
     return () => { cancelled = true }
@@ -1511,19 +1526,30 @@ export default function CesiumScene({ objektId }: Props) {
     const viewer = viewerRef.current
     let cancelled = false
 
+    // Vänta tills initial-setView har placerat kameran. Annars startar
+    // flyTo från default Cesium-position (rakt ner mot Earth-mitten) och
+    // hinner aldrig komma fram innan nästa pos-tick cancellerar den.
+    if (!initialFlightDoneRef.current) return
+
     ;(async () => {
       // Heading: använd GPS:ns heading när det finns (hastighet ≥ 1 m/s),
       // annars sista kända så kameran inte snäpper till nord vid stopp.
       if (pos.heading != null) lastHeadingRef.current = pos.heading
       const heading = pos.heading != null ? pos.heading : lastHeadingRef.current
 
+      // I dev-mock (2 Hz) hoppar vi över terrain-sample — den asynkrona
+      // räntan cancellerar varje flyTo innan den hinner köra. Riktig GPS
+      // (1 Hz) får tillräckligt med tid för sampling. Initial-vyn har redan
+      // sampla:t terrängen och uppdaterat groundHeightRef.
       let groundH = groundHeightRef.current
-      try {
-        const cart = Cesium.Cartographic.fromDegrees(pos.lon, pos.lat)
-        const sampled = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider as any, [cart])
-        if (cancelled) return
-        groundH = sampled[0].height || groundHeightRef.current
-      } catch {}
+      if (!isDevMock) {
+        try {
+          const cart = Cesium.Cartographic.fromDegrees(pos.lon, pos.lat)
+          const sampled = await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider as any, [cart])
+          if (cancelled) return
+          groundH = sampled[0].height || groundHeightRef.current
+        } catch {}
+      }
 
       // Kamera bakom föraren (motsatt heading), över exaggererad terräng.
       // Duration 1.0 s så animationen överlappar nästa GPS-tick (~1 Hz) och
