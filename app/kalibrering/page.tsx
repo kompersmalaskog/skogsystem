@@ -526,16 +526,16 @@ export default function KalibreringPage() {
         .kalib-list{}
         .kalib-list-item{display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 0;border-bottom:0.5px solid #2C2C2E;cursor:pointer}
         .kalib-list-item:last-child{border-bottom:none}
-        .kalib-list-date{width:42px;text-align:center;flex-shrink:0}
-        .kalib-list-day{display:block;font-size:18px;font-weight:600;line-height:1.1;color:#fff}
-        .kalib-list-month{font-size:11px;color:#8E8E93}
+        .kalib-list-date{width:48px;text-align:center;flex-shrink:0;white-space:nowrap;font-size:13px;color:#fff}
+        .kalib-list-day{font-weight:600}
+        .kalib-list-month{color:#8E8E93;margin-left:4px}
         .kalib-list-info{width:88px;flex-shrink:0}
         .kalib-list-species{display:block;font-size:14px;font-weight:500;color:#fff}
         .kalib-list-stem{font-size:12px;color:#8E8E93}
         .kalib-list-bar-container{flex:1;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;position:relative}
         .kalib-list-bar{height:100%;border-radius:3px;background:#fff}
         .kalib-list-bar.bad{background:#FF3B30}
-        .kalib-list-value{width:64px;text-align:right;font-size:14px;font-weight:600;color:#fff;flex-shrink:0}
+        .kalib-list-value{width:70px;text-align:right;font-size:14px;font-weight:600;color:#fff;flex-shrink:0;white-space:nowrap}
         .kalib-list-value.bad{color:#FF3B30}
 
         .kalib-mini-cal{margin-top:12px}
@@ -734,14 +734,8 @@ export default function KalibreringPage() {
 
           {activeTab === 'history' && (
             <>
-              <header className="kalib-page-header">
-                <h1 className="kalib-page-title">Hur mäter maskinen?</h1>
-                <p className="kalib-page-subtitle">{allKalib.length} kontroller • {calibCount} med kalibreringar</p>
-              </header>
-
               <div className="kalib-card">
                 <div className="kalib-section-title">Per trädslag</div>
-                <div className="kalib-section-subtitle">Viktad snittavvikelse (M − Operatör)</div>
                 <div className="kalib-bars">
                   {Object.entries(speciesData).map(([key, data]) => {
                     const name = key === 'gran' ? 'Gran' : key === 'tall' ? 'Tall' : key.charAt(0).toUpperCase() + key.slice(1);
@@ -777,11 +771,10 @@ export default function KalibreringPage() {
 
               <div className="kalib-card">
                 <div className="kalib-section-title">Senaste kontrollerna</div>
-                <div className="kalib-section-subtitle">Diameteravvikelse per kontroll</div>
                 <div className="kalib-list">
                   {historyList.map(({ kalib: k, date }) => {
                     const day = date.getDate();
-                    const monthShort = date.toLocaleDateString('sv-SE', { month: 'short' });
+                    const monthShort = date.toLocaleDateString('sv-SE', { month: 'short' }).replace('.', '');
                     const isOut = k.status === 'VARNING' || diaOut(k.dia_avvikelse_snitt_mm);
                     return (
                       <div key={k.id} className="kalib-list-item" onClick={() => openStemOverview(k)}>
@@ -790,7 +783,7 @@ export default function KalibreringPage() {
                           <span className="kalib-list-month">{monthShort}</span>
                         </div>
                         <div className="kalib-list-info">
-                          <span className="kalib-list-species">{k.tradslag}</span>
+                          <span className="kalib-list-species">{cap(k.tradslag)}</span>
                           <span className="kalib-list-stem">{k.antal_kontrollstockar} stockar</span>
                         </div>
                         <div className="kalib-list-bar-container">
