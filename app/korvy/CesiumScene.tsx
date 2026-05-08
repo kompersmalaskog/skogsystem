@@ -191,20 +191,51 @@ const CAM_BACK = 20
 const MACHINE_Y_OFFSET_FRACTION = 0.30
 const LIGHT_INTENSITY = 3.5
 
-// Beräkna dynamisk pitch (radianer) så maskinen hamnar ungefär på 80% Y
-// oberoende av viewport-aspect. Funkar för både landscape och portrait.
+// Beräkna kameragebyometri så maskinen alltid hamnar ~80% Y oberoende av
+// viewport-aspect, slider-back-värde, och slider-pitch-läge.
 //
-// Geometri: maskinen är atan(CAM_HEIGHT/CAM_BACK) under camera horizon.
-// Vi vill att den syns på (1 - MACHINE_Y_OFFSET_FRACTION × 2)/2 = 30 % från
-// center mot bottom-edge. Pitch = -(machine_angle - desired_y_offset).
-function computeDynamicPitch(viewer: CesiumNS.Viewer): number {
+// Två lägen styrt av userPitchDeg:
+//   0   → AUTO: fast camHeight (CAM_HEIGHT_DEFAULT), beräkna pitch från
+//         viewport-FOV + camBack
+//   ≠ 0 → MANUELL: pitch fixerad enligt slider, beräkna istället camHeight
+//         så maskinen ändå landar på 80% Y. Geometrin förblir konsekvent
+//         när föraren testar olika pitch-vinklar.
+//
+// Geometri:
+//   half_vert_fov = atan(tan(fovX/2) / aspect)
+//   desired_y_offset = MACHINE_Y_OFFSET_FRACTION × half_vert_fov  (radianer)
+//   machine_angle (under camera horizon) = atan(camHeight / camBack)
+//   pitch = -(machine_angle - desired_y_offset)
+//   ⇔ machine_angle = -pitch + desired_y_offset
+//   ⇔ camHeight = camBack × tan(machine_angle)  (manuellt läge)
+function computeCamGeometry(
+  viewer: CesiumNS.Viewer,
+  camBack: number,
+  userPitchDeg: number,
+): { pitch: number; camHeight: number } {
   const canvas = viewer.scene.canvas
   const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight)
-  const fovX = (viewer.camera.frustum as any).fov  // X-FOV (default 60° = 1.047 rad)
+  const fovX = (viewer.camera.frustum as any).fov  // X-FOV (default 60°)
   const halfVertFov = Math.atan(Math.tan(fovX / 2) / aspect)
   const desiredOffset = MACHINE_Y_OFFSET_FRACTION * halfVertFov
-  const machineAngle = Math.atan(CAM_HEIGHT / CAM_BACK)
-  return -(machineAngle - desiredOffset)
+
+  if (userPitchDeg === 0) {
+    // AUTO — fast camHeight, lös pitch
+    const machineAngle = Math.atan(CAM_HEIGHT / camBack)
+    return {
+      pitch: -(machineAngle - desiredOffset),
+      camHeight: CAM_HEIGHT,
+    }
+  }
+
+  // MANUELL — fast pitch, lös camHeight så maskin på 80% Y
+  const pitchRad = userPitchDeg * Math.PI / 180  // negativt
+  const machineAngle = -pitchRad + desiredOffset
+  const safeAngle = Math.max(0.01, Math.min(Math.PI / 2 - 0.01, machineAngle))
+  return {
+    pitch: pitchRad,
+    camHeight: camBack * Math.tan(safeAngle),
+  }
 }
 
 // === Lager-grupper synliga i 3D (filtrerade på show3D) ===
@@ -751,6 +782,13 @@ export default function CesiumScene({ objektId }: Props) {
   // (mjukare fade-zon än tidigare 40). Tillsammans med sänkt mörker-alpha 0.65
   // ger det en mindre dramatisk tunnelvision.
   const [viewfieldSoftness, setViewfieldSoftness] = useNumericSetting('viewfield_softness_v2', 60)
+  // === Kamerasliders ===
+  // camBack: avstånd bakom maskinen (15–80 m). Default 20 = tight bakom.
+  // camPitchUser: 0 = AUTO (dynamisk pitch från viewport), annars fast pitch
+  // i grader (-45 till -10). När fast pitch är satt löser computeCamGeometry
+  // ut camHeight så maskinen ändå landar på 80% Y.
+  const [camBack, setCamBack] = useNumericSetting('cam_back_v1', 20)
+  const [camPitchUser, setCamPitchUser] = useNumericSetting('cam_pitch_user_v1', 0)
   // === Kamerakontroll ===
   // followGps=true → kameran följer GPS bakom maskinen (default).
   // followGps=false → användaren snurrar/tiltar/panar fritt; visa centrera-knapp.
@@ -1118,10 +1156,11 @@ export default function CesiumScene({ objektId }: Props) {
     //    pga 1m DEM och dev-mock kan godta det. GPS-follow-flytten plockar
     //    upp den exakta höjden via terrain-sample (utom i dev-mock-läget).
     const groundH = groundHeightRef.current
-    const initBack = offsetLatLngByBearing(objekt.lat, objekt.lng, CAM_BACK, 180)
+    const initBack = offsetLatLngByBearing(objekt.lat, objekt.lng, camBack, 180)
+    const initGeom = computeCamGeometry(viewer, camBack, camPitchUser)
     viewer.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(initBack[0], initBack[1], groundH * VERTICAL_EXAG + CAM_HEIGHT),
-      orientation: { heading: 0, pitch: computeDynamicPitch(viewer), roll: 0 },
+      destination: Cesium.Cartesian3.fromDegrees(initBack[0], initBack[1], groundH * VERTICAL_EXAG + initGeom.camHeight),
+      orientation: { heading: 0, pitch: initGeom.pitch, roll: 0 },
     })
     initialFlightDoneRef.current = true
     viewer.scene.requestRender()
@@ -1569,12 +1608,13 @@ export default function CesiumScene({ objektId }: Props) {
       // Kamera bakom föraren (motsatt heading), över exaggererad terräng.
       // Duration 1.0 s så animationen överlappar nästa GPS-tick (~1 Hz) och
       // ger kontinuerlig glidande rörelse istället för rycka-stå-rycka.
-      const back = offsetLatLngByBearing(pos.lat, pos.lon, CAM_BACK, (heading + 180) % 360)
+      const geom = computeCamGeometry(viewer, camBack, camPitchUser)
+      const back = offsetLatLngByBearing(pos.lat, pos.lon, camBack, (heading + 180) % 360)
       viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(back[0], back[1], groundH * VERTICAL_EXAG + CAM_HEIGHT),
+        destination: Cesium.Cartesian3.fromDegrees(back[0], back[1], groundH * VERTICAL_EXAG + geom.camHeight),
         orientation: {
           heading: Cesium.Math.toRadians(heading),
-          pitch: computeDynamicPitch(viewer),
+          pitch: geom.pitch,
           roll: 0,
         },
         duration: 1.0,
@@ -1582,7 +1622,7 @@ export default function CesiumScene({ objektId }: Props) {
     })()
 
     return () => { cancelled = true }
-  }, [ready, pos, followGps])
+  }, [ready, pos, followGps, camBack, camPitchUser])
 
   // === Maskin-pil — polygon med image material, klampad till terrängen ===
   // Drapas på marken som en målad pil på vägen istället för en stående
@@ -1644,9 +1684,17 @@ export default function CesiumScene({ objektId }: Props) {
     const existing = viewer.entities.getById('tunnel-mask')
     if (existing) viewer.entities.remove(existing)
 
+    // Förskjut bubblans centrum 100 m framåt i färdriktningen så maskinen
+    // hamnar i nedre delen av fokuszonen och föraren ser mer klart område
+    // FRAMFÖR sig istället för bakom. lastHeadingRef behåller riktningen
+    // vid stillastående så bubblan fortsätter peka åt det håll man körde.
+    if (pos.heading != null) lastHeadingRef.current = pos.heading
+    const bubbleHeading = pos.heading != null ? pos.heading : lastHeadingRef.current
+    const [bubbleLon, bubbleLat] = offsetLatLngByBearing(pos.lat, pos.lon, 100, bubbleHeading)
+
     viewer.entities.add({
       id: 'tunnel-mask',
-      position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
+      position: Cesium.Cartesian3.fromDegrees(bubbleLon, bubbleLat),
       ellipse: {
         semiMajorAxis: 5000,
         semiMinorAxis: 5000,
@@ -2142,7 +2190,7 @@ export default function CesiumScene({ objektId }: Props) {
                   </div>
 
                   {/* Mjukhet */}
-                  <div>
+                  <div style={{ marginBottom: '20px' }}>
                     <div style={{
                       display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
                       marginBottom: '4px',
@@ -2160,6 +2208,49 @@ export default function CesiumScene({ objektId }: Props) {
                       min={0} max={100} step={5}
                       value={viewfieldSoftness}
                       onChange={(e) => setViewfieldSoftness(parseInt(e.target.value, 10))}
+                      style={{ width: '100%', accentColor: '#0a84ff', display: 'block' }}
+                    />
+                  </div>
+
+                  {/* Avstånd från maskin (CAM_BACK) */}
+                  <div style={{ marginBottom: '20px' }}>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                      marginBottom: '8px',
+                    }}>
+                      <span style={{ fontSize: '15px', color: '#fff' }}>Avstånd från maskin</span>
+                      <span style={{ fontSize: '15px', color: '#0a84ff', fontVariantNumeric: 'tabular-nums' }}>
+                        {camBack} m
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min={15} max={80} step={5}
+                      value={camBack}
+                      onChange={(e) => setCamBack(parseInt(e.target.value, 10))}
+                      style={{ width: '100%', accentColor: '#0a84ff', display: 'block' }}
+                    />
+                  </div>
+
+                  {/* Kameravinkel (pitch). 0 = Auto */}
+                  <div>
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                      marginBottom: '4px',
+                    }}>
+                      <span style={{ fontSize: '15px', color: '#fff' }}>Kameravinkel</span>
+                      <span style={{ fontSize: '15px', color: '#0a84ff', fontVariantNumeric: 'tabular-nums' }}>
+                        {camPitchUser === 0 ? 'Auto' : `${camPitchUser}°`}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '8px' }}>
+                      Auto = anpassas efter skärm. Mindre värde = mer ovanifrån.
+                    </div>
+                    <input
+                      type="range"
+                      min={-45} max={0} step={1}
+                      value={camPitchUser}
+                      onChange={(e) => setCamPitchUser(parseInt(e.target.value, 10))}
                       style={{ width: '100%', accentColor: '#0a84ff', display: 'block' }}
                     />
                   </div>
