@@ -787,7 +787,9 @@ export default function CesiumScene({ objektId }: Props) {
   // camPitchUser: 0 = AUTO (dynamisk pitch från viewport), annars fast pitch
   // i grader (-45 till -10). När fast pitch är satt löser computeCamGeometry
   // ut camHeight så maskinen ändå landar på 80% Y.
-  const [camBack, setCamBack] = useNumericSetting('cam_back_v1', 20)
+  // cam_back_v2: bumpad nyckel så existing users (stored 20 från v1) får nya
+  // min/default 30 m. v1-värdet ligger kvar i localStorage men läses inte.
+  const [camBack, setCamBack] = useNumericSetting('cam_back_v2', 30)
   const [camPitchUser, setCamPitchUser] = useNumericSetting('cam_pitch_user_v1', 0)
   // === Kamerakontroll ===
   // followGps=true → kameran följer GPS bakom maskinen (default).
@@ -2231,7 +2233,7 @@ export default function CesiumScene({ objektId }: Props) {
                     </div>
                     <input
                       type="range"
-                      min={15} max={80} step={5}
+                      min={30} max={80} step={5}
                       value={camBack}
                       onChange={(e) => setCamBack(parseInt(e.target.value, 10))}
                       style={{ width: '100%', accentColor: '#0a84ff', display: 'block' }}
