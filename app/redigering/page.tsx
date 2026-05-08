@@ -753,9 +753,42 @@ function SaveButton({ onClick, saving, saved }) {
   )
 }
 
-// Confirm-dialog — Apple-stil
-function ConfirmDialog({ open, title, message, confirmLabel = 'Fortsätt', cancelLabel = 'Avbryt', onConfirm, onCancel, destructive = false }) {
+// Confirm-dialog — Apple-stil. 2 eller 3 knappar (om discardLabel + onDiscard
+// är satta visas en mellan-knapp för "destructive non-cancel"-val, t.ex.
+// "Stäng utan att spara"). 3-val renderas vertikalt.
+function ConfirmDialog({
+  open, title, message,
+  confirmLabel = 'Fortsätt', cancelLabel = 'Avbryt',
+  discardLabel, onDiscard,
+  onConfirm, onCancel, destructive = false,
+}) {
   if (!open) return null
+  const showDiscard = !!(discardLabel && onDiscard)
+  const btnBase = {
+    minHeight: 56, padding: '0 14px', borderRadius: 12,
+    fontSize: 15, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer',
+  }
+  const confirmBtn = (
+    <button onClick={onConfirm} className="tap-press" style={{
+      ...btnBase, flex: showDiscard ? undefined : 1, width: showDiscard ? '100%' : undefined,
+      border: 'none', background: destructive ? '#FF453A' : '#adc6ff', color: '#000',
+    }}>{confirmLabel}</button>
+  )
+  const discardBtn = showDiscard && (
+    <button onClick={onDiscard} className="tap-press" style={{
+      ...btnBase, width: '100%',
+      border: '1px solid rgba(255,69,58,0.35)', background: 'rgba(255,69,58,0.08)',
+      color: 'rgba(255,140,140,0.95)',
+    }}>{discardLabel}</button>
+  )
+  const cancelBtn = (
+    <button onClick={onCancel} className="tap-press" style={{
+      ...btnBase, flex: showDiscard ? undefined : 1, width: showDiscard ? '100%' : undefined,
+      border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+      color: 'rgba(255,255,255,0.75)',
+    }}>{cancelLabel}</button>
+  )
+
   return (
     <>
       <div
@@ -772,20 +805,18 @@ function ConfirmDialog({ open, title, message, confirmLabel = 'Fortsätt', cance
       }}>
         <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>{title}</div>
         <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 1.45, marginBottom: 18 }}>{message}</div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onCancel} className="tap-press" style={{
-            flex: 1, minHeight: 56, padding: '0 14px', borderRadius: 12,
-            border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
-            color: 'rgba(255,255,255,0.75)', fontSize: 15, fontWeight: 600,
-            fontFamily: 'inherit', cursor: 'pointer',
-          }}>{cancelLabel}</button>
-          <button onClick={onConfirm} className="tap-press" style={{
-            flex: 1, minHeight: 56, padding: '0 14px', borderRadius: 12,
-            border: 'none', background: destructive ? '#FF453A' : '#adc6ff',
-            color: '#000', fontSize: 15, fontWeight: 600,
-            fontFamily: 'inherit', cursor: 'pointer',
-          }}>{confirmLabel}</button>
-        </div>
+        {showDiscard ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {confirmBtn}
+            {discardBtn}
+            {cancelBtn}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', gap: 10 }}>
+            {cancelBtn}
+            {confirmBtn}
+          </div>
+        )}
       </div>
     </>
   )
@@ -974,24 +1005,37 @@ function WarningsList({ warnings, onJump }) {
 }
 
 // Bottom sheet med drag-to-close, esc, spring-animation, smooth backdrop-blur.
-// Föräldern lever bara med {open, onClose}; sheet:en hanterar sin egen exit-anim.
+// Föräldern äger {open, onClose}. Esc/drag/klick-utanför kallar onClose
+// som intent-callback — föräldern bestämmer om setValtObjekt(null) ska
+// köras (t.ex. visa dirty-dialog först). Exit-animation körs när open
+// går från true → false.
 function EditSheet({ open, onClose, title, footer, children }) {
   const [closing, setClosing] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [dragOffset, setDragOffset] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
   const dragStartY = useRef(null)
+  const wasOpenRef = useRef(open)
 
-  // Triggrar exit-animation, kallar onClose efter timeout
+  // Trigga exit-animation när open går true → false
+  useEffect(() => {
+    if (wasOpenRef.current && !open) {
+      setClosing(true)
+      const t = setTimeout(() => {
+        setClosing(false)
+        setScrolled(false)
+        setDragOffset(0)
+      }, 280)
+      wasOpenRef.current = open
+      return () => clearTimeout(t)
+    }
+    wasOpenRef.current = open
+  }, [open])
+
+  // Intent-callback — föräldern beslutar om stängning är OK (t.ex. dirty-check)
   const handleClose = () => {
-    if (closing) return
-    setClosing(true)
-    setTimeout(() => {
-      setClosing(false)
-      setScrolled(false)
-      setDragOffset(0)
-      onClose()
-    }, 280)
+    if (closing || !open) return
+    onClose()
   }
 
   // Esc-tangent
@@ -1024,12 +1068,11 @@ function EditSheet({ open, onClose, title, footer, children }) {
       const offset = (y !== null && dragStartY.current !== null) ? Math.max(0, y - dragStartY.current) : dragOffset
       setIsDragging(false)
       dragStartY.current = null
-      if (offset > 120) {
-        // Pass throsskel — stäng. dragOffset behålls visuellt under exit.
-        handleClose()
-      } else {
-        setDragOffset(0)
-      }
+      // Reset offset alltid — om föräldern visar confirm-dialog vid intent-close
+      // ska sheet snappa tillbaka medan dialog visas över. Om föräldern faktiskt
+      // stänger (open → false) tar exit-anim över.
+      setDragOffset(0)
+      if (offset > 120) handleClose()
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
@@ -1371,8 +1414,11 @@ export default function ObjektRedigering() {
   const [atgarderSlut, setAtgarderSlut] = useState(['LRK', 'Rp', 'Au', 'Special', 'VF/Bark'])
   const [atgarderGallring, setAtgarderGallring] = useState(['Första gallring', 'Andra gallring'])
   const [valtObjekt, setValtObjekt] = useState(null)
+  const [originalObjekt, setOriginalObjekt] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [showDirtyDialog, setShowDirtyDialog] = useState(false)
   const [closing, setClosing] = useState(false)
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
   const [ringHover, setRingHover] = useState(false)
@@ -1380,6 +1426,32 @@ export default function ObjektRedigering() {
   const [scenarier, setScenarier] = useState([])
   const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false)
   const [barFel, setBarFel] = useState(false)
+
+  // Öppna objekt — snapshotar original så vi kan jämföra för dirty-check
+  const openObjekt = (obj) => {
+    const parsed = parseExternSkotning(obj)
+    setOriginalObjekt(parsed)
+    setValtObjekt(parsed)
+  }
+
+  const isDirty = !!(valtObjekt && originalObjekt &&
+    JSON.stringify(valtObjekt) !== JSON.stringify(originalObjekt))
+
+  const attemptCloseModal = () => {
+    if (isDirty) setShowDirtyDialog(true)
+    else { setValtObjekt(null); setOriginalObjekt(null) }
+  }
+
+  const closeAndDiscard = () => {
+    setShowDirtyDialog(false)
+    setValtObjekt(null)
+    setOriginalObjekt(null)
+  }
+
+  const saveThenClose = () => {
+    setShowDirtyDialog(false)
+    sparaObjekt()
+  }
 
   // Hämta från Supabase vid start
   useEffect(() => {
@@ -1423,19 +1495,26 @@ export default function ObjektRedigering() {
   async function sparaObjekt() {
     if (!valtObjekt) return
     setSaving(true)
-    const ok = await sparaObjektTillSupabase(valtObjekt)
+    setSaveError('')
+    let ok = false
+    try {
+      ok = await sparaObjektTillSupabase(valtObjekt)
+    } catch (err) {
+      ok = false
+    }
     if (ok) {
       setObjekt(objekt.map(o => o.objekt_id === valtObjekt.objekt_id ? valtObjekt : o))
       setSaved(true)
-      setTimeout(() => { closeModal(); setSaved(false) }, 600)
+      setTimeout(() => {
+        setValtObjekt(null)
+        setOriginalObjekt(null)
+        setSaved(false)
+      }, 600)
+    } else {
+      setSaveError('Kunde inte spara — försök igen')
+      setTimeout(() => setSaveError(''), 4500)
     }
     setSaving(false)
-  }
-
-  function closeModal() { 
-    setClosing(true)
-    setScrolled(false)
-    setTimeout(() => { setValtObjekt(null); setClosing(false) }, 250) 
   }
 
   // Loading-vy
@@ -1535,7 +1614,7 @@ export default function ObjektRedigering() {
       ) : (
         <div style={styles.lista}>
           {synliga.map((obj, i) => (
-            <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => setValtObjekt(parseExternSkotning(obj))}>
+            <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => openObjekt(obj)}>
               <div style={styles.kortInner}>
                 <div style={styles.kortTop}>
                   <div style={{flex: 1}}>
@@ -1562,7 +1641,7 @@ export default function ObjektRedigering() {
           </div>
           <div style={styles.lista}>
             {exkluderade.map((obj, i) => (
-              <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => setValtObjekt(parseExternSkotning(obj))}>
+              <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => openObjekt(obj)}>
                 <div style={{...styles.kortInner, opacity: 0.5}}>
                   <div style={styles.kortTop}>
                     <div style={{flex: 1}}>
@@ -1583,7 +1662,7 @@ export default function ObjektRedigering() {
 
       <EditSheet
         open={!!valtObjekt}
-        onClose={() => setValtObjekt(null)}
+        onClose={attemptCloseModal}
         title={valtObjekt?.object_name || ''}
         footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
       >
@@ -1600,6 +1679,20 @@ export default function ObjektRedigering() {
           onClose={() => setScenarioPickerOpen(false)}
         />
       )}
+      <ConfirmDialog
+        open={showDirtyDialog}
+        title="Du har osparade ändringar"
+        message="Vill du spara innan du stänger?"
+        confirmLabel={saving ? 'Sparar …' : 'Spara'}
+        discardLabel="Stäng utan att spara"
+        cancelLabel="Avbryt"
+        onConfirm={saveThenClose}
+        onDiscard={closeAndDiscard}
+        onCancel={() => setShowDirtyDialog(false)}
+      />
+      {saveError && (
+        <div style={styles.saveErrorToast} role="alert">{saveError}</div>
+      )}
     </div>
   )
 }
@@ -1612,13 +1705,37 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   const [filterInkopare, setFilterInkopare] = useState(null)
   const [showSearch, setShowSearch] = useState(false)
   const [valtObjekt, setValtObjekt] = useState(null)
+  const [originalObjekt, setOriginalObjekt] = useState(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState('')
+  const [showDirtyDialog, setShowDirtyDialog] = useState(false)
   const [closing, setClosing] = useState(false)
   const [scrolled, setScrolled] = useState(false)
   const [backHover, setBackHover] = useState(false)
   const [titleHover, setTitleHover] = useState(false)
   const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false)
+
+  const openObjekt = (obj) => {
+    const parsed = parseExternSkotning(obj)
+    setOriginalObjekt(parsed)
+    setValtObjekt(parsed)
+  }
+  const isDirty = !!(valtObjekt && originalObjekt &&
+    JSON.stringify(valtObjekt) !== JSON.stringify(originalObjekt))
+  const attemptCloseModal = () => {
+    if (isDirty) setShowDirtyDialog(true)
+    else { setValtObjekt(null); setOriginalObjekt(null) }
+  }
+  const closeAndDiscard = () => {
+    setShowDirtyDialog(false)
+    setValtObjekt(null)
+    setOriginalObjekt(null)
+  }
+  const saveThenClose = () => {
+    setShowDirtyDialog(false)
+    sparaObjekt()
+  }
 
   const komplettaObjekt = objekt.filter(o => isKomplett(o))
   const unikaBolag = [...new Set(komplettaObjekt.map(o => o.bolag).filter(Boolean))].sort()
@@ -1653,19 +1770,26 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   async function sparaObjekt() {
     if (!valtObjekt) return
     setSaving(true)
-    const ok = await sparaObjektTillSupabase(valtObjekt)
+    setSaveError('')
+    let ok = false
+    try {
+      ok = await sparaObjektTillSupabase(valtObjekt)
+    } catch (err) {
+      ok = false
+    }
     if (ok) {
       setObjekt(objekt.map(o => o.objekt_id === valtObjekt.objekt_id ? valtObjekt : o))
       setSaved(true)
-      setTimeout(() => { closeModal(); setSaved(false) }, 600)
+      setTimeout(() => {
+        setValtObjekt(null)
+        setOriginalObjekt(null)
+        setSaved(false)
+      }, 600)
+    } else {
+      setSaveError('Kunde inte spara — försök igen')
+      setTimeout(() => setSaveError(''), 4500)
     }
     setSaving(false)
-  }
-
-  function closeModal() { 
-    setClosing(true)
-    setScrolled(false)
-    setTimeout(() => { setValtObjekt(null); setClosing(false) }, 250) 
   }
 
   return (
@@ -1774,7 +1898,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
 
       <div style={styles.lista}>
         {filtered.map((obj, i) => (
-          <AnimatedCard key={obj.objekt_id} delay={i * 40} onClick={() => setValtObjekt(parseExternSkotning(obj))}>
+          <AnimatedCard key={obj.objekt_id} delay={i * 40} onClick={() => openObjekt(obj)}>
             <div style={styles.kortInner}>
               <div style={styles.kortTop}>
                 <div style={{flex: 1}}>
@@ -1799,7 +1923,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
 
       <EditSheet
         open={!!valtObjekt}
-        onClose={() => setValtObjekt(null)}
+        onClose={attemptCloseModal}
         title={valtObjekt?.object_name || ''}
         footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
       >
@@ -1815,6 +1939,20 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
           onVal={(id) => { setValtObjekt({...valtObjekt, prisscenario_id: id}); setScenarioPickerOpen(false) }}
           onClose={() => setScenarioPickerOpen(false)}
         />
+      )}
+      <ConfirmDialog
+        open={showDirtyDialog}
+        title="Du har osparade ändringar"
+        message="Vill du spara innan du stänger?"
+        confirmLabel={saving ? 'Sparar …' : 'Spara'}
+        discardLabel="Stäng utan att spara"
+        cancelLabel="Avbryt"
+        onConfirm={saveThenClose}
+        onDiscard={closeAndDiscard}
+        onCancel={() => setShowDirtyDialog(false)}
+      />
+      {saveError && (
+        <div style={styles.saveErrorToast} role="alert">{saveError}</div>
       )}
     </div>
   )
@@ -1849,6 +1987,7 @@ const styles = {
   scenarioRowBeskrivning: { fontSize: 13, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
   scenarioRowGiltighet: { fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2 },
   validationWarning: { margin: '12px 16px 4px', padding: '10px 14px', borderRadius: 12, background: 'rgba(255,159,10,0.08)', border: '1px solid rgba(255,159,10,0.25)', color: 'rgba(255,200,120,0.95)', fontSize: 13, lineHeight: 1.4 },
+  saveErrorToast: { position: 'fixed', bottom: 120, left: '50%', transform: 'translateX(-50%)', background: 'rgba(60,18,18,0.95)', color: 'rgba(255,160,160,0.98)', padding: '12px 18px', borderRadius: 12, fontSize: 14, fontWeight: 500, fontFamily: 'inherit', border: '1px solid rgba(255,69,58,0.35)', boxShadow: '0 8px 30px rgba(0,0,0,0.5)', zIndex: 250, animation: 'fadeIn 0.2s ease', maxWidth: '90%', textAlign: 'center' },
   iosGroupWrap: { marginBottom: 24 },
   iosGroupTitle: { fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.2px', padding: '0 4px', marginBottom: 8 },
   iosGroupCard: { background: '#1c1c1e', borderRadius: 14, overflow: 'hidden' },
