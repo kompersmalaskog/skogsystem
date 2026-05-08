@@ -7,7 +7,7 @@ interface Props {
   stammar: MarkagarRapport['karta']['stammar'];
 }
 
-const RING_ROT  = '#ff3b30';   // alla rotade stammar — en ringtyp
+const RING_ROT  = '#d64545';   // dämpad röd för rot-ringar (Bmav + Avkap)
 const SCALE_COLOR = 'rgba(255,255,255,0.45)';
 const SCALE_TEXT  = 'rgba(255,255,255,0.6)';
 
@@ -90,14 +90,15 @@ export default function SkogenKarta({ stammar }: Props) {
       ctx.fill();
     }
 
-    // En ringtyp — röd för alla rotade stammar (Bmav, Avkap, Grade9)
-    ctx.lineWidth = 1.6;
+    // En ringtyp — dämpad röd för alla rotade stammar (Bmav, Avkap, Grade9).
+    // Avkap räknas som rot-tecken: operatören detekterade rot och kapade rotänden.
+    ctx.lineWidth = 1;
     ctx.strokeStyle = RING_ROT;
     for (const s of stammar) {
       if (s.rot_typ == null) continue;
       const [x, y] = project(s.lat, s.lng);
       ctx.beginPath();
-      ctx.arc(x, y, radius(s.dbh_mm) + 3, 0, Math.PI * 2);
+      ctx.arc(x, y, radius(s.dbh_mm) + 1, 0, Math.PI * 2);
       ctx.stroke();
     }
 
