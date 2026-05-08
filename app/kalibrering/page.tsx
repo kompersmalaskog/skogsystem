@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 
 // === TYPES (matching actual Supabase tables) ===
@@ -73,6 +73,92 @@ const MSym = ({ name, size = 18, color }: { name: string; size?: number; color?:
 
 const cap = (s: string) => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : s;
 
+// Konsekvent format för avvikelser. cm visas alltid med 1 decimal (+0.3, -1.5),
+// mm visas alltid som heltal (+2, -1). null/undefined/NaN → '–'.
+const fmtAvvikelse = (n: number | null | undefined, unit: 'cm' | 'mm'): string => {
+  if (n == null || isNaN(n)) return '–';
+  const sign = n > 0 ? '+' : '';
+  if (unit === 'cm') return `${sign}${n.toFixed(1)}`;
+  return `${sign}${Math.round(n)}`;
+};
+
+// iOS-mönster: dra ner på modalen för att stänga. Hela modalen är dragbar
+// från övre 200px (handle + header). Resten behåller scroll. Hooken returnerar
+// refs och touch-handlers att fästa på overlay + modal-element.
+function useSwipeDownToClose(onClose: () => void) {
+  const startYRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const modalRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  const onTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    const rect = modalRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const touchY = e.touches[0].clientY;
+    // Endast övre 200px av modalen triggar swipe — resten är scrollyta
+    if (touchY - rect.top > 200) return;
+    startYRef.current = touchY;
+    startTimeRef.current = Date.now();
+  };
+
+  const onTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (startYRef.current == null) return;
+    const deltaY = e.touches[0].clientY - startYRef.current;
+    if (deltaY <= 0) return;
+    if (modalRef.current) {
+      modalRef.current.style.transition = 'none';
+      modalRef.current.style.transform = `translateY(${deltaY}px)`;
+    }
+    if (overlayRef.current) {
+      const opacity = Math.max(0.3, 1 - deltaY / 400);
+      overlayRef.current.style.opacity = String(opacity);
+    }
+  };
+
+  const onTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (startYRef.current == null) return;
+    const endY = e.changedTouches[0].clientY;
+    const deltaY = endY - startYRef.current;
+    const duration = Math.max(1, Date.now() - startTimeRef.current);
+    const velocity = deltaY / duration;
+    startYRef.current = null;
+
+    const modal = modalRef.current;
+    const overlay = overlayRef.current;
+
+    if (deltaY > 100 || velocity > 0.5) {
+      // Stäng — animera först ut, sedan unmount via state
+      if (modal) {
+        modal.style.transition = 'transform 0.25s cubic-bezier(0.2,0.8,0.2,1)';
+        modal.style.transform = 'translateY(100%)';
+      }
+      if (overlay) {
+        overlay.style.transition = 'opacity 0.25s';
+        overlay.style.opacity = '0';
+      }
+      setTimeout(() => {
+        onClose();
+        if (modal) { modal.style.transform = ''; modal.style.transition = ''; }
+        if (overlay) { overlay.style.opacity = ''; overlay.style.transition = ''; }
+      }, 250);
+    } else {
+      // Snap tillbaka — låt CSS-transition fortsätta
+      if (modal) {
+        modal.style.transition = 'transform 0.2s cubic-bezier(0.2,0.8,0.2,1)';
+        modal.style.transform = '';
+        setTimeout(() => { if (modal) modal.style.transition = ''; }, 200);
+      }
+      if (overlay) {
+        overlay.style.transition = 'opacity 0.2s';
+        overlay.style.opacity = '';
+        setTimeout(() => { if (overlay) overlay.style.transition = ''; }, 200);
+      }
+    }
+  };
+
+  return { modalRef, overlayRef, onTouchStart, onTouchMove, onTouchEnd };
+}
+
 // === Kalender-types som matchar /api/kalibrering/kalender response ===
 type CalDagstatus = 'komplett' | 'saknas' | 'varning' | 'inaktiv';
 type CalKontroll = { id: number; tradslag: string | null; status: string; filnamn: string | null };
@@ -121,7 +207,7 @@ const dagrubrik = (datum: string) => {
   return s.charAt(0).toUpperCase() + s.slice(1);
 };
 const dagstatusText = (s: CalDagstatus): string => {
-  if (s === 'komplett') return 'Inom rutin';
+  if (s === 'komplett') return 'Inom tolerans';
   if (s === 'saknas') return 'Saknad kontrollstam';
   if (s === 'varning') return 'Varning från kontroll';
   return 'Inaktiv';
@@ -154,9 +240,13 @@ export default function KalibreringPage() {
   const popModal = () => setModalStack(prev => prev.slice(0, -1));
   const closeModal = () => setModalStack([]);
 
+  const swipeMain = useSwipeDownToClose(closeModal);
+
   const [allKalib, setAllKalib] = useState<FaktKalibrering[]>([]);
   const [stockMap, setStockMap] = useState<Record<string, DetaljKontrollStock[]>>({});
   const [historik, setHistorik] = useState<KalibHistorik[]>([]);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [partialError, setPartialError] = useState<string | null>(null);
 
   // === Kalender-fliken: egen state + lazy fetch på tab-byte/manad-byte ===
   const [calManad, setCalManad] = useState<string>(idagManad);
@@ -169,6 +259,7 @@ export default function KalibreringPage() {
   const [alleMaskiner, setAlleMaskiner] = useState<{ maskin_id: string; tillverkare: string | null; modell: string | null; aktiv_till: string | null }[]>([]);
   const [maskinSheetOpen, setMaskinSheetOpen] = useState(false);
   const [maskinSearchQ, setMaskinSearchQ] = useState('');
+  const swipeSheet = useSwipeDownToClose(() => setMaskinSheetOpen(false));
 
   // Hämta alla skördare (även sålda) en gång vid mount — listan i sheet:n
   useEffect(() => {
@@ -234,48 +325,62 @@ export default function KalibreringPage() {
     return () => { cancelled = true; };
   }, [activeTab, calManad, calData, calError]);
 
-  useEffect(() => {
-    async function fetchData() {
-      try {
-        const { data: kalibRows, error: kalibErr } = await supabase
-          .from('fakt_kalibrering')
-          .select('*')
-          .order('datum', { ascending: false });
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setFetchError(null);
+    setPartialError(null);
+    try {
+      const { data: kalibRows, error: kalibErr } = await supabase
+        .from('fakt_kalibrering')
+        .select('*')
+        .order('datum', { ascending: false });
 
-        if (kalibErr) { console.error('fakt_kalibrering error:', kalibErr); setLoading(false); return; }
-        if (!kalibRows || kalibRows.length === 0) { setLoading(false); return; }
-
-        setAllKalib(kalibRows);
-
-        const { data: stockRows, error: stockErr } = await supabase
-          .from('detalj_kontroll_stock')
-          .select('*')
-          .order('stock_nummer', { ascending: true });
-
-        if (stockErr) console.error('detalj_kontroll_stock error:', stockErr);
-
-        const sMap: Record<string, DetaljKontrollStock[]> = {};
-        (stockRows || []).forEach((s: DetaljKontrollStock) => {
-          if (!sMap[s.filnamn]) sMap[s.filnamn] = [];
-          sMap[s.filnamn].push(s);
-        });
-        setStockMap(sMap);
-
-        const { data: histRows, error: histErr } = await supabase
-          .from('fakt_kalibrering_historik')
-          .select('*')
-          .order('datum', { ascending: false });
-
-        if (histErr) console.error('fakt_kalibrering_historik error:', histErr);
-        setHistorik(histRows || []);
-      } catch (err) {
-        console.error('Fetch error:', err);
-      } finally {
+      if (kalibErr) {
+        console.error('fakt_kalibrering error:', kalibErr);
+        setFetchError('Kunde inte ladda kontrolldata. Dra ner för att uppdatera.');
         setLoading(false);
+        return;
       }
+      if (!kalibRows || kalibRows.length === 0) { setLoading(false); return; }
+
+      setAllKalib(kalibRows);
+
+      const { data: stockRows, error: stockErr } = await supabase
+        .from('detalj_kontroll_stock')
+        .select('*')
+        .order('stock_nummer', { ascending: true });
+
+      if (stockErr) {
+        console.error('detalj_kontroll_stock error:', stockErr);
+        setPartialError('Vissa data kunde inte laddas');
+      }
+
+      const sMap: Record<string, DetaljKontrollStock[]> = {};
+      (stockRows || []).forEach((s: DetaljKontrollStock) => {
+        if (!sMap[s.filnamn]) sMap[s.filnamn] = [];
+        sMap[s.filnamn].push(s);
+      });
+      setStockMap(sMap);
+
+      const { data: histRows, error: histErr } = await supabase
+        .from('fakt_kalibrering_historik')
+        .select('*')
+        .order('datum', { ascending: false });
+
+      if (histErr) {
+        console.error('fakt_kalibrering_historik error:', histErr);
+        setPartialError('Vissa data kunde inte laddas');
+      }
+      setHistorik(histRows || []);
+    } catch (err) {
+      console.error('Fetch error:', err);
+      setFetchError('Kunde inte ladda kontrolldata. Dra ner för att uppdatera.');
+    } finally {
+      setLoading(false);
     }
-    fetchData();
   }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
 
   // === Derived data ===
   // Senaste-fliken använder ALLTID hela datasetet (oberoende av filter)
@@ -378,7 +483,7 @@ export default function KalibreringPage() {
           <div className="kalib-summary-row" style={{ marginTop: 16 }}>
             <div className="kalib-summary-item">
               <div className="kalib-summary-label">Längd (M−O)</div>
-              <div className={`kalib-summary-value ${lenCls === 'bad' ? 'bad' : ''}`}>{lenDiff >= 0 ? '+' : ''}{lenDiff} cm</div>
+              <div className={`kalib-summary-value ${lenCls === 'bad' ? 'bad' : ''}`}>{fmtAvvikelse(lenDiff, 'cm')} cm</div>
               <div className={`kalib-diff-badge ${lenCls}`}>{lenCls === 'good' ? 'Inom' : lenCls === 'warn' ? 'Nära gräns' : 'Utanför'}</div>
             </div>
             <div className="kalib-summary-item">
@@ -388,7 +493,7 @@ export default function KalibreringPage() {
             </div>
             <div className="kalib-summary-item">
               <div className="kalib-summary-label">Dia (M−O)</div>
-              <div className={`kalib-summary-value ${diaCls === 'bad' ? 'bad' : ''}`}>{diaDiff >= 0 ? '+' : ''}{diaDiff} mm</div>
+              <div className={`kalib-summary-value ${diaCls === 'bad' ? 'bad' : ''}`}>{fmtAvvikelse(diaDiff, 'mm')} mm</div>
               <div className={`kalib-diff-badge ${diaCls}`}>{diaCls === 'good' ? 'Inom' : diaCls === 'warn' ? 'Nära gräns' : 'Utanför'}</div>
             </div>
           </div>
@@ -419,8 +524,8 @@ export default function KalibreringPage() {
             <div className="kalib-total-title">Snitt för kontrollen</div>
             <div className="kalib-total-grid">
               <div className="kalib-total-item"><div className="kalib-total-label">Total längd</div><div className="kalib-total-value">{(totalLen / 100).toFixed(1)}<span className="kalib-total-unit"> m</span></div></div>
-              <div className="kalib-total-item"><div className="kalib-total-label">Längd (M−O)</div><div className={`kalib-total-value ${lenOut(kalib.langd_avvikelse_snitt_cm) ? 'bad' : ''}`}>{kalib.langd_avvikelse_snitt_cm >= 0 ? '+' : ''}{kalib.langd_avvikelse_snitt_cm}<span className="kalib-total-unit"> cm</span></div></div>
-              <div className="kalib-total-item"><div className="kalib-total-label">Dia (M−O)</div><div className={`kalib-total-value ${diaOut(kalib.dia_avvikelse_snitt_mm) ? 'bad' : ''}`}>{kalib.dia_avvikelse_snitt_mm >= 0 ? '+' : ''}{kalib.dia_avvikelse_snitt_mm}<span className="kalib-total-unit"> mm</span></div></div>
+              <div className="kalib-total-item"><div className="kalib-total-label">Längd (M−O)</div><div className={`kalib-total-value ${lenOut(kalib.langd_avvikelse_snitt_cm) ? 'bad' : ''}`}>{fmtAvvikelse(kalib.langd_avvikelse_snitt_cm, 'cm')}<span className="kalib-total-unit"> cm</span></div></div>
+              <div className="kalib-total-item"><div className="kalib-total-label">Dia (M−O)</div><div className={`kalib-total-value ${diaOut(kalib.dia_avvikelse_snitt_mm) ? 'bad' : ''}`}>{fmtAvvikelse(kalib.dia_avvikelse_snitt_mm, 'mm')}<span className="kalib-total-unit"> mm</span></div></div>
             </div>
           </div>
           {stocks.length > 0 && (
@@ -437,7 +542,7 @@ export default function KalibreringPage() {
                         <div className="kalib-overview-title">Stock {stock.stock_nummer}</div>
                         <div className="kalib-overview-meta">{stock.maskin_langd_cm} cm • Topp ⌀{stock.maskin_toppdia_mm}</div>
                       </div>
-                      <div className={`kalib-diff-badge ${cls}`}>{diaDiff >= 0 ? '+' : ''}{diaDiff} mm</div>
+                      <div className={`kalib-diff-badge ${cls}`}>{fmtAvvikelse(diaDiff, 'mm')} mm</div>
                     </div>
                   );
                 })}
@@ -463,8 +568,8 @@ export default function KalibreringPage() {
           <div className="kalib-total-summary">
             <div className="kalib-total-title">Snitt för {name.toLowerCase()}</div>
             <div className="kalib-total-grid two-col">
-              <div className="kalib-total-item"><div className="kalib-total-label">Längd (M−O)</div><div className={`kalib-total-value ${lenOut(data.lenDiff) ? 'bad' : ''}`}>{data.lenDiff >= 0 ? '+' : ''}{data.lenDiff}<span className="kalib-total-unit"> cm</span></div></div>
-              <div className="kalib-total-item"><div className="kalib-total-label">Dia (M−O)</div><div className={`kalib-total-value ${diaOut(data.diaDiff) ? 'bad' : ''}`}>{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff}<span className="kalib-total-unit"> mm</span></div></div>
+              <div className="kalib-total-item"><div className="kalib-total-label">Längd (M−O)</div><div className={`kalib-total-value ${lenOut(data.lenDiff) ? 'bad' : ''}`}>{fmtAvvikelse(data.lenDiff, 'cm')}<span className="kalib-total-unit"> cm</span></div></div>
+              <div className="kalib-total-item"><div className="kalib-total-label">Dia (M−O)</div><div className={`kalib-total-value ${diaOut(data.diaDiff) ? 'bad' : ''}`}>{fmtAvvikelse(data.diaDiff, 'mm')}<span className="kalib-total-unit"> mm</span></div></div>
             </div>
           </div>
           <div className="kalib-modal-section-header"><div className="kalib-modal-section-title">Senaste kontroller</div></div>
@@ -479,7 +584,7 @@ export default function KalibreringPage() {
                     <div className="kalib-overview-title">{d.toLocaleDateString('sv-SE')}</div>
                     <div className="kalib-overview-meta">{k.antal_kontrollstockar} stockar • {k.status === 'VARNING' ? 'Varning' : 'Inom'}</div>
                   </div>
-                  <div className={`kalib-diff-badge ${cls}`}>{k.dia_avvikelse_snitt_mm >= 0 ? '+' : ''}{k.dia_avvikelse_snitt_mm} mm</div>
+                  <div className={`kalib-diff-badge ${cls}`}>{fmtAvvikelse(k.dia_avvikelse_snitt_mm, 'mm')} mm</div>
                 </div>
               );
             })}
@@ -515,7 +620,7 @@ export default function KalibreringPage() {
                 <span className={`kalib-status-badge ${m.status}`}>{maskinStatusText(m.status)}</span>
               </div>
               <div className="kalib-day-maskin-meta">
-                {m.volym_m3sub} m³fub · {m.status === 'inaktiv' ? 'Inaktiv' : (m.huvudtyp ?? 'Okänd typ')}
+                {m.volym_m3sub.toFixed(2)} m³fub · {m.status === 'inaktiv' ? 'Inaktiv' : (m.huvudtyp ?? 'Okänd typ')}
               </div>
               {m.huvudtyp_okand && (
                 <div className="kalib-day-maskin-info">
@@ -561,6 +666,29 @@ export default function KalibreringPage() {
     );
   }
 
+  if (fetchError && allKalib.length === 0) {
+    return (
+      <>
+        <style jsx global>{`
+          .kalib-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display',sans-serif;color:#8E8E93;text-align:center;padding:40px;background:#000}
+          .kalib-empty-icon{margin-bottom:16px;color:#8E8E93}
+          .kalib-empty-icon .material-symbols-outlined{font-size:64px}
+          .kalib-empty-icon.error .material-symbols-outlined{font-size:24px;color:#FF3B30}
+          .kalib-empty-title{font-size:22px;font-weight:600;color:#fff;margin-bottom:8px}
+          .kalib-empty-text{font-size:15px;max-width:320px;color:#8E8E93}
+          .kalib-empty-retry{margin-top:24px;height:44px;padding:0 24px;background:rgba(255,255,255,0.08);border:none;border-radius:12px;color:#fff;font-size:15px;font-weight:500;font-family:inherit;cursor:pointer}
+          .kalib-empty-retry:active{background:rgba(255,255,255,0.12)}
+        `}</style>
+        <div className="kalib-empty">
+          <div className="kalib-empty-icon error"><span className="material-symbols-outlined">error_outline</span></div>
+          <div className="kalib-empty-title">Kunde inte ladda kontrolldata</div>
+          <div className="kalib-empty-text">{fetchError}</div>
+          <button className="kalib-empty-retry" onClick={fetchData}>Försök igen</button>
+        </div>
+      </>
+    );
+  }
+
   if (allKalib.length === 0) {
     return (
       <>
@@ -583,10 +711,19 @@ export default function KalibreringPage() {
   const reportDate = new Date(allKalib[0].datum).toLocaleDateString('sv-SE', { day: 'numeric', month: 'long', year: 'numeric' });
   const verdictWithinTolerance = !lenOut(avgLenReport) && !diaOut(avgDiaReport);
 
+  const partialBanner = partialError ? (
+    <div className="kalib-info-box warn" style={{ marginBottom: 16 }}>
+      <span className="kalib-info-icon"><MSym name="warning" size={20} color="#FF3B30" /></span>
+      <div className="kalib-info-content">
+        <div className="kalib-info-title">{partialError}</div>
+      </div>
+    </div>
+  ) : null;
+
   return (
     <>
       <style jsx global>{`
-        .kalib-page{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display',sans-serif;background:#000;color:#fff;line-height:1.45;min-height:100vh;-webkit-font-smoothing:antialiased}
+        .kalib-page{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display',sans-serif;background:#000;color:#fff;line-height:1.45;min-height:100vh;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
         .kalib-page *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 
         .kalib-nav{display:flex;justify-content:center;gap:8px;padding:12px 20px;background:rgba(0,0,0,0.85);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);position:sticky;top:calc(56px + env(safe-area-inset-top));z-index:100;border-bottom:0.5px solid #2C2C2E}
@@ -784,7 +921,8 @@ export default function KalibreringPage() {
         .kalib-modal-overlay.open{opacity:1;pointer-events:auto}
         .kalib-modal{background:#1C1C1E;width:100%;max-width:560px;max-height:88vh;border-radius:20px 20px 0 0;padding:10px 20px 28px;border:1px solid rgba(255,255,255,0.06);border-bottom:none;transform:translateY(100%);transition:transform 0.3s cubic-bezier(0.2,0.8,0.2,1);overflow-y:auto}
         .kalib-modal-overlay.open .kalib-modal{transform:translateY(0)}
-        .kalib-modal-handle{width:36px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin:0 auto 14px}
+        .kalib-modal-handle{width:36px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin:0 auto 14px;touch-action:pan-y}
+        .kalib-modal-header{touch-action:pan-y}
         .kalib-modal-back{display:inline-flex;align-items:center;gap:2px;background:none;border:none;color:#fff;font-size:15px;font-weight:400;font-family:inherit;cursor:pointer;padding:6px 0;margin:0 0 8px}
 
         .kalib-stock-compare{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
@@ -861,22 +999,24 @@ export default function KalibreringPage() {
                 <p className="kalib-page-subtitle">{latestKalib.antal_kontrollstockar} stockar • {new Date(latestKalib.datum).toLocaleDateString('sv-SE')} • {latestKalib.maskin_id}</p>
               </header>
 
+              {partialBanner}
+
               <div className="kalib-card">
                 <div className="kalib-section-title" style={{ marginBottom: 18 }}>Avvikelse från operatör</div>
                 <div className="kalib-hero-metrics">
                   <div className="kalib-hero-metric">
                     <div className={`kalib-hero-metric-value ${lenOut(latestKalib.langd_avvikelse_snitt_cm) ? 'bad' : ''}`}>
-                      {latestKalib.langd_avvikelse_snitt_cm >= 0 ? '+' : ''}{latestKalib.langd_avvikelse_snitt_cm}
+                      {fmtAvvikelse(latestKalib.langd_avvikelse_snitt_cm, 'cm')}
                     </div>
                     <div className="kalib-hero-metric-label">Längd (cm)</div>
-                    <div className="kalib-hero-metric-hint">min {latestKalib.langd_avvikelse_min_cm} / max {latestKalib.langd_avvikelse_max_cm}</div>
+                    <div className="kalib-hero-metric-hint">min {fmtAvvikelse(latestKalib.langd_avvikelse_min_cm, 'cm')} / max {fmtAvvikelse(latestKalib.langd_avvikelse_max_cm, 'cm')}</div>
                   </div>
                   <div className="kalib-hero-metric">
                     <div className={`kalib-hero-metric-value ${diaOut(latestKalib.dia_avvikelse_snitt_mm) ? 'bad' : ''}`}>
-                      {latestKalib.dia_avvikelse_snitt_mm >= 0 ? '+' : ''}{latestKalib.dia_avvikelse_snitt_mm}
+                      {fmtAvvikelse(latestKalib.dia_avvikelse_snitt_mm, 'mm')}
                     </div>
                     <div className="kalib-hero-metric-label">Diameter (mm)</div>
-                    <div className="kalib-hero-metric-hint">min {latestKalib.dia_avvikelse_min_mm} / max {latestKalib.dia_avvikelse_max_mm}</div>
+                    <div className="kalib-hero-metric-hint">min {fmtAvvikelse(latestKalib.dia_avvikelse_min_mm, 'mm')} / max {fmtAvvikelse(latestKalib.dia_avvikelse_max_mm, 'mm')}</div>
                   </div>
                 </div>
                 {latestKalib.status === 'VARNING' ? (
@@ -938,6 +1078,7 @@ export default function KalibreringPage() {
 
           {activeTab === 'history' && (
             <>
+              {partialBanner}
               <div className="kalib-card">
                 <div className="kalib-section-title">Per trädslag</div>
                 <div className="kalib-bars">
@@ -958,7 +1099,7 @@ export default function KalibreringPage() {
                               <div className="kalib-bar-zero" />
                               <div className={`kalib-bar-fill ${data.lenDiff < 0 ? 'neg' : 'pos'} ${lenBad ? 'bad' : ''}`} style={{ width: `${Math.min(50, Math.abs(data.lenDiff) * 10)}%` }} />
                             </div>
-                            <span className={`kalib-bar-value ${lenBad ? 'bad' : ''}`}>{data.lenDiff >= 0 ? '+' : ''}{data.lenDiff} cm</span>
+                            <span className={`kalib-bar-value ${lenBad ? 'bad' : ''}`}>{fmtAvvikelse(data.lenDiff, 'cm')} cm</span>
                           </div>
                           <div className="kalib-bar-row">
                             <span className="kalib-bar-label">Diameter</span>
@@ -966,7 +1107,7 @@ export default function KalibreringPage() {
                               <div className="kalib-bar-zero" />
                               <div className={`kalib-bar-fill ${data.diaDiff < 0 ? 'neg' : 'pos'} ${diaBad ? 'bad' : ''}`} style={{ width: `${Math.min(50, Math.abs(data.diaDiff) * 10)}%` }} />
                             </div>
-                            <span className={`kalib-bar-value ${diaBad ? 'bad' : ''}`}>{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff} mm</span>
+                            <span className={`kalib-bar-value ${diaBad ? 'bad' : ''}`}>{fmtAvvikelse(data.diaDiff, 'mm')} mm</span>
                           </div>
                         </div>
                         <span className="kalib-bar-chev"><MSym name="chevron_right" size={18} color="#8E8E93" /></span>
@@ -996,7 +1137,7 @@ export default function KalibreringPage() {
                         <div className="kalib-list-bar-container">
                           <div className={`kalib-list-bar ${isOut ? 'bad' : ''}`} style={{ width: `${Math.min(100, Math.abs(k.dia_avvikelse_snitt_mm) * 20)}%` }} />
                         </div>
-                        <span className={`kalib-list-value ${isOut ? 'bad' : ''}`}>{k.dia_avvikelse_snitt_mm >= 0 ? '+' : ''}{k.dia_avvikelse_snitt_mm} mm</span>
+                        <span className={`kalib-list-value ${isOut ? 'bad' : ''}`}>{fmtAvvikelse(k.dia_avvikelse_snitt_mm, 'mm')} mm</span>
                       </div>
                     );
                   })}
@@ -1008,6 +1149,7 @@ export default function KalibreringPage() {
 
           {activeTab === 'calendar' && (
             <>
+              {partialBanner}
               <div className="kalib-cal-header">
                 <button className="kalib-cal-nav" onClick={() => setCalManad(stegManad(calManad, -1))} aria-label="Föregående månad">
                   <MSym name="chevron_left" size={24} color="#fff" />
@@ -1112,6 +1254,8 @@ export default function KalibreringPage() {
           )}
 
           {activeTab === 'report' && (
+            <>
+            {partialBanner}
             <div className="kalib-report">
               <div className="kalib-report-header">
                 <div className="kalib-report-title-block">
@@ -1153,7 +1297,7 @@ export default function KalibreringPage() {
                         <div className={`kalib-report-bar-fill ${lenOut(avgLenReport) ? 'bad' : ''}`} style={{ width: `${Math.min(50, Math.abs(avgLenReport) * 10)}%`, ...(avgLenReport >= 0 ? { left: '50%' } : { right: '50%' }) }} />
                       </div>
                     </div>
-                    <div className={`kalib-report-result-value ${lenOut(avgLenReport) ? 'bad' : ''}`}>{avgLenReport >= 0 ? '+' : ''}{avgLenReport} cm</div>
+                    <div className={`kalib-report-result-value ${lenOut(avgLenReport) ? 'bad' : ''}`}>{fmtAvvikelse(avgLenReport, 'cm')} cm</div>
                   </div>
                   <div className="kalib-report-result">
                     <div className="kalib-report-result-label">Diameter</div>
@@ -1163,7 +1307,7 @@ export default function KalibreringPage() {
                         <div className={`kalib-report-bar-fill ${diaOut(avgDiaReport) ? 'bad' : ''}`} style={{ width: `${Math.min(50, Math.abs(avgDiaReport) * 10)}%`, ...(avgDiaReport >= 0 ? { left: '50%' } : { right: '50%' }) }} />
                       </div>
                     </div>
-                    <div className={`kalib-report-result-value ${diaOut(avgDiaReport) ? 'bad' : ''}`}>{avgDiaReport >= 0 ? '+' : ''}{avgDiaReport} mm</div>
+                    <div className={`kalib-report-result-value ${diaOut(avgDiaReport) ? 'bad' : ''}`}>{fmtAvvikelse(avgDiaReport, 'mm')} mm</div>
                   </div>
                 </div>
                 <div className={`kalib-verdict ${verdictWithinTolerance ? 'good' : 'bad'}`}>
@@ -1187,8 +1331,8 @@ export default function KalibreringPage() {
                       <div key={key} className="kalib-table-row" onClick={() => openSpeciesDetail(key)}>
                         <span>{name}</span>
                         <span>{data.count}</span>
-                        <span className={lenOut(data.lenDiff) ? 'bad' : ''}>{data.lenDiff >= 0 ? '+' : ''}{data.lenDiff} cm</span>
-                        <span className={diaOut(data.diaDiff) ? 'bad' : ''}>{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff} mm</span>
+                        <span className={lenOut(data.lenDiff) ? 'bad' : ''}>{fmtAvvikelse(data.lenDiff, 'cm')} cm</span>
+                        <span className={diaOut(data.diaDiff) ? 'bad' : ''}>{fmtAvvikelse(data.diaDiff, 'mm')} mm</span>
                         <span className="kalib-table-chev"><MSym name="chevron_right" size={18} color="#8E8E93" /></span>
                       </div>
                     );
@@ -1205,6 +1349,7 @@ export default function KalibreringPage() {
                 </div>
               )}
             </div>
+            </>
           )}
         </div>
 
@@ -1212,8 +1357,15 @@ export default function KalibreringPage() {
           const top = modalStack[modalStack.length - 1];
           const isOpen = modalStack.length > 0;
           return (
-            <div className={`kalib-modal-overlay ${isOpen ? 'open' : ''}`} onClick={closeModal}>
-              <div className="kalib-modal" onClick={e => e.stopPropagation()}>
+            <div ref={swipeMain.overlayRef} className={`kalib-modal-overlay ${isOpen ? 'open' : ''}`} onClick={closeModal}>
+              <div
+                ref={swipeMain.modalRef}
+                className="kalib-modal"
+                onClick={e => e.stopPropagation()}
+                onTouchStart={swipeMain.onTouchStart}
+                onTouchMove={swipeMain.onTouchMove}
+                onTouchEnd={swipeMain.onTouchEnd}
+              >
                 <div className="kalib-modal-handle" />
                 {top?.parentLabel && (
                   <button className="kalib-modal-back" onClick={popModal}>
@@ -1233,8 +1385,15 @@ export default function KalibreringPage() {
         })()}
 
         {/* === Maskin-filter sheet === */}
-        <div className={`kalib-modal-overlay ${maskinSheetOpen ? 'open' : ''}`} onClick={() => setMaskinSheetOpen(false)}>
-          <div className="kalib-modal" onClick={e => e.stopPropagation()}>
+        <div ref={swipeSheet.overlayRef} className={`kalib-modal-overlay ${maskinSheetOpen ? 'open' : ''}`} onClick={() => setMaskinSheetOpen(false)}>
+          <div
+            ref={swipeSheet.modalRef}
+            className="kalib-modal"
+            onClick={e => e.stopPropagation()}
+            onTouchStart={swipeSheet.onTouchStart}
+            onTouchMove={swipeSheet.onTouchMove}
+            onTouchEnd={swipeSheet.onTouchEnd}
+          >
             <div className="kalib-modal-handle" />
             <div className="kalib-modal-header">
               <div className="kalib-modal-title">Maskin</div>
