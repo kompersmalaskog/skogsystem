@@ -1098,6 +1098,8 @@ export default function PlannerPage() {
     });
 
     setMapLibreReady(true);
+    // TEMP DEBUG — ta bort efter Körvy-verifiering
+    if (typeof window !== 'undefined') { (window as any).__korvyMap = mapInstanceRef.current; }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMapRemoved = useCallback(() => {
