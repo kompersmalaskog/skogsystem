@@ -141,9 +141,18 @@ const kontrollStatusText = (s: string) => {
 
 export default function KalibreringPage() {
   const [activeTab, setActiveTab] = useState<'today' | 'history' | 'calendar' | 'report'>('today');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [modalContent, setModalContent] = useState<{ title: string; subtitle: string; body: React.ReactNode } | null>(null);
+  type ModalEntry = { title: string; subtitle: string; body: React.ReactNode; parentLabel?: string };
+  const [modalStack, setModalStack] = useState<ModalEntry[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const pushModal = (entry: Omit<ModalEntry, 'parentLabel'>) => {
+    setModalStack(prev => prev.length === 0
+      ? [entry]
+      : [...prev, { ...entry, parentLabel: prev[prev.length - 1].title }]
+    );
+  };
+  const popModal = () => setModalStack(prev => prev.slice(0, -1));
+  const closeModal = () => setModalStack([]);
 
   const [allKalib, setAllKalib] = useState<FaktKalibrering[]>([]);
   const [stockMap, setStockMap] = useState<Record<string, DetaljKontrollStock[]>>({});
@@ -316,18 +325,41 @@ export default function KalibreringPage() {
   const lenOut = (v: number) => Math.abs(v) > TOL_LEN;
   const diaOut = (v: number) => Math.abs(v) > TOL_DIA;
 
+  // Per-stock tre-nivåklassning — återanvänds i översikt, jämförelse och stock-detaljmodalen
+  const stockLenCls = (lenDiff: number): 'good' | 'warn' | 'bad' =>
+    Math.abs(lenDiff) > 3 ? 'bad' : Math.abs(lenDiff) > 2 ? 'warn' : 'good';
+  const stockDiaCls = (diaDiff: number): 'good' | 'warn' | 'bad' =>
+    Math.abs(diaDiff) > 6 ? 'bad' : Math.abs(diaDiff) > 4 ? 'warn' : 'good';
+
   // === Modals ===
   const openStockModal = (stock: DetaljKontrollStock) => {
     const lenDiff = stock.langd_avvikelse_cm;
     const diaDiff = stock.dia_avvikelse_mm;
-    const lenCls = Math.abs(lenDiff) > 3 ? 'bad' : Math.abs(lenDiff) > 2 ? 'warn' : 'good';
-    const diaCls = Math.abs(diaDiff) > 6 ? 'bad' : Math.abs(diaDiff) > 4 ? 'warn' : 'good';
+    const lenCls = stockLenCls(lenDiff);
+    const diaCls = stockDiaCls(diaDiff);
+    const maskinW = Math.max(120, stock.maskin_langd_cm / 2);
+    const maskinH = Math.max(20, stock.maskin_toppdia_mm / 4);
+    const operatorW = Math.max(120, stock.operator_langd_cm / 2);
+    const operatorH = Math.max(20, stock.operator_toppdia_mm / 4);
+    const stockBorderClass = diaCls === 'good' ? '' : diaCls === 'warn' ? 'warn-stock' : 'bad-stock';
 
-    setModalContent({
+    pushModal({
       title: `Stock ${stock.stock_nummer}`,
       subtitle: `Stam ${stock.stam_nummer} • ${stock.kontroll_datum}`,
       body: (
         <>
+          <div className="kalib-stock-compare">
+            <div className="kalib-stock-compare-row">
+              <div className="kalib-stock-compare-label">Maskin</div>
+              <div className={`kalib-log-body ${stockBorderClass}`} style={{ width: maskinW, height: maskinH }}>
+                <span className="kalib-log-num">{stock.stock_nummer}</span>
+              </div>
+            </div>
+            <div className="kalib-stock-compare-row">
+              <div className="kalib-stock-compare-label">Operatör</div>
+              <div className="kalib-log-body" style={{ width: operatorW, height: operatorH }} />
+            </div>
+          </div>
           <div className="kalib-total-summary">
             <div className="kalib-total-title">Mätjämförelse</div>
             <div className="kalib-total-grid two-col">
@@ -370,14 +402,13 @@ export default function KalibreringPage() {
         </>
       )
     });
-    setModalOpen(true);
   };
 
   const openStemOverview = (kalib: FaktKalibrering) => {
     const stocks = (stockMap[kalib.filnamn] || []).sort((a, b) => a.stock_nummer - b.stock_nummer);
     const totalLen = stocks.reduce((a, s) => a + s.maskin_langd_cm, 0);
 
-    setModalContent({
+    pushModal({
       title: `Kontroll ${new Date(kalib.datum).toLocaleDateString('sv-SE')}`,
       subtitle: `${cap(kalib.tradslag)} • ${kalib.antal_kontrollstockar} stockar • ${kalib.status === 'VARNING' ? 'Varning' : 'Inom tolerans'}`,
       body: (
@@ -396,9 +427,9 @@ export default function KalibreringPage() {
               <div className="kalib-overview-grid">
                 {stocks.map(stock => {
                   const diaDiff = stock.dia_avvikelse_mm;
-                  const cls = Math.abs(diaDiff) > 6 ? 'bad' : Math.abs(diaDiff) > 4 ? 'warn' : 'good';
+                  const cls = stockDiaCls(diaDiff);
                   return (
-                    <div key={stock.id} className="kalib-overview-log" onClick={() => { setModalOpen(false); setTimeout(() => openStockModal(stock), 150); }}>
+                    <div key={stock.id} className="kalib-overview-log" onClick={() => openStockModal(stock)}>
                       <div className="kalib-overview-num">{stock.stock_nummer}</div>
                       <div className="kalib-overview-info">
                         <div className="kalib-overview-title">Stock {stock.stock_nummer}</div>
@@ -414,7 +445,6 @@ export default function KalibreringPage() {
         </>
       )
     });
-    setModalOpen(true);
   };
 
   const openSpeciesDetail = (species: string) => {
@@ -423,7 +453,7 @@ export default function KalibreringPage() {
     const name = species === 'gran' ? 'Gran' : species === 'tall' ? 'Tall' : species.charAt(0).toUpperCase() + species.slice(1);
     const speciesKalibs = filteredKalib.filter(k => k.tradslag.toLowerCase() === species).slice(0, 20);
 
-    setModalContent({
+    pushModal({
       title: name,
       subtitle: `${data.count} kontroller`,
       body: (
@@ -441,7 +471,7 @@ export default function KalibreringPage() {
               const d = new Date(k.datum);
               const cls = diaOut(k.dia_avvikelse_snitt_mm) ? 'bad' : 'good';
               return (
-                <div key={k.id} className="kalib-overview-log" onClick={() => { setModalOpen(false); setTimeout(() => openStemOverview(k), 150); }}>
+                <div key={k.id} className="kalib-overview-log" onClick={() => openStemOverview(k)}>
                   <div className="kalib-overview-num">{d.getDate()}</div>
                   <div className="kalib-overview-info">
                     <div className="kalib-overview-title">{d.toLocaleDateString('sv-SE')}</div>
@@ -462,11 +492,10 @@ export default function KalibreringPage() {
         </>
       )
     });
-    setModalOpen(true);
   };
 
   const openCalendarDayModal = (dag: CalDag) => {
-    setModalContent({
+    pushModal({
       title: dagrubrik(dag.datum),
       subtitle: dagstatusText(dag.status),
       body: (
@@ -494,11 +523,19 @@ export default function KalibreringPage() {
               )}
               {m.kontroller.length > 0 && (
                 <div className="kalib-day-maskin-kontroller">
-                  {m.kontroller.map(k => (
-                    <div key={k.id} className="kalib-day-maskin-kontroll">
-                      {cap(k.tradslag ?? '')} · {kontrollStatusText(k.status)}
-                    </div>
-                  ))}
+                  {m.kontroller.map(k => {
+                    const full = allKalib.find(x => x.id === k.id);
+                    return (
+                      <div
+                        key={k.id}
+                        className="kalib-day-maskin-kontroll"
+                        onClick={full ? () => openStemOverview(full) : undefined}
+                        style={full ? { cursor: 'pointer' } : undefined}
+                      >
+                        {cap(k.tradslag ?? '')} · {kontrollStatusText(k.status)}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -507,7 +544,6 @@ export default function KalibreringPage() {
         </>
       ),
     });
-    setModalOpen(true);
   };
 
   if (loading) {
@@ -588,6 +624,8 @@ export default function KalibreringPage() {
         .kalib-log-block{display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;transition:transform 0.15s}
         .kalib-log-block:active{transform:scale(0.96)}
         .kalib-log-body{background:#2C2C2E;border-radius:6px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.06)}
+        .kalib-log-body.warn-stock{border:1.5px solid #8E8E93}
+        .kalib-log-body.bad-stock{border:1.5px solid #FF3B30}
         .kalib-log-num{color:#fff;font-size:14px;font-weight:600}
         .kalib-log-info{text-align:center}
         .kalib-log-length{font-size:12px;font-weight:500;color:#fff}
@@ -597,7 +635,9 @@ export default function KalibreringPage() {
         .kalib-btn-stem-arrow{color:#8E8E93;display:flex;align-items:center}
 
         .kalib-bars{display:flex;flex-direction:column;gap:18px}
-        .kalib-bar-group{cursor:pointer}
+        .kalib-bar-group{display:flex;align-items:flex-start;gap:10px;cursor:pointer}
+        .kalib-bar-content{flex:1;min-width:0}
+        .kalib-bar-chev{flex-shrink:0;display:flex;align-items:center;padding-top:2px}
         .kalib-bar-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
         .kalib-bar-species{font-size:15px;font-weight:600;color:#fff}
         .kalib-bar-count{font-size:12px;color:#8E8E93}
@@ -730,8 +770,9 @@ export default function KalibreringPage() {
         .kalib-verdict.bad .kalib-verdict-title{color:#FF3B30}
         .kalib-verdict-desc{font-size:12px;color:#8E8E93;margin-top:2px}
         .kalib-species-table{border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.06)}
-        .kalib-table-header{display:grid;grid-template-columns:1fr 70px 70px 80px;padding:10px 14px;background:rgba(255,255,255,0.04);font-size:11px;color:#8E8E93;font-weight:500}
-        .kalib-table-row{display:grid;grid-template-columns:1fr 70px 70px 80px;padding:14px;border-top:0.5px solid #2C2C2E;font-size:13px;cursor:pointer;color:#fff;align-items:center}
+        .kalib-table-header{display:grid;grid-template-columns:1fr 60px 70px 80px 24px;padding:10px 14px;background:rgba(255,255,255,0.04);font-size:11px;color:#8E8E93;font-weight:500}
+        .kalib-table-row{display:grid;grid-template-columns:1fr 60px 70px 80px 24px;padding:14px;border-top:0.5px solid #2C2C2E;font-size:13px;cursor:pointer;color:#fff;align-items:center}
+        .kalib-table-chev{display:flex;align-items:center;justify-content:flex-end}
         .kalib-table-row > span.bad{color:#FF3B30;font-weight:600}
         .kalib-report-footer{display:flex;justify-content:flex-end;padding-top:18px;border-top:0.5px solid #2C2C2E;margin-top:22px}
         .kalib-report-machine{text-align:right;font-size:13px;color:#fff}
@@ -742,6 +783,10 @@ export default function KalibreringPage() {
         .kalib-modal{background:#1C1C1E;width:100%;max-width:560px;max-height:88vh;border-radius:20px 20px 0 0;padding:10px 20px 28px;border:1px solid rgba(255,255,255,0.06);border-bottom:none;transform:translateY(100%);transition:transform 0.3s cubic-bezier(0.2,0.8,0.2,1);overflow-y:auto}
         .kalib-modal-overlay.open .kalib-modal{transform:translateY(0)}
         .kalib-modal-handle{width:36px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;margin:0 auto 14px}
+        .kalib-modal-back{display:inline-flex;align-items:center;gap:2px;background:none;border:none;color:#fff;font-size:15px;font-weight:400;font-family:inherit;cursor:pointer;padding:6px 0;margin:0 0 8px}
+
+        .kalib-stock-compare{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+        .kalib-stock-compare-label{font-size:12px;color:#8E8E93;margin-bottom:4px}
         .kalib-modal-header{text-align:center;margin-bottom:18px}
         .kalib-modal-title{font-size:20px;font-weight:600;color:#fff}
         .kalib-modal-subtitle{font-size:13px;color:#8E8E93;margin-top:2px}
@@ -798,7 +843,7 @@ export default function KalibreringPage() {
 
         {activeTab !== 'today' && (
           <div className="kalib-filter-row">
-            <button className="kalib-filter-btn" onClick={() => { setModalOpen(false); setMaskinSearchQ(''); setMaskinSheetOpen(true); }}>
+            <button className="kalib-filter-btn" onClick={() => { closeModal(); setMaskinSearchQ(''); setMaskinSheetOpen(true); }}>
               <MSym name="tune" size={16} color="#fff" />
               <span className="kalib-filter-label">{filterLabel}</span>
               <MSym name="expand_more" size={16} color="#8E8E93" />
@@ -854,16 +899,18 @@ export default function KalibreringPage() {
               {latestStockar.length > 0 && (
                 <div className="kalib-card">
                   <div className="kalib-section-title">Stockar</div>
-                  <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {latestStockar.length} stockar • {(totalLatestLen / 100).toFixed(1)} meter • Tryck för detaljer</div>
+                  <div className="kalib-section-subtitle">{cap(latestKalib.tradslag)} • {latestStockar.length} stockar • {(totalLatestLen / 100).toFixed(1)} meter</div>
                   <div className="kalib-stem-viz">
                     <div className="kalib-stem-viz-inner">
                       <span className="kalib-stem-label">Rot</span>
                       {latestStockar.map(stock => {
-                        const baseW = 40 + Math.min(60, stock.maskin_langd_cm / 8);
-                        const baseH = 25 + Math.min(50, stock.maskin_toppdia_mm / 3);
+                        const baseW = Math.max(60, stock.maskin_langd_cm / 4);
+                        const baseH = Math.max(12, stock.maskin_toppdia_mm / 6);
+                        const cls = stockDiaCls(stock.dia_avvikelse_mm);
+                        const borderCls = cls === 'good' ? '' : cls === 'warn' ? 'warn-stock' : 'bad-stock';
                         return (
                           <div key={stock.id} className="kalib-log-block" onClick={() => openStockModal(stock)}>
-                            <div className="kalib-log-body" style={{ width: baseW, height: baseH }}>
+                            <div className={`kalib-log-body ${borderCls}`} style={{ width: baseW, height: baseH }}>
                               <span className="kalib-log-num">{stock.stock_nummer}</span>
                             </div>
                             <div className="kalib-log-info">
@@ -898,26 +945,29 @@ export default function KalibreringPage() {
                     const diaBad = diaOut(data.diaDiff);
                     return (
                       <div key={key} className="kalib-bar-group" onClick={() => openSpeciesDetail(key)}>
-                        <div className="kalib-bar-header">
-                          <span className="kalib-bar-species">{name}</span>
-                          <span className="kalib-bar-count">{data.count} kontroller</span>
-                        </div>
-                        <div className="kalib-bar-row">
-                          <span className="kalib-bar-label">Längd</span>
-                          <div className="kalib-bar-track">
-                            <div className="kalib-bar-zero" />
-                            <div className={`kalib-bar-fill ${data.lenDiff < 0 ? 'neg' : 'pos'} ${lenBad ? 'bad' : ''}`} style={{ width: `${Math.min(50, Math.abs(data.lenDiff) * 10)}%` }} />
+                        <div className="kalib-bar-content">
+                          <div className="kalib-bar-header">
+                            <span className="kalib-bar-species">{name}</span>
+                            <span className="kalib-bar-count">{data.count} kontroller</span>
                           </div>
-                          <span className={`kalib-bar-value ${lenBad ? 'bad' : ''}`}>{data.lenDiff >= 0 ? '+' : ''}{data.lenDiff} cm</span>
-                        </div>
-                        <div className="kalib-bar-row">
-                          <span className="kalib-bar-label">Diameter</span>
-                          <div className="kalib-bar-track">
-                            <div className="kalib-bar-zero" />
-                            <div className={`kalib-bar-fill ${data.diaDiff < 0 ? 'neg' : 'pos'} ${diaBad ? 'bad' : ''}`} style={{ width: `${Math.min(50, Math.abs(data.diaDiff) * 10)}%` }} />
+                          <div className="kalib-bar-row">
+                            <span className="kalib-bar-label">Längd</span>
+                            <div className="kalib-bar-track">
+                              <div className="kalib-bar-zero" />
+                              <div className={`kalib-bar-fill ${data.lenDiff < 0 ? 'neg' : 'pos'} ${lenBad ? 'bad' : ''}`} style={{ width: `${Math.min(50, Math.abs(data.lenDiff) * 10)}%` }} />
+                            </div>
+                            <span className={`kalib-bar-value ${lenBad ? 'bad' : ''}`}>{data.lenDiff >= 0 ? '+' : ''}{data.lenDiff} cm</span>
                           </div>
-                          <span className={`kalib-bar-value ${diaBad ? 'bad' : ''}`}>{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff} mm</span>
+                          <div className="kalib-bar-row">
+                            <span className="kalib-bar-label">Diameter</span>
+                            <div className="kalib-bar-track">
+                              <div className="kalib-bar-zero" />
+                              <div className={`kalib-bar-fill ${data.diaDiff < 0 ? 'neg' : 'pos'} ${diaBad ? 'bad' : ''}`} style={{ width: `${Math.min(50, Math.abs(data.diaDiff) * 10)}%` }} />
+                            </div>
+                            <span className={`kalib-bar-value ${diaBad ? 'bad' : ''}`}>{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff} mm</span>
+                          </div>
                         </div>
+                        <span className="kalib-bar-chev"><MSym name="chevron_right" size={18} color="#8E8E93" /></span>
                       </div>
                     );
                   })}
@@ -1128,7 +1178,7 @@ export default function KalibreringPage() {
               <div className="kalib-report-section">
                 <div className="kalib-report-section-title">Per trädslag</div>
                 <div className="kalib-species-table">
-                  <div className="kalib-table-header"><span></span><span>Kontroller</span><span>Längd</span><span>Diameter</span></div>
+                  <div className="kalib-table-header"><span></span><span>Kontroller</span><span>Längd</span><span>Diameter</span><span></span></div>
                   {Object.entries(speciesData).map(([key, data]) => {
                     const name = key === 'gran' ? 'Gran' : key === 'tall' ? 'Tall' : key.charAt(0).toUpperCase() + key.slice(1);
                     return (
@@ -1137,6 +1187,7 @@ export default function KalibreringPage() {
                         <span>{data.count}</span>
                         <span className={lenOut(data.lenDiff) ? 'bad' : ''}>{data.lenDiff >= 0 ? '+' : ''}{data.lenDiff} cm</span>
                         <span className={diaOut(data.diaDiff) ? 'bad' : ''}>{data.diaDiff >= 0 ? '+' : ''}{data.diaDiff} mm</span>
+                        <span className="kalib-table-chev"><MSym name="chevron_right" size={18} color="#8E8E93" /></span>
                       </div>
                     );
                   })}
@@ -1155,17 +1206,29 @@ export default function KalibreringPage() {
           )}
         </div>
 
-        <div className={`kalib-modal-overlay ${modalOpen ? 'open' : ''}`} onClick={() => setModalOpen(false)}>
-          <div className="kalib-modal" onClick={e => e.stopPropagation()}>
-            <div className="kalib-modal-handle" />
-            <div className="kalib-modal-header">
-              <div className="kalib-modal-title">{modalContent?.title}</div>
-              <div className="kalib-modal-subtitle">{modalContent?.subtitle}</div>
+        {(() => {
+          const top = modalStack[modalStack.length - 1];
+          const isOpen = modalStack.length > 0;
+          return (
+            <div className={`kalib-modal-overlay ${isOpen ? 'open' : ''}`} onClick={closeModal}>
+              <div className="kalib-modal" onClick={e => e.stopPropagation()}>
+                <div className="kalib-modal-handle" />
+                {top?.parentLabel && (
+                  <button className="kalib-modal-back" onClick={popModal}>
+                    <MSym name="arrow_back_ios" size={20} color="#fff" />
+                    <span>{top.parentLabel}</span>
+                  </button>
+                )}
+                <div className="kalib-modal-header">
+                  <div className="kalib-modal-title">{top?.title}</div>
+                  <div className="kalib-modal-subtitle">{top?.subtitle}</div>
+                </div>
+                <div>{top?.body}</div>
+                <button className="kalib-modal-close" onClick={closeModal}>Stäng</button>
+              </div>
             </div>
-            <div>{modalContent?.body}</div>
-            <button className="kalib-modal-close" onClick={() => setModalOpen(false)}>Stäng</button>
-          </div>
-        </div>
+          );
+        })()}
 
         {/* === Maskin-filter sheet === */}
         <div className={`kalib-modal-overlay ${maskinSheetOpen ? 'open' : ''}`} onClick={() => setMaskinSheetOpen(false)}>
