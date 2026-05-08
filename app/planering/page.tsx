@@ -5114,20 +5114,32 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     if (!map.getLayer('markers-layer')) return;
-    const baseSize: any = ['interpolate', ['linear'], ['zoom'], 10, 0.15, 12, 0.2, 13, 0.3, 14, 0.4, 15, 0.5, 16, 0.6, 17, 0.75, 19, 1.0];
+    // 'zoom' måste vara top-level i interpolate/step — case-with-baseSize-fallback
+    // är ogiltig (MapLibre 5 re-validerar hela layout vid setLayoutProperty och
+    // kastar). Lyfter case inuti varje interpolate-stop istället. Pulse/nearby
+    // är multiplikatorer på base-storleken vid den zoomnivån (× 1.4 / × 1.0)
+    // så pulse alltid är 40 % större än default oberoende av zoom — inte fast
+    // 1.4 som original-koden (vilket gav 9× vid zoom 10, absurt vid utzoom).
+    const baseStops: [number, number][] = [
+      [10, 0.15], [12, 0.2], [13, 0.3], [14, 0.4],
+      [15, 0.5], [16, 0.6], [17, 0.75], [19, 1.0],
+    ];
+    const sizeAt = (base: number): any => [
+      'case',
+      ['==', ['get', 'pulse'], true],  base * 1.4,
+      ['==', ['get', 'nearby'], true], base * 1.0,
+      base,
+    ];
+    const baseSize: any = ['interpolate', ['linear'], ['zoom'],
+      ...baseStops.flatMap(([z, s]) => [z, s]),
+    ];
+    const korvyBoostedSize: any = ['interpolate', ['linear'], ['zoom'],
+      ...baseStops.flatMap(([z, s]) => [z, sizeAt(s)]),
+    ];
     try {
-      if (korvyActive) {
-        // Pulse: 50m → 1.4x, Nearby: 200m → 1.0x, övrigt → baseSize
-        map.setLayoutProperty('markers-layer', 'icon-size', [
-          'case',
-          ['==', ['get', 'pulse'], true], 1.4,
-          ['==', ['get', 'nearby'], true], 1.0,
-          baseSize,
-        ] as any);
-      } else {
-        map.setLayoutProperty('markers-layer', 'icon-size', baseSize);
-      }
-    } catch { /* layer not ready */ }
+      map.setLayoutProperty('markers-layer', 'icon-size', korvyActive ? korvyBoostedSize : baseSize);
+      console.log('[Körvy] icon-size set:', korvyActive ? 'boosted (pulse/nearby)' : 'base');
+    } catch (e) { console.error('[Körvy] icon-size set failed:', e); }
   }, [korvyActive, mapLibreReady]);
 
   // 4) Pulse-blink för markers inom 50m: alterneras flag var 600ms
@@ -5691,8 +5703,13 @@ export default function PlannerPage() {
         const align = korvyActive ? 'map' : 'viewport';
         map.setLayoutProperty('markers-layer', 'icon-pitch-alignment', align);
         map.setLayoutProperty('markers-layer', 'icon-rotation-alignment', align);
+        // TEMP DEBUG — ta bort efter Körvy-verifiering
+        console.log('[Körvy] markers-layer alignment set:', align);
+      } else {
+        // TEMP DEBUG
+        console.warn('[Körvy] markers-layer saknas vid alignment-toggle (icons inte laddade än?)');
       }
-    } catch {}
+    } catch (e) { console.error('[Körvy] alignment-toggle failed:', e); }
     return () => {
       // Återställ till planeringsvyns default vid effekt-rerun + komponent-unmount.
       try {
@@ -5794,6 +5811,13 @@ export default function PlannerPage() {
 
     try { stakeSrc.setData({ type: 'FeatureCollection', features: stakeFeatures }); } catch (e) { console.error('[Körvy] stake-source update:', e); }
     try { extrSrc.setData({ type: 'FeatureCollection', features: extrFeatures }); } catch (e) { console.error('[Körvy] extrusion-source update:', e); }
+    // TEMP DEBUG — ta bort efter Körvy-verifiering
+    console.log('[Körvy] stake/extrusion update:', {
+      input: features.length,
+      stake: stakeFeatures.length,
+      extr: extrFeatures.length,
+      types: [...new Set(extrFeatures.map(f => f.properties.type))],
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markers, korvyActive, currentPosition, mapLibreReady, proximityTick, korvyBlinkOn]);
 
