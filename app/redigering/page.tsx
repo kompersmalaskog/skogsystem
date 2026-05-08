@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, Fragment, Children } from 'react'
 
 // Demo-data
 const DEMO_OBJEKT = [
@@ -450,7 +450,7 @@ function FilterChip({ label, active, onClick }) {
 }
 
 // Chip Input
-function ChipInput({ label, value, options, setOptions, onChange }) {
+function ChipInput({ label, value, options, setOptions, onChange, embedded = false }) {
   const [input, setInput] = useState('')
   const filtered = input.trim() ? options.filter(o => o.toLowerCase().includes(input.toLowerCase())) : options
 
@@ -464,7 +464,7 @@ function ChipInput({ label, value, options, setOptions, onChange }) {
   }
 
   return (
-    <div style={styles.chipInputBox}>
+    <div style={embedded ? styles.chipInputBoxEmbedded : styles.chipInputBox}>
       <div style={styles.chipInputHeader}>
         <span style={styles.chipInputLabel}>{label}</span>
       </div>
@@ -503,16 +503,16 @@ function ChipInput({ label, value, options, setOptions, onChange }) {
 }
 
 // Simple Chip Select
-function SimpleChipSelect({ label, value, options, onChange }) {
+function SimpleChipSelect({ label, value, options, onChange, embedded = false }) {
   return (
-    <div style={styles.chipInputBox}>
+    <div style={embedded ? styles.chipInputBoxEmbedded : styles.chipInputBox}>
       <div style={styles.chipInputLabel}>{label}</div>
       <div style={{...styles.chipGrid, marginTop: 10}}>
         {options.map(opt => (
-          <Chip 
-            key={opt} 
-            label={opt} 
-            selected={value === opt} 
+          <Chip
+            key={opt}
+            label={opt}
+            selected={value === opt}
             onClick={() => onChange(value === opt ? '' : opt)}
             editMode={false}
           />
@@ -675,97 +675,54 @@ function DateToggle({ label, date, onToggle, onDateChange }) {
 }
 
 // Locked Input (som VO-nummer men för vanliga fält)
-function LockedInput({ label, value, onChange, placeholder }) {
-  const [isEditing, setIsEditing] = useState(false)
-  const [tempValue, setTempValue] = useState('')
-  const [hover, setHover] = useState(false)
-
-  const startEdit = () => { setTempValue(value || ''); setIsEditing(true) }
-  const saveEdit = () => { onChange(tempValue); setIsEditing(false) }
-  const cancelEdit = () => { setIsEditing(false) }
-
-  if (isEditing) {
-    return (
-      <div style={styles.voEditBox}>
-        <div style={styles.voEditHeader}>
-          <span style={styles.voLabel}>{label}</span>
-          <span style={styles.voEditingText}>Redigerar</span>
-        </div>
-        <input type="text" value={tempValue} onChange={(e) => setTempValue(e.target.value)} style={styles.voInput} autoFocus placeholder={placeholder}
-          onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') cancelEdit() }} />
-        <div style={styles.voBtns}>
-          <button onClick={saveEdit} style={styles.voBtnSave}>Spara</button>
-          <button onClick={cancelEdit} style={styles.voBtnCancel}>Avbryt</button>
-        </div>
-      </div>
-    )
-  }
-
+// Direkt-redigerbart fält i iOS Settings-stil: label vänster, input höger.
+// onChange uppdaterar state vid varje keystroke; spara till Supabase sker
+// vid stora gröna Spara-knappen i footern.
+function LockedInput({ label, value, onChange, placeholder, embedded = false }) {
+  const [focused, setFocused] = useState(false)
+  const baseStyle = embedded ? styles.directRowEmbedded : styles.directRowStandalone
   return (
-    <div 
-      style={{ ...styles.voBox, borderColor: hover ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)' }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+    <div
+      style={embedded
+        ? { ...baseStyle, background: focused ? 'rgba(173,198,255,0.06)' : 'transparent' }
+        : { ...baseStyle, borderColor: focused ? 'rgba(173,198,255,0.35)' : 'rgba(255,255,255,0.08)' }
+      }
     >
-      <div style={styles.voLeft}>
-        <span style={styles.voLabel}>{label}</span>
-        <span style={styles.voValue}>{value || '—'}</span>
-      </div>
-      <button onClick={startEdit} style={{
-        ...styles.voLockBtn,
-        background: hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
-        transform: hover ? 'scale(1.05)' : 'scale(1)'
-      }}>
-        <span style={styles.voLockText}>Ändra</span>
-      </button>
+      <span style={styles.directRowLabel}>{label}</span>
+      <input
+        type="text"
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder={placeholder}
+        style={styles.directRowInput}
+      />
     </div>
   )
 }
 
-// VO-nummer box
-function VOBox({ value, onChange }) {
-  const [isEditing, setIsEditing] = useState(false)
-  const [tempValue, setTempValue] = useState('')
-  const [hover, setHover] = useState(false)
-
-  const startEdit = (e) => { e.preventDefault(); e.stopPropagation(); setTempValue(value || ''); setIsEditing(true) }
-  const saveEdit = () => { onChange(tempValue); setIsEditing(false) }
-  const cancelEdit = () => { setIsEditing(false) }
-
-  if (isEditing) {
-    return (
-      <div style={styles.voEditBox}>
-        <div style={styles.voEditHeader}>
-          <span style={styles.voLabel}>VO-nummer</span>
-          <span style={styles.voEditingText}>Redigerar</span>
-        </div>
-        <input type="text" value={tempValue} onChange={(e) => setTempValue(e.target.value)} style={styles.voInput} autoFocus placeholder="Ange VO-nummer..."
-          onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(); if (e.key === 'Escape') cancelEdit() }} />
-        <div style={styles.voBtns}>
-          <button onClick={saveEdit} style={styles.voBtnSave}>Spara</button>
-          <button onClick={cancelEdit} style={styles.voBtnCancel}>Avbryt</button>
-        </div>
-      </div>
-    )
-  }
-
+// VO-nummer — samma direkt-redigerbara mönster
+function VOBox({ value, onChange, embedded = false }) {
+  const [focused, setFocused] = useState(false)
+  const baseStyle = embedded ? styles.directRowEmbedded : styles.directRowStandalone
   return (
-    <div 
-      style={{ ...styles.voBox, borderColor: hover ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)' }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+    <div
+      style={embedded
+        ? { ...baseStyle, background: focused ? 'rgba(173,198,255,0.06)' : 'transparent' }
+        : { ...baseStyle, borderColor: focused ? 'rgba(173,198,255,0.35)' : 'rgba(255,255,255,0.08)' }
+      }
     >
-      <div style={styles.voLeft}>
-        <span style={styles.voLabel}>VO-nummer</span>
-        <span style={styles.voValue}>{value || '—'}</span>
-      </div>
-      <button onClick={startEdit} style={{
-        ...styles.voLockBtn,
-        background: hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
-        transform: hover ? 'scale(1.05)' : 'scale(1)'
-      }}>
-        <span style={styles.voLockText}>Ändra</span>
-      </button>
+      <span style={styles.directRowLabel}>VO-nummer</span>
+      <input
+        type="text"
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        placeholder="Ange VO-nummer …"
+        style={styles.directRowInput}
+      />
     </div>
   )
 }
@@ -816,13 +773,13 @@ function ConfirmDialog({ open, title, message, confirmLabel = 'Fortsätt', cance
         <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>{title}</div>
         <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 1.45, marginBottom: 18 }}>{message}</div>
         <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onCancel} style={{
+          <button onClick={onCancel} className="tap-press" style={{
             flex: 1, minHeight: 56, padding: '0 14px', borderRadius: 12,
             border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
             color: 'rgba(255,255,255,0.75)', fontSize: 15, fontWeight: 600,
             fontFamily: 'inherit', cursor: 'pointer',
           }}>{cancelLabel}</button>
-          <button onClick={onConfirm} style={{
+          <button onClick={onConfirm} className="tap-press" style={{
             flex: 1, minHeight: 56, padding: '0 14px', borderRadius: 12,
             border: 'none', background: destructive ? '#FF453A' : '#adc6ff',
             color: '#000', fontSize: 15, fontWeight: 600,
@@ -882,10 +839,10 @@ function PrisscenarioBox({ valtScenario, onOpen }) {
       </div>
       <button
         onClick={onOpen}
+        className="tap-press"
         style={{
           ...styles.voLockBtn,
           background: hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
-          transform: hover ? 'scale(1.05)' : 'scale(1)'
         }}
       >
         <span style={styles.voLockText}>{harScenario ? 'Ändra' : 'Välj'}</span>
@@ -1016,6 +973,157 @@ function WarningsList({ warnings, onJump }) {
   )
 }
 
+// Bottom sheet med drag-to-close, esc, spring-animation, smooth backdrop-blur.
+// Föräldern lever bara med {open, onClose}; sheet:en hanterar sin egen exit-anim.
+function EditSheet({ open, onClose, title, footer, children }) {
+  const [closing, setClosing] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const [dragOffset, setDragOffset] = useState(0)
+  const [isDragging, setIsDragging] = useState(false)
+  const dragStartY = useRef(null)
+
+  // Triggrar exit-animation, kallar onClose efter timeout
+  const handleClose = () => {
+    if (closing) return
+    setClosing(true)
+    setTimeout(() => {
+      setClosing(false)
+      setScrolled(false)
+      setDragOffset(0)
+      onClose()
+    }, 280)
+  }
+
+  // Esc-tangent
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e) => { if (e.key === 'Escape') handleClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  // Drag-listening på document — bara aktiv under drag
+  useEffect(() => {
+    if (!isDragging) return
+    const getY = (e) => {
+      if (typeof e.clientY === 'number') return e.clientY
+      if (e.touches && e.touches[0]) return e.touches[0].clientY
+      if (e.changedTouches && e.changedTouches[0]) return e.changedTouches[0].clientY
+      return null
+    }
+    const onMove = (e) => {
+      if (dragStartY.current === null) return
+      const y = getY(e)
+      if (y === null) return
+      const offset = Math.max(0, y - dragStartY.current)
+      setDragOffset(offset)
+    }
+    const onUp = (e) => {
+      const y = getY(e)
+      const offset = (y !== null && dragStartY.current !== null) ? Math.max(0, y - dragStartY.current) : dragOffset
+      setIsDragging(false)
+      dragStartY.current = null
+      if (offset > 120) {
+        // Pass throsskel — stäng. dragOffset behålls visuellt under exit.
+        handleClose()
+      } else {
+        setDragOffset(0)
+      }
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    document.addEventListener('touchmove', onMove)
+    document.addEventListener('touchend', onUp)
+    document.addEventListener('touchcancel', onUp)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend', onUp)
+      document.removeEventListener('touchcancel', onUp)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDragging])
+
+  const onDragStart = (e) => {
+    const y = (typeof e.clientY === 'number')
+      ? e.clientY
+      : (e.touches && e.touches[0] ? e.touches[0].clientY : null)
+    if (y === null) return
+    dragStartY.current = y
+    setDragOffset(0)
+    setIsDragging(true)
+  }
+
+  if (!open && !closing) return null
+
+  // Spring: cubic-bezier(0.32, 0.72, 0, 1) — iOS-stil med liten överskjutning
+  const springEasing = 'cubic-bezier(0.32, 0.72, 0, 1)'
+  const exitEasing = 'cubic-bezier(0.4, 0, 1, 1)'
+
+  return (
+    <>
+      <div
+        onClick={handleClose}
+        style={{
+          ...styles.overlay,
+          animation: closing ? 'fadeOut 0.28s ease forwards' : 'fadeIn 0.22s ease',
+          transition: 'backdrop-filter 0.2s ease',
+        }}
+      />
+      <div
+        style={{
+          ...styles.sheet,
+          transform: dragOffset > 0 ? `translateY(${dragOffset}px)` : undefined,
+          transition: isDragging ? 'none' : `transform 0.32s ${springEasing}`,
+          animation: closing
+            ? `slideDown 0.28s ${exitEasing} forwards`
+            : (isDragging ? 'none' : `slideUp 0.42s ${springEasing}`),
+        }}
+      >
+        <div
+          style={{ ...styles.sheetHandle, cursor: isDragging ? 'grabbing' : 'grab', touchAction: 'none' }}
+          onMouseDown={onDragStart}
+          onTouchStart={onDragStart}
+        >
+          <div style={styles.sheetBar} />
+        </div>
+        <div style={{
+          ...styles.sheetHeader,
+          borderBottom: scrolled ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent',
+        }}>
+          <div style={styles.sheetTitel}>{title}</div>
+        </div>
+        <div style={{ ...styles.scrollFade, opacity: scrolled ? 1 : 0 }} />
+        <div style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
+          {children}
+        </div>
+        {footer && <div style={styles.sheetFooter}>{footer}</div>}
+      </div>
+    </>
+  )
+}
+
+// iOS Settings-stil grupp: kort med tunna avdelare mellan rader
+function IosGroup({ title, children }) {
+  const items = Children.toArray(children).filter(Boolean)
+  if (items.length === 0) return null
+  return (
+    <div style={styles.iosGroupWrap}>
+      {title && <div style={styles.iosGroupTitle}>{title}</div>}
+      <div style={styles.iosGroupCard}>
+        {items.map((child, i) => (
+          <Fragment key={i}>
+            {child}
+            {i < items.length - 1 && <div style={styles.iosDivider} />}
+          </Fragment>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 // Redigerings-modal
 function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, scenarier, onOpenScenarioPicker }) {
   const isGallring = valtObjekt.huvudtyp === 'Gallring'
@@ -1071,150 +1179,171 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
 
       <WarningsList warnings={warnings} onJump={scrollAndFlash} />
 
-      <div id="vo_nummer-section" style={styles.fieldWrap}>
-        <VOBox value={valtObjekt.vo_nummer} onChange={(v) => setValtObjekt({...valtObjekt, vo_nummer: v})} />
-      </div>
-
-      <div id="object_name-section" style={styles.fieldWrap}>
-        <LockedInput label="Objektnamn" value={valtObjekt.object_name || ''} onChange={(v) => setValtObjekt({...valtObjekt, object_name: v})} placeholder="T.ex. Lindön AU 2025" />
-        {showQuickFixName && (
-          <button
-            onClick={runQuickFix}
-            disabled={quickFixState.status === 'loading'}
-            style={{
-              ...styles.quickFixBtn,
-              opacity: quickFixState.status === 'loading' ? 0.6 : 1,
-              cursor: quickFixState.status === 'loading' ? 'wait' : 'pointer',
-            }}
-          >
-            {quickFixState.status === 'loading' ? 'Hämtar …' : 'Hämta från filnamn'}
-          </button>
-        )}
-        {quickFixState.message && (
-          <div style={{
-            ...styles.quickFixMessage,
-            ...(quickFixState.status === 'error' ? styles.quickFixMessageError : styles.quickFixMessageOk),
-          }}>
-            {quickFixState.message}
-          </div>
-        )}
-      </div>
-
-      <div id="skogsagare-section" style={styles.fieldWrap}>
-        <LockedInput label="Markägare" value={valtObjekt.skogsagare || ''} onChange={(v) => setValtObjekt({...valtObjekt, skogsagare: v})} placeholder="Skriv markägarens namn …" />
-      </div>
-      <div id="bolag-section" style={styles.fieldWrap}>
-        <ChipInput label="Bolag" value={valtObjekt.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v) => setValtObjekt({...valtObjekt, bolag: v})} />
-      </div>
-      <div id="inkopare-section" style={styles.fieldWrap}>
-        <ChipInput label="Inköpare" value={valtObjekt.inkopare || ''} options={inkopare} setOptions={setInkopare} onChange={(v) => setValtObjekt({...valtObjekt, inkopare: v})} />
-      </div>
-
-      <div id="huvudtyp-section" style={styles.fieldWrap}>
-        <SimpleChipSelect label="Huvudtyp" value={valtObjekt.huvudtyp || ''} options={HUVUDTYPER} onChange={requestHuvudtyp} />
-      </div>
-
-      {valtObjekt.huvudtyp && (
-        <div id="atgard-section" style={styles.fieldWrap}>
-          <ChipInput label="Åtgärd" value={valtObjekt.atgard || ''} options={atgarder} setOptions={setAtgarder} onChange={(v) => setValtObjekt({...valtObjekt, atgard: v})} />
+      <IosGroup title="Identitet">
+        <div id="vo_nummer-section">
+          <VOBox embedded value={valtObjekt.vo_nummer} onChange={(v) => setValtObjekt({...valtObjekt, vo_nummer: v})} />
         </div>
-      )}
-
-      <div style={styles.sectionLabel}>Egenskaper</div>
-      <div style={styles.subsectionLabel}>Skogsbruk</div>
-      <div style={styles.switchList}>
-        {EGENSKAPER_SKOGSBRUK.map(e => (
-          <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
-        ))}
-      </div>
-      <div style={styles.subsectionLabel}>Logistik</div>
-      <div style={styles.switchList}>
-        {EGENSKAPER_LOGISTIK.map(e => (
-          <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
-        ))}
-      </div>
-
-      <div style={styles.sectionLabel}>Pris & ersättning</div>
-      <PrisscenarioBox
-        valtScenario={scenarier.find(s => s.id === valtObjekt.prisscenario_id) || null}
-        onOpen={onOpenScenarioPicker}
-      />
-      <div style={styles.switchList}>
-        <EgenskapSwitch
-          label="Räkna i timpeng-statistik"
-          active={valtObjekt.timpeng === true}
-          onClick={() => setValtObjekt({...valtObjekt, timpeng: !valtObjekt.timpeng})}
-        />
-      </div>
-
-      <div style={styles.subsectionLabel}>Extern skotning</div>
-      <div style={styles.switchList}>
-        <EgenskapSwitch label="Extern skotare (inlejd)" active={valtObjekt._extern_skotning === true} onClick={() => setValtObjekt({...valtObjekt, _extern_skotning: !valtObjekt._extern_skotning})} />
-      </div>
-      {valtObjekt._extern_skotning && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-          <LockedInput label="Företag / person" value={valtObjekt._extern_foretag || ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_foretag: v})} placeholder="Namn på extern skotare..." />
-          <SimpleChipSelect label="Pristyp" value={valtObjekt._extern_pris_typ || 'm3'} options={['m3', 'timme']} onChange={(v) => setValtObjekt({...valtObjekt, _extern_pris_typ: v})} />
-          <LockedInput label={`Pris per ${valtObjekt._extern_pris_typ === 'timme' ? 'timme' : 'm³'} (kr)`} value={valtObjekt._extern_pris ? String(valtObjekt._extern_pris) : ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_pris: parseFloat(v) || 0})} placeholder="0" />
-          <LockedInput label={`Antal ${valtObjekt._extern_pris_typ === 'timme' ? 'timmar' : 'm³'}`} value={valtObjekt._extern_antal ? String(valtObjekt._extern_antal) : ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_antal: parseFloat(v) || 0})} placeholder="0" />
-        </div>
-      )}
-
-      <div style={styles.sectionLabel}>Avslut</div>
-      <div id="avslut-section" style={styles.fieldWrap}>
-        <div style={styles.switchList}>
-          <DateToggle
-            label="Skördning avslutad"
-            date={valtObjekt.skordning_avslutad || null}
-            onToggle={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
-            onDateChange={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
-          />
-          <DateToggle
-            label="Skotning avslutad"
-            date={valtObjekt.skotning_avslutad || null}
-            onToggle={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
-            onDateChange={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
-          />
-          {skotningWarning && <div style={styles.validationWarning}>{skotningWarning}</div>}
-        </div>
-
-        {/* Steg H: Info-rad om maskinen har rapporterat EndDate i filen */}
-        {valtObjekt.end_date && (() => {
-          const av = avslutadFieldFor(valtObjekt.maskin_typ)
-          const display = formatEndDateDisplay(valtObjekt.end_date)
-          const ymd = formatYMD(valtObjekt.end_date)
-          const alreadySet = av && valtObjekt[av.field]
-          return (
-            <div style={styles.machineEndInfo}>
-              <div style={styles.machineEndLabel}>Maskinen rapporterar avslut</div>
-              <div style={styles.machineEndValue}>{display}</div>
-              {/* Steg I: Snabbfix — bara om vi vet maskintyp och fältet inte redan satt */}
-              {av && !alreadySet && ymd && (
-                <button
-                  onClick={() => setValtObjekt({ ...valtObjekt, [av.field]: ymd })}
-                  style={styles.machineEndFixBtn}
-                >
-                  Sätt {av.label} avslutad till {ymd}
-                </button>
-              )}
-              {av && alreadySet && (
-                <div style={styles.machineEndDone}>{capFirst(av.label)} redan markerad avslutad ({valtObjekt[av.field]})</div>
-              )}
-              {!av && (
-                <div style={styles.machineEndHint}>Maskintyp okänd — sätt avslutad-datum manuellt ovan om det stämmer.</div>
+        <div id="object_name-section">
+          <LockedInput embedded label="Objektnamn" value={valtObjekt.object_name || ''} onChange={(v) => setValtObjekt({...valtObjekt, object_name: v})} placeholder="T.ex. Lindön AU 2025" />
+          {showQuickFixName && (
+            <div style={{ padding: '0 16px 14px' }}>
+              <button
+                onClick={runQuickFix}
+                disabled={quickFixState.status === 'loading'}
+                className="tap-press"
+                style={{
+                  ...styles.quickFixBtn,
+                  opacity: quickFixState.status === 'loading' ? 0.6 : 1,
+                  cursor: quickFixState.status === 'loading' ? 'wait' : 'pointer',
+                }}
+              >
+                {quickFixState.status === 'loading' ? 'Hämtar …' : 'Hämta från filnamn'}
+              </button>
+              {quickFixState.message && (
+                <div style={{
+                  ...styles.quickFixMessage,
+                  ...(quickFixState.status === 'error' ? styles.quickFixMessageError : styles.quickFixMessageOk),
+                }}>
+                  {quickFixState.message}
+                </div>
               )}
             </div>
-          )
-        })()}
-      </div>
+          )}
+        </div>
+        <div id="skogsagare-section">
+          <LockedInput embedded label="Markägare" value={valtObjekt.skogsagare || ''} onChange={(v) => setValtObjekt({...valtObjekt, skogsagare: v})} placeholder="Skriv markägarens namn …" />
+        </div>
+      </IosGroup>
 
-      <div style={styles.sectionLabel}>Statistik</div>
-      <EgenskapSwitch
-        label="Exkludera från statistik"
-        active={valtObjekt.exkludera}
-        onClick={() => setValtObjekt({...valtObjekt, exkludera: !valtObjekt.exkludera})}
-        orange
-      />
+      <IosGroup title="Affär">
+        <div id="bolag-section">
+          <ChipInput embedded label="Bolag" value={valtObjekt.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v) => setValtObjekt({...valtObjekt, bolag: v})} />
+        </div>
+        <div id="inkopare-section">
+          <ChipInput embedded label="Inköpare" value={valtObjekt.inkopare || ''} options={inkopare} setOptions={setInkopare} onChange={(v) => setValtObjekt({...valtObjekt, inkopare: v})} />
+        </div>
+      </IosGroup>
+
+      <IosGroup title="Klassificering">
+        <div id="huvudtyp-section">
+          <SimpleChipSelect embedded label="Huvudtyp" value={valtObjekt.huvudtyp || ''} options={HUVUDTYPER} onChange={requestHuvudtyp} />
+        </div>
+        {valtObjekt.huvudtyp && (
+          <div id="atgard-section">
+            <ChipInput embedded label="Åtgärd" value={valtObjekt.atgard || ''} options={atgarder} setOptions={setAtgarder} onChange={(v) => setValtObjekt({...valtObjekt, atgard: v})} />
+          </div>
+        )}
+      </IosGroup>
+
+      <IosGroup title="Egenskaper">
+        <div style={{ padding: '14px 16px' }}>
+          <div style={{ ...styles.subsectionLabel, marginTop: 0 }}>Skogsbruk</div>
+          <div style={styles.switchList}>
+            {EGENSKAPER_SKOGSBRUK.map(e => (
+              <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
+            ))}
+          </div>
+          <div style={styles.subsectionLabel}>Logistik</div>
+          <div style={styles.switchList}>
+            {EGENSKAPER_LOGISTIK.map(e => (
+              <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
+            ))}
+          </div>
+        </div>
+      </IosGroup>
+
+      <IosGroup title="Pris & ersättning">
+        <div style={{ padding: '14px 16px 4px' }}>
+          <PrisscenarioBox
+            valtScenario={scenarier.find(s => s.id === valtObjekt.prisscenario_id) || null}
+            onOpen={onOpenScenarioPicker}
+          />
+        </div>
+        <div style={{ padding: '4px 16px 14px' }}>
+          <div style={styles.switchList}>
+            <EgenskapSwitch
+              label="Räkna i timpeng-statistik"
+              active={valtObjekt.timpeng === true}
+              onClick={() => setValtObjekt({...valtObjekt, timpeng: !valtObjekt.timpeng})}
+            />
+          </div>
+        </div>
+        <div style={{ padding: '4px 16px 14px' }}>
+          <div style={{ ...styles.subsectionLabel, marginTop: 4 }}>Extern skotning</div>
+          <div style={styles.switchList}>
+            <EgenskapSwitch label="Extern skotare (inlejd)" active={valtObjekt._extern_skotning === true} onClick={() => setValtObjekt({...valtObjekt, _extern_skotning: !valtObjekt._extern_skotning})} />
+          </div>
+          {valtObjekt._extern_skotning && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+              <LockedInput label="Företag / person" value={valtObjekt._extern_foretag || ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_foretag: v})} placeholder="Namn på extern skotare …" />
+              <SimpleChipSelect label="Pristyp" value={valtObjekt._extern_pris_typ || 'm3'} options={['m3', 'timme']} onChange={(v) => setValtObjekt({...valtObjekt, _extern_pris_typ: v})} />
+              <LockedInput label={`Pris per ${valtObjekt._extern_pris_typ === 'timme' ? 'timme' : 'm³'} (kr)`} value={valtObjekt._extern_pris ? String(valtObjekt._extern_pris) : ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_pris: parseFloat(v) || 0})} placeholder="0" />
+              <LockedInput label={`Antal ${valtObjekt._extern_pris_typ === 'timme' ? 'timmar' : 'm³'}`} value={valtObjekt._extern_antal ? String(valtObjekt._extern_antal) : ''} onChange={(v) => setValtObjekt({...valtObjekt, _extern_antal: parseFloat(v) || 0})} placeholder="0" />
+            </div>
+          )}
+        </div>
+      </IosGroup>
+
+      <IosGroup title="Avslut">
+        <div id="avslut-section" style={{ padding: '12px 16px 14px' }}>
+          <div style={styles.switchList}>
+            <DateToggle
+              label="Skördning avslutad"
+              date={valtObjekt.skordning_avslutad || null}
+              onToggle={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
+              onDateChange={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
+            />
+            <DateToggle
+              label="Skotning avslutad"
+              date={valtObjekt.skotning_avslutad || null}
+              onToggle={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
+              onDateChange={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
+            />
+            {skotningWarning && <div style={{ ...styles.validationWarning, margin: '8px 0 0' }}>{skotningWarning}</div>}
+          </div>
+
+          {/* Steg H: Info-rad om maskinen har rapporterat EndDate i filen */}
+          {valtObjekt.end_date && (() => {
+            const av = avslutadFieldFor(valtObjekt.maskin_typ)
+            const display = formatEndDateDisplay(valtObjekt.end_date)
+            const ymd = formatYMD(valtObjekt.end_date)
+            const alreadySet = av && valtObjekt[av.field]
+            return (
+              <div style={styles.machineEndInfo}>
+                <div style={styles.machineEndLabel}>Maskinen rapporterar avslut</div>
+                <div style={styles.machineEndValue}>{display}</div>
+                {/* Steg I: Snabbfix — bara om vi vet maskintyp och fältet inte redan satt */}
+                {av && !alreadySet && ymd && (
+                  <button
+                    onClick={() => setValtObjekt({ ...valtObjekt, [av.field]: ymd })}
+                    className="tap-press"
+                    style={styles.machineEndFixBtn}
+                  >
+                    Sätt {av.label} avslutad till {ymd}
+                  </button>
+                )}
+                {av && alreadySet && (
+                  <div style={styles.machineEndDone}>{capFirst(av.label)} redan markerad avslutad ({valtObjekt[av.field]})</div>
+                )}
+                {!av && (
+                  <div style={styles.machineEndHint}>Maskintyp okänd — sätt avslutad-datum manuellt ovan om det stämmer.</div>
+                )}
+              </div>
+            )
+          })()}
+        </div>
+      </IosGroup>
+
+      <IosGroup title="Statistik">
+        <div style={{ padding: '12px 16px' }}>
+          <EgenskapSwitch
+            label="Exkludera från statistik"
+            active={valtObjekt.exkludera}
+            onClick={() => setValtObjekt({...valtObjekt, exkludera: !valtObjekt.exkludera})}
+            orange
+          />
+        </div>
+      </IosGroup>
 
       <ConfirmDialog
         open={!!pendingHuvudtyp}
@@ -1354,6 +1483,15 @@ export default function ObjektRedigering() {
           animation: flashHighlight 0.7s ease;
           border-radius: 14px;
         }
+        .tap-press {
+          transition: transform 0.12s ease, background 0.18s ease, opacity 0.18s ease;
+        }
+        .tap-press:active:not(:disabled) {
+          transform: scale(0.97);
+        }
+        .tap-press:disabled {
+          cursor: not-allowed;
+        }
       `}</style>
 
       <div style={styles.header}>
@@ -1443,30 +1581,24 @@ export default function ObjektRedigering() {
         </>
       )}
 
+      <EditSheet
+        open={!!valtObjekt}
+        onClose={() => setValtObjekt(null)}
+        title={valtObjekt?.object_name || ''}
+        footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
+      >
+        {valtObjekt && (
+          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} />
+        )}
+      </EditSheet>
       {valtObjekt && (
-        <>
-          <div style={{...styles.overlay, animation: closing ? 'fadeOut 0.25s ease forwards' : 'fadeIn 0.2s ease'}} onClick={closeModal} />
-          <div style={{...styles.sheet, animation: closing ? 'slideDown 0.25s ease forwards' : 'slideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1)'}}>
-            <div style={styles.sheetHandle} onClick={closeModal}><div style={styles.sheetBar} /></div>
-            <div style={{...styles.sheetHeader, borderBottom: scrolled ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent'}}>
-              <div style={styles.sheetTitel}>{valtObjekt.object_name}</div>
-            </div>
-            <div style={{...styles.scrollFade, opacity: scrolled ? 1 : 0}} />
-            <div style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
-              <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} />
-            </div>
-            <div style={styles.sheetFooter}>
-              <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />
-            </div>
-          </div>
-          <PrisscenarioPicker
-            open={scenarioPickerOpen}
-            scenarier={scenarier}
-            valtId={valtObjekt.prisscenario_id ?? null}
-            onVal={(id) => { setValtObjekt({...valtObjekt, prisscenario_id: id}); setScenarioPickerOpen(false) }}
-            onClose={() => setScenarioPickerOpen(false)}
-          />
-        </>
+        <PrisscenarioPicker
+          open={scenarioPickerOpen}
+          scenarier={scenarier}
+          valtId={valtObjekt.prisscenario_id ?? null}
+          onVal={(id) => { setValtObjekt({...valtObjekt, prisscenario_id: id}); setScenarioPickerOpen(false) }}
+          onClose={() => setScenarioPickerOpen(false)}
+        />
       )}
     </div>
   )
@@ -1550,6 +1682,15 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
         .flash-highlight {
           animation: flashHighlight 0.7s ease;
           border-radius: 14px;
+        }
+        .tap-press {
+          transition: transform 0.12s ease, background 0.18s ease, opacity 0.18s ease;
+        }
+        .tap-press:active:not(:disabled) {
+          transform: scale(0.97);
+        }
+        .tap-press:disabled {
+          cursor: not-allowed;
         }
       `}</style>
 
@@ -1656,30 +1797,24 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
         )}
       </div>
 
+      <EditSheet
+        open={!!valtObjekt}
+        onClose={() => setValtObjekt(null)}
+        title={valtObjekt?.object_name || ''}
+        footer={valtObjekt && <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />}
+      >
+        {valtObjekt && (
+          <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} />
+        )}
+      </EditSheet>
       {valtObjekt && (
-        <>
-          <div style={{...styles.overlay, animation: closing ? 'fadeOut 0.25s ease forwards' : 'fadeIn 0.2s ease'}} onClick={closeModal} />
-          <div style={{...styles.sheet, animation: closing ? 'slideDown 0.25s ease forwards' : 'slideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1)'}}>
-            <div style={styles.sheetHandle} onClick={closeModal}><div style={styles.sheetBar} /></div>
-            <div style={{...styles.sheetHeader, borderBottom: scrolled ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent'}}>
-              <div style={styles.sheetTitel}>{valtObjekt.object_name}</div>
-            </div>
-            <div style={{...styles.scrollFade, opacity: scrolled ? 1 : 0}} />
-            <div style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
-              <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} />
-            </div>
-            <div style={styles.sheetFooter}>
-              <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />
-            </div>
-          </div>
-          <PrisscenarioPicker
-            open={scenarioPickerOpen}
-            scenarier={scenarier}
-            valtId={valtObjekt.prisscenario_id ?? null}
-            onVal={(id) => { setValtObjekt({...valtObjekt, prisscenario_id: id}); setScenarioPickerOpen(false) }}
-            onClose={() => setScenarioPickerOpen(false)}
-          />
-        </>
+        <PrisscenarioPicker
+          open={scenarioPickerOpen}
+          scenarier={scenarier}
+          valtId={valtObjekt.prisscenario_id ?? null}
+          onVal={(id) => { setValtObjekt({...valtObjekt, prisscenario_id: id}); setScenarioPickerOpen(false) }}
+          onClose={() => setScenarioPickerOpen(false)}
+        />
       )}
     </div>
   )
@@ -1713,7 +1848,19 @@ const styles = {
   scenarioRowName: { fontSize: 16, fontWeight: 500, color: '#fff' },
   scenarioRowBeskrivning: { fontSize: 13, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
   scenarioRowGiltighet: { fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2 },
-  validationWarning: { marginTop: 4, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,159,10,0.08)', border: '1px solid rgba(255,159,10,0.25)', color: 'rgba(255,200,120,0.95)', fontSize: 13, lineHeight: 1.4 },
+  validationWarning: { margin: '12px 16px 4px', padding: '10px 14px', borderRadius: 12, background: 'rgba(255,159,10,0.08)', border: '1px solid rgba(255,159,10,0.25)', color: 'rgba(255,200,120,0.95)', fontSize: 13, lineHeight: 1.4 },
+  iosGroupWrap: { marginBottom: 24 },
+  iosGroupTitle: { fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.2px', padding: '0 4px', marginBottom: 8 },
+  iosGroupCard: { background: '#1c1c1e', borderRadius: 14, overflow: 'hidden' },
+  iosDivider: { height: 1, background: 'rgba(255,255,255,0.06)', marginLeft: 16 },
+  chipInputBoxEmbedded: { padding: '14px 16px 16px' },
+  voBoxEmbedded: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: 'transparent', border: 'none', transition: 'background 0.2s ease', minHeight: 56, boxSizing: 'border-box' },
+  voEditBoxEmbedded: { padding: '14px 16px', background: 'rgba(173,198,255,0.06)', borderTop: '1px solid rgba(173,198,255,0.2)', borderBottom: '1px solid rgba(173,198,255,0.2)' },
+  // Direkt-redigerbart fält i iOS Settings-stil: label vänster, input höger
+  directRowStandalone: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', minHeight: 56, gap: 14, marginBottom: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, transition: 'border-color 0.18s ease' },
+  directRowEmbedded: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', minHeight: 56, gap: 14, transition: 'background 0.18s ease' },
+  directRowLabel: { fontSize: 15, fontWeight: 500, color: 'rgba(255,255,255,0.85)', flexShrink: 0 },
+  directRowInput: { background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 17, fontFamily: 'inherit', textAlign: 'right', flex: 1, minWidth: 0, padding: 0, WebkitAppearance: 'none' },
   machineEndInfo: { marginTop: 12, padding: '14px 16px', borderRadius: 14, background: 'rgba(173,198,255,0.06)', border: '1px solid rgba(173,198,255,0.2)' },
   machineEndLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(173,198,255,0.7)', letterSpacing: '0.2px', marginBottom: 4 },
   machineEndValue: { fontSize: 15, fontWeight: 500, color: '#fff', fontVariantNumeric: 'tabular-nums', marginBottom: 12 },
