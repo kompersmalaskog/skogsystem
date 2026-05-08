@@ -26,10 +26,10 @@ const COL = {
   warning: '#ff9500',
 };
 
-// Dämpad röd specifikt för rot-ring i kartan + legend-prick.
-// Matchar RING_ROT i SkogenKarta.tsx. Skild från COL.danger som är reserverad
-// för andra danger-signaler (felmeddelanden, värdeförlust om vi återinför).
-const ROT_RING = '#d64545';
+// Firebrick för rot-ring i kartan + legend-prick. Separerar tydligt från
+// orange tall-prickar (#ff9500) i hue. Matchar RING_ROT i SkogenKarta.tsx.
+// Skild från COL.danger som är reserverad för andra danger-signaler.
+const ROT_RING = '#b22222';
 
 const fmtKr = (n: number) =>
   Math.round(n).toLocaleString('sv-SE');
