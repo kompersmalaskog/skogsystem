@@ -20,14 +20,16 @@ const DEMO_BOLAG = ['Vida', 'ATA', 'Privat', 'JGA', 'Rönås', 'Södra']
 const DEMO_INKOPARE = ['Johan Eriksson', 'Maria Lindgren']
 const HUVUDTYPER = ['Slutavverkning', 'Gallring']
 
-const EGENSKAPER = [
+const EGENSKAPER_SKOGSBRUK = [
   { key: 'grot_anpassad', label: 'GROT-anpassad' },
-  { key: 'egen_skotning', label: 'Egen skotning' },
   { key: 'klippning', label: 'Klippning' },
   { key: 'risskotning', label: 'Risskotning' },
-  { key: 'stubbbehandling', label: 'Stubbbehandling' },
-  { key: 'extra_vagn', label: 'Extra vagn' },
-  { key: 'timpeng', label: 'Timpeng' }
+  { key: 'stubbbehandling', label: 'Stubbbehandling' }
+]
+
+const EGENSKAPER_LOGISTIK = [
+  { key: 'egen_skotning', label: 'Egen skotning' },
+  { key: 'extra_vagn', label: 'Extra vagn' }
 ]
 
 // === SUPABASE-KOPPLING ===
@@ -43,10 +45,18 @@ async function hamtaObjektFranSupabase() {
 }
 
 async function hamtaMaskinerFranSupabase() {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/dim_maskin?select=maskin_id,modell`, {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/dim_maskin?select=maskin_id,modell,maskin_typ`, {
     headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
   })
   if (!res.ok) throw new Error('Kunde inte hämta maskiner')
+  return res.json()
+}
+
+async function hamtaPrisscenarier() {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/objekt_prisscenario?select=*&aktiv=eq.true&order=namn.asc`, {
+    headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` }
+  })
+  if (!res.ok) return []
   return res.json()
 }
 
@@ -92,6 +102,7 @@ async function sparaObjektTillSupabase(obj) {
       stubbbehandling: obj.stubbbehandling || false,
       extra_vagn: obj.extra_vagn || false,
       timpeng: obj.timpeng || false,
+      prisscenario_id: obj.prisscenario_id ?? null,
       skordning_avslutad: obj.skordning_avslutad || null,
       skotning_avslutad: obj.skotning_avslutad || null,
       ovrigt_info: ovrigtInfo,
@@ -141,12 +152,156 @@ function getProgress(obj) {
   return filled / 4
 }
 
+// "Ser ut som autogenererat datum" — heltalssträng, t.ex. 20260408 eller 80426
+function looksLikeAutoDate(name) {
+  if (!name) return false
+  return /^\d+$/.test(String(name).trim())
+}
+
+// Vilket avslutsfält som hör till maskintypen
+function avslutadFieldFor(maskin_typ) {
+  if (maskin_typ === 'Harvester') return { field: 'skordning_avslutad', label: 'skördning' }
+  if (maskin_typ === 'Forwarder') return { field: 'skotning_avslutad', label: 'skotning' }
+  return null
+}
+
+// Antal dagar sedan en ISO-tidsstämpel, eller null om ogiltig
+function daysSinceISO(iso) {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return null
+  return Math.floor((Date.now() - d.getTime()) / 86400000)
+}
+
+// Formatera ISO-tidsstämpel till YYYY-MM-DD (för date-input + display)
+function formatYMD(iso) {
+  if (!iso) return null
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : null
+}
+
+// Användarvänlig tidsstämpel: "2026-04-27 17:12"
+function formatEndDateDisplay(iso) {
+  if (!iso) return null
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/)
+  if (!m) return null
+  return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`
+}
+
+// Versaliserar första bokstaven
+function capFirst(s) { return s ? s[0].toUpperCase() + s.slice(1) : s }
+
+// Konkreta varningar för fält som behöver fixas (oftast import-fel)
+function getWarnings(obj) {
+  if (!obj || obj.exkludera) return []
+  const w = []
+  if (!obj.huvudtyp) w.push({ key: 'huvudtyp', text: 'Saknar huvudtyp', target: 'huvudtyp-section' })
+  if (obj.huvudtyp && !obj.atgard) w.push({ key: 'atgard', text: 'Saknar åtgärd', target: 'atgard-section' })
+  if (looksLikeAutoDate(obj.object_name)) w.push({ key: 'autoname', text: 'Autogenererat namn', target: 'object_name-section' })
+  if (!obj.skogsagare) w.push({ key: 'skogsagare', text: 'Saknar markägare', target: 'skogsagare-section' })
+  if (!obj.bolag) w.push({ key: 'bolag', text: 'Saknar bolag', target: 'bolag-section' })
+
+  // Steg J: Maskinen har EndDate i fil men användaren har inte markerat avslutad
+  const av = avslutadFieldFor(obj.maskin_typ)
+  if (av && obj.end_date && !obj[av.field]) {
+    w.push({
+      key: 'reported_end',
+      text: `Maskinen rapporterar ${av.label} avslutad — ej markerad`,
+      target: 'avslut-section'
+    })
+  }
+
+  // Steg K: 14-dagars-heuristik (plan B när maskinen INTE rapporterat EndDate)
+  if (av && !obj.end_date && !obj[av.field]) {
+    const days = daysSinceISO(obj.start_date)
+    if (days !== null && days >= 14) {
+      w.push({
+        key: 'maybe_done',
+        text: `${capFirst(av.label)} verkar klar (startade för ${days} dagar sedan)`,
+        target: 'avslut-section'
+      })
+    }
+  }
+
+  return w
+}
+
+// Smooth scroll + flash highlight i 0.6s
+function scrollAndFlash(targetId) {
+  if (typeof document === 'undefined') return
+  const el = document.getElementById(targetId)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.classList.add('flash-highlight')
+  setTimeout(() => el.classList.remove('flash-highlight'), 700)
+}
+
+// Snabbfix för Object_name — slår mot meta_importerade_filer (FPR-filer
+// för objektets maskin_id) och matchar mot dim_objekt.start_date.
+// Samma logik som SQL-fixet:
+//   date(fil_dag) = date(d.start_date)
+//   AND extract(hour from filnamnets klockslag) = extract(hour from d.start_date)
+async function hamtaNamnFranFilnamn(obj) {
+  const maskinId = obj?.maskin_id
+  const startDate = obj?.start_date
+  if (!maskinId) {
+    return { ok: false, message: 'Maskin_id saknas på objektet — fyll i manuellt' }
+  }
+  if (!startDate) {
+    return { ok: false, message: 'Start_date saknas på objektet — fyll i manuellt' }
+  }
+
+  // Parsa "YYYY-MM-DDTHH:MM:SS" eller "YYYY-MM-DD HH:MM:SS[+00]" som naive timestamp.
+  // start_date är timestamp without time zone — vi tar värdet som det är lagrat,
+  // ingen tz-konvertering (motsvarar SQL date()/extract() på naive timestamp).
+  const sd = String(startDate).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2}):(\d{2})/)
+  if (!sd) {
+    return { ok: false, message: 'Kunde inte tolka start_date — fyll i manuellt' }
+  }
+  const [, yyyy, mm, dd, hh] = sd
+  const startDDMMYY = `${dd}${mm}${yyyy.slice(2)}`
+  const startHour = parseInt(hh, 10)
+
+  let res
+  try {
+    res = await fetch(
+      `${SUPABASE_URL}/rest/v1/meta_importerade_filer` +
+      `?select=filnamn&maskin_id=eq.${encodeURIComponent(maskinId)}` +
+      `&filtyp=eq.FPR&status=eq.OK`,
+      { headers: { 'apikey': SUPABASE_KEY, 'Authorization': `Bearer ${SUPABASE_KEY}` } }
+    )
+  } catch {
+    return { ok: false, message: 'Kunde inte ansluta — försök igen' }
+  }
+  if (!res.ok) return { ok: false, message: `HTTP ${res.status}` }
+  const rows = await res.json()
+
+  // Filnamnsmönster: "Skogsnamn_Mark-DDMMYY-HHMMSS.fpr"
+  const re = /^(.+)-(\d{6})-(\d{6})\.fpr$/i
+  const matches = []
+  for (const r of rows) {
+    const m = (r.filnamn || '').match(re)
+    if (!m) continue
+    const ddmmyy = m[2]
+    const hhmmss = m[3]
+    const fileHour = parseInt(hhmmss.slice(0, 2), 10)
+    if (ddmmyy === startDDMMYY && fileHour === startHour) {
+      matches.push(m[1].replace(/_/g, ' ').trim())
+    }
+  }
+
+  const unika = Array.from(new Set(matches)).filter(Boolean)
+  if (unika.length === 0) return { ok: false, message: 'Ingen FPR-fil matchade datum + timme — fyll i manuellt' }
+  if (unika.length > 1) return { ok: false, message: 'Flera olika namn matchade — fyll i manuellt' }
+  return { ok: true, name: unika[0] }
+}
+
 // Mini progress ring
 function MiniRing({ progress, size = 32, stroke = 3 }) {
   const radius = (size - stroke) / 2
   const circ = radius * 2 * Math.PI
   const offset = circ - progress * circ
-  const color = progress === 1 ? '#30D158' : '#FF9F0A'
+  const color = progress === 1 ? '#adc6ff' : '#FF9F0A'
   
   return (
     <svg width={size} height={size} style={{ transform: 'rotate(-90deg)', filter: `drop-shadow(0 0 8px ${color}50)` }}>
@@ -252,11 +407,11 @@ function Chip({ label, selected, onClick, editMode, onDelete }) {
       onMouseLeave={() => setHover(false)}
       style={{
         ...styles.chip,
-        background: selected ? 'rgba(48,209,88,0.2)' : hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
-        borderColor: selected ? 'rgba(48,209,88,0.4)' : hover ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)',
+        background: selected ? 'rgba(173,198,255,0.2)' : hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
+        borderColor: selected ? 'rgba(173,198,255,0.4)' : hover ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)',
         color: '#fff',
         transform: hover ? 'scale(1.03)' : 'scale(1)',
-        boxShadow: hover && !selected ? '0 0 15px rgba(255,255,255,0.1)' : selected ? '0 0 15px rgba(48,209,88,0.3)' : 'none'
+        boxShadow: hover && !selected ? '0 0 15px rgba(255,255,255,0.1)' : selected ? '0 0 15px rgba(173,198,255,0.3)' : 'none'
       }}
     >
       <span>{label}</span>
@@ -297,7 +452,6 @@ function FilterChip({ label, active, onClick }) {
 // Chip Input
 function ChipInput({ label, value, options, setOptions, onChange }) {
   const [input, setInput] = useState('')
-  const [editMode, setEditMode] = useState(false)
   const filtered = input.trim() ? options.filter(o => o.toLowerCase().includes(input.toLowerCase())) : options
 
   const handleSelect = (val) => { onChange(val); setInput('') }
@@ -308,43 +462,36 @@ function ChipInput({ label, value, options, setOptions, onChange }) {
     onChange(newVal)
     setInput('')
   }
-  const handleDelete = (val) => {
-    setOptions(options.filter(o => o !== val))
-    if (value === val) onChange('')
-  }
 
   return (
     <div style={styles.chipInputBox}>
       <div style={styles.chipInputHeader}>
         <span style={styles.chipInputLabel}>{label}</span>
-        <button onClick={() => setEditMode(!editMode)} style={{...styles.chipEditBtn, color: editMode ? '#FF453A' : 'rgba(255,255,255,0.3)'}}>
-          {editMode ? 'Klar' : 'Redigera'}
-        </button>
       </div>
-      {value && !editMode && (
+      {value && (
         <div style={styles.chipSelected}>
           <span>{value}</span>
           <button onClick={() => onChange('')} style={styles.chipClear}>✕</button>
         </div>
       )}
-      {(!value || editMode) && (
+      {!value && (
         <input type="text" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => {
           if (e.key === 'Enter') {
             if (filtered.length === 1) handleSelect(filtered[0])
             else if (input.trim() && !options.includes(input.trim())) handleCreate()
             else if (filtered.length > 0) handleSelect(filtered[0])
           }
-        }} placeholder="Sök eller skriv ny..." style={styles.chipInput} />
+        }} placeholder="Sök eller skriv ny …" style={styles.chipInput} />
       )}
       <div style={styles.chipGrid}>
         {filtered.map(opt => (
-          <Chip 
-            key={opt} 
-            label={opt} 
-            selected={value === opt} 
-            onClick={() => !editMode && handleSelect(opt)}
-            editMode={editMode}
-            onDelete={() => handleDelete(opt)}
+          <Chip
+            key={opt}
+            label={opt}
+            selected={value === opt}
+            onClick={() => handleSelect(opt)}
+            editMode={false}
+            onDelete={() => {}}
           />
         ))}
         {input.trim() && !options.some(o => o.toLowerCase() === input.toLowerCase()) && (
@@ -379,9 +526,9 @@ function SimpleChipSelect({ label, value, options, onChange }) {
 function EgenskapSwitch({ label, active, onClick, orange }) {
   const [bounce, setBounce] = useState(false)
   const [hover, setHover] = useState(false)
-  const activeColor = orange ? '#FF9F0A' : '#30D158'
-  const activeBg = orange ? 'rgba(255,159,10,0.10)' : 'rgba(48,209,88,0.10)'
-  const activeBorder = orange ? 'rgba(255,159,10,0.30)' : 'rgba(48,209,88,0.30)'
+  const activeColor = orange ? '#FF9F0A' : '#adc6ff'
+  const activeBg = orange ? 'rgba(255,159,10,0.10)' : 'rgba(173,198,255,0.10)'
+  const activeBorder = orange ? 'rgba(255,159,10,0.30)' : 'rgba(173,198,255,0.30)'
   
   const handleClick = () => {
     setBounce(true)
@@ -424,9 +571,9 @@ function DateToggle({ label, date, onToggle, onDateChange }) {
   const [hover, setHover] = useState(false)
   const [textInput, setTextInput] = useState('')
   const active = !!date
-  const activeColor = '#30D158'
-  const activeBg = 'rgba(48,209,88,0.10)'
-  const activeBorder = 'rgba(48,209,88,0.30)'
+  const activeColor = '#adc6ff'
+  const activeBg = 'rgba(173,198,255,0.10)'
+  const activeBorder = 'rgba(173,198,255,0.30)'
 
   const handleTextSave = () => {
     if (!textInput.trim()) return
@@ -486,8 +633,8 @@ function DateToggle({ label, date, onToggle, onDateChange }) {
         <div style={{ 
           display: 'flex', alignItems: 'center', gap: 8, 
           padding: '10px 16px', marginLeft: 8, marginRight: 8,
-          borderRadius: 12, background: 'rgba(48,209,88,0.08)', 
-          border: '1px solid rgba(48,209,88,0.2)',
+          borderRadius: 12, background: 'rgba(173,198,255,0.08)', 
+          border: '1px solid rgba(173,198,255,0.2)',
           animation: 'fadeIn 0.2s ease'
         }}>
           <input 
@@ -496,7 +643,7 @@ function DateToggle({ label, date, onToggle, onDateChange }) {
             onChange={(e) => onDateChange(e.target.value)}
             style={{
               flex: 1, padding: '8px 10px', borderRadius: 8,
-              border: '1px solid rgba(48,209,88,0.3)', background: 'rgba(0,0,0,0.3)',
+              border: '1px solid rgba(173,198,255,0.3)', background: 'rgba(0,0,0,0.3)',
               color: '#fff', fontSize: 14, outline: 'none',
               colorScheme: 'dark'
             }}
@@ -510,13 +657,13 @@ function DateToggle({ label, date, onToggle, onDateChange }) {
             placeholder=""
             style={{
               width: 110, padding: '8px 10px', borderRadius: 8,
-              border: '1px solid rgba(48,209,88,0.3)', background: 'rgba(0,0,0,0.3)',
+              border: '1px solid rgba(173,198,255,0.3)', background: 'rgba(0,0,0,0.3)',
               color: '#fff', fontSize: 14, outline: 'none'
             }}
           />
           {textInput.trim() && (
             <button onClick={handleTextSave}
-              style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: '#30D158', color: '#000',
+              style={{ padding: '8px 12px', borderRadius: 8, border: 'none', background: '#adc6ff', color: '#000',
                 fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               OK
             </button>
@@ -639,8 +786,8 @@ function SaveButton({ onClick, saving, saved }) {
       disabled={saving}
       style={{
         ...styles.saveBtn,
-        background: saved ? '#30D158' : saving ? 'rgba(48,209,88,0.5)' : '#30D158',
-        boxShadow: pulse ? '0 0 30px rgba(48,209,88,0.8)' : '0 4px 20px rgba(48,209,88,0.3)',
+        background: saved ? '#adc6ff' : saving ? 'rgba(173,198,255,0.5)' : '#adc6ff',
+        boxShadow: pulse ? '0 0 30px rgba(173,198,255,0.8)' : '0 4px 20px rgba(173,198,255,0.3)',
         transform: pulse ? 'scale(0.98)' : 'scale(1)'
       }}
     >
@@ -649,16 +796,269 @@ function SaveButton({ onClick, saving, saved }) {
   )
 }
 
+// Confirm-dialog — Apple-stil
+function ConfirmDialog({ open, title, message, confirmLabel = 'Fortsätt', cancelLabel = 'Avbryt', onConfirm, onCancel, destructive = false }) {
+  if (!open) return null
+  return (
+    <>
+      <div
+        onClick={onCancel}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200, backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}
+      />
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+        background: '#1c1c1e', borderRadius: 18, padding: '22px 22px 18px',
+        width: 'calc(100% - 40px)', maxWidth: 340, zIndex: 201,
+        border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
+        fontFamily: "'Geist', system-ui, sans-serif", color: '#fff',
+        animation: 'fadeIn 0.18s ease',
+      }}>
+        <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 8 }}>{title}</div>
+        <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 1.45, marginBottom: 18 }}>{message}</div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button onClick={onCancel} style={{
+            flex: 1, minHeight: 56, padding: '0 14px', borderRadius: 12,
+            border: '1px solid rgba(255,255,255,0.15)', background: 'transparent',
+            color: 'rgba(255,255,255,0.75)', fontSize: 15, fontWeight: 600,
+            fontFamily: 'inherit', cursor: 'pointer',
+          }}>{cancelLabel}</button>
+          <button onClick={onConfirm} style={{
+            flex: 1, minHeight: 56, padding: '0 14px', borderRadius: 12,
+            border: 'none', background: destructive ? '#FF453A' : '#adc6ff',
+            color: '#000', fontSize: 15, fontWeight: 600,
+            fontFamily: 'inherit', cursor: 'pointer',
+          }}>{confirmLabel}</button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+// Prisscenario — helper + sub-komponenter
+function formatScenarioGiltighet(s) {
+  if (!s) return null
+  const fran = s.giltig_fran ? new Date(s.giltig_fran).toLocaleDateString('sv-SE') : null
+  const till = s.giltig_till ? new Date(s.giltig_till).toLocaleDateString('sv-SE') : null
+  if (fran && till) return `Giltig ${fran} → ${till}`
+  if (fran) return `Giltig från ${fran}`
+  if (till) return `Giltig till ${till}`
+  return null
+}
+
+function formatScenarioDelta(s) {
+  if (!s) return null
+  return `+${s.extra_skordare_kr || 0} kr/h skördare · +${s.extra_skotare_kr || 0} kr/h skotare`
+}
+
+function PrisscenarioBox({ valtScenario, onOpen }) {
+  const [hover, setHover] = useState(false)
+  const harScenario = !!valtScenario
+  const giltighet = formatScenarioGiltighet(valtScenario)
+  const delta = formatScenarioDelta(valtScenario)
+
+  return (
+    <div
+      style={{
+        ...styles.scenarioBox,
+        borderColor: hover ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)'
+      }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <div style={styles.scenarioContent}>
+        <span style={styles.scenarioLabel}>Prisscenario</span>
+        {harScenario ? (
+          <>
+            <div style={styles.scenarioName}>{valtScenario.namn}</div>
+            <div style={styles.scenarioDelta}>{delta}</div>
+            {giltighet && <div style={styles.scenarioGiltighet}>{giltighet}</div>}
+          </>
+        ) : (
+          <>
+            <div style={styles.scenarioName}>Inget valt</div>
+            <div style={styles.scenarioDelta}>Standard maskin_timpris används</div>
+          </>
+        )}
+      </div>
+      <button
+        onClick={onOpen}
+        style={{
+          ...styles.voLockBtn,
+          background: hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)',
+          transform: hover ? 'scale(1.05)' : 'scale(1)'
+        }}
+      >
+        <span style={styles.voLockText}>{harScenario ? 'Ändra' : 'Välj'}</span>
+      </button>
+    </div>
+  )
+}
+
+function ScenarioRow({ valt, namn, beskrivning, giltighet, onClick }) {
+  const [hover, setHover] = useState(false)
+  return (
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        ...styles.scenarioRow,
+        background: valt ? 'rgba(173,198,255,0.10)' : hover ? 'rgba(255,255,255,0.04)' : 'transparent',
+        borderColor: valt ? 'rgba(173,198,255,0.30)' : hover ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.06)'
+      }}
+    >
+      <div style={{
+        ...styles.scenarioRowRadio,
+        borderColor: valt ? '#adc6ff' : 'rgba(255,255,255,0.25)',
+        background: valt ? '#adc6ff' : 'transparent'
+      }}>
+        {valt && <div style={{ ...styles.scenarioRowDot, background: '#000' }} />}
+      </div>
+      <div style={styles.scenarioRowText}>
+        <div style={styles.scenarioRowName}>{namn}</div>
+        <div style={styles.scenarioRowBeskrivning}>{beskrivning}</div>
+        {giltighet && <div style={styles.scenarioRowGiltighet}>{giltighet}</div>}
+      </div>
+    </div>
+  )
+}
+
+function PrisscenarioPicker({ open, scenarier, valtId, onVal, onClose }) {
+  const [scrolled, setScrolled] = useState(false)
+  if (!open) return null
+
+  return (
+    <>
+      <div style={{ ...styles.overlay, zIndex: 102, animation: 'fadeIn 0.2s ease' }} onClick={onClose} />
+      <div style={{
+        ...styles.sheet, zIndex: 103,
+        animation: 'slideUp 0.4s cubic-bezier(0.22, 1, 0.36, 1)'
+      }}>
+        <div style={styles.sheetHandle} onClick={onClose}><div style={styles.sheetBar} /></div>
+        <div style={{
+          ...styles.sheetHeader,
+          borderBottom: scrolled ? '1px solid rgba(255,255,255,0.1)' : '1px solid transparent'
+        }}>
+          <div style={styles.sheetTitel}>Välj prisscenario</div>
+        </div>
+        <div style={{ ...styles.scrollFade, opacity: scrolled ? 1 : 0 }} />
+        <div style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
+          <ScenarioRow
+            valt={valtId === null}
+            namn="Inget scenario"
+            beskrivning="Standard maskin_timpris används"
+            onClick={() => onVal(null)}
+          />
+          {scenarier.map(s => (
+            <ScenarioRow
+              key={s.id}
+              valt={valtId === s.id}
+              namn={s.namn}
+              beskrivning={formatScenarioDelta(s)}
+              giltighet={formatScenarioGiltighet(s)}
+              onClick={() => onVal(s.id)}
+            />
+          ))}
+          {scenarier.length === 0 && (
+            <div style={styles.emptyState}>Inga aktiva scenarier finns</div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+// Subtila text-badges på listkort med vad som saknas (max 3, +N fler)
+function KortBadges({ obj }) {
+  const warnings = getWarnings(obj)
+  if (warnings.length === 0) return null
+  const visible = warnings.slice(0, 3)
+  const more = warnings.length - visible.length
+  return (
+    <div style={styles.kortBadges}>
+      {visible.map((w, i) => (
+        <span key={w.key} style={styles.kortBadge}>
+          {i > 0 && <span style={{ color: 'rgba(255,255,255,0.2)', marginRight: 6 }}>·</span>}
+          {w.text}
+        </span>
+      ))}
+      {more > 0 && <span style={styles.kortBadgeMore}>+{more} fler</span>}
+    </div>
+  )
+}
+
+// Varningslista — listar fält som behöver fixas, klickbar scroll-till-fält
+function WarningsList({ warnings, onJump }) {
+  if (warnings.length === 0) {
+    return (
+      <div style={styles.warningsAllOk}>
+        Alla fält ifyllda
+      </div>
+    )
+  }
+  return (
+    <div style={styles.warningsBox}>
+      <div style={styles.warningsHeader}>
+        {warnings.length} {warnings.length === 1 ? 'fält behöver åtgärdas' : 'fält behöver åtgärdas'}
+      </div>
+      {warnings.map(w => (
+        <button
+          key={w.key}
+          onClick={() => onJump(w.target)}
+          style={styles.warningRow}
+        >
+          <span style={styles.warningDot} />
+          <span style={styles.warningText}>{w.text}</span>
+          <span style={styles.warningArrow}>›</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // Redigerings-modal
-function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring }) {
+function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, scenarier, onOpenScenarioPicker }) {
   const isGallring = valtObjekt.huvudtyp === 'Gallring'
   const atgarder = isGallring ? atgarderGallring : atgarderSlut
   const setAtgarder = isGallring ? setAtgarderGallring : setAtgarderSlut
   const progress = getProgress(valtObjekt)
+  const warnings = getWarnings(valtObjekt)
+  const [pendingHuvudtyp, setPendingHuvudtyp] = useState(null)
+  const [quickFixState, setQuickFixState] = useState({ status: 'idle', message: '' })
+
+  const showQuickFixName = looksLikeAutoDate(valtObjekt.object_name)
+  const runQuickFix = async () => {
+    setQuickFixState({ status: 'loading', message: '' })
+    const r = await hamtaNamnFranFilnamn(valtObjekt)
+    if (r.ok) {
+      setValtObjekt({ ...valtObjekt, object_name: r.name })
+      setQuickFixState({ status: 'done', message: `Hämtat: ${r.name}` })
+      setTimeout(() => setQuickFixState({ status: 'idle', message: '' }), 2200)
+    } else {
+      setQuickFixState({ status: 'error', message: r.message })
+      setTimeout(() => setQuickFixState({ status: 'idle', message: '' }), 3500)
+    }
+  }
 
   const toggleEgenskap = (key) => {
     setValtObjekt({...valtObjekt, [key]: !valtObjekt[key]})
   }
+
+  const requestHuvudtyp = (v) => {
+    if (v === valtObjekt.huvudtyp) return
+    if (valtObjekt.atgard) {
+      setPendingHuvudtyp(v)
+    } else {
+      setValtObjekt({...valtObjekt, huvudtyp: v, atgard: ''})
+    }
+  }
+
+  const skotningWarning = (() => {
+    if (!valtObjekt.skotning_avslutad) return null
+    if (!valtObjekt.skordning_avslutad) return 'Skördning är inte avslutad än.'
+    if (valtObjekt.skotning_avslutad < valtObjekt.skordning_avslutad) return 'Skotning är satt före skördningens avslutsdatum.'
+    return null
+  })()
 
   return (
     <>
@@ -669,27 +1069,85 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
         </span>
       </div>
 
-      <VOBox value={valtObjekt.vo_nummer} onChange={(v) => setValtObjekt({...valtObjekt, vo_nummer: v})} />
+      <WarningsList warnings={warnings} onJump={scrollAndFlash} />
 
-      <LockedInput label="Objektnamn" value={valtObjekt.object_name || ''} onChange={(v) => setValtObjekt({...valtObjekt, object_name: v})} placeholder="T.ex. Lindön AU 2025" />
-      <LockedInput label="Markägare" value={valtObjekt.skogsagare || ''} onChange={(v) => setValtObjekt({...valtObjekt, skogsagare: v})} placeholder="Skriv markägarens namn..." />
-      <ChipInput label="Bolag" value={valtObjekt.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v) => setValtObjekt({...valtObjekt, bolag: v})} />
-      <ChipInput label="Inköpare" value={valtObjekt.inkopare || ''} options={inkopare} setOptions={setInkopare} onChange={(v) => setValtObjekt({...valtObjekt, inkopare: v})} />
-      
-      <SimpleChipSelect label="Huvudtyp" value={valtObjekt.huvudtyp || ''} options={HUVUDTYPER} onChange={(v) => setValtObjekt({...valtObjekt, huvudtyp: v, atgard: ''})} />
+      <div id="vo_nummer-section" style={styles.fieldWrap}>
+        <VOBox value={valtObjekt.vo_nummer} onChange={(v) => setValtObjekt({...valtObjekt, vo_nummer: v})} />
+      </div>
+
+      <div id="object_name-section" style={styles.fieldWrap}>
+        <LockedInput label="Objektnamn" value={valtObjekt.object_name || ''} onChange={(v) => setValtObjekt({...valtObjekt, object_name: v})} placeholder="T.ex. Lindön AU 2025" />
+        {showQuickFixName && (
+          <button
+            onClick={runQuickFix}
+            disabled={quickFixState.status === 'loading'}
+            style={{
+              ...styles.quickFixBtn,
+              opacity: quickFixState.status === 'loading' ? 0.6 : 1,
+              cursor: quickFixState.status === 'loading' ? 'wait' : 'pointer',
+            }}
+          >
+            {quickFixState.status === 'loading' ? 'Hämtar …' : 'Hämta från filnamn'}
+          </button>
+        )}
+        {quickFixState.message && (
+          <div style={{
+            ...styles.quickFixMessage,
+            ...(quickFixState.status === 'error' ? styles.quickFixMessageError : styles.quickFixMessageOk),
+          }}>
+            {quickFixState.message}
+          </div>
+        )}
+      </div>
+
+      <div id="skogsagare-section" style={styles.fieldWrap}>
+        <LockedInput label="Markägare" value={valtObjekt.skogsagare || ''} onChange={(v) => setValtObjekt({...valtObjekt, skogsagare: v})} placeholder="Skriv markägarens namn …" />
+      </div>
+      <div id="bolag-section" style={styles.fieldWrap}>
+        <ChipInput label="Bolag" value={valtObjekt.bolag || ''} options={bolag} setOptions={setBolag} onChange={(v) => setValtObjekt({...valtObjekt, bolag: v})} />
+      </div>
+      <div id="inkopare-section" style={styles.fieldWrap}>
+        <ChipInput label="Inköpare" value={valtObjekt.inkopare || ''} options={inkopare} setOptions={setInkopare} onChange={(v) => setValtObjekt({...valtObjekt, inkopare: v})} />
+      </div>
+
+      <div id="huvudtyp-section" style={styles.fieldWrap}>
+        <SimpleChipSelect label="Huvudtyp" value={valtObjekt.huvudtyp || ''} options={HUVUDTYPER} onChange={requestHuvudtyp} />
+      </div>
 
       {valtObjekt.huvudtyp && (
-        <ChipInput label="Åtgärd" value={valtObjekt.atgard || ''} options={atgarder} setOptions={setAtgarder} onChange={(v) => setValtObjekt({...valtObjekt, atgard: v})} />
+        <div id="atgard-section" style={styles.fieldWrap}>
+          <ChipInput label="Åtgärd" value={valtObjekt.atgard || ''} options={atgarder} setOptions={setAtgarder} onChange={(v) => setValtObjekt({...valtObjekt, atgard: v})} />
+        </div>
       )}
 
       <div style={styles.sectionLabel}>Egenskaper</div>
+      <div style={styles.subsectionLabel}>Skogsbruk</div>
       <div style={styles.switchList}>
-        {EGENSKAPER.map(e => (
+        {EGENSKAPER_SKOGSBRUK.map(e => (
+          <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
+        ))}
+      </div>
+      <div style={styles.subsectionLabel}>Logistik</div>
+      <div style={styles.switchList}>
+        {EGENSKAPER_LOGISTIK.map(e => (
           <EgenskapSwitch key={e.key} label={e.label} active={valtObjekt[e.key] === true} onClick={() => toggleEgenskap(e.key)} />
         ))}
       </div>
 
-      <div style={styles.sectionLabel}>Extern skotning</div>
+      <div style={styles.sectionLabel}>Pris & ersättning</div>
+      <PrisscenarioBox
+        valtScenario={scenarier.find(s => s.id === valtObjekt.prisscenario_id) || null}
+        onOpen={onOpenScenarioPicker}
+      />
+      <div style={styles.switchList}>
+        <EgenskapSwitch
+          label="Räkna i timpeng-statistik"
+          active={valtObjekt.timpeng === true}
+          onClick={() => setValtObjekt({...valtObjekt, timpeng: !valtObjekt.timpeng})}
+        />
+      </div>
+
+      <div style={styles.subsectionLabel}>Extern skotning</div>
       <div style={styles.switchList}>
         <EgenskapSwitch label="Extern skotare (inlejd)" active={valtObjekt._extern_skotning === true} onClick={() => setValtObjekt({...valtObjekt, _extern_skotning: !valtObjekt._extern_skotning})} />
       </div>
@@ -703,27 +1161,72 @@ function RedigeraObjektContent({ valtObjekt, setValtObjekt, bolag, setBolag, ink
       )}
 
       <div style={styles.sectionLabel}>Avslut</div>
-      <div style={styles.switchList}>
-        <DateToggle 
-          label="Skördning avslutad" 
-          date={valtObjekt.skordning_avslutad || null}
-          onToggle={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
-          onDateChange={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
-        />
-        <DateToggle 
-          label="Skotning avslutad" 
-          date={valtObjekt.skotning_avslutad || null}
-          onToggle={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
-          onDateChange={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
-        />
+      <div id="avslut-section" style={styles.fieldWrap}>
+        <div style={styles.switchList}>
+          <DateToggle
+            label="Skördning avslutad"
+            date={valtObjekt.skordning_avslutad || null}
+            onToggle={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
+            onDateChange={(val) => setValtObjekt({...valtObjekt, skordning_avslutad: val})}
+          />
+          <DateToggle
+            label="Skotning avslutad"
+            date={valtObjekt.skotning_avslutad || null}
+            onToggle={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
+            onDateChange={(val) => setValtObjekt({...valtObjekt, skotning_avslutad: val})}
+          />
+          {skotningWarning && <div style={styles.validationWarning}>{skotningWarning}</div>}
+        </div>
+
+        {/* Steg H: Info-rad om maskinen har rapporterat EndDate i filen */}
+        {valtObjekt.end_date && (() => {
+          const av = avslutadFieldFor(valtObjekt.maskin_typ)
+          const display = formatEndDateDisplay(valtObjekt.end_date)
+          const ymd = formatYMD(valtObjekt.end_date)
+          const alreadySet = av && valtObjekt[av.field]
+          return (
+            <div style={styles.machineEndInfo}>
+              <div style={styles.machineEndLabel}>Maskinen rapporterar avslut</div>
+              <div style={styles.machineEndValue}>{display}</div>
+              {/* Steg I: Snabbfix — bara om vi vet maskintyp och fältet inte redan satt */}
+              {av && !alreadySet && ymd && (
+                <button
+                  onClick={() => setValtObjekt({ ...valtObjekt, [av.field]: ymd })}
+                  style={styles.machineEndFixBtn}
+                >
+                  Sätt {av.label} avslutad till {ymd}
+                </button>
+              )}
+              {av && alreadySet && (
+                <div style={styles.machineEndDone}>{capFirst(av.label)} redan markerad avslutad ({valtObjekt[av.field]})</div>
+              )}
+              {!av && (
+                <div style={styles.machineEndHint}>Maskintyp okänd — sätt avslutad-datum manuellt ovan om det stämmer.</div>
+              )}
+            </div>
+          )
+        })()}
       </div>
 
       <div style={styles.sectionLabel}>Statistik</div>
-      <EgenskapSwitch 
-        label={valtObjekt.exkludera ? 'Exkluderad från statistik' : 'Inkluderad i statistik'} 
-        active={valtObjekt.exkludera} 
+      <EgenskapSwitch
+        label="Exkludera från statistik"
+        active={valtObjekt.exkludera}
         onClick={() => setValtObjekt({...valtObjekt, exkludera: !valtObjekt.exkludera})}
         orange
+      />
+
+      <ConfirmDialog
+        open={!!pendingHuvudtyp}
+        title="Byt huvudtyp?"
+        message={`Detta tar bort vald åtgärd ("${valtObjekt.atgard}"). Du måste välja åtgärd på nytt.`}
+        confirmLabel="Byt huvudtyp"
+        cancelLabel="Avbryt"
+        onConfirm={() => {
+          setValtObjekt({...valtObjekt, huvudtyp: pendingHuvudtyp, atgard: ''})
+          setPendingHuvudtyp(null)
+        }}
+        onCancel={() => setPendingHuvudtyp(null)}
       />
     </>
   )
@@ -745,16 +1248,26 @@ export default function ObjektRedigering() {
   const [visaAllaObjekt, setVisaAllaObjekt] = useState(false)
   const [ringHover, setRingHover] = useState(false)
   const [scrolled, setScrolled] = useState(false)
+  const [scenarier, setScenarier] = useState([])
+  const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false)
+  const [barFel, setBarFel] = useState(false)
 
   // Hämta från Supabase vid start
   useEffect(() => {
-    Promise.all([hamtaObjektFranSupabase(), hamtaMaskinerFranSupabase()])
-      .then(([objektData, maskinData]) => {
-        setObjekt(objektData)
+    Promise.all([hamtaObjektFranSupabase(), hamtaMaskinerFranSupabase(), hamtaPrisscenarier()])
+      .then(([objektData, maskinData, scenarioData]) => {
         // Skapa lookup-objekt för maskiner: { maskin_id: modell }
         const maskinLookup = {}
-        maskinData.forEach(m => { maskinLookup[m.maskin_id] = m.modell })
+        const maskinTypMap = {}
+        maskinData.forEach(m => {
+          maskinLookup[m.maskin_id] = m.modell
+          maskinTypMap[m.maskin_id] = m.maskin_typ || null
+        })
+        // Berika varje objekt med maskin_typ så getWarnings + UI kan läsa direkt
+        const berikade = (objektData || []).map(o => ({ ...o, maskin_typ: maskinTypMap[o.maskin_id] || null }))
+        setObjekt(berikade)
         setMaskiner(maskinLookup)
+        setScenarier(scenarioData)
         // Extrahera unika bolag från datan
         const unikaBolag = [...new Set(objektData.map(o => o.bolag).filter(Boolean))]
         setBolag([...new Set([...DEMO_BOLAG, ...unikaBolag])].sort())
@@ -772,8 +1285,11 @@ export default function ObjektRedigering() {
   const kompletta = aktiva.filter(isKomplett).length
   const totalt = aktiva.length
   const procent = totalt > 0 ? Math.round((kompletta / totalt) * 100) : 0
+  const medFel = aktiva.filter(o => getWarnings(o).length > 0)
   const ofullstandiga = aktiva.filter(o => !isKomplett(o))
-  const color = procent === 100 ? '#30D158' : '#FF9F0A'
+  const synliga = barFel ? medFel : ofullstandiga
+  const sectionTitel = barFel ? 'Bara fel' : 'Att göra'
+  const color = procent === 100 ? '#adc6ff' : '#FF9F0A'
 
   async function sparaObjekt() {
     if (!valtObjekt) return
@@ -798,8 +1314,7 @@ export default function ObjektRedigering() {
     return (
       <div style={{...styles.container, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh'}}>
         <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 32, marginBottom: 16 }}>⏳</div>
-          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 17 }}>Laddar objekt...</div>
+          <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 15 }}>Laddar objekt …</div>
         </div>
       </div>
     )
@@ -809,10 +1324,10 @@ export default function ObjektRedigering() {
   if (error) {
     return (
       <div style={{...styles.container, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh'}}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 32, marginBottom: 16 }}>❌</div>
-          <div style={{ color: '#FF453A', fontSize: 17, marginBottom: 16 }}>{error}</div>
-          <button onClick={() => window.location.reload()} style={{ padding: '14px 28px', borderRadius: 14, border: 'none', background: '#30D158', color: '#000', fontSize: 16, fontWeight: 600, cursor: 'pointer' }}>
+        <div style={{ textAlign: 'center', maxWidth: 360 }}>
+          <div style={{ color: 'rgba(255,140,140,0.9)', fontSize: 15, fontWeight: 600, marginBottom: 8 }}>Kunde inte ansluta</div>
+          <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 14, marginBottom: 20 }}>{error}</div>
+          <button onClick={() => window.location.reload()} style={{ minHeight: 56, padding: '0 24px', borderRadius: 14, border: 'none', background: '#adc6ff', color: '#000', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
             Försök igen
           </button>
         </div>
@@ -821,7 +1336,7 @@ export default function ObjektRedigering() {
   }
 
   if (visaAllaObjekt) {
-    return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} onBack={() => setVisaAllaObjekt(false)} />
+    return <AllaObjektVy objekt={objekt} setObjekt={setObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} maskiner={maskiner} scenarier={scenarier} onBack={() => setVisaAllaObjekt(false)} />
   }
 
   return (
@@ -831,6 +1346,14 @@ export default function ObjektRedigering() {
         @keyframes slideDown { from { transform: translateY(0); opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes flashHighlight {
+          0%   { background: rgba(255,159,10,0.20); box-shadow: 0 0 0 6px rgba(255,159,10,0.15); }
+          100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
+        }
+        .flash-highlight {
+          animation: flashHighlight 0.7s ease;
+          border-radius: 14px;
+        }
       `}</style>
 
       <div style={styles.header}>
@@ -846,16 +1369,34 @@ export default function ObjektRedigering() {
         <div style={{...styles.ringHint, opacity: ringHover ? 1 : 0.5, transform: ringHover ? 'translateY(-2px)' : 'translateY(0)'}}>Tryck för alla objekt</div>
       </div>
 
-      <div style={styles.sectionHeader}>
-        <span style={styles.sectionTitel}>Att göra</span>
-        <span style={styles.sectionCount}>{ofullstandiga.length}</span>
+      <div style={styles.filterToggleBar}>
+        <button
+          onClick={() => setBarFel(false)}
+          style={{...styles.filterToggleBtn, ...(!barFel ? styles.filterToggleBtnActive : {})}}
+        >
+          Att göra <span style={{ marginLeft: 6, opacity: 0.7 }}>{ofullstandiga.length}</span>
+        </button>
+        <button
+          onClick={() => setBarFel(true)}
+          style={{...styles.filterToggleBtn, ...(barFel ? styles.filterToggleBtnActive : {})}}
+        >
+          Bara fel <span style={{ marginLeft: 6, opacity: 0.7 }}>{medFel.length}</span>
+        </button>
       </div>
 
-      {ofullstandiga.length === 0 ? (
-        <div style={styles.allaDone}><div style={styles.allaDoneCheck}>✓</div><div>Alla objekt kompletta</div></div>
+      <div style={styles.sectionHeader}>
+        <span style={styles.sectionTitel}>{sectionTitel}</span>
+        <span style={styles.sectionCount}>{synliga.length}</span>
+      </div>
+
+      {synliga.length === 0 ? (
+        <div style={styles.allaDone}>
+          <div style={styles.allaDoneCheck}>✓</div>
+          <div>{barFel ? 'Inga objekt med fel' : 'Alla objekt kompletta'}</div>
+        </div>
       ) : (
         <div style={styles.lista}>
-          {ofullstandiga.map((obj, i) => (
+          {synliga.map((obj, i) => (
             <AnimatedCard key={obj.objekt_id} delay={i * 60} onClick={() => setValtObjekt(parseExternSkotning(obj))}>
               <div style={styles.kortInner}>
                 <div style={styles.kortTop}>
@@ -866,9 +1407,9 @@ export default function ObjektRedigering() {
                   <div style={styles.kortPil}>›</div>
                 </div>
                 <div style={styles.kortInfo}>
-                  {maskiner[obj.maskin_id] && <span>{maskiner[obj.maskin_id]} · </span>}
-                  {getSaknas(obj).length} av 4 fält saknas
+                  {maskiner[obj.maskin_id] && <span>{maskiner[obj.maskin_id]}</span>}
                 </div>
+                <KortBadges obj={obj} />
               </div>
             </AnimatedCard>
           ))}
@@ -912,12 +1453,19 @@ export default function ObjektRedigering() {
             </div>
             <div style={{...styles.scrollFade, opacity: scrolled ? 1 : 0}} />
             <div style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
-              <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} />
+              <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} />
             </div>
             <div style={styles.sheetFooter}>
               <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />
             </div>
           </div>
+          <PrisscenarioPicker
+            open={scenarioPickerOpen}
+            scenarier={scenarier}
+            valtId={valtObjekt.prisscenario_id ?? null}
+            onVal={(id) => { setValtObjekt({...valtObjekt, prisscenario_id: id}); setScenarioPickerOpen(false) }}
+            onClose={() => setScenarioPickerOpen(false)}
+          />
         </>
       )}
     </div>
@@ -925,7 +1473,7 @@ export default function ObjektRedigering() {
 }
 
 // VY 2 - ALLA OBJEKT
-function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, onBack }) {
+function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopare, atgarderSlut, setAtgarderSlut, atgarderGallring, setAtgarderGallring, maskiner, scenarier, onBack }) {
   const [search, setSearch] = useState('')
   const [filterBolag, setFilterBolag] = useState(null)
   const [filterHuvudtyp, setFilterHuvudtyp] = useState(null)
@@ -938,6 +1486,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
   const [scrolled, setScrolled] = useState(false)
   const [backHover, setBackHover] = useState(false)
   const [titleHover, setTitleHover] = useState(false)
+  const [scenarioPickerOpen, setScenarioPickerOpen] = useState(false)
 
   const komplettaObjekt = objekt.filter(o => isKomplett(o))
   const unikaBolag = [...new Set(komplettaObjekt.map(o => o.bolag).filter(Boolean))].sort()
@@ -994,6 +1543,14 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
         @keyframes slideDown { from { transform: translateY(0); opacity: 1; } to { transform: translateY(100%); opacity: 0; } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
+        @keyframes flashHighlight {
+          0%   { background: rgba(255,159,10,0.20); box-shadow: 0 0 0 6px rgba(255,159,10,0.15); }
+          100% { background: transparent; box-shadow: 0 0 0 0 transparent; }
+        }
+        .flash-highlight {
+          animation: flashHighlight 0.7s ease;
+          border-radius: 14px;
+        }
       `}</style>
 
       <div style={styles.header}>
@@ -1089,6 +1646,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
                 {maskiner[obj.maskin_id] && <span>{maskiner[obj.maskin_id]} · </span>}
                 {obj.huvudtyp} · {obj.bolag} · {obj.atgard}
               </div>
+              <KortBadges obj={obj} />
               <div style={styles.kortMeta}>{obj.skogsagare}</div>
             </div>
           </AnimatedCard>
@@ -1108,12 +1666,19 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
             </div>
             <div style={{...styles.scrollFade, opacity: scrolled ? 1 : 0}} />
             <div style={styles.sheetContent} onScroll={(e) => setScrolled(e.target.scrollTop > 10)}>
-              <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} />
+              <RedigeraObjektContent valtObjekt={valtObjekt} setValtObjekt={setValtObjekt} bolag={bolag} setBolag={setBolag} inkopare={inkopare} setInkopare={setInkopare} atgarderSlut={atgarderSlut} setAtgarderSlut={setAtgarderSlut} atgarderGallring={atgarderGallring} setAtgarderGallring={setAtgarderGallring} scenarier={scenarier} onOpenScenarioPicker={() => setScenarioPickerOpen(true)} />
             </div>
             <div style={styles.sheetFooter}>
               <SaveButton onClick={sparaObjekt} saving={saving} saved={saved} />
             </div>
           </div>
+          <PrisscenarioPicker
+            open={scenarioPickerOpen}
+            scenarier={scenarier}
+            valtId={valtObjekt.prisscenario_id ?? null}
+            onVal={(id) => { setValtObjekt({...valtObjekt, prisscenario_id: id}); setScenarioPickerOpen(false) }}
+            onClose={() => setScenarioPickerOpen(false)}
+          />
         </>
       )}
     </div>
@@ -1121,7 +1686,7 @@ function AllaObjektVy({ objekt, setObjekt, bolag, setBolag, inkopare, setInkopar
 }
 
 const styles = {
-  container: { position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: '#000', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif', color: '#fff', padding: '16px 20px 100px', WebkitFontSmoothing: 'antialiased', overflowY: 'auto' },
+  container: { position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: '#000', fontFamily: "'Geist', system-ui, -apple-system, BlinkMacSystemFont, sans-serif", color: '#fff', padding: '16px 20px 100px', WebkitFontSmoothing: 'antialiased', overflowY: 'auto' },
   header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 },
   headerCenter: { textAlign: 'center', flex: 1 },
   backBtn: { width: 48, height: 48, borderRadius: 24, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 24, cursor: 'pointer', transition: 'all 0.2s ease' },
@@ -1133,9 +1698,48 @@ const styles = {
   sectionHeader: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 },
   sectionTitel: { fontSize: 18, fontWeight: 600, flex: 1 },
   sectionCount: { fontSize: 14, fontWeight: 600, color: '#FF9F0A', background: 'rgba(255,159,10,0.15)', padding: '4px 12px', borderRadius: 12 },
-  sectionLabel: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginTop: 28, marginBottom: 12 },
-  allaDone: { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 60, color: '#30D158', fontSize: 17, fontWeight: 600 },
-  allaDoneCheck: { fontSize: 48, marginBottom: 16, filter: 'drop-shadow(0 0 20px rgba(48,209,88,0.5))' },
+  sectionLabel: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px', marginTop: 28, marginBottom: 12 },
+  subsectionLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.35)', letterSpacing: '0.2px', marginTop: 20, marginBottom: 10 },
+  scenarioBox: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '16px', borderRadius: 14, marginBottom: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', transition: 'all 0.2s ease', gap: 12 },
+  scenarioContent: { display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 },
+  scenarioLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px', marginBottom: 6 },
+  scenarioName: { fontSize: 16, fontWeight: 500, color: '#fff' },
+  scenarioDelta: { fontSize: 13, color: 'rgba(255,255,255,0.6)', marginTop: 2 },
+  scenarioGiltighet: { fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 4 },
+  scenarioRow: { display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px', borderRadius: 14, marginBottom: 8, border: '1px solid', cursor: 'pointer', transition: 'all 0.2s ease' },
+  scenarioRowRadio: { width: 22, height: 22, borderRadius: 11, border: '2px solid', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  scenarioRowDot: { width: 8, height: 8, borderRadius: 4 },
+  scenarioRowText: { flex: 1, minWidth: 0 },
+  scenarioRowName: { fontSize: 16, fontWeight: 500, color: '#fff' },
+  scenarioRowBeskrivning: { fontSize: 13, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
+  scenarioRowGiltighet: { fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2 },
+  validationWarning: { marginTop: 4, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,159,10,0.08)', border: '1px solid rgba(255,159,10,0.25)', color: 'rgba(255,200,120,0.95)', fontSize: 13, lineHeight: 1.4 },
+  machineEndInfo: { marginTop: 12, padding: '14px 16px', borderRadius: 14, background: 'rgba(173,198,255,0.06)', border: '1px solid rgba(173,198,255,0.2)' },
+  machineEndLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(173,198,255,0.7)', letterSpacing: '0.2px', marginBottom: 4 },
+  machineEndValue: { fontSize: 15, fontWeight: 500, color: '#fff', fontVariantNumeric: 'tabular-nums', marginBottom: 12 },
+  machineEndFixBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 56, padding: '0 18px', borderRadius: 12, border: '1px solid rgba(173,198,255,0.35)', background: 'rgba(173,198,255,0.12)', color: '#adc6ff', fontSize: 14, fontWeight: 600, fontFamily: 'inherit', cursor: 'pointer', width: '100%', boxSizing: 'border-box' },
+  machineEndDone: { fontSize: 13, color: 'rgba(255,255,255,0.55)', fontStyle: 'italic' },
+  machineEndHint: { fontSize: 12, color: 'rgba(255,255,255,0.5)' },
+  fieldWrap: { scrollMarginTop: 24 },
+  warningsBox: { marginBottom: 20, padding: '14px 16px 6px', borderRadius: 14, background: 'rgba(255,159,10,0.07)', border: '1px solid rgba(255,159,10,0.22)' },
+  warningsHeader: { fontSize: 13, fontWeight: 600, color: 'rgba(255,200,120,0.95)', marginBottom: 8, letterSpacing: '0.1px' },
+  warningsAllOk: { marginBottom: 20, padding: '12px 16px', borderRadius: 14, background: 'rgba(173,198,255,0.06)', border: '1px solid rgba(173,198,255,0.18)', color: 'rgba(173,198,255,0.85)', fontSize: 13, fontWeight: 500 },
+  warningRow: { display: 'flex', alignItems: 'center', gap: 10, width: '100%', minHeight: 44, padding: '0 4px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', color: 'rgba(255,255,255,0.85)', fontFamily: 'inherit', fontSize: 14, transition: 'background 0.15s ease', borderRadius: 8 },
+  warningDot: { width: 6, height: 6, borderRadius: 3, background: '#FF9F0A', flexShrink: 0 },
+  warningText: { flex: 1 },
+  warningArrow: { color: 'rgba(255,255,255,0.35)', fontSize: 18, lineHeight: 1 },
+  quickFixBtn: { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minHeight: 56, marginTop: 8, padding: '0 18px', borderRadius: 12, background: 'rgba(255,159,10,0.10)', border: '1px solid rgba(255,159,10,0.30)', color: 'rgba(255,200,120,0.95)', fontSize: 14, fontWeight: 600, fontFamily: 'inherit' },
+  quickFixMessage: { marginTop: 8, padding: '10px 14px', borderRadius: 12, fontSize: 13, lineHeight: 1.4 },
+  quickFixMessageOk: { background: 'rgba(173,198,255,0.08)', border: '1px solid rgba(173,198,255,0.25)', color: 'rgba(173,198,255,0.95)' },
+  quickFixMessageError: { background: 'rgba(255,159,10,0.08)', border: '1px solid rgba(255,159,10,0.25)', color: 'rgba(255,200,120,0.95)' },
+  kortBadges: { display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: 12, color: 'rgba(255,200,120,0.95)' },
+  kortBadge: { display: 'inline-flex', alignItems: 'center', gap: 6 },
+  kortBadgeMore: { color: 'rgba(255,255,255,0.45)' },
+  filterToggleBar: { display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 },
+  filterToggleBtn: { minHeight: 40, padding: '0 14px', borderRadius: 999, border: '1px solid rgba(255,255,255,0.12)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 500, fontFamily: 'inherit', cursor: 'pointer', transition: 'all 0.15s ease' },
+  filterToggleBtnActive: { background: 'rgba(173,198,255,0.12)', borderColor: 'rgba(173,198,255,0.35)', color: '#adc6ff' },
+  allaDone: { display: 'flex', flexDirection: 'column', alignItems: 'center', padding: 60, color: '#adc6ff', fontSize: 17, fontWeight: 600 },
+  allaDoneCheck: { fontSize: 48, marginBottom: 16, filter: 'drop-shadow(0 0 20px rgba(173,198,255,0.5))' },
   lista: { display: 'flex', flexDirection: 'column', gap: 12 },
   kort: { background: 'rgba(255,255,255,0.03)', borderRadius: 20, border: '1px solid rgba(255,255,255,0.06)', cursor: 'pointer' },
   kortInner: { padding: '18px 20px' },
@@ -1151,7 +1755,7 @@ const styles = {
   searchInput: { flex: 1, background: 'none', border: 'none', color: '#fff', fontSize: 16, outline: 'none' },
   searchClear: { width: 24, height: 24, borderRadius: 12, background: 'rgba(255,255,255,0.1)', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 11, cursor: 'pointer' },
   filterSection: { marginBottom: 16 },
-  filterLabel: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 10 },
+  filterLabel: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px', marginBottom: 10 },
   filterChips: { display: 'flex', flexWrap: 'wrap', gap: 8 },
   clearFiltersBtn: { width: '100%', padding: '12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.6)', fontSize: 14, fontWeight: 500, cursor: 'pointer', marginTop: 8 },
   emptyState: { textAlign: 'center', padding: 40, color: 'rgba(255,255,255,0.4)', fontSize: 15 },
@@ -1165,33 +1769,33 @@ const styles = {
   scrollFade: { position: 'absolute', top: 80, left: 0, right: 0, height: 30, background: 'linear-gradient(to bottom, #1c1c1e, transparent)', zIndex: 1, pointerEvents: 'none', transition: 'opacity 0.2s ease' },
   sheetContent: { flex: 1, overflowY: 'auto', padding: '0 24px 24px' },
   sheetFooter: { padding: '16px 24px 40px' },
-  saveBtn: { width: '100%', padding: '18px', borderRadius: 16, border: 'none', background: '#30D158', color: '#000', fontSize: 17, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s ease' },
+  saveBtn: { width: '100%', padding: '18px', borderRadius: 16, border: 'none', background: '#adc6ff', color: '#000', fontSize: 17, fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s ease' },
   progressHeader: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24, padding: '12px 16px', background: 'rgba(255,255,255,0.03)', borderRadius: 14, border: '1px solid rgba(255,255,255,0.06)' },
   progressText: { fontSize: 14, color: 'rgba(255,255,255,0.6)' },
   voBox: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px', borderRadius: 14, marginBottom: 20, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', transition: 'all 0.2s ease' },
   voLeft: { display: 'flex', flexDirection: 'column', gap: 6 },
-  voLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  voLabel: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px' },
   voValue: { fontSize: 16, fontWeight: 500, color: '#fff' },
-  voLockBtn: { display: 'flex', alignItems: 'center', padding: '8px 14px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', transition: 'all 0.2s ease' },
+  voLockBtn: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 56, minWidth: 88, padding: '0 18px', borderRadius: 12, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', cursor: 'pointer', transition: 'all 0.2s ease' },
   voLockText: { fontSize: 13, color: 'rgba(255,255,255,0.5)' },
-  voEditBox: { padding: '16px', borderRadius: 14, marginBottom: 20, background: 'rgba(48,209,88,0.08)', border: '1px solid rgba(48,209,88,0.3)' },
+  voEditBox: { padding: '16px', borderRadius: 14, marginBottom: 20, background: 'rgba(173,198,255,0.08)', border: '1px solid rgba(173,198,255,0.3)' },
   voEditHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  voEditingText: { fontSize: 12, color: '#30D158' },
-  voInput: { width: '100%', padding: '14px', borderRadius: 12, border: '1px solid rgba(48,209,88,0.3)', background: 'rgba(0,0,0,0.3)', color: '#fff', fontSize: 16, outline: 'none', boxSizing: 'border-box', marginBottom: 12 },
+  voEditingText: { fontSize: 12, color: '#adc6ff' },
+  voInput: { width: '100%', padding: '14px', borderRadius: 12, border: '1px solid rgba(173,198,255,0.3)', background: 'rgba(0,0,0,0.3)', color: '#fff', fontSize: 16, outline: 'none', boxSizing: 'border-box', marginBottom: 12 },
   voBtns: { display: 'flex', gap: 10 },
-  voBtnSave: { flex: 1, padding: '12px', borderRadius: 12, border: 'none', background: '#30D158', color: '#000', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
-  voBtnCancel: { flex: 1, padding: '12px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.6)', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
+  voBtnSave: { flex: 1, minHeight: 56, padding: '0 16px', borderRadius: 12, border: 'none', background: '#adc6ff', color: '#000', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
+  voBtnCancel: { flex: 1, minHeight: 56, padding: '0 16px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)', background: 'transparent', color: 'rgba(255,255,255,0.6)', fontSize: 15, fontWeight: 600, cursor: 'pointer' },
   chipInputBox: { marginBottom: 20 },
   chipInputHeader: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 },
-  chipInputLabel: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' },
+  chipInputLabel: { fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.2px' },
   chipEditBtn: { background: 'none', border: 'none', fontSize: 13, cursor: 'pointer', padding: '4px 8px', transition: 'color 0.2s ease' },
-  chipSelected: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 14, background: 'rgba(48,209,88,0.15)', border: '1px solid rgba(48,209,88,0.3)', marginBottom: 10, fontSize: 16, fontWeight: 500, color: '#fff' },
+  chipSelected: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 14, background: 'rgba(173,198,255,0.15)', border: '1px solid rgba(173,198,255,0.3)', marginBottom: 10, fontSize: 16, fontWeight: 500, color: '#fff' },
   chipClear: { background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', fontSize: 16, cursor: 'pointer', padding: 4 },
   chipInput: { width: '100%', padding: '14px 16px', borderRadius: 14, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.04)', color: '#fff', fontSize: 15, outline: 'none', boxSizing: 'border-box', marginBottom: 10, transition: 'border-color 0.2s ease' },
   chipGrid: { display: 'flex', flexWrap: 'wrap', gap: 8 },
   chip: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderRadius: 12, border: '1px solid', fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s ease' },
-  chipDelete: { background: 'rgba(255,69,58,0.2)', border: 'none', color: '#FF453A', fontSize: 11, width: 20, height: 20, borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-  chipNew: { padding: '10px 14px', borderRadius: 12, border: '1px dashed rgba(48,209,88,0.4)', background: 'rgba(48,209,88,0.08)', color: '#30D158', fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s ease' },
+  chipDelete: { background: 'rgba(255,69,58,0.18)', border: 'none', color: '#FF453A', fontSize: 14, width: 32, height: 32, borderRadius: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
+  chipNew: { padding: '10px 14px', borderRadius: 12, border: '1px dashed rgba(173,198,255,0.4)', background: 'rgba(173,198,255,0.08)', color: '#adc6ff', fontSize: 14, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s ease' },
   switchList: { display: 'flex', flexDirection: 'column', gap: 8 },
   switchRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px', borderRadius: 14, border: '1px solid', cursor: 'pointer', transition: 'all 0.2s ease' },
   switchLeft: { display: 'flex', alignItems: 'center', gap: 14 },

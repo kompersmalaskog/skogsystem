@@ -99,6 +99,83 @@ eller härleda från `landing` (avlägg).
   hpr_stammar — bara summary-tabellen var
   fel.
 
+## Redigeringsvy — parkerat (2026-05-07)
+
+Steg 1-5 av designöversynen klara på /redigering
+(prisscenario, designkonsistens, 56px-knappar,
+gruppering av egenskaper, UX-förbättringar).
+Följande togs explicit ur scope och behöver göras
+separat:
+
+- Auth-gate på /redigering. Vyn ändrar dim_objekt
+  (inkl. nya prisscenario_id). Bör vara chef/admin-
+  only, server-page.tsx-wrapper enligt mönstret i
+  app/ekonomi/page.tsx.
+- Migrera ovrigt_info JSON till riktiga kolumner:
+  extern_skotning, extern_foretag, extern_pris_typ,
+  extern_pris, extern_antal. Schema-läckage som
+  bör brytas ut för att kunna queryjas och räknas
+  in av ekonomi-vyer.
+- Stavfel "stubbbehandling" → "stubbehandling".
+  Kräver migration på dim_objekt-kolumn.
+- Lyfta ut EditSheet-komponent. Modal-wrappern
+  dupliceras på två ställen (ObjektRedigering +
+  AllaObjektVy). Refaktor.
+- TypeScript-typer på app/redigering/page.tsx.
+  Filen är .tsx men skriven som JS, inga typer
+  på Objekt/Scenario/state.
+- Städa DEMO-arrayer. DEMO_OBJEKT är död kod,
+  DEMO_BOLAG/DEMO_INKOPARE används som initial
+  state men borde komma från databas.
+- Inställnings-CRUD för fler scenarier i
+  /ekonomi/installningar. Tills den finns visas
+  ingen "Skapa nytt"-länk i PrisscenarioPicker.
+- Hardcoded SUPABASE_URL/SUPABASE_KEY på rad 34-35
+  i app/redigering/page.tsx. Bör bytas till
+  import { supabase } from '@/lib/supabase' (för
+  konsekvens + RLS-policies som baseras på
+  auth.uid()).
+
+INTE konsolidera: dim_objekt.timpeng (uppföljnings-
+statistik) och objekt_ekonomi.rakna_som_timpeng
+(ekonomi-beräkning) är medvetet skilda saker
+enligt Martin.
+
+## Redigeringsvy — Steg H/I/J/K (2026-05-08)
+
+EndDate-koppling klar:
+- H: Info-rad i Avslut-sektionen visar
+  dim_objekt.end_date från StanForD-filen
+- I: Snabbfix-knapp sätter skordning_avslutad
+  (Harvester) eller skotning_avslutad
+  (Forwarder) till YYYY-MM-DD från end_date
+- J: Varning "Maskinen rapporterar X avslutad —
+  ej markerad" när end_date finns men fältet är
+  tomt
+- K: 14-dagars-heuristik som plan B —
+  "Skördning/skotning verkar klar (startade för
+  N dagar sedan)" när end_date saknas och
+  start_date >= 14 dagar tillbaka
+
+Parkerat:
+- Dedup per vo_nummer i listvyn. Idag visas
+  fysiska objekt med två maskiner som två kort
+  med samma object_name (en harvester-rad,
+  en forwarder-rad). Filtret "Bara fel" och
+  varningsräknaren räknar dim_objekt-rader,
+  inte unika vo_nummer. Konsekvens: samma
+  fysiska objekt kan synas dubbelt i räknaren.
+  Att dedupa kräver beslut om hur kort ska
+  rendera när två maskiner har olika data
+  (t.ex. olika huvudtyp), och om varningar
+  ska aggregeras eller delas. Egen omgång.
+
+- Steg K-tröskeln (14 dagar) är pragmatisk men
+  trubbig — den triggar på långa pågående
+  gallringar. Bättre signal vore "tid sedan
+  senaste fakt_produktion/fakt_lass-rad", men
+  det kräver extra query per objekt. Senare.
+
 ## HPR-import buggar (kvarstår)
 Kommer skapa trasiga rader vid varje ny
 HPR-import tills patchad:
