@@ -938,6 +938,12 @@ export default function CesiumScene({ objektId }: Props) {
         })
         viewerRef.current = viewer
 
+        // Skarpare tile-LOD vid nära zoom. Default 2.0 ger pixliga tile-
+        // gränser när kameran är 5–25 m över marken. 1.5 → ~1.8× tile-budget
+        // men noticeably skarpare hillshade-mesh vid förarens normala
+        // arbetsavstånd.
+        viewer.scene.globe.maximumScreenSpaceError = 1.5
+
         // === Kamerakontroll: matcha MapLibre 2D så användaren får samma gester ===
         // Cesium kräver OBJEKT-syntax {eventType, modifier} för modifier-bindings,
         // INTE array-syntax [eventType, modifier]. reactToInput läser
