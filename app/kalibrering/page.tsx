@@ -337,10 +337,10 @@ export default function KalibreringPage() {
     const diaDiff = stock.dia_avvikelse_mm;
     const lenCls = stockLenCls(lenDiff);
     const diaCls = stockDiaCls(diaDiff);
-    const maskinW = Math.max(120, stock.maskin_langd_cm / 2);
-    const maskinH = Math.max(20, stock.maskin_toppdia_mm / 4);
-    const operatorW = Math.max(120, stock.operator_langd_cm / 2);
-    const operatorH = Math.max(20, stock.operator_toppdia_mm / 4);
+    const maskinW = Math.max(180, stock.maskin_langd_cm * 0.7);
+    const maskinH = Math.max(28, stock.maskin_toppdia_mm * 0.22);
+    const operatorW = Math.max(180, stock.operator_langd_cm * 0.7);
+    const operatorH = Math.max(28, stock.operator_toppdia_mm * 0.22);
     const stockBorderClass = diaCls === 'good' ? '' : diaCls === 'warn' ? 'warn-stock' : 'bad-stock';
 
     pushModal({
@@ -357,7 +357,9 @@ export default function KalibreringPage() {
             </div>
             <div className="kalib-stock-compare-row">
               <div className="kalib-stock-compare-label">Operatör</div>
-              <div className="kalib-log-body" style={{ width: operatorW, height: operatorH }} />
+              <div className="kalib-log-body" style={{ width: operatorW, height: operatorH }}>
+                <span className="kalib-log-num">{stock.stock_nummer}</span>
+              </div>
             </div>
           </div>
           <div className="kalib-total-summary">
@@ -394,7 +396,7 @@ export default function KalibreringPage() {
             <div className="kalib-info-box neutral" style={{ marginTop: 16 }}>
               <span className="kalib-info-icon"><MSym name="inventory_2" size={20} color="#fff" /></span>
               <div className="kalib-info-content">
-                <div className="kalib-info-title">Volym (m³sub)</div>
+                <div className="kalib-info-title">Volym (m³fub)</div>
                 <div className="kalib-info-text">Maskin: {stock.maskin_volym_sub?.toFixed(4)} • Operatör: {stock.operator_volym_sub?.toFixed(4)} • Diff: {stock.volym_avvikelse?.toFixed(4)}</div>
               </div>
             </div>
@@ -423,7 +425,7 @@ export default function KalibreringPage() {
           </div>
           {stocks.length > 0 && (
             <>
-              <div className="kalib-modal-section-header"><div className="kalib-modal-section-title">Per stock</div><div className="kalib-modal-section-subtitle">Tryck för detaljer</div></div>
+              <div className="kalib-modal-section-header"><div className="kalib-modal-section-title">Per stock</div></div>
               <div className="kalib-overview-grid">
                 {stocks.map(stock => {
                   const diaDiff = stock.dia_avvikelse_mm;
@@ -594,7 +596,7 @@ export default function KalibreringPage() {
         .kalib-container{max-width:680px;margin:0 auto;padding:24px 20px 32px}
 
         .kalib-page-header{margin:0 0 24px}
-        .kalib-page-title{font-size:32px;font-weight:700;letter-spacing:-0.02em;line-height:1.1;margin:0 0 6px;color:#fff}
+        .kalib-page-title{font-size:28px;font-weight:600;letter-spacing:-0.02em;line-height:1.15;margin:0 0 6px;color:#fff}
         .kalib-page-subtitle{font-size:15px;color:#8E8E93;margin:0}
 
         .kalib-card{background:#1C1C1E;border-radius:14px;padding:20px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.06)}
@@ -855,7 +857,7 @@ export default function KalibreringPage() {
           {activeTab === 'today' && latestKalib && (
             <>
               <header className="kalib-page-header">
-                <h1 className="kalib-page-title">{cap(latestKalib.tradslag)}</h1>
+                <h1 className="kalib-page-title">{cap(latestKalib.tradslag) || latestKalib.maskin_id}</h1>
                 <p className="kalib-page-subtitle">{latestKalib.antal_kontrollstockar} stockar • {new Date(latestKalib.datum).toLocaleDateString('sv-SE')} • {latestKalib.maskin_id}</p>
               </header>
 
@@ -904,8 +906,8 @@ export default function KalibreringPage() {
                     <div className="kalib-stem-viz-inner">
                       <span className="kalib-stem-label">Rot</span>
                       {latestStockar.map(stock => {
-                        const baseW = Math.max(60, stock.maskin_langd_cm / 4);
-                        const baseH = Math.max(12, stock.maskin_toppdia_mm / 6);
+                        const baseW = Math.max(60, stock.maskin_langd_cm * 0.5);
+                        const baseH = Math.max(18, stock.maskin_toppdia_mm * 0.18);
                         const cls = stockDiaCls(stock.dia_avvikelse_mm);
                         const borderCls = cls === 'good' ? '' : cls === 'warn' ? 'warn-stock' : 'bad-stock';
                         return (
