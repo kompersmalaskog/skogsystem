@@ -67,6 +67,22 @@ const FIL_KARTA: Record<string, string> = {
   FortnoxSyncInvoices:    'app/api/fortnox/sync-invoices/route.ts',
   PerObjektClient:        'app/ekonomi/per-objekt/PerObjektClient.tsx',
 
+  // Planeringsvy + 3D-körvy
+  PlaneringPage:          'app/planering/page.tsx',
+  PlaneringObjektValjare: 'app/planering/ObjektValjare.tsx',
+  PlaneringTraktBriefing: 'app/planering/TraktBriefing.tsx',
+  PlaneringKartaVy:       'app/planering/KartaVy.tsx',
+  PlaneringVolymPanel:    'app/planering/volym-panel.tsx',
+  PlaneringBrandriskPanel:'app/planering/brandrisk-panel.tsx',
+  PlaneringKorbarhetPanel:'app/planering/korbarhet-panel.tsx',
+  KorvyPage:              'app/korvy/page.tsx',
+  CesiumScene:            'app/korvy/CesiumScene.tsx',
+  SkogligBerakning:       'lib/skoglig-berakning.ts',
+  KorbarhetLib:           'lib/korbarhet.ts',
+  UseMapLayers:           'lib/hooks/useMapLayers.ts',
+  MapLayers:              'lib/mapLayers.ts',
+  SmhiBrandrisk:          'lib/smhi-brandrisk.ts',
+
   // Meta
   Status:     'STATUS.md',
   Claude:     'CLAUDE.md',

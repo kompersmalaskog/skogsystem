@@ -186,6 +186,22 @@ interface ManuellPrognos {
 // Zoner (isZoneMode) hanteras separat och är alltid polygoner.
 const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
 
+// Körvy 2D — extrusion-spec per markörtyp (matchar Cesium 3D-formerna visuellt).
+// height i meter, color hex, radius i meter (cirkulär footprint runt markörens
+// lat/lng). Stake-nålen ärver höjden härifrån; fallback 1 m för typer som saknas.
+const KORVY_EXTRUSION_SPEC: Record<string, { height: number; color: string; radius: number }> = {
+  naturecorner:    { height: 8,   color: '#30d158', radius: 0.5 },
+  culturemonument: { height: 3,   color: '#ffffff', radius: 0.4 },
+  culturestump:    { height: 0.5, color: '#ffffff', radius: 0.4 },
+  highstump:       { height: 4,   color: '#ffffff', radius: 0.3 },
+  windfall:        { height: 1,   color: '#ffffff', radius: 0.6 },
+  bridge:          { height: 0.3, color: '#ffffff', radius: 1.0 },
+  landing:         { height: 0.3, color: '#ffffff', radius: 1.5 },
+  corduroy:        { height: 0.3, color: '#ffffff', radius: 0.8 },
+  powerline:       { height: 12,  color: '#ff453a', radius: 0.3 },
+  manualfelling:   { height: 2,   color: '#ff453a', radius: 1.0 },
+};
+
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
@@ -5412,6 +5428,99 @@ export default function PlannerPage() {
       } catch (e) { console.error('[Körvy] eternitytree-extrusion:', e); }
     }
 
+    // 3.5) Markör-extrusion (Apple-glas-look) + stake-nål — visuell match med Cesium 3D
+    // Båda källor börjar tomma; markers-extrusion-data-effekten nedan fyller dem
+    // när korvyActive=true. Layers initieras med visibility:'none' och togglas av
+    // visibility-toggle-effekten (samma mönster som eternitytree-extrusion).
+    if (!map.getSource('markers-extrusion-source')) {
+      try {
+        map.addSource('markers-extrusion-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      } catch (e) { console.error('[Körvy] markers-extrusion-source:', e); }
+    }
+    if (!map.getLayer('markers-extrusion-fill')) {
+      try {
+        map.addLayer({
+          id: 'markers-extrusion-fill',
+          type: 'fill-extrusion',
+          source: 'markers-extrusion-source',
+          paint: {
+            'fill-extrusion-color': ['match', ['get', 'type'],
+              'naturecorner',    '#30d158',
+              'culturemonument', '#ffffff',
+              'culturestump',    '#ffffff',
+              'highstump',       '#ffffff',
+              'windfall',        '#ffffff',
+              'bridge',          '#ffffff',
+              'landing',         '#ffffff',
+              'corduroy',        '#ffffff',
+              'powerline',       '#ff453a',
+              'manualfelling',   '#ff453a',
+              '#ffffff',
+            ],
+            'fill-extrusion-height': ['number', ['get', 'height'], 1],
+            'fill-extrusion-base': 0,
+            // Layer-level — per-feature opacity stöds inte. Avstånds-fade syns
+            // ändå på själva markör-ikonen + stake-nålen.
+            'fill-extrusion-opacity': 0.25,
+          },
+          layout: { 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Körvy] markers-extrusion-fill:', e); }
+    }
+    if (!map.getLayer('markers-extrusion-outline')) {
+      try {
+        map.addLayer({
+          id: 'markers-extrusion-outline',
+          type: 'line',
+          source: 'markers-extrusion-source',
+          paint: {
+            // Bas-ring klampad till mark — ritar polygonens kanter där pelaren
+            // möter terrängen (line-layer renderar inte 3D-höjd i MapLibre 5).
+            'line-color': ['match', ['get', 'type'],
+              'naturecorner',    'rgba(48,209,88,0.7)',
+              'culturemonument', 'rgba(255,255,255,0.7)',
+              'culturestump',    'rgba(255,255,255,0.7)',
+              'highstump',       'rgba(255,255,255,0.7)',
+              'windfall',        'rgba(255,255,255,0.7)',
+              'bridge',          'rgba(255,255,255,0.7)',
+              'landing',         'rgba(255,255,255,0.7)',
+              'corduroy',        'rgba(255,255,255,0.7)',
+              'powerline',       'rgba(255,69,58,0.7)',
+              'manualfelling',   'rgba(255,69,58,0.7)',
+              'rgba(255,255,255,0.7)',
+            ],
+            'line-width': 1.5,
+          },
+          layout: { 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Körvy] markers-extrusion-outline:', e); }
+    }
+    if (!map.getSource('markers-stake-source')) {
+      try {
+        map.addSource('markers-stake-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      } catch (e) { console.error('[Körvy] markers-stake-source:', e); }
+    }
+    if (!map.getLayer('markers-stake-extrusion')) {
+      try {
+        map.addLayer({
+          id: 'markers-stake-extrusion',
+          type: 'fill-extrusion',
+          source: 'markers-stake-source',
+          paint: {
+            // Tunn vertikal nål per markör (radius ~0.15 m). MapLibre line-layer
+            // klampar z-koordinater till mark — fill-extrusion är enda sättet att
+            // få en vertikal "stake" som syns i 3D-perspektiv. Per-feature opacity
+            // bakas in i alpha-kanalen eftersom fill-extrusion-opacity är layer-level.
+            'fill-extrusion-color': ['rgba', 255, 255, 255, ['*', 0.4, ['number', ['get', 'opacity'], 1]]],
+            'fill-extrusion-height': ['number', ['get', 'height'], 1],
+            'fill-extrusion-base': 0,
+            'fill-extrusion-opacity': 1,
+          },
+          layout: { 'visibility': 'none' },
+        });
+      } catch (e) { console.error('[Körvy] markers-stake-extrusion:', e); }
+    }
+
     // 4) Siktfält-kon (framåt 30°, 150m)
     if (!map.getSource('gps-cone-source')) {
       try {
@@ -5560,15 +5669,37 @@ export default function PlannerPage() {
     console.log('[Körvy] immersion-layers setup klar');
   }, [mapLibreReady]);
 
-  // === KÖRVY: visibility-toggle för alla immersion-layers ===
+  // === KÖRVY: visibility-toggle för alla immersion-layers + markers-layer alignment ===
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const vis = korvyActive ? 'visible' : 'none';
-    const layers = ['lines-korvy-mainroad-glow', 'zones-korvy-wet-extrusion', 'zones-korvy-steep-extrusion', 'zones-korvy-culture-extrusion', 'eternitytree-extrusion', 'gps-cone-fill', 'maskin-halo', 'maskin-ring', 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
+    const layers = ['lines-korvy-mainroad-glow', 'zones-korvy-wet-extrusion', 'zones-korvy-steep-extrusion', 'zones-korvy-culture-extrusion', 'eternitytree-extrusion', 'markers-extrusion-fill', 'markers-extrusion-outline', 'markers-stake-extrusion', 'gps-cone-fill', 'maskin-halo', 'maskin-ring', 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
     for (const id of layers) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
     }
+    // ÄNDRING 1: markers-layer pitch/rotation-alignment togglas runtime så symbolerna
+    // står upp i terrängen i körvy ('map') men förblir billboards i planeringsvyn
+    // ('viewport'). Layer-definitionen (rad ~993-1013) lämnas orörd.
+    // Edge-case: om markers-layer ännu inte finns (icons laddas async i marker-symbol-
+    // setupen) hoppas toggle över — körvy fortsätter med viewport-default tills layern
+    // dyker upp och nästa korvyActive-flip applicerar map-alignment.
+    try {
+      if (map.getLayer('markers-layer')) {
+        const align = korvyActive ? 'map' : 'viewport';
+        map.setLayoutProperty('markers-layer', 'icon-pitch-alignment', align);
+        map.setLayoutProperty('markers-layer', 'icon-rotation-alignment', align);
+      }
+    } catch {}
+    return () => {
+      // Återställ till planeringsvyns default vid effekt-rerun + komponent-unmount.
+      try {
+        if (map.getLayer('markers-layer')) {
+          map.setLayoutProperty('markers-layer', 'icon-pitch-alignment', 'viewport');
+          map.setLayoutProperty('markers-layer', 'icon-rotation-alignment', 'viewport');
+        }
+      } catch {}
+    };
   }, [korvyActive, mapLibreReady]);
 
   // === KÖRVY: terrain exaggeration (1.0 → 1.8) + maxPitch (60° → 85°) toggle ===
@@ -5609,6 +5740,60 @@ export default function PlannerPage() {
     } catch (e) { console.error('[Körvy] eternitytree-source update:', e); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markers, korvyActive, mapLibreReady]);
+
+  // === KÖRVY: uppdatera markers-extrusion-source + markers-stake-source ===
+  // Läser lat/lng + opacity från befintlig markers-source via serialize() — så vi
+  // ärver System B:s opacity-resultat utan att duplicera getMarkerOpacity-logiken.
+  // proximityTick + korvyBlinkOn i deps så stake-fade följer symbol-fade i samma takt.
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady || !korvyActive) return;
+    const stakeSrc = map.getSource('markers-stake-source') as any;
+    const extrSrc = map.getSource('markers-extrusion-source') as any;
+    if (!stakeSrc || !extrSrc) return;
+
+    let features: any[] = [];
+    try {
+      const ms = map.getSource('markers-source') as any;
+      const serialized = ms?.serialize?.();
+      features = serialized?.data?.features ?? [];
+    } catch { /* källa kan saknas vid initial render */ }
+
+    const stakeFeatures: any[] = [];
+    const extrFeatures: any[] = [];
+
+    for (const f of features) {
+      const type = f?.properties?.type;
+      const opacity = f?.properties?.opacity ?? 1;
+      const lng = f?.geometry?.coordinates?.[0];
+      const lat = f?.geometry?.coordinates?.[1];
+      if (lng == null || lat == null || !type) continue;
+
+      const spec = KORVY_EXTRUSION_SPEC[type];
+      const stakeHeight = spec?.height ?? 1;
+
+      // Stake för ALLA punkt-markörer — tunn nål (radius 0.15 m) från mark till
+      // toppen av extrusion-höjden (eller 1 m för typer utan extrusion-spec).
+      stakeFeatures.push({
+        type: 'Feature' as const,
+        properties: { type, opacity, height: stakeHeight },
+        geometry: { type: 'Polygon' as const, coordinates: circlePolygon(lat, lng, 0.15) },
+      });
+
+      // Extrusion-fill + outline bara för typer i KORVY_EXTRUSION_SPEC.
+      if (spec) {
+        extrFeatures.push({
+          type: 'Feature' as const,
+          properties: { type, opacity, height: spec.height },
+          geometry: { type: 'Polygon' as const, coordinates: circlePolygon(lat, lng, spec.radius) },
+        });
+      }
+    }
+
+    try { stakeSrc.setData({ type: 'FeatureCollection', features: stakeFeatures }); } catch (e) { console.error('[Körvy] stake-source update:', e); }
+    try { extrSrc.setData({ type: 'FeatureCollection', features: extrFeatures }); } catch (e) { console.error('[Körvy] extrusion-source update:', e); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [markers, korvyActive, currentPosition, mapLibreReady, proximityTick, korvyBlinkOn]);
 
   // === KÖRVY: uppdatera gps-cone-source (siktfält) vid varje GPS/heading-tick ===
   useEffect(() => {
