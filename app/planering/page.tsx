@@ -190,7 +190,9 @@ const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
 // height i meter, color hex, radius i meter (cirkulär footprint runt markörens
 // lat/lng). Stake-nålen ärver höjden härifrån; fallback 1 m för typer som saknas.
 const KORVY_EXTRUSION_SPEC: Record<string, { height: number; color: string; radius: number }> = {
+  // Skydda (grön)
   naturecorner:    { height: 8,   color: '#30d158', radius: 0.5 },
+  // Neutral (vit)
   culturemonument: { height: 3,   color: '#ffffff', radius: 0.4 },
   culturestump:    { height: 0.5, color: '#ffffff', radius: 0.4 },
   highstump:       { height: 4,   color: '#ffffff', radius: 0.3 },
@@ -198,8 +200,13 @@ const KORVY_EXTRUSION_SPEC: Record<string, { height: number; color: string; radi
   bridge:          { height: 0.3, color: '#ffffff', radius: 1.0 },
   landing:         { height: 0.3, color: '#ffffff', radius: 1.5 },
   corduroy:        { height: 0.3, color: '#ffffff', radius: 0.8 },
+  brashpile:       { height: 1,   color: '#ffffff', radius: 1.0 },
+  ditch:           { height: 0.3, color: '#ffffff', radius: 0.5 },
+  // Fara (röd)
   powerline:       { height: 12,  color: '#ff453a', radius: 0.3 },
   manualfelling:   { height: 2,   color: '#ff453a', radius: 1.0 },
+  warning:         { height: 2,   color: '#ff453a', radius: 0.5 },
+  steep:           { height: 1.5, color: '#ff453a', radius: 0.5 },
 };
 
 export default function PlannerPage() {
@@ -5467,8 +5474,12 @@ export default function PlannerPage() {
               'bridge',          '#ffffff',
               'landing',         '#ffffff',
               'corduroy',        '#ffffff',
+              'brashpile',       '#ffffff',
+              'ditch',           '#ffffff',
               'powerline',       '#ff453a',
               'manualfelling',   '#ff453a',
+              'warning',         '#ff453a',
+              'steep',           '#ff453a',
               '#ffffff',
             ],
             'fill-extrusion-height': ['number', ['get', 'height'], 1],
@@ -5499,8 +5510,12 @@ export default function PlannerPage() {
               'bridge',          'rgba(255,255,255,0.7)',
               'landing',         'rgba(255,255,255,0.7)',
               'corduroy',        'rgba(255,255,255,0.7)',
+              'brashpile',       'rgba(255,255,255,0.7)',
+              'ditch',           'rgba(255,255,255,0.7)',
               'powerline',       'rgba(255,69,58,0.7)',
               'manualfelling',   'rgba(255,69,58,0.7)',
+              'warning',         'rgba(255,69,58,0.7)',
+              'steep',           'rgba(255,69,58,0.7)',
               'rgba(255,255,255,0.7)',
             ],
             'line-width': 1.5,
@@ -5521,11 +5536,12 @@ export default function PlannerPage() {
           type: 'fill-extrusion',
           source: 'markers-stake-source',
           paint: {
-            // Tunn vertikal nål per markör (radius ~0.15 m). MapLibre line-layer
-            // klampar z-koordinater till mark — fill-extrusion är enda sättet att
-            // få en vertikal "stake" som syns i 3D-perspektiv. Per-feature opacity
-            // bakas in i alpha-kanalen eftersom fill-extrusion-opacity är layer-level.
-            'fill-extrusion-color': ['rgba', 255, 255, 255, ['*', 0.4, ['number', ['get', 'opacity'], 1]]],
+            // Vertikal nål per markör (radius 0.4 m, svart 60 % alpha för synlighet
+            // mot ljus terräng). MapLibre line-layer klampar z-koordinater till mark
+            // — fill-extrusion är enda sättet att få en vertikal "stake" som syns i
+            // 3D-perspektiv. Per-feature opacity bakas in i alpha-kanalen eftersom
+            // fill-extrusion-opacity är layer-level.
+            'fill-extrusion-color': ['rgba', 0, 0, 0, ['*', 0.6, ['number', ['get', 'opacity'], 1]]],
             'fill-extrusion-height': ['number', ['get', 'height'], 1],
             'fill-extrusion-base': 0,
             'fill-extrusion-opacity': 1,
@@ -5791,12 +5807,13 @@ export default function PlannerPage() {
       const spec = KORVY_EXTRUSION_SPEC[type];
       const stakeHeight = spec?.height ?? 1;
 
-      // Stake för ALLA punkt-markörer — tunn nål (radius 0.15 m) från mark till
-      // toppen av extrusion-höjden (eller 1 m för typer utan extrusion-spec).
+      // Stake för ALLA punkt-markörer — nål (radius 0.4 m, svart för synlighet
+      // mot ljus terräng) från mark till toppen av extrusion-höjden (eller 1 m
+      // för typer utan extrusion-spec).
       stakeFeatures.push({
         type: 'Feature' as const,
         properties: { type, opacity, height: stakeHeight },
-        geometry: { type: 'Polygon' as const, coordinates: circlePolygon(lat, lng, 0.15) },
+        geometry: { type: 'Polygon' as const, coordinates: circlePolygon(lat, lng, 0.4) },
       });
 
       // Extrusion-fill + outline bara för typer i KORVY_EXTRUSION_SPEC.
