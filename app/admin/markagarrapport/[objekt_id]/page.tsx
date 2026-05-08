@@ -26,6 +26,11 @@ const COL = {
   warning: '#ff9500',
 };
 
+// Dämpad röd specifikt för rot-ring i kartan + legend-prick.
+// Matchar RING_ROT i SkogenKarta.tsx. Skild från COL.danger som är reserverad
+// för andra danger-signaler (felmeddelanden, värdeförlust om vi återinför).
+const ROT_RING = '#d64545';
+
 const fmtKr = (n: number) =>
   Math.round(n).toLocaleString('sv-SE');
 const fmtVol = (n: number, decs = 0) =>
@@ -301,7 +306,7 @@ function Skogen({ stammar }: { stammar: MarkagarRapport['karta']['stammar'] }) {
         <span><Dot color="#ff9500" /> Tall</span>
         <span><Dot color="#d4c5a0" /> Björk</span>
         <span><Dot color="#8e8e93" /> Övr löv</span>
-        <span><Ring color={COL.danger} /> Rotskada</span>
+        <span><Ring color={ROT_RING} /> Rotskada</span>
         <span style={{ marginLeft: 'auto' }}>Punktstorlek visar stamdiameter</span>
       </div>
     </div>
