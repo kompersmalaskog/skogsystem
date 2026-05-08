@@ -5818,6 +5818,10 @@ export default function PlannerPage() {
       extr: extrFeatures.length,
       types: [...new Set(extrFeatures.map(f => f.properties.type))],
     });
+    // TEMP DEBUG — visa exakta type-värden per markör för att hitta typer
+    // som saknas i KORVY_EXTRUSION_SPEC
+    console.log('[Körvy] marker types in source:',
+      features.map((f: any) => ({ id: f?.properties?.id, type: f?.properties?.type })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [markers, korvyActive, currentPosition, mapLibreReady, proximityTick, korvyBlinkOn]);
 
