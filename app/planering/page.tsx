@@ -4940,6 +4940,23 @@ export default function PlannerPage() {
             if (!korvyBlinkOn) opacity = 0.55; // blink-effekt via opacity
           }
         }
+        // TEMP DEBUG — diagnos av dist-källa för warning-typer i SIM-läget.
+        // Tas bort när bug är fixad. Verifierar att korvyPos använder fel
+        // referens (currentPosition / riktig GPS) istället för simulatedPos.
+        if (m.type === 'warning' && korvyActive) {
+          console.log('[Körvy DEBUG] dist-källa:', {
+            simulatedPos,
+            currentPosition,
+            korvyPos,
+            using: simulatedPos ? 'SIM' : 'GPS',
+            markerLat: ll.lat,
+            markerLon: ll.lon,
+            distNow: dist,
+            distSimulated: simulatedPos
+              ? Math.round(haversineM(simulatedPos.lat, simulatedPos.lng, ll.lat, ll.lon))
+              : null,
+          });
+        }
         if (opacity < minOp) minOp = opacity;
         if (opacity > maxOp) maxOp = opacity;
         features.push({
