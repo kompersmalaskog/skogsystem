@@ -1075,8 +1075,6 @@ export default function PlannerPage() {
     });
 
     setMapLibreReady(true);
-    // TEMP DEBUG — ta bort efter Körvy-verifiering
-    if (typeof window !== 'undefined') { (window as any).__korvyMap = mapInstanceRef.current; }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMapRemoved = useCallback(() => {
@@ -4953,23 +4951,6 @@ export default function PlannerPage() {
             if (!korvyBlinkOn) opacity = 0.55; // blink-effekt via opacity
           }
         }
-        // TEMP DEBUG — diagnos av dist-källa för warning-typer i SIM-läget.
-        // Tas bort när bug är fixad. Verifierar att korvyPos använder fel
-        // referens (currentPosition / riktig GPS) istället för simulatedPos.
-        if (m.type === 'warning' && korvyActive) {
-          console.log('[Körvy DEBUG] dist-källa:', {
-            simulatedPos,
-            currentPosition,
-            korvyPos,
-            using: simulatedPos ? 'SIM' : 'GPS',
-            markerLat: ll.lat,
-            markerLon: ll.lon,
-            distNow: dist,
-            distSimulated: simulatedPos
-              ? Math.round(haversineM(simulatedPos.lat, simulatedPos.lng, ll.lat, ll.lon))
-              : null,
-          });
-        }
         if (opacity < minOp) minOp = opacity;
         if (opacity > maxOp) maxOp = opacity;
         features.push({
@@ -5146,7 +5127,6 @@ export default function PlannerPage() {
     ];
     try {
       map.setLayoutProperty('markers-layer', 'icon-size', korvyActive ? korvyBoostedSize : baseSize);
-      console.log('[Körvy] icon-size set:', korvyActive ? 'boosted (pulse/nearby)' : 'base');
     } catch (e) { console.error('[Körvy] icon-size set failed:', e); }
   }, [korvyActive, mapLibreReady]);
 
@@ -5600,11 +5580,6 @@ export default function PlannerPage() {
         const align = korvyActive ? 'map' : 'viewport';
         map.setLayoutProperty('markers-layer', 'icon-pitch-alignment', align);
         map.setLayoutProperty('markers-layer', 'icon-rotation-alignment', align);
-        // TEMP DEBUG — ta bort efter Körvy-verifiering
-        console.log('[Körvy] markers-layer alignment set:', align);
-      } else {
-        // TEMP DEBUG
-        console.warn('[Körvy] markers-layer saknas vid alignment-toggle (icons inte laddade än?)');
       }
     } catch (e) { console.error('[Körvy] alignment-toggle failed:', e); }
     return () => {

@@ -198,4 +198,79 @@ Repair-strategier för redan-skapade
 rader finns i docs/stanford2010/
 hpr-harvester-production.md.
 
+## Körvy 2D — beslut och fallgropar
+
+### 1. 3D bor i Cesium, inte i Körvy 2D
+
+Försökte bygga 3D-extrusion (pelare, stake-nålar,
+outline-ringar) för markörer i Körvy 2D men kom
+fram till att det inte fungerar visuellt. På 100m+
+avstånd från kameran blir pelare suddiga prickar
+oavsett radius. Apple Maps använder 2D-symboler +
+text på det avståndet, inte 3D.
+
+Beslut: Körvy 2D = platta symboler + tre färger
+(severity) + text-labels under faror inom 100m.
+3D bor i Cesium-vyn (/korvy) där kameran är nära
+och 3D faktiskt passar.
+
+### 2. Pulse/nearby icon-size-boost var trasigt sedan dag 1
+
+Pre-existing case-expression med zoom-input som
+är ogiltig per MapLibre style spec, men try/catch
+svalde felet tyst. Upptäcktes när vi flippade
+pitch-alignment runtime — MapLibre 5 re-validerar
+hela layout vid setLayoutProperty och kraschade.
+Fixat i bd25b1d med case INUTI varje
+interpolate-stop, multiplikationsmodell.
+
+### 3. MapLibre 5 re-validerar hela layout vid setLayoutProperty
+
+Att flippa en enskild layout-property triggar
+re-validering av hela layerns layout-objekt. Tysta
+pre-existing buggar i andra properties blir
+blockerande. Inför MapLibre-uppgradering: öppna
+konsolen i Körvy 2D och kolla efter
+validation-errors innan du säger "funkar".
+
+### 4. Tre färger som severity-baserad palett
+
+markerIconDefs har konsoliderats från ~8 färger
+till tre:
+- danger (#ff453a):  powerline, manualfelling,
+                     warning, steep
+- protect (#30d158): eternitytree, naturecorner,
+                     culturemonument
+- info (mörk grå #1c1c1e med vit ikon): alla
+                     övriga 13 typer
+
+Distinktion mellan info-typer ligger i SVG-formerna.
+Om "havsa av grå" blir ett problem i fält —
+differentiera SVG-formerna eller acceptera
+permanent text-labels för info-typer i
+planeringsvyn.
+
+### 5. Två parallella position-stacks
+
+Larm-pipelinen (System A: getActiveWarnings)
+använder effectiveUserPos = simulatedPos ??
+gpsPosition. Körvy-pipelinen (System B: korvyPos,
+korvyNextItems, korvyAcuteWarning) använde tidigare
+currentPosition direkt — utan SIM-stöd. Det gjorde
+att SIM kunde trigga larm men inte text-labels eller
+nästa-kö i Körvy.
+
+Fixat i 8c77ef4 via ny useMemo korvyEffectivePos
+(simulatedPos ?? currentPosition, normaliserad till
+{lat, lon}). Använd den variabeln för all
+avstånds-beräkning till markörer i Körvy. Kamera/
+GPS-prick/maskin-source ska däremot följa riktig
+GPS — inte SIM.
+
+Property-konvention att vara medveten om:
+- currentPosition: { lat, lon }
+- simulatedPos:    { lat, lng }
+Inkonsekvensen finns kvar — normalisera vid varje
+gränsövergång.
+
 Uppdatera denna fil vid varje commit.
