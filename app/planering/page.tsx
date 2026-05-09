@@ -204,9 +204,9 @@ const KORVY_EXTRUSION_SPEC: Record<string, {
   warning:         { severity: 'danger',  height: 5,   radius: 0.6 },
   steep:           { severity: 'danger',  height: 4,   radius: 0.5 },
   // NIVÅ 2 — SKYDDA (grön)
-  eternitytree:    { severity: 'protect', height: 8,   radius: 0.6 },
-  naturecorner:    { severity: 'protect', height: 5,   radius: 0.5 },
-  culturemonument: { severity: 'protect', height: 4,   radius: 0.4 },
+  eternitytree:    { severity: 'protect', height: 8,   radius: 1.2 },
+  naturecorner:    { severity: 'protect', height: 5,   radius: 0.8 },
+  culturemonument: { severity: 'protect', height: 4,   radius: 0.6 },
   // NIVÅ 3 — INFO (vit, platt)
   bridge:          { severity: 'info',    height: 0.2, radius: 1.0 },
   landing:         { severity: 'info',    height: 0.2, radius: 1.5 },
