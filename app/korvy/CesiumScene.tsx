@@ -341,9 +341,10 @@ function filterMarkerOutliers(m: Marker): Marker | null {
   return m
 }
 
-// Alpha för overlay-imagery beroende på cockpit/satellit-läget. I cockpit
-// vill vi att markfuktighet bara "glöder" mot mörk bas — annars solid.
-function alphaForOverlay(layerId: string, bg: 'cockpit' | 'satellite'): number {
+// Alpha för overlay-imagery beroende på bg-läget. I cockpit vill vi att
+// markfuktighet bara "glöder" mot mörk bas — annars solid. Topo-varianterna
+// behandlas som 'satellite' (solid bg → solid overlays).
+function alphaForOverlay(layerId: string, bg: 'cockpit' | 'satellite' | 'topo' | 'topo_nedtonad'): number {
   if (bg !== 'cockpit') return 1.0
   if (layerId === 'sks_markfuktighet') return 0.45
   return 1.0
@@ -775,7 +776,19 @@ export default function CesiumScene({ objektId }: Props) {
   const [overlays, setOverlays] = useMapLayers()
   const [layerMenuOpen, setLayerMenuOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [bgType, setBgType] = useState<'cockpit' | 'satellite'>('cockpit')
+  // bgType — bakgrundskarta. Topo-varianterna är ett tillfälligt visuellt test
+  // (Lantmäteriet topowebb, direktanslutning utan proxy). Initial state läses
+  // från ?bg=cockpit/satellite/topo/topo_nedtonad — fallback 'cockpit'.
+  const [bgType, setBgType] = useState<'cockpit' | 'satellite' | 'topo' | 'topo_nedtonad'>(() => {
+    if (typeof window === 'undefined') return 'cockpit'
+    const bg = new URL(window.location.href).searchParams.get('bg')
+    if (bg === 'satellite' || bg === 'topo' || bg === 'topo_nedtonad' || bg === 'cockpit') return bg
+    return 'cockpit'
+  })
+  // Lazy-cachade ImageryLayer-refs per topo-variant så toggle bara visar/döljer
+  // istället för add/remove varje gång.
+  const topoLayerRef = useRef<CesiumNS.ImageryLayer | null>(null)
+  const topoNedtonadLayerRef = useRef<CesiumNS.ImageryLayer | null>(null)
   // === Tunnelvision — Synfält (m) + Mjukhet (%) ===
   const [viewfieldDistance, setViewfieldDistance] = useNumericSetting('viewfield_distance', 300)
   // viewfield_softness_v2: bumpad nyckel så befintliga användare får ny default 60
@@ -1069,12 +1082,20 @@ export default function CesiumScene({ objektId }: Props) {
     const viewer = viewerRef.current
     let cancelled = false
 
+    // Hjälpare: dölj alla bg-imagery-layers innan vi visar den aktiva.
+    const hideAllBgLayers = () => {
+      if (imageryLayerRef.current) imageryLayerRef.current.show = false
+      if (topoLayerRef.current) topoLayerRef.current.show = false
+      if (topoNedtonadLayerRef.current) topoNedtonadLayerRef.current.show = false
+    }
+
     if (bgType === 'satellite') {
       viewer.scene.backgroundColor = Cesium.Color.BLACK
       viewer.scene.globe.baseColor = Cesium.Color.WHITE
       if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = true
       try { (viewer.scene.fog as any).color = Cesium.Color.WHITE.clone() } catch {}
 
+      hideAllBgLayers()
       if (imageryLayerRef.current) {
         imageryLayerRef.current.show = true
       } else {
@@ -1089,9 +1110,38 @@ export default function CesiumScene({ objektId }: Props) {
           viewer.scene.requestRender()
         }).catch((e) => console.warn('[Körvy3D] satellite lazy-load:', e))
       }
+    } else if (bgType === 'topo' || bgType === 'topo_nedtonad') {
+      // Lantmäteriet topowebb — direktanslutning, ingen wms-proxy. Tillfälligt
+      // visuellt test. SRS sätts automatiskt från WebMercatorTilingScheme (3857).
+      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a1a')
+      viewer.scene.globe.baseColor = Cesium.Color.WHITE
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
+      try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#1a1a1a') } catch {}
+
+      hideAllBgLayers()
+      const isFarg = bgType === 'topo'
+      const ref = isFarg ? topoLayerRef : topoNedtonadLayerRef
+      if (ref.current) {
+        ref.current.show = true
+      } else {
+        try {
+          const provider = new Cesium.WebMapServiceImageryProvider({
+            url: 'https://minkarta.lantmateriet.se/map/topowebb/',
+            layers: isFarg ? 'topowebbkartan' : 'topowebbkartan_nedtonad',
+            parameters: { format: 'image/png' },
+            tilingScheme: new Cesium.WebMercatorTilingScheme(),
+          })
+          const layer = viewer.imageryLayers.addImageryProvider(provider)
+          ref.current = layer
+          try { viewer.imageryLayers.lowerToBottom(layer) } catch {}
+          viewer.scene.requestRender()
+        } catch (e) {
+          console.warn('[Körvy3D] topo-layer init:', e)
+        }
+      }
     } else {
       // 'cockpit' — ljus grå mark (för 1m DEM-hillshade), mörk himmel, atmosfär av
-      if (imageryLayerRef.current) imageryLayerRef.current.show = false
+      hideAllBgLayers()
       viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a1a')
       viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString('#c0c0c0')
       if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
@@ -2066,8 +2116,10 @@ export default function CesiumScene({ objektId }: Props) {
                 Bakgrundskarta
               </div>
               {([
-                { id: 'cockpit' as const,   name: 'Mörk' },
-                { id: 'satellite' as const, name: 'Satellit' },
+                { id: 'cockpit' as const,        name: 'Mörk' },
+                { id: 'satellite' as const,      name: 'Satellit' },
+                { id: 'topo' as const,           name: 'Topo' },
+                { id: 'topo_nedtonad' as const,  name: 'Topo nedtonad' },
               ]).map((type) => (
                 <div
                   key={type.id}
