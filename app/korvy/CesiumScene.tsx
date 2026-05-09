@@ -776,14 +776,17 @@ export default function CesiumScene({ objektId }: Props) {
   const [overlays, setOverlays] = useMapLayers()
   const [layerMenuOpen, setLayerMenuOpen] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  // bgType — bakgrundskarta. Topo-varianterna är ett tillfälligt visuellt test
-  // (Lantmäteriet topowebb, direktanslutning utan proxy). Initial state läses
-  // från ?bg=cockpit/satellite/topo/topo_nedtonad — fallback 'cockpit'.
+  // bgType — bakgrundskarta. Default 'topo' (OpenTopoMap) eftersom den matchar
+  // planeringsvyns terräng-bas och är visuellt rikast. Initial state läses från
+  // ?bg=cockpit/satellite/topo/topo_nedtonad — fallback 'topo'.
+  //   topo            → OpenTopoMap XYZ (icke-Lantmäteriet)
+  //   topo_nedtonad   → Lantmäteriet topowebbkartan_nedtonad (WMS)
+  // Se STATUS.md för licensrisker (CC-BY-SA + tile usage policy för OpenTopoMap).
   const [bgType, setBgType] = useState<'cockpit' | 'satellite' | 'topo' | 'topo_nedtonad'>(() => {
-    if (typeof window === 'undefined') return 'cockpit'
+    if (typeof window === 'undefined') return 'topo'
     const bg = new URL(window.location.href).searchParams.get('bg')
     if (bg === 'satellite' || bg === 'topo' || bg === 'topo_nedtonad' || bg === 'cockpit') return bg
-    return 'cockpit'
+    return 'topo'
   })
   // Lazy-cachade ImageryLayer-refs per topo-variant så toggle bara visar/döljer
   // istället för add/remove varje gång.
@@ -1110,33 +1113,60 @@ export default function CesiumScene({ objektId }: Props) {
           viewer.scene.requestRender()
         }).catch((e) => console.warn('[Körvy3D] satellite lazy-load:', e))
       }
-    } else if (bgType === 'topo' || bgType === 'topo_nedtonad') {
-      // Lantmäteriet topowebb — direktanslutning, ingen wms-proxy. Tillfälligt
-      // visuellt test. SRS sätts automatiskt från WebMercatorTilingScheme (3857).
+    } else if (bgType === 'topo') {
+      // OpenTopoMap XYZ — samma kartstil som planeringsvyns "Terräng"-bas.
+      // CC-BY-SA + tile usage policy: måttlig privat användning OK, kommersiellt
+      // kräver kontakt eller egen hosting (se STATUS.md). maxzoom 17 → kan bli
+      // suddig vid hög pitch nära marken; använd 'topo_nedtonad' (LM) då.
       viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a1a')
       viewer.scene.globe.baseColor = Cesium.Color.WHITE
       if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
       try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#1a1a1a') } catch {}
 
       hideAllBgLayers()
-      const isFarg = bgType === 'topo'
-      const ref = isFarg ? topoLayerRef : topoNedtonadLayerRef
-      if (ref.current) {
-        ref.current.show = true
+      if (topoLayerRef.current) {
+        topoLayerRef.current.show = true
+      } else {
+        try {
+          const provider = new Cesium.UrlTemplateImageryProvider({
+            url: 'https://tile.opentopomap.org/{z}/{x}/{y}.png',
+            maximumLevel: 17,
+            credit: '© OpenTopoMap (CC-BY-SA), © OpenStreetMap contributors, SRTM',
+          })
+          const layer = viewer.imageryLayers.addImageryProvider(provider)
+          topoLayerRef.current = layer
+          try { viewer.imageryLayers.lowerToBottom(layer) } catch {}
+          viewer.scene.requestRender()
+        } catch (e) {
+          console.warn('[Körvy3D] OpenTopoMap init:', e)
+        }
+      }
+    } else if (bgType === 'topo_nedtonad') {
+      // Lantmäteriet topowebbkartan_nedtonad — WMS direktanslutning, gråskala
+      // designad som bakgrund för annat innehåll. Bra "fokus-läge" där markörer
+      // sticker ut maximalt mot grå bas. SRS sätts från WebMercatorTilingScheme.
+      viewer.scene.backgroundColor = Cesium.Color.fromCssColorString('#1a1a1a')
+      viewer.scene.globe.baseColor = Cesium.Color.WHITE
+      if (viewer.scene.skyAtmosphere) viewer.scene.skyAtmosphere.show = false
+      try { (viewer.scene.fog as any).color = Cesium.Color.fromCssColorString('#1a1a1a') } catch {}
+
+      hideAllBgLayers()
+      if (topoNedtonadLayerRef.current) {
+        topoNedtonadLayerRef.current.show = true
       } else {
         try {
           const provider = new Cesium.WebMapServiceImageryProvider({
             url: 'https://minkarta.lantmateriet.se/map/topowebb/',
-            layers: isFarg ? 'topowebbkartan' : 'topowebbkartan_nedtonad',
+            layers: 'topowebbkartan_nedtonad',
             parameters: { format: 'image/png' },
             tilingScheme: new Cesium.WebMercatorTilingScheme(),
           })
           const layer = viewer.imageryLayers.addImageryProvider(provider)
-          ref.current = layer
+          topoNedtonadLayerRef.current = layer
           try { viewer.imageryLayers.lowerToBottom(layer) } catch {}
           viewer.scene.requestRender()
         } catch (e) {
-          console.warn('[Körvy3D] topo-layer init:', e)
+          console.warn('[Körvy3D] topo-nedtonad init:', e)
         }
       }
     } else {

@@ -273,4 +273,55 @@ Property-konvention att vara medveten om:
 Inkonsekvensen finns kvar — normalisera vid varje
 gränsövergång.
 
+## Cesium 3D — kartval och risker
+
+### Vald baskarta-strategi: två topo-alternativ
+
+Cesium 3D Körvy har två topografiska baskartor
+för olika syften:
+
+- "Topo" (default) = OpenTopoMap (XYZ tiles
+  från tile.opentopomap.org). Rik kartstil med
+  gula vägar, höjdkurvor, trädsymboler. Matchar
+  planeringsvyns "Terräng"-bas. Bästa läget för
+  "läsa landskapet".
+
+- "Topo nedtonad" = Lantmäteriet topowebbkartan_
+  nedtonad (WMS från minkarta.lantmateriet.se).
+  Gråskala, designed av Lantmäteriet specifikt
+  som bakgrund för annat innehåll. Bästa läget
+  för "fokus på markörer" — röda/gröna pelare
+  får maximal kontrast mot grå.
+
+Plus Satellite (Lantmäteriet ortofoto) och
+Cockpit (hillshade) som specialalternativ.
+
+### Risk 1: OpenTopoMap-licens
+
+OpenTopoMap är CC-BY-SA + tile usage policy.
+Sammanfattning:
+- Måttlig privat/icke-kommersiell användning OK
+- Storskalig kommersiell användning kräver kontakt
+  med dem eller egen hosting
+- Attribution alltid krävd (visas i Cesium credit)
+
+Skogsystem just nu (1 företag, 4 operatörer)
+ligger inom "måttlig privat". Om appen säljs till
+andra forestry-bolag eller får många samtidiga
+användare behöver migrationsväg planeras:
+egen OpenTopoMap-hosting (free, kräver server-
+setup) eller Mapbox/MapTiler (kommersiell licens).
+
+Lantmäteriet topowebbkartan_nedtonad har INGEN
+sådan licensrisk — Lantmäteriets öppna data är
+fri för kommersiell användning.
+
+### Risk 2: OpenTopoMap maxzoom 17
+
+OpenTopoMap har inga tiles djupare än zoom 17.
+Vid Cesium pitch 78° och kameran nära marken kan
+tiles bli suddiga. Lantmäteriet topowebbkartan_
+nedtonad har högre zoom-kapacitet — användaren
+kan välja den vid behov om OpenTopoMap pixlar.
+
 Uppdatera denna fil vid varje commit.
