@@ -186,38 +186,6 @@ interface ManuellPrognos {
 // Zoner (isZoneMode) hanteras separat och är alltid polygoner.
 const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
 
-// Körvy 2D — Apple-omdesign: tre severity-nivåer styr färg, en form per markör.
-//   danger  → röd #ff453a, höga pelare (signalerar fara — undvik)
-//   protect → grön #30d158, mellanhöga pelare (skydda — kör runt)
-//   info    → vit transparent, platta på marken (informativt — påverkar inte rutten)
-// Skip-typer (road, turningpoint, trail, wet, default) får ingen extrusion —
-// bara SVG-symbol på marken. severity, height, radius lagras per feature i
-// markers-extrusion-source så layer-paint kan match:a på severity-property.
-const KORVY_EXTRUSION_SPEC: Record<string, {
-  severity: 'danger' | 'protect' | 'info';
-  height: number;
-  radius: number;
-}> = {
-  // NIVÅ 1 — FARA (röd)
-  powerline:       { severity: 'danger',  height: 10,  radius: 0.4 },
-  manualfelling:   { severity: 'danger',  height: 5,   radius: 0.6 },
-  warning:         { severity: 'danger',  height: 5,   radius: 0.6 },
-  steep:           { severity: 'danger',  height: 4,   radius: 0.5 },
-  // NIVÅ 2 — SKYDDA (grön)
-  eternitytree:    { severity: 'protect', height: 8,   radius: 1.2 },
-  naturecorner:    { severity: 'protect', height: 5,   radius: 0.8 },
-  culturemonument: { severity: 'protect', height: 4,   radius: 0.6 },
-  // NIVÅ 3 — INFO (vit, platt)
-  bridge:          { severity: 'info',    height: 0.2, radius: 1.0 },
-  landing:         { severity: 'info',    height: 0.2, radius: 1.5 },
-  corduroy:        { severity: 'info',    height: 0.2, radius: 0.8 },
-  ditch:           { severity: 'info',    height: 0.2, radius: 0.5 },
-  highstump:       { severity: 'info',    height: 0.2, radius: 0.4 },
-  culturestump:    { severity: 'info',    height: 0.2, radius: 0.4 },
-  windfall:        { severity: 'info',    height: 0.2, radius: 0.6 },
-  brashpile:       { severity: 'info',    height: 0.2, radius: 1.0 },
-};
-
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
@@ -908,12 +876,14 @@ export default function PlannerPage() {
 
     // Generera ikon-bilder för varje symboltyp
     const iconSize = 64; // px
-    // Apple-omdesign: 3 färger baserat på severity (matchar KORVY_EXTRUSION_SPEC).
-    // Detta påverkar BÅDE planeringsvyn (top-down) OCH Körvy 2D — Apple-konsekvens.
+    // Apple-omdesign: 3 färger baserat på severity (för både planeringsvy och
+    // Körvy 2D — Apple-konsekvens).
     //   danger  → röd #ff453a (powerline, manualfelling, warning, steep)
     //   protect → grön #30d158 (eternitytree, naturecorner, culturemonument)
     //   info    → mörk grå #1c1c1e med vit ikon (alla resterande)
     // Outline alltid vit för synlighet mot alla bakgrunder.
+    // Severity-listan är duplicerad i markers-korvy-label-filtret (4 danger-typer)
+    // och i körvy-icon-size-effekten (samma 4) — synka om listan ändras.
     const markerIconDefs: { id: string; bg: string; outline: string }[] = [
       // protect (grön)
       { id: 'eternitytree',    bg: '#30d158', outline: '#ffffff' },
@@ -1056,65 +1026,47 @@ export default function PlannerPage() {
       } catch (e) {
         console.error('[MapLibre] markers-layer error:', e);
       }
-      // KÖRVY-labels: svensk översättning + comment-fallback + avstånds-färgkodning
+      // KÖRVY-label: BARA danger-typer (powerline/manualfelling/warning/steep)
+      // inom 100m. Apple-clean — bara svenska typnamn, ingen dist, inget kort.
+      // Andra markörer får ingen text i Körvy 2D — för rörigt annars.
+      // Synka danger-listan med markerIconDefs + körvy-icon-size-effekten.
       try {
         map.addLayer({
           id: 'markers-korvy-label',
           type: 'symbol',
           source: 'markers-source',
-          filter: ['==', ['get', 'nearby'], true],
+          filter: ['all',
+            ['<=', ['number', ['get', 'dist'], 9999], 100],
+            ['match', ['get', 'type'],
+              'powerline',     true,
+              'manualfelling', true,
+              'warning',       true,
+              'steep',         true,
+              false,
+            ],
+          ],
           layout: {
-            // Använd comment om finns, annars svensk översättning av type
-            'text-field': [
-              'concat',
-              ['case',
-                ['has', 'comment'], ['get', 'comment'],
-                ['match', ['get', 'type'],
-                  'landing',         'Avlägg',
-                  'eternitytree',    'Evighetsträd',
-                  'naturecorner',    'Naturhörn',
-                  'culturemonument', 'Kulturminne',
-                  'culturestump',    'Kulturstubbe',
-                  'highstump',       'Högstubbe',
-                  'brashpile',       'Risrep',
-                  'windfall',        'Vindfälle',
-                  'manualfelling',   'Fäll manuellt',
-                  'powerline',       'Kraftledning',
-                  'road',            'Väg',
-                  'turningpoint',    'Vändplats',
-                  'ditch',           'Dike',
-                  'bridge',          'Bro',
-                  'corduroy',        'Kavlebro',
-                  'wet',             'Blött',
-                  'steep',           'Brant',
-                  'trail',           'Stig',
-                  'warning',         'Varning',
-                  /* fallback */     'Markering',
-                ],
-              ],
-              '\n',
-              ['get', 'dist'], ' m',
+            'text-field': ['match', ['get', 'type'],
+              'powerline',     'Kraftledning',
+              'manualfelling', 'Manuell fällning',
+              'warning',       'Fara',
+              'steep',         'Brant',
+              '',
             ],
             'text-size': 14,
-            'text-offset': [0, 1.6],
+            'text-offset': [0, 1.2],
             'text-anchor': 'top',
             'text-allow-overlap': true,
             'text-ignore-placement': true,
             'text-pitch-alignment': 'viewport',
             'text-rotation-alignment': 'viewport',
-            'text-font': ['Open Sans Regular', 'Arial Unicode MS Regular'],
+            'text-font': ['Open Sans Semibold', 'Open Sans Regular', 'Arial Unicode MS Regular'],
             'visibility': 'none',
           },
           paint: {
-            // Färgkoda efter avstånd: röd nära, gul medel, vit långt bort
-            'text-color': [
-              'interpolate', ['linear'], ['number', ['get', 'dist'], 999],
-              0,   '#ff453a',
-              50,  '#ff9f0a',
-              200, '#ffffff',
-            ],
-            'text-halo-color': 'rgba(0,0,0,0.92)',
-            'text-halo-width': 1.6,
+            'text-color': '#ffffff',
+            'text-halo-color': 'rgba(0,0,0,0.6)',
+            'text-halo-width': 1.2,
           },
         });
       } catch (e) {
@@ -5141,35 +5093,18 @@ export default function PlannerPage() {
     if (!map.getLayer('markers-layer')) return;
     // 'zoom' måste vara top-level i interpolate/step — case-with-baseSize-fallback
     // är ogiltig (MapLibre 5 re-validerar hela layout vid setLayoutProperty och
-    // kastar). Lyfter case inuti varje interpolate-stop istället. Apple-omdesign:
-    //   breath  → base × 1.1 (danger-markör inom 100m, subtil "närvaro"-boost)
+    // kastar). Lyfter case inuti varje interpolate-stop istället.
     //   nearby  → base × 1.0 (no-op nu, kvar för framtida finjustering)
     //   default → base (zoom-progression)
-    // Pulse-grenen togs bort 2026-05 — visuell SIZE-blink är distraktion. Symbol-
-    // opacity-blink (System B, 50m) kvar oförändrad eftersom den signalerar akut
-    // varning utan att flytta uppmärksamhet.
+    // Pulse + breath togs bort 2026-05 — Körvy 2D är Apple-platt utan extrusion
+    // eller storleks-animationer. Symbol-opacity-blink (System B, 50m) kvar
+    // oförändrad eftersom den signalerar akut varning subtilt.
     const baseStops: [number, number][] = [
       [10, 0.15], [12, 0.2], [13, 0.3], [14, 0.4],
       [15, 0.5], [16, 0.6], [17, 0.75], [19, 1.0],
     ];
-    // breath = danger-markör (powerline/manualfelling/warning/steep) inom 100m.
-    // Räknas i expression istället för feature-property eftersom markers-source
-    // är låst (System B sätter den) — type + dist finns där, severity kan vi
-    // härleda via match. Synk mot KORVY_EXTRUSION_SPEC: ändras danger-listan
-    // måste detta uppdateras också.
-    const isBreath: any = ['all',
-      ['<=', ['number', ['get', 'dist'], 9999], 100],
-      ['match', ['get', 'type'],
-        'powerline',     true,
-        'manualfelling', true,
-        'warning',       true,
-        'steep',         true,
-        false,
-      ],
-    ];
     const sizeAt = (base: number): any => [
       'case',
-      isBreath, base * 1.1,
       ['==', ['get', 'nearby'], true], base * 1.0,
       base,
     ];
@@ -5462,38 +5397,8 @@ export default function PlannerPage() {
       }
     }
 
-    // 3) Markör-extrusion (Apple-omdesign) — en form per markör, tre färger
-    // baserat på severity. Source-update-effekten (nedan) bygger features med
-    // properties { type, severity, height, opacity, breath } för alla typer i
-    // KORVY_EXTRUSION_SPEC (inkl info-typer som platta plattor på marken).
-    // Färg-alpha varierar per severity: danger/protect 1.0, info 0.5 — net
-    // efter layer-level fill-extrusion-opacity 0.6 ger 0.6 / 0.6 / 0.3.
-    if (!map.getSource('markers-extrusion-source')) {
-      try {
-        map.addSource('markers-extrusion-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-      } catch (e) { console.error('[Körvy] markers-extrusion-source:', e); }
-    }
-    if (!map.getLayer('markers-extrusion-fill')) {
-      try {
-        map.addLayer({
-          id: 'markers-extrusion-fill',
-          type: 'fill-extrusion',
-          source: 'markers-extrusion-source',
-          paint: {
-            'fill-extrusion-color': ['match', ['get', 'severity'],
-              'danger',  'rgba(255,69,58,1)',
-              'protect', 'rgba(48,209,88,1)',
-              'info',    'rgba(255,255,255,0.5)',
-              'rgba(255,255,255,0.5)',
-            ],
-            'fill-extrusion-height': ['number', ['get', 'height'], 1],
-            'fill-extrusion-base': 0,
-            'fill-extrusion-opacity': 0.6,
-          },
-          layout: { 'visibility': 'none' },
-        });
-      } catch (e) { console.error('[Körvy] markers-extrusion-fill:', e); }
-    }
+    // 3) Markör-extrusion togs bort 2026-05 — Körvy 2D är Apple-platt nu.
+    // 3D-pelare bor bara i Cesium-vyn (/korvy → CesiumScene.tsx).
 
     // 4) Siktfält-kon (framåt 30°, 150m)
     if (!map.getSource('gps-cone-source')) {
@@ -5648,7 +5553,7 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const vis = korvyActive ? 'visible' : 'none';
-    const layers = ['lines-korvy-mainroad-glow', 'zones-korvy-wet-extrusion', 'zones-korvy-steep-extrusion', 'zones-korvy-culture-extrusion', 'markers-extrusion-fill', 'gps-cone-fill', 'maskin-halo', 'maskin-ring', 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
+    const layers = ['lines-korvy-mainroad-glow', 'zones-korvy-wet-extrusion', 'zones-korvy-steep-extrusion', 'zones-korvy-culture-extrusion', 'gps-cone-fill', 'maskin-halo', 'maskin-ring', 'maskin-symbol', 'bg-korvy', 'hillshade-korvy'];
     for (const id of layers) {
       try { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis); } catch {}
     }
@@ -5697,63 +5602,6 @@ export default function PlannerPage() {
       }
     } catch (e) { console.error('[Körvy] setMaxPitch:', e); }
   }, [korvyActive, mapLibreReady]);
-
-  // === KÖRVY: uppdatera markers-extrusion-source ===
-  // Apple-omdesign: en enda source, en enda layer. Läser lat/lng + opacity + dist
-  // från befintlig markers-source via serialize() så vi ärver System B:s
-  // opacity-resultat. severity + height + breath sätts som feature-properties.
-  // breath = severity 'danger' AND dist ≤ 100m (markörens icon-size växer 1.1×).
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!map || !mapLibreReady || !korvyActive) return;
-    const extrSrc = map.getSource('markers-extrusion-source') as any;
-    if (!extrSrc) return;
-
-    let features: any[] = [];
-    try {
-      const ms = map.getSource('markers-source') as any;
-      const serialized = ms?.serialize?.();
-      features = serialized?.data?.features ?? [];
-    } catch { /* källa kan saknas vid initial render */ }
-
-    const extrFeatures: any[] = [];
-
-    for (const f of features) {
-      const type = f?.properties?.type;
-      const opacity = f?.properties?.opacity ?? 1;
-      const lng = f?.geometry?.coordinates?.[0];
-      const lat = f?.geometry?.coordinates?.[1];
-      if (lng == null || lat == null || !type) continue;
-
-      const spec = KORVY_EXTRUSION_SPEC[type];
-      if (!spec) continue;
-
-      extrFeatures.push({
-        type: 'Feature' as const,
-        properties: {
-          type,
-          severity: spec.severity,
-          height: spec.height,
-          opacity,
-        },
-        geometry: { type: 'Polygon' as const, coordinates: circlePolygon(lat, lng, spec.radius) },
-      });
-    }
-
-    try { extrSrc.setData({ type: 'FeatureCollection', features: extrFeatures }); } catch (e) { console.error('[Körvy] extrusion-source update:', e); }
-    // TEMP DEBUG — ta bort efter Körvy-verifiering
-    console.log('[Körvy] extrusion update:', {
-      input: features.length,
-      extr: extrFeatures.length,
-      types: [...new Set(extrFeatures.map(f => f.properties.type))],
-      severities: [...new Set(extrFeatures.map(f => f.properties.severity))],
-    });
-    // TEMP DEBUG — visa exakta type-värden per markör för att hitta typer
-    // som saknas i KORVY_EXTRUSION_SPEC
-    console.log('[Körvy] marker types in source:',
-      features.map((f: any) => ({ id: f?.properties?.id, type: f?.properties?.type, dist: f?.properties?.dist })));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [markers, korvyActive, currentPosition, mapLibreReady, proximityTick, korvyBlinkOn]);
 
   // === KÖRVY: uppdatera gps-cone-source (siktfält) vid varje GPS/heading-tick ===
   useEffect(() => {
