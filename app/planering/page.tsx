@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { createClient } from '@supabase/supabase-js'
@@ -4893,6 +4893,19 @@ export default function PlannerPage() {
     return () => clearInterval(iv);
   }, [drivingMode, simulatedPos]);
 
+  // SIM-medveten position för hela körvy-pipelinen. Föredrar simulatedPos
+  // när den är satt, annars currentPosition (passiv GPS-watcher). Konverterar
+  // simulatedPos.lng → .lon för att matcha currentPosition-formen så alla
+  // konsumenter kan läsa pos.lat / pos.lon enhetligt.
+  // Anledning: currentPosition ensamt missar SIM-positioner, vilket bryter
+  // dist-baserade filter i körvy (label-rendering, nästa-kö, akut varning).
+  const korvyEffectivePos = useMemo<{ lat: number; lon: number } | null>(() => {
+    if (simulatedPos) return { lat: simulatedPos.lat, lon: simulatedPos.lng };
+    const c = currentPosition as any;
+    if (c && c.lat != null && c.lon != null) return { lat: c.lat, lon: c.lon };
+    return null;
+  }, [simulatedPos, currentPosition]);
+
   const syncMarkersToMapLibre = () => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) {
@@ -4913,7 +4926,7 @@ export default function PlannerPage() {
         console.log(`[Proximity] tick=${proximityTick}, symbols=${symbolMarkers.length}, userPos=${userPos ? `(${userPos.latLng.lat.toFixed(5)},${userPos.latLng.lng.toFixed(5)})` : 'NULL'}, showAll=${warningShowAll}, gps=${gpsPosition ? 'SET' : 'null'}, sim=${simulatedPos ? 'SET' : 'null'}`);
       }
       let minOp = 1, maxOp = 0;
-      const korvyPos = korvyActive ? (currentPosition as any) : null;
+      const korvyPos = korvyActive ? korvyEffectivePos : null;
       symbolMarkers.forEach(m => {
         const ll = svgToLatLon(m.x, m.y);
         let opacity = getMarkerOpacity({ x: m.x, y: m.y, id: m.id }, m);
@@ -4975,7 +4988,7 @@ export default function PlannerPage() {
   };
 
   // Synka vid dataändringar och proximity-tick
-  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyBlinkOn]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(syncMarkersToMapLibre, [markers, mapLibreReady, mapCenter, proximityTick, drivingMode, simulatedPos, warningSettings, warningShowAll, briefingMode, briefingHighlightId, checklistMapView, korvyActive, currentPosition, korvyBlinkOn, korvyEffectivePos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // === KÖRVY (3D-förarvy) effekter ===
   // Helper: bearing från (lat1,lon1) → (lat2,lon2), 0-360°
@@ -5176,13 +5189,15 @@ export default function PlannerPage() {
   }, [korvyActive, mapLibreReady]);
 
   // 7) Beräkna nästa-kö (3 närmaste markeringar inom 300m, alla riktningar) + nollställ vid avsluta
+  // korvyEffectivePos = SIM-medveten position. korvyAcuteWarning (effekt 8 nedan)
+  // ärver SIM-stödet transitive eftersom den läser från korvyNextItems[0].
   useEffect(() => {
     if (!korvyActive) {
       setKorvyNextItems([]);
       korvyTriggeredIdsRef.current.clear();
       return;
     }
-    const pos = currentPosition as any;
+    const pos = korvyEffectivePos;
     if (!pos || pos.lat == null || pos.lon == null) { setKorvyNextItems([]); return; }
     const symbolMarkers = markers.filter(m => m.isMarker);
     const items: NextItem[] = [];
@@ -5203,7 +5218,7 @@ export default function PlannerPage() {
     items.sort((a, b) => a.dist - b.dist);
     setKorvyNextItems(items.slice(0, 3));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [korvyActive, currentPosition, korvyHeading, markers]);
+  }, [korvyActive, korvyEffectivePos, korvyHeading, markers]);
 
   // 8) Akut varning: när närmsta marker är ≤50m, trigga vibration + kort. Per ID en gång.
   useEffect(() => {
