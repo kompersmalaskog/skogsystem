@@ -5053,10 +5053,27 @@ export default function PlannerPage() {
       }
       korvyPrevVisRef.current = prev;
       // WHITELIST: dessa renderas i Körvy. Allt annat döljs.
-      const SHOW = new Set<string>(['bg-korvy', 'hillshade-korvy', 'lm-skuggning-layer', 'sks-markfuktighet-layer']);
+      // Apple-omdesign 2026-05: bytt från ['bg-korvy', 'hillshade-korvy',
+      // 'lm-skuggning-layer', 'sks-markfuktighet-layer'] (mörk Tesla-bakgrund +
+      // 1m DEM-skuggning + Lantmäteriet-skuggning + Skogsstyrelsen-markfuktighet)
+      // till bara ['terrain-layer'] (OpenTopoMap). Matchar nu planeringsvyn +
+      // Cesium 3D Körvy som båda har OpenTopoMap som default-bas. Lm-skuggning
+      // och sks-markfuktighet finns kvar i lager-menyn under 'Skogsstyrelsen
+      // Raster' / 'Lantmäteriet' om föraren vill toggla på dem manuellt.
+      const SHOW = new Set<string>(['terrain-layer']);
       // Våra ritade data + immersion-layers
       const KEEP_PREFIX = ['line-', 'lines-korvy-', 'zones-korvy-', 'eternitytree', 'maskin-', 'gps-', 'markers-', 'tma-roads-', 'drawing-'];
       for (const l of allLayers) {
+        // wms-layer-* respekterar overlays-state istället för att forceras
+        // visible/none. Föraren behåller sina lager-val över körvy-toggle och
+        // kan toggla på/av under körning (huvud-toggle-effekten på rad 1925
+        // hanterar runtime-ändringar). Special-case behövs eftersom
+        // KEEP_PREFIX-mönstret skulle FORCERA 'visible' — vi vill default AV.
+        if (l.id.startsWith('wms-layer-')) {
+          const overlayId = l.id.replace('wms-layer-', '');
+          try { map.setLayoutProperty(l.id, 'visibility', overlays[overlayId] ? 'visible' : 'none'); } catch {}
+          continue;
+        }
         const keep = SHOW.has(l.id) || KEEP_PREFIX.some(pref => l.id.startsWith(pref));
         try { map.setLayoutProperty(l.id, 'visibility', keep ? 'visible' : 'none'); } catch {}
       }
