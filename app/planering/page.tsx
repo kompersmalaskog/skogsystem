@@ -413,7 +413,11 @@ export default function PlannerPage() {
   const [mapCenter, setMapCenter] = useState({ lat: 57.1052, lng: 14.8261 }); // Stenshult ungefär
   const [mapZoom, setMapZoom] = useState(16);
   const [showMap, setShowMap] = useState(true);
-  const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain'>('satellite');
+  // Default 'terrain' (OpenTopoMap, samma kartstil som Cesium 3D Körvy).
+  // Tidigare 'satellite' (Esri imagery) kombinerat med markfuktighet+lutning-
+  // overlays gav grötig gul/lila yta som dolde terräng-information. OpenTopoMap
+  // ger ren outdoor-kartografi med vägar, höjdkurvor och skogssymboler.
+  const [mapType, setMapType] = useState<'osm' | 'satellite' | 'terrain'>('terrain');
   
   // Overlay-lager — persistas i localStorage via useMapLayers
   const [overlays, setOverlays] = useMapLayers();
@@ -8370,10 +8374,6 @@ export default function PlannerPage() {
       label: 'Mäter',
       onExit: () => setIsMeasuring(false),
       exitLabel: 'Avsluta',
-    } : korvyActive ? {
-      label: 'Körvy',
-      onExit: () => setKorvyActive(false),
-      exitLabel: 'Avsluta',
     } : (skotningDrawing && !skotningPanel) ? {
       label: 'Ny produktionshög',
       onExit: () => {
@@ -8857,7 +8857,12 @@ export default function PlannerPage() {
                   { label: 'Zoner', icon: 'crop_square', action: () => { setActiveCategory('zones'); setMenuOpen(true); } },
                   { label: 'Pilar', icon: 'arrow_outward', action: () => { setActiveCategory('arrows'); setMenuOpen(true); } },
                   { label: 'Mätning', icon: 'straighten', action: () => { setActiveCategory('measure'); setMenuOpen(true); } },
-                  { label: 'Körvy 2D', icon: 'navigation', action: () => { setKorvyActive(true); } },
+                  // Körvy-rad är conditional toggle: startar när inaktiv, avslutar (röd) när aktiv.
+                  // Tidigare fanns en separat blå mode-banner med "Avsluta"-knapp överst i körvyn —
+                  // den togs bort 2026-05 till förmån för denna placering i + menyn.
+                  korvyActive
+                    ? { label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); }, danger: true }
+                    : { label: 'Körvy 2D', icon: 'navigation', action: () => { setKorvyActive(true); } },
                   { label: 'Körvy 3D', icon: 'view_in_ar', action: () => { window.location.href = `/korvy${valtObjekt?.id ? `?objekt=${valtObjekt.id}` : ''}`; } },
                   { label: 'Skotning', icon: 'local_shipping', action: () => { setActiveCategory('skotning'); setMenuOpen(true); } },
                   { label: 'Ny produktionshög', icon: 'edit', action: () => {
@@ -8938,7 +8943,7 @@ export default function PlannerPage() {
                         background: 'transparent',
                         border: 'none',
                         borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                        color: '#fff',
+                        color: (item as any).danger ? '#ff453a' : '#fff',
                         fontSize: 16,
                         fontWeight: 500,
                         textAlign: 'left',
@@ -8951,7 +8956,7 @@ export default function PlannerPage() {
                         aria-hidden="true"
                         style={{
                           fontSize: 26,
-                          color: 'rgba(255,255,255,0.85)',
+                          color: (item as any).danger ? '#ff453a' : 'rgba(255,255,255,0.85)',
                           flexShrink: 0,
                           width: 32,
                           textAlign: 'center',

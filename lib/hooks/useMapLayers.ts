@@ -16,12 +16,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Dispatch, SetStateAction } from 'react'
 
-// v3: alla raster-overlays AV som default. Hillshade i 3D kommer nu direkt
-// från 1m DEM via Cesium vertex-normaler + DirectionalLight (oändligt skarp
-// vid alla zoom-nivåer), så lm_skuggning och sks_lutning behövs inte längre
-// som default — föraren kan toggla på dem som komplement vid behov.
-// Gamla 'mapLayers' / 'mapLayers_v2'-nycklar lämnas orörda i localStorage.
-const STORAGE_KEY = 'mapLayers_v3'
+// v4: bumpad nyckel 2026-05 för att kassera befintliga sparningar där
+// markfuktighet + lutning ofta var påslagna som default sedan tidigare —
+// kombinerat med ny default-baskarta (OpenTopoMap istället för Esri-satellit)
+// blev resultatet en grötig gul/lila yta som dolde terräng-informationen.
+// Gamla 'mapLayers' / 'mapLayers_v2' / 'mapLayers_v3'-nycklar lämnas orörda
+// i localStorage. Användaren får börja från clean state med inga overlays.
+// Ändå togglebara — föraren kan slå på vad hen vill, sparas i v4 framöver.
+const STORAGE_KEY = 'mapLayers_v4'
 
 export type MapLayers = Record<string, boolean>
 
