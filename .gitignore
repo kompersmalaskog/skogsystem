@@ -52,6 +52,13 @@ __pycache__/
 # Claude Code local settings (may contain secrets)
 .claude/settings.local.json
 
+# Local Claude Code preview-server config (per-machine portar)
+.claude/launch.json
+
+# Lokal designgranskning — skärmdumpar + puppeteer-skript
+arbetsrapport-skarmdumpar/
+scripts/screenshot-arbetsrapport.mjs
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
