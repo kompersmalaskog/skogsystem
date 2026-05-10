@@ -50,6 +50,10 @@ const css = `
     0%,100% { opacity: 1; transform: scale(1); }
     50%     { opacity: 0.4; transform: scale(0.7); }
   }
+  @keyframes pulseLive {
+    from { opacity: 1; }
+    to   { opacity: 0.4; }
+  }
   @keyframes slideIn {
     from { opacity: 0; transform: translateY(32px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -369,7 +373,12 @@ const KmPicker = ({ value, onChange, label }: { value: number; onChange: (v: num
 /* ─── EXTRA TID – EN SKÄRM ─────────────────────────────
    Allt samlat: debiterbar toggle + objekt + tid + beskrivning
 ──────────────────────────────────────────────────────── */
-const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefintlig }) => {
+const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefintlig, mode = "spara" }: {
+  initial: any; objekt: any[]; onSpara: (e: any) => void; onTaBort: () => void; onAvbryt: () => void;
+  harBefintlig: boolean; mode?: "spara" | "pågår";
+}) => {
+  const titel = mode === "pågår" ? "Pågående aktivitet" : "Lägg till extra tid";
+  const sparaText = mode === "pågår" ? "Stoppa & spara" : "Spara";
   const [min,  setMin]  = useState(initial?.min  ?? 30);
   const [besk, setBesk] = useState(initial?.besk ?? "");
   const [deb,  setDeb]  = useState(initial?.deb  ?? false);
@@ -412,7 +421,12 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
           <button onClick={onAvbryt} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
             <span className="material-symbols-outlined" style={{ color:"#30d158",fontSize:24 }}>arrow_back</span>
           </button>
-          <h1 style={{ margin:0,fontSize:18,fontWeight:700,color:"#fff",letterSpacing:"-0.02em" }}>Extra tid</h1>
+          <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+            {mode === "pågår" && (
+              <span style={{ width:8,height:8,borderRadius:"50%",background:"#ff453a",display:"inline-block",animation:"pulseLive 1.5s infinite alternate" }} />
+            )}
+            <h1 style={{ margin:0,fontSize:18,fontWeight:700,color:"#fff",letterSpacing:"-0.02em" }}>{titel}</h1>
+          </div>
         </div>
       </header>
 
@@ -469,7 +483,7 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
               disabled={!besk||(!(!deb||obj))}
               onClick={()=>onSpara({min,besk,deb,obj})}
             >
-              Spara
+              {sparaText}
             </button>
             {harBefintlig && <button onClick={onTaBort} style={{ width:"100%",padding:"12px 0",background:"none",border:"none",color:"#ff453a",fontSize:15,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>Ta bort extra tid</button>}
             <button onClick={onAvbryt} style={{ width:"100%",padding:"8px 0",background:"none",border:"none",color:"#8e8e93",fontSize:15,fontWeight:500,cursor:"pointer",fontFamily:"inherit" }}>
@@ -1162,6 +1176,7 @@ export default function Arbetsrapport() {
 
   if(steg==="extraTid") return (
     <ExtraTidSkärm
+      mode="spara"
       initial={extra[0]||null}
       objekt={objektLista}
       harBefintlig={extra.length>0}
@@ -3893,6 +3908,7 @@ export default function Arbetsrapport() {
   /* ─── STOPPURS (tid på objekt under dag) ─── */
   if(steg==="stoppurs") return (
     <ExtraTidSkärm
+      mode="pågår"
       initial={extra[0]||null}
       objekt={objektLista}
       harBefintlig={extra.length>0}
