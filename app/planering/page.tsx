@@ -5062,6 +5062,25 @@ export default function PlannerPage() {
     }
   }, [korvyActive, mapLibreReady]);
 
+  // === Körvy-WMS cleanup: lm-skuggning-layer + sks-markfuktighet-layer är
+  // EXKLUSIVT till för körvy-läge. De skapas i immersion-setup med
+  // visibility 'none' men körvy-whitelist + restore-cykel kan lämna dem
+  // 'visible' om timing eller historik råkar fel. Effekten tvingar dem
+  // tillbaka till 'none' så snart korvyActive=false — inklusive vid initial
+  // mount (korvyActive false från start). Detta löser bugg där markfuktighet
+  // + Lantmäteriet-hillshade hängde kvar synliga i 2D-vyn och inte togglades
+  // av lager-menyn (som bara styr 'wms-layer-*'-prefix).
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map || !mapLibreReady) return;
+    if (korvyActive) return; // körvy-läge hanterar dem själv via whitelist
+    for (const id of ['lm-skuggning-layer', 'sks-markfuktighet-layer']) {
+      if (map.getLayer(id)) {
+        try { map.setLayoutProperty(id, 'visibility', 'none'); } catch {}
+      }
+    }
+  }, [korvyActive, mapLibreReady]);
+
   // 7) Beräkna nästa-kö (3 närmaste markeringar inom 300m, alla riktningar) + nollställ vid avsluta
   // korvyEffectivePos = SIM-medveten position. korvyAcuteWarning (effekt 8 nedan)
   // ärver SIM-stödet transitive eftersom den läser från korvyNextItems[0].
