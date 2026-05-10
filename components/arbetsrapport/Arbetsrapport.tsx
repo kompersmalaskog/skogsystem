@@ -415,8 +415,10 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
     <div style={{ minHeight:"100vh",background:"#000",color:"#fff",fontFamily:"'Inter',-apple-system,sans-serif",WebkitFontSmoothing:"antialiased" }}>
       <style>{css}</style>
 
-      {/* Header */}
-      <header style={{ position:"fixed",top:0,width:"100%",zIndex:50,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 16px",height:64 }}>
+      {/* Header — z-index 1100 + matchar layout TopBar:s safe-area-höjd så
+          mode-titeln (Lägg till extra tid / Pågående aktivitet) syns ovanpå
+          den globala layout TopBar (z-index 1000) som annars maskerar den. */}
+      <header style={{ position:"fixed",top:0,width:"100%",zIndex:1100,background:"rgba(0,0,0,0.92)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",display:"flex",alignItems:"center",justifyContent:"space-between",padding:"env(safe-area-inset-top) 16px 0",height:"calc(64px + env(safe-area-inset-top))" }}>
         <div style={{ display:"flex",alignItems:"center",gap:16 }}>
           <button onClick={onAvbryt} style={{ background:"none",border:"none",cursor:"pointer",padding:4 }}>
             <span className="material-symbols-outlined" style={{ color:"#30d158",fontSize:24 }}>arrow_back</span>
@@ -430,7 +432,7 @@ const ExtraTidSkärm = ({ initial, objekt, onSpara, onTaBort, onAvbryt, harBefin
         </div>
       </header>
 
-      <main style={{ paddingTop:96,paddingBottom:32,padding:"96px 16px 32px",maxWidth:512,margin:"0 auto" }}>
+      <main style={{ padding:"calc(96px + env(safe-area-inset-top)) 16px 32px",maxWidth:512,margin:"0 auto" }}>
         <div style={{ display:"flex",flexDirection:"column",gap:24 }}>
 
           {/* Tid-väljare — iOS-stil scroll-wheels */}
