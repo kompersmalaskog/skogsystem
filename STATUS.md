@@ -236,20 +236,64 @@ Sidofynd som inte är blockerande:
 - Påverkar: G15h-allokering, produktivitetsstatistik
 - Inte fix:at — separat utredning, inte akut
 
-### REGEL FRAMÅT
+### Bugg D — fakt_tid multi-dag UPSERT-överskrivning (FIXAD 2026-05-10 e.m.)
+- Symptom: fakt_tid underrapporterar G15h för dagar
+  där MOM-sessioner spänner över dygn. Per-datum-
+  omimport via Steg 3 ger cyklisk regression: 13/4-fix
+  → 14/4 regressar, 14/4-fix → 13/4 regressar.
+- Rotorsak: kumulativa MOM-filer innehåller carryover-
+  data från föregående dygn. Vid per-datum-import
+  importeras inte alla relaterade filer i samma pass
+  → `_GLOBAL_TID_ENTRIES` får bara delmängd → UPSERT
+  på fakt_tid (4-kols unique-key) skriver över annan
+  dags rader med partial-värden.
+- Lösning: nytt scratch-script `_steg3b_multi_datum.py`
+  som identifierar UNION av MOM-filer för alla berörda
+  datum (via fakt_produktion + fakt_skift + fakt_tid),
+  rensar alla berörda dagar samtidigt, importerar alla
+  filer i ETT pass.
+- Resultat (PONS20SDJAA270231 13-15 april 2026):
+  - Korpalycke 13/4: 3.74h → 6.64h (PDF 6.63h ✅)
+  - Korpalycke 14/4: 6.29h ≈ PDF 6.27h ✅
+  - Krokshult 14/4:  2.17h ≈ PDF 2.17h ✅
+  - Krokshult 15/4:  3.10h → 6.60h (PDF 6.58h ✅)
+  - Total återhämtning: +7h G15
+  - Bonusfix Bugg A: +74 stammar / +38 m³ på 15/4
+    Krokshult (samma multi-dag-pass)
+- Inga ändringar i skogsmaskin_import_version_6.py.
+  Alla skydd höll: backup intakt, arbetsdag bekraftad
+  =true 48 → 48, fakt_sortiment oförändrat alla 3 dagar.
+
+### REGEL FRAMÅT (uppdaterad 2026-05-10 e.m.)
 - Per-dag-volymer/stammar/tid → fakt_produktion (MOM)
 - Per-objekt-totaler → fakt_sortiment (HPR)
 - Markägar-rapport → hpr_filer/hpr_stammar (totaler)
 - Lön/ackord → fakt_produktion per period
 - Datum-filter på fakt_sortiment är felaktig användning
+- **Multi-dag MOM-sessioner** kräver
+  `_steg3b_multi_datum.py` (alla berörda datum
+  samtidigt), inte `_steg3_batch.py` (per datum).
+  Per-datum-batch fungerar bara för 1-dags-sessioner.
+
+### KVAR
+- **Bugg C** (skuggobjekt) — separat utredning
+- **Andra Bugg D-fall** — multi-dag-sessioner i andra
+  perioder. `_steg3b_multi_datum.py` fungerar för dem
+  också, men varje period kräver manuell körning med
+  rätt --datum-lista.
+- **Strukturell fix av import-script** — sikt-projekt.
+  T.ex. ändra _GLOBAL_TID_ENTRIES till MAX-merge eller
+  införa monitoring_start i fakt_tid:s unique-key.
+- **Watchdog + statussida** — sikt-projekt.
 
 ### Pausat läge — vad finns kvar i worktreen
 - _steg1_backup.sql (kört, backup-tabeller existerar)
-- _steg2_test_14april.py (kört, fix:ade Korpalycke)
-- _steg3_batch.py (kört på 17/3 + 31/3, sen pausat —
-  resterande "drabbade" är troligen Bugg B-fall där
-  fakt_produktion redan är korrekt)
-- _steg3_constraints.md (anteckningar för Steg 3)
+- _steg2_test_14april.py (kört, fix:ade Korpalycke 14/4)
+- _steg3_batch.py (kört på 17/3 + 31/3, fungerar för
+  1-dags-sessioner)
+- _steg3b_multi_datum.py (kört på 13-15/4, fungerar
+  för multi-dag-sessioner)
+- _steg3_constraints.md (anteckningar)
 - backup_*_20260509-tabeller i Supabase intakta
 - auto_import_watch.bat behöver återstartas manuellt
 
