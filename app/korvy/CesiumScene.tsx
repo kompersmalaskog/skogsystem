@@ -420,8 +420,12 @@ function addArrowEntity(
 }
 
 // === Severity-baserad färgsättning (matchar Apple-2D-vyn) ===
-// Tre färger för tre nivåer: danger (röd) / protect (grön) / info (vit).
-// Default-typ är medvetet UNDANTAGEN från tre-färg-regeln och får #8e8e93
+// Fyra färger för fyra nivåer:
+//   danger  (röd)    — fara, undvik
+//   protect (grön)   — skydda, kör runt
+//   culture (orange) — kulturlämning (svensk skogsbruks-konvention)
+//   info    (vit)    — informativt, påverkar inte rutten
+// Default-typ är medvetet UNDANTAGEN från severity-regeln och får #8e8e93
 // (grå) — "okänd typ" är inte samma som "info-typ" och ska visuellt
 // signalera "vi vet inte vad detta är, kolla manuellt".
 // Tonvariationer inom en severity (t.ex. eternitytree-stam mörkare grön
@@ -430,10 +434,11 @@ function addArrowEntity(
 const CESIUM_SEVERITY_COLORS = {
   danger:  '#ff453a',
   protect: '#30d158',
+  culture: '#ff9f0a',
   info:    '#ffffff',
 } as const
 
-const CESIUM_TYPE_SEVERITY: Record<string, 'danger' | 'protect' | 'info'> = {
+const CESIUM_TYPE_SEVERITY: Record<string, 'danger' | 'protect' | 'culture' | 'info'> = {
   // danger
   powerline:       'danger',
   manualfelling:   'danger',
@@ -442,14 +447,15 @@ const CESIUM_TYPE_SEVERITY: Record<string, 'danger' | 'protect' | 'info'> = {
   // protect
   eternitytree:    'protect',
   naturecorner:    'protect',
-  culturemonument: 'protect',
+  // culture (svensk skogsbruks-konvention för kulturlämning)
+  culturemonument: 'culture',
+  culturestump:    'culture',
   // info
   bridge:          'info',
   landing:         'info',
   corduroy:        'info',
   ditch:           'info',
   highstump:       'info',
-  culturestump:    'info',
   windfall:        'info',
   brashpile:       'info',
 }
