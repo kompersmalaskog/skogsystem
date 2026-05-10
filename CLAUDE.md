@@ -257,3 +257,11 @@ Huvudvy för traktplanering (~11 000 rader). Innehåller:
 - Rätt repo: C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude
 - OneDrive-mapp: C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer
 - Filtyper: MOM, HPR, HQC, FPR — aldrig PRL
+
+## Deploy-flöde
+
+**Default: feature-branch + PR.** Claude commitar på en egen branch och pushar. Martin granskar Vercel-preview, mergear PR:en själv. Detta är standardflödet för alla planerade ändringar — UI, refactors, nya features, bugfixar.
+
+**Hot-fix-undantag: direkt till main.** När prod är trasig och förare inte kan jobba — skippa PR-flödet, commita direkt till main. Hot-fix definieras som "förarna kan inte använda appen just nu". Allt annat är planerad ändring och ska gå via PR.
+
+**Branch-namn ska beskriva vad som ändras.** Exempel: `arbetsrapport-dag-stadrunda`, `fix-hpr-import-dedup`, `add-helikopter-v2`. Inte de auto-genererade `claude/optimistic-elion-904505`-namnen från worktree-systemet — om worktreen ger ett sådant, byt branch-namn innan första push.
