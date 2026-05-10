@@ -29,7 +29,10 @@ ALLTID göra så här:
 - Slutavverkning (PONS20SDJAA270231): 0.0-0.1, 0.1-0.2, 0.2-0.3, 0.3-0.4, 0.4-0.5, 0.5-0.7, 0.7+
 
 ### HPR-filer är kumulativa
-Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Vid visning/summering: använd BARA filen med högst stammar_count per objekt, aldrig alla filer.
+Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strategier finns, beroende på nivå:
+
+- **`hpr_filer` / `hpr_stammar` (filnivå)** — vid visning/summering: använd BARA filen med högst `stammar_count` per objekt, aldrig alla filer.
+- **`detalj_stock` (radnivå)** — UNIQUE-constraint på `(maskin_id, stem_key, log_key)` (migration `20260507_detalj_stock_dedupe_keys.sql`) gör att importen UPSERT:ar — samma logiska stock från olika kumulativa filer skrivs över istället för att duplicera.
 
 ---
 
@@ -88,7 +91,7 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Vid visning/summeri
 ## Supabase-tabeller per vy
 
 ### Uppföljning
-`fakt_produktion`, `fakt_tid`, `fakt_lass`, `fakt_lass_sortiment`, `dim_maskin`, `dim_operator`, `dim_tradslag`, `dim_sortiment`, `dim_objekt`, `gps_tracks`, `planering_markeringar`
+`fakt_produktion`, `fakt_tid`, `fakt_lass`, `fakt_lass_sortiment`, `dim_maskin`, `dim_operator`, `dim_tradslag`, `dim_sortiment`, `dim_objekt`, `planering_markeringar`
 
 ### Maskinvy / Maskinvy2 / Maskinvy-ny
 `fakt_tid`, `fakt_produktion`, `dim_maskin`, `dim_operator`, `maskin_logg`
@@ -126,7 +129,8 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Vid visning/summeri
 - `dim_operator` — operator_id, operator_namn, maskin_id
 - `dim_objekt` — objekt_id, object_name, vo_nummer
 - `dim_tradslag` — tradslag_id, species_key, namn, maskin_id
-- `dim_sortiment` — sortiment_id, product_key, namn, maskin_id, pris_per_m3
+- `dim_sortiment` — sortiment_id, product_key, namn, maskin_id
+- `dim_sortiment_pris` — sortiment_id (FK), langd_min_cm, dia_min_mm, pris_per_m3. PK (sortiment_id, langd_min_cm, dia_min_mm). StanForD lower-threshold: slå upp pris genom att hitta största (langd_min_cm, dia_min_mm) som inte överskrider stockens (langd_cm, toppdia).
 
 ### Faktatabeller
 - `fakt_produktion` — datum, maskin_id, operator_id, objekt_id, tradslag_id, stammar, volym_m3sub, volym_m3sob
@@ -136,6 +140,7 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Vid visning/summeri
 - `fakt_avbrott` — driftstopp och störningar
 - `fakt_lass` — lastdata (volym, avstånd)
 - `fakt_lass_sortiment` — sortiment per last
+- `fakt_skotning_status` — status per (objekt, sortiment) för skotning (start_tid, slut_tid)
 - `fakt_kalibrering` — kalibreringsresultat
 - `fakt_kalibrering_historik` — kalibreringshistorik
 - `fakt_maskin_statistik` — total motor/bränsle/distans per fil
@@ -162,6 +167,7 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Vid visning/summeri
 - `kartbilder` — kartbilder
 - `tma_assessments` — terrängframkomlighet
 - `skotning_uttag` — skotningsuttag
+- `gps_tracks` — live-inspelade körspår från `/planering` (separat från importerade `detalj_gps_spar`)
 - `meta_importerade_filer` — spårar vilka filer som redan importerats
 
 ---
