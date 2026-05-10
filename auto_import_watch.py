@@ -12,6 +12,7 @@ import sys
 import time
 import subprocess
 import logging
+import threading
 from datetime import datetime
 from pathlib import Path
 
@@ -44,6 +45,8 @@ LOG_FILE = os.path.join(SCRIPT_DIR, "import_logg.txt")
 VERCEL_API_URL = "https://skogsystem.vercel.app/api/mom-import"
 
 SETTLE_DELAY = 5  # sekunder att vänta innan import (fil kanske inte skrivits klart)
+
+PERIODIC_SCAN_INTERVAL = 300  # 5 min — skyddsnät om watchdog missar events
 
 PYTHON_EXE = sys.executable  # samma python som kör detta script
 
@@ -158,24 +161,66 @@ def is_duplicate(filepath: str) -> bool:
     return False
 
 
+def periodic_scan():
+    """Skyddsnät: var 5:e minut, kolla Inkommande och trigga import om filer
+    ligger där men inga events kommit in. OneDrive-sync triggar inte alltid
+    on_created/on_modified, så detta fångar tappade events.
+
+    Säker i.o.m. att skogsmaskin_import_version_6.py:s is_file_already_imported
+    skipper redan-importerade filer."""
+    while True:
+        time.sleep(PERIODIC_SCAN_INTERVAL)
+        try:
+            mom_files = list(Path(WATCH_DIR).glob("*.mom")) + list(Path(WATCH_DIR).glob("*.MOM"))
+            hpr_files = list(Path(WATCH_DIR).glob("*.hpr")) + list(Path(WATCH_DIR).glob("*.HPR"))
+            other = list(Path(WATCH_DIR).glob("*.hqc")) + list(Path(WATCH_DIR).glob("*.HQC"))
+            other += list(Path(WATCH_DIR).glob("*.fpr")) + list(Path(WATCH_DIR).glob("*.FPR"))
+            total = len(mom_files) + len(hpr_files) + len(other)
+            if total == 0:
+                continue
+            logger.info(
+                f"Periodisk scan [skyddsnät]: {len(mom_files)} .mom, "
+                f"{len(hpr_files)} .hpr, {len(other)} .hqc/.fpr i Inkommande"
+            )
+            for f in sorted(mom_files + hpr_files + other):
+                logger.info(f"    - {f.name}")
+            if mom_files or other:
+                logger.info(">>> Periodisk scan: kör MOM-import")
+                run_mom_import()
+                notify_vercel()
+            if hpr_files:
+                logger.info(">>> Periodisk scan: kör HPR-import")
+                run_hpr_import()
+        except Exception as e:
+            logger.error(f"Periodisk scan-fel: {e}")
+
+
 # ============================================================
 # WATCHDOG EVENT HANDLER
 # ============================================================
 
 class IncomingFileHandler(FileSystemEventHandler):
-    """Reagerar på nya filer i Inkommande-mappen."""
+    """Reagerar på nya filer i Inkommande-mappen.
+    Lyssnar på on_created, on_modified och on_moved — OneDrive-sync triggar
+    inte alltid on_created vid SMB-style synk. on_modified+on_moved är
+    skyddsnät. is_duplicate() dedupar inom DEDUP_WINDOW (60s)."""
 
     def on_created(self, event):
         if event.is_directory:
             return
-        self._handle(event.src_path)
+        self._handle(event.src_path, 'created')
+
+    def on_modified(self, event):
+        if event.is_directory:
+            return
+        self._handle(event.src_path, 'modified')
 
     def on_moved(self, event):
         if event.is_directory:
             return
-        self._handle(event.dest_path)
+        self._handle(event.dest_path, 'moved')
 
-    def _handle(self, filepath: str):
+    def _handle(self, filepath: str, event_type: str):
         ext = os.path.splitext(filepath)[1].lower()
         basename = os.path.basename(filepath)
 
@@ -183,10 +228,10 @@ class IncomingFileHandler(FileSystemEventHandler):
             return
 
         if is_duplicate(filepath):
-            logger.info(f"Hoppar över (redan processad nyligen): {basename}")
+            logger.info(f"Hoppar över [{event_type}] (redan processad nyligen): {basename}")
             return
 
-        logger.info(f"Ny fil detekterad: {basename}")
+        logger.info(f"Ny fil detekterad [{event_type}]: {basename}")
         logger.info(f"Väntar {SETTLE_DELAY}s för att filen ska skrivas klart...")
         time.sleep(SETTLE_DELAY)
 
@@ -257,6 +302,14 @@ def main():
     observer = Observer()
     observer.schedule(event_handler, WATCH_DIR, recursive=False)
     observer.start()
+
+    # Skyddsnät: periodisk scan var 5:e minut för missade events (OneDrive-sync)
+    scan_thread = threading.Thread(target=periodic_scan, daemon=True, name='periodic-scan')
+    scan_thread.start()
+    logger.info(
+        f"Periodisk scan startad (var {PERIODIC_SCAN_INTERVAL}s) "
+        f"— skyddsnät för missade watchdog-events"
+    )
 
     logger.info(f"Övervakning aktiv — väntar på nya filer...")
 

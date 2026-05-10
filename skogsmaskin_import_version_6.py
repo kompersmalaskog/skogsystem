@@ -2907,34 +2907,52 @@ def process_file(filepath: str) -> bool:
 # ============================================================
 
 class FileHandler(FileSystemEventHandler):
-    """Hanterar nya filer i Inkommande-mappen"""
-    
+    """Hanterar nya filer i Inkommande-mappen.
+    Lyssnar på on_created, on_modified och on_moved — OneDrive-sync triggar
+    inte alltid on_created vid SMB-style synk, så on_modified+on_moved är
+    skyddsnät. Dedupering sker via self.processed_files."""
+
     def __init__(self):
         self.processed_files = set()
-    
+
     def on_created(self, event):
+        self._dispatch(event, 'created')
+
+    def on_modified(self, event):
+        self._dispatch(event, 'modified')
+
+    def on_moved(self, event):
+        # on_moved har dest_path (var filen hamnade), inte src_path
         if event.is_directory:
             return
-        
-        filepath = event.src_path
+        self._process(event.dest_path, 'moved')
+
+    def _dispatch(self, event, event_type: str):
+        if event.is_directory:
+            return
+        self._process(event.src_path, event_type)
+
+    def _process(self, filepath: str, event_type: str):
         ext = os.path.splitext(filepath)[1].lower()
-        
+
         # Endast Stanford2010-filer
         if ext not in ['.mom', '.hpr', '.hqc', '.fpr']:
             return
-        
+
         # Undvik dubbel-processing
         if filepath in self.processed_files:
             return
-        
+
         self.processed_files.add(filepath)
-        
+
+        logger.info(f"Watchdog [{event_type}]: {os.path.basename(filepath)}")
+
         # Vänta så filen hinner kopieras klart
         time.sleep(2)
-        
+
         # Processa filen
         process_file(filepath)
-        
+
         # Rensa processed_files efter ett tag
         if len(self.processed_files) > 100:
             self.processed_files.clear()
