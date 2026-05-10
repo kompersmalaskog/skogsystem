@@ -77,6 +77,11 @@ const topBar: CSSProperties = { paddingTop:24, paddingBottom:12 };
 const mid: CSSProperties    = { flex:1, display:"flex", flexDirection:"column" as const, justifyContent:"center", alignItems:"center", textAlign:"center" as const };
 const bottom: CSSProperties = { paddingBottom:36, display:"flex", flexDirection:"column" as const, gap:10 };
 
+// BottomNavBar-höjd inkl. safe-area-padding. Scrollbara vyer behöver
+// `SCROLL_BOTTOM` som paddingBottom så sista innehållet inte skärs av navet.
+const NAV_HEIGHT = 80;
+const SCROLL_BOTTOM = NAV_HEIGHT + 40;
+
 const btn = {
   primary:   { width:"100%", height:56, padding:"0 24px", background:"#2a2a2a", color:"#fff", border:"none", borderRadius:12, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
   green:     { width:"100%", height:56, padding:"0 24px", background:C.green, color:"#fff", border:"none", borderRadius:12, fontSize:17, fontWeight:600, cursor:"pointer", fontFamily:"inherit" } as CSSProperties,
@@ -2537,7 +2542,7 @@ export default function Arbetsrapport() {
           </div>
         </header>
 
-        <main style={{ paddingTop:110,paddingLeft:20,paddingRight:20 }}>
+        <main style={{ paddingTop:110,paddingLeft:20,paddingRight:20,paddingBottom:SCROLL_BOTTOM }}>
 
           {/* Varningar — bara på översikt */}
           {minTidFlik==='översikt'&&varningar.length>0&&(
@@ -3625,7 +3630,7 @@ export default function Arbetsrapport() {
           <h1 style={{ margin:0,fontSize:26,fontWeight:700 }}>Inställningar</h1>
         </div>
       </div>
-      <div style={{ flex:1,paddingTop:16,paddingBottom:100,overflowY:"auto" }}>
+      <div style={{ flex:1,paddingTop:16,paddingBottom:SCROLL_BOTTOM,overflowY:"auto" }}>
         <Label>Hemadress</Label>
         <Card style={{ marginBottom:6 }}>
           <p style={{ margin:"0 0 10px",fontSize:13,color:C.label }}>Används för att beräkna körersättning</p>
@@ -3828,7 +3833,7 @@ export default function Arbetsrapport() {
           </div>
         </div>
       </div>
-      <div style={{ flex:1,overflowY:"auto",paddingTop:16,paddingBottom:100 }}>
+      <div style={{ flex:1,overflowY:"auto",paddingTop:16,paddingBottom:SCROLL_BOTTOM }}>
         {[
           {rubrik:"Avtalsperiod",rader:[
             ["Avtal",gsAvtal?.namn||"Skogsavtalet 2025-2027"],
