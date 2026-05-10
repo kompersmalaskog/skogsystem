@@ -3292,21 +3292,7 @@ export default function Arbetsrapport() {
     });
     const objektEntries = Object.values(maskinAgg).sort((a,b) => b.dagar-a.dagar);
 
-    const bottomNav = (
-      <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",height:80,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"0 16px 8px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",zIndex:50,borderRadius:"12px 12px 0 0" }}>
-        {[
-          {icon:"today",label:"Dag",action:()=>setSteg("morgon"),active:false},
-          {icon:"calendar_today",label:"Kalender",action:()=>setSteg("kalender"),active:false},
-          {icon:"payments",label:"Löneunderlag",action:()=>{},active:true},
-          {icon:"settings",label:"Inställningar",action:()=>setSteg("inst"),active:false},
-        ].map(n=>(
-          <button key={n.label} onClick={n.action} style={{ display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",color:n.active?"#0a84ff":"#8e8e93",background:n.active?"#1f1f1f":"none",border:"none",cursor:"pointer",fontFamily:"inherit",borderRadius:12,height:56,width:64,padding:0 }}>
-            <span className="material-symbols-outlined" style={{ fontSize:24,marginBottom:2,fontVariationSettings:n.active?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
-            <span style={{ fontSize:10,fontWeight:n.active?600:500 }}>{n.label}</span>
-          </button>
-        ))}
-      </nav>
-    );
+    const bottomNav = <BottomNavBar aktiv="mintid" onNav={s=>setSteg(s)} />;
 
     // ─── DETALJER-VY ───
     if(lönVy==='detaljer') {
@@ -4939,24 +4925,7 @@ export default function Arbetsrapport() {
           </section>
         </main>
 
-        {/* Bottom nav */}
-        <nav style={{ position:"fixed",bottom:0,left:0,width:"100%",zIndex:50,display:"flex",justifyContent:"space-around",alignItems:"center",padding:"12px 16px 24px",background:"rgba(31,31,31,0.7)",backdropFilter:"blur(20px)",WebkitBackdropFilter:"blur(20px)",borderRadius:"12px 12px 0 0" }}>
-          {[
-            {icon:"today",label:"Dag",action:()=>setSteg("morgon"),active:false},
-            {icon:"calendar_month",label:"Kalender",action:()=>{},active:true},
-            {icon:"payments",label:"Löneunderlag",action:()=>setSteg("lön"),active:false},
-            {icon:"settings",label:"Inställningar",action:()=>setSteg("inst"),active:false},
-          ].map(n=>(
-            <button key={n.label} onClick={n.action} style={{
-              display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",
-              color:n.active?"#0a84ff":"#8e8e93",
-              background:"none",border:"none",cursor:"pointer",fontFamily:"inherit",
-            }}>
-              <span className="material-symbols-outlined" style={{ fontSize:24,marginBottom:4,fontVariationSettings:n.active?"'FILL' 1":"'FILL' 0" }}>{n.icon}</span>
-              <span style={{ fontSize:11,fontWeight:n.active?600:500 }}>{n.label}</span>
-            </button>
-          ))}
-        </nav>
+        <BottomNavBar aktiv="kalender" onNav={s=>setSteg(s)} />
       </div>
     );
   }
