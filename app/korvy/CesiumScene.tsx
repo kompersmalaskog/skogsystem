@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js'
 import type * as CesiumNS from 'cesium'
 import { wmsLayerGroups, wmsLayers, type LayerDef } from '@/lib/mapLayers'
 import { useMapLayers, useNumericSetting } from '@/lib/hooks/useMapLayers'
+import { markerIconDefs, loadMarkerCanvas, ICON_SIZE } from '@/lib/marker-icons'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -470,14 +471,41 @@ function severityColorFor(type: string | undefined): string {
   return CESIUM_SEVERITY_COLORS[sev]
 }
 
-// === Markerings-3D — geometriska former per typ. Färgen styrs av
-// severity (danger/protect/info) via severityColorFor. Tonvariationer
-// inom en typ (t.ex. mörkare stam) hex-kodas direkt — de är medvetna
-// avsteg för form-läsbarhet, inte separata färgvärden.
-// Cylinder/ellipsoid/box stödjer inte heightReference, så positions-
-// höjden får exH (groundH * VERTICAL_EXAG) adderat med en lokal offset
-// för att stå ovanpå exaggererad terräng.
+// === Billboard-cache (markör-ikoner) ===
+// Pre-genererar 17 canvases (en per typ i markerIconDefs) vid första
+// render-anropet. Cesium BillboardGraphics tar canvas direkt som image.
+// Cache är modul-level så samma canvas återanvänds över alla mounts.
+const _markerCanvasCache = new Map<string, HTMLCanvasElement>()
+let _markerCanvasPromise: Promise<void> | null = null
+
+function ensureMarkerCanvases(): Promise<void> {
+  if (_markerCanvasPromise) return _markerCanvasPromise
+  _markerCanvasPromise = Promise.all(
+    markerIconDefs.map(async (def) => {
+      const canvas = await loadMarkerCanvas(def.id, ICON_SIZE)
+      _markerCanvasCache.set(def.id, canvas)
+    })
+  ).then(() => undefined)
+  return _markerCanvasPromise
+}
+
+function getMarkerCanvas(typeId: string | undefined): HTMLCanvasElement | null {
+  const t = typeId ?? 'default'
+  return _markerCanvasCache.get(t) ?? _markerCanvasCache.get('default') ?? null
+}
+
+// === Markerings-3D — billboard-ikon ovanför mark + tunn stake-linje +
+// label. Alla typer rendras på samma 5m svävnings-höjd för visuell
+// konsekvens (bevarat i ICON_HEIGHT_M). Pixel-storlek interpoleras
+// linjärt 56→36 mellan 50m och 200m (NearFarScalar) — 48px hamnar
+// naturligt vid ~125m. Stake är subtil ankarmarkör (1.5px width,
+// severity-färg alpha 0.4) så den inte tävlar med ikonen.
+// labelOpt är samma form som tidigare (Cesium Label-entity).
 // ===
+const ICON_HEIGHT_M = 5
+const PIXEL_NEAR = 56
+const PIXEL_FAR = 36
+
 function addMarkerEntities(
   viewer: CesiumNS.Viewer,
   m: Marker,
@@ -487,297 +515,44 @@ function addMarkerEntities(
   labelOpt: any,
 ): void {
   const baseId = `mk-${m.id}`
-  const at = (h: number) => Cesium.Cartesian3.fromDegrees(lon, lat, exH + h)
-  const colorOf = (hex: string) => Cesium.Color.fromCssColorString(hex)
-  // Severity-färg per typ. Tonvariationer (mörkare stam etc.) hex-kodas direkt
-  // i case-grenarna och faller tillbaka på `color` för det dominerande materialet.
-  const color = severityColorFor(m.type)
+  const stakeColor = severityColorFor(m.type)
+  const canvas = getMarkerCanvas(m.type)
 
-  switch (m.type) {
-    case 'eternitytree': {
-      // Stam + krona. Stam mörkare grön (#1d6e3e) för form-läsbarhet,
-      // krona severity-grön (color = #30d158). Tonvariation inom samma
-      // protect-färg — bevarar trädets stam/krona-distinktion.
-      viewer.entities.add({
-        id: `${baseId}-trunk`,
-        position: at(10),
-        cylinder: { length: 20, topRadius: 1.5, bottomRadius: 2.0, material: colorOf('#1d6e3e') },
-      })
-      viewer.entities.add({
-        id: `${baseId}-crown`,
-        position: at(22),
-        ellipsoid: { radii: new Cesium.Cartesian3(4, 4, 5), material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'naturecorner': {
-      // Severity-grön stam (radie 0.6 m, inte längre pinne) + grön kon ovanpå.
-      // Total höjd 6 m, krono-bredd 3 m diameter.
-      viewer.entities.add({
-        id: `${baseId}-trunk`,
-        position: at(2),
-        cylinder: { length: 4, topRadius: 0.6, bottomRadius: 0.6, material: colorOf(color) },
-      })
-      viewer.entities.add({
-        id: `${baseId}-top`,
-        position: at(5),
-        cylinder: { length: 2, topRadius: 0, bottomRadius: 1.5, material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'culturemonument': {
-      // Severity-grön stolpe (5 m, tjockare 0.7 m) + sfär (1 m radie) på topp.
-      // Total höjd 6 m. R-symbol i 2D — i 3D bär stolp+sfär igenkänningen.
-      viewer.entities.add({
-        id: `${baseId}-pole`,
-        position: at(2.5),
-        cylinder: { length: 5, topRadius: 0.7, bottomRadius: 0.7, material: colorOf(color) },
-      })
-      viewer.entities.add({
-        id: `${baseId}-top`,
-        position: at(5.5),
-        ellipsoid: { radii: new Cesium.Cartesian3(1, 1, 1), material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'culturestump': {
-      // Severity-vit stubbe — bredare och högre låg box (2×2×1.5 m, total 1.5 m).
-      // Bibehåller "stubbe på marken"-semantik men synlig på 100 m+.
-      viewer.entities.add({
-        id: baseId,
-        position: at(0.75),
-        box: { dimensions: new Cesium.Cartesian3(2, 2, 1.5), material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'highstump': {
-      // Severity-vit cylinder, 6 m hög × 0.7 m radie (tjockare än tidigare 0.4).
-      viewer.entities.add({
-        id: baseId,
-        position: at(3),
-        cylinder: { length: 6, topRadius: 0.7, bottomRadius: 0.7, material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'brashpile': {
-      // Severity-vit klump — två överlappande boxar, total höjd 4 m.
-      // Base 2.5×1.8×2.5 (mid 1.25), top 2×1.5×1.5 (mid 3.25). Bevarar
-      // oregelbunden ris-hög-silhuett men nu högre än bredare.
-      viewer.entities.add({
-        id: `${baseId}-base`,
-        position: at(1.25),
-        box: { dimensions: new Cesium.Cartesian3(2.5, 1.8, 2.5), material: colorOf(color) },
-      })
-      viewer.entities.add({
-        id: `${baseId}-top`,
-        position: at(3.25),
-        box: { dimensions: new Cesium.Cartesian3(2, 1.5, 1.5), material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'landing': {
-      // Severity-vit platt cylinder (lagringsyta-form bevarad) + tunn
-      // synlighets-pelare 4 m × 0.15 m så markören syns på 100 m+ avstånd.
-      viewer.entities.add({
-        id: baseId,
-        position: at(0.15),
-        cylinder: { length: 0.3, topRadius: 2, bottomRadius: 2, material: colorOf(color) },
-      })
-      viewer.entities.add({
-        id: `${baseId}-stake`,
-        position: at(2),
-        cylinder: { length: 4, topRadius: 0.15, bottomRadius: 0.15, material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'windfall': {
-      // Liggande severity-vit cylinder (fallet träd, tjockare 1 m radie),
-      // pekar mot NE, lutad 5°. Plus vertikal kon-markör vid centrum så
-      // markören syns ovanifrån — liggande form är annars dold i pitch 78°.
-      const center = at(1)
-      const hpr = new Cesium.HeadingPitchRoll(
-        Cesium.Math.toRadians(30),   // riktning NE
-        Cesium.Math.toRadians(90),    // ligger horisontellt
-        Cesium.Math.toRadians(5),     // lutad lite
-      )
-      const orientation = Cesium.Transforms.headingPitchRollQuaternion(center, hpr)
-      viewer.entities.add({
-        id: baseId,
-        position: center,
-        orientation: orientation as any,
-        cylinder: { length: 8, topRadius: 1, bottomRadius: 1, material: colorOf(color) },
-      })
-      viewer.entities.add({
-        id: `${baseId}-marker`,
-        position: at(3),
-        cylinder: { length: 4, topRadius: 0, bottomRadius: 0.6, material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'manualfelling': {
-      // Apple "stake-style": svart pole (#1c1c1e, 4 m × 0.4 m radie — inte
-      // längre pinn-form) som ankrar mot mark + röd severity-skylt (2×1.5×0.4)
-      // ovanpå. Total höjd 5.5 m. Tonvariation inom danger-färg för läsbarhet.
-      viewer.entities.add({
-        id: `${baseId}-pole`,
-        position: at(2),
-        cylinder: { length: 4, topRadius: 0.4, bottomRadius: 0.4, material: colorOf('#1c1c1e') },
-      })
-      viewer.entities.add({
-        id: `${baseId}-sign`,
-        position: at(5),
-        box: { dimensions: new Cesium.Cartesian3(2, 1.5, 0.4), material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'powerline': {
-      // Severity-röd pylon — torn med horisontellt cross-arm (danger).
-      // Arm tjockare (0.6 m) för bättre synbarhet på avstånd.
-      viewer.entities.add({
-        id: `${baseId}-tower`,
-        position: at(6),
-        cylinder: { length: 12, topRadius: 0.3, bottomRadius: 0.5, material: colorOf(color) },
-      })
-      viewer.entities.add({
-        id: `${baseId}-arm`,
-        position: at(11.5),
-        box: { dimensions: new Cesium.Cartesian3(3, 0.6, 0.6), material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'ditch': {
-      // Severity-vit nedsänkt cylinder (dikets fysiska form bevarad, alpha 0.7)
-      // + tunn synlighets-pelare 4 m × 0.15 m så markören syns på 100 m+.
-      viewer.entities.add({
-        id: baseId,
-        position: at(0.05),
-        cylinder: {
-          length: 0.5,
-          topRadius: 1.5,
-          bottomRadius: 1.5,
-          material: colorOf(color).withAlpha(0.7),
-        },
-      })
-      viewer.entities.add({
-        id: `${baseId}-stake`,
-        position: at(2),
-        cylinder: { length: 4, topRadius: 0.15, bottomRadius: 0.15, material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'bridge': {
-      // Severity-vit platta (brons fysiska form bevarad, något upphöjd över mark)
-      // + tunn synlighets-pelare 4 m × 0.15 m så markören syns på 100 m+.
-      viewer.entities.add({
-        id: baseId,
-        position: at(0.4),
-        box: { dimensions: new Cesium.Cartesian3(4, 1, 0.3), material: colorOf(color) },
-      })
-      viewer.entities.add({
-        id: `${baseId}-stake`,
-        position: at(2),
-        cylinder: { length: 4, topRadius: 0.15, bottomRadius: 0.15, material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'corduroy': {
-      // 3 parallella liggande timmer (severity-vita) i öst-västlig riktning,
-      // kavle-bro-form bevarad. Plus tunn synlighets-pelare i centrum så
-      // markören syns på 100 m+ avstånd.
-      for (let i = 0; i < 3; i++) {
-        const offM = (i - 1) * 0.6
-        const bearingDeg = offM >= 0 ? 0 : 180
-        const [olon, olat] = offsetLatLngByBearing(lat, lon, Math.abs(offM), bearingDeg)
-        const pos = Cesium.Cartesian3.fromDegrees(olon, olat, exH + 0.25)
-        const orientation = Cesium.Transforms.headingPitchRollQuaternion(
-          pos,
-          new Cesium.HeadingPitchRoll(0, Cesium.Math.toRadians(90), 0),
-        )
-        viewer.entities.add({
-          id: `${baseId}-log${i}`,
-          position: pos,
-          orientation: orientation as any,
-          cylinder: { length: 3, topRadius: 0.25, bottomRadius: 0.25, material: colorOf(color) },
-        })
-      }
-      viewer.entities.add({
-        id: `${baseId}-stake`,
-        position: at(2),
-        cylinder: { length: 4, topRadius: 0.15, bottomRadius: 0.15, material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'wet': {
-      // Wet saknas medvetet i CESIUM_TYPE_SEVERITY — primärt en zon-typ.
-      // Som punkt-marker faller den till info (vit) via severityColorFor +
-      // console.warn första gången. Skalad till 4 m × 1.2 m halvtransparent
-      // cylinder (var sfär 1.5 m radie) — vatten-droppe-form mindre kritisk
-      // än synbarhet på avstånd.
-      viewer.entities.add({
-        id: baseId,
-        position: at(2),
-        cylinder: {
-          length: 4,
-          topRadius: 1.2,
-          bottomRadius: 1.2,
-          material: colorOf(color).withAlpha(0.6),
-        },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'warning': {
-      // Severity-röd kon (5 m × 1.2 m bas, smal hög aspect 4:1) —
-      // varningsskylt-känsla. Form-distinktion mot steep (bred låg) bibehållen.
-      viewer.entities.add({
-        id: baseId,
-        position: at(2.5),
-        cylinder: { length: 5, topRadius: 0, bottomRadius: 1.2, material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    case 'steep': {
-      // Severity-röd kon — bred låg form ("branten själv", 3 m × 2.5 m bas,
-      // aspect 1.2:1) för att visuellt skilja från warning (smal hög 5×1.2,
-      // aspect 4:1, "varningsskylt"). Båda är danger-röda; formen bär informationen.
-      viewer.entities.add({
-        id: baseId,
-        position: at(1.5),
-        cylinder: { length: 3, topRadius: 0, bottomRadius: 2.5, material: colorOf(color) },
-        label: labelOpt,
-      })
-      break
-    }
-    default: {
-      // MEDVETET UNDANTAG från severity-tre-färg-regeln: okänd typ får neutral
-      // grå (#8e8e93) istället för severity-info (vit). "Okänd typ" är inte
-      // samma som "info-typ" — grå signalerar "vi vet inte vad detta är,
-      // kolla manuellt". console.warn loggas av severityColorFor först.
-      // Skalad till 4 m × 0.8 m radie för synbarhet på 100 m+.
-      viewer.entities.add({
-        id: baseId,
-        position: at(2),
-        cylinder: { length: 4, topRadius: 0.8, bottomRadius: 0.8, material: colorOf('#8e8e93') },
-        label: labelOpt,
-      })
-      break
-    }
-  }
+  // Stake — tunn ankarmarkör från mark till ikon-höjd. Subtil (alpha 0.4,
+  // 1.5px width) så den inte tävlar med billboard-ikonen.
+  viewer.entities.add({
+    id: `${baseId}-stake`,
+    polyline: {
+      positions: [
+        Cesium.Cartesian3.fromDegrees(lon, lat, exH),
+        Cesium.Cartesian3.fromDegrees(lon, lat, exH + ICON_HEIGHT_M),
+      ],
+      width: 1.5,
+      material: Cesium.Color.fromCssColorString(stakeColor).withAlpha(0.4) as any,
+    },
+  })
+
+  // Billboard — 2D-ikon från lib/marker-icons.ts (samma SVG-glyphs som
+  // planeringsvyns symbol-layer). Pixel-storlek interpoleras 56→36 mellan
+  // 50m och 200m via NearFarScalar — 48px hamnar naturligt vid ~125m.
+  // VerticalOrigin.BOTTOM gör att ikonen vilar precis ovanpå stake-toppen.
+  // disableDepthTestDistance = Infinity → ikonen syns även genom terräng,
+  // viktigt så att markörer bakom backar inte försvinner.
+  viewer.entities.add({
+    id: baseId,
+    position: Cesium.Cartesian3.fromDegrees(lon, lat, exH + ICON_HEIGHT_M),
+    billboard: canvas ? {
+      image: canvas as any,
+      width: PIXEL_NEAR,
+      height: PIXEL_NEAR,
+      scaleByDistance: new Cesium.NearFarScalar(50, 1.0, 200, PIXEL_FAR / PIXEL_NEAR),
+      verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    } : undefined,
+    label: labelOpt,
+  })
 }
+
 
 // === Maskin-ikon canvas (cachas) — vit cirkel + blå pil uppåt ===
 let _machineIconCache: HTMLCanvasElement | null = null
@@ -849,14 +624,15 @@ function buildTunnelMaskCanvas(distance: number, softness: number): HTMLCanvasEl
 
 // Applicera DistanceDisplayCondition på 3D-formade entiteter med given prefix.
 // Hård hide bortom (distance + 5 m camera-buffer) — ClampToGround-objekt
-// (polygons/polylines/ellipse) berörs INTE; de fadeas naturligt av tunnel-
-// mask-overlayen.
+// (Polygon/Rectangle clamped) berörs INTE; de fadeas naturligt av tunnel-
+// mask-overlayen. Billboard + polyline (stake) ingår sedan billboard-
+// refaktoreringen så markörer respekterar synfält-distance även i 2D-form.
 function applyTunnelDDC(viewer: CesiumNS.Viewer, prefix: string, distance: number): void {
   const ddc = new Cesium.DistanceDisplayCondition(0, distance + 5)
   for (const e of viewer.entities.values) {
     const id = e.id?.toString() || ''
     if (!id.startsWith(prefix)) continue
-    if (e.cylinder || e.box || e.ellipsoid) {
+    if (e.cylinder || e.box || e.ellipsoid || e.billboard || e.polyline) {
       e.distanceDisplayCondition = ddc
     }
   }
@@ -1473,9 +1249,11 @@ export default function CesiumScene({ objektId }: Props) {
         disableDepthTestDistance: 200,
       })
 
-      // 4) Rendera punkt-markeringar via addMarkerEntities-helpern (typ-specifika
-      // 3D-former). Cylinder/ellipsoid/box stödjer inte heightReference — vi
-      // skalar ground-höjden med VERTICAL_EXAG och passerar exH till helpern.
+      // 4) Rendera punkt-markeringar via addMarkerEntities-helpern.
+      // Billboard-ikoner pre-genereras vid första anropet (lazy init av
+      // _markerCanvasCache). Resterande mounts återanvänder cachen.
+      await ensureMarkerCanvases()
+      if (cancelled) return
       for (let i = 0; i < pointMarkers.length; i++) {
         const { m, lat, lon } = pointMarkers[i]
         const exH = pointHeights[i] * VERTICAL_EXAG
