@@ -3989,7 +3989,13 @@ export default function Arbetsrapport() {
         <div style={{ flex:1,paddingTop:20,overflowY:"auto" }}>
           <div style={{ marginBottom:24 }}>
             <Label>Vad gör du?</Label>
-            <input placeholder={platshold} value={mBesk} onChange={e=>setMBesk(e.target.value)} style={input}/>
+            <textarea
+              placeholder={platshold}
+              value={mBesk}
+              onChange={e=>setMBesk(e.target.value)}
+              rows={3}
+              style={{ ...input, minHeight:80, padding:12, resize:"vertical", boxSizing:"border-box", lineHeight:1.4 }}
+            />
           </div>
           <TimePicker value={mStart} onChange={setMStart} label="Starttid"/>
           <div style={{ background:"rgba(48,209,88,0.07)",borderRadius:12,padding:"12px 16px" }}>
