@@ -3967,15 +3967,35 @@ export default function Arbetsrapport() {
 
   /* ─── MANUELL DAG ─── */
   if(steg==="manuellDag"){
-    const titlar: Record<string,string>={service:"Service",utbildning:"Utbildning",annat:"Annat arbete",möte:"Möte"};
-    const platsh={service:"Kommentar",utbildning:"Kommentar",annat:"Kommentar"};
+    const titlar: Record<string,string> = {
+      normal: "Manuell arbetsdag",
+      service: "Service",
+      utbildning: "Utbildning",
+      annat: "Annat arbete",
+      möte: "Möte",
+    };
+    const platsh: Record<string,string> = {
+      normal: "Vad gjorde du? (t.ex. avverkning, skotning, markberedning)",
+      service: "Vad servade du? (t.ex. kedjebyte, hydraulik, smörjning)",
+      utbildning: "Vad lärde du dig? (t.ex. säkerhetskurs, ny maskin)",
+      annat: "Beskriv arbetet (t.ex. röjning, vägunderhåll)",
+      möte: "Vem mötte du? Vad handlade det om?",
+    };
+    const titel = titlar[dagTyp] || "Manuell arbetsdag";
+    const platshold = platsh[dagTyp] || "Vad gjorde du?";
     return (
       <div style={shell}><style>{css}</style>{timerBanner}
-        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("morgon")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>{titlar[dagTyp]}</h1></div></div>
+        <div style={topBar}><div style={{ display:"flex",alignItems:"center",gap:14 }}><BackBtn onClick={()=>setSteg("morgon")}/><h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>{titel}</h1></div></div>
         <div style={{ flex:1,paddingTop:20,overflowY:"auto" }}>
           <div style={{ marginBottom:24 }}>
             <Label>Vad gör du?</Label>
-            <input placeholder={platsh[dagTyp]} value={mBesk} onChange={e=>setMBesk(e.target.value)} style={input}/>
+            <textarea
+              placeholder={platshold}
+              value={mBesk}
+              onChange={e=>setMBesk(e.target.value)}
+              rows={3}
+              style={{ ...input, minHeight:80, padding:12, resize:"vertical", boxSizing:"border-box", lineHeight:1.4 }}
+            />
           </div>
           <TimePicker value={mStart} onChange={setMStart} label="Starttid"/>
           <div style={{ background:"rgba(48,209,88,0.07)",borderRadius:12,padding:"12px 16px" }}>
