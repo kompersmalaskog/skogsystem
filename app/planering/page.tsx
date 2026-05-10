@@ -490,8 +490,11 @@ export default function PlannerPage() {
     layers: [
       { id: 'bg', type: 'background' as const, paint: { 'background-color': '#0a0a0a' } },
       { id: 'osm-layer', type: 'raster' as const, source: 'osm', layout: { visibility: 'none' as const } },
-      { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 }, layout: { visibility: 'visible' as const } },
-      { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: 'none' as const } },
+      // satellite-layer + terrain-layer initial-visibility matchar mapType-default ('terrain').
+      // handleMapReady läser mapType för att sätta exakt visibility vid map-init —
+      // initial-värdena här är fallback om handleMapReady av nån anledning inte kör.
+      { id: 'satellite-layer', type: 'raster' as const, source: 'satellite', paint: { 'raster-brightness-max': 0.7, 'raster-contrast': 0.15, 'raster-saturation': -0.2 }, layout: { visibility: 'none' as const } },
+      { id: 'terrain-layer', type: 'raster' as const, source: 'topographic', layout: { visibility: 'visible' as const } },
       { id: 'contours-layer', type: 'raster' as const, source: 'contours', paint: { 'raster-opacity': 0.4 }, layout: { visibility: 'none' as const } },
     ],
   });
@@ -867,14 +870,18 @@ export default function PlannerPage() {
       layout: { 'line-cap': 'round' },
     });
 
-    // Ensure base map layer visibility matches current mapType
+    // Ensure base map layer visibility matches current mapType.
+    // Tidigare hårdkodade satellite=visible/terrain=none här — det överskred
+    // mapType-state och gjorde att terrain-default inte syntes (bug 2026-05).
+    // Läser nu mapType (fångad i useCallback-closure vid mount = initial default).
+    // Senare runtime-ändringar hanteras av useEffect [mapType, mapLibreReady].
     const setBaseVis = (id: string, vis: boolean) => {
       if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis ? 'visible' : 'none');
     };
-    setBaseVis('satellite-layer', true); // Default: satellite visible
-    setBaseVis('osm-layer', false);
-    setBaseVis('terrain-layer', false);
-    console.log('[MapLibre] Base layers initialized — satellite visible');
+    setBaseVis('satellite-layer', mapType === 'satellite');
+    setBaseVis('osm-layer', mapType === 'osm');
+    setBaseVis('terrain-layer', mapType === 'terrain');
+    console.log('[MapLibre] Base layers initialized — mapType:', mapType);
 
     // === Marker symbol layer (GPU-renderad, smidig i 3D) ===
     map.addSource('markers-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
