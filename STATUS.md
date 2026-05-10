@@ -176,6 +176,83 @@ Parkerat:
   senaste fakt_produktion/fakt_lass-rad", men
   det kräver extra query per objekt. Senare.
 
+## UPSERT-koreografi-fix (2026-05-09)
+
+Steg 2 verifierad på Korpalycke 14 april PONS20SDJAA270231:
+stammar 414 → 577 (PDF-facit) och m³sub 163.595 → 233.956
+(PDF 233.957). UPSERT-koreografi-strategin (rensa →
+flytta tillbaka MOM-filer i alfabetisk ordning →
+omimportera) bevisad fungera för Bugg A.
+
+Sidofynd som inte är blockerande:
+
+- G15h-allokering: 4.6 min totaldiff per skift mellan
+  PDF och fakt_tid. Inte blockerande. Möjlig orsak:
+  fallback-objekt 20250731 (~16 min) som inte mappas
+  mot vo_nummer plus 4 min Stanford2010-formel-diff.
+
+## KRITISKT — buggar i fakt_produktion / fakt_sortiment (2026-05-09 → 2026-05-10)
+
+### Bugg A — UPSERT-koreografi (FIXAD)
+- Symptom: senaste MOM-fil förlorar mot tidigare i UPSERT
+- Fix: kör om alla MOM-filer i sorterad ordning
+- 3 dagar fixade, +316 m³ återhämtat:
+  - Korpalycke 14/4 (Steg 2): 414→577 stammar
+  - Kättorp 17/3 (Steg 3): +95 stammar / +79.5 m³
+  - Jeppshoka 31/3 (Steg 3): +205 stammar / +165.8 m³
+
+### Bugg B — HPR-datum-allokering (FIX I AFFÄRSUPPFÖLJNING)
+- Symptom: fakt_sortiment har sessions-slut-datum för
+  multi-dag-sessioner, inte stam-kapningens faktiska
+  datum.
+- Rotorsak: Ponsse Scorpion Giant 8W skriver INTE
+  ProcessingDate per stam i HPR. Vår parser faller
+  tillbaka på filnamnet — alla stammar i en
+  multi-dag-kumulativ HPR får sessions-slut-datum.
+- Bevis 19 januari 2026 obj 11109556: HPR säger
+  919 m³ för 19/1, MOM säger 305 m³ för 19/1 +
+  287 m³ för 15/1 + 326 m³ för 16/1 (totalt 918 m³).
+  MOM:s per-arbetsdag-fördelning är korrekt.
+- Frontend-impact (kartlagd 2026-05-10):
+  ENDAST app/affarsuppfoljning/page.tsx läser
+  fakt_sortiment.volym_m3sub med datum-filter och
+  per-period-aggregering. Övriga vyer (uppfoljning,
+  ekonomi, markägare, maskinvy m.fl.) använder
+  fakt_produktion (MOM, korrekt) eller fakt_sortiment
+  utan datum (totaler per objekt, korrekt).
+- Liten fix tillämpad: ta bort datum-filter på
+  fakt_sortiment-läsningen i affärsuppfoljning,
+  så sortiment-fördelning baseras på trakt-totalen
+  (vilket är korrekt — fördelning är en egenskap av
+  objektet, inte en period-statistik). Per-period-
+  volymerna kommer fortfarande från fakt_produktion.
+
+### Bugg C — skuggobjekt (KVAR — separat utredning)
+- Symptom: objekt med datum-baserade ID (20250731,
+  20260105 etc) finns i fakt_sortiment men inte
+  fakt_produktion
+- Konkret 19 jan 2026: objekt 20250731 har
+  115.399 m³sub i fakt_sortiment, 0 i fakt_produktion
+- Påverkar: G15h-allokering, produktivitetsstatistik
+- Inte fix:at — separat utredning, inte akut
+
+### REGEL FRAMÅT
+- Per-dag-volymer/stammar/tid → fakt_produktion (MOM)
+- Per-objekt-totaler → fakt_sortiment (HPR)
+- Markägar-rapport → hpr_filer/hpr_stammar (totaler)
+- Lön/ackord → fakt_produktion per period
+- Datum-filter på fakt_sortiment är felaktig användning
+
+### Pausat läge — vad finns kvar i worktreen
+- _steg1_backup.sql (kört, backup-tabeller existerar)
+- _steg2_test_14april.py (kört, fix:ade Korpalycke)
+- _steg3_batch.py (kört på 17/3 + 31/3, sen pausat —
+  resterande "drabbade" är troligen Bugg B-fall där
+  fakt_produktion redan är korrekt)
+- _steg3_constraints.md (anteckningar för Steg 3)
+- backup_*_20260509-tabeller i Supabase intakta
+- auto_import_watch.bat behöver återstartas manuellt
+
 ## HPR-import buggar (kvarstår)
 Kommer skapa trasiga rader vid varje ny
 HPR-import tills patchad:

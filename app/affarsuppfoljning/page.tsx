@@ -98,6 +98,15 @@ export default function Affarsuppfoljning() {
     try {
       const { start, end } = getPeriodDates(period, periodOffset);
 
+      // Per-period-volymer + stammar läses från fakt_produktion (MOM-baserad,
+      // korrekt datum-allokering per arbetsdag via MonitoringStartTime).
+      // fakt_sortiment (HPR-baserad) läses UTAN datum-filter eftersom Ponsse
+      // Scorpion inte skriver ProcessingDate per stam — datum-fältet faller
+      // tillbaka på filnamnet, vilket ger sessions-slut-datum för multi-dag-
+      // sessioner och därmed felaktiga per-period-volymer. Sortiment-fördelning
+      // är dock en egenskap av objektet (timmer/massa/kubb/energi-andelar) och
+      // är korrekt över totalen — bara datum-allokeringen är opålitlig.
+      // Se STATUS.md "REGEL FRAMÅT" för full datum-allokerings-kontrakt.
       const [prodRows, objRes, tradslagRes, sortimentRes, dimSortRes] = await Promise.all([
         fetchAllRows((from, to) =>
           supabase.from('fakt_produktion')
@@ -110,7 +119,6 @@ export default function Affarsuppfoljning() {
         fetchAllRows((from, to) =>
           supabase.from('fakt_sortiment')
             .select('objekt_id, sortiment_id, volym_m3sub')
-            .gte('datum', start).lte('datum', end)
             .range(from, to)
         ),
         supabase.from('dim_sortiment').select('sortiment_id, namn'),
