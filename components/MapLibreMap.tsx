@@ -45,6 +45,12 @@ export default function MapLibreMap({
       pitch: initialPitch,
       bearing: initialBearing,
       maxPitch: 60,
+      // Zoom-gränser så att tiles alltid finns att rendera. OpenTopoMap har
+      // maxzoom 17 — sätter maxZoom 18 för en smidig zoom-känsla utan att
+      // oversample för mycket. minZoom 8 förhindrar utzoom bortom rimlig
+      // skogsbruks-skala (motsvarar ~ region-nivå).
+      minZoom: 8,
+      maxZoom: 18,
       interactive: true,
       attributionControl: false,
       dragRotate: true,

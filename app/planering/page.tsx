@@ -488,7 +488,12 @@ export default function PlannerPage() {
       },
     },
     layers: [
-      { id: 'bg', type: 'background' as const, paint: { 'background-color': '#0a0a0a' } },
+      // Ljusgrå bakgrund (#e8e8e8) syns när tiles inte hunnit laddas eller vid
+      // utzoom bortom täckning. Tidigare #0a0a0a (svart) gav stor skarp kontrast
+      // mot OpenTopoMap-tiles → "svarta hörn" vid zoom/laddning. Neutral grå
+      // smälter ihop bättre med både terrain (OpenTopoMap), satellit (Esri) och
+      // osm. Körvy 2D använder samma 'bg'-layer som fallback.
+      { id: 'bg', type: 'background' as const, paint: { 'background-color': '#e8e8e8' } },
       { id: 'osm-layer', type: 'raster' as const, source: 'osm', layout: { visibility: 'none' as const } },
       // satellite-layer + terrain-layer initial-visibility matchar mapType-default ('terrain').
       // handleMapReady läser mapType för att sätta exakt visibility vid map-init —
