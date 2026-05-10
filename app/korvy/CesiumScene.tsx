@@ -512,83 +512,96 @@ function addMarkerEntities(
       break
     }
     case 'naturecorner': {
-      // Severity-grön smal stam + grön kon ovanpå (mindre än evighetsträd)
+      // Severity-grön stam (radie 0.6 m, inte längre pinne) + grön kon ovanpå.
+      // Total höjd 6 m, krono-bredd 3 m diameter.
       viewer.entities.add({
         id: `${baseId}-trunk`,
         position: at(2),
-        cylinder: { length: 4, topRadius: 0.3, bottomRadius: 0.3, material: colorOf(color) },
+        cylinder: { length: 4, topRadius: 0.6, bottomRadius: 0.6, material: colorOf(color) },
       })
       viewer.entities.add({
         id: `${baseId}-top`,
         position: at(5),
-        cylinder: { length: 2, topRadius: 0, bottomRadius: 1, material: colorOf(color) },
+        cylinder: { length: 2, topRadius: 0, bottomRadius: 1.5, material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'culturemonument': {
-      // Severity-grön stolpe + sfär (R-symbol i 2D, protect-färg i 3D)
+      // Severity-grön stolpe (5 m, tjockare 0.7 m) + sfär (1 m radie) på topp.
+      // Total höjd 6 m. R-symbol i 2D — i 3D bär stolp+sfär igenkänningen.
       viewer.entities.add({
         id: `${baseId}-pole`,
-        position: at(1),
-        cylinder: { length: 2, topRadius: 0.4, bottomRadius: 0.4, material: colorOf(color) },
+        position: at(2.5),
+        cylinder: { length: 5, topRadius: 0.7, bottomRadius: 0.7, material: colorOf(color) },
       })
       viewer.entities.add({
         id: `${baseId}-top`,
-        position: at(2.3),
-        ellipsoid: { radii: new Cesium.Cartesian3(0.6, 0.6, 0.6), material: colorOf(color) },
+        position: at(5.5),
+        ellipsoid: { radii: new Cesium.Cartesian3(1, 1, 1), material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'culturestump': {
-      // Severity-vit stubbe — låg box på marken
+      // Severity-vit stubbe — bredare och högre låg box (2×2×1.5 m, total 1.5 m).
+      // Bibehåller "stubbe på marken"-semantik men synlig på 100 m+.
       viewer.entities.add({
         id: baseId,
-        position: at(0.25),
-        box: { dimensions: new Cesium.Cartesian3(1, 1, 0.5), material: colorOf(color) },
+        position: at(0.75),
+        box: { dimensions: new Cesium.Cartesian3(2, 2, 1.5), material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'highstump': {
-      // Severity-vit cylinder med platt avskuren topp, 4 m hög
+      // Severity-vit cylinder, 6 m hög × 0.7 m radie (tjockare än tidigare 0.4).
       viewer.entities.add({
         id: baseId,
-        position: at(2),
-        cylinder: { length: 4, topRadius: 0.4, bottomRadius: 0.4, material: colorOf(color) },
+        position: at(3),
+        cylinder: { length: 6, topRadius: 0.7, bottomRadius: 0.7, material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'brashpile': {
-      // Severity-vit klump — två överlappande boxar för oregelbunden silhuett
+      // Severity-vit klump — två överlappande boxar, total höjd 4 m.
+      // Base 2.5×1.8×2.5 (mid 1.25), top 2×1.5×1.5 (mid 3.25). Bevarar
+      // oregelbunden ris-hög-silhuett men nu högre än bredare.
       viewer.entities.add({
         id: `${baseId}-base`,
-        position: at(0.5),
-        box: { dimensions: new Cesium.Cartesian3(5, 3, 1), material: colorOf(color) },
+        position: at(1.25),
+        box: { dimensions: new Cesium.Cartesian3(2.5, 1.8, 2.5), material: colorOf(color) },
       })
       viewer.entities.add({
         id: `${baseId}-top`,
-        position: at(1),
-        box: { dimensions: new Cesium.Cartesian3(3, 2, 1), material: colorOf(color) },
+        position: at(3.25),
+        box: { dimensions: new Cesium.Cartesian3(2, 1.5, 1.5), material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'landing': {
-      // Severity-vit platt cylinder, markerar lagringsyta
+      // Severity-vit platt cylinder (lagringsyta-form bevarad) + tunn
+      // synlighets-pelare 4 m × 0.15 m så markören syns på 100 m+ avstånd.
       viewer.entities.add({
         id: baseId,
         position: at(0.15),
         cylinder: { length: 0.3, topRadius: 2, bottomRadius: 2, material: colorOf(color) },
+      })
+      viewer.entities.add({
+        id: `${baseId}-stake`,
+        position: at(2),
+        cylinder: { length: 4, topRadius: 0.15, bottomRadius: 0.15, material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'windfall': {
-      // Liggande severity-vit cylinder (fallet träd), pekar mot NE och lutad 5°
-      const center = at(0.5)
+      // Liggande severity-vit cylinder (fallet träd, tjockare 1 m radie),
+      // pekar mot NE, lutad 5°. Plus vertikal kon-markör vid centrum så
+      // markören syns ovanifrån — liggande form är annars dold i pitch 78°.
+      const center = at(1)
       const hpr = new Cesium.HeadingPitchRoll(
         Cesium.Math.toRadians(30),   // riktning NE
         Cesium.Math.toRadians(90),    // ligger horisontellt
@@ -599,30 +612,36 @@ function addMarkerEntities(
         id: baseId,
         position: center,
         orientation: orientation as any,
-        cylinder: { length: 8, topRadius: 0.5, bottomRadius: 0.5, material: colorOf(color) },
+        cylinder: { length: 8, topRadius: 1, bottomRadius: 1, material: colorOf(color) },
+      })
+      viewer.entities.add({
+        id: `${baseId}-marker`,
+        position: at(3),
+        cylinder: { length: 4, topRadius: 0, bottomRadius: 0.6, material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'manualfelling': {
-      // Apple "stake-style": svart pole (#1c1c1e) som ankrar mot mark + röd
-      // severity-skylt (color = #ff453a) som signalerar fara. Tonvariation
-      // inom danger-färgen för läsbarhet pole vs skylt.
+      // Apple "stake-style": svart pole (#1c1c1e, 4 m × 0.4 m radie — inte
+      // längre pinn-form) som ankrar mot mark + röd severity-skylt (2×1.5×0.4)
+      // ovanpå. Total höjd 5.5 m. Tonvariation inom danger-färg för läsbarhet.
       viewer.entities.add({
         id: `${baseId}-pole`,
-        position: at(1),
-        cylinder: { length: 2, topRadius: 0.1, bottomRadius: 0.1, material: colorOf('#1c1c1e') },
+        position: at(2),
+        cylinder: { length: 4, topRadius: 0.4, bottomRadius: 0.4, material: colorOf('#1c1c1e') },
       })
       viewer.entities.add({
         id: `${baseId}-sign`,
-        position: at(2.5),
-        box: { dimensions: new Cesium.Cartesian3(1.5, 0.2, 1.0), material: colorOf(color) },
+        position: at(5),
+        box: { dimensions: new Cesium.Cartesian3(2, 1.5, 0.4), material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'powerline': {
-      // Severity-röd pylon — torn med horisontellt cross-arm (danger)
+      // Severity-röd pylon — torn med horisontellt cross-arm (danger).
+      // Arm tjockare (0.6 m) för bättre synbarhet på avstånd.
       viewer.entities.add({
         id: `${baseId}-tower`,
         position: at(6),
@@ -631,14 +650,14 @@ function addMarkerEntities(
       viewer.entities.add({
         id: `${baseId}-arm`,
         position: at(11.5),
-        box: { dimensions: new Cesium.Cartesian3(3, 0.3, 0.3), material: colorOf(color) },
+        box: { dimensions: new Cesium.Cartesian3(3, 0.6, 0.6), material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'ditch': {
-      // Severity-vit nedsänkt cylinder, 0.5 m djup, alpha 0.7 bevarad så den
-      // syns som en grund pöl/ränna utan att skymma terrängen under.
+      // Severity-vit nedsänkt cylinder (dikets fysiska form bevarad, alpha 0.7)
+      // + tunn synlighets-pelare 4 m × 0.15 m så markören syns på 100 m+.
       viewer.entities.add({
         id: baseId,
         position: at(0.05),
@@ -648,22 +667,35 @@ function addMarkerEntities(
           bottomRadius: 1.5,
           material: colorOf(color).withAlpha(0.7),
         },
+      })
+      viewer.entities.add({
+        id: `${baseId}-stake`,
+        position: at(2),
+        cylinder: { length: 4, topRadius: 0.15, bottomRadius: 0.15, material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'bridge': {
-      // Severity-vit platta, något upphöjd över mark
+      // Severity-vit platta (brons fysiska form bevarad, något upphöjd över mark)
+      // + tunn synlighets-pelare 4 m × 0.15 m så markören syns på 100 m+.
       viewer.entities.add({
         id: baseId,
         position: at(0.4),
         box: { dimensions: new Cesium.Cartesian3(4, 1, 0.3), material: colorOf(color) },
+      })
+      viewer.entities.add({
+        id: `${baseId}-stake`,
+        position: at(2),
+        cylinder: { length: 4, topRadius: 0.15, bottomRadius: 0.15, material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'corduroy': {
-      // 3 parallella liggande timmer (severity-vita) i öst-västlig riktning
+      // 3 parallella liggande timmer (severity-vita) i öst-västlig riktning,
+      // kavle-bro-form bevarad. Plus tunn synlighets-pelare i centrum så
+      // markören syns på 100 m+ avstånd.
       for (let i = 0; i < 3; i++) {
         const offM = (i - 1) * 0.6
         const bearingDeg = offM >= 0 ? 0 : 180
@@ -678,20 +710,29 @@ function addMarkerEntities(
           position: pos,
           orientation: orientation as any,
           cylinder: { length: 3, topRadius: 0.25, bottomRadius: 0.25, material: colorOf(color) },
-          ...(i === 1 ? { label: labelOpt } : {}),
         })
       }
+      viewer.entities.add({
+        id: `${baseId}-stake`,
+        position: at(2),
+        cylinder: { length: 4, topRadius: 0.15, bottomRadius: 0.15, material: colorOf(color) },
+        label: labelOpt,
+      })
       break
     }
     case 'wet': {
       // Wet saknas medvetet i CESIUM_TYPE_SEVERITY — primärt en zon-typ.
       // Som punkt-marker faller den till info (vit) via severityColorFor +
-      // console.warn första gången. Halvtransparent (alpha 0.6) bevaras.
+      // console.warn första gången. Skalad till 4 m × 1.2 m halvtransparent
+      // cylinder (var sfär 1.5 m radie) — vatten-droppe-form mindre kritisk
+      // än synbarhet på avstånd.
       viewer.entities.add({
         id: baseId,
-        position: at(0),
-        ellipsoid: {
-          radii: new Cesium.Cartesian3(1.5, 1.5, 1.5),
+        position: at(2),
+        cylinder: {
+          length: 4,
+          topRadius: 1.2,
+          bottomRadius: 1.2,
           material: colorOf(color).withAlpha(0.6),
         },
         label: labelOpt,
@@ -699,23 +740,24 @@ function addMarkerEntities(
       break
     }
     case 'warning': {
-      // Severity-röd kon (cylinder med topRadius=0) — varningsskylt-känsla
+      // Severity-röd kon (5 m × 1.2 m bas, smal hög aspect 4:1) —
+      // varningsskylt-känsla. Form-distinktion mot steep (bred låg) bibehållen.
       viewer.entities.add({
         id: baseId,
-        position: at(1),
-        cylinder: { length: 2, topRadius: 0, bottomRadius: 1, material: colorOf(color) },
+        position: at(2.5),
+        cylinder: { length: 5, topRadius: 0, bottomRadius: 1.2, material: colorOf(color) },
         label: labelOpt,
       })
       break
     }
     case 'steep': {
-      // Severity-röd kon — bred låg form ("branten själv", aspect 0.75:1)
-      // för att visuellt skilja från warning (smal hög aspect 2:1, "varningsskylt").
-      // Båda är danger-röda; formen bär informationen.
+      // Severity-röd kon — bred låg form ("branten själv", 3 m × 2.5 m bas,
+      // aspect 1.2:1) för att visuellt skilja från warning (smal hög 5×1.2,
+      // aspect 4:1, "varningsskylt"). Båda är danger-röda; formen bär informationen.
       viewer.entities.add({
         id: baseId,
-        position: at(0.75),
-        cylinder: { length: 1.5, topRadius: 0, bottomRadius: 2, material: colorOf(color) },
+        position: at(1.5),
+        cylinder: { length: 3, topRadius: 0, bottomRadius: 2.5, material: colorOf(color) },
         label: labelOpt,
       })
       break
@@ -725,10 +767,11 @@ function addMarkerEntities(
       // grå (#8e8e93) istället för severity-info (vit). "Okänd typ" är inte
       // samma som "info-typ" — grå signalerar "vi vet inte vad detta är,
       // kolla manuellt". console.warn loggas av severityColorFor först.
+      // Skalad till 4 m × 0.8 m radie för synbarhet på 100 m+.
       viewer.entities.add({
         id: baseId,
-        position: at(1.5),
-        cylinder: { length: 3, topRadius: 0.6, bottomRadius: 0.6, material: colorOf('#8e8e93') },
+        position: at(2),
+        cylinder: { length: 4, topRadius: 0.8, bottomRadius: 0.8, material: colorOf('#8e8e93') },
         label: labelOpt,
       })
       break
