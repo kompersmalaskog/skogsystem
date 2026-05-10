@@ -1133,7 +1133,7 @@ export default function Arbetsrapport() {
   };
   const timerBanner = aktivTimer ? (
     <div style={{
-      position:"fixed", top:56, left:0, right:0, height:44,
+      position:"fixed", top:64, left:0, right:0, height:44,
       background:"rgba(30,10,10,0.92)",
       borderBottom:"1px solid rgba(255,69,58,0.4)",
       backdropFilter:"blur(12px)", WebkitBackdropFilter:"blur(12px)",
@@ -1438,19 +1438,27 @@ export default function Arbetsrapport() {
       <style>{css}</style>{timerBanner}
 
       {/* Top bar */}
-      <header style={{ position:"fixed",top:0,width:"100%",height:64,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",zIndex:50,display:"flex",justifyContent:"space-between",alignItems:"center",padding:"0 24px",boxSizing:"border-box" }}>
-        <span style={{ fontSize:13,fontWeight:500,color:"#0a84ff" }}>{datumStr}</span>
-        <span className="material-symbols-outlined" style={{ color:"#0a84ff",fontSize:22 }}>sync</span>
+      <header style={{ position:"fixed",top:0,width:"100%",height:64,background:"rgba(0,0,0,0.8)",backdropFilter:"blur(12px)",WebkitBackdropFilter:"blur(12px)",zIndex:50,display:"flex",justifyContent:"center",alignItems:"center",padding:"0 24px",boxSizing:"border-box" }}>
+        <span style={{ fontSize:17,fontWeight:600,color:"#fff" }}>Dag</span>
       </header>
 
-      <main style={{ paddingTop:96,paddingBottom:128,paddingLeft:24,paddingRight:24,flex:1,width:"100%",boxSizing:"border-box" }}>
+      <main style={{ paddingTop:aktivTimer?140:96,paddingBottom:128,paddingLeft:24,paddingRight:24,flex:1,width:"100%",boxSizing:"border-box" }}>
 
         {/* Påminnelse obekräftad dag */}
         {igårObekräftad&&(
           <div onClick={()=>{
-            const d=dagData[igårKey];
-            setStart(d.start_tid||"06:00");setSlut(d.slut_tid||"16:00");setRast(d.rast_min||0);
-            setSteg("morgon");
+            const d2=dagData[igårKey];
+            setRedDag({...(d2||{}),datum:igårKey});
+            setRedStart(d2?.start_tid||"00:00");
+            setRedSlut(d2?.slut_tid||"00:00");
+            setRedRast(d2?.rast_min||0);
+            setRedKm(d2?.km_totalt||0);
+            setRedKmBerakning(null);
+            setRedAnl("");
+            setRedObjektId(d2?.objekt_id||null);
+            setRedMaskinId(d2?.maskin_id||null);
+            setRedVy("översikt");
+            setSteg("redigera");
           }} style={{ background:"rgba(255,159,10,0.06)",border:"1px solid rgba(255,159,10,0.25)",borderRadius:12,padding:"14px 16px",marginBottom:16,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"space-between",animation:"fadeUp 0.3s ease" }}>
             <div style={{ display:"flex",alignItems:"center",gap:10 }}>
               <span className="material-symbols-outlined" style={{ color:"#ff9f0a",fontSize:20 }}>warning</span>
@@ -1511,7 +1519,7 @@ export default function Arbetsrapport() {
             }
             if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(80);
           }}
-            style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",padding:"10px 16px",background:"#0a84ff",border:"none",borderRadius:12,color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+            style={{ display:"flex",alignItems:"center",justifyContent:"center",gap:6,marginBottom:16,marginLeft:"auto",height:56,padding:"0 20px",background:"#0a84ff",border:"none",borderRadius:12,color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
             <span className="material-symbols-outlined" style={{ fontSize:18 }}>add</span>
             Extra arbete
           </button>
@@ -1580,7 +1588,7 @@ export default function Arbetsrapport() {
                 await supabase.from("arbetsdag").update({ slut_tid: nuT + ":00" }).eq("id", dagData[idagKey]?.id);
                 setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
-              }} style={{ width:"100%",padding:"12px",borderRadius:10,border:"1px solid rgba(255,69,58,0.45)",background:"rgba(255,69,58,0.05)",color:"#ff453a",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+              }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.06)",background:"rgba(255,255,255,0.04)",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                 Avsluta pass
               </button>
             ) : pagaendeAktiviteter.length===0 ? (
@@ -1617,7 +1625,7 @@ export default function Arbetsrapport() {
                   }}));
                   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
                 }
-              }} style={{ width:"100%",padding:"12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.25)",background:"transparent",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
+              }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.25)",background:"transparent",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                 Starta manuellt
               </button>
             ) : <span />}
@@ -1952,7 +1960,7 @@ export default function Arbetsrapport() {
                       }
                     }
                   }}
-                    style={{ height:52,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 12px",cursor:"pointer",fontFamily:"inherit" }}>
+                    style={{ height:56,background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",display:"flex",alignItems:"center",justifyContent:"center",gap:8,padding:"0 12px",cursor:"pointer",fontFamily:"inherit" }}>
                     <span className="material-symbols-outlined" style={{ color:"#8e8e93",fontSize:18 }}>{s.icon}</span>
                     <span style={{ color:"#fff",fontWeight:500,fontSize:14 }}>{s.label}</span>
                   </button>
@@ -1969,29 +1977,31 @@ export default function Arbetsrapport() {
           <div style={{ marginBottom:24 }}>
             <h3 style={secHead}>Maskinstatus</h3>
             <div style={{ display:"flex",flexWrap:"wrap",gap:8 }}>
-              {maskinNamn || medarbetare?.maskin_id ? <>
-                {maskinNamn && <div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:999,fontSize:13,fontWeight:500,color:"#fff" }}>{maskinNamn}</div>}
-                {medarbetare?.maskin_id && <div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:999,fontSize:13,fontWeight:500,color:"#fff" }}>{medarbetare.maskin_id}</div>}
-              </> : <p style={{ margin:0,fontSize:13,color:"#636366" }}>Ingen maskin inloggad</p>}
+              {maskinNamn || medarbetare?.maskin_id ? (
+                <div style={{ background:"#1c1c1e",padding:"6px 12px",borderRadius:999,fontSize:13,fontWeight:500,color:"#fff" }}>
+                  {[maskinNamn, medarbetare?.maskin_id].filter(Boolean).join(" · ")}
+                </div>
+              ) : <p style={{ margin:0,fontSize:13,color:"#636366" }}>Ingen maskin inloggad</p>}
             </div>
           </div>
-          <div>
-            <h3 style={secHead}>Plats</h3>
-            {(()=>{
-              const vObj = valtObjektId ? objektLista.find(o=>o.id===valtObjektId) : null;
-              const visatObjekt = dagensObjekt || dagData[idagKey]?.objekt_namn || (vObj?.namn);
-              const visatÄgare = vObj?.ägare || null;
-              if(visatObjekt) return (
+          {(()=>{
+            const vObj = valtObjektId ? objektLista.find(o=>o.id===valtObjektId) : null;
+            const visatObjekt = dagensObjekt || dagData[idagKey]?.objekt_namn || (vObj?.namn);
+            const visatÄgare = vObj?.ägare || null;
+            const platsText = visatObjekt
+              ? `${visatObjekt}${visatÄgare ? ` · ${visatÄgare}` : ''}`
+              : "Välj objekt";
+            return (
+              <button onClick={()=>setVisaObjektVäljare(true)}
+                style={{ width:"100%",display:"flex",justifyContent:"space-between",alignItems:"center",padding:"16px 20px",background:"#1c1c1e",borderRadius:12,border:"1px solid rgba(255,255,255,0.06)",cursor:"pointer",fontFamily:"inherit",textAlign:"left" }}>
                 <div>
-                  <p style={{ margin:0,fontSize:13,fontWeight:500,color:"#fff" }}>{visatObjekt}{visatÄgare ? ` · ${visatÄgare}` : ''}</p>
-                  <button onClick={()=>setVisaObjektVäljare(true)} style={{ background:"none",border:"none",padding:0,marginTop:4,fontSize:12,color:"#8e8e93",cursor:"pointer",fontFamily:"inherit" }}>Ändra objekt</button>
+                  <p style={{ margin:0,fontSize:16,fontWeight:600,color:"#fff" }}>Plats</p>
+                  <p style={{ margin:"3px 0 0",fontSize:13,color:"rgba(255,255,255,0.5)" }}>{platsText}</p>
                 </div>
-              );
-              return (
-                <button onClick={()=>setVisaObjektVäljare(true)} style={{ background:"none",border:"none",padding:0,fontSize:13,fontWeight:500,color:"#0a84ff",cursor:"pointer",fontFamily:"inherit" }}>Välj objekt</button>
-              );
-            })()}
-          </div>
+                <span className="material-symbols-outlined" style={{ fontSize:22,color:"rgba(255,255,255,0.45)",flexShrink:0,marginLeft:12 }}>chevron_right</span>
+              </button>
+            );
+          })()}
         </section>
         )}
 
