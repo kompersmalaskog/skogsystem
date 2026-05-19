@@ -65,7 +65,7 @@ export default function ObjektPage() {
     cert: '', typ: 'slut', atgard: '', volym: '', areal: '', grot: false,
     maskiner: [] as string[], koordinatX: '', koordinatY: '',
     sortiment: [] as string[], anteckningar: '',
-    ar: 2026, manad: 1, ordning: 1, status: 'planerad'
+    ar: 2026, manad: 1, ordning: 1, status: 'oplanerad'
   });
 
   const [sparadeBolag, setSparadeBolag] = useState(['Vida', 'Södra', 'ATA', 'JGA', 'Rönås', 'Privat']);
@@ -161,7 +161,7 @@ export default function ObjektPage() {
         lng: data.objekt.lng,
         ar: data.objekt.ar,
         manad: data.objekt.manad,
-        status: data.objekt.status || 'planerad',
+        status: data.objekt.status || 'oplanerad',
         atgard: '',
         maskiner: data.objekt.maskiner || [],
         sortiment: data.objekt.sortiment || [],
@@ -196,7 +196,7 @@ export default function ObjektPage() {
       cert: '', typ, atgard: '', volym: '', areal: '', grot: false,
       maskiner: [], koordinatX: '', koordinatY: '',
       sortiment: [], anteckningar: '',
-      ar: year, manad: month + 1, ordning: planerade.length + 1, status: 'planerad'
+      ar: year, manad: month + 1, ordning: planerade.length + 1, status: 'oplanerad'
     });
   };
 

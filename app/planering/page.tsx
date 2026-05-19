@@ -190,6 +190,9 @@ const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
+  // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
+  const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string }>>([]);
+  const [sendingKlar, setSendingKlar] = useState(false);
 
   // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
   const screenWakeLockRef = useRef<any>(null);
@@ -1700,6 +1703,17 @@ export default function PlannerPage() {
     } catch (_) {}
   }, []);
 
+  // STEG 1: hämta medarbetare-lista för tilldelning av skördare/skotare i plus-menyn
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('medarbetare')
+        .select('id, namn')
+        .order('namn');
+      if (data) setMedarbetareLista(data);
+    })();
+  }, []);
+
   // Background geolocation check every 60 seconds
   useEffect(() => {
     const check = () => {
@@ -1751,6 +1765,35 @@ export default function PlannerPage() {
     try { localStorage.setItem('geofence_dismissed', JSON.stringify(geofenceDismissedRef.current)); } catch (_) {}
     setGeofencePrompt(null);
   }, [geofencePrompt]);
+
+  // STEG 1: tilldelning av skördare/skotare och "Klar — skicka till förare"
+  const handleAssignSkordare = useCallback(async (userId: string | null) => {
+    if (!valtObjekt?.id) return;
+    setValtObjekt({ ...valtObjekt, assigned_skordare_user_id: userId });
+    await supabase.from('objekt').update({ assigned_skordare_user_id: userId }).eq('id', valtObjekt.id);
+  }, [valtObjekt]);
+
+  const handleAssignSkotare = useCallback(async (userId: string | null) => {
+    if (!valtObjekt?.id) return;
+    setValtObjekt({ ...valtObjekt, assigned_skotare_user_id: userId });
+    await supabase.from('objekt').update({ assigned_skotare_user_id: userId }).eq('id', valtObjekt.id);
+  }, [valtObjekt]);
+
+  const handleSendKlar = useCallback(async () => {
+    if (!valtObjekt?.id || !valtObjekt.assigned_skordare_user_id || sendingKlar) return;
+    setSendingKlar(true);
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase.from('objekt').update({
+      status: 'planerad',
+      klar_skickad_timestamp: nowIso,
+    }).eq('id', valtObjekt.id);
+    setSendingKlar(false);
+    if (!error) {
+      setValtObjekt({ ...valtObjekt, status: 'planerad', klar_skickad_timestamp: nowIso });
+      if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+      setPlusMenuOpen(false);
+    }
+  }, [valtObjekt, sendingKlar]);
 
   // Simulerad position (för testning vid dator)
   const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
@@ -8896,6 +8939,104 @@ export default function PlannerPage() {
             <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0 10px' }}>
               <div style={{ width: 40, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.25)' }} />
             </div>
+
+            {/* AKTUELLT OBJEKT — tilldelning + "Klar — skicka till förare" (STEG 1) */}
+            {valtObjekt && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{
+                  padding: '8px 12px 6px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'rgba(255,255,255,0.55)',
+                }}>
+                  AKTUELLT OBJEKT
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 14, overflow: 'hidden' }}>
+                  {/* Skördare */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56 }}>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 26, color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>person</span>
+                    <span style={{ fontSize: 16, width: 80, flexShrink: 0 }}>Skördare</span>
+                    <select
+                      value={valtObjekt.assigned_skordare_user_id ?? ''}
+                      onChange={e => handleAssignSkordare(e.target.value || null)}
+                      style={{
+                        flex: 1, minHeight: 44, padding: '0 12px',
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: 10,
+                        color: '#fff', fontSize: 15,
+                        appearance: 'none', WebkitAppearance: 'none',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <option value="">Välj förare…</option>
+                      {medarbetareLista.map(m => (
+                        <option key={m.id} value={m.id}>{m.namn}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {/* Skotare */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 26, color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>local_shipping</span>
+                    <span style={{ fontSize: 16, width: 80, flexShrink: 0 }}>Skotare</span>
+                    <select
+                      value={valtObjekt.assigned_skotare_user_id ?? ''}
+                      onChange={e => handleAssignSkotare(e.target.value || null)}
+                      style={{
+                        flex: 1, minHeight: 44, padding: '0 12px',
+                        background: 'rgba(255,255,255,0.06)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: 10,
+                        color: '#fff', fontSize: 15,
+                        appearance: 'none', WebkitAppearance: 'none',
+                        fontFamily: 'inherit',
+                      }}
+                    >
+                      <option value="">Välj förare…</option>
+                      {medarbetareLista.map(m => (
+                        <option key={m.id} value={m.id}>{m.namn}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Klar-knapp (visas tills den klickats) eller "Skickad"-pill */}
+                {valtObjekt.klar_skickad_timestamp ? (
+                  <div style={{
+                    marginTop: 10, width: '100%', minHeight: 56,
+                    background: 'rgba(48, 209, 88, 0.12)',
+                    border: '1px solid rgba(48, 209, 88, 0.3)',
+                    borderRadius: 14,
+                    color: '#30d158',
+                    fontSize: 16, fontWeight: 600,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                  }}>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>check_circle</span>
+                    Skickad till förare
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSendKlar}
+                    disabled={!valtObjekt.assigned_skordare_user_id || sendingKlar}
+                    style={{
+                      marginTop: 10, width: '100%', minHeight: 56,
+                      background: valtObjekt.assigned_skordare_user_id ? '#30d158' : 'rgba(255,255,255,0.06)',
+                      border: 'none', borderRadius: 14,
+                      color: valtObjekt.assigned_skordare_user_id ? '#fff' : 'rgba(255,255,255,0.35)',
+                      fontSize: 16, fontWeight: 600,
+                      cursor: valtObjekt.assigned_skordare_user_id ? 'pointer' : 'not-allowed',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+                      fontFamily: 'inherit',
+                    }}
+                  >
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>send</span>
+                    {sendingKlar ? 'Skickar…' : 'Klar — skicka till förare'}
+                  </button>
+                )}
+              </div>
+            )}
+
             {[
               {
                 title: 'VERKTYG',
