@@ -1705,12 +1705,23 @@ export default function PlannerPage() {
 
   // STEG 1: hämta medarbetare-lista för tilldelning av skördare/skotare i plus-menyn
   useEffect(() => {
+    console.log('[STEG1-debug] medarbetare-effekt startar');
     (async () => {
-      const { data } = await supabase
-        .from('medarbetare')
-        .select('id, namn')
-        .order('namn');
-      if (data) setMedarbetareLista(data);
+      try {
+        const { data, error, status, statusText } = await supabase
+          .from('medarbetare')
+          .select('id, namn')
+          .order('namn');
+        console.log('[STEG1-debug] medarbetare-response', { status, statusText, rowCount: data?.length, error });
+        if (data) {
+          console.log('[STEG1-debug] sätter medarbetareLista med', data.length, 'rader:', data);
+          setMedarbetareLista(data);
+        } else {
+          console.warn('[STEG1-debug] ingen data — error:', error);
+        }
+      } catch (e) {
+        console.error('[STEG1-debug] fetch throw:', e);
+      }
     })();
   }, []);
 
