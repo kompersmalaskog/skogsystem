@@ -1714,7 +1714,10 @@ export default function PlannerPage() {
           .order('namn');
         console.log('[STEG1-debug] medarbetare-response', { status, statusText, rowCount: data?.length, error });
         if (data) {
-          console.log('[STEG1-debug] sätter medarbetareLista med', data.length, 'rader:', data);
+          console.log('[STEG1-debug] sätter medarbetareLista med', data.length, 'rader.');
+          console.log('[STEG1-debug] första rad keys:', data[0] ? Object.keys(data[0]) : '(tom)');
+          console.log('[STEG1-debug] första rad JSON:', JSON.stringify(data[0]));
+          console.log('[STEG1-debug] alla rader JSON:', JSON.stringify(data));
           setMedarbetareLista(data);
         } else {
           console.warn('[STEG1-debug] ingen data — error:', error);
@@ -8981,9 +8984,11 @@ export default function PlannerPage() {
                       }}
                     >
                       <option value="">Välj förare…</option>
-                      {medarbetareLista.map(m => (
-                        <option key={m.id} value={m.id}>{m.namn}</option>
-                      ))}
+                      {(() => { console.log('[STEG1-debug] render Skördare-dropdown, medarbetareLista.length =', medarbetareLista.length, 'första:', JSON.stringify(medarbetareLista[0])); return null; })()}
+                      {medarbetareLista.map(m => {
+                        console.log('[STEG1-debug] Skördare map iteration, m =', JSON.stringify(m));
+                        return <option key={m.id} value={m.id}>{m.namn}</option>;
+                      })}
                     </select>
                   </div>
                   {/* Skotare */}
