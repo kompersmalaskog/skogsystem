@@ -447,3 +447,30 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     skotareBalG15h: stTid.g15,
   };
 }
+
+// ── Empty-data (när ingen objekt_id finns att fetcha mot) ────────────────
+export function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
+  return {
+    objektNamn: obj.namn,
+    skordat: 0, skotat: 0, kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning,
+    externSkotning: obj.externSkotning, externForetag: obj.externForetag, externPrisTyp: obj.externPrisTyp, externPris: obj.externPris, externAntal: obj.externAntal,
+    maskiner: [],
+    typ: obj.typ, areal: obj.areal, agare: obj.agare, status: obj.status,
+    skordareModell: obj.skordareModell, skordareStart: obj.skordareStart, skordareSlut: obj.skordareSlut, skordareLastDate: obj.skordareLastDate,
+    skotareModell: obj.skotareModell, skotareStart: obj.skotareStart, skotareSlut: obj.skotareSlut, skotareLastDate: obj.skotareLastDate,
+    operatorSkordare: null, operatorSkotare: null, prodSkordarePerDag: [],
+    skordareG15h: 0, skordareG0: 0, skordareTomgang: 0, skordareKortaStopp: 0, skordareRast: 0, skordareAvbrott: 0,
+    skotareG15h: 0, skotareG0: 0, skotareTomgang: 0, skotareKortaStopp: 0, skotareRast: 0, skotareAvbrott: 0,
+    skordareM3G15h: 0, skordareStammarG15h: 0, skordareMedelstam: 0,
+    skotareM3G15h: 0, skotareLassG15h: 0, skotareSnittlass: 0,
+    tradslag: [], sortiment: [],
+    dieselTotalt: 0, dieselPerM3: 0,
+    skordareL: 0, skordareL_M3: 0, skordareL_G15h: 0,
+    skotareL: 0, skotareL_M3: 0, skotareL_G15h: 0,
+    dieselSkordare: [], dieselSkotare: [],
+    avbrottSkordare: [], avbrottSkordare_totalt: '0h',
+    avbrottSkotare: [], avbrottSkotareTotalt: '0h',
+    antalLass: 0, snittlassM3: 0, lassG15h: 0, skotningsavstand: 0, lassPerDag: [],
+    skordareBalG15h: 0, skotareBalG15h: 0,
+  };
+}
