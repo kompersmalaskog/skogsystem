@@ -1,11 +1,20 @@
 /**
  * Analys av vilotidsbrott enligt arbetstidslagen:
- * - Dygnsvila (§13): minst 11 sammanhängande timmar per 24h-period
- * - Veckovila (§14): minst 36 sammanhängande timmar under VARJE PERIOD om sju dagar
- *   (rullande 7-dagarsfönster — inte kalendervecka)
+ * - Dygnsvila (§13): minst N sammanhängande timmar per 24h-period
+ * - Veckovila (§14): minst M sammanhängande timmar under VARJE PERIOD om P dagar
+ *   (rullande P-dagarsfönster — inte kalendervecka)
  *
- * Funktionen tar emot en lista med arbetsdagar (datum + start_tid + slut_tid)
- * och returnerar en lista över upptäckta brott.
+ * Tröskelvärdena (N, M, P) läses från gs_avtal-tabellen och skickas in som
+ * parameter. Inga hårdkodade siffror i denna fil — kallare som inte kan/vill
+ * läsa avtalet kan skicka in default-värden (11, 36, 7) manuellt.
+ *
+ * Filen är fri från Supabase-imports — ren logik som är testbar utan DB.
+ * Storage-lagret (hämta trösklar, spara brott) ligger i lib/vilobrott-storage.ts.
+ *
+ * OBS: dygnsvila_varning_h (orange "kort vila"-tröskel, default 12h) påverkar
+ * INTE brott-detektering — det är ingen lagöverträdelse, bara en varningszon.
+ * UI läser den direkt från gs_avtal för att färga viloperioder mellan
+ * krav_h och varning_h.
  */
 
 export type Arbetsdag = {
@@ -14,13 +23,19 @@ export type Arbetsdag = {
   slut_tid?: string | null;
 };
 
+export type VilaTrosklar = {
+  dygnsvila_krav_h: number;        // Default 11 enligt §13
+  veckovila_krav_h: number;        // Default 36 enligt §14
+  veckovila_fonster_dagar: number; // Default 7 enligt §14 (rullande fönster)
+};
+
 export type Vilobrott = {
   typ: "dygnsvila" | "veckovila";
   datum: string;        // datum då brottet börjar (YYYY-MM-DD)
   vecka: number;        // ISO veckonummer (för visning)
   år: number;
   vila_h: number;       // antal timmar vila som faktiskt togs
-  krav_h: number;       // 11 eller 36
+  krav_h: number;       // kravet som överträddes (från trosklar)
   beskrivning: string;
 };
 
@@ -101,7 +116,10 @@ function maxGap(windowStart: Date, windowEnd: Date, intervaller: Intervall[]): n
   return max / 3600000;
 }
 
-export function analyseraVilobrott(arbetsdagar: Arbetsdag[]): Vilobrott[] {
+export function analyseraVilobrott(
+  arbetsdagar: Arbetsdag[],
+  trosklar: VilaTrosklar,
+): Vilobrott[] {
   const brott: Vilobrott[] = [];
   const sorterad = [...arbetsdagar]
     .filter(r => r.start_tid && r.slut_tid)
@@ -109,13 +127,15 @@ export function analyseraVilobrott(arbetsdagar: Arbetsdag[]): Vilobrott[] {
 
   if (sorterad.length === 0) return brott;
 
-  /* ─── DYGNSVILA (§13): tid mellan slut_tid på dag N och start_tid på dag N+x ─── */
+  /* ─── DYGNSVILA (§13): tid mellan slut_tid på dag N och start_tid på dag N+x ───
+     Hoppar över par som ligger mer än veckovila_fonster_dagar dagar isär —
+     då finns inget meningsfullt direkt-gap att kalla "dygnsvila". */
   for (let i = 0; i < sorterad.length - 1; i++) {
     const dag1 = sorterad[i], dag2 = sorterad[i + 1];
     const dagarMellan = Math.round(
       (new Date(dag2.datum).getTime() - new Date(dag1.datum).getTime()) / 86400000
     );
-    if (dagarMellan > 7) continue;
+    if (dagarMellan > trosklar.veckovila_fonster_dagar) continue;
 
     const slut1 = tidTillTimmar(dag1.slut_tid!);
     const start2 = tidTillTimmar(dag2.start_tid!);
@@ -124,7 +144,7 @@ export function analyseraVilobrott(arbetsdagar: Arbetsdag[]): Vilobrott[] {
     const d1 = new Date(`${dag1.datum}T${pad(slut1.h)}:${pad(slut1.m)}:00`);
     const d2 = new Date(`${dag2.datum}T${pad(start2.h)}:${pad(start2.m)}:00`);
     const vila = (d2.getTime() - d1.getTime()) / 3600000;
-    if (vila > 0 && vila < 11) {
+    if (vila > 0 && vila < trosklar.dygnsvila_krav_h) {
       const v = isoVecka(new Date(dag1.datum));
       brott.push({
         typ: "dygnsvila",
@@ -132,16 +152,16 @@ export function analyseraVilobrott(arbetsdagar: Arbetsdag[]): Vilobrott[] {
         vecka: v.vecka,
         år: v.år,
         vila_h: Math.round(vila * 10) / 10,
-        krav_h: 11,
-        beskrivning: `Slutade ${dag1.slut_tid?.slice(0, 5)} ${dag1.datum}, började ${dag2.start_tid?.slice(0, 5)} ${dag2.datum} — ${(Math.round(vila * 10) / 10)} h vila (krav 11 h).`,
+        krav_h: trosklar.dygnsvila_krav_h,
+        beskrivning: `Slutade ${dag1.slut_tid?.slice(0, 5)} ${dag1.datum}, började ${dag2.start_tid?.slice(0, 5)} ${dag2.datum} — ${(Math.round(vila * 10) / 10)} h vila (krav ${trosklar.dygnsvila_krav_h} h).`,
       });
     }
   }
 
-  /* ─── VECKOVILA (§14): rullande 7-dagarsfönster ───
+  /* ─── VECKOVILA (§14): rullande fönster ───
      För varje datum N i analyserad period: kolla om fönstret
-     [N-6 dagar 00:00, N 23:59:59] innehåller ett sammanhängande
-     gap på minst 36 h. Om inte → brott på det datumet.
+     [N-(P-1) dagar 00:00, N 23:59:59] innehåller ett sammanhängande
+     gap på minst veckovila_krav_h. Om inte → brott på det datumet.
 
      För att inte rapportera samma "stretch" av brott flera dagar i rad
      slås konsekutiva brott-dagar ihop till ETT brott som visar startdatum
@@ -152,13 +172,17 @@ export function analyseraVilobrott(arbetsdagar: Arbetsdag[]): Vilobrott[] {
 
   const första = new Date(sorterad[0].datum + "T00:00:00");
   const sista = new Date(sorterad[sorterad.length - 1].datum + "T00:00:00");
+  const fönsterDagarBakåt = trosklar.veckovila_fonster_dagar - 1;
 
   type DagligResultat = { datum: string; max_h: number };
   const dagliga: DagligResultat[] = [];
 
   for (let dt = new Date(första); dt.getTime() <= sista.getTime(); dt.setDate(dt.getDate() + 1)) {
-    const windowStart = new Date(dt); windowStart.setDate(dt.getDate() - 6); windowStart.setHours(0, 0, 0, 0);
-    const windowEnd = new Date(dt); windowEnd.setHours(23, 59, 59, 999);
+    const windowStart = new Date(dt);
+    windowStart.setDate(dt.getDate() - fönsterDagarBakåt);
+    windowStart.setHours(0, 0, 0, 0);
+    const windowEnd = new Date(dt);
+    windowEnd.setHours(23, 59, 59, 999);
     const max_h = maxGap(windowStart, windowEnd, intervaller);
     dagliga.push({ datum: datumStr(dt), max_h });
   }
@@ -181,13 +205,13 @@ export function analyseraVilobrott(arbetsdagar: Arbetsdag[]): Vilobrott[] {
       vecka: v.vecka,
       år: v.år,
       vila_h: vilaH,
-      krav_h: 36,
-      beskrivning: `Rullande 7-dagarsfönster ${period}: längsta sammanhängande vila var ${vilaH} h (krav 36 h).`,
+      krav_h: trosklar.veckovila_krav_h,
+      beskrivning: `Rullande ${trosklar.veckovila_fonster_dagar}-dagarsfönster ${period}: längsta sammanhängande vila var ${vilaH} h (krav ${trosklar.veckovila_krav_h} h).`,
     });
   };
 
   for (const r of dagliga) {
-    if (r.max_h < 36) {
+    if (r.max_h < trosklar.veckovila_krav_h) {
       if (!runStart) { runStart = r; runMin = r.max_h; runEnd = r.datum; }
       else { runMin = Math.min(runMin, r.max_h); runEnd = r.datum; }
     } else if (runStart) {
