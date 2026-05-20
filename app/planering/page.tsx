@@ -191,7 +191,7 @@ export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
   // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
-  const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string }>>([]);
+  const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string; partner_user_id: string | null }>>([]);
   const [sendingKlar, setSendingKlar] = useState(false);
 
   // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
@@ -1708,7 +1708,7 @@ export default function PlannerPage() {
     (async () => {
       const { data } = await supabase
         .from('medarbetare')
-        .select('id, namn')
+        .select('id, namn, partner_user_id')
         .order('namn');
       if (data) setMedarbetareLista(data);
     })();
@@ -1769,9 +1769,21 @@ export default function PlannerPage() {
   // STEG 1: tilldelning av skördare/skotare och "Klar — skicka till förare"
   const handleAssignSkordare = useCallback(async (userId: string | null) => {
     if (!valtObjekt?.id) return;
-    setValtObjekt({ ...valtObjekt, assigned_skordare_user_id: userId });
-    await supabase.from('objekt').update({ assigned_skordare_user_id: userId }).eq('id', valtObjekt.id);
-  }, [valtObjekt]);
+
+    // STEG 2: auto-tilldela partner-skotare om skördare har en partner OCH
+    // skotare inte redan är manuellt satt (manuell override vinner alltid).
+    const skotarePatch: { assigned_skotare_user_id?: string } = {};
+    if (userId && !valtObjekt.assigned_skotare_user_id) {
+      const skordare = medarbetareLista.find(m => m.id === userId);
+      if (skordare?.partner_user_id) {
+        skotarePatch.assigned_skotare_user_id = skordare.partner_user_id;
+      }
+    }
+
+    const update = { assigned_skordare_user_id: userId, ...skotarePatch };
+    setValtObjekt({ ...valtObjekt, ...update });
+    await supabase.from('objekt').update(update).eq('id', valtObjekt.id);
+  }, [valtObjekt, medarbetareLista]);
 
   const handleAssignSkotare = useCallback(async (userId: string | null) => {
     if (!valtObjekt?.id) return;
