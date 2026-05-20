@@ -5,7 +5,7 @@ import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
 import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 import type { VilaTrosklar } from "@/lib/vilobrott";
-import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, type VilobrottRad } from "@/lib/vilobrott-storage";
+import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -1210,6 +1210,36 @@ export default function Arbetsrapport() {
     return () => { el?.remove(); };
   }, [arbetsdagToast]);
 
+  // Vilo-detektering vid arbetsdag-mutation. Anropas efter Avsluta pass,
+  // Starta manuellt, och Ändra tider-sheet. Räknar fönstret datum-3 till
+  // datum+3 så att både dygnsvila (par av dagar) och rullande veckovila
+  // fångas. Re-fetchar aktuellaVilobrott direkt så UI:t uppdateras inline.
+  //
+  // TODO: om fönstret spränger årsData-räckvidden (nära årsskifte) missas
+  // eventuella vilobrott i den extrema gränszonen. Mycket ovanligt scenario.
+  // Löses om det visar sig vara ett problem genom att fetcha extra batch.
+  //
+  // TODO: MOM-import (Python-skript) kör inte denna helper automatiskt.
+  // Detektering sker nästa gång föraren öppnar appen. Löses via webhook
+  // eller Edge Function vid HPR/MOM-import.
+  const synkaVilobrott = async (mutationDatum: string) => {
+    if (!medarbetare?.id || !trosklar) return;
+    const fromDt = new Date(mutationDatum); fromDt.setDate(fromDt.getDate() - 3);
+    const toDt = new Date(mutationDatum); toDt.setDate(toDt.getDate() + 3);
+    const fromIso = fromDt.toISOString().slice(0, 10);
+    const toIso = toDt.toISOString().slice(0, 10);
+    const dagarIFonster = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
+    try {
+      await analyseraOchSpara(medarbetare.id, dagarIFonster, trosklar, fromIso, toIso);
+      const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
+      setAktuellaVilobrott(nyaBrott);
+    } catch (err) {
+      // Mutationen är redan sparad i Supabase — vilo-data uppdateras vid
+      // nästa render. Ingen toast/UI-fel, bara console-logg.
+      console.error('Vilo-analys/re-fetch misslyckades efter mutation:', err);
+    }
+  };
+
   // Loading fallback
   if(!medarbetare) return (
     <div style={shell}>
@@ -1696,6 +1726,7 @@ export default function Arbetsrapport() {
                 await supabase.from("arbetsdag").update({ slut_tid: nuT + ":00" }).eq("id", dagData[idagKey]?.id);
                 setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
+                synkaVilobrott(idagKey);
               }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.06)",background:"rgba(255,255,255,0.04)",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                 Avsluta pass
               </button>
@@ -1732,6 +1763,7 @@ export default function Arbetsrapport() {
                     objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || null,
                   }}));
                   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
+                  synkaVilobrott(idagKey);
                 }
               }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.25)",background:"transparent",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                 Starta manuellt
@@ -2307,6 +2339,7 @@ export default function Arbetsrapport() {
                         if (bryterBekräftelse) payload.bekraftad = false;
                         await supabase.from("arbetsdag").update(payload).eq("id", dagData[idagKey].id);
                         setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR, start: tS, slut: tE, rast: tR, ...(bryterBekräftelse ? { bekraftad: false } : {}) } }));
+                        synkaVilobrott(idagKey);
                       }
                     }
                     stäng();
