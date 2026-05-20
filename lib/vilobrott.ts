@@ -25,6 +25,8 @@ export type Arbetsdag = {
 
 export type VilaTrosklar = {
   dygnsvila_krav_h: number;        // Default 11 enligt §13
+  dygnsvila_varning_h: number;     // Default 12 — orange UI-zon mellan krav_h och varning_h.
+                                   // Används INTE av analyseraVilobrott — bara passare för UI.
   veckovila_krav_h: number;        // Default 36 enligt §14
   veckovila_fonster_dagar: number; // Default 7 enligt §14 (rullande fönster)
 };

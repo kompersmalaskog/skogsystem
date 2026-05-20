@@ -3,6 +3,9 @@ import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode }
 import { supabase } from "@/lib/supabase";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
+import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
+import type { VilaTrosklar } from "@/lib/vilobrott";
+import { hamtaAktuellaVilobrott, type VilobrottRad } from "@/lib/vilobrott-storage";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -598,6 +601,12 @@ export default function Arbetsrapport() {
   const [visaRedKmSheet, setVisaRedKmSheet] = useState(false);
   const [redTmpKmM, setRedTmpKmM] = useState(0);
   const [redTmpKmK, setRedTmpKmK] = useState(0);
+  // Vila-trösklar från gs_avtal (krav_h, varning_h, fönster). Läses i samma
+  // Promise.all som gsAvtal — sätts via vilaTrosklarFromAvtal nedan.
+  const [trosklar, setTrosklar] = useState<VilaTrosklar | null>(null);
+  // Vilobrott från DB. aktuella = senaste 14 dagar för Dag-vyn + Min tid-översikten.
+  // periodVilobrott fylls i 1b (Vila-fliken).
+  const [aktuellaVilobrott, setAktuellaVilobrott] = useState<VilobrottRad[]>([]);
   const [visaHelÅrVila, setVisaHelÅrVila] = useState(false);
   const [vilaPeriod, setVilaPeriod] = useState<'7d'|'30d'|'månad'|'år'>('7d');
   const [vilaMånad, setVilaMånad] = useState(new Date().getMonth());
@@ -668,8 +677,22 @@ export default function Arbetsrapport() {
               setPagaendeAktiviteter(res.data.filter((e:any) => e.start_tid && !e.slut_tid && e.datum === idagStr));
             }
           });
+        // Fetch aktuella vilobrott (senaste 14 dagar) för Dag-vyns morgon-
+        // varningar och Min tid-översikten. Tom array är OK.
+        hamtaAktuellaVilobrott(med.data.id)
+          .then(setAktuellaVilobrott)
+          .catch(err => console.error('Vilobrott-fel:', err));
       }
-      if(avt.data) setGsAvtal(avt.data);
+      if(avt.data) {
+        setGsAvtal(avt.data);
+        // Härled trösklarna från samma avtalsrad. Krasch här ska inte rasera
+        // resten av appen — trosklar förblir null, vila-varningar visas inte.
+        try {
+          setTrosklar(vilaTrosklarFromAvtal(avt.data));
+        } catch (err) {
+          console.error('Vila-trösklar saknas i gs_avtal:', err);
+        }
+      }
       if(obj.data) setObjektLista(obj.data.map(o => {
         // object_name är ibland en autogenererad timestamp-sträng (yymmddHHMMSS).
         // Faller då tillbaka till "Skogsägare · Huvudtyp" så föraren ser ett vettigt namn.
@@ -805,6 +828,17 @@ export default function Arbetsrapport() {
     const iv = setInterval(() => setNuTick(t => t + 1), 1000);
     return () => clearInterval(iv);
   }, [pagaendeAktiviteter.length]);
+
+  // Re-fetcha aktuella vilobrott när föraren går till morgon eller mintid.
+  // Fångar både egna mutationer (analyseraOchSpara körs i omgång 2) och
+  // sällsynta admin-vy-ändringar. Initial fetch sker i Promise.all ovan.
+  useEffect(() => {
+    if (steg !== "morgon" && steg !== "dag" && steg !== "meny" && steg !== "mintid") return;
+    if (!medarbetare?.id) return;
+    hamtaAktuellaVilobrott(medarbetare.id)
+      .then(setAktuellaVilobrott)
+      .catch(err => console.error('Vilobrott-fel:', err));
+  }, [steg, medarbetare?.id]);
 
   // Sätt mStart/mSlut till aktuell tid (avrundad till 5 min) när manuell-dag-
   // vyerna öppnas. Gör att defaulten inte blir stale om appen legat öppen.
@@ -945,6 +979,10 @@ export default function Arbetsrapport() {
       }
     };
     poll();
+    // vilobrott pollas INTE — tabellen muteras av klienten själv via
+    // analyseraOchSpara() efter arbetsdag-mutation, eller från admin-vy
+    // (ovanligt). Re-fetch sker vid steg-byte och vid mount. Om det visar
+    // sig att admin-ändringar inte syns i tid kan vi lägga på polling här.
     const interval = setInterval(poll, 60000);
     return () => clearInterval(interval);
   }, [medarbetare?.id, maskinNamnMap, objektLista]);
@@ -1058,38 +1096,42 @@ export default function Arbetsrapport() {
   const isWorking = !!dagData[idagKey];
   const förnamn = medarbetare?.namn?.split(' ')[0] || '';
 
-  // Vila-beräkningar för startsidan
+  // Vila-varningar för startsidan.
+  // - Faktiska brott (obesvarade) hämtas från vilobrott-tabellen via
+  //   aktuellaVilobrott (senaste 14 dagar). En sanning.
+  // - "Kort dygnsvila sedan igår" är en PREDIKTIV förvarning i zonen mellan
+  //   krav_h och varning_h — INTE ett brott. Räknas inline från årsData
+  //   eftersom det baseras på klockslag-nu, inte på en specifik arbetsdag.
   const vilaVarningar: {typ:'röd'|'orange';text:string}[] = [];
-  const tidigastStart = (() => {
-    // Kolla dygnsvila: senaste arbetsdag med slut_tid — exkludera idag
-    // (annars räknas dagens nyss-avslutade pass som "sedan igår").
+
+  for (const b of aktuellaVilobrott) {
+    if (b.besvarat_av_forare) continue;
+    if (b.typ === 'dygnsvila') {
+      vilaVarningar.push({
+        typ: 'röd',
+        text: `Dygnsvila bruten ${b.datum.slice(5)}: ${Number(b.vila_h)}h vila (krav ${Number(b.krav_h)}h)`,
+      });
+    } else if (b.typ === 'veckovila') {
+      vilaVarningar.push({
+        typ: 'orange',
+        text: `Veckovila bruten ${b.datum.slice(5)}: ${Number(b.vila_h)}h vila (krav ${Number(b.krav_h)}h)`,
+      });
+    }
+  }
+
+  // Prediktiv orange "kort dygnsvila sedan igår" — INTE ett brott, bara
+  // förvarning i zonen mellan krav_h och varning_h. Brotts-varningar kommer
+  // från DB-loopen ovan.
+  if (trosklar) {
     const senaste = [...årsData].filter(r=>r.slut_tid && r.datum < idagKey).sort((a,b)=>b.datum.localeCompare(a.datum))[0];
-    if(!senaste) return null;
-    const slutDt = new Date(`${senaste.datum}T${senaste.slut_tid.slice(0,5)}`);
-    const nuDt = new Date();
-    const vilaTim = (nuDt.getTime()-slutDt.getTime())/3600000;
-    if(vilaTim<11) vilaVarningar.push({typ:'röd',text:`Du har bara vilat ${Math.round(vilaTim*10)/10}h sedan igår — dygnsviolan kräver 11h`});
-    else if(vilaTim<12) vilaVarningar.push({typ:'orange',text:`Kort dygnsvila: ${Math.round(vilaTim*10)/10}h sedan igår`});
-    // Beräkna tidigast start imorgon
-    const tidigast = new Date(slutDt.getTime()+11*3600000);
-    return `${String(tidigast.getHours()).padStart(2,'0')}:${String(tidigast.getMinutes()).padStart(2,'0')}`;
-  })();
-  // Veckovila: kolla senaste 7 dagarna
-  (() => {
-    const nu2 = new Date();
-    const senaste7: boolean[] = [];
-    for(let i=0;i<7;i++){
-      const d=new Date(nu2); d.setDate(nu2.getDate()-i);
-      const k=d.toISOString().split('T')[0];
-      senaste7.push(!!årsData.find(r=>r.datum===k&&r.start_tid));
+    if (senaste) {
+      const slutDt = new Date(`${senaste.datum}T${senaste.slut_tid.slice(0,5)}`);
+      const vilaTim = (new Date().getTime() - slutDt.getTime()) / 3600000;
+      if (vilaTim >= trosklar.dygnsvila_krav_h && vilaTim < trosklar.dygnsvila_varning_h) {
+        vilaVarningar.push({typ:'orange',text:`Kort dygnsvila: ${Math.round(vilaTim*10)/10}h sedan igår`});
+      }
     }
-    let maxLedigt=0,led=0;
-    for(const jobbat of senaste7){
-      if(!jobbat) led++; else led=0;
-      maxLedigt=Math.max(maxLedigt,led);
-    }
-    if(maxLedigt<2) vilaVarningar.push({typ:'orange',text:'Du saknar veckovila — 36h krävs per 7 dagar'});
-  })();
+  }
 
   const input = { width:"100%",minHeight:52,padding:"14px 16px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,background:"rgba(255,255,255,0.06)",outline:"none",fontFamily:"inherit",color:"#fff" };
 
@@ -2512,35 +2554,25 @@ export default function Arbetsrapport() {
     const årsKvar = Math.max(0,250-årsÖvH);
     const årsBarFärg = årsÖvH>230?"#ff453a":årsÖvH>200?"#ff9f0a":"#30d158";
 
-    // Varningar
+    // Varningar — vila läses från vilobrott-tabellen (en sanning, samma som
+    // Dag-vyn). Övertidstak ligger kvar inline tills övertidshantering blir
+    // egen uppgift (200/230/250h är separat scope, ej rört av denna refaktor).
     const varningar: {typ:'röd'|'orange';text:string}[] = [];
-    // Dygnsvila
-    const sorterad = [...årsData].filter(r=>r.slut_tid&&r.start_tid).sort((a,b)=>a.datum.localeCompare(b.datum));
-    for(let i=0;i<sorterad.length-1;i++){
-      const dag1=sorterad[i], dag2=sorterad[i+1];
-      const dagarGap=Math.round((new Date(dag2.datum).getTime()-new Date(dag1.datum).getTime())/864e5);
-      if(dagarGap>7) continue;
-      const d1=new Date(`${dag1.datum}T${dag1.slut_tid.slice(0,5)}`);
-      const d2=new Date(`${dag2.datum}T${dag2.start_tid.slice(0,5)}`);
-      const vila=(d2.getTime()-d1.getTime())/3600000;
-      if(vila>0&&vila<11) varningar.push({typ:'röd',text:`Dygnsvila bruten ${dag1.datum.slice(5)}: bara ${Math.round(vila*10)/10}h vila`});
+    for (const b of aktuellaVilobrott) {
+      if (b.besvarat_av_forare) continue;
+      if (b.typ === 'dygnsvila') {
+        varningar.push({
+          typ: 'röd',
+          text: `Dygnsvila bruten ${b.datum.slice(5)}: ${Number(b.vila_h)}h vila (krav ${Number(b.krav_h)}h)`,
+        });
+      } else if (b.typ === 'veckovila') {
+        varningar.push({
+          typ: 'orange',
+          text: `Veckovila bruten ${b.datum.slice(5)}: ${Number(b.vila_h)}h vila (krav ${Number(b.krav_h)}h)`,
+        });
+      }
     }
-    // Veckovila — senaste 7 dagarna
-    const senaste7 = [];
-    for(let i=0;i<7;i++){
-      const d=new Date(nu); d.setDate(nu.getDate()-i);
-      const k=d.toISOString().split('T')[0];
-      const ad=årsData.find(r=>r.datum===k);
-      senaste7.push({datum:k,jobbat:!!(ad?.start_tid)});
-    }
-    // Kolla om det finns 36h ledigt (minst 1.5 dagar i rad utan jobb)
-    let maxLedigt=0, ledigt=0;
-    for(const d of senaste7){
-      if(!d.jobbat) ledigt++; else ledigt=0;
-      maxLedigt=Math.max(maxLedigt,ledigt);
-    }
-    if(maxLedigt<2) varningar.push({typ:'orange',text:'Ingen veckovila senaste 7 dagarna'});
-    // Övertidstak
+    // Övertidstak — separat scope, ej rört
     if(årsÖvH>230) varningar.push({typ:'röd',text:`${årsKvar}h kvar till max 250h övertid`});
     else if(årsÖvH>200) varningar.push({typ:'orange',text:'Du närmar dig övertidstaket (250h)'});
 

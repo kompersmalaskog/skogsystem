@@ -34,7 +34,7 @@ async function main() {
   const idag = new Date().toISOString().slice(0, 10);
   const { data: avtal, error: avtalErr } = await sb
     .from("gs_avtal")
-    .select("dygnsvila_krav_h, veckovila_krav_h, veckovila_fonster_dagar, kompensation_deadline_dagar")
+    .select("dygnsvila_krav_h, dygnsvila_varning_h, veckovila_krav_h, veckovila_fonster_dagar, kompensation_deadline_dagar")
     .lte("giltigt_fran", idag)
     .order("giltigt_fran", { ascending: false })
     .limit(1)
@@ -45,6 +45,7 @@ async function main() {
 
   const trosklar = {
     dygnsvila_krav_h: Number(avtal.dygnsvila_krav_h),
+    dygnsvila_varning_h: Number(avtal.dygnsvila_varning_h),
     veckovila_krav_h: Number(avtal.veckovila_krav_h),
     veckovila_fonster_dagar: avtal.veckovila_fonster_dagar,
   };

@@ -107,6 +107,7 @@ export async function hamtaGiltigtAvtal(datum?: Date): Promise<GsAvtal> {
 export function vilaTrosklarFromAvtal(avtal: GsAvtal): VilaTrosklar {
   const t: VilaTrosklar = {
     dygnsvila_krav_h: Number(avtal.dygnsvila_krav_h),
+    dygnsvila_varning_h: Number(avtal.dygnsvila_varning_h),
     veckovila_krav_h: Number(avtal.veckovila_krav_h),
     veckovila_fonster_dagar: Number(avtal.veckovila_fonster_dagar),
   };
