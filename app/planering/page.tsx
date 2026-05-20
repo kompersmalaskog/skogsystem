@@ -2,7 +2,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { useSearchParams } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
@@ -198,7 +197,12 @@ export default function PlannerPage() {
   // STEG 3: rollbaserad filtrering
   const { medarbetare: currentMedarbetare } = useCurrentMedarbetare();
   const isForare = currentMedarbetare?.roll === 'forare';
-  const searchParams = useSearchParams();
+  // Läs ?objekt=<id> vid mount (window-baserad, undviker useSearchParams
+  // som kräver Suspense-boundary i Next 14 vid build).
+  const [urlObjektId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return new URLSearchParams(window.location.search).get('objekt');
+  });
   const [urlObjektHandled, setUrlObjektHandled] = useState(false);
 
   // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
@@ -1723,16 +1727,15 @@ export default function PlannerPage() {
 
   // STEG 3: läs ?objekt=<id> från URL (från förarvyns "Starta körning") och välj objektet direkt
   useEffect(() => {
-    const objektId = searchParams?.get('objekt');
-    if (!objektId) { setUrlObjektHandled(true); return; }
+    if (!urlObjektId) { setUrlObjektHandled(true); return; }
     if (urlObjektHandled) return;
 
     (async () => {
-      const { data } = await supabase.from('objekt').select('*').eq('id', objektId).maybeSingle();
+      const { data } = await supabase.from('objekt').select('*').eq('id', urlObjektId).maybeSingle();
       if (data) setValtObjekt(data);
       setUrlObjektHandled(true);
     })();
-  }, [searchParams, urlObjektHandled]);
+  }, [urlObjektId, urlObjektHandled]);
 
   // Background geolocation check every 60 seconds
   useEffect(() => {
@@ -8426,7 +8429,6 @@ export default function PlannerPage() {
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
     // STEG 3: undvik flicker när vi öppnar via /planering?objekt=<id> från förarvyn
-    const urlObjektId = searchParams?.get('objekt');
     if (urlObjektId && !urlObjektHandled) {
       return (
         <div style={{
