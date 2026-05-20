@@ -1705,26 +1705,12 @@ export default function PlannerPage() {
 
   // STEG 1: hämta medarbetare-lista för tilldelning av skördare/skotare i plus-menyn
   useEffect(() => {
-    console.log('[STEG1-debug] medarbetare-effekt startar');
     (async () => {
-      try {
-        const { data, error, status, statusText } = await supabase
-          .from('medarbetare')
-          .select('id, namn')
-          .order('namn');
-        console.log('[STEG1-debug] medarbetare-response', { status, statusText, rowCount: data?.length, error });
-        if (data) {
-          console.log('[STEG1-debug] sätter medarbetareLista med', data.length, 'rader.');
-          console.log('[STEG1-debug] första rad keys:', data[0] ? Object.keys(data[0]) : '(tom)');
-          console.log('[STEG1-debug] första rad JSON:', JSON.stringify(data[0]));
-          console.log('[STEG1-debug] alla rader JSON:', JSON.stringify(data));
-          setMedarbetareLista(data);
-        } else {
-          console.warn('[STEG1-debug] ingen data — error:', error);
-        }
-      } catch (e) {
-        console.error('[STEG1-debug] fetch throw:', e);
-      }
+      const { data } = await supabase
+        .from('medarbetare')
+        .select('id, namn')
+        .order('namn');
+      if (data) setMedarbetareLista(data);
     })();
   }, []);
 
@@ -8980,15 +8966,16 @@ export default function PlannerPage() {
                         borderRadius: 10,
                         color: '#fff', fontSize: 15,
                         appearance: 'none', WebkitAppearance: 'none',
+                        // Tvingar browsern att rendera native option-popup i dark mode
+                        // (annars: vita namn på vit popup-bakgrund — bara hover-raden syns)
+                        colorScheme: 'dark',
                         fontFamily: 'inherit',
                       }}
                     >
                       <option value="">Välj förare…</option>
-                      {(() => { console.log('[STEG1-debug] render Skördare-dropdown, medarbetareLista.length =', medarbetareLista.length, 'första:', JSON.stringify(medarbetareLista[0])); return null; })()}
-                      {medarbetareLista.map(m => {
-                        console.log('[STEG1-debug] Skördare map iteration, m =', JSON.stringify(m));
-                        return <option key={m.id} value={m.id}>{m.namn}</option>;
-                      })}
+                      {medarbetareLista.map(m => (
+                        <option key={m.id} value={m.id}>{m.namn}</option>
+                      ))}
                     </select>
                   </div>
                   {/* Skotare */}
@@ -9005,6 +8992,7 @@ export default function PlannerPage() {
                         borderRadius: 10,
                         color: '#fff', fontSize: 15,
                         appearance: 'none', WebkitAppearance: 'none',
+                        colorScheme: 'dark',
                         fontFamily: 'inherit',
                       }}
                     >
