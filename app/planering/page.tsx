@@ -2,10 +2,12 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
 import VolymPanel from './volym-panel'
+import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
@@ -193,6 +195,11 @@ export default function PlannerPage() {
   // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
   const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string; partner_user_id: string | null }>>([]);
   const [sendingKlar, setSendingKlar] = useState(false);
+  // STEG 3: rollbaserad filtrering
+  const { medarbetare: currentMedarbetare } = useCurrentMedarbetare();
+  const isForare = currentMedarbetare?.roll === 'forare';
+  const searchParams = useSearchParams();
+  const [urlObjektHandled, setUrlObjektHandled] = useState(false);
 
   // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
   const screenWakeLockRef = useRef<any>(null);
@@ -1713,6 +1720,19 @@ export default function PlannerPage() {
       if (data) setMedarbetareLista(data);
     })();
   }, []);
+
+  // STEG 3: läs ?objekt=<id> från URL (från förarvyns "Starta körning") och välj objektet direkt
+  useEffect(() => {
+    const objektId = searchParams?.get('objekt');
+    if (!objektId) { setUrlObjektHandled(true); return; }
+    if (urlObjektHandled) return;
+
+    (async () => {
+      const { data } = await supabase.from('objekt').select('*').eq('id', objektId).maybeSingle();
+      if (data) setValtObjekt(data);
+      setUrlObjektHandled(true);
+    })();
+  }, [searchParams, urlObjektHandled]);
 
   // Background geolocation check every 60 seconds
   useEffect(() => {
@@ -8405,8 +8425,22 @@ export default function PlannerPage() {
 
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
+    // STEG 3: undvik flicker när vi öppnar via /planering?objekt=<id> från förarvyn
+    const urlObjektId = searchParams?.get('objekt');
+    if (urlObjektId && !urlObjektHandled) {
+      return (
+        <div style={{
+          minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          background: '#0a0a0a', color: '#a8a8ad', fontSize: 14,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+        }}>
+          Öppnar objekt…
+        </div>
+      );
+    }
     return (
       <ObjektValjare
+        forareFilter={isForare && currentMedarbetare?.id ? { medarbetareId: currentMedarbetare.id } : undefined}
         onSelectObjekt={(obj) => {
           console.log('=== VALT OBJEKT ===');
           console.log('namn:', obj.namn);
@@ -8952,8 +8986,9 @@ export default function PlannerPage() {
               <div style={{ width: 40, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.25)' }} />
             </div>
 
-            {/* AKTUELLT OBJEKT — tilldelning + "Klar — skicka till förare" (STEG 1) */}
-            {valtObjekt && (
+            {/* AKTUELLT OBJEKT — tilldelning + "Klar — skicka till förare" (STEG 1)
+                STEG 3: döljs helt för förare — planerarens funktion */}
+            {!isForare && valtObjekt && (
               <div style={{ marginTop: 12 }}>
                 <div style={{
                   padding: '8px 12px 6px',

@@ -10,9 +10,13 @@ const supabase = createClient(
 interface ObjektValjareProps {
   onSelectObjekt: (objekt: any) => void;
   onNavigera: (lat: number, lng: number) => void;
+  /** Sätts av planeringsvyn när inloggad är förare → filtrera listan på
+   *  tilldelad till denna medarbetare + status ('planerad'|'pagaende'),
+   *  och dölj Oplanerade/Planerade-tabs + filter-pills + footer-totalen. */
+  forareFilter?: { medarbetareId: string };
 }
 
-export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValjareProps) {
+export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter }: ObjektValjareProps) {
   const [activeTab, setActiveTab] = useState<'oplanerade' | 'planerade'>('oplanerade');
   const [filter, setFilter] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
   const [selectedObj, setSelectedObj] = useState<any>(null);
@@ -136,9 +140,19 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
 
   const oplanerade = objekt.filter(o => !o.ar || !o.manad);
   const planerade = objekt.filter(o => o.ar && o.manad);
-  const allData = activeTab === 'oplanerade' ? oplanerade : planerade;
 
-  let lista = filter === 'alla' ? allData : allData.filter(o => o.typ === filter);
+  let lista: any[];
+  if (forareFilter) {
+    // Förar-läge: bara objekt tilldelade till denna medarbetare + aktivt status.
+    lista = objekt.filter(o =>
+      (o.assigned_skordare_user_id === forareFilter.medarbetareId ||
+       o.assigned_skotare_user_id === forareFilter.medarbetareId) &&
+      (o.status === 'planerad' || o.status === 'pagaende')
+    );
+  } else {
+    const allData = activeTab === 'oplanerade' ? oplanerade : planerade;
+    lista = filter === 'alla' ? allData : allData.filter(o => o.typ === filter);
+  }
   if (userPos) {
     lista = [...lista].sort((a, b) => {
       const distA = (typeof roadDist[a.id] === 'number' ? roadDist[a.id] as number : null) ?? getDistance(a.lat, a.lng) ?? 999;
@@ -179,82 +193,86 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
         </div>
       </div>
 
-      {/* Filter */}
-      <div style={{
-        display: 'flex',
-        gap: '8px',
-        padding: '16px 20px',
-        borderBottom: '1px solid #222',
-      }}>
-        {[
-          { key: 'alla', label: 'Alla' },
-          { key: 'slutavverkning', label: 'Slutavverkning' },
-          { key: 'gallring', label: 'Gallring' },
-        ].map((f) => (
+      {/* Filter — döljs för förare */}
+      {!forareFilter && (
+        <div style={{
+          display: 'flex',
+          gap: '8px',
+          padding: '16px 20px',
+          borderBottom: '1px solid #222',
+        }}>
+          {[
+            { key: 'alla', label: 'Alla' },
+            { key: 'slutavverkning', label: 'Slutavverkning' },
+            { key: 'gallring', label: 'Gallring' },
+          ].map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => setFilter(f.key as any)}
+              aria-pressed={filter === f.key}
+              style={{
+                minHeight: '44px',
+                padding: '10px 20px',
+                borderRadius: '22px',
+                border: filter === f.key ? '1px solid #fff' : '1px solid #555',
+                background: filter === f.key ? '#fff' : 'transparent',
+                color: filter === f.key ? '#000' : '#fff',
+                fontSize: '14px',
+                fontWeight: '500',
+                cursor: 'pointer',
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Tabs — döljs för förare */}
+      {!forareFilter && (
+        <div style={{
+          display: 'flex',
+          borderBottom: '1px solid #222',
+        }}>
           <button
-            key={f.key}
             type="button"
-            onClick={() => setFilter(f.key as any)}
-            aria-pressed={filter === f.key}
+            onClick={() => setActiveTab('oplanerade')}
+            aria-pressed={activeTab === 'oplanerade'}
             style={{
-              minHeight: '44px',
-              padding: '10px 20px',
-              borderRadius: '22px',
-              border: filter === f.key ? '1px solid #fff' : '1px solid #555',
-              background: filter === f.key ? '#fff' : 'transparent',
-              color: filter === f.key ? '#000' : '#fff',
+              flex: 1,
+              padding: '16px',
+              background: 'none',
+              border: 'none',
+              color: activeTab === 'oplanerade' ? '#fff' : '#a8a8ad',
               fontSize: '14px',
               fontWeight: '500',
               cursor: 'pointer',
+              borderBottom: activeTab === 'oplanerade' ? '2px solid #fff' : '2px solid transparent',
             }}
           >
-            {f.label}
+            Oplanerade ({oplanerade.length})
           </button>
-        ))}
-      </div>
-
-      {/* Tabs */}
-      <div style={{
-        display: 'flex',
-        borderBottom: '1px solid #222',
-      }}>
-        <button
-          type="button"
-          onClick={() => setActiveTab('oplanerade')}
-          aria-pressed={activeTab === 'oplanerade'}
-          style={{
-            flex: 1,
-            padding: '16px',
-            background: 'none',
-            border: 'none',
-            color: activeTab === 'oplanerade' ? '#fff' : '#a8a8ad',
-            fontSize: '14px',
-            fontWeight: '500',
-            cursor: 'pointer',
-            borderBottom: activeTab === 'oplanerade' ? '2px solid #fff' : '2px solid transparent',
-          }}
-        >
-          Oplanerade ({oplanerade.length})
-        </button>
-        <button
-          type="button"
-          onClick={() => setActiveTab('planerade')}
-          aria-pressed={activeTab === 'planerade'}
-          style={{
-            flex: 1,
-            padding: '16px',
-            background: 'none',
-            border: 'none',
-            color: activeTab === 'planerade' ? '#fff' : '#a8a8ad',
-            fontSize: '14px',
-            fontWeight: '500',
-            cursor: 'pointer',
-            borderBottom: activeTab === 'planerade' ? '2px solid #fff' : '2px solid transparent',
-          }}
-        >
-          Planerade ({planerade.length})
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('planerade')}
+            aria-pressed={activeTab === 'planerade'}
+            style={{
+              flex: 1,
+              padding: '16px',
+              background: 'none',
+              border: 'none',
+              color: activeTab === 'planerade' ? '#fff' : '#a8a8ad',
+              fontSize: '14px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              borderBottom: activeTab === 'planerade' ? '2px solid #fff' : '2px solid transparent',
+            }}
+          >
+            Planerade ({planerade.length})
+          </button>
+        </div>
+      )}
 
       {/* Lista */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
@@ -359,20 +377,22 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera }: ObjektValj
         )}
       </div>
 
-      {/* Footer med total */}
-      <div style={{
-        padding: '16px 20px',
-        borderTop: '1px solid rgba(255,255,255,0.1)',
-        backgroundColor: '#0a0a0a',
-        textAlign: 'center',
-      }}>
-        <span style={{ color: '#a8a8ad', fontSize: '15px' }}>
-          {activeTab === 'oplanerade' ? 'Oplanerat' : 'Planerat'} totalt:{' '}
-        </span>
-        <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>
-          {filtreratTotal.toLocaleString()} m³
-        </span>
-      </div>
+      {/* Footer med total — döljs för förare (planerar-info, inte förar-info) */}
+      {!forareFilter && (
+        <div style={{
+          padding: '16px 20px',
+          borderTop: '1px solid rgba(255,255,255,0.1)',
+          backgroundColor: '#0a0a0a',
+          textAlign: 'center',
+        }}>
+          <span style={{ color: '#a8a8ad', fontSize: '15px' }}>
+            {activeTab === 'oplanerade' ? 'Oplanerat' : 'Planerat'} totalt:{' '}
+          </span>
+          <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>
+            {filtreratTotal.toLocaleString()} m³
+          </span>
+        </div>
+      )}
 
       {/* Bottom Sheet */}
       {selectedObj && (
