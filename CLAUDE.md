@@ -156,7 +156,7 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 - `hpr_stammar` — stamdata (hpr_fil_id, stam_nummer, trädslag, dbh, lat, lng, antal_stockar, total_volym, bio_energy_adaption, sortiment). UNIQUE(hpr_fil_id, stam_nummer)
 
 ### Operativa tabeller
-- `objekt` — objekt med planeringsstatus
+- `objekt` — objekt med planeringsstatus. Status-värden (ej CHECK-constrained): `oplanerad` (default för nya/importerade), `planerad` (= "klar att köra", sätts av planeringsvyns "Klar — skicka till förare"-knapp + `klar_skickad_timestamp`), `pagaende`, `avslutad`, plus äldre värden (`skordning`, `skotning`, `klar`) som översiktsvyn fortfarande använder. Tilldelningsfält: `assigned_skordare_user_id`, `assigned_skotare_user_id` (FK → medarbetare.id, ON DELETE SET NULL). Livscykel-timestamps: `klar_skickad_timestamp`, `pagaende_startad_timestamp`, `avslutad_timestamp`.
 - `maskiner` — maskinregister
 - `maskin_service` — serviceloggar
 - `maskin_logg` — maskinaktivitetslogg

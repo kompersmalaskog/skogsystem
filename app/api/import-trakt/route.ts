@@ -382,7 +382,7 @@ export async function POST(request: NextRequest) {
       ar,
       manad,
       ordning: 1,
-      status: 'planerad',
+      status: 'oplanerad',
       kalla: 'traktdirektiv'
     };
 
