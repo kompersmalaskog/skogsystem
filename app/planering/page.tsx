@@ -8966,15 +8966,15 @@ export default function PlannerPage() {
                         borderRadius: 10,
                         color: '#fff', fontSize: 15,
                         appearance: 'none', WebkitAppearance: 'none',
-                        // Tvingar browsern att rendera native option-popup i dark mode
-                        // (annars: vita namn på vit popup-bakgrund — bara hover-raden syns)
                         colorScheme: 'dark',
                         fontFamily: 'inherit',
                       }}
                     >
-                      <option value="">Välj förare…</option>
+                      {/* Inline color+background på <option> krävs för att popup-listan
+                          ska vara läsbar i Edge — colorScheme: 'dark' räcker inte där. */}
+                      <option value="" style={{ color: '#fff', background: '#1a1a1a' }}>Välj förare…</option>
                       {medarbetareLista.map(m => (
-                        <option key={m.id} value={m.id}>{m.namn}</option>
+                        <option key={m.id} value={m.id} style={{ color: '#fff', background: '#1a1a1a' }}>{m.namn}</option>
                       ))}
                     </select>
                   </div>
@@ -8996,9 +8996,9 @@ export default function PlannerPage() {
                         fontFamily: 'inherit',
                       }}
                     >
-                      <option value="">Välj förare…</option>
+                      <option value="" style={{ color: '#fff', background: '#1a1a1a' }}>Välj förare…</option>
                       {medarbetareLista.map(m => (
-                        <option key={m.id} value={m.id}>{m.namn}</option>
+                        <option key={m.id} value={m.id} style={{ color: '#fff', background: '#1a1a1a' }}>{m.namn}</option>
                       ))}
                     </select>
                   </div>
