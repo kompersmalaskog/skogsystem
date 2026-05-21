@@ -75,10 +75,13 @@ async function main() {
   const exempelBeskrivningar: { medarbetare: string; typ: string; datum: string; beskrivning: string }[] = [];
 
   for (const med of medarbetare!) {
+    // Begränsa till 2026 — data före 2026-01-01 är från utvecklingsfasen
+    // och har trasiga tider som skulle ge falska vilobrott.
     const { data: dagar, error: dagErr } = await sb
       .from("arbetsdag")
       .select("datum, start_tid, slut_tid")
       .eq("medarbetare_id", med.id)
+      .gte("datum", "2026-01-01")
       .not("start_tid", "is", null)
       .not("slut_tid", "is", null)
       .order("datum");
