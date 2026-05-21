@@ -263,8 +263,8 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
   }
 
   return (
-    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, overflowY: 'auto', background: '#000' }}>
-      <div style={{ maxWidth: 440, margin: '0 auto', minHeight: '100%' }}>
+    <div style={{ height: 'calc(100dvh - 56px - env(safe-area-inset-top))', overflowY: 'auto', background: '#000' }}>
+      <div className="max-w-app mx-auto" style={{ minHeight: '100%' }}>
         <UppfoljningVy data={data} onBack={onBack} />
       </div>
     </div>
@@ -632,8 +632,8 @@ export default function UppfoljningPage() {
   const filterLabel = oskotatFilter ? ({ slutavverkning: 'Slutavverkning', gallring: 'Gallring', grot: 'Grot' } as const)[oskotatFilter] : '';
 
   return (
-    <div style={{ position: 'fixed', top: 56, left: 0, right: 0, bottom: 0, background: bg, color: text, fontFamily: ff, WebkitFontSmoothing: 'antialiased', overflowY: 'auto' }}>
-      <div style={{ maxWidth: 440, margin: '0 auto', minHeight: '100%' }}>
+    <div style={{ height: 'calc(100dvh - 56px - env(safe-area-inset-top))', overflowY: 'auto', background: bg, color: text, fontFamily: ff, WebkitFontSmoothing: 'antialiased' }}>
+      <div className="max-w-app mx-auto" style={{ minHeight: '100%' }}>
         <div style={{ padding: '20px 20px 8px' }}>
           <h1 style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.8px', margin: 0 }}>Uppföljning</h1>
         </div>
