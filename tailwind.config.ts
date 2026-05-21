@@ -56,6 +56,12 @@ const config = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      maxWidth: {
+        // Standard-bredd för app-vyernas centrala kolumn (telefon-först).
+        // Delas mellan flera vyer — om iPad-/desktop-layouten i augusti
+        // ska bredda kolumnen ändras värdet här på ett ställe.
+        app: "440px",
+      },
     },
   },
   plugins: [require("tailwindcss-animate")],
