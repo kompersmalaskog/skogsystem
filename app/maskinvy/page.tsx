@@ -1,15 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Maskinvy from '../../maskinvy'
 import SkotareVy from '../../skotare'
 import MaskinLogg from './MaskinLogg'
 import Jamforelse from './Jamforelse'
+import OversiktNy from './OversiktNy'
 
 type Mode = 'skordare' | 'skotare' | 'jamforelse'
 
 export default function MaskinvyPage() {
   const [mode, setMode] = useState<Mode>('skordare')
+  const [ny, setNy] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    setNy(params.get('ny') === '1')
+  }, [])
 
   return (
     <>
@@ -91,9 +99,11 @@ export default function MaskinvyPage() {
       ) : (
         <>
           <div className="mv-wrapper">
-            {mode === 'skordare' ? <Maskinvy /> : <SkotareVy />}
+            {mode === 'skordare'
+              ? (ny ? <OversiktNy /> : <Maskinvy />)
+              : <SkotareVy />}
           </div>
-          <MaskinLogg mode={mode} />
+          {!(ny && mode === 'skordare') && <MaskinLogg mode={mode} />}
         </>
       )}
     </>
