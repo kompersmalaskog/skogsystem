@@ -215,15 +215,28 @@ export default function OversiktNy() {
 
   const { label } = getPeriodRange(period, offset)
 
+  // Skriv maskinnamn + period till global TopBar (samma mönster som gamla vyn)
+  useEffect(() => {
+    const el = document.getElementById('topbar-title')
+    if (!el) return
+    el.textContent = `${maskin.namn} — ${label}`
+    return () => { el.textContent = 'Maskinvy' }
+  }, [maskin.namn, label])
+
   return (
     <div style={{
       position: 'fixed', top: 56, left: 0, right: 0, bottom: 0,
       overflow: 'auto', background: C.bg, color: C.text,
       fontFamily: FONT, fontFeatureSettings: '"tnum"',
     }}>
+      {/* ── Sticky header: topbar + period-nav + V/M/K/Å ── */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 5,
+        background: C.bg,
+        borderBottom: `0.5px solid ${C.divider}`,
+      }}>
       {/* ── Topbar: maskinnamn centrerat ── */}
       <div style={{
-        borderBottom: `0.5px solid ${C.divider}`,
         padding: '14px 16px', textAlign: 'center', position: 'relative',
       }}>
         <button
@@ -316,6 +329,7 @@ export default function OversiktNy() {
           ))}
         </div>
       </div>
+      </div>{/* end sticky header */}
 
       {/* ── Innehåll ── */}
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 16px 80px' }}>
@@ -427,7 +441,7 @@ function TimeDistribution({ data, loading }: { data: Data | null; loading: boole
     { key: 'proc', label: 'Process',     color: C.green  },
     { key: 'terr', label: 'Kör',         color: C.blue   },
     { key: 'kort', label: 'Korta stopp', color: C.purple },
-    { key: 'avbr', label: 'Avbrott',     color: C.orange },
+    { key: 'avbr', label: 'Avbrott',     color: C.red    },
     { key: 'rast', label: 'Rast',        color: C.muted  },
   ] as const
 
