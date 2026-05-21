@@ -48,6 +48,7 @@ async function main() {
     dygnsvila_varning_h: Number(avtal.dygnsvila_varning_h),
     veckovila_krav_h: Number(avtal.veckovila_krav_h),
     veckovila_fonster_dagar: avtal.veckovila_fonster_dagar,
+    kompensation_deadline_dagar: avtal.kompensation_deadline_dagar,
   };
   const deadlineDagar = avtal.kompensation_deadline_dagar;
 

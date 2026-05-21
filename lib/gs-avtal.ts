@@ -110,6 +110,7 @@ export function vilaTrosklarFromAvtal(avtal: GsAvtal): VilaTrosklar {
     dygnsvila_varning_h: Number(avtal.dygnsvila_varning_h),
     veckovila_krav_h: Number(avtal.veckovila_krav_h),
     veckovila_fonster_dagar: Number(avtal.veckovila_fonster_dagar),
+    kompensation_deadline_dagar: Number(avtal.kompensation_deadline_dagar),
   };
   for (const [key, value] of Object.entries(t)) {
     if (!Number.isFinite(value)) {

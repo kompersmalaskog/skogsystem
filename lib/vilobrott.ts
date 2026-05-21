@@ -24,11 +24,13 @@ export type Arbetsdag = {
 };
 
 export type VilaTrosklar = {
-  dygnsvila_krav_h: number;        // Default 11 enligt §13
-  dygnsvila_varning_h: number;     // Default 12 — orange UI-zon mellan krav_h och varning_h.
-                                   // Används INTE av analyseraVilobrott — bara passare för UI.
-  veckovila_krav_h: number;        // Default 36 enligt §14
-  veckovila_fonster_dagar: number; // Default 7 enligt §14 (rullande fönster)
+  dygnsvila_krav_h: number;            // Default 11 enligt §13
+  dygnsvila_varning_h: number;         // Default 12 — orange UI-zon mellan krav_h och varning_h.
+                                       // Används INTE av analyseraVilobrott — bara passare för UI.
+  veckovila_krav_h: number;            // Default 36 enligt §14
+  veckovila_fonster_dagar: number;     // Default 7 enligt §14 (rullande fönster)
+  kompensation_deadline_dagar: number; // Default 14 — för deadline-beräkning vid orsak-svar.
+                                       // Används INTE av analyseraVilobrott — bara passare.
 };
 
 export type Vilobrott = {
@@ -65,6 +67,14 @@ function pad(n: number) { return String(n).padStart(2, "0"); }
 
 function datumStr(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** "19 maj" — svenska datum för läsbara brott-beskrivningar.
+ *  YYYY-MM-DD finns ändå i beskrivningen via klockslag-kontext om man behöver
+ *  exakt år; vid revision matchar man mot brott.datum-fältet i DB. */
+function formatDatumKort(datum: string): string {
+  const d = new Date(datum);
+  return d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long' });
 }
 
 /**
@@ -155,7 +165,7 @@ export function analyseraVilobrott(
         år: v.år,
         vila_h: Math.round(vila * 10) / 10,
         krav_h: trosklar.dygnsvila_krav_h,
-        beskrivning: `Slutade ${dag1.slut_tid?.slice(0, 5)} ${dag1.datum}, började ${dag2.start_tid?.slice(0, 5)} ${dag2.datum} — ${(Math.round(vila * 10) / 10)} h vila (krav ${trosklar.dygnsvila_krav_h} h).`,
+        beskrivning: `Du slutade ${dag1.slut_tid?.slice(0, 5)} den ${formatDatumKort(dag1.datum)} och började ${dag2.start_tid?.slice(0, 5)} den ${formatDatumKort(dag2.datum)} — ${(Math.round(vila * 10) / 10)} h vila, kravet är ${trosklar.dygnsvila_krav_h} h.`,
       });
     }
   }
@@ -198,9 +208,10 @@ export function analyseraVilobrott(
     if (!runStart) return;
     const v = isoVecka(new Date(runStart.datum));
     const vilaH = Math.round(runMin * 10) / 10;
-    const period = runEnd && runEnd !== runStart.datum
-      ? `${runStart.datum} – ${runEnd}`
-      : runStart.datum;
+    const startTxt = formatDatumKort(runStart.datum);
+    const slutTxt = runEnd && runEnd !== runStart.datum
+      ? formatDatumKort(runEnd)
+      : startTxt;
     brott.push({
       typ: "veckovila",
       datum: runStart.datum,
@@ -208,7 +219,7 @@ export function analyseraVilobrott(
       år: v.år,
       vila_h: vilaH,
       krav_h: trosklar.veckovila_krav_h,
-      beskrivning: `Rullande ${trosklar.veckovila_fonster_dagar}-dagarsfönster ${period}: längsta sammanhängande vila var ${vilaH} h (krav ${trosklar.veckovila_krav_h} h).`,
+      beskrivning: `Mellan ${startTxt} och ${slutTxt} hade du som mest ${vilaH} h sammanhängande vila — kravet är ${trosklar.veckovila_krav_h} h i rullande ${trosklar.veckovila_fonster_dagar}-dagarsfönster.`,
     });
   };
 
