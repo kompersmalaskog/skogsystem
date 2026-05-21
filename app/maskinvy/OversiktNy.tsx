@@ -31,6 +31,30 @@ function fmtSv(num: number | null | undefined, dec: number = 0): string {
   return num.toLocaleString('sv-SE', { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
 
+// Format för deltabadgar: "+8,2 %" / "−5,1 %" (unicode minus U+2212)
+function fmtSvDelta(pct: number): string {
+  const abs = Math.abs(pct).toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+  if (pct > 0) return `+${abs} %`
+  if (pct < 0) return `−${abs} %`
+  return `${abs} %`
+}
+
+type Delta = { pct: number; direction: 'up' | 'down' | 'flat' }
+
+// Returnerar null om jämförelse inte kan göras (saknad föregående data).
+// lowerIsBetter inverterar färg-riktningen (för Bränsle/m³).
+function calcDelta(current: number | null, previous: number | null, lowerIsBetter = false): Delta | null {
+  if (current === null || previous === null) return null
+  if (!isFinite(current) || !isFinite(previous)) return null
+  if (previous === 0) return null
+  const pct = (current - previous) / previous * 100
+  let direction: Delta['direction']
+  if (pct === 0) direction = 'flat'
+  else if (lowerIsBetter) direction = pct < 0 ? 'up' : 'down'
+  else direction = pct > 0 ? 'up' : 'down'
+  return { pct, direction }
+}
+
 // ─────────────────────────────────────────────────────────────
 // Maskiner + period
 // ─────────────────────────────────────────────────────────────
@@ -200,16 +224,24 @@ export default function OversiktNy() {
   const [period, setPeriod] = useState<Period>('M')
   const [offset, setOffset] = useState(0)
   const [data, setData] = useState<Data | null>(null)
+  const [prevData, setPrevData] = useState<Data | null>(null)
   const [loading, setLoading] = useState(false)
   const [maskinOpen, setMaskinOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    const { start, end } = getPeriodRange(period, offset)
-    fetchData(maskin.id, start, end)
-      .then(d => { if (!cancelled) { setData(d); setLoading(false) } })
-      .catch(() => { if (!cancelled) setLoading(false) })
+    const cur = getPeriodRange(period, offset)
+    const prev = getPeriodRange(period, offset - 1)
+    Promise.all([
+      fetchData(maskin.id, cur.start,  cur.end ).catch(() => null),
+      fetchData(maskin.id, prev.start, prev.end).catch(() => null),
+    ]).then(([curD, prevD]) => {
+      if (cancelled) return
+      setData(curD)
+      setPrevData(prevD)
+      setLoading(false)
+    })
     return () => { cancelled = true }
   }, [maskin.id, period, offset])
 
@@ -333,8 +365,12 @@ export default function OversiktNy() {
 
       {/* ── Innehåll ── */}
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 16px 80px' }}>
-        <HeroCard value={data?.produktivitet ?? null} loading={loading} />
-        <KpiList data={data} loading={loading} />
+        <HeroCard
+          value={data?.produktivitet ?? null}
+          prev={prevData?.produktivitet ?? null}
+          loading={loading}
+        />
+        <KpiList data={data} prev={prevData} loading={loading} />
         <TimeDistribution data={data} loading={loading} />
         <OperatorList operatorer={data?.operatorer ?? []} loading={loading} />
       </div>
@@ -343,9 +379,35 @@ export default function OversiktNy() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// DeltaBadge — diskret text bredvid värdet
+// ─────────────────────────────────────────────────────────────
+function DeltaBadge({
+  current, previous, lowerIsBetter = false, size = 'sm',
+}: {
+  current: number | null
+  previous: number | null
+  lowerIsBetter?: boolean
+  size?: 'sm' | 'md'
+}) {
+  const d = calcDelta(current, previous, lowerIsBetter)
+  const fontSize = size === 'md' ? 13 : 11
+  if (d === null) {
+    return (
+      <span style={{ fontSize, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>—</span>
+    )
+  }
+  const color = d.direction === 'up' ? C.green : d.direction === 'down' ? C.red : C.muted
+  return (
+    <span style={{ fontSize, fontWeight: 500, color, fontVariantNumeric: 'tabular-nums' }}>
+      {fmtSvDelta(d.pct)}
+    </span>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
 // Hero — Produktivitet
 // ─────────────────────────────────────────────────────────────
-function HeroCard({ value, loading }: { value: number | null; loading: boolean }) {
+function HeroCard({ value, prev, loading }: { value: number | null; prev: number | null; loading: boolean }) {
   return (
     <div style={{ background: C.card, borderRadius: 14, padding: '22px 22px 18px', marginBottom: 14 }}>
       <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 12, letterSpacing: -0.1 }}>
@@ -361,12 +423,15 @@ function HeroCard({ value, loading }: { value: number | null; loading: boolean }
         <div style={{ fontSize: 14, color: C.muted }}>m³/G15h</div>
       </div>
 
-      {/* Förändring vs föregående period — platshållare tills trenddata finns */}
-      <div style={{ marginTop: 14, fontSize: 12, color: C.dim }}>
-        Ingen jämförelse än
+      {/* Förändring vs föregående period av samma typ */}
+      <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+        {loading
+          ? <span style={{ fontSize: 13, color: C.dim }}>—</span>
+          : <DeltaBadge current={value} previous={prev} size="md" />}
+        <span style={{ fontSize: 11, color: C.dim }}>mot föregående period</span>
       </div>
 
-      {/* 6-perioders kurva — platshållare */}
+      {/* 6-perioders kurva — platshållare (steg 2b) */}
       <div style={{
         marginTop: 16, height: 60, borderRadius: 8,
         background: 'rgba(255,255,255,0.025)',
@@ -382,15 +447,22 @@ function HeroCard({ value, loading }: { value: number | null; loading: boolean }
 // ─────────────────────────────────────────────────────────────
 // KPI-lista — Volym / Stammar / Medelstam / Bränsle/m³ / Stammar/G15h
 // ─────────────────────────────────────────────────────────────
-type KpiRow = { label: string; value: number | null; unit: string; dec: number }
+type KpiRow = {
+  label: string
+  cur: number | null
+  prev: number | null
+  unit: string
+  dec: number
+  lowerIsBetter: boolean
+}
 
-function KpiList({ data, loading }: { data: Data | null; loading: boolean }) {
+function KpiList({ data, prev, loading }: { data: Data | null; prev: Data | null; loading: boolean }) {
   const rows: KpiRow[] = [
-    { label: 'Volym',         value: data?.volym ?? null,           unit: 'm³sub',   dec: 0 },
-    { label: 'Stammar',       value: data?.stammar ?? null,         unit: 'st',      dec: 0 },
-    { label: 'Medelstam',     value: data?.medelstam ?? null,       unit: 'm³/stam', dec: 2 },
-    { label: 'Bränsle/m³',    value: data?.branslePerM3 ?? null,    unit: 'L/m³',    dec: 2 },
-    { label: 'Stammar/G15h',  value: data?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1 },
+    { label: 'Volym',         cur: data?.volym ?? null,           prev: prev?.volym ?? null,           unit: 'm³sub',   dec: 0, lowerIsBetter: false },
+    { label: 'Stammar',       cur: data?.stammar ?? null,         prev: prev?.stammar ?? null,         unit: 'st',      dec: 0, lowerIsBetter: false },
+    { label: 'Medelstam',     cur: data?.medelstam ?? null,       prev: prev?.medelstam ?? null,       unit: 'm³/stam', dec: 2, lowerIsBetter: false },
+    { label: 'Bränsle/m³',    cur: data?.branslePerM3 ?? null,    prev: prev?.branslePerM3 ?? null,    unit: 'L/m³',    dec: 2, lowerIsBetter: true  },
+    { label: 'Stammar/G15h',  cur: data?.stammarPerG15h ?? null,  prev: prev?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1, lowerIsBetter: false },
   ]
 
   return (
@@ -401,7 +473,7 @@ function KpiList({ data, loading }: { data: Data | null; loading: boolean }) {
           type="button"
           style={{
             display: 'grid',
-            gridTemplateColumns: '1fr auto 48px 56px 14px',
+            gridTemplateColumns: '1fr auto 56px 56px 14px',
             gap: 14, alignItems: 'center',
             padding: '14px 16px',
             borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
@@ -412,14 +484,18 @@ function KpiList({ data, loading }: { data: Data | null; loading: boolean }) {
           <div style={{ fontSize: 15, color: C.text }}>{r.label}</div>
 
           <div style={{ fontSize: 16, fontWeight: 500, color: C.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-            {loading ? '—' : (r.value !== null ? fmtSv(r.value, r.dec) : '—')}
+            {loading ? '—' : (r.cur !== null ? fmtSv(r.cur, r.dec) : '—')}
             <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>{r.unit}</span>
           </div>
 
-          {/* Delta-badge — platshållare */}
-          <div style={{ fontSize: 11, color: C.dim, textAlign: 'right' }}>—</div>
+          {/* Delta-badge mot föregående period */}
+          <div style={{ textAlign: 'right' }}>
+            {loading
+              ? <span style={{ fontSize: 11, color: C.dim }}>—</span>
+              : <DeltaBadge current={r.cur} previous={r.prev} lowerIsBetter={r.lowerIsBetter} size="sm" />}
+          </div>
 
-          {/* Mini-sparkline — platshållare */}
+          {/* Mini-sparkline — platshållare (steg 2b) */}
           <div style={{
             height: 18, color: C.dim, fontSize: 10,
             display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
