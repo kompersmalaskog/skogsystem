@@ -201,7 +201,10 @@ export default function PlannerPage() {
   // som kräver Suspense-boundary i Next 14 vid build).
   const [urlObjektId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
-    return new URLSearchParams(window.location.search).get('objekt');
+    const search = window.location.search;
+    const objektId = new URLSearchParams(search).get('objekt');
+    console.log('[STEG3-debug] lazy useState init, location.search =', JSON.stringify(search), 'parsed objektId =', objektId);
+    return objektId;
   });
   const [urlObjektHandled, setUrlObjektHandled] = useState(false);
 
@@ -1727,12 +1730,24 @@ export default function PlannerPage() {
 
   // STEG 3: läs ?objekt=<id> från URL (från förarvyns "Starta körning") och välj objektet direkt
   useEffect(() => {
-    if (!urlObjektId) { setUrlObjektHandled(true); return; }
-    if (urlObjektHandled) return;
+    console.log('[STEG3-debug] deeplink-effekt körs, urlObjektId =', urlObjektId, 'urlObjektHandled =', urlObjektHandled, 'live location.search =', typeof window !== 'undefined' ? window.location.search : '(no window)');
+    if (!urlObjektId) {
+      console.log('[STEG3-debug] inget urlObjektId — markerar handled');
+      setUrlObjektHandled(true); return;
+    }
+    if (urlObjektHandled) {
+      console.log('[STEG3-debug] redan handled — skippar fetch');
+      return;
+    }
 
     (async () => {
-      const { data } = await supabase.from('objekt').select('*').eq('id', urlObjektId).maybeSingle();
-      if (data) setValtObjekt(data);
+      console.log('[STEG3-debug] fetchar objekt id:', urlObjektId);
+      const { data, error } = await supabase.from('objekt').select('*').eq('id', urlObjektId).maybeSingle();
+      console.log('[STEG3-debug] fetch-resultat: data.id =', data?.id, 'data.namn =', data?.namn, 'error =', error?.message);
+      if (data) {
+        console.log('[STEG3-debug] anropar setValtObjekt med', data.namn);
+        setValtObjekt(data);
+      }
       setUrlObjektHandled(true);
     })();
   }, [urlObjektId, urlObjektHandled]);
@@ -8428,6 +8443,7 @@ export default function PlannerPage() {
 
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
+    console.log('[STEG3-debug] render-grenen !valtObjekt körs, urlObjektId =', urlObjektId, 'urlObjektHandled =', urlObjektHandled);
     // STEG 3: undvik flicker när vi öppnar via /planering?objekt=<id> från förarvyn
     if (urlObjektId && !urlObjektHandled) {
       return (
