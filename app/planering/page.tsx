@@ -1,8 +1,7 @@
 'use client'
-import { useState, useRef, useEffect, useCallback, useMemo, Suspense } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { useSearchParams } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
@@ -189,37 +188,16 @@ interface ManuellPrognos {
 // Zoner (isZoneMode) hanteras separat och är alltid polygoner.
 const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
 
-/** STEG 3: läser ?objekt=<id> via Next.js useSearchParams (måste vara
- *  wrappad i Suspense i parent). Rapporterar id:t uppåt via callback.
- *  Returnerar null — har bara existens för att tappa in i Next:s
- *  routing-system och få korrekt värde vid client-side navigation. */
-function DeeplinkObjektResolver({ onResolved }: { onResolved: (id: string | null) => void }) {
-  const sp = useSearchParams();
-  useEffect(() => {
-    onResolved(sp?.get('objekt') ?? null);
-  }, [sp, onResolved]);
-  return null;
-}
-
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
   // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
   const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string; partner_user_id: string | null }>>([]);
   const [sendingKlar, setSendingKlar] = useState(false);
-  // STEG 3: rollbaserad filtrering
+  // STEG 3 (förenklad): rollbaserad filtrering + "Starta körning"-pill för förare
   const { medarbetare: currentMedarbetare } = useCurrentMedarbetare();
   const isForare = currentMedarbetare?.roll === 'forare';
-  // Deeplink ?objekt=<id> löses av <DeeplinkObjektResolver> som Suspense-wrappas
-  // i render. Vid client-side navigation från /forare är window.location.search
-  // stale vid mount — useSearchParams ger rätt värde via Next:s routing-system.
-  const [urlObjektId, setUrlObjektId] = useState<string | null>(null);
-  const [urlObjektHandled, setUrlObjektHandled] = useState(false);
-  const [resolverHasRun, setResolverHasRun] = useState(false);
-  const handleDeeplinkResolved = useCallback((id: string | null) => {
-    setUrlObjektId(id);
-    setResolverHasRun(true);
-  }, []);
+  const [startarKorning, setStartarKorning] = useState(false);
 
   // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
   const screenWakeLockRef = useRef<any>(null);
@@ -1741,18 +1719,41 @@ export default function PlannerPage() {
     })();
   }, []);
 
-  // STEG 3: läs ?objekt=<id> från URL (från förarvyns "Starta körning") och välj objektet direkt
+  // STEG 3 (förenklad): när förare öppnar /planering, auto-välj objekt:
+  //   1. Har de pågående objekt → öppna senast startade
+  //   2. Annars: exakt 1 planerad → öppna direkt
+  //   3. Annars (flera planerade / inga objekt) → låt ObjektValjare visas (filtrerad)
+  // Kör om varje gång valtObjekt blir null (t.ex. efter "Byt objekt") — förare
+  // med ett objekt kastas direkt tillbaka, ser aldrig väljaren ("Byt objekt"
+  // är effektivt en no-op för förare med exakt 1 objekt — önskat beteende).
   useEffect(() => {
-    if (!resolverHasRun) return;
-    if (!urlObjektId) { setUrlObjektHandled(true); return; }
-    if (urlObjektHandled) return;
+    if (!isForare || !currentMedarbetare?.id || valtObjekt) return;
 
+    let cancelled = false;
     (async () => {
-      const { data } = await supabase.from('objekt').select('*').eq('id', urlObjektId).maybeSingle();
-      if (data) setValtObjekt(data);
-      setUrlObjektHandled(true);
+      const { data } = await supabase
+        .from('objekt')
+        .select('*')
+        .or(`assigned_skordare_user_id.eq.${currentMedarbetare.id},assigned_skotare_user_id.eq.${currentMedarbetare.id}`)
+        .in('status', ['planerad', 'pagaende']);
+      if (cancelled || !data || data.length === 0) return;
+
+      const pagaende = data.filter((o: any) => o.status === 'pagaende');
+      if (pagaende.length > 0) {
+        pagaende.sort((a: any, b: any) =>
+          (b.pagaende_startad_timestamp || '').localeCompare(a.pagaende_startad_timestamp || ''));
+        setValtObjekt(pagaende[0]);
+        return;
+      }
+      const planerad = data.filter((o: any) => o.status === 'planerad');
+      if (planerad.length === 1) {
+        setValtObjekt(planerad[0]);
+      }
+      // Flera planerade eller 0: lämna valtObjekt = null → ObjektValjare visas
     })();
-  }, [urlObjektId, urlObjektHandled, resolverHasRun]);
+
+    return () => { cancelled = true; };
+  }, [isForare, currentMedarbetare?.id, valtObjekt]);
 
   // Background geolocation check every 60 seconds
   useEffect(() => {
@@ -1846,6 +1847,24 @@ export default function PlannerPage() {
       setPlusMenuOpen(false);
     }
   }, [valtObjekt, sendingKlar]);
+
+  // STEG 3 (förenklad): förarens "Starta körning"-knapp på kartan.
+  // Sätter status='pagaende' + pagaende_startad_timestamp. Bara aktiv för
+  // förare; admin har AKTUELLT OBJEKT-flödet (Klar-knapp) istället.
+  const handleStartKorning = useCallback(async () => {
+    if (!valtObjekt?.id || startarKorning) return;
+    setStartarKorning(true);
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase.from('objekt').update({
+      status: 'pagaende',
+      pagaende_startad_timestamp: nowIso,
+    }).eq('id', valtObjekt.id);
+    setStartarKorning(false);
+    if (!error) {
+      setValtObjekt({ ...valtObjekt, status: 'pagaende', pagaende_startad_timestamp: nowIso });
+      if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    }
+  }, [valtObjekt, startarKorning]);
 
   // Simulerad position (för testning vid dator)
   const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
@@ -8445,35 +8464,10 @@ export default function PlannerPage() {
 
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
-    // STEG 3: Suspense-wrappad resolver som hämtar ?objekt=<id> från Next:s
-    // routing-system (window.location.search är stale vid client-side nav).
-    const deeplinkResolverNode = (
-      <Suspense fallback={null}>
-        <DeeplinkObjektResolver onResolved={handleDeeplinkResolved} />
-      </Suspense>
-    );
-    // Visa "Öppnar objekt…" tills resolvern rapporterat OCH (om deeplink fanns) fetchen klar.
-    const visaLoading = !resolverHasRun || (urlObjektId && !urlObjektHandled);
-    if (visaLoading) {
-      return (
-        <>
-          {deeplinkResolverNode}
-          <div style={{
-            minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: '#0a0a0a', color: '#a8a8ad', fontSize: 14,
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-          }}>
-            Öppnar objekt…
-          </div>
-        </>
-      );
-    }
     return (
-      <>
-        {deeplinkResolverNode}
-        <ObjektValjare
-          forareFilter={isForare && currentMedarbetare?.id ? { medarbetareId: currentMedarbetare.id } : undefined}
-          onSelectObjekt={(obj) => {
+      <ObjektValjare
+        forareFilter={isForare && currentMedarbetare?.id ? { medarbetareId: currentMedarbetare.id } : undefined}
+        onSelectObjekt={(obj) => {
           console.log('=== VALT OBJEKT ===');
           console.log('namn:', obj.namn);
           console.log('kartbild_url:', obj.kartbild_url);
@@ -8507,8 +8501,7 @@ export default function PlannerPage() {
         onNavigera={(lat, lng) => {
           window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
         }}
-        />
-      </>
+      />
     );
   }
 
@@ -8559,10 +8552,6 @@ export default function PlannerPage() {
     } : null;
 
   return (
-    <>
-      <Suspense fallback={null}>
-        <DeeplinkObjektResolver onResolved={handleDeeplinkResolved} />
-      </Suspense>
     <div style={{
       position: 'fixed',
       inset: 0,
@@ -8914,6 +8903,47 @@ export default function PlannerPage() {
           </div>
         );
       })()}
+
+      {/* STEG 3 (förenklad): "Starta körning"-pill för förare med planerat objekt.
+          Döljs när annat läge är aktivt (ritar/mäter/körvy/briefing/skotning) — då
+          krockar inte pillen med mode-bannern på samma top-position. */}
+      {isForare && valtObjekt?.status === 'planerad'
+        && !isDrawMode && !isZoneMode && !isArrowMode
+        && !isMeasuring && !skotningDrawing
+        && !korvyActive && !briefingMode && (
+        <button
+          type="button"
+          onClick={handleStartKorning}
+          disabled={startarKorning}
+          aria-label="Starta körning"
+          style={{
+            position: 'fixed',
+            top: 'calc(env(safe-area-inset-top) + 90px)',
+            left: 16,
+            right: 16,
+            minHeight: 56,
+            padding: '0 20px',
+            background: '#30d158',
+            border: 'none',
+            borderRadius: 14,
+            color: '#fff',
+            fontSize: 17,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            cursor: startarKorning ? 'not-allowed' : 'pointer',
+            opacity: startarKorning ? 0.7 : 1,
+            fontFamily: 'inherit',
+            zIndex: 101,
+            boxShadow: '0 4px 16px rgba(48, 209, 88, 0.3)',
+          }}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>play_arrow</span>
+          {startarKorning ? 'Startar…' : 'Starta körning'}
+        </button>
+      )}
 
       {/* === PLUS-KNAPP (nere höger) — döljs bara när briefing eller volym-panel är öppna */}
       {!briefingMode && !(volymLoading || volymResultat) && (
@@ -18438,6 +18468,5 @@ export default function PlannerPage() {
         }
       `}</style>
     </div>
-    </>
   );
 }

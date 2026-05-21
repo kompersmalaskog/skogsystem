@@ -78,28 +78,6 @@ export async function middleware(request: NextRequest) {
     return redirectResponse;
   }
 
-  // STEG 3: rollbaserad routing från startsidan. Förare landar på /forare,
-  // admin/chef/medarbetare-ej-hittad ser admin-hemvyn som idag.
-  // Endast på '/' — andra paths slipper DB-uppslaget per request.
-  if (user && pathname === '/') {
-    const { data: medarbetare } = await supabase
-      .from('medarbetare')
-      .select('roll')
-      .eq('user_id', user.id)
-      .maybeSingle();
-
-    if (medarbetare?.roll === 'forare') {
-      const url = request.nextUrl.clone();
-      url.pathname = '/forare';
-      const redirectResponse = NextResponse.redirect(url);
-      supabaseResponse.cookies.getAll().forEach(cookie => {
-        redirectResponse.cookies.set(cookie.name, cookie.value);
-      });
-      return redirectResponse;
-    }
-    // Admin, chef, eller medarbetare ej hittad: fortsätt till HomeClient
-  }
-
   return supabaseResponse;
 }
 

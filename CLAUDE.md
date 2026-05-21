@@ -265,3 +265,12 @@ Huvudvy för traktplanering (~11 000 rader). Innehåller:
 **Hot-fix-undantag: direkt till main.** När prod är trasig och förare inte kan jobba — skippa PR-flödet, commita direkt till main. Hot-fix definieras som "förarna kan inte använda appen just nu". Allt annat är planerad ändring och ska gå via PR.
 
 **Branch-namn ska beskriva vad som ändras.** Exempel: `arbetsrapport-dag-stadrunda`, `fix-hpr-import-dedup`, `add-helikopter-v2`. Inte de auto-genererade `claude/optimistic-elion-904505`-namnen från worktree-systemet — om worktreen ger ett sådant, byt branch-namn innan första push.
+
+## Framtida förbättringar (bygg inte nu)
+
+### HPR-automatik som komplement till "Starta körning"-knappen
+När förare trycker "Starta körning" sätts `status='pagaende'` + `pagaende_startad_timestamp`. Men om föraren glömt trycka knappen och börjar producera direkt, sitter objektet kvar som `'planerad'` trots att produktion pågår.
+
+**Förslag:** när en HPR-fil med `objekt_id` kommer in via import-flödet (`scripts/skogsmaskin_import_version_6.py` eller `import_hpr.py`) för ett objekt med `status='planerad'` → sätt automatiskt `status='pagaende'` + `pagaende_startad_timestamp = NOW()`. Skyddsnät om föraren glömt trycka knappen.
+
+**Inte byggt nu** eftersom objekten inte är skarpt upplagda under utveckling — risken att auto-statusbyte triggas på testdata är högre än värdet just nu. Bygg när HPR-objekt-kopplingen är skarp i produktion.
