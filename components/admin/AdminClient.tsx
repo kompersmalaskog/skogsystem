@@ -154,8 +154,15 @@ function OversiktFlik() {
         const idag = nu.toISOString().slice(0, 10);
         const månStart = idag.slice(0, 7) + "-01";
         const förväntadeMin = expectedWorkMinutes(nu.getFullYear(), nu.getMonth());
+        // ISO-vecka (mån-sön). Räknar alla vilobrott vars datum-fält ligger
+        // i veckan, oavsett besvarad status — ett brott är ett brott även om
+        // föraren har angett orsak. För en chef är det relevant att veta
+        // antalet, inte deras besvar-status.
+        const veckStartDt = new Date(nu);
+        veckStartDt.setDate(nu.getDate() - ((nu.getDay() + 6) % 7));
+        const veckStart = veckStartDt.toISOString().slice(0, 10);
 
-        const [med, dagensRes, månadRes, momRes] = await Promise.all([
+        const [med, dagensRes, månadRes, momRes, vilobrottRes] = await Promise.all([
           supabase.from("medarbetare").select("id, namn", { count: "exact" }),
           supabase.from("arbetsdag").select("medarbetare_id, bekraftad").eq("datum", idag),
           supabase.from("arbetsdag").select("medarbetare_id, arbetad_min").gte("datum", månStart),
@@ -163,6 +170,10 @@ function OversiktFlik() {
             .select("filnamn, importerad_tid, maskin_id, status")
             .order("importerad_tid", { ascending: false })
             .limit(5),
+          supabase.from("vilobrott")
+            .select("id", { count: "exact", head: true })
+            .gte("datum", veckStart)
+            .lte("datum", idag),
         ]);
 
         if (cancelled) return;
@@ -194,7 +205,7 @@ function OversiktFlik() {
           antalMedarbetare: antal,
           dagensInloggade,
           dagensBekraftade,
-          vilobrottAntal: 0, // Beräknas i steg 7 (Vilobrott-underflik)
+          vilobrottAntal: vilobrottRes.count ?? 0,
           förväntadeMin,
           månadensÖvertid,
           momFiler: momRes.data || [],
