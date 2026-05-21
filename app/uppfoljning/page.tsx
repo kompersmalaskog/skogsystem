@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { createClient } from '@supabase/supabase-js';
-import UppfoljningVy, { type UppfoljningData } from './UppfoljningVy';
-import { buildUppfoljningData, type UppfoljningObjekt } from './lib/transform';
+import UppfoljningVy from './UppfoljningVy';
+import { type UppfoljningObjekt } from './lib/transform';
+import { useObjektUppfoljning } from './hooks/useObjektUppfoljning';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -241,75 +242,22 @@ function V6Segmented<T extends string>({ value, onChange, options }: { value: T;
   );
 }
 
-/* ── Detail view wrapper — fetches data and renders UppfoljningVy ── */
+/* ── Detail view wrapper — consumes useObjektUppfoljning hook ── */
 function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => void }) {
-  const [data, setData] = useState<UppfoljningData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, error } = useObjektUppfoljning(obj);
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
-      const skId = obj.skordareObjektId;
-      const stId = obj.skotareObjektId;
-      const ids = [skId, stId].filter(Boolean) as string[];
-
-      if (ids.length === 0) {
-        setData(buildEmptyData(obj));
-        setLoading(false);
-        return;
-      }
-
-      const [tidRes, prodRes, sortRes, dimSortRes, dimTradslagRes, avbrottRes, lassRes, lassSortRes, dimOperatorRes, dimMaskinRes] = await Promise.all([
-        supabase.from('fakt_tid').select('datum, objekt_id, maskin_id, operator_id, processing_sek, terrain_sek, other_work_sek, maintenance_sek, disturbance_sek, avbrott_sek, rast_sek, kort_stopp_sek, bransle_liter, engine_time_sek, tomgang_sek').in('objekt_id', ids),
-        supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar, processtyp, tradslag_id, datum').in('objekt_id', ids),
-        supabase.from('fakt_sortiment').select('objekt_id, sortiment_id, volym_m3sub, antal').in('objekt_id', ids),
-        supabase.from('dim_sortiment').select('sortiment_id, namn'),
-        supabase.from('dim_tradslag').select('tradslag_id, namn'),
-        supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').in('objekt_id', ids),
-        stId ? supabase.from('fakt_lass').select('objekt_id, datum, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
-        stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
-        supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
-        supabase.from('dim_maskin').select('maskin_id, maskin_typ'),
-      ]);
-
-      let avbrottRows: any[] = avbrottRes.data || [];
-
-      // If objekt_id query missed avbrott for a machine, fetch by maskin_id as fallback
-      const skMidFb = obj.skordareModellMaskinId;
-      const stMidFb = obj.skotareModellMaskinId;
-      const hasSkAvbrott = skMidFb ? avbrottRows.some((r: any) => r.maskin_id === skMidFb) : true;
-      const hasStAvbrott = stMidFb ? avbrottRows.some((r: any) => r.maskin_id === stMidFb) : true;
-      if (!hasSkAvbrott || !hasStAvbrott) {
-        const fallbackQueries = [];
-        if (!hasSkAvbrott && skMidFb) fallbackQueries.push(supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').eq('maskin_id', skMidFb).limit(2000));
-        if (!hasStAvbrott && stMidFb) fallbackQueries.push(supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').eq('maskin_id', stMidFb).limit(2000));
-        const fallbackResults = await Promise.all(fallbackQueries);
-        for (const res of fallbackResults) {
-          if (res.data) avbrottRows = [...avbrottRows, ...res.data];
-        }
-      }
-
-      setData(buildUppfoljningData({
-        obj,
-        tidRows: tidRes.data || [],
-        prodRows: prodRes.data || [],
-        sortRows: sortRes.data || [],
-        lassRows: lassRes.data || [],
-        lassSortRows: lassSortRes.data || [],
-        avbrottRows,
-        dimSort: dimSortRes.data || [],
-        dimTradslag: dimTradslagRes.data || [],
-        dimOperators: dimOperatorRes.data || [],
-        dimMaskin: dimMaskinRes.data || [],
-      }));
-      setLoading(false);
-    })();
-  }, [obj.skordareObjektId, obj.skotareObjektId]);
-
-  if (loading || !data) {
+  if (loading) {
     return (
       <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: ff, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ color: muted, fontSize: 14 }}>Laddar...</div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div style={{ minHeight: '100vh', background: bg, color: text, fontFamily: ff, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: muted, fontSize: 14 }}>Kunde inte ladda uppföljningsdata. Försök igen.</div>
       </div>
     );
   }
@@ -321,32 +269,6 @@ function ObjektDetalj({ obj, onBack }: { obj: UppfoljningObjekt; onBack: () => v
       </div>
     </div>
   );
-}
-
-function buildEmptyData(obj: UppfoljningObjekt): UppfoljningData {
-  return {
-    objektNamn: obj.namn,
-    skordat: 0, skotat: 0, kvarPct: 0, egenSkotning: obj.egenSkotning, grotSkotning: obj.grotSkotning,
-    externSkotning: obj.externSkotning, externForetag: obj.externForetag, externPrisTyp: obj.externPrisTyp, externPris: obj.externPris, externAntal: obj.externAntal,
-    maskiner: [],
-    typ: obj.typ, areal: obj.areal, agare: obj.agare, status: obj.status,
-    skordareModell: obj.skordareModell, skordareStart: obj.skordareStart, skordareSlut: obj.skordareSlut, skordareLastDate: obj.skordareLastDate,
-    skotareModell: obj.skotareModell, skotareStart: obj.skotareStart, skotareSlut: obj.skotareSlut, skotareLastDate: obj.skotareLastDate,
-    operatorSkordare: null, operatorSkotare: null, prodSkordarePerDag: [],
-    skordareG15h: 0, skordareG0: 0, skordareTomgang: 0, skordareKortaStopp: 0, skordareRast: 0, skordareAvbrott: 0,
-    skotareG15h: 0, skotareG0: 0, skotareTomgang: 0, skotareKortaStopp: 0, skotareRast: 0, skotareAvbrott: 0,
-    skordareM3G15h: 0, skordareStammarG15h: 0, skordareMedelstam: 0,
-    skotareM3G15h: 0, skotareLassG15h: 0, skotareSnittlass: 0,
-    tradslag: [], sortiment: [],
-    dieselTotalt: 0, dieselPerM3: 0,
-    skordareL: 0, skordareL_M3: 0, skordareL_G15h: 0,
-    skotareL: 0, skotareL_M3: 0, skotareL_G15h: 0,
-    dieselSkordare: [], dieselSkotare: [],
-    avbrottSkordare: [], avbrottSkordare_totalt: '0h',
-    avbrottSkotare: [], avbrottSkotareTotalt: '0h',
-    antalLass: 0, snittlassM3: 0, lassG15h: 0, skotningsavstand: 0, lassPerDag: [],
-    skordareBalG15h: 0, skotareBalG15h: 0,
-  };
 }
 
 /* ── Main page ── */
