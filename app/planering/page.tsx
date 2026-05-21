@@ -6,6 +6,7 @@ import { createClient } from '@supabase/supabase-js'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
 import VolymPanel from './volym-panel'
+import { useCurrentMedarbetare } from '@/lib/CurrentMedarbetareContext'
 import { beraknaVolym, type VolymResultat } from '../../lib/skoglig-berakning'
 import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
@@ -193,6 +194,12 @@ export default function PlannerPage() {
   // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
   const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string; partner_user_id: string | null }>>([]);
   const [sendingKlar, setSendingKlar] = useState(false);
+
+  // STEG 3 (förenklad): rollbaserad filtrering + "Starta körning"-pill för förare
+  const { medarbetare: currentMedarbetare } = useCurrentMedarbetare();
+  const isForare = currentMedarbetare?.roll === 'forare';
+  const [startarKorning, setStartarKorning] = useState(false);
+  const autoValjGjordRef = useRef(false);
 
   // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
   const screenWakeLockRef = useRef<any>(null);
@@ -1714,6 +1721,46 @@ export default function PlannerPage() {
     })();
   }, []);
 
+  // STEG 3 (förenklad): när förare öppnar /planering, auto-välj objekt EN GÅNG
+  // per mount:
+  //   1. Har de pågående objekt → öppna senast startade
+  //   2. Annars: exakt 1 planerad → öppna direkt
+  //   3. Annars (flera planerade / inga objekt) → låt ObjektValjare visas (filtrerad)
+  // Ref markerar "har redan körts" så att "Byt objekt" (valtObjekt → null) INTE
+  // triggar auto-välj igen — föraren ska kunna nå sina andra objekt. Re-mount
+  // (navigera bort + tillbaka, hård reload) återställer ref:en naturligt.
+  useEffect(() => {
+    if (!isForare || !currentMedarbetare?.id || valtObjekt) return;
+    if (autoValjGjordRef.current) return;
+
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('objekt')
+        .select('*')
+        .or(`assigned_skordare_user_id.eq.${currentMedarbetare.id},assigned_skotare_user_id.eq.${currentMedarbetare.id}`)
+        .in('status', ['planerad', 'pagaende']);
+      if (cancelled) return;
+      autoValjGjordRef.current = true; // markera klar oavsett resultat
+      if (!data || data.length === 0) return;
+
+      const pagaende = data.filter((o: any) => o.status === 'pagaende');
+      if (pagaende.length > 0) {
+        pagaende.sort((a: any, b: any) =>
+          (b.pagaende_startad_timestamp || '').localeCompare(a.pagaende_startad_timestamp || ''));
+        setValtObjekt(pagaende[0]);
+        return;
+      }
+      const planerad = data.filter((o: any) => o.status === 'planerad');
+      if (planerad.length === 1) {
+        setValtObjekt(planerad[0]);
+      }
+      // Flera planerade eller 0: lämna valtObjekt = null → ObjektValjare visas
+    })();
+
+    return () => { cancelled = true; };
+  }, [isForare, currentMedarbetare?.id, valtObjekt]);
+
   // Background geolocation check every 60 seconds
   useEffect(() => {
     const check = () => {
@@ -1806,6 +1853,31 @@ export default function PlannerPage() {
       setPlusMenuOpen(false);
     }
   }, [valtObjekt, sendingKlar]);
+
+  // STEG 3 (förenklad): förarens "Starta körning"-logik. Anropas från två
+  // ställen — kart-pillen (när objekt redan är valt) och listans Starta-cirkel
+  // (när förare väljer ett planerat objekt direkt från ObjektValjare).
+  // Båda flödena ger identiskt resultat: status='pagaende' + timestamp +
+  // vibration + valtObjekt sätts så kartan öppnas på objektet.
+  const handleStartKorningForObjekt = useCallback(async (obj: any) => {
+    if (!obj?.id || startarKorning) return;
+    setStartarKorning(true);
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase.from('objekt').update({
+      status: 'pagaende',
+      pagaende_startad_timestamp: nowIso,
+    }).eq('id', obj.id);
+    setStartarKorning(false);
+    if (!error) {
+      setValtObjekt({ ...obj, status: 'pagaende', pagaende_startad_timestamp: nowIso });
+      if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    }
+  }, [startarKorning]);
+
+  const handleStartKorning = useCallback(async () => {
+    if (!valtObjekt) return;
+    await handleStartKorningForObjekt(valtObjekt);
+  }, [valtObjekt, handleStartKorningForObjekt]);
 
   // Simulerad position (för testning vid dator)
   const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
@@ -8407,6 +8479,8 @@ export default function PlannerPage() {
   if (!valtObjekt) {
     return (
       <ObjektValjare
+        forareFilter={isForare && currentMedarbetare?.id ? { medarbetareId: currentMedarbetare.id } : undefined}
+        onStartObjekt={isForare ? handleStartKorningForObjekt : undefined}
         onSelectObjekt={(obj) => {
           console.log('=== VALT OBJEKT ===');
           console.log('namn:', obj.namn);
@@ -8844,6 +8918,47 @@ export default function PlannerPage() {
         );
       })()}
 
+      {/* STEG 3 (förenklad): "Starta körning"-pill för förare med planerat objekt.
+          Döljs när annat läge är aktivt (ritar/mäter/körvy/briefing/skotning) — då
+          krockar inte pillen med mode-bannern på samma top-position. */}
+      {isForare && valtObjekt?.status === 'planerad'
+        && !isDrawMode && !isZoneMode && !isArrowMode
+        && !isMeasuring && !skotningDrawing
+        && !korvyActive && !briefingMode && (
+        <button
+          type="button"
+          onClick={handleStartKorning}
+          disabled={startarKorning}
+          aria-label="Starta körning"
+          style={{
+            position: 'fixed',
+            top: 'calc(env(safe-area-inset-top) + 90px)',
+            left: 16,
+            right: 16,
+            minHeight: 56,
+            padding: '0 20px',
+            background: '#30d158',
+            border: 'none',
+            borderRadius: 14,
+            color: '#fff',
+            fontSize: 17,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            cursor: startarKorning ? 'not-allowed' : 'pointer',
+            opacity: startarKorning ? 0.7 : 1,
+            fontFamily: 'inherit',
+            zIndex: 101,
+            boxShadow: '0 4px 16px rgba(48, 209, 88, 0.3)',
+          }}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>play_arrow</span>
+          {startarKorning ? 'Startar…' : 'Starta körning'}
+        </button>
+      )}
+
       {/* === PLUS-KNAPP (nere höger) — döljs bara när briefing eller volym-panel är öppna */}
       {!briefingMode && !(volymLoading || volymResultat) && (
         <button
@@ -8952,8 +9067,9 @@ export default function PlannerPage() {
               <div style={{ width: 40, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.25)' }} />
             </div>
 
-            {/* AKTUELLT OBJEKT — tilldelning + "Klar — skicka till förare" (STEG 1) */}
-            {valtObjekt && (
+            {/* AKTUELLT OBJEKT — tilldelning + "Klar — skicka till förare" (STEG 1)
+                STEG 3: döljs helt för förare — planerarens funktion */}
+            {!isForare && valtObjekt && (
               <div style={{ marginTop: 12 }}>
                 <div style={{
                   padding: '8px 12px 6px',

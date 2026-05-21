@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import TopBar from '../components/TopBar'
 import PushRegister from '../components/PushRegister'
+import { CurrentMedarbetareProvider } from '@/lib/CurrentMedarbetareContext'
 
 export const metadata: Metadata = {
   title: 'Kompersmåla Skog',
@@ -45,9 +46,11 @@ export default function RootLayout({
       <body style={{ margin: 0, padding: 0 }}>
         <TopBar />
         <PushRegister />
-        <div style={{ paddingTop: 'calc(56px + env(safe-area-inset-top))' }}>
-          {children}
-        </div>
+        <CurrentMedarbetareProvider>
+          <div style={{ paddingTop: 'calc(56px + env(safe-area-inset-top))' }}>
+            {children}
+          </div>
+        </CurrentMedarbetareProvider>
       </body>
     </html>
   )
