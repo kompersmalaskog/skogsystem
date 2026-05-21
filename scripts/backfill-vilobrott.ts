@@ -16,10 +16,10 @@
 // Användning (skarp):
 //   npx tsx scripts/backfill-vilobrott.ts
 //
-// Idempotens: UPSERT på (medarbetare_id, typ, datum). En andra körning
-// skapar inga dubletter — befintliga rader skrivs över med samma värden.
-// MEN: om förare redan har besvarat brott med riktiga orsaker, kommer
-// en andra körning rasera deras svar. Kör därför ENDAST en gång.
+// Idempotens: INSERT-only via ignoreDuplicates på (medarbetare_id, typ, datum).
+// Kan köras flera gånger utan risk — skapar bara saknade rader, rör aldrig
+// befintliga. Förares riktiga orsak-svar på brott som besvarats senare
+// kommer ALDRIG överskrivas av en andra körning.
 
 import { createClient } from "@supabase/supabase-js";
 import { analyseraVilobrott } from "../lib/vilobrott";
@@ -138,9 +138,12 @@ async function main() {
       };
     });
 
+    // INSERT-only: ignoreDuplicates gör att befintliga rader (inklusive
+    // förares riktiga orsak-svar) lämnas helt orörda. Bara saknade rader
+    // skapas. Det gör scriptet säkert att köra flera gånger.
     const { error: insErr } = await sb
       .from("vilobrott")
-      .upsert(rader, { onConflict: "medarbetare_id,typ,datum" });
+      .upsert(rader, { onConflict: "medarbetare_id,typ,datum", ignoreDuplicates: true });
     if (insErr) {
       console.error(`Fel för ${med.namn}: ${insErr.message}`);
       continue;
