@@ -33,6 +33,13 @@ export type VilaTrosklar = {
                                        // Används INTE av analyseraVilobrott — bara passare.
 };
 
+/** Arbetsdagar kortare än detta filtreras ut innan analys.
+ *  3-4 minuters pass är artefakter (datorn startad/avstängd snabbt) och ska
+ *  inte räknas som "arbete" som bryter en vilo-period. Tröskeln är i minuter.
+ *  Sätts INTE i gs_avtal — det är en intern data-kvalitets-konstant, inte ett
+ *  avtalsenligt värde. */
+const MIN_ARBETSDAG_MIN = 30;
+
 export type Vilobrott = {
   typ: "dygnsvila" | "veckovila";
   datum: string;        // datum då brottet börjar (YYYY-MM-DD)
@@ -75,6 +82,18 @@ function datumStr(d: Date): string {
 function formatDatumKort(datum: string): string {
   const d = new Date(datum);
   return d.toLocaleDateString('sv-SE', { day: 'numeric', month: 'long' });
+}
+
+/** Span i minuter mellan start_tid och slut_tid. Hanterar midnattskorsning
+ *  (slut <= start antas vara nästa dag). Returnerar 0 om någon saknas. */
+function arbetsdagSpanMin(d: Arbetsdag): number {
+  if (!d.start_tid || !d.slut_tid) return 0;
+  const s = tidTillTimmar(d.start_tid);
+  const e = tidTillTimmar(d.slut_tid);
+  if (!s || !e) return 0;
+  let mins = e.h * 60 + e.m - s.h * 60 - s.m;
+  if (mins <= 0) mins += 24 * 60;
+  return mins;
 }
 
 /**
@@ -133,8 +152,13 @@ export function analyseraVilobrott(
   trosklar: VilaTrosklar,
 ): Vilobrott[] {
   const brott: Vilobrott[] = [];
+  // Filtrera bort skräp-dagar (artefakt-pass < MIN_ARBETSDAG_MIN minuter).
+  // En 3-minuters arbetsdag mitt i veckan skulle annars splitta en
+  // sammanhängande vilo-period och skapa falska brott i både dygnsvila-
+  // loopen och rullande veckovila-analysen.
   const sorterad = [...arbetsdagar]
     .filter(r => r.start_tid && r.slut_tid)
+    .filter(r => arbetsdagSpanMin(r) >= MIN_ARBETSDAG_MIN)
     .sort((a, b) => a.datum.localeCompare(b.datum));
 
   if (sorterad.length === 0) return brott;
