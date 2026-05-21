@@ -194,10 +194,12 @@ export default function PlannerPage() {
   // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
   const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string; partner_user_id: string | null }>>([]);
   const [sendingKlar, setSendingKlar] = useState(false);
+
   // STEG 3 (förenklad): rollbaserad filtrering + "Starta körning"-pill för förare
   const { medarbetare: currentMedarbetare } = useCurrentMedarbetare();
   const isForare = currentMedarbetare?.roll === 'forare';
   const [startarKorning, setStartarKorning] = useState(false);
+  const autoValjGjordRef = useRef(false);
 
   // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
   const screenWakeLockRef = useRef<any>(null);
@@ -1719,15 +1721,17 @@ export default function PlannerPage() {
     })();
   }, []);
 
-  // STEG 3 (förenklad): när förare öppnar /planering, auto-välj objekt:
+  // STEG 3 (förenklad): när förare öppnar /planering, auto-välj objekt EN GÅNG
+  // per mount:
   //   1. Har de pågående objekt → öppna senast startade
   //   2. Annars: exakt 1 planerad → öppna direkt
   //   3. Annars (flera planerade / inga objekt) → låt ObjektValjare visas (filtrerad)
-  // Kör om varje gång valtObjekt blir null (t.ex. efter "Byt objekt") — förare
-  // med ett objekt kastas direkt tillbaka, ser aldrig väljaren ("Byt objekt"
-  // är effektivt en no-op för förare med exakt 1 objekt — önskat beteende).
+  // Ref markerar "har redan körts" så att "Byt objekt" (valtObjekt → null) INTE
+  // triggar auto-välj igen — föraren ska kunna nå sina andra objekt. Re-mount
+  // (navigera bort + tillbaka, hård reload) återställer ref:en naturligt.
   useEffect(() => {
     if (!isForare || !currentMedarbetare?.id || valtObjekt) return;
+    if (autoValjGjordRef.current) return;
 
     let cancelled = false;
     (async () => {
@@ -1736,7 +1740,9 @@ export default function PlannerPage() {
         .select('*')
         .or(`assigned_skordare_user_id.eq.${currentMedarbetare.id},assigned_skotare_user_id.eq.${currentMedarbetare.id}`)
         .in('status', ['planerad', 'pagaende']);
-      if (cancelled || !data || data.length === 0) return;
+      if (cancelled) return;
+      autoValjGjordRef.current = true; // markera klar oavsett resultat
+      if (!data || data.length === 0) return;
 
       const pagaende = data.filter((o: any) => o.status === 'pagaende');
       if (pagaende.length > 0) {
