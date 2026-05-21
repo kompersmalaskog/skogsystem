@@ -1854,23 +1854,30 @@ export default function PlannerPage() {
     }
   }, [valtObjekt, sendingKlar]);
 
-  // STEG 3 (förenklad): förarens "Starta körning"-knapp på kartan.
-  // Sätter status='pagaende' + pagaende_startad_timestamp. Bara aktiv för
-  // förare; admin har AKTUELLT OBJEKT-flödet (Klar-knapp) istället.
-  const handleStartKorning = useCallback(async () => {
-    if (!valtObjekt?.id || startarKorning) return;
+  // STEG 3 (förenklad): förarens "Starta körning"-logik. Anropas från två
+  // ställen — kart-pillen (när objekt redan är valt) och listans Starta-cirkel
+  // (när förare väljer ett planerat objekt direkt från ObjektValjare).
+  // Båda flödena ger identiskt resultat: status='pagaende' + timestamp +
+  // vibration + valtObjekt sätts så kartan öppnas på objektet.
+  const handleStartKorningForObjekt = useCallback(async (obj: any) => {
+    if (!obj?.id || startarKorning) return;
     setStartarKorning(true);
     const nowIso = new Date().toISOString();
     const { error } = await supabase.from('objekt').update({
       status: 'pagaende',
       pagaende_startad_timestamp: nowIso,
-    }).eq('id', valtObjekt.id);
+    }).eq('id', obj.id);
     setStartarKorning(false);
     if (!error) {
-      setValtObjekt({ ...valtObjekt, status: 'pagaende', pagaende_startad_timestamp: nowIso });
+      setValtObjekt({ ...obj, status: 'pagaende', pagaende_startad_timestamp: nowIso });
       if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
     }
-  }, [valtObjekt, startarKorning]);
+  }, [startarKorning]);
+
+  const handleStartKorning = useCallback(async () => {
+    if (!valtObjekt) return;
+    await handleStartKorningForObjekt(valtObjekt);
+  }, [valtObjekt, handleStartKorningForObjekt]);
 
   // Simulerad position (för testning vid dator)
   const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
@@ -8473,6 +8480,7 @@ export default function PlannerPage() {
     return (
       <ObjektValjare
         forareFilter={isForare && currentMedarbetare?.id ? { medarbetareId: currentMedarbetare.id } : undefined}
+        onStartObjekt={isForare ? handleStartKorningForObjekt : undefined}
         onSelectObjekt={(obj) => {
           console.log('=== VALT OBJEKT ===');
           console.log('namn:', obj.namn);

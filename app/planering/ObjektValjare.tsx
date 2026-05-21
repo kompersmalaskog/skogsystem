@@ -14,9 +14,13 @@ interface ObjektValjareProps {
    *  tilldelad till denna medarbetare + status ('planerad'|'pagaende'),
    *  och dölj Oplanerade/Planerade-tabs + filter-pills + footer-totalen. */
   forareFilter?: { medarbetareId: string };
+  /** Sätts av planeringsvyn när inloggad är förare → visa grön Starta-cirkel
+   *  istället för pil på rader med status='planerad'. Tap = starta+öppna
+   *  (samma underliggande logik som kart-pillens "Starta körning"). */
+  onStartObjekt?: (objekt: any) => void;
 }
 
-export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter }: ObjektValjareProps) {
+export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter, onStartObjekt }: ObjektValjareProps) {
   const [activeTab, setActiveTab] = useState<'oplanerade' | 'planerade'>('oplanerade');
   const [filter, setFilter] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
   const [selectedObj, setSelectedObj] = useState<any>(null);
@@ -291,20 +295,28 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
           const dist = getDistance(obj.lat, obj.lng);
           const typLabel = obj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring';
           const volymLabel = obj.volym ? `${obj.volym} m³` : 'ingen volym angiven';
+          // STEG 3 (förenklad): visa grön Starta-cirkel istället för pil på
+          // förare-rader med status='planerad'. Yttre raden blir div role="button"
+          // för att tillåta nestad <button> (knapp-i-knapp är ogiltig HTML).
+          const visaStarta = !!(forareFilter && obj.status === 'planerad' && onStartObjekt);
           return (
-            <button
+            <div
               key={obj.id}
-              type="button"
+              role="button"
+              tabIndex={0}
               onClick={() => setSelectedObj(obj)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setSelectedObj(obj);
+                }
+              }}
               aria-label={`${obj.namn}, ${typLabel}, ${volymLabel}`}
               style={{
                 display: 'flex',
                 alignItems: 'center',
                 padding: '16px 20px',
                 borderBottom: '1px solid #1a1a1a',
-                borderTop: 'none',
-                borderLeft: 'none',
-                borderRight: 'none',
                 background: 'transparent',
                 color: 'inherit',
                 width: '100%',
@@ -356,11 +368,40 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 </div>
               </div>
 
-              {/* Pil */}
-              <div style={{ marginLeft: '16px', color: '#a8a8ad', fontSize: '20px' }} aria-hidden="true">
-                ›
-              </div>
-            </button>
+              {/* Starta-cirkel (förare + planerad) ELLER pil */}
+              {visaStarta ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onStartObjekt!(obj);
+                  }}
+                  aria-label={`Starta körning på ${obj.namn}`}
+                  style={{
+                    marginLeft: '16px',
+                    width: 52,
+                    height: 52,
+                    borderRadius: '50%',
+                    background: '#30d158',
+                    border: 'none',
+                    color: '#fff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    cursor: 'pointer',
+                    boxShadow: '0 2px 8px rgba(48, 209, 88, 0.35)',
+                    padding: 0,
+                  }}
+                >
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 28 }}>play_arrow</span>
+                </button>
+              ) : (
+                <div style={{ marginLeft: '16px', color: '#a8a8ad', fontSize: '20px' }} aria-hidden="true">
+                  ›
+                </div>
+              )}
+            </div>
           );
         })}
 
