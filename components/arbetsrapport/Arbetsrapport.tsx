@@ -610,6 +610,13 @@ export default function Arbetsrapport() {
   const [periodVilobrott, setPeriodVilobrott] = useState<VilobrottRad[] | null>(null);
   // Inline-expansion av rödramat kort i Vila-fliken — visar orsak/kompensation.
   const [vilaKortExpanded, setVilaKortExpanded] = useState<string | null>(null);
+  // Orsaks-flöde när föraren bekräftar dagen med obesvarade brott. Kön fryses
+  // vid flödesstart och byggs INTE om från re-fetchad aktuellaVilobrott — annars
+  // skulle besvarade brott försvinna ur listan och idx peka fel.
+  const [vilobrottKö, setVilobrottKö] = useState<VilobrottRad[]>([]);
+  const [vilobrottIdx, setVilobrottIdx] = useState(0);
+  const [vilobrottOrsakVal, setVilobrottOrsakVal] = useState<'oforutsedd' | 'akut_jour' | 'planerad_avtal' | 'annat' | null>(null);
+  const [vilobrottOrsakFritext, setVilobrottOrsakFritext] = useState("");
   const [visaHelÅrVila, setVisaHelÅrVila] = useState(false);
   const [vilaPeriod, setVilaPeriod] = useState<'7d'|'30d'|'månad'|'år'>('7d');
   const [vilaMånad, setVilaMånad] = useState(new Date().getMonth());
@@ -1240,6 +1247,84 @@ export default function Arbetsrapport() {
     }
   };
 
+  // Bekräfta arbetsdagen — extraherad så samma kod kan köras både direkt
+  // (när inga obesvarade brott finns) och från sparaOrsakOchFortsätt
+  // (efter sista brottet besvarats). Pågående extra-tid-aktiviteter stoppas
+  // INTE här — det görs i Bekräfta-onClick före för-checken så det alltid sker.
+  const bekraftaDagen = async () => {
+    if (!medarbetare?.id) return;
+    const effektivSlut = slut || nuKlock();
+    const idagArb = dagData[idagKey];
+    const dagObjId = valtObjektId || idagArb?.objekt_id || null;
+    const nuBekrIso = new Date().toISOString();
+    await supabase.from("arbetsdag").upsert({
+      medarbetare_id: medarbetare.id,
+      datum: idagKey,
+      start_tid: start, slut_tid: effektivSlut, rast_min: rast,
+      km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
+      maskin_id: medarbetare.maskin_id,
+      objekt_id: dagObjId,
+      traktamente: trak, bekraftad: true,
+      bekraftad_tid: nuBekrIso,
+    }, { onConflict: 'medarbetare_id,datum' });
+    setSlut(effektivSlut.slice(0, 5));
+    setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true, bekraftad_tid: nuBekrIso, slut_tid: effektivSlut } }));
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(200);
+    setBekräftelseVisa(true);
+    setTimeout(() => setBekräftelseVisa(false), 2000);
+  };
+
+  // Sparar förarens orsak-svar för det aktuella brottet i kön och avancerar.
+  // Vid sista brottet: bekräftar dagen + nollställer kön. Vid backa: avbrytsHelpern.
+  const sparaOrsakOchFortsätt = async () => {
+    if (!vilobrottOrsakVal) return;
+    if (vilobrottOrsakVal === 'annat' && !vilobrottOrsakFritext.trim()) return;
+    if (!trosklar) return;
+    const aktivt = vilobrottKö[vilobrottIdx];
+    if (!aktivt) return;
+
+    const nuIso = new Date().toISOString();
+    const kompH = Number(aktivt.krav_h) - Number(aktivt.vila_h);
+    const deadline = new Date();
+    deadline.setDate(deadline.getDate() + trosklar.kompensation_deadline_dagar);
+    const deadlineIso = deadline.toISOString().slice(0, 10);
+
+    try {
+      const { error } = await supabase.from("vilobrott").update({
+        besvarat_av_forare: true,
+        orsak: vilobrottOrsakVal,
+        orsak_fritext: vilobrottOrsakVal === 'annat' ? vilobrottOrsakFritext.trim() : null,
+        besvarat_tid: nuIso,
+        kompensation_h: kompH,
+        kompensation_deadline: deadlineIso,
+      }).eq("id", aktivt.id);
+      if (error) throw error;
+      // Re-fetcha aktuellaVilobrott så Dag-vyns gula varningar uppdateras.
+      // RÖR INTE vilobrottKö — den är fryst genom hela flödet.
+      if (medarbetare?.id) {
+        const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
+        setAktuellaVilobrott(nyaBrott);
+      }
+    } catch (err) {
+      console.error('Spara orsak misslyckades:', err);
+      return; // Håll föraren kvar i vyn — låt hen försöka igen
+    }
+
+    // Avancera eller bekräfta
+    if (vilobrottIdx < vilobrottKö.length - 1) {
+      setVilobrottIdx(i => i + 1);
+      setVilobrottOrsakVal(null);
+      setVilobrottOrsakFritext("");
+    } else {
+      await bekraftaDagen();
+      setVilobrottKö([]);
+      setVilobrottIdx(0);
+      setVilobrottOrsakVal(null);
+      setVilobrottOrsakFritext("");
+      setSteg("morgon");
+    }
+  };
+
   // Loading fallback
   if(!medarbetare) return (
     <div style={shell}>
@@ -1488,6 +1573,102 @@ export default function Arbetsrapport() {
     );
   }
 
+
+  /* ─── ORSAK TILL VILOBROTT ─── */
+  if(steg==="vilobrottOrsak") {
+    const aktivt = vilobrottKö[vilobrottIdx];
+    if (!aktivt) {
+      // Defensiv: tom kö men vyn är aktiv. Render inget — useEffect i Promise.all
+      // eller en framtida fetch kommer återställa state. Föraren kan trycka tillbaka.
+      return null;
+    }
+    const totalBrott = vilobrottKö.length;
+    const visarRäknare = totalBrott > 1;
+    const orsakAlternativ = [
+      { key: 'oforutsedd' as const,     label: 'Oförutsedd händelse',          sub: 'Trafik, väder, oväntat fel' },
+      { key: 'akut_jour' as const,      label: 'Akut situation eller jour',    sub: 'Brådskande arbete som krävde min närvaro' },
+      { key: 'planerad_avtal' as const, label: 'Planerat undantag enligt avtal', sub: 'Förhandlat med chef i förväg' },
+      { key: 'annat' as const,          label: 'Annat',                        sub: 'Skriv en kort beskrivning' },
+    ];
+    const avbryt = () => {
+      // Backar till morgon. Redan-besvarade brott är sparade i DB —
+      // föraren förlorar ingenting. Dagen förblir obekräftad.
+      setVilobrottKö([]);
+      setVilobrottIdx(0);
+      setVilobrottOrsakVal(null);
+      setVilobrottOrsakFritext("");
+      setSteg("morgon");
+    };
+    const klart = !!vilobrottOrsakVal && (vilobrottOrsakVal !== 'annat' || vilobrottOrsakFritext.trim().length > 0);
+    const ärSista = vilobrottIdx === vilobrottKö.length - 1;
+    return (
+      <div style={shell}>
+        <style>{css}</style>{timerBanner}
+        <div style={topBar}>
+          <div style={{ display:"flex",alignItems:"center",gap:14 }}>
+            <BackBtn onClick={avbryt}/>
+            <div>
+              <h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>
+                {aktivt.typ === 'dygnsvila' ? 'Dygnsvila bruten' : 'Veckovila bruten'}
+              </h1>
+              <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>
+                {visarRäknare ? `${vilobrottIdx + 1} av ${totalBrott} · ` : ''}Varför bröts vilan?
+              </p>
+            </div>
+          </div>
+        </div>
+        <div style={{ flex:1,overflowY:"auto",paddingTop:8,paddingBottom:120 }}>
+          {/* Beskrivning av brottet */}
+          <Card style={{ background:"rgba(255,69,58,0.06)",border:"1px solid rgba(255,69,58,0.2)" }}>
+            <p style={{ margin:0,fontSize:14,color:"#fff",lineHeight:1.5 }}>{aktivt.beskrivning}</p>
+          </Card>
+
+          {/* Orsaksval */}
+          <Label style={{ marginTop:20 }}>Välj orsak</Label>
+          {orsakAlternativ.map(o => (
+            <Card key={o.key} onClick={()=>setVilobrottOrsakVal(o.key)}
+              style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,
+                background: vilobrottOrsakVal===o.key ? "rgba(0,122,255,0.06)" : C.card,
+                border: vilobrottOrsakVal===o.key ? "1px solid rgba(0,122,255,0.2)" : "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ flex:1 }}>
+                <p style={{ margin:0,fontSize:16,fontWeight:600,color:"#fff" }}>{o.label}</p>
+                <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{o.sub}</p>
+              </div>
+              {vilobrottOrsakVal===o.key
+                ? <div style={{ width:22,height:22,borderRadius:"50%",background:C.blue,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginLeft:12 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
+                : <div style={{ width:22,height:22,borderRadius:"50%",border:`1.5px solid ${C.line}`,flexShrink:0,marginLeft:12 }}/>
+              }
+            </Card>
+          ))}
+
+          {/* Fritext för "Annat" */}
+          {vilobrottOrsakVal === 'annat' && (
+            <div style={{ marginTop:16 }}>
+              <Label>Beskriv kort</Label>
+              <textarea
+                placeholder="T.ex. röjde fallna träd över vägen"
+                value={vilobrottOrsakFritext}
+                onChange={e=>setVilobrottOrsakFritext(e.target.value)}
+                rows={3}
+                style={{ width:"100%",background:"#353535",border:"none",borderRadius:12,color:"#fff",padding:12,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",boxSizing:"border-box" }}
+                autoFocus
+              />
+            </div>
+          )}
+        </div>
+        <div style={bottom}>
+          <button
+            style={{ ...btn.primary, opacity: klart ? 1 : 0.35 }}
+            disabled={!klart}
+            onClick={sparaOrsakOchFortsätt}
+          >
+            {ärSista ? 'Spara och bekräfta dagen' : 'Spara och fortsätt'}
+          </button>
+          <button style={btn.textBack} onClick={avbryt}>Avbryt</button>
+        </div>
+      </div>
+    );
+  }
 
   /* ─── TIDSLINJE FÖR EN DAG ─── */
   if(steg==="tidslinje" && tidslinjeDatum) {
@@ -1998,29 +2179,45 @@ export default function Arbetsrapport() {
                   onClick={async ()=>{
                     const nuT = nuKlock();
                     const nuTS = nuT + ":00";
-                    const effektivSlut = slut || nuT;
+                    // Stoppa eventuella pågående extra-tid-aktiviteter
                     for (const p of pagaendeAktiviteter) {
                       const min = minutDiff(p.start_tid, nuTS);
                       await supabase.from("extra_tid").update({ slut_tid: nuTS, minuter: min }).eq("id", p.id);
                     }
                     if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
-                    const nuBekrIso = new Date().toISOString();
-                    // arbetad_min och km_totalt är generated columns — skickas inte.
-                    await supabase.from("arbetsdag").upsert({
-                      medarbetare_id: medarbetare.id,
-                      datum: new Date().toISOString().split("T")[0],
-                      start_tid: start, slut_tid: effektivSlut, rast_min: rast,
-                      km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
-                      maskin_id: medarbetare.maskin_id,
-                      objekt_id: dagObjId,
-                      traktamente: trak, bekraftad: true,
-                      bekraftad_tid: nuBekrIso,
-                    }, { onConflict: 'medarbetare_id,datum' });
-                    setSlut(effektivSlut.slice(0,5));
-                    setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true, bekraftad_tid: nuBekrIso, slut_tid: effektivSlut } }));
-                    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(200);
-                    setBekräftelseVisa(true);
-                    setTimeout(() => setBekräftelseVisa(false), 2000);
+
+                    // För-check: kör analys på [idag-7, idag] och hämta obesvarade brott.
+                    // Om någon finns → starta orsaks-flödet och vänta. Annars → bekräfta direkt.
+                    if (medarbetare?.id && trosklar) {
+                      const fromDt = new Date(idagKey); fromDt.setDate(fromDt.getDate() - 7);
+                      const fromIso = fromDt.toISOString().slice(0, 10);
+                      const toIso = idagKey;
+                      const dagar = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
+                      try {
+                        await analyseraOchSpara(medarbetare.id, dagar, trosklar, fromIso, toIso);
+                        const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
+                        setAktuellaVilobrott(nyaBrott);
+                        const obesvarade = nyaBrott
+                          .filter(b => !b.besvarat_av_forare)
+                          .filter(b => b.datum >= fromIso && b.datum <= toIso);
+                        if (obesvarade.length > 0) {
+                          // Frys kön — bygg INTE om från re-fetchad aktuellaVilobrott under flödet
+                          setVilobrottKö(obesvarade);
+                          setVilobrottIdx(0);
+                          setVilobrottOrsakVal(null);
+                          setVilobrottOrsakFritext("");
+                          setSteg("vilobrottOrsak");
+                          return;
+                        }
+                      } catch (err) {
+                        // För-check fel ska inte blockera arbetsflödet — bekräfta ändå.
+                        // Vilo-data uppdateras vid nästa render.
+                        console.error('Vilo-för-check misslyckades:', err);
+                      }
+                    }
+
+                    // Inga obesvarade brott — bekräfta direkt
+                    await bekraftaDagen();
                   }}
                   style={{ width:"100%",marginTop:16,padding:"20px",background:"#30D158",color:"#fff",border:"none",borderRadius:12,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
                   {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen"}
