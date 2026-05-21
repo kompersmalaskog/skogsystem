@@ -2112,10 +2112,26 @@ def upsert_data(table: str, data: List[Dict], unique_columns: List[str] = None, 
         return 0
 
 def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
-    """Skapa arbetsdag-rader från skift (start/sluttid) + rast från fakt_tid.
+    """Skapa arbetsdag-rader från fakt_skift (start/slut) + fakt_tid (rast).
+
+    BUGGFIX 2026-05-21: tidigare aggregerades bara den AKTUELLA FILENS skift,
+    vilket gjorde att multi-skift-dagar kollapsade vid varje fil-import (UPSERT
+    skrev över raden, senaste filen vann). Nu hämtas ALLA fakt_skift och fakt_tid
+    från DB för berörda datum, så aggregeringen ser hela dagen oavsett hur många
+    filer den är fördelad på.
+
+    Parameter `skift`/`tid_rows` används bara för att identifiera vilka
+    (medarbetare, datum) som påverkas av denna import — själva aggregeringen
+    läser från DB.
+
+    Skift under 300 sek (5 min) filtreras som artefakter.
+    slut_tid = NULL om utloggning saknas (tidigare default '16:00' gav negativa
+    pass när skiftet började efter 16:00).
+
+    Skriver inte över rader där bekraftad = true — separat rebuild-skript
+    hanterar bekräftade rader selektivt vid behov.
     Aggregerar per (medarbetare_id, datum) — en person som kör flera maskiner
-    samma dag får en rad med huvudmaskinen (den med mest tid).
-    Skriver inte över rader där bekraftad = true."""
+    samma dag får en rad med huvudmaskinen (den med mest tid)."""
     try:
         # 1. Hämta operator_id → medarbetare_id
         resp = requests.get(
@@ -2140,10 +2156,52 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
                 if row.get('operator_id') and row.get('operator_namn'):
                     op_namn[row['operator_id']] = row['operator_namn']
 
-        # 3. Bygg rast-lookup från fakt_tid: (operator_id, datum) → rast_sek
+        # 3. Identifiera berörda datum från filens skift + tid_rows.
+        # Vi aggregerar bara för dessa dagar, inte hela DB:n.
+        beforda_datum = set()
+        for s in skift:
+            datum = s.get('datum')
+            op_id = s.get('operator_id')
+            if datum and op_id and op_to_medarb.get(op_id):
+                beforda_datum.add(str(datum))
+        for row in tid_rows:
+            datum = str(row.get('datum', ''))
+            op_id = row.get('operator_id')
+            if datum and op_id and op_to_medarb.get(op_id):
+                beforda_datum.add(datum)
+
+        if not beforda_datum:
+            return
+
+        datum_in = ','.join(beforda_datum)
+
+        # 4. Hämta ALLA fakt_skift för berörda datum (inte bara filens egna).
+        # Detta är scope-fixen — multi-fil-dagar aggregeras nu korrekt.
+        skift_resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/fakt_skift?datum=in.({datum_in})"
+            f"&select=operator_id,maskin_id,datum,inloggning_tid,utloggning_tid,langd_sek",
+            headers=SUPABASE_HEADERS, timeout=30
+        )
+        if skift_resp.status_code != 200:
+            logger.warning(f"  Arbetsdag: kunde inte hämta fakt_skift ({skift_resp.status_code})")
+            return
+        alla_skift = skift_resp.json()
+
+        # 5. Hämta ALLA fakt_tid för rast-summering över hela dagen.
+        tid_resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/fakt_tid?datum=in.({datum_in})"
+            f"&select=operator_id,datum,rast_sek,objekt_id",
+            headers=SUPABASE_HEADERS, timeout=30
+        )
+        if tid_resp.status_code != 200:
+            logger.warning(f"  Arbetsdag: kunde inte hämta fakt_tid ({tid_resp.status_code})")
+            return
+        alla_tid = tid_resp.json()
+
+        # 6. Bygg rast-lookup + objekt-lookup från DB-datat.
         rast_lookup = {}
         objekt_lookup = {}
-        for row in tid_rows:
+        for row in alla_tid:
             op_id = row.get('operator_id')
             datum = str(row.get('datum', ''))
             if op_id and datum:
@@ -2152,10 +2210,11 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
                 if not objekt_lookup.get(key) and row.get('objekt_id'):
                     objekt_lookup[key] = row['objekt_id']
 
-        # 4. Aggregera skift per (medarbetare_id, datum) — MIN(start), MAX(slut)
+        # 7. Aggregera skift per (medarbetare_id, datum) — MIN(start), MAX(slut)
+        # över ALLA dagens skift. Skräpfilter < 300 sek.
         dag_agg = {}
         logged_unknown = set()
-        for s in skift:
+        for s in alla_skift:
             op_id = s.get('operator_id')
             maskin = s.get('maskin_id')
             datum = s.get('datum')
@@ -2173,11 +2232,22 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
                 continue
 
             datum_str = str(datum)
-            key = (medarb_id, datum_str)
-            inl_dt = inl if isinstance(inl, datetime) else parse_datetime(str(inl))
-            utl_dt = utl if isinstance(utl, datetime) else (parse_datetime(str(utl)) if utl else None)
-            sek = int((utl_dt - inl_dt).total_seconds()) if utl_dt and inl_dt else 0
+            inl_dt = parse_datetime(str(inl)) if inl else None
+            utl_dt = parse_datetime(str(utl)) if utl else None
+            if not inl_dt:
+                continue
 
+            # Skräpfilter: skift under 5 min är artefakter (motorn startad
+            # men inget riktigt pass). Hoppa över denna skift-rad — andra
+            # skift för samma dag aggregeras fortfarande.
+            if utl_dt:
+                sek = int((utl_dt - inl_dt).total_seconds())
+                if sek < 300:
+                    continue
+            else:
+                sek = 0
+
+            key = (medarb_id, datum_str)
             if key not in dag_agg:
                 dag_agg[key] = {'start': inl_dt, 'end': utl_dt, 'op_id': op_id, 'maskin_sek': {}}
             else:
@@ -2187,14 +2257,16 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
                     dag_agg[key]['end'] = utl_dt
             dag_agg[key]['maskin_sek'][maskin] = dag_agg[key]['maskin_sek'].get(maskin, 0) + sek
 
-        # 5. Bygg arbetsdag-rader (en per medarbetare+datum)
+        # 8. Bygg arbetsdag-rader (en per medarbetare+datum)
         arbetsdag_rows = []
         for (medarb_id, datum_str), agg in dag_agg.items():
             if not agg['start']:
                 continue
 
             start_tid = agg['start'].strftime('%H:%M')
-            slut_tid = agg['end'].strftime('%H:%M') if agg['end'] else '16:00'
+            # NULL om utloggning saknas — tidigare default '16:00' gav negativa
+            # pass och dolde att data var ofullständig.
+            slut_tid = agg['end'].strftime('%H:%M') if agg['end'] else None
             maskin = max(agg['maskin_sek'], key=agg['maskin_sek'].get) if agg['maskin_sek'] else None
 
             rast_sek = rast_lookup.get((agg['op_id'], datum_str), 0)
@@ -2216,7 +2288,8 @@ def _create_arbetsdag(tid_rows: List[Dict], skift: List[Dict]):
         if not arbetsdag_rows:
             return
 
-        # 6. Filtrera bort bekräftade rader
+        # 9. Filtrera bort bekräftade rader — live-import får inte rasera
+        # förares bekräftelser. Rebuild-skriptet hanterar det separat.
         medarb_list = list(set(r['medarbetare_id'] for r in arbetsdag_rows))
         bekraftade = set()
         for mid in medarb_list:
