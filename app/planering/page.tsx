@@ -1,7 +1,8 @@
 'use client'
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { useState, useRef, useEffect, useCallback, useMemo, Suspense } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
+import { useSearchParams } from 'next/navigation'
 import { createClient } from '@supabase/supabase-js'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
@@ -188,6 +189,18 @@ interface ManuellPrognos {
 // Zoner (isZoneMode) hanteras separat och är alltid polygoner.
 const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
 
+/** STEG 3: läser ?objekt=<id> via Next.js useSearchParams (måste vara
+ *  wrappad i Suspense i parent). Rapporterar id:t uppåt via callback.
+ *  Returnerar null — har bara existens för att tappa in i Next:s
+ *  routing-system och få korrekt värde vid client-side navigation. */
+function DeeplinkObjektResolver({ onResolved }: { onResolved: (id: string | null) => void }) {
+  const sp = useSearchParams();
+  useEffect(() => {
+    onResolved(sp?.get('objekt') ?? null);
+  }, [sp, onResolved]);
+  return null;
+}
+
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
@@ -197,16 +210,16 @@ export default function PlannerPage() {
   // STEG 3: rollbaserad filtrering
   const { medarbetare: currentMedarbetare } = useCurrentMedarbetare();
   const isForare = currentMedarbetare?.roll === 'forare';
-  // Läs ?objekt=<id> vid mount (window-baserad, undviker useSearchParams
-  // som kräver Suspense-boundary i Next 14 vid build).
-  const [urlObjektId] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    const search = window.location.search;
-    const objektId = new URLSearchParams(search).get('objekt');
-    console.log('[STEG3-debug] lazy useState init, location.search =', JSON.stringify(search), 'parsed objektId =', objektId);
-    return objektId;
-  });
+  // Deeplink ?objekt=<id> löses av <DeeplinkObjektResolver> som Suspense-wrappas
+  // i render. Vid client-side navigation från /forare är window.location.search
+  // stale vid mount — useSearchParams ger rätt värde via Next:s routing-system.
+  const [urlObjektId, setUrlObjektId] = useState<string | null>(null);
   const [urlObjektHandled, setUrlObjektHandled] = useState(false);
+  const [resolverHasRun, setResolverHasRun] = useState(false);
+  const handleDeeplinkResolved = useCallback((id: string | null) => {
+    setUrlObjektId(id);
+    setResolverHasRun(true);
+  }, []);
 
   // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
   const screenWakeLockRef = useRef<any>(null);
@@ -1730,27 +1743,16 @@ export default function PlannerPage() {
 
   // STEG 3: läs ?objekt=<id> från URL (från förarvyns "Starta körning") och välj objektet direkt
   useEffect(() => {
-    console.log('[STEG3-debug] deeplink-effekt körs, urlObjektId =', urlObjektId, 'urlObjektHandled =', urlObjektHandled, 'live location.search =', typeof window !== 'undefined' ? window.location.search : '(no window)');
-    if (!urlObjektId) {
-      console.log('[STEG3-debug] inget urlObjektId — markerar handled');
-      setUrlObjektHandled(true); return;
-    }
-    if (urlObjektHandled) {
-      console.log('[STEG3-debug] redan handled — skippar fetch');
-      return;
-    }
+    if (!resolverHasRun) return;
+    if (!urlObjektId) { setUrlObjektHandled(true); return; }
+    if (urlObjektHandled) return;
 
     (async () => {
-      console.log('[STEG3-debug] fetchar objekt id:', urlObjektId);
-      const { data, error } = await supabase.from('objekt').select('*').eq('id', urlObjektId).maybeSingle();
-      console.log('[STEG3-debug] fetch-resultat: data.id =', data?.id, 'data.namn =', data?.namn, 'error =', error?.message);
-      if (data) {
-        console.log('[STEG3-debug] anropar setValtObjekt med', data.namn);
-        setValtObjekt(data);
-      }
+      const { data } = await supabase.from('objekt').select('*').eq('id', urlObjektId).maybeSingle();
+      if (data) setValtObjekt(data);
       setUrlObjektHandled(true);
     })();
-  }, [urlObjektId, urlObjektHandled]);
+  }, [urlObjektId, urlObjektHandled, resolverHasRun]);
 
   // Background geolocation check every 60 seconds
   useEffect(() => {
@@ -8443,23 +8445,35 @@ export default function PlannerPage() {
 
   // Visa objektväljaren om inget objekt är valt
   if (!valtObjekt) {
-    console.log('[STEG3-debug] render-grenen !valtObjekt körs, urlObjektId =', urlObjektId, 'urlObjektHandled =', urlObjektHandled);
-    // STEG 3: undvik flicker när vi öppnar via /planering?objekt=<id> från förarvyn
-    if (urlObjektId && !urlObjektHandled) {
+    // STEG 3: Suspense-wrappad resolver som hämtar ?objekt=<id> från Next:s
+    // routing-system (window.location.search är stale vid client-side nav).
+    const deeplinkResolverNode = (
+      <Suspense fallback={null}>
+        <DeeplinkObjektResolver onResolved={handleDeeplinkResolved} />
+      </Suspense>
+    );
+    // Visa "Öppnar objekt…" tills resolvern rapporterat OCH (om deeplink fanns) fetchen klar.
+    const visaLoading = !resolverHasRun || (urlObjektId && !urlObjektHandled);
+    if (visaLoading) {
       return (
-        <div style={{
-          minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: '#0a0a0a', color: '#a8a8ad', fontSize: 14,
-          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
-        }}>
-          Öppnar objekt…
-        </div>
+        <>
+          {deeplinkResolverNode}
+          <div style={{
+            minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: '#0a0a0a', color: '#a8a8ad', fontSize: 14,
+            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+          }}>
+            Öppnar objekt…
+          </div>
+        </>
       );
     }
     return (
-      <ObjektValjare
-        forareFilter={isForare && currentMedarbetare?.id ? { medarbetareId: currentMedarbetare.id } : undefined}
-        onSelectObjekt={(obj) => {
+      <>
+        {deeplinkResolverNode}
+        <ObjektValjare
+          forareFilter={isForare && currentMedarbetare?.id ? { medarbetareId: currentMedarbetare.id } : undefined}
+          onSelectObjekt={(obj) => {
           console.log('=== VALT OBJEKT ===');
           console.log('namn:', obj.namn);
           console.log('kartbild_url:', obj.kartbild_url);
@@ -8493,7 +8507,8 @@ export default function PlannerPage() {
         onNavigera={(lat, lng) => {
           window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
         }}
-      />
+        />
+      </>
     );
   }
 
@@ -8544,6 +8559,10 @@ export default function PlannerPage() {
     } : null;
 
   return (
+    <>
+      <Suspense fallback={null}>
+        <DeeplinkObjektResolver onResolved={handleDeeplinkResolved} />
+      </Suspense>
     <div style={{
       position: 'fixed',
       inset: 0,
@@ -18419,5 +18438,6 @@ export default function PlannerPage() {
         }
       `}</style>
     </div>
+    </>
   );
 }
