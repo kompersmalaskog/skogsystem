@@ -462,7 +462,7 @@ export default function KalibreringPage() {
       // Stem-val + mätare (tas från första stocken — enhetlig per fil i praktiken)
       const fs = data.stockar[0];
       const selText =
-        fs?.stem_selection === 'Randomly selected stem' ? 'Slumpvis vald'
+        fs?.stem_selection === 'Randomly selected stem' ? 'Slumpvald stam'
         : fs?.stem_selection === 'Manually by operator selected stem' ? 'Vald av operatör'
         : fs?.stem_selection ?? null;
       const measurer = fs?.measurer_name ?? null;
