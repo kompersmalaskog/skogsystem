@@ -9275,20 +9275,31 @@ export default function PlannerPage() {
 
             {[
               {
-                title: 'VERKTYG',
+                title: 'RITA PÅ KARTAN',
                 items: [
                   { label: 'Symboler', icon: 'category', action: () => { setActiveCategory('symbols'); setMenuOpen(true); } },
                   { label: 'Linjer', icon: 'timeline', action: () => { setActiveCategory('lines'); setMenuOpen(true); } },
                   { label: 'Zoner', icon: 'crop_square', action: () => { setActiveCategory('zones'); setMenuOpen(true); } },
                   { label: 'Pilar', icon: 'arrow_outward', action: () => { setActiveCategory('arrows'); setMenuOpen(true); } },
                   { label: 'Mätning', icon: 'straighten', action: () => { setActiveCategory('measure'); setMenuOpen(true); } },
-                  // Körvy-rad är conditional toggle: startar när inaktiv, avslutar (röd) när aktiv.
-                  // Tidigare fanns en separat blå mode-banner med "Avsluta"-knapp överst i körvyn —
-                  // den togs bort 2026-05 till förmån för denna placering i + menyn.
+                ],
+              },
+              {
+                title: 'KÖRVY',
+                items: [
+                  // Körvy 2D-raden är conditional toggle: startar när inaktiv,
+                  // avslutar (röd) när aktiv. Tidigare fanns en separat blå mode-
+                  // banner med "Avsluta"-knapp överst i körvyn — den togs bort
+                  // 2026-05 till förmån för denna placering i + menyn.
                   korvyActive
                     ? { label: 'Avsluta körvy', icon: 'close', action: () => { setKorvyActive(false); }, danger: true }
                     : { label: 'Körvy 2D', icon: 'navigation', action: () => { setKorvyActive(true); } },
                   { label: 'Körvy 3D', icon: 'view_in_ar', action: () => { window.location.href = `/korvy${valtObjekt?.id ? `?objekt=${valtObjekt.id}` : ''}`; } },
+                ],
+              },
+              {
+                title: 'SKOTARE',
+                items: [
                   { label: 'Skotning', icon: 'local_shipping', action: () => { setActiveCategory('skotning'); setMenuOpen(true); } },
                   { label: 'Ny produktionshög', icon: 'edit', action: () => {
                     const map = mapInstanceRef.current;
