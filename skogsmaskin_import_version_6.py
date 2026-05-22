@@ -210,6 +210,14 @@ def safe_int(val, default=0) -> int:
     except:
         return default
 
+def nullif_empty(s):
+    """Konvertera tom eller whitespace-sträng till None. Behåller andra värden oförändrade."""
+    if s is None:
+        return None
+    if isinstance(s, str) and s.strip() == '':
+        return None
+    return s
+
 def make_objekt_id(vo_nummer: str, maskin_id: str, obj_key: str) -> str:
     """Bygg objekt_id: använd vo_nummer om det är numeriskt, annars maskin_id_obj_key"""
     if vo_nummer and vo_nummer.strip().isdigit():
@@ -1372,6 +1380,8 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
         'kalibrering': [],
         'kalibrering_historik': [],
         'kontroll_stockar': [],
+        'kontroll_stammar': [],
+        'kontroll_matpunkter': [],
         'filnamn': filnamn,
         'filtyp': 'HQC'
     }
@@ -1399,10 +1409,52 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
         creation_date = parse_datetime(get_text(header, 'CreationDate', ns))
     
     logger.info(f"  Maskin: {maskin_id}")
-    
+
     # === KONTROLLSTAMMAR ===
     control_values = find_element(machine, 'ControlValues', ns)
-    
+
+    # === PER-FIL-DATA (Stanford 2010) ===
+    application_version = get_text(header, 'ApplicationVersionCreated', ns) if header is not None else None
+
+    butt_log_length_adjustment_mm = None
+    calib_values_early = find_element(machine, 'CalibrationValues', ns)
+    if calib_values_early is not None:
+        butt_log_length_adjustment_mm = safe_int(get_text(calib_values_early, 'LengthCalibrationAdjustmentButtLog', ns))
+
+    object_name = None
+    object_area_ha = None
+    cutting_method = None
+    forest_certification = None
+    contract_number = None
+    first_obj = None
+    if control_values is not None:
+        first_obj = find_element(control_values, 'ObjectDefinition', ns)
+    if first_obj is None:
+        first_obj = find_element(machine, 'ObjectDefinition', ns)
+    if first_obj is not None:
+        object_name = get_text(first_obj, 'ObjectName', ns)
+        object_area_ha = safe_float(get_text(first_obj, 'ObjectArea', ns))
+        cutting_method = get_text(first_obj, 'CuttingMethod', ns)
+        forest_certification = get_text(first_obj, 'ForestCertification', ns)
+        contract_number = get_text(first_obj, 'ContractNumber', ns)
+
+    # === PRODUCT-DEFINITION LOOKUP ===
+    # ProductDefinition är nästlat djupt (under ObjectDefinition), så använd
+    # rekursiv search. ProductName/ProductGroupName/ProductUserID ligger inuti
+    # ClassifiedProductDefinition-subelementet.
+    product_lookup = {}
+    pd_path = (f'.//{ns}ProductDefinition' if ns else './/ProductDefinition')
+    for prod in root.findall(pd_path):
+        product_key = get_text(prod, 'ProductKey', ns)
+        if not product_key:
+            continue
+        classified = find_element(prod, 'ClassifiedProductDefinition', ns) or prod
+        product_lookup[product_key] = {
+            'sortiment_namn': get_text(classified, 'ProductName', ns) or None,
+            'sortiment_grupp': get_text(classified, 'ProductGroupName', ns) or None,
+            'sortiment_kod': get_text(classified, 'ProductUserID', ns) or None,
+        }
+
     langd_avvikelser = []
     dia_avvikelser = []
     antal_stammar = 0
@@ -1434,7 +1486,85 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
             obj_key_hqc = get_text(stem, 'ObjectKey', ns)
             sp_key = get_text(stem, 'SpeciesGroupKey', ns) or get_text(single_tree, 'SpeciesGroupKey', ns)
             stam_nummer = antal_stammar
-            
+
+            # === PER-STAM-FÄLT (Stanford 2010) ===
+            ctrl_stem_info = find_element(stem, 'ControlStemInfo', ns)
+            stem_selection = None
+            measurement_mode = None
+            rejected_reason = None
+            if ctrl_stem_info is not None:
+                stem_selection = get_text(ctrl_stem_info, 'RandomControlStemSelection', ns)
+                measurement_mode = get_text(ctrl_stem_info, 'RandomControlStemMeasurementMode', ns)
+                rejected_reason = get_text(ctrl_stem_info, 'RandomControlStemRejectedReason', ns)
+
+            ctrl_meas_def = find_element(stem, 'ControlMeasurementDefinition', ns)
+            measurer_name = None
+            caliper_id = None
+            if ctrl_meas_def is not None:
+                measurer = find_element(ctrl_meas_def, 'Measurer', ns)
+                if measurer is not None:
+                    measurer_name = get_text(measurer, 'FirstName', ns)
+                caliper_id = get_text(ctrl_meas_def, 'CaliperID', ns)
+
+            stem_sc = find_element(stem, 'StemCoordinates', ns)
+            if stem_sc is None:
+                stem_sc = find_element(single_tree, 'StemCoordinates', ns)
+            stem_lat = None
+            stem_lon = None
+            stem_alt = None
+            if stem_sc is not None:
+                stem_lat = safe_float(get_text(stem_sc, 'Latitude', ns))
+                stem_lon = safe_float(get_text(stem_sc, 'Longitude', ns))
+                stem_alt = safe_float(get_text(stem_sc, 'Altitude', ns))
+
+            harvest_date = parse_datetime(get_text(stem, 'HarvestDate', ns)) or \
+                           parse_datetime(get_text(single_tree, 'HarvestDate', ns))
+
+            processing_category = get_text(stem, 'ProcessingCategory', ns) or \
+                                  get_text(single_tree, 'ProcessingCategory', ns)
+
+            stem_dbh_mm = safe_int(get_text(single_tree, 'DBH', ns))
+
+            # StemDiameters → JSONB-profil (positioner i cm, diameter i mm)
+            # Stöder två format:
+            #   Ponsse: <DiameterValue diameterPosition="0">306</DiameterValue> (positioner i cm)
+            #   Spec:   <Diameter>306</Diameter> + DiameterStartHeight + DiameterMeasurementGap (mm)
+            stem_diameter_profile = []
+            sd = find_element(single_tree, 'StemDiameters', ns)
+            if sd is not None:
+                dvs = find_all_elements(sd, 'DiameterValue', ns)
+                if dvs:
+                    for d_elem in dvs:
+                        pos_attr = get_attr(d_elem, 'diameterPosition')
+                        pos_cm = safe_int(pos_attr) if pos_attr else None
+                        d_mm = safe_int(d_elem.text) if d_elem.text else None
+                        if pos_cm is None or d_mm is None:
+                            continue
+                        stem_diameter_profile.append({
+                            'position_cm': pos_cm,
+                            'diameter_mm': d_mm,
+                        })
+                else:
+                    d_start = safe_int(get_text(sd, 'DiameterStartHeight', ns)) or 0
+                    d_gap = safe_int(get_text(sd, 'DiameterMeasurementGap', ns)) or 100
+                    for i, d_elem in enumerate(find_all_elements(sd, 'Diameter', ns)):
+                        d_mm = safe_int(d_elem.text) if d_elem.text else None
+                        if d_mm is None:
+                            continue
+                        pos_mm = d_start + i * d_gap
+                        stem_diameter_profile.append({
+                            'position_cm': pos_mm // 10,
+                            'diameter_mm': d_mm,
+                        })
+
+            data['kontroll_stammar'].append({
+                'filnamn': filnamn,
+                'stam_nummer': stam_nummer,
+                'maskin_id': maskin_id,
+                'kontroll_datum': creation_date.date() if creation_date else None,
+                'stem_diameter_profile': stem_diameter_profile or None,
+            })
+
             for log in find_all_elements(single_tree, 'Log', ns):
                 antal_stockar += 1
                 log_key = get_text(log, 'LogKey', ns)
@@ -1443,25 +1573,63 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
                 maskin_langd = 0
                 maskin_dia = 0
                 maskin_volym = 0
-                
+
                 # Operatörsmätning
                 operator_langd = 0
                 operator_dia = 0
                 operator_volym = 0
-                
+
+                # Per-stock extra fält (Stanford 2010)
+                mid_ob_mm = None
+                butt_ob_mm = None
+                machine_measurement_date = None
+                operator_measurement_date = None
+                cutting_reason = get_text(log, 'CuttingReason', ns)
+                product_key_log = get_text(log, 'ProductKey', ns)
+                sortiment_log = product_lookup.get(product_key_log, {
+                    'sortiment_namn': None,
+                    'sortiment_grupp': None,
+                    'sortiment_kod': None,
+                })
+
                 for log_meas in find_all_elements(log, 'LogMeasurement', ns):
                     cat = get_attr(log_meas, 'logMeasurementCategory')
-                    
+
                     langd = safe_int(get_text(log_meas, 'LogLength', ns))
-                    dia_elem = find_element(log_meas, 'LogDiameter', ns)
-                    dia = safe_int(dia_elem.text) if dia_elem is not None and dia_elem.text else 0
-                    
+
+                    # Iterera alla LogDiameter-element (Top/Mid/Butt) — Ponsse-format har
+                    # kategori "Top ob"/"Mid ob"/"Butt ob" med värdet i .text, äldre format
+                    # kan ha kategori "Top" med LogDiameterOb-child. Hoppa över UB och HKS.
+                    dia = 0
+                    for ld in find_all_elements(log_meas, 'LogDiameter', ns):
+                        ld_cat_raw = (get_attr(ld, 'logDiameterCategory') or '').strip()
+                        ld_cat_low = ld_cat_raw.lower()
+                        if 'ub' in ld_cat_low or 'hks' in ld_cat_low:
+                            continue
+                        ob_text = get_text(ld, 'LogDiameterOb', ns)
+                        ob_val = safe_int(ob_text) if ob_text else None
+                        if ob_val is None and ld.text and ld.text.strip().lstrip('-').isdigit():
+                            ob_val = safe_int(ld.text)
+                        if ob_val is None or ob_val == 0:
+                            continue
+                        if ld_cat_low.startswith('top') or not ld_cat_raw:
+                            if not dia:
+                                dia = ob_val
+                        elif ld_cat_low.startswith('mid') and mid_ob_mm is None:
+                            mid_ob_mm = ob_val
+                        elif ld_cat_low.startswith('butt') and butt_ob_mm is None:
+                            butt_ob_mm = ob_val
+
+                    mdate = parse_datetime(get_text(log_meas, 'MeasurementDate', ns))
+
                     if cat == 'Machine':
                         maskin_langd = langd
                         maskin_dia = dia
+                        machine_measurement_date = mdate
                     elif cat == 'Operator':
                         operator_langd = langd
                         operator_dia = dia
+                        operator_measurement_date = mdate
                 
                 # Beräkna avvikelser
                 if maskin_langd and operator_langd:
@@ -1495,12 +1663,70 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
                     ctrl_lat = safe_float(get_text(sc, 'Latitude', ns))
                     ctrl_lon = safe_float(get_text(sc, 'Longitude', ns))
                 
+                # === PER-MÄTPUNKT-DATA (Stanford 2010 ControlLogDiameter) ===
+                stock_nummer = safe_int(log_key)
+                matpunkter_per_position = {}
+                for log_meas2 in find_all_elements(log, 'LogMeasurement', ns):
+                    category = get_attr(log_meas2, 'logMeasurementCategory')
+                    for cld in find_all_elements(log_meas2, 'ControlLogDiameter', ns):
+                        # Hoppa över UB-mätpunkter (vi sparar bara OB)
+                        cld_cat_low = (get_attr(cld, 'controlLogDiameterCategory') or '').strip().lower()
+                        if cld_cat_low == 'ub':
+                            continue
+                        pos_attr = get_attr(cld, 'diameterPosition')
+                        pos_cm = safe_int(pos_attr) if pos_attr else None
+                        if pos_cm is None:
+                            continue
+                        # diameterPosition är redan i cm (verifierat 2026-05-21
+                        # mot Ponsse + Rottne: 100/200/300/400 = jämna meter,
+                        # 130 = brösthöjd). Ingen division.
+
+                        # Värdet ligger antingen i LogDiameterOb-child eller cld.text direkt
+                        ob_text = get_text(cld, 'LogDiameterOb', ns)
+                        ob = safe_int(ob_text) if ob_text else None
+                        if ob is None and cld.text and cld.text.strip().lstrip('-').isdigit():
+                            ob = safe_int(cld.text)
+
+                        first_mm = None
+                        second_mm = None
+                        for ld in find_all_elements(cld, 'LogDiameter', ns):
+                            vc = get_attr(ld, 'diameterMeasurementCategory')
+                            v = safe_int(ld.text) if ld.text else None
+                            if vc == 'First':
+                                first_mm = v
+                            elif vc == 'Second':
+                                second_mm = v
+
+                        if pos_cm not in matpunkter_per_position:
+                            matpunkter_per_position[pos_cm] = {
+                                'filnamn': filnamn,
+                                'stam_nummer': stam_nummer,
+                                'stock_nummer': stock_nummer,
+                                'position_cm': pos_cm,
+                                'diameter_maskin_mm': None,
+                                'diameter_operator_mm': None,
+                                'klave_first_mm': None,
+                                'klave_second_mm': None,
+                            }
+                        rec = matpunkter_per_position[pos_cm]
+                        if category == 'Machine':
+                            rec['diameter_maskin_mm'] = ob
+                        elif category == 'Operator':
+                            rec['diameter_operator_mm'] = ob
+                            if first_mm is not None:
+                                rec['klave_first_mm'] = first_mm
+                            if second_mm is not None:
+                                rec['klave_second_mm'] = second_mm
+
+                for pos_cm in sorted(matpunkter_per_position):
+                    data['kontroll_matpunkter'].append(matpunkter_per_position[pos_cm])
+
                 data['kontroll_stockar'].append({
                     'maskin_id': maskin_id,
                     'objekt_id': obj_key_map_hqc.get(obj_key_hqc, f"{maskin_id}_{obj_key_hqc}") if obj_key_hqc else None,
                     'kontroll_datum': creation_date.date() if creation_date else None,
                     'stam_nummer': stam_nummer,
-                    'stock_nummer': safe_int(log_key),
+                    'stock_nummer': stock_nummer,
                     'maskin_langd_cm': maskin_langd,
                     'maskin_toppdia_mm': maskin_dia,
                     'maskin_volym_sub': maskin_volym_sub,
@@ -1512,7 +1738,28 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
                     'volym_avvikelse': round(maskin_volym_sub - operator_volym_sub, 4) if maskin_volym_sub and operator_volym_sub else None,
                     'latitude': ctrl_lat,
                     'longitude': ctrl_lon,
-                    'filnamn': filnamn
+                    'filnamn': filnamn,
+                    # Per-stam-metadata (redundant på varje stock)
+                    'stem_lat': stem_lat,
+                    'stem_lon': stem_lon,
+                    'stem_alt': stem_alt,
+                    'harvest_date': harvest_date,
+                    'stem_dbh_mm': stem_dbh_mm,
+                    'stem_selection': nullif_empty(stem_selection),
+                    'measurement_mode': nullif_empty(measurement_mode),
+                    'rejected_reason': nullif_empty(rejected_reason),
+                    'measurer_name': nullif_empty(measurer_name),
+                    'caliper_id': nullif_empty(caliper_id),
+                    'processing_category': nullif_empty(processing_category),
+                    # Per-stock-egna
+                    'sortiment_namn': nullif_empty(sortiment_log['sortiment_namn']),
+                    'sortiment_grupp': nullif_empty(sortiment_log['sortiment_grupp']),
+                    'sortiment_kod': nullif_empty(sortiment_log['sortiment_kod']),
+                    'cutting_reason': nullif_empty(cutting_reason),
+                    'log_diameter_mid_ob_mm': mid_ob_mm,
+                    'log_diameter_butt_ob_mm': butt_ob_mm,
+                    'machine_measurement_date': machine_measurement_date,
+                    'operator_measurement_date': operator_measurement_date,
                 })
     
     # Beräkna statistik
@@ -1555,7 +1802,15 @@ def parse_hqc_file(filepath: str) -> Dict[str, Any]:
         'dia_avvikelse_min_mm': dia_min,
         'dia_avvikelse_max_mm': dia_max,
         'status': status,
-        'filnamn': filnamn
+        'filnamn': filnamn,
+        # Per-fil-fält (Stanford 2010)
+        'application_version': nullif_empty(application_version),
+        'object_name': nullif_empty(object_name),
+        'object_area_ha': object_area_ha,
+        'cutting_method': nullif_empty(cutting_method),
+        'forest_certification': nullif_empty(forest_certification),
+        'contract_number': nullif_empty(contract_number),
+        'butt_log_length_adjustment_mm': butt_log_length_adjustment_mm,
     })
     
     logger.info(f"  Kontrollstammar: {antal_stammar}, Stockar: {antal_stockar}")
@@ -2627,16 +2882,91 @@ def save_hqc_to_supabase(data: Dict) -> bool:
         fel = []
 
         if data.get('kalibrering'):
-            if upsert_data('fakt_kalibrering', data['kalibrering']) == 0:
+            if upsert_data(
+                'fakt_kalibrering',
+                data['kalibrering'],
+                unique_columns=['filnamn']
+            ) == 0:
                 fel.append('fakt_kalibrering')
 
         if data.get('kalibrering_historik'):
-            if upsert_data('fakt_kalibrering_historik', data['kalibrering_historik']) == 0:
+            if upsert_data(
+                'fakt_kalibrering_historik',
+                data['kalibrering_historik'],
+                unique_columns=['datum', 'maskin_id', 'tradslag', 'typ']
+            ) == 0:
                 fel.append('fakt_kalibrering_historik')
 
         if data.get('kontroll_stockar'):
-            if upsert_data('detalj_kontroll_stock', data['kontroll_stockar']) == 0:
+            if upsert_data(
+                'detalj_kontroll_stock',
+                data['kontroll_stockar'],
+                unique_columns=['filnamn', 'stam_nummer', 'stock_nummer']
+            ) == 0:
                 fel.append('detalj_kontroll_stock')
+
+        if data.get('kontroll_stammar'):
+            if upsert_data(
+                'detalj_kontroll_stam',
+                data['kontroll_stammar'],
+                unique_columns=['filnamn', 'stam_nummer']
+            ) == 0:
+                fel.append('detalj_kontroll_stam')
+
+        # Matpunkter behöver detalj_kontroll_stock.id (FK), som genereras
+        # av databasen vid INSERT. Slå upp id per (stam_nummer, stock_nummer)
+        # via REST efter stock-upserten.
+        if data.get('kontroll_matpunkter'):
+            import urllib.parse
+            filnamn = data.get('filnamn')
+            stock_id_lookup = {}
+            if filnamn:
+                enc = urllib.parse.quote(filnamn, safe='')
+                url = (
+                    f"{SUPABASE_URL}/rest/v1/detalj_kontroll_stock"
+                    f"?filnamn=eq.{enc}"
+                    f"&select=id,stam_nummer,stock_nummer"
+                )
+                try:
+                    resp = requests.get(url, headers=SUPABASE_HEADERS, timeout=30)
+                    if resp.status_code == 200:
+                        for row in resp.json():
+                            stock_id_lookup[(row['stam_nummer'], row['stock_nummer'])] = row['id']
+                    else:
+                        logger.warning(
+                            f"  ⚠ Kunde inte slå upp detalj_kontroll_stock.id: "
+                            f"{resp.status_code} {resp.text[:200]}"
+                        )
+                except Exception as e:
+                    logger.warning(f"  ⚠ Fel vid stock-id-lookup: {e}")
+
+            matpunkter_med_id = []
+            for mp in data['kontroll_matpunkter']:
+                stock_id = stock_id_lookup.get((mp['stam_nummer'], mp['stock_nummer']))
+                if stock_id is None:
+                    continue
+                matpunkter_med_id.append({
+                    'detalj_kontroll_stock_id': stock_id,
+                    'position_cm': mp['position_cm'],
+                    'diameter_maskin_mm': mp['diameter_maskin_mm'],
+                    'diameter_operator_mm': mp['diameter_operator_mm'],
+                    'klave_first_mm': mp['klave_first_mm'],
+                    'klave_second_mm': mp['klave_second_mm'],
+                })
+
+            saknade = len(data['kontroll_matpunkter']) - len(matpunkter_med_id)
+            if saknade > 0:
+                logger.warning(
+                    f"  ⚠ {saknade} matpunkter saknade detalj_kontroll_stock_id, ej sparade"
+                )
+
+            if matpunkter_med_id:
+                if upsert_data(
+                    'detalj_kontroll_stock_matpunkt',
+                    matpunkter_med_id,
+                    unique_columns=['detalj_kontroll_stock_id', 'position_cm']
+                ) == 0:
+                    fel.append('detalj_kontroll_stock_matpunkt')
 
         if fel:
             logger.error(f"  ✗ Misslyckades spara till: {', '.join(fel)}")
