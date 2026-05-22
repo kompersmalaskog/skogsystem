@@ -192,14 +192,35 @@ export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
   // STEG 1: tilldelning av skördare/skotare + "Klar — skicka till förare"
-  const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string; partner_user_id: string | null }>>([]);
+  const [medarbetareLista, setMedarbetareLista] = useState<Array<{ id: string; namn: string; partner_user_id: string | null; roll: string | null }>>([]);
   const [sendingKlar, setSendingKlar] = useState(false);
 
-  // STEG 3 (förenklad): rollbaserad filtrering + "Starta körning"-pill för förare
+  // STEG 3/4: rollbaserad filtrering + "Starta körning"-pill + admin-växling
   const { medarbetare: currentMedarbetare } = useCurrentMedarbetare();
-  const isForare = currentMedarbetare?.roll === 'forare';
   const [startarKorning, setStartarKorning] = useState(false);
   const autoValjGjordRef = useRef(false);
+
+  // STEG 4: admin-växling till "Visa som <förare>"-läge.
+  // simuleradForareId är lokal state — försvinner vid reload (färskt läge per session).
+  //
+  // OBS audit-trail: en action ("Starta körning", "Klar") som admin utför i
+  // "Visa som"-läge sätter samma timestamps som om föraren gjort det själv.
+  // Ingen spårning av "admin agerade åt förare". Värt att överväga om vi
+  // senare vill ha audit-trail (t.ex. ny kolumn last_action_by_user_id).
+  const [simuleradForareId, setSimuleradForareId] = useState<string | null>(null);
+  const simuleradForare = simuleradForareId
+    ? medarbetareLista.find(m => m.id === simuleradForareId) ?? null
+    : null;
+  const effectiveMedarbetare = simuleradForare ?? currentMedarbetare;
+  const isAdminRiktig = currentMedarbetare?.roll === 'admin' || currentMedarbetare?.roll === 'chef';
+  const isForare = effectiveMedarbetare?.roll === 'forare';
+  const visarSomForare = simuleradForareId !== null;
+
+  const handleVaxlaVy = useCallback((forareId: string | null) => {
+    setSimuleradForareId(forareId);
+    setValtObjekt(null);               // släpp valt objekt så auto-välj kan hitta nytt
+    autoValjGjordRef.current = false;  // tillåt auto-välj köra igen för ny "förare"
+  }, []);
 
   // === WAKE LOCK — håll skärmen vaken när objekt är öppet ===
   const screenWakeLockRef = useRef<any>(null);
@@ -1715,7 +1736,7 @@ export default function PlannerPage() {
     (async () => {
       const { data } = await supabase
         .from('medarbetare')
-        .select('id, namn, partner_user_id')
+        .select('id, namn, partner_user_id, roll')
         .order('namn');
       if (data) setMedarbetareLista(data);
     })();
@@ -1730,7 +1751,7 @@ export default function PlannerPage() {
   // triggar auto-välj igen — föraren ska kunna nå sina andra objekt. Re-mount
   // (navigera bort + tillbaka, hård reload) återställer ref:en naturligt.
   useEffect(() => {
-    if (!isForare || !currentMedarbetare?.id || valtObjekt) return;
+    if (!isForare || !effectiveMedarbetare?.id || valtObjekt) return;
     if (autoValjGjordRef.current) return;
 
     let cancelled = false;
@@ -1738,7 +1759,7 @@ export default function PlannerPage() {
       const { data } = await supabase
         .from('objekt')
         .select('*')
-        .or(`assigned_skordare_user_id.eq.${currentMedarbetare.id},assigned_skotare_user_id.eq.${currentMedarbetare.id}`)
+        .or(`assigned_skordare_user_id.eq.${effectiveMedarbetare.id},assigned_skotare_user_id.eq.${effectiveMedarbetare.id}`)
         .in('status', ['planerad', 'pagaende']);
       if (cancelled) return;
       autoValjGjordRef.current = true; // markera klar oavsett resultat
@@ -1759,7 +1780,7 @@ export default function PlannerPage() {
     })();
 
     return () => { cancelled = true; };
-  }, [isForare, currentMedarbetare?.id, valtObjekt]);
+  }, [isForare, effectiveMedarbetare?.id, valtObjekt]);
 
   // Background geolocation check every 60 seconds
   useEffect(() => {
@@ -1859,6 +1880,10 @@ export default function PlannerPage() {
   // (när förare väljer ett planerat objekt direkt från ObjektValjare).
   // Båda flödena ger identiskt resultat: status='pagaende' + timestamp +
   // vibration + valtObjekt sätts så kartan öppnas på objektet.
+  //
+  // STEG 4: kan också anropas av admin i "Visa som"-läge — DB-uppdateringen
+  // ser då identisk ut som om föraren tryckt själv (samma timestamp-kolumn,
+  // ingen spårning av admin-actor). Acceptabelt för 6-person-teamet just nu.
   const handleStartKorningForObjekt = useCallback(async (obj: any) => {
     if (!obj?.id || startarKorning) return;
     setStartarKorning(true);
@@ -8479,7 +8504,7 @@ export default function PlannerPage() {
   if (!valtObjekt) {
     return (
       <ObjektValjare
-        forareFilter={isForare && currentMedarbetare?.id ? { medarbetareId: currentMedarbetare.id } : undefined}
+        forareFilter={isForare && effectiveMedarbetare?.id ? { medarbetareId: effectiveMedarbetare.id } : undefined}
         onStartObjekt={isForare ? handleStartKorningForObjekt : undefined}
         onSelectObjekt={(obj) => {
           console.log('=== VALT OBJEKT ===');
@@ -8632,8 +8657,19 @@ export default function PlannerPage() {
             </svg>
           </Link>
 
-          {/* Objekt-pill (glasig) */}
-          <div style={{
+          {/* Objekt-pill (glasig). STEG 4: i "Visa som"-läge får pillen orange
+              border + prefix "👁 <förnamn> ·" + tap-handler som öppnar +-menyn
+              (där VY-växlaren bor) så admin kan växla tillbaka snabbt. */}
+          <div
+            {...(visarSomForare ? {
+              role: 'button',
+              tabIndex: 0,
+              onClick: () => setPlusMenuOpen(true),
+              onKeyDown: (e: React.KeyboardEvent) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setPlusMenuOpen(true); }
+              },
+            } : {})}
+            style={{
             pointerEvents: 'auto',
             flex: '0 1 auto',
             maxWidth: 'calc(100% - 120px)',
@@ -8642,7 +8678,7 @@ export default function PlannerPage() {
             background: 'rgba(20,20,22,0.72)',
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            border: visarSomForare ? '1px solid #ff9f0a' : '1px solid rgba(255,255,255,0.08)',
             color: '#fff',
             fontSize: '15px',
             fontWeight: 600,
@@ -8651,7 +8687,13 @@ export default function PlannerPage() {
             textOverflow: 'ellipsis',
             letterSpacing: '-0.2px',
             textAlign: 'center',
+            cursor: visarSomForare ? 'pointer' : 'default',
           }}>
+            {visarSomForare && simuleradForare && (
+              <span style={{ color: '#ff9f0a', fontWeight: 600, marginRight: 6 }}>
+                👁 {simuleradForare.namn.split(' ')[0]} ·
+              </span>
+            )}
             {valtObjekt ? (
               <>
                 <span>{valtObjekt.namn}</span>
@@ -9066,6 +9108,68 @@ export default function PlannerPage() {
             <div style={{ display: 'flex', justifyContent: 'center', padding: '6px 0 10px' }}>
               <div style={{ width: 40, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.25)' }} />
             </div>
+
+            {/* STEG 4: VY-växlare — bara för admin (inkl. chef). Tillåter "Visa som
+                <förare>" för felsökning eller hjälp. Actions i "Visa som"-läge
+                påverkar föraren på riktigt — se audit-trail-kommentar vid
+                simuleradForareId-state. */}
+            {isAdminRiktig && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{
+                  padding: '8px 12px 6px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'rgba(255,255,255,0.55)',
+                }}>
+                  VY
+                </div>
+                <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 14, overflow: 'hidden' }}>
+                  {[
+                    { id: null as string | null, label: 'Planerare' },
+                    ...medarbetareLista
+                      .filter(m => m.roll === 'forare')
+                      .map(m => ({ id: m.id as string | null, label: `Visa som ${m.namn}` })),
+                  ].map((item, i) => {
+                    const aktiv = simuleradForareId === item.id;
+                    return (
+                      <button
+                        key={item.id ?? 'planerare'}
+                        type="button"
+                        onClick={() => {
+                          if (navigator.vibrate) navigator.vibrate(8);
+                          handleVaxlaVy(item.id);
+                          setPlusMenuOpen(false);
+                        }}
+                        style={{
+                          width: '100%', minHeight: 56, padding: '0 16px',
+                          display: 'flex', alignItems: 'center', gap: 14,
+                          background: 'transparent', border: 'none',
+                          borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                          color: aktiv ? '#ff9f0a' : '#fff',
+                          fontSize: 16, fontWeight: aktiv ? 600 : 500,
+                          textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
+                        }}
+                      >
+                        <span
+                          className="material-symbols-outlined"
+                          aria-hidden="true"
+                          style={{
+                            fontSize: 26,
+                            color: aktiv ? '#ff9f0a' : 'rgba(255,255,255,0.85)',
+                            flexShrink: 0,
+                            width: 32,
+                            textAlign: 'center',
+                          }}
+                        >
+                          {aktiv ? 'radio_button_checked' : 'radio_button_unchecked'}
+                        </span>
+                        <span style={{ flex: 1 }}>{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* AKTUELLT OBJEKT — tilldelning + "Klar — skicka till förare" (STEG 1)
                 STEG 3: döljs helt för förare — planerarens funktion */}
