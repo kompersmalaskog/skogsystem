@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 // ─────────────────────────────────────────────────────────────
@@ -217,6 +217,92 @@ async function fetchData(maskinId: string, start: string, end: string): Promise<
 }
 
 // ─────────────────────────────────────────────────────────────
+// Trend-serie — 6 perioder bakåt, en sjavtest = 1 prod + 1 tid
+// ─────────────────────────────────────────────────────────────
+type PeriodKpi = {
+  label: string
+  hasData: boolean
+  produktivitet: number | null
+  volym: number | null
+  stammar: number | null
+  medelstam: number | null
+  branslePerM3: number | null
+  stammarPerG15h: number | null
+}
+
+// Tröskel: en period måste ha minst så här många distinkta dagar med
+// produktion för att räknas. Färre dagar = för tunt underlag — vi vill
+// inte rita en punkt som ser ut som en kollaps när det egentligen är
+// importglapp eller en kort startperiod.
+const MIN_DAYS_PER_PERIOD = 2
+
+async function fetchSeries(maskinId: string, period: Period, offset: number): Promise<PeriodKpi[]> {
+  const ids = COMBO_IDS[maskinId] || [maskinId]
+
+  // 6 perioder, äldst först
+  const ranges: { start: string; end: string; label: string }[] = []
+  for (let i = 5; i >= 0; i--) ranges.push(getPeriodRange(period, offset - i))
+
+  const spanStart = ranges[0].start
+  const spanEnd   = ranges[ranges.length - 1].end
+
+  // EN fetch per tabell för hela spannet — bucketing i minnet
+  const [prodRows, tidRows] = await Promise.all([
+    fetchAll('fakt_produktion', 'datum, volym_m3sub, stammar', ids, spanStart, spanEnd),
+    fetchAll('fakt_tid', 'datum, processing_sek, terrain_sek, bransle_liter', ids, spanStart, spanEnd),
+  ])
+
+  const bucketOf = (datum: string): number => {
+    for (let i = 0; i < ranges.length; i++) {
+      if (datum >= ranges[i].start && datum <= ranges[i].end) return i
+    }
+    return -1
+  }
+
+  const buckets = ranges.map(() => ({
+    volym: 0, stammar: 0, proc: 0, terr: 0, bransle: 0,
+    prodDays: new Set<string>(),
+  }))
+
+  for (const r of prodRows) {
+    const b = bucketOf(r.datum)
+    if (b < 0) continue
+    buckets[b].volym   += r.volym_m3sub || 0
+    buckets[b].stammar += r.stammar || 0
+    if ((r.volym_m3sub || 0) > 0 || (r.stammar || 0) > 0) buckets[b].prodDays.add(r.datum)
+  }
+
+  for (const r of tidRows) {
+    const b = bucketOf(r.datum)
+    if (b < 0) continue
+    buckets[b].proc    += r.processing_sek || 0
+    buckets[b].terr    += r.terrain_sek || 0
+    buckets[b].bransle += parseFloat(r.bransle_liter) || 0
+  }
+
+  return buckets.map((b, i) => {
+    const g15h = (b.proc + b.terr) / 3600
+    const hasData = b.prodDays.size >= MIN_DAYS_PER_PERIOD
+    if (!hasData) {
+      return {
+        label: ranges[i].label, hasData: false,
+        produktivitet: null, volym: null, stammar: null,
+        medelstam: null, branslePerM3: null, stammarPerG15h: null,
+      }
+    }
+    return {
+      label: ranges[i].label, hasData: true,
+      produktivitet:   g15h > 0                            ? b.volym / g15h     : null,
+      volym:           b.volym > 0                         ? b.volym             : null,
+      stammar:         b.stammar > 0                       ? b.stammar           : null,
+      medelstam:       b.stammar > 0                       ? b.volym / b.stammar : null,
+      branslePerM3:    (b.volym > 0 && b.bransle > 0)      ? b.bransle / b.volym : null,
+      stammarPerG15h:  (g15h > 0 && b.stammar > 0)         ? b.stammar / g15h    : null,
+    }
+  })
+}
+
+// ─────────────────────────────────────────────────────────────
 // Root-komponent
 // ─────────────────────────────────────────────────────────────
 export default function OversiktNy() {
@@ -225,6 +311,7 @@ export default function OversiktNy() {
   const [offset, setOffset] = useState(0)
   const [data, setData] = useState<Data | null>(null)
   const [prevData, setPrevData] = useState<Data | null>(null)
+  const [series, setSeries] = useState<PeriodKpi[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [maskinOpen, setMaskinOpen] = useState(false)
 
@@ -236,10 +323,12 @@ export default function OversiktNy() {
     Promise.all([
       fetchData(maskin.id, cur.start,  cur.end ).catch(() => null),
       fetchData(maskin.id, prev.start, prev.end).catch(() => null),
-    ]).then(([curD, prevD]) => {
+      fetchSeries(maskin.id, period, offset).catch(() => null),
+    ]).then(([curD, prevD, ser]) => {
       if (cancelled) return
       setData(curD)
       setPrevData(prevD)
+      setSeries(ser)
       setLoading(false)
     })
     return () => { cancelled = true }
@@ -368,9 +457,10 @@ export default function OversiktNy() {
         <HeroCard
           value={data?.produktivitet ?? null}
           prev={prevData?.produktivitet ?? null}
+          series={series}
           loading={loading}
         />
-        <KpiList data={data} prev={prevData} loading={loading} />
+        <KpiList data={data} prev={prevData} series={series} loading={loading} />
         <TimeDistribution data={data} loading={loading} />
         <OperatorList operatorer={data?.operatorer ?? []} loading={loading} />
       </div>
@@ -405,9 +495,141 @@ function DeltaBadge({
 }
 
 // ─────────────────────────────────────────────────────────────
+// Sparkline — ren SVG. Hoppar över null-värden (segment-baserad).
+// Returnerar null om färre än 2 giltiga punkter — då visar caller
+// en platshållare istället för en missvisande linje.
+// ─────────────────────────────────────────────────────────────
+function Sparkline({
+  values, width, height, color, fillOpacity = 0, lastDot = false,
+}: {
+  values: (number | null)[]
+  width: number
+  height: number
+  color: string
+  fillOpacity?: number
+  lastDot?: boolean
+}) {
+  const valid = values.filter((v): v is number => v !== null && isFinite(v))
+  if (valid.length < 2 || width <= 0 || height <= 0) return null
+
+  const vmin = Math.min(...valid)
+  const vmax = Math.max(...valid)
+  const vrange = vmax - vmin || Math.max(Math.abs(vmax), 1)
+  const headroom = vrange * 0.1
+  const min = vmin - headroom
+  const max = vmax + headroom
+  const range = max - min
+
+  const PAD = 3
+  const w = width - PAD * 2
+  const h = height - PAD * 2
+  const xStep = values.length > 1 ? w / (values.length - 1) : 0
+
+  const points = values.map((v, i) => {
+    if (v === null || !isFinite(v)) return null
+    return {
+      x: PAD + i * xStep,
+      y: PAD + h - ((v - min) / range) * h,
+    }
+  })
+
+  // Gruppera i icke-null-segment så att kurvan inte broar över saknade perioder
+  const segments: Array<Array<{ x: number; y: number }>> = []
+  let cur: Array<{ x: number; y: number }> = []
+  for (const p of points) {
+    if (p === null) {
+      if (cur.length > 0) { segments.push(cur); cur = [] }
+    } else cur.push(p)
+  }
+  if (cur.length > 0) segments.push(cur)
+
+  const baseY = PAD + h
+
+  const fills = fillOpacity > 0
+    ? segments.map((seg, i) => {
+        if (seg.length < 2) return null
+        const d = `M ${seg[0].x} ${baseY} L ${seg[0].x} ${seg[0].y} ` +
+          seg.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ') +
+          ` L ${seg[seg.length - 1].x} ${baseY} Z`
+        return <path key={`f${i}`} d={d} fill={color} opacity={fillOpacity} />
+      })
+    : null
+
+  const lines = segments.map((seg, i) => {
+    if (seg.length < 2) return null
+    const d = `M ${seg[0].x} ${seg[0].y} ` + seg.slice(1).map(p => `L ${p.x} ${p.y}`).join(' ')
+    return (
+      <path key={`l${i}`} d={d} stroke={color} strokeWidth={1.5} fill="none"
+            strokeLinecap="round" strokeLinejoin="round" />
+    )
+  })
+
+  let dot = null
+  if (lastDot) {
+    for (let i = points.length - 1; i >= 0; i--) {
+      if (points[i]) { dot = <circle cx={points[i]!.x} cy={points[i]!.y} r={3} fill={color} />; break }
+    }
+  }
+
+  return (
+    <svg width={width} height={height} style={{ display: 'block', overflow: 'visible' }}>
+      {fills}
+      {lines}
+      {dot}
+    </svg>
+  )
+}
+
+// Hero-kurva: full bredd via ResizeObserver, grön + area-fyll + sista-punkt-dot
+function HeroChart({ values }: { values: (number | null)[] }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [w, setW] = useState(0)
+  useEffect(() => {
+    if (!ref.current) return
+    setW(ref.current.clientWidth)
+    const ro = new ResizeObserver(entries => {
+      for (const e of entries) setW(Math.max(0, Math.floor(e.contentRect.width)))
+    })
+    ro.observe(ref.current)
+    return () => ro.disconnect()
+  }, [])
+  return (
+    <div ref={ref} style={{ width: '100%', height: 60 }}>
+      {w > 0 && (
+        <Sparkline
+          values={values}
+          width={w}
+          height={60}
+          color={C.green}
+          fillOpacity={0.12}
+          lastDot
+        />
+      )}
+    </div>
+  )
+}
+
+// Minitrend i KPI-rad: neutral grå linje (delta-badgen bär färgsignalen)
+function MiniTrend({ values }: { values: (number | null)[] }) {
+  const validCount = values.filter(v => v !== null && isFinite(v as number)).length
+  if (validCount < 2) {
+    return <span style={{ fontSize: 10, color: C.dim }}>—</span>
+  }
+  return <Sparkline values={values} width={80} height={22} color="#636366" />
+}
+
+// ─────────────────────────────────────────────────────────────
 // Hero — Produktivitet
 // ─────────────────────────────────────────────────────────────
-function HeroCard({ value, prev, loading }: { value: number | null; prev: number | null; loading: boolean }) {
+function HeroCard({ value, prev, series, loading }: {
+  value: number | null
+  prev: number | null
+  series: PeriodKpi[] | null
+  loading: boolean
+}) {
+  const trendValues = series?.map(p => p.produktivitet) ?? []
+  const trendValid  = trendValues.filter(v => v !== null && isFinite(v as number)).length
+
   return (
     <div style={{ background: C.card, borderRadius: 14, padding: '22px 22px 18px', marginBottom: 14 }}>
       <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 12, letterSpacing: -0.1 }}>
@@ -431,14 +653,23 @@ function HeroCard({ value, prev, loading }: { value: number | null; prev: number
         <span style={{ fontSize: 11, color: C.dim }}>mot föregående period</span>
       </div>
 
-      {/* 6-perioders kurva — platshållare (steg 2b) */}
-      <div style={{
-        marginTop: 16, height: 60, borderRadius: 8,
-        background: 'rgba(255,255,255,0.025)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: C.dim, fontSize: 11, letterSpacing: -0.1,
-      }}>
-        6-periodskurva kommer senare
+      {/* 6-perioders kurva — produktivitet */}
+      <div style={{ marginTop: 16, height: 60 }}>
+        {loading ? (
+          <div style={{
+            height: 60, borderRadius: 8, background: 'rgba(255,255,255,0.025)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: C.dim, fontSize: 11,
+          }}>—</div>
+        ) : trendValid < 2 ? (
+          <div style={{
+            height: 60, borderRadius: 8, background: 'rgba(255,255,255,0.025)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: C.dim, fontSize: 11,
+          }}>För lite trenddata</div>
+        ) : (
+          <HeroChart values={trendValues} />
+        )}
       </div>
     </div>
   )
@@ -447,8 +678,10 @@ function HeroCard({ value, prev, loading }: { value: number | null; prev: number
 // ─────────────────────────────────────────────────────────────
 // KPI-lista — Volym / Stammar / Medelstam / Bränsle/m³ / Stammar/G15h
 // ─────────────────────────────────────────────────────────────
+type KpiMetric = 'volym' | 'stammar' | 'medelstam' | 'branslePerM3' | 'stammarPerG15h'
 type KpiRow = {
   label: string
+  metric: KpiMetric
   cur: number | null
   prev: number | null
   unit: string
@@ -456,54 +689,65 @@ type KpiRow = {
   lowerIsBetter: boolean
 }
 
-function KpiList({ data, prev, loading }: { data: Data | null; prev: Data | null; loading: boolean }) {
+function KpiList({ data, prev, series, loading }: {
+  data: Data | null
+  prev: Data | null
+  series: PeriodKpi[] | null
+  loading: boolean
+}) {
   const rows: KpiRow[] = [
-    { label: 'Volym',         cur: data?.volym ?? null,           prev: prev?.volym ?? null,           unit: 'm³sub',   dec: 0, lowerIsBetter: false },
-    { label: 'Stammar',       cur: data?.stammar ?? null,         prev: prev?.stammar ?? null,         unit: 'st',      dec: 0, lowerIsBetter: false },
-    { label: 'Medelstam',     cur: data?.medelstam ?? null,       prev: prev?.medelstam ?? null,       unit: 'm³/stam', dec: 2, lowerIsBetter: false },
-    { label: 'Bränsle/m³',    cur: data?.branslePerM3 ?? null,    prev: prev?.branslePerM3 ?? null,    unit: 'L/m³',    dec: 2, lowerIsBetter: true  },
-    { label: 'Stammar/G15h',  cur: data?.stammarPerG15h ?? null,  prev: prev?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1, lowerIsBetter: false },
+    { label: 'Volym',         metric: 'volym',          cur: data?.volym ?? null,           prev: prev?.volym ?? null,           unit: 'm³sub',   dec: 0, lowerIsBetter: false },
+    { label: 'Stammar',       metric: 'stammar',        cur: data?.stammar ?? null,         prev: prev?.stammar ?? null,         unit: 'st',      dec: 0, lowerIsBetter: false },
+    { label: 'Medelstam',     metric: 'medelstam',      cur: data?.medelstam ?? null,       prev: prev?.medelstam ?? null,       unit: 'm³/stam', dec: 2, lowerIsBetter: false },
+    { label: 'Bränsle/m³',    metric: 'branslePerM3',   cur: data?.branslePerM3 ?? null,    prev: prev?.branslePerM3 ?? null,    unit: 'L/m³',    dec: 2, lowerIsBetter: true  },
+    { label: 'Stammar/G15h',  metric: 'stammarPerG15h', cur: data?.stammarPerG15h ?? null,  prev: prev?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1, lowerIsBetter: false },
   ]
 
   return (
     <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
-      {rows.map((r, i) => (
-        <button
-          key={r.label}
-          type="button"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr auto 56px 56px 14px',
-            gap: 14, alignItems: 'center',
-            padding: '14px 16px',
-            borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
-            background: 'transparent', border: 'none', width: '100%',
-            color: C.text, fontFamily: FONT, cursor: 'pointer', textAlign: 'left',
-          }}
-        >
-          <div style={{ fontSize: 15, color: C.text }}>{r.label}</div>
+      {rows.map((r, i) => {
+        const trendValues = (series ?? []).map(p => p[r.metric])
+        return (
+          <button
+            key={r.label}
+            type="button"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr auto 56px 80px 14px',
+              gap: 14, alignItems: 'center',
+              padding: '14px 16px',
+              borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
+              background: 'transparent', border: 'none', width: '100%',
+              color: C.text, fontFamily: FONT, cursor: 'pointer', textAlign: 'left',
+            }}
+          >
+            <div style={{ fontSize: 15, color: C.text }}>{r.label}</div>
 
-          <div style={{ fontSize: 16, fontWeight: 500, color: C.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-            {loading ? '—' : (r.cur !== null ? fmtSv(r.cur, r.dec) : '—')}
-            <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>{r.unit}</span>
-          </div>
+            <div style={{ fontSize: 16, fontWeight: 500, color: C.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
+              {loading ? '—' : (r.cur !== null ? fmtSv(r.cur, r.dec) : '—')}
+              <span style={{ fontSize: 11, color: C.muted, marginLeft: 4, fontWeight: 400 }}>{r.unit}</span>
+            </div>
 
-          {/* Delta-badge mot föregående period */}
-          <div style={{ textAlign: 'right' }}>
-            {loading
-              ? <span style={{ fontSize: 11, color: C.dim }}>—</span>
-              : <DeltaBadge current={r.cur} previous={r.prev} lowerIsBetter={r.lowerIsBetter} size="sm" />}
-          </div>
+            {/* Delta-badge mot föregående period */}
+            <div style={{ textAlign: 'right' }}>
+              {loading
+                ? <span style={{ fontSize: 11, color: C.dim }}>—</span>
+                : <DeltaBadge current={r.cur} previous={r.prev} lowerIsBetter={r.lowerIsBetter} size="sm" />}
+            </div>
 
-          {/* Mini-sparkline — platshållare (steg 2b) */}
-          <div style={{
-            height: 18, color: C.dim, fontSize: 10,
-            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-          }}>—</div>
+            {/* Minitrend — neutral grå linje över 6 perioder */}
+            <div style={{
+              height: 22, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            }}>
+              {loading
+                ? <span style={{ fontSize: 10, color: C.dim }}>—</span>
+                : <MiniTrend values={trendValues} />}
+            </div>
 
-          <div style={{ color: C.dim, fontSize: 16, textAlign: 'right' }}>›</div>
-        </button>
-      ))}
+            <div style={{ color: C.dim, fontSize: 16, textAlign: 'right' }}>›</div>
+          </button>
+        )
+      })}
     </div>
   )
 }
