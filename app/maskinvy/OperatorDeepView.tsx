@@ -2,36 +2,41 @@
 
 import { useEffect, useState } from 'react'
 import {
-  C, FONT, fmtSv, fetchData,
+  C, FONT, fmtSv, fetchData, fetchSeries,
   HeroCard, KpiList, TimeDistribution, AvbrottCard, initials,
-  type Maskin, type Period, type Data, type Operator,
+  type Maskin, type Period, type Data, type Operator, type PeriodKpi,
 } from './OversiktShared'
 
 /**
  * Operatör-djupvy. Glider in från höger ovanpå OversiktNy med en
  * tillbaka-knapp som glider tillbaka. Stänger via onClose.
  *
- * STEG 1 — FORM
- * Visar förarens grundsiffror för vald period (samma period som
- * Översikt har valt — ingen egen period-nav här).
+ * STEG 2 — JÄMFÖRELSE + TREND
+ * Jämförelse mot MASKINEN för samma period (inte föregående period):
+ *  - Hastighetsmått (Produktivitet, Medelstam, Bränsle/m³, Stammar/G15h):
+ *    procent-delta mot maskinens värde. Grön/röd, Bränsle/m³ inverterat.
+ *  - Totalmått (Volym, Stammar): andel av maskinens total, neutral färg.
  *
- * INTE än:
- *  - Jämförelse mot maskinens snitt (delta-fält → "—")
- *  - Förarens egen 6-perioders trend (series → null → "För lite
- *    trenddata"-platshållare)
- * Det kommer i nästa steg, samma pattern som 2a/2b.
+ * Maskinsnittet INKLUDERAR föraren själv (= maskinens totala värde för
+ * perioden). För dominanta förare kan det bli snedvridet — vi kan
+ * byta till "exklusive föraren" senare om det visar sig nödvändigt.
+ *
+ * Förarens egen 6-perioders trend hämtas via fetchSeries med operatorId.
+ * Samma MIN_DAYS_PER_PERIOD-tröskel och segment-brytning som Översikt.
  */
 export default function OperatorDeepView({
-  maskin, period, offset, periodLabel, operator, onClose,
+  maskin, period, offset, periodLabel, operator, machineData, onClose,
 }: {
   maskin: Maskin
   period: Period
   offset: number
   periodLabel: string
   operator: Operator
+  machineData: Data | null   // maskinens period-data, redan hämtad av Översikt
   onClose: () => void
 }) {
   const [data, setData] = useState<Data | null>(null)
+  const [series, setSeries] = useState<PeriodKpi[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [shown, setShown] = useState(false)
 
@@ -84,9 +89,15 @@ export default function OperatorDeepView({
       }
     })()
 
-    fetchData(maskin.id, dates.start, dates.end, operator.id)
-      .then(d => { if (!cancelled) { setData(d); setLoading(false) } })
-      .catch(() => { if (!cancelled) setLoading(false) })
+    Promise.all([
+      fetchData(maskin.id, dates.start, dates.end, operator.id).catch(() => null),
+      fetchSeries(maskin.id, period, offset, operator.id).catch(() => null),
+    ]).then(([d, ser]) => {
+      if (cancelled) return
+      setData(d)
+      setSeries(ser)
+      setLoading(false)
+    })
     return () => { cancelled = true }
   }, [maskin.id, period, offset, operator.id])
 
@@ -174,14 +185,17 @@ export default function OperatorDeepView({
           unit="m³/G15h"
           dec={1}
           value={data?.produktivitet ?? null}
-          prev={null}        // jämförelse mot maskinens snitt = kommer senare
-          series={null}      // förarens 6-perioders trend = kommer senare
+          prev={machineData?.produktivitet ?? null}
+          series={series}
+          referenceLabel="mot maskinen"
           loading={loading}
         />
         <KpiList
           data={data}
-          prev={null}        // delta = platshållare än
-          series={null}      // minitrend = platshållare än
+          prev={machineData}
+          series={series}
+          mode="machine"
+          subtitle="mot maskinen"
           loading={loading}
         />
         <TimeDistribution data={data} loading={loading} />

@@ -464,11 +464,37 @@ export function MiniTrend({ values }: { values: (number | null)[] }) {
   return <Sparkline values={values} width={80} height={22} color="#636366" />
 }
 
+// AndelBadge — visar förarens del av maskinens total. Neutral färg
+// (det är inte bra/dåligt, bara hur stor del).
+export function AndelBadge({
+  part, total, size = 'sm',
+}: {
+  part: number | null
+  total: number | null
+  size?: 'sm' | 'md'
+}) {
+  const fontSize = size === 'md' ? 13 : 11
+  if (part === null || total === null || !isFinite(part) || !isFinite(total) || total === 0) {
+    return <span style={{ fontSize, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>—</span>
+  }
+  const pct = Math.round(part / total * 100)
+  return (
+    <span style={{ fontSize, fontWeight: 500, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+      {pct} %
+    </span>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────
 // HeroCard — använd både för Översikt och djupvyer
+// `prev` = värdet att jämföra mot (föregående period i Översikt,
+// maskinens värde i djupvyn). `referenceLabel` styr förklaringstexten.
 // ─────────────────────────────────────────────────────────────
 export function HeroCard({
-  label, unit, dec, value, prev, series, lowerIsBetter = false, loading,
+  label, unit, dec, value, prev, series,
+  lowerIsBetter = false,
+  referenceLabel = 'mot föregående period',
+  loading,
 }: {
   label: string
   unit: string
@@ -477,6 +503,7 @@ export function HeroCard({
   prev: number | null
   series: PeriodKpi[] | null
   lowerIsBetter?: boolean
+  referenceLabel?: string
   loading: boolean
 }) {
   const trendValues = series?.map(p => p.produktivitet) ?? []
@@ -501,7 +528,7 @@ export function HeroCard({
         {loading
           ? <span style={{ fontSize: 13, color: C.dim }}>—</span>
           : <DeltaBadge current={value} previous={prev} lowerIsBetter={lowerIsBetter} size="md" />}
-        <span style={{ fontSize: 11, color: C.dim }}>mot föregående period</span>
+        <span style={{ fontSize: 11, color: C.dim }}>{referenceLabel}</span>
       </div>
 
       <div style={{ marginTop: 16, height: 60 }}>
@@ -526,33 +553,52 @@ export function HeroCard({
 }
 
 // ─────────────────────────────────────────────────────────────
-// KpiList — 5 rader med delta + minitrend, samma både i Översikt och djupvy
+// KpiList — 5 rader, samma i Översikt och djupvy. `mode` styr om
+// jämförelse-kolumnen visar procentdelta ('previous'/'machine' för
+// hastighetsmått) eller andel ('machine' för totalmått Volym/Stammar).
 // ─────────────────────────────────────────────────────────────
 type KpiMetric = 'volym' | 'stammar' | 'medelstam' | 'branslePerM3' | 'stammarPerG15h'
 
-export function KpiList({ data, prev, series, loading }: {
+export function KpiList({
+  data, prev, series, loading,
+  mode = 'previous',
+  subtitle,
+}: {
   data: Data | null
   prev: Data | null
   series: PeriodKpi[] | null
   loading: boolean
+  mode?: 'previous' | 'machine'
+  subtitle?: string
 }) {
   type Row = {
     label: string; metric: KpiMetric
     cur: number | null; prev: number | null
     unit: string; dec: number; lowerIsBetter: boolean
+    kind: 'rate' | 'total'
   }
   const rows: Row[] = [
-    { label: 'Volym',         metric: 'volym',          cur: data?.volym ?? null,           prev: prev?.volym ?? null,           unit: 'm³sub',   dec: 0, lowerIsBetter: false },
-    { label: 'Stammar',       metric: 'stammar',        cur: data?.stammar ?? null,         prev: prev?.stammar ?? null,         unit: 'st',      dec: 0, lowerIsBetter: false },
-    { label: 'Medelstam',     metric: 'medelstam',      cur: data?.medelstam ?? null,       prev: prev?.medelstam ?? null,       unit: 'm³/stam', dec: 2, lowerIsBetter: false },
-    { label: 'Bränsle/m³',    metric: 'branslePerM3',   cur: data?.branslePerM3 ?? null,    prev: prev?.branslePerM3 ?? null,    unit: 'L/m³',    dec: 2, lowerIsBetter: true  },
-    { label: 'Stammar/G15h',  metric: 'stammarPerG15h', cur: data?.stammarPerG15h ?? null,  prev: prev?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1, lowerIsBetter: false },
+    { label: 'Volym',         metric: 'volym',          cur: data?.volym ?? null,           prev: prev?.volym ?? null,           unit: 'm³sub',   dec: 0, lowerIsBetter: false, kind: 'total' },
+    { label: 'Stammar',       metric: 'stammar',        cur: data?.stammar ?? null,         prev: prev?.stammar ?? null,         unit: 'st',      dec: 0, lowerIsBetter: false, kind: 'total' },
+    { label: 'Medelstam',     metric: 'medelstam',      cur: data?.medelstam ?? null,       prev: prev?.medelstam ?? null,       unit: 'm³/stam', dec: 2, lowerIsBetter: false, kind: 'rate'  },
+    { label: 'Bränsle/m³',    metric: 'branslePerM3',   cur: data?.branslePerM3 ?? null,    prev: prev?.branslePerM3 ?? null,    unit: 'L/m³',    dec: 2, lowerIsBetter: true,  kind: 'rate'  },
+    { label: 'Stammar/G15h',  metric: 'stammarPerG15h', cur: data?.stammarPerG15h ?? null,  prev: prev?.stammarPerG15h ?? null,  unit: 'st/G15h', dec: 1, lowerIsBetter: false, kind: 'rate'  },
   ]
 
   return (
     <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
+      {subtitle && (
+        <div style={{
+          fontSize: 11, color: C.muted, padding: '14px 16px 0',
+          letterSpacing: 0.2, fontWeight: 500,
+        }}>
+          {subtitle}
+        </div>
+      )}
       {rows.map((r, i) => {
         const trendValues = (series ?? []).map(p => p[r.metric])
+        // I 'machine'-mode visar totalmått andel av maskinen; hastighetsmått visar procentdelta.
+        const showAndel = mode === 'machine' && r.kind === 'total'
         return (
           <button
             key={r.label}
@@ -575,7 +621,9 @@ export function KpiList({ data, prev, series, loading }: {
             <div style={{ textAlign: 'right' }}>
               {loading
                 ? <span style={{ fontSize: 11, color: C.dim }}>—</span>
-                : <DeltaBadge current={r.cur} previous={r.prev} lowerIsBetter={r.lowerIsBetter} size="sm" />}
+                : showAndel
+                  ? <AndelBadge part={r.cur} total={r.prev} size="sm" />
+                  : <DeltaBadge current={r.cur} previous={r.prev} lowerIsBetter={r.lowerIsBetter} size="sm" />}
             </div>
             <div style={{ height: 22, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
               {loading

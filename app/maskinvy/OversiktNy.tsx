@@ -181,6 +181,7 @@ export default function OversiktNy() {
           offset={offset}
           periodLabel={label}
           operator={deepOperator}
+          machineData={data}
           onClose={() => setDeepOperator(null)}
         />
       )}

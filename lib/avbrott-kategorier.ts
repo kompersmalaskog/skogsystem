@@ -12,6 +12,8 @@ export const kategoriNamn: Record<string, string> = {
   'Miscellaneous / other': 'Övrigt',
   'Administration, telephone': 'Administration & telefon',
   'Weather': 'Väder',
+  'Unproductive terrain work': 'Improduktiv körning',
+  'Default': 'Ej kategoriserat',
 }
 
 export const translateKategori = (kod: string) =>
