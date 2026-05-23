@@ -3,6 +3,9 @@ import React, { useState, useEffect, useRef, useMemo, CSSProperties, ReactNode }
 import { supabase } from "@/lib/supabase";
 import { getRödaDagar } from "@/lib/roda-dagar";
 import { formatObjektNamn } from "@/utils/formatObjektNamn";
+import { vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
+import type { VilaTrosklar } from "@/lib/vilobrott";
+import { hamtaAktuellaVilobrott, hamtaVilobrottForPeriod, analyseraOchSpara, type VilobrottRad } from "@/lib/vilobrott-storage";
 
 /** Hämtar körsträcka (km) från /api/routing — cache → ORS → haversine-fallback.
  *  Returnerar { km, source } där source är 'cache' | 'ors' | 'fallback'. */
@@ -598,6 +601,22 @@ export default function Arbetsrapport() {
   const [visaRedKmSheet, setVisaRedKmSheet] = useState(false);
   const [redTmpKmM, setRedTmpKmM] = useState(0);
   const [redTmpKmK, setRedTmpKmK] = useState(0);
+  // Vila-trösklar från gs_avtal (krav_h, varning_h, fönster). Läses i samma
+  // Promise.all som gsAvtal — sätts via vilaTrosklarFromAvtal nedan.
+  const [trosklar, setTrosklar] = useState<VilaTrosklar | null>(null);
+  // Vilobrott från DB. aktuella = senaste 14 dagar för Dag-vyn + Min tid-översikten.
+  // periodVilobrott = brott inom Vila-flikens valda period. null = laddar, [] = inga brott.
+  const [aktuellaVilobrott, setAktuellaVilobrott] = useState<VilobrottRad[]>([]);
+  const [periodVilobrott, setPeriodVilobrott] = useState<VilobrottRad[] | null>(null);
+  // Inline-expansion av rödramat kort i Vila-fliken — visar orsak/kompensation.
+  const [vilaKortExpanded, setVilaKortExpanded] = useState<string | null>(null);
+  // Orsaks-flöde när föraren bekräftar dagen med obesvarade brott. Kön fryses
+  // vid flödesstart och byggs INTE om från re-fetchad aktuellaVilobrott — annars
+  // skulle besvarade brott försvinna ur listan och idx peka fel.
+  const [vilobrottKö, setVilobrottKö] = useState<VilobrottRad[]>([]);
+  const [vilobrottIdx, setVilobrottIdx] = useState(0);
+  const [vilobrottOrsakVal, setVilobrottOrsakVal] = useState<'oforutsedd' | 'akut_jour' | 'planerad_avtal' | 'annat' | null>(null);
+  const [vilobrottOrsakFritext, setVilobrottOrsakFritext] = useState("");
   const [visaHelÅrVila, setVisaHelÅrVila] = useState(false);
   const [vilaPeriod, setVilaPeriod] = useState<'7d'|'30d'|'månad'|'år'>('7d');
   const [vilaMånad, setVilaMånad] = useState(new Date().getMonth());
@@ -668,8 +687,22 @@ export default function Arbetsrapport() {
               setPagaendeAktiviteter(res.data.filter((e:any) => e.start_tid && !e.slut_tid && e.datum === idagStr));
             }
           });
+        // Fetch aktuella vilobrott (senaste 14 dagar) för Dag-vyns morgon-
+        // varningar och Min tid-översikten. Tom array är OK.
+        hamtaAktuellaVilobrott(med.data.id)
+          .then(setAktuellaVilobrott)
+          .catch(err => console.error('Vilobrott-fel:', err));
       }
-      if(avt.data) setGsAvtal(avt.data);
+      if(avt.data) {
+        setGsAvtal(avt.data);
+        // Härled trösklarna från samma avtalsrad. Krasch här ska inte rasera
+        // resten av appen — trosklar förblir null, vila-varningar visas inte.
+        try {
+          setTrosklar(vilaTrosklarFromAvtal(avt.data));
+        } catch (err) {
+          console.error('Vila-trösklar saknas i gs_avtal:', err);
+        }
+      }
       if(obj.data) setObjektLista(obj.data.map(o => {
         // object_name är ibland en autogenererad timestamp-sträng (yymmddHHMMSS).
         // Faller då tillbaka till "Skogsägare · Huvudtyp" så föraren ser ett vettigt namn.
@@ -805,6 +838,58 @@ export default function Arbetsrapport() {
     const iv = setInterval(() => setNuTick(t => t + 1), 1000);
     return () => clearInterval(iv);
   }, [pagaendeAktiviteter.length]);
+
+  // Re-fetcha aktuella vilobrott när föraren går till morgon eller mintid.
+  // Fångar både egna mutationer (analyseraOchSpara körs i omgång 2) och
+  // sällsynta admin-vy-ändringar. Initial fetch sker i Promise.all ovan.
+  useEffect(() => {
+    if (steg !== "morgon" && steg !== "dag" && steg !== "meny" && steg !== "mintid") return;
+    if (!medarbetare?.id) return;
+    hamtaAktuellaVilobrott(medarbetare.id)
+      .then(setAktuellaVilobrott)
+      .catch(err => console.error('Vilobrott-fel:', err));
+  }, [steg, medarbetare?.id]);
+
+  // Fetcha periodVilobrott för Vila-fliken när period eller månad ändras.
+  // Marginal-fönster: hämta från-7 dagar för att fånga rullande veckovila-brott
+  // vars startdatum ligger strax före periodens början. Render-filtret nedan
+  // håller perioden konsekvent för användaren.
+  useEffect(() => {
+    if (steg !== "mintid" || minTidFlik !== 'vila') return;
+    if (!medarbetare?.id) return;
+
+    const nu = new Date();
+    let from: Date, to: Date;
+    if (vilaPeriod === '7d') {
+      from = new Date(nu); from.setDate(nu.getDate() - 7);
+      to = new Date(nu);
+    } else if (vilaPeriod === '30d') {
+      from = new Date(nu); from.setDate(nu.getDate() - 30);
+      to = new Date(nu);
+    } else if (vilaPeriod === 'månad') {
+      from = new Date(nu.getFullYear(), vilaMånad, 1);
+      to = new Date(nu.getFullYear(), vilaMånad + 1, 0);
+    } else {
+      from = new Date(nu.getFullYear(), 0, 1);
+      to = new Date(nu.getFullYear(), 11, 31);
+    }
+    // Marginal-fönster
+    const fromMarginal = new Date(from); fromMarginal.setDate(from.getDate() - 7);
+
+    const isoFrom = fromMarginal.toISOString().slice(0, 10);
+    const isoTo = to.toISOString().slice(0, 10);
+
+    let cancelled = false;
+    setPeriodVilobrott(null);
+    hamtaVilobrottForPeriod(medarbetare.id, isoFrom, isoTo)
+      .then(brott => { if (!cancelled) setPeriodVilobrott(brott); })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('PeriodVilobrott-fel:', err);
+        setPeriodVilobrott([]);
+      });
+    return () => { cancelled = true; };
+  }, [steg, minTidFlik, medarbetare?.id, vilaPeriod, vilaMånad]);
 
   // Sätt mStart/mSlut till aktuell tid (avrundad till 5 min) när manuell-dag-
   // vyerna öppnas. Gör att defaulten inte blir stale om appen legat öppen.
@@ -945,6 +1030,10 @@ export default function Arbetsrapport() {
       }
     };
     poll();
+    // vilobrott pollas INTE — tabellen muteras av klienten själv via
+    // analyseraOchSpara() efter arbetsdag-mutation, eller från admin-vy
+    // (ovanligt). Re-fetch sker vid steg-byte och vid mount. Om det visar
+    // sig att admin-ändringar inte syns i tid kan vi lägga på polling här.
     const interval = setInterval(poll, 60000);
     return () => clearInterval(interval);
   }, [medarbetare?.id, maskinNamnMap, objektLista]);
@@ -1058,38 +1147,42 @@ export default function Arbetsrapport() {
   const isWorking = !!dagData[idagKey];
   const förnamn = medarbetare?.namn?.split(' ')[0] || '';
 
-  // Vila-beräkningar för startsidan
+  // Vila-varningar för startsidan.
+  // - Faktiska brott (obesvarade) hämtas från vilobrott-tabellen via
+  //   aktuellaVilobrott (senaste 14 dagar). En sanning.
+  // - "Kort dygnsvila sedan igår" är en PREDIKTIV förvarning i zonen mellan
+  //   krav_h och varning_h — INTE ett brott. Räknas inline från årsData
+  //   eftersom det baseras på klockslag-nu, inte på en specifik arbetsdag.
   const vilaVarningar: {typ:'röd'|'orange';text:string}[] = [];
-  const tidigastStart = (() => {
-    // Kolla dygnsvila: senaste arbetsdag med slut_tid — exkludera idag
-    // (annars räknas dagens nyss-avslutade pass som "sedan igår").
+
+  for (const b of aktuellaVilobrott) {
+    if (b.besvarat_av_forare) continue;
+    if (b.typ === 'dygnsvila') {
+      vilaVarningar.push({
+        typ: 'röd',
+        text: `Dygnsvila bruten ${b.datum.slice(5)}: ${Number(b.vila_h)}h vila (krav ${Number(b.krav_h)}h)`,
+      });
+    } else if (b.typ === 'veckovila') {
+      vilaVarningar.push({
+        typ: 'orange',
+        text: `Veckovila bruten ${b.datum.slice(5)}: ${Number(b.vila_h)}h vila (krav ${Number(b.krav_h)}h)`,
+      });
+    }
+  }
+
+  // Prediktiv orange "kort dygnsvila sedan igår" — INTE ett brott, bara
+  // förvarning i zonen mellan krav_h och varning_h. Brotts-varningar kommer
+  // från DB-loopen ovan.
+  if (trosklar) {
     const senaste = [...årsData].filter(r=>r.slut_tid && r.datum < idagKey).sort((a,b)=>b.datum.localeCompare(a.datum))[0];
-    if(!senaste) return null;
-    const slutDt = new Date(`${senaste.datum}T${senaste.slut_tid.slice(0,5)}`);
-    const nuDt = new Date();
-    const vilaTim = (nuDt.getTime()-slutDt.getTime())/3600000;
-    if(vilaTim<11) vilaVarningar.push({typ:'röd',text:`Du har bara vilat ${Math.round(vilaTim*10)/10}h sedan igår — dygnsviolan kräver 11h`});
-    else if(vilaTim<12) vilaVarningar.push({typ:'orange',text:`Kort dygnsvila: ${Math.round(vilaTim*10)/10}h sedan igår`});
-    // Beräkna tidigast start imorgon
-    const tidigast = new Date(slutDt.getTime()+11*3600000);
-    return `${String(tidigast.getHours()).padStart(2,'0')}:${String(tidigast.getMinutes()).padStart(2,'0')}`;
-  })();
-  // Veckovila: kolla senaste 7 dagarna
-  (() => {
-    const nu2 = new Date();
-    const senaste7: boolean[] = [];
-    for(let i=0;i<7;i++){
-      const d=new Date(nu2); d.setDate(nu2.getDate()-i);
-      const k=d.toISOString().split('T')[0];
-      senaste7.push(!!årsData.find(r=>r.datum===k&&r.start_tid));
+    if (senaste) {
+      const slutDt = new Date(`${senaste.datum}T${senaste.slut_tid.slice(0,5)}`);
+      const vilaTim = (new Date().getTime() - slutDt.getTime()) / 3600000;
+      if (vilaTim >= trosklar.dygnsvila_krav_h && vilaTim < trosklar.dygnsvila_varning_h) {
+        vilaVarningar.push({typ:'orange',text:`Kort dygnsvila: ${Math.round(vilaTim*10)/10}h sedan igår`});
+      }
     }
-    let maxLedigt=0,led=0;
-    for(const jobbat of senaste7){
-      if(!jobbat) led++; else led=0;
-      maxLedigt=Math.max(maxLedigt,led);
-    }
-    if(maxLedigt<2) vilaVarningar.push({typ:'orange',text:'Du saknar veckovila — 36h krävs per 7 dagar'});
-  })();
+  }
 
   const input = { width:"100%",minHeight:52,padding:"14px 16px",fontSize:16,border:"1px solid rgba(255,255,255,0.08)",borderRadius:12,background:"rgba(255,255,255,0.06)",outline:"none",fontFamily:"inherit",color:"#fff" };
 
@@ -1123,6 +1216,114 @@ export default function Arbetsrapport() {
     if (okBtn) okBtn.addEventListener('click', () => { setArbetsdagToast(null); });
     return () => { el?.remove(); };
   }, [arbetsdagToast]);
+
+  // Vilo-detektering vid arbetsdag-mutation. Anropas efter Avsluta pass,
+  // Starta manuellt, och Ändra tider-sheet. Räknar fönstret datum-3 till
+  // datum+3 så att både dygnsvila (par av dagar) och rullande veckovila
+  // fångas. Re-fetchar aktuellaVilobrott direkt så UI:t uppdateras inline.
+  //
+  // TODO: om fönstret spränger årsData-räckvidden (nära årsskifte) missas
+  // eventuella vilobrott i den extrema gränszonen. Mycket ovanligt scenario.
+  // Löses om det visar sig vara ett problem genom att fetcha extra batch.
+  //
+  // TODO: MOM-import (Python-skript) kör inte denna helper automatiskt.
+  // Detektering sker nästa gång föraren öppnar appen. Löses via webhook
+  // eller Edge Function vid HPR/MOM-import.
+  const synkaVilobrott = async (mutationDatum: string) => {
+    if (!medarbetare?.id || !trosklar) return;
+    const fromDt = new Date(mutationDatum); fromDt.setDate(fromDt.getDate() - 3);
+    const toDt = new Date(mutationDatum); toDt.setDate(toDt.getDate() + 3);
+    const fromIso = fromDt.toISOString().slice(0, 10);
+    const toIso = toDt.toISOString().slice(0, 10);
+    const dagarIFonster = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
+    try {
+      await analyseraOchSpara(medarbetare.id, dagarIFonster, trosklar, fromIso, toIso);
+      const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
+      setAktuellaVilobrott(nyaBrott);
+    } catch (err) {
+      // Mutationen är redan sparad i Supabase — vilo-data uppdateras vid
+      // nästa render. Ingen toast/UI-fel, bara console-logg.
+      console.error('Vilo-analys/re-fetch misslyckades efter mutation:', err);
+    }
+  };
+
+  // Bekräfta arbetsdagen — extraherad så samma kod kan köras både direkt
+  // (när inga obesvarade brott finns) och från sparaOrsakOchFortsätt
+  // (efter sista brottet besvarats). Pågående extra-tid-aktiviteter stoppas
+  // INTE här — det görs i Bekräfta-onClick före för-checken så det alltid sker.
+  const bekraftaDagen = async () => {
+    if (!medarbetare?.id) return;
+    const effektivSlut = slut || nuKlock();
+    const idagArb = dagData[idagKey];
+    const dagObjId = valtObjektId || idagArb?.objekt_id || null;
+    const nuBekrIso = new Date().toISOString();
+    await supabase.from("arbetsdag").upsert({
+      medarbetare_id: medarbetare.id,
+      datum: idagKey,
+      start_tid: start, slut_tid: effektivSlut, rast_min: rast,
+      km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
+      maskin_id: medarbetare.maskin_id,
+      objekt_id: dagObjId,
+      traktamente: trak, bekraftad: true,
+      bekraftad_tid: nuBekrIso,
+    }, { onConflict: 'medarbetare_id,datum' });
+    setSlut(effektivSlut.slice(0, 5));
+    setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true, bekraftad_tid: nuBekrIso, slut_tid: effektivSlut } }));
+    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(200);
+    setBekräftelseVisa(true);
+    setTimeout(() => setBekräftelseVisa(false), 2000);
+  };
+
+  // Sparar förarens orsak-svar för det aktuella brottet i kön och avancerar.
+  // Vid sista brottet: bekräftar dagen + nollställer kön. Vid backa: avbrytsHelpern.
+  const sparaOrsakOchFortsätt = async () => {
+    if (!vilobrottOrsakVal) return;
+    if (vilobrottOrsakVal === 'annat' && !vilobrottOrsakFritext.trim()) return;
+    if (!trosklar) return;
+    const aktivt = vilobrottKö[vilobrottIdx];
+    if (!aktivt) return;
+
+    const nuIso = new Date().toISOString();
+    const kompH = Number(aktivt.krav_h) - Number(aktivt.vila_h);
+    const deadline = new Date();
+    deadline.setDate(deadline.getDate() + trosklar.kompensation_deadline_dagar);
+    const deadlineIso = deadline.toISOString().slice(0, 10);
+
+    try {
+      const { error } = await supabase.from("vilobrott").update({
+        besvarat_av_forare: true,
+        orsak: vilobrottOrsakVal,
+        orsak_fritext: vilobrottOrsakVal === 'annat' ? vilobrottOrsakFritext.trim() : null,
+        besvarat_tid: nuIso,
+        kompensation_h: kompH,
+        kompensation_deadline: deadlineIso,
+      }).eq("id", aktivt.id);
+      if (error) throw error;
+      // Re-fetcha aktuellaVilobrott så Dag-vyns gula varningar uppdateras.
+      // RÖR INTE vilobrottKö — den är fryst genom hela flödet.
+      if (medarbetare?.id) {
+        const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
+        setAktuellaVilobrott(nyaBrott);
+      }
+    } catch (err) {
+      console.error('Spara orsak misslyckades:', err);
+      return; // Håll föraren kvar i vyn — låt hen försöka igen
+    }
+
+    // Avancera eller bekräfta
+    if (vilobrottIdx < vilobrottKö.length - 1) {
+      setVilobrottIdx(i => i + 1);
+      setVilobrottOrsakVal(null);
+      setVilobrottOrsakFritext("");
+    } else {
+      await bekraftaDagen();
+      setVilobrottKö([]);
+      setVilobrottIdx(0);
+      setVilobrottOrsakVal(null);
+      setVilobrottOrsakFritext("");
+      setSteg("morgon");
+    }
+  };
 
   // Loading fallback
   if(!medarbetare) return (
@@ -1373,6 +1574,102 @@ export default function Arbetsrapport() {
   }
 
 
+  /* ─── ORSAK TILL VILOBROTT ─── */
+  if(steg==="vilobrottOrsak") {
+    const aktivt = vilobrottKö[vilobrottIdx];
+    if (!aktivt) {
+      // Defensiv: tom kö men vyn är aktiv. Render inget — useEffect i Promise.all
+      // eller en framtida fetch kommer återställa state. Föraren kan trycka tillbaka.
+      return null;
+    }
+    const totalBrott = vilobrottKö.length;
+    const visarRäknare = totalBrott > 1;
+    const orsakAlternativ = [
+      { key: 'oforutsedd' as const,     label: 'Oförutsedd händelse',          sub: 'Trafik, väder, oväntat fel' },
+      { key: 'akut_jour' as const,      label: 'Akut situation eller jour',    sub: 'Brådskande arbete som krävde min närvaro' },
+      { key: 'planerad_avtal' as const, label: 'Planerat undantag enligt avtal', sub: 'Förhandlat med chef i förväg' },
+      { key: 'annat' as const,          label: 'Annat',                        sub: 'Skriv en kort beskrivning' },
+    ];
+    const avbryt = () => {
+      // Backar till morgon. Redan-besvarade brott är sparade i DB —
+      // föraren förlorar ingenting. Dagen förblir obekräftad.
+      setVilobrottKö([]);
+      setVilobrottIdx(0);
+      setVilobrottOrsakVal(null);
+      setVilobrottOrsakFritext("");
+      setSteg("morgon");
+    };
+    const klart = !!vilobrottOrsakVal && (vilobrottOrsakVal !== 'annat' || vilobrottOrsakFritext.trim().length > 0);
+    const ärSista = vilobrottIdx === vilobrottKö.length - 1;
+    return (
+      <div style={shell}>
+        <style>{css}</style>{timerBanner}
+        <div style={topBar}>
+          <div style={{ display:"flex",alignItems:"center",gap:14 }}>
+            <BackBtn onClick={avbryt}/>
+            <div>
+              <h1 style={{ margin:0,fontSize:24,fontWeight:700 }}>
+                {aktivt.typ === 'dygnsvila' ? 'Dygnsvila bruten' : 'Veckovila bruten'}
+              </h1>
+              <p style={{ margin:"3px 0 0",fontSize:13,color:C.label }}>
+                {visarRäknare ? `${vilobrottIdx + 1} av ${totalBrott} · ` : ''}Varför bröts vilan?
+              </p>
+            </div>
+          </div>
+        </div>
+        <div style={{ flex:1,overflowY:"auto",paddingTop:8,paddingBottom:120 }}>
+          {/* Beskrivning av brottet */}
+          <Card style={{ background:"rgba(255,69,58,0.06)",border:"1px solid rgba(255,69,58,0.2)" }}>
+            <p style={{ margin:0,fontSize:14,color:"#fff",lineHeight:1.5 }}>{aktivt.beskrivning}</p>
+          </Card>
+
+          {/* Orsaksval */}
+          <Label style={{ marginTop:20 }}>Välj orsak</Label>
+          {orsakAlternativ.map(o => (
+            <Card key={o.key} onClick={()=>setVilobrottOrsakVal(o.key)}
+              style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8,
+                background: vilobrottOrsakVal===o.key ? "rgba(0,122,255,0.06)" : C.card,
+                border: vilobrottOrsakVal===o.key ? "1px solid rgba(0,122,255,0.2)" : "1px solid rgba(255,255,255,0.06)" }}>
+              <div style={{ flex:1 }}>
+                <p style={{ margin:0,fontSize:16,fontWeight:600,color:"#fff" }}>{o.label}</p>
+                <p style={{ margin:"2px 0 0",fontSize:13,color:C.label }}>{o.sub}</p>
+              </div>
+              {vilobrottOrsakVal===o.key
+                ? <div style={{ width:22,height:22,borderRadius:"50%",background:C.blue,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginLeft:12 }}><svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3L9 1" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg></div>
+                : <div style={{ width:22,height:22,borderRadius:"50%",border:`1.5px solid ${C.line}`,flexShrink:0,marginLeft:12 }}/>
+              }
+            </Card>
+          ))}
+
+          {/* Fritext för "Annat" */}
+          {vilobrottOrsakVal === 'annat' && (
+            <div style={{ marginTop:16 }}>
+              <Label>Beskriv kort</Label>
+              <textarea
+                placeholder="T.ex. röjde fallna träd över vägen"
+                value={vilobrottOrsakFritext}
+                onChange={e=>setVilobrottOrsakFritext(e.target.value)}
+                rows={3}
+                style={{ width:"100%",background:"#353535",border:"none",borderRadius:12,color:"#fff",padding:12,fontSize:15,outline:"none",fontFamily:"inherit",resize:"none",boxSizing:"border-box" }}
+                autoFocus
+              />
+            </div>
+          )}
+        </div>
+        <div style={bottom}>
+          <button
+            style={{ ...btn.primary, opacity: klart ? 1 : 0.35 }}
+            disabled={!klart}
+            onClick={sparaOrsakOchFortsätt}
+          >
+            {ärSista ? 'Spara och bekräfta dagen' : 'Spara och fortsätt'}
+          </button>
+          <button style={btn.textBack} onClick={avbryt}>Avbryt</button>
+        </div>
+      </div>
+    );
+  }
+
   /* ─── TIDSLINJE FÖR EN DAG ─── */
   if(steg==="tidslinje" && tidslinjeDatum) {
     const dag = dagData[tidslinjeDatum];
@@ -1610,6 +1907,7 @@ export default function Arbetsrapport() {
                 await supabase.from("arbetsdag").update({ slut_tid: nuT + ":00" }).eq("id", dagData[idagKey]?.id);
                 setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], slut_tid: nuT + ":00" } }));
                 if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
+                synkaVilobrott(idagKey);
               }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.06)",background:"rgba(255,255,255,0.04)",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                 Avsluta pass
               </button>
@@ -1646,6 +1944,7 @@ export default function Arbetsrapport() {
                     objekt_namn: objektLista.find(o => o.id === data.objekt_id)?.namn || null,
                   }}));
                   if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(50);
+                  synkaVilobrott(idagKey);
                 }
               }} style={{ width:"100%",height:56,padding:"0 12px",borderRadius:10,border:"1px solid rgba(255,255,255,0.25)",background:"transparent",color:"#fff",fontSize:15,fontWeight:600,cursor:"pointer",fontFamily:"inherit" }}>
                 Starta manuellt
@@ -1880,29 +2179,45 @@ export default function Arbetsrapport() {
                   onClick={async ()=>{
                     const nuT = nuKlock();
                     const nuTS = nuT + ":00";
-                    const effektivSlut = slut || nuT;
+                    // Stoppa eventuella pågående extra-tid-aktiviteter
                     for (const p of pagaendeAktiviteter) {
                       const min = minutDiff(p.start_tid, nuTS);
                       await supabase.from("extra_tid").update({ slut_tid: nuTS, minuter: min }).eq("id", p.id);
                     }
                     if (pagaendeAktiviteter.length > 0) setPagaendeAktiviteter([]);
-                    const nuBekrIso = new Date().toISOString();
-                    // arbetad_min och km_totalt är generated columns — skickas inte.
-                    await supabase.from("arbetsdag").upsert({
-                      medarbetare_id: medarbetare.id,
-                      datum: new Date().toISOString().split("T")[0],
-                      start_tid: start, slut_tid: effektivSlut, rast_min: rast,
-                      km_morgon: kmM?.km ?? 0, km_kvall: kmK?.km ?? 0,
-                      maskin_id: medarbetare.maskin_id,
-                      objekt_id: dagObjId,
-                      traktamente: trak, bekraftad: true,
-                      bekraftad_tid: nuBekrIso,
-                    }, { onConflict: 'medarbetare_id,datum' });
-                    setSlut(effektivSlut.slice(0,5));
-                    setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], bekraftad: true, bekraftad_tid: nuBekrIso, slut_tid: effektivSlut } }));
-                    if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(200);
-                    setBekräftelseVisa(true);
-                    setTimeout(() => setBekräftelseVisa(false), 2000);
+
+                    // För-check: kör analys på [idag-7, idag] och hämta obesvarade brott.
+                    // Om någon finns → starta orsaks-flödet och vänta. Annars → bekräfta direkt.
+                    if (medarbetare?.id && trosklar) {
+                      const fromDt = new Date(idagKey); fromDt.setDate(fromDt.getDate() - 7);
+                      const fromIso = fromDt.toISOString().slice(0, 10);
+                      const toIso = idagKey;
+                      const dagar = årsData.filter(r => r.datum >= fromIso && r.datum <= toIso);
+                      try {
+                        await analyseraOchSpara(medarbetare.id, dagar, trosklar, fromIso, toIso);
+                        const nyaBrott = await hamtaAktuellaVilobrott(medarbetare.id);
+                        setAktuellaVilobrott(nyaBrott);
+                        const obesvarade = nyaBrott
+                          .filter(b => !b.besvarat_av_forare)
+                          .filter(b => b.datum >= fromIso && b.datum <= toIso);
+                        if (obesvarade.length > 0) {
+                          // Frys kön — bygg INTE om från re-fetchad aktuellaVilobrott under flödet
+                          setVilobrottKö(obesvarade);
+                          setVilobrottIdx(0);
+                          setVilobrottOrsakVal(null);
+                          setVilobrottOrsakFritext("");
+                          setSteg("vilobrottOrsak");
+                          return;
+                        }
+                      } catch (err) {
+                        // För-check fel ska inte blockera arbetsflödet — bekräfta ändå.
+                        // Vilo-data uppdateras vid nästa render.
+                        console.error('Vilo-för-check misslyckades:', err);
+                      }
+                    }
+
+                    // Inga obesvarade brott — bekräfta direkt
+                    await bekraftaDagen();
                   }}
                   style={{ width:"100%",marginTop:16,padding:"20px",background:"#30D158",color:"#fff",border:"none",borderRadius:12,fontSize:18,fontWeight:700,cursor:"pointer",fontFamily:"inherit" }}>
                   {ändradSedan ? "Bekräfta igen" : "Bekräfta dagen"}
@@ -2221,6 +2536,7 @@ export default function Arbetsrapport() {
                         if (bryterBekräftelse) payload.bekraftad = false;
                         await supabase.from("arbetsdag").update(payload).eq("id", dagData[idagKey].id);
                         setDagData(d => ({ ...d, [idagKey]: { ...d[idagKey], start_tid: tS + ":00", slut_tid: tE ? tE + ":00" : null, rast_min: tR, start: tS, slut: tE, rast: tR, ...(bryterBekräftelse ? { bekraftad: false } : {}) } }));
+                        synkaVilobrott(idagKey);
                       }
                     }
                     stäng();
@@ -2512,35 +2828,25 @@ export default function Arbetsrapport() {
     const årsKvar = Math.max(0,250-årsÖvH);
     const årsBarFärg = årsÖvH>230?"#ff453a":årsÖvH>200?"#ff9f0a":"#30d158";
 
-    // Varningar
+    // Varningar — vila läses från vilobrott-tabellen (en sanning, samma som
+    // Dag-vyn). Övertidstak ligger kvar inline tills övertidshantering blir
+    // egen uppgift (200/230/250h är separat scope, ej rört av denna refaktor).
     const varningar: {typ:'röd'|'orange';text:string}[] = [];
-    // Dygnsvila
-    const sorterad = [...årsData].filter(r=>r.slut_tid&&r.start_tid).sort((a,b)=>a.datum.localeCompare(b.datum));
-    for(let i=0;i<sorterad.length-1;i++){
-      const dag1=sorterad[i], dag2=sorterad[i+1];
-      const dagarGap=Math.round((new Date(dag2.datum).getTime()-new Date(dag1.datum).getTime())/864e5);
-      if(dagarGap>7) continue;
-      const d1=new Date(`${dag1.datum}T${dag1.slut_tid.slice(0,5)}`);
-      const d2=new Date(`${dag2.datum}T${dag2.start_tid.slice(0,5)}`);
-      const vila=(d2.getTime()-d1.getTime())/3600000;
-      if(vila>0&&vila<11) varningar.push({typ:'röd',text:`Dygnsvila bruten ${dag1.datum.slice(5)}: bara ${Math.round(vila*10)/10}h vila`});
+    for (const b of aktuellaVilobrott) {
+      if (b.besvarat_av_forare) continue;
+      if (b.typ === 'dygnsvila') {
+        varningar.push({
+          typ: 'röd',
+          text: `Dygnsvila bruten ${b.datum.slice(5)}: ${Number(b.vila_h)}h vila (krav ${Number(b.krav_h)}h)`,
+        });
+      } else if (b.typ === 'veckovila') {
+        varningar.push({
+          typ: 'orange',
+          text: `Veckovila bruten ${b.datum.slice(5)}: ${Number(b.vila_h)}h vila (krav ${Number(b.krav_h)}h)`,
+        });
+      }
     }
-    // Veckovila — senaste 7 dagarna
-    const senaste7 = [];
-    for(let i=0;i<7;i++){
-      const d=new Date(nu); d.setDate(nu.getDate()-i);
-      const k=d.toISOString().split('T')[0];
-      const ad=årsData.find(r=>r.datum===k);
-      senaste7.push({datum:k,jobbat:!!(ad?.start_tid)});
-    }
-    // Kolla om det finns 36h ledigt (minst 1.5 dagar i rad utan jobb)
-    let maxLedigt=0, ledigt=0;
-    for(const d of senaste7){
-      if(!d.jobbat) ledigt++; else ledigt=0;
-      maxLedigt=Math.max(maxLedigt,ledigt);
-    }
-    if(maxLedigt<2) varningar.push({typ:'orange',text:'Ingen veckovila senaste 7 dagarna'});
-    // Övertidstak
+    // Övertidstak — separat scope, ej rört
     if(årsÖvH>230) varningar.push({typ:'röd',text:`${årsKvar}h kvar till max 250h övertid`});
     else if(årsÖvH>200) varningar.push({typ:'orange',text:'Du närmar dig övertidstaket (250h)'});
 
@@ -2866,52 +3172,44 @@ export default function Arbetsrapport() {
               filtVila=vilaRev;
               periodLabel=`${nu5.getFullYear()}`;
             }
-            const brott=filtVila.filter(r=>r.vila<11);
-            const harProblem=brott.length>0;
+            // TODO vid release: förarna måste informeras om att veckovila-vyn nu visar
+            // rullande 7-dagars-brott istället för ISO-veckor. Den gamla vyn var bug
+            // enligt arbetsmiljölagen (rullande fönster är rätt tolkning). Lite för-info
+            // i app eller mail innan deploy hjälper förståelsen.
 
-            // Veckovila — beräkna längsta lucka mellan pass per vecka
-            const getVeckoNr=(d:Date)=>Math.ceil((Math.floor((d.getTime()-new Date(d.getFullYear(),0,1).getTime())/864e5)+new Date(d.getFullYear(),0,1).getDay()+1)/7);
-            const veckoNrNu=getVeckoNr(nu5);
+            // Brott läses från vilobrott-tabellen (en sanning). Render-filtret
+            // håller perioden konsekvent — marginal-fönstret vid fetch (-7d) är
+            // bara där för att fånga rullande brott som överlappar perioden.
+            const periodFrom = vilaPeriod==='7d' ? (()=>{ const d=new Date(nu5); d.setDate(nu5.getDate()-7); return d.toISOString().slice(0,10); })()
+              : vilaPeriod==='30d' ? (()=>{ const d=new Date(nu5); d.setDate(nu5.getDate()-30); return d.toISOString().slice(0,10); })()
+              : vilaPeriod==='månad' ? `${nu5.getFullYear()}-${String(vilaMånad+1).padStart(2,'0')}-01`
+              : `${nu5.getFullYear()}-01-01`;
+            const periodTo = vilaPeriod==='månad'
+              ? new Date(nu5.getFullYear(), vilaMånad+1, 0).toISOString().slice(0,10)
+              : vilaPeriod==='år'
+                ? `${nu5.getFullYear()}-12-31`
+                : nu5.toISOString().slice(0,10);
+            const dbBrottIPeriod = (periodVilobrott || []).filter(b => b.datum >= periodFrom && b.datum <= periodTo);
+            const dbDygn = dbBrottIPeriod.filter(b => b.typ === 'dygnsvila');
+            const dbVeck = dbBrottIPeriod.filter(b => b.typ === 'veckovila');
+            // Matcha en allVila-rad (visning) mot ett dygnsvila-brott (DB).
+            // allVila.slutDatum motsvarar vilobrott.datum (slut-dag).
+            const brottForRad = (r: typeof allVila[0]) => dbDygn.find(b => b.datum === r.slutDatum);
+            const brott = filtVila.filter(r => !!brottForRad(r));
+            const harProblem = brott.length > 0;
+            const vvHarProblem = dbVeck.length > 0;
+            const periodLaddar = periodVilobrott === null;
+            // Dygnsvila-tröskeln används i VilaKort + PDF. Veckovila-tröskeln
+            // läses direkt från b.krav_h på varje brott, så den behöver inte
+            // hoistas här.
+            const krav_h = trosklar?.dygnsvila_krav_h ?? 11;
+            const orsakLabel = (o: string | null) => {
+              if (!o) return '';
+              return { oforutsedd:'Oförutsedd händelse', akut_jour:'Akut jour', planerad_avtal:'Planerat enligt avtal', annat:'Annat' }[o] || o;
+            };
 
-            // Bygg alla luckor mellan på-varandra-följande pass
-            const sortAsc2=[...årsData].filter(r=>r.slut_tid&&r.start_tid).sort((a,b)=>a.datum.localeCompare(b.datum));
-            const allGaps:{veckoNr:number;slutDatum:string;slutTid:string;startDatum:string;startTid:string;h:number;anledning:string}[]=[];
-            for(let i=0;i<sortAsc2.length-1;i++){
-              const d1=sortAsc2[i],d2=sortAsc2[i+1];
-              const sT=d1.slut_tid.slice(0,5),stT=d2.start_tid.slice(0,5);
-              const slutDt=new Date(`${d1.datum}T${sT}`);
-              const startDt=new Date(`${d2.datum}T${stT}`);
-              const h=(startDt.getTime()-slutDt.getTime())/36e5;
-              if(h<=0||h>500) continue;
-              const vNr=getVeckoNr(slutDt);
-              const dagarM=Math.round((new Date(d2.datum).getTime()-new Date(d1.datum).getTime())/864e5);
-              const anl=dagarM>1?getAnledning(d1.datum,d2.datum):'';
-              allGaps.push({veckoNr:vNr,slutDatum:d1.datum,slutTid:sT,startDatum:d2.datum,startTid:stT,h:Math.round(h*10)/10,anledning:anl});
-            }
-
-            // Per vecka: hitta längsta luckan
-            const vvMap=new Map<number,typeof allGaps[0]>();
-            for(const g of allGaps){
-              const prev=vvMap.get(g.veckoNr);
-              if(!prev||g.h>prev.h) vvMap.set(g.veckoNr,g);
-            }
-
-            // Filtrera veckor baserat på period
-            let vvKeys=[...vvMap.keys()].sort((a,b)=>b-a);
-            if(vilaPeriod==='7d') vvKeys=vvKeys.filter(k=>k>=veckoNrNu-1);
-            else if(vilaPeriod==='30d') vvKeys=vvKeys.filter(k=>k>=veckoNrNu-4);
-            else if(vilaPeriod==='månad'){
-              // Hitta veckor som hör till vald månad
-              const mStart=new Date(nu5.getFullYear(),vilaMånad,1);
-              const mSlut=new Date(nu5.getFullYear(),vilaMånad+1,0);
-              const vStart=getVeckoNr(mStart),vSlut=getVeckoNr(mSlut);
-              vvKeys=vvKeys.filter(k=>k>=vStart&&k<=vSlut);
-            }
-
-            const vvData=vvKeys.map(k=>({veckoNr:k,pågår:k===veckoNrNu,...vvMap.get(k)!}));
-            const vvHarProblem=vvData.some(v=>!v.pågår&&v.h<36);
-
-            // Export
+            // Export. Dygnsvila listas per viloperiod (status från DB-brott).
+            // Veckovila listas per DB-brott (rullande fönster) — inte per ISO-vecka.
             const exportPDF = () => {
               const fVH=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};
               const fDe=(d:string)=>{const dt=new Date(d);return `${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`;};
@@ -2919,25 +3217,39 @@ export default function Arbetsrapport() {
               html+=`<h1>${medarbetare?.namn||''}</h1><p style="color:#666;margin:0 0 24px">Viloperioder — ${periodLabel}</p>`;
               html+=`<h2>Dygnsvila</h2><table><tr><th>Slutade</th><th>Startade igen</th><th>Vila</th><th>Anledning</th><th>Status</th></tr>`;
               for(const r of [...filtVila].reverse()){
-                const ok=r.vila>=11;
-                html+=`<tr><td>${fDe(r.slutDatum)} ${r.slutTid}</td><td>${fDe(r.startDatum)} ${r.startTid}</td><td>${fVH(r.vila)}</td><td>${r.anledning||'—'}</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 11h'}</td></tr>`;
+                const b = brottForRad(r);
+                const ok = !b;
+                html+=`<tr><td>${fDe(r.slutDatum)} ${r.slutTid}</td><td>${fDe(r.startDatum)} ${r.startTid}</td><td>${fVH(r.vila)}</td><td>${r.anledning||'—'}</td><td class="${ok?'ok':'warn'}">${ok?'OK':`⚠ Under ${krav_h}h`}</td></tr>`;
               }
               html+=`</table>`;
-              html+=`<h2>Veckovila</h2><table><tr><th>Vecka</th><th>Slutade</th><th>Startade igen</th><th>Vila</th><th>Anledning</th><th>Status</th></tr>`;
-              vvData.forEach(v=>{const ok=v.h>=36;const fVH2=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};html+=`<tr><td>Vecka ${v.veckoNr}</td><td>${fDe(v.slutDatum)} ${v.slutTid}</td><td>${fDe(v.startDatum)} ${v.startTid}</td><td>${fVH2(v.h)}</td><td>${v.anledning||'—'}</td><td class="${ok?'ok':'warn'}">${ok?'OK':'⚠ Under 36h'}</td></tr>`;});
-              html+=`</table></body></html>`;
+              html+=`<h2>Veckovila — rullande ${trosklar?.veckovila_fonster_dagar ?? 7}-dagarsfönster</h2>`;
+              if(dbVeck.length===0){
+                html+=`<p style="color:#666">Inga brott i perioden.</p>`;
+              } else {
+                html+=`<table><tr><th>Startdatum</th><th>Vila</th><th>Krav</th><th>Beskrivning</th><th>Status</th></tr>`;
+                for(const b of dbVeck){
+                  html+=`<tr><td>${fDe(b.datum)}</td><td>${fVH(Number(b.vila_h))}</td><td>${fVH(Number(b.krav_h))}</td><td>${b.beskrivning||'—'}</td><td class="warn">⚠ Under ${Number(b.krav_h)}h</td></tr>`;
+                }
+                html+=`</table>`;
+              }
+              html+=`</body></html>`;
               const w=window.open('','','width=700,height=900');
               if(w){w.document.write(html);w.document.close();w.document.title='Viloperioder';setTimeout(()=>w.print(),300);}
             };
 
-            // Render en vilorad med klockslag
+            // Render en vilorad med klockslag. Rödramat kort = brott i DB:n,
+            // klickbart för inline-expansion av orsak/kompensation.
             const fmtVilaH = (h:number) => { const hh=Math.floor(h); const mm=Math.round((h-hh)*60); return mm>0?`${hh}h ${mm}min`:`${hh}h`; };
             const fD=(d:Date)=>`${dagNamn[d.getDay()].slice(0,3)} ${d.getDate()} ${månNamn2[d.getMonth()]}`;
             const VilaKort = ({r}:{r:typeof allVila[0]}) => {
-              const ok=r.vila>=11;
+              const b = brottForRad(r);
+              const ok = !b;
+              const expanderad = b && vilaKortExpanded === b.id;
               const d1=new Date(r.slutDatum),d2=new Date(r.startDatum);
               return (
-                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:`1px solid ${ok?"rgba(255,255,255,0.06)":"rgba(255,69,58,0.2)"}` }}>
+                <div
+                  onClick={b ? () => setVilaKortExpanded(expanderad ? null : b.id) : undefined}
+                  style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:`1px solid ${ok?"rgba(255,255,255,0.06)":"rgba(255,69,58,0.2)"}`,cursor: b ? "pointer" : "default" }}>
                   <p style={{ margin:"0 0 6px",fontSize:14,fontWeight:600,color:"#fff",textTransform:"capitalize" }}>{fD(d1)}</p>
                   <p style={{ margin:"0 0 2px",fontSize:13,color:"#8e8e93" }}>Slutade kl {r.slutTid}</p>
                   <p style={{ margin:"0 0 10px",fontSize:13,color:"#8e8e93" }}>Startade igen: <span style={{ textTransform:"capitalize" }}>{fD(d2)}</span> kl {r.startTid}</p>
@@ -2945,9 +3257,21 @@ export default function Arbetsrapport() {
                     {!ok&&<span className="material-symbols-outlined" style={{ color:"#ff453a",fontSize:16 }}>warning</span>}
                     <span style={{ fontSize:14,fontWeight:600,color:ok?"#30d158":"#ff453a" }}>Dygnsvila: {fmtVilaH(r.vila)}</span>
                     {ok&&<span className="material-symbols-outlined" style={{ color:"#30d158",fontSize:16 }}>check</span>}
-                    {!ok&&<span style={{ fontSize:12,color:"#ff453a" }}>(kräver 11h)</span>}
+                    {!ok&&<span style={{ fontSize:12,color:"#ff453a" }}>(kräver {krav_h}h)</span>}
                   </div>
                   {r.anledning&&<p style={{ margin:"6px 0 0",fontSize:12,color:"#8e8e93" }}>{r.anledning}</p>}
+                  {expanderad && b && (
+                    <div style={{ marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
+                      {b.besvarat_av_forare ? (
+                        <p style={{ margin:0,fontSize:12,color:"#8e8e93" }}>
+                          Besvarat: {orsakLabel(b.orsak)}{b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}
+                          {b.kompensation_h != null && ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}`}
+                        </p>
+                      ) : (
+                        <p style={{ margin:0,fontSize:12,color:"#ff9f0a" }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             };
@@ -3020,42 +3344,56 @@ export default function Arbetsrapport() {
               )}
             </section>
 
-            {/* Veckovila */}
+            {/* Veckovila — rullande fönster från DB:n. Inga ISO-vecka-grupperingar. */}
             <section style={{ marginBottom:24 }}>
               <h3 style={secHead}>Veckovila</h3>
-              {!visaAllaVeckovila?(
+              {periodLaddar ? (
+                <div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                  <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Laddar viloperioder…</p>
+                </div>
+              ) : !visaAllaVeckovila?(
                 <div style={{ background:"#1c1c1e",borderRadius:12,padding:"4px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"14px 0" }}>
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                       <span className="material-symbols-outlined" style={{ fontSize:18,color:vvHarProblem?"#ff453a":"#30d158" }}>{vvHarProblem?"warning":"check"}</span>
-                      <span style={{ fontSize:14,color:"#fff" }}>{vvHarProblem?"Problem med veckovila":"Veckovila uppfylld"}</span>
+                      <span style={{ fontSize:14,color:"#fff" }}>{vvHarProblem?`${dbVeck.length} brott mot veckovila`:"Veckovila uppfylld"}</span>
                     </div>
-                    <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>
+                    {dbVeck.length>0 && <button onClick={()=>setVisaAllaVeckovila(true)} style={{ background:"none",border:"none",color:"#0a84ff",fontSize:13,fontWeight:500,cursor:"pointer",fontFamily:"inherit",padding:0 }}>Visa alla →</button>}
                   </div>
                 </div>
               ):(
                 <div>
-                  {vvData.map((v,i)=>{
-                    const fVH2=(h:number)=>{const hh=Math.floor(h);const mm=Math.round((h-hh)*60);return mm>0?`${hh}h ${mm}min`:`${hh}h`;};
-                    const fDv=(d:string)=>{const dt=new Date(d);return `${dagNamn[dt.getDay()].slice(0,3)} ${dt.getDate()} ${månNamn2[dt.getMonth()]}`;};
-                    if(v.pågår) return (
-                      <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:"1px solid rgba(255,255,255,0.06)" }}>
-                        <p style={{ margin:0,fontSize:13,color:"#8e8e93" }}>Vecka {v.veckoNr} — pågår</p>
-                      </div>
-                    );
-                    const ok=v.h>=36;
-                    return (
-                    <div key={i} style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:`1px solid ${ok?"rgba(255,255,255,0.06)":"rgba(255,69,58,0.2)"}` }}>
-                      <p style={{ margin:"0 0 4px",fontSize:13,fontWeight:600,color:"#8e8e93" }}>Vecka {v.veckoNr}</p>
-                      <p style={{ margin:"0 0 2px",fontSize:13,color:"#8e8e93" }}><span style={{textTransform:"capitalize"}}>{fDv(v.slutDatum)}</span> {v.slutTid} → <span style={{textTransform:"capitalize"}}>{fDv(v.startDatum)}</span> {v.startTid}</p>
-                      <div style={{ display:"flex",alignItems:"center",gap:6,marginTop:8 }}>
-                        {!ok&&<span className="material-symbols-outlined" style={{ color:"#ff453a",fontSize:16 }}>warning</span>}
-                        <span style={{ fontSize:14,fontWeight:600,color:ok?"#30d158":"#ff453a" }}>Veckovila: {fVH2(v.h)}</span>
-                        {ok&&<span className="material-symbols-outlined" style={{ color:"#30d158",fontSize:16 }}>check</span>}
-                        {!ok&&<span style={{ fontSize:12,color:"#ff453a" }}>(kräver 36h)</span>}
-                      </div>
-                      {v.anledning&&<p style={{ margin:"6px 0 0",fontSize:12,color:"#8e8e93" }}>{v.anledning}</p>}
+                  {dbVeck.length===0 ? (
+                    <div style={{ background:"#1c1c1e",borderRadius:12,padding:"14px 20px",border:"1px solid rgba(255,255,255,0.06)" }}>
+                      <p style={{ margin:0,fontSize:14,color:"#8e8e93" }}>Inga brott i perioden</p>
                     </div>
+                  ) : dbVeck.map(b => {
+                    const dt = new Date(b.datum);
+                    const expanderad = vilaKortExpanded === b.id;
+                    return (
+                      <div key={b.id}
+                        onClick={() => setVilaKortExpanded(expanderad ? null : b.id)}
+                        style={{ background:"#1c1c1e",borderRadius:12,padding:"16px 18px",marginBottom:8,border:"1px solid rgba(255,69,58,0.2)",cursor:"pointer" }}>
+                        <p style={{ margin:"0 0 4px",fontSize:13,fontWeight:600,color:"#fff",textTransform:"capitalize" }}>{fD(dt)}</p>
+                        <p style={{ margin:"0 0 8px",fontSize:13,color:"#8e8e93" }}>{b.beskrivning}</p>
+                        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                          <span className="material-symbols-outlined" style={{ color:"#ff453a",fontSize:16 }}>warning</span>
+                          <span style={{ fontSize:14,fontWeight:600,color:"#ff453a" }}>Veckovila: {fmtVilaH(Number(b.vila_h))}</span>
+                          <span style={{ fontSize:12,color:"#ff453a" }}>(kräver {Number(b.krav_h)}h)</span>
+                        </div>
+                        {expanderad && (
+                          <div style={{ marginTop:10,paddingTop:10,borderTop:"1px solid rgba(255,255,255,0.06)" }}>
+                            {b.besvarat_av_forare ? (
+                              <p style={{ margin:0,fontSize:12,color:"#8e8e93" }}>
+                                Besvarat: {orsakLabel(b.orsak)}{b.orsak_fritext ? ` · ${b.orsak_fritext}` : ''}
+                                {b.kompensation_h != null && ` · ${Number(b.kompensation_h)}h kompensation${b.kompensation_uttagen ? ' (uttagen)' : ''}`}
+                              </p>
+                            ) : (
+                              <p style={{ margin:0,fontSize:12,color:"#ff9f0a" }}>Inte besvarat — bekräfta dagen för att ange orsak</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                   <div style={{ padding:"10px 0 14px",borderTop:"1px solid rgba(255,255,255,0.04)" }}>

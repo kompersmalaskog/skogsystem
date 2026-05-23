@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { C, secHead, Card, btnSecondary } from "./design";
-import { analyseraVilobrott, type Vilobrott } from "@/lib/vilobrott";
+import { analyseraVilobrott, type Vilobrott, type VilaTrosklar } from "@/lib/vilobrott";
+import { hamtaGiltigtAvtal, vilaTrosklarFromAvtal } from "@/lib/gs-avtal";
 
 type Medarbetare = { id: string; namn: string | null };
 type ArbetsdagDb = { medarbetare_id: string; datum: string; start_tid: string | null; slut_tid: string | null };
@@ -12,6 +13,7 @@ type BrottMedNamn = Vilobrott & { medarbetare_id: string; namn: string };
 export default function VilobrottUnderflik() {
   const [medarbetare, setMedarbetare] = useState<Medarbetare[]>([]);
   const [arbetsdagar, setArbetsdagar] = useState<ArbetsdagDb[]>([]);
+  const [trosklar, setTrosklar] = useState<VilaTrosklar | null>(null);
   const [laddar, setLaddar] = useState(true);
   const [fel, setFel] = useState<string | null>(null);
 
@@ -24,12 +26,13 @@ export default function VilobrottUnderflik() {
         const trMånSedan = new Date(idag.getFullYear(), idag.getMonth() - 3, 1);
         const från = trMånSedan.toISOString().slice(0, 10);
 
-        const [medRes, arbRes] = await Promise.all([
+        const [medRes, arbRes, avtal] = await Promise.all([
           supabase.from("medarbetare").select("id, namn").order("namn"),
           supabase.from("arbetsdag")
             .select("medarbetare_id, datum, start_tid, slut_tid")
             .gte("datum", från)
             .order("datum"),
+          hamtaGiltigtAvtal(idag),
         ]);
 
         if (cancelled) return;
@@ -38,6 +41,7 @@ export default function VilobrottUnderflik() {
 
         setMedarbetare(medRes.data || []);
         setArbetsdagar(arbRes.data || []);
+        setTrosklar(vilaTrosklarFromAvtal(avtal));
       } catch (e: any) {
         if (!cancelled) setFel(e.message || String(e));
       } finally {
@@ -48,6 +52,7 @@ export default function VilobrottUnderflik() {
   }, []);
 
   const allaBrott: BrottMedNamn[] = useMemo(() => {
+    if (!trosklar) return [];
     const namnMap = new Map(medarbetare.map(m => [m.id, m.namn || m.id.slice(0, 8)]));
     const dagPerMed = new Map<string, ArbetsdagDb[]>();
     for (const d of arbetsdagar) {
@@ -57,12 +62,12 @@ export default function VilobrottUnderflik() {
     }
     const ut: BrottMedNamn[] = [];
     for (const [medId, dagar] of dagPerMed.entries()) {
-      const brott = analyseraVilobrott(dagar);
+      const brott = analyseraVilobrott(dagar, trosklar);
       for (const b of brott) ut.push({ ...b, medarbetare_id: medId, namn: namnMap.get(medId) || medId.slice(0, 8) });
     }
     // Sortera senaste först
     return ut.sort((a, b) => b.datum.localeCompare(a.datum));
-  }, [arbetsdagar, medarbetare]);
+  }, [arbetsdagar, medarbetare, trosklar]);
 
   const grupperatPerMed = useMemo(() => {
     const map = new Map<string, BrottMedNamn[]>();
