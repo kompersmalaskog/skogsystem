@@ -207,7 +207,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
 
       {/* Header */}
       <div style={{ padding: '16px 20px', borderBottom: '1px solid #222' }}>
-        <div style={{ fontSize: '13px', color: '#a8a8ad', letterSpacing: '0.5px', marginBottom: '4px', textTransform: 'none' }}>
+        <div style={{ fontSize: '13px', color: '#8e8e93', letterSpacing: '0.5px', marginBottom: '4px', textTransform: 'none' }}>
           Kompersmåla Skog
         </div>
         <div style={{ fontSize: '24px', fontWeight: '600' }}>
@@ -264,7 +264,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
               padding: '16px',
               background: 'none',
               border: 'none',
-              color: activeTab === 'oplanerade' ? '#fff' : '#a8a8ad',
+              color: activeTab === 'oplanerade' ? '#fff' : '#8e8e93',
               fontSize: '14px',
               fontWeight: '500',
               cursor: 'pointer',
@@ -283,7 +283,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
             padding: '16px',
             background: 'none',
             border: 'none',
-            color: activeTab === 'planerade' ? '#fff' : '#a8a8ad',
+            color: activeTab === 'planerade' ? '#fff' : '#8e8e93',
             fontSize: '14px',
             fontWeight: '500',
             cursor: 'pointer',
@@ -301,7 +301,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
             padding: '16px',
             background: 'none',
             border: 'none',
-            color: activeTab === 'avslutade' ? '#fff' : '#a8a8ad',
+            color: activeTab === 'avslutade' ? '#fff' : '#8e8e93',
             fontSize: '14px',
             fontWeight: '500',
             cursor: 'pointer',
@@ -316,13 +316,13 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
         {/* Förklaringstext för oplanerade */}
         {activeTab === 'oplanerade' && !loading && oplanerade.length > 0 && (
-          <div style={{ padding: '12px 20px 4px', fontSize: '13px', color: '#a8a8ad' }}>
+          <div style={{ padding: '12px 20px 4px', fontSize: '13px', color: '#8e8e93' }}>
             Välj ett objekt och tryck Planera för att lägga till volym
           </div>
         )}
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#a8a8ad', fontSize: '14px' }}>
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#8e8e93', fontSize: '14px' }}>
             Laddar...
           </div>
         ) : lista.map((obj: any) => {
@@ -378,21 +378,21 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 </div>
                 <div style={{ fontSize: '13px' }}>
                   <span style={{ color: 'rgba(255,255,255,0.85)' }}>{typLabel}</span>
-                  {obj.bolag && <span style={{ color: '#a8a8ad' }}> · {obj.bolag}</span>}
+                  {obj.bolag && <span style={{ color: '#8e8e93' }}> · {obj.bolag}</span>}
                 </div>
               </div>
 
               {/* Avstånd (aktiva) eller avslutsdatum (avslutade) */}
               {ärAvslutad ? (
                 <div style={{ textAlign: 'right', marginLeft: '12px', flexShrink: 0 }}>
-                  <div style={{ fontSize: '12px', color: '#a8a8ad' }}>Avslutat</div>
-                  <div style={{ fontSize: '13px', color: '#a8a8ad', fontVariantNumeric: 'tabular-nums' }}>
+                  <div style={{ fontSize: '12px', color: '#8e8e93' }}>Avslutat</div>
+                  <div style={{ fontSize: '13px', color: '#8e8e93', fontVariantNumeric: 'tabular-nums' }}>
                     {avslutsdatum || '—'}
                   </div>
                 </div>
               ) : (dist !== null || roadDist[obj.id]) && (
                 <div style={{ textAlign: 'right', marginLeft: '12px', flexShrink: 0 }}>
-                  <div style={{ fontSize: '14px', color: '#a8a8ad' }}>
+                  <div style={{ fontSize: '14px', color: '#8e8e93' }}>
                     {typeof roadDist[obj.id] === 'number'
                       ? `${roadDist[obj.id]} km`
                       : roadDist[obj.id] === 'loading'
@@ -406,10 +406,10 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
 
               {/* Volym */}
               <div style={{ textAlign: 'right', marginLeft: '16px', flexShrink: 0 }}>
-                <div style={{ fontSize: '16px', fontWeight: '500', color: obj.volym ? '#fff' : '#a8a8ad' }}>
+                <div style={{ fontSize: '16px', fontWeight: '500', color: obj.volym ? '#fff' : '#8e8e93' }}>
                   {obj.volym ? obj.volym : '–'}
                 </div>
-                <div style={{ fontSize: '13px', color: '#a8a8ad' }}>
+                <div style={{ fontSize: '13px', color: '#8e8e93' }}>
                   m³
                 </div>
               </div>
@@ -443,7 +443,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                   <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 28 }}>play_arrow</span>
                 </button>
               ) : (
-                <div style={{ marginLeft: '16px', color: '#a8a8ad', fontSize: '20px' }} aria-hidden="true">
+                <div style={{ marginLeft: '16px', color: '#8e8e93', fontSize: '20px' }} aria-hidden="true">
                   ›
                 </div>
               )}
@@ -456,7 +456,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
           <div style={{
             textAlign: 'center',
             padding: '60px 20px',
-            color: '#a8a8ad',
+            color: '#8e8e93',
             fontSize: '14px',
           }}>
             Inga objekt
@@ -472,7 +472,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
           backgroundColor: '#0a0a0a',
           textAlign: 'center',
         }}>
-          <span style={{ color: '#a8a8ad', fontSize: '15px' }}>
+          <span style={{ color: '#8e8e93', fontSize: '15px' }}>
             {activeTab === 'oplanerade' ? 'Oplanerat' : activeTab === 'planerade' ? 'Planerat' : 'Avslutat'} totalt:{' '}
           </span>
           <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>
@@ -527,7 +527,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
             </h2>
 
             {/* Typ + volym + avstånd */}
-            <p style={{ margin: '0 0 24px', color: '#a8a8ad', fontSize: '13px' }}>
+            <p style={{ margin: '0 0 24px', color: '#8e8e93', fontSize: '13px' }}>
               {selectedObj.typ === 'slutavverkning' ? 'Slutavverkning' : 'Gallring'}
               {' · '}{selectedObj.volym ? `${selectedObj.volym} m³` : '–'}
               {typeof roadDist[selectedObj.id] === 'number'
@@ -576,7 +576,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 borderRadius: '12px',
                 border: '1px solid #555',
                 background: 'transparent',
-                color: selectedObj.lat && selectedObj.lng ? '#fff' : '#a8a8ad',
+                color: selectedObj.lat && selectedObj.lng ? '#fff' : '#8e8e93',
                 fontSize: '16px',
                 fontWeight: '500',
                 cursor: selectedObj.lat && selectedObj.lng ? 'pointer' : 'not-allowed',
