@@ -21,7 +21,11 @@ interface ObjektValjareProps {
 }
 
 export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter, onStartObjekt }: ObjektValjareProps) {
-  const [activeTab, setActiveTab] = useState<'oplanerade' | 'planerade'>('oplanerade');
+  // STEG 7: avslutade-flik tillagd. Default 'planerade' för förare (de har
+  // inga oplanerade objekt), 'oplanerade' för admin (befintligt beteende).
+  const [activeTab, setActiveTab] = useState<'oplanerade' | 'planerade' | 'avslutade'>(
+    forareFilter ? 'planerade' : 'oplanerade'
+  );
   const [filter, setFilter] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
   const [selectedObj, setSelectedObj] = useState<any>(null);
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
@@ -142,19 +146,33 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
     return R * c;
   };
 
-  const oplanerade = objekt.filter(o => !o.ar || !o.manad);
-  const planerade = objekt.filter(o => o.ar && o.manad);
+  // STEG 7: exkludera avslutade från Oplanerade/Planerade (annars dubblerade)
+  const oplanerade = objekt.filter(o => (!o.ar || !o.manad) && o.status !== 'avslutad');
+  const planerade = objekt.filter(o => o.ar && o.manad && o.status !== 'avslutad');
+  const avslutade = objekt
+    .filter(o => o.status === 'avslutad')
+    .sort((a, b) => (b.avslutad_timestamp || '').localeCompare(a.avslutad_timestamp || ''));
 
   let lista: any[];
   if (forareFilter) {
-    // Förar-läge: bara objekt tilldelade till denna medarbetare + aktivt status.
-    lista = objekt.filter(o =>
-      (o.assigned_skordare_user_id === forareFilter.medarbetareId ||
-       o.assigned_skotare_user_id === forareFilter.medarbetareId) &&
-      (o.status === 'planerad' || o.status === 'pagaende')
-    );
+    // Förar-läge: filtrera på tilldelad + status beroende på flik
+    const baseFilter = (o: any) =>
+      o.assigned_skordare_user_id === forareFilter.medarbetareId ||
+      o.assigned_skotare_user_id === forareFilter.medarbetareId;
+    if (activeTab === 'avslutade') {
+      lista = objekt
+        .filter(o => baseFilter(o) && o.status === 'avslutad')
+        .sort((a, b) => (b.avslutad_timestamp || '').localeCompare(a.avslutad_timestamp || ''));
+    } else {
+      lista = objekt.filter(o => baseFilter(o) && (o.status === 'planerad' || o.status === 'pagaende'));
+    }
   } else {
-    const allData = activeTab === 'oplanerade' ? oplanerade : planerade;
+    let allData: any[];
+    if (activeTab === 'avslutade') {
+      allData = avslutade;
+    } else {
+      allData = activeTab === 'oplanerade' ? oplanerade : planerade;
+    }
     lista = filter === 'alla' ? allData : allData.filter(o => o.typ === filter);
   }
   if (userPos) {
@@ -233,12 +251,10 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
         </div>
       )}
 
-      {/* Tabs — döljs för förare */}
-      {!forareFilter && (
-        <div style={{
-          display: 'flex',
-          borderBottom: '1px solid #222',
-        }}>
+      {/* STEG 7: Tabs — alltid synliga. Admin: 3 (Oplanerade, Planerade, Avslutade).
+          Förare: 2 (Planerade, Avslutade — Oplanerade-fliken dolds). */}
+      <div style={{ display: 'flex', borderBottom: '1px solid #222' }}>
+        {!forareFilter && (
           <button
             type="button"
             onClick={() => setActiveTab('oplanerade')}
@@ -257,26 +273,44 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
           >
             Oplanerade ({oplanerade.length})
           </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('planerade')}
-            aria-pressed={activeTab === 'planerade'}
-            style={{
-              flex: 1,
-              padding: '16px',
-              background: 'none',
-              border: 'none',
-              color: activeTab === 'planerade' ? '#fff' : '#a8a8ad',
-              fontSize: '14px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              borderBottom: activeTab === 'planerade' ? '2px solid #fff' : '2px solid transparent',
-            }}
-          >
-            Planerade ({planerade.length})
-          </button>
-        </div>
-      )}
+        )}
+        <button
+          type="button"
+          onClick={() => setActiveTab('planerade')}
+          aria-pressed={activeTab === 'planerade'}
+          style={{
+            flex: 1,
+            padding: '16px',
+            background: 'none',
+            border: 'none',
+            color: activeTab === 'planerade' ? '#fff' : '#a8a8ad',
+            fontSize: '14px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'planerade' ? '2px solid #fff' : '2px solid transparent',
+          }}
+        >
+          Planerade ({planerade.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('avslutade')}
+          aria-pressed={activeTab === 'avslutade'}
+          style={{
+            flex: 1,
+            padding: '16px',
+            background: 'none',
+            border: 'none',
+            color: activeTab === 'avslutade' ? '#fff' : '#a8a8ad',
+            fontSize: '14px',
+            fontWeight: '500',
+            cursor: 'pointer',
+            borderBottom: activeTab === 'avslutade' ? '2px solid #fff' : '2px solid transparent',
+          }}
+        >
+          Avslutade ({avslutade.length})
+        </button>
+      </div>
 
       {/* Lista */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
@@ -299,6 +333,10 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
           // förare-rader med status='planerad'. Yttre raden blir div role="button"
           // för att tillåta nestad <button> (knapp-i-knapp är ogiltig HTML).
           const visaStarta = !!(forareFilter && obj.status === 'planerad' && onStartObjekt);
+          // STEG 7: avslutade rader dimm:as och visar avslutsdatum istället för avstånd
+          const ärAvslutad = obj.status === 'avslutad';
+          const avslutsdatum = ärAvslutad && obj.avslutad_timestamp
+            ? obj.avslutad_timestamp.slice(0, 10) : null;
           return (
             <div
               key={obj.id}
@@ -323,6 +361,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 textAlign: 'left',
                 font: 'inherit',
                 cursor: 'pointer',
+                opacity: ärAvslutad ? 0.7 : 1,
               }}
             >
               {/* Info */}
@@ -343,8 +382,15 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 </div>
               </div>
 
-              {/* Avstånd */}
-              {(dist !== null || roadDist[obj.id]) && (
+              {/* Avstånd (aktiva) eller avslutsdatum (avslutade) */}
+              {ärAvslutad ? (
+                <div style={{ textAlign: 'right', marginLeft: '12px', flexShrink: 0 }}>
+                  <div style={{ fontSize: '12px', color: '#a8a8ad' }}>Avslutat</div>
+                  <div style={{ fontSize: '13px', color: '#a8a8ad', fontVariantNumeric: 'tabular-nums' }}>
+                    {avslutsdatum || '—'}
+                  </div>
+                </div>
+              ) : (dist !== null || roadDist[obj.id]) && (
                 <div style={{ textAlign: 'right', marginLeft: '12px', flexShrink: 0 }}>
                   <div style={{ fontSize: '14px', color: '#a8a8ad' }}>
                     {typeof roadDist[obj.id] === 'number'
@@ -427,7 +473,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
           textAlign: 'center',
         }}>
           <span style={{ color: '#a8a8ad', fontSize: '15px' }}>
-            {activeTab === 'oplanerade' ? 'Oplanerat' : 'Planerat'} totalt:{' '}
+            {activeTab === 'oplanerade' ? 'Oplanerat' : activeTab === 'planerade' ? 'Planerat' : 'Avslutat'} totalt:{' '}
           </span>
           <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>
             {filtreratTotal.toLocaleString()} m³
