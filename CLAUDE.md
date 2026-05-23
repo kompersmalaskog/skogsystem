@@ -213,7 +213,7 @@ Skotardata -> `fakt_lass`, `fakt_lass_sortiment`, `fakt_skotning_status`
 - `import_hpr.py` — Fristående HPR-import från Behandlade-mappen (skriver bara till hpr_filer/hpr_stammar)
 - `auto_import_watch.py` — Watchdog som startar import automatiskt + notifierar Vercel
 - `reimport_allt.py` — Rensar alla fakta/detaljtabeller och importerar om allt
-- `reimport_fakt_tid.py` — Bygger om fakt_tid med entry-level dedup
+- `reimport_fakt_tid_TRASIGT_KOR_INTE.py.gammal` — NEUTRALISERAT 2026-05-23. Filen hade två allvarliga buggar: raderade hela fakt_tid utan filter, och dedup saknade operator_id (slog ihop förares rader). Kör INTE. Använd ett scoped reimport-script istället.
 - `validate_data.py` — Hittar dagar med produktion men utan tidsdata och importerar om
 - `scripts/tag-hpr-format.py` — Taggar HPR-filer med Stanford-version och metadata
 - `scripts/link-hpr-data.py` — Länkar HPR-data till rätt objekt/maskin

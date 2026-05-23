@@ -1,11 +1,39 @@
 #!/usr/bin/env python3
+# ─── SÄKERHETSSPÄRR ─────────────────────────────────────────────────────────
+# Detta script är NEUTRALISERAT 2026-05-23 efter kartläggning som visade två
+# allvarliga buggar:
+#   1. DELETE-klausulen ("datum=gte.2000-01-01") raderar HELA fakt_tid utan
+#      filter på maskin/objekt/period.
+#   2. Dedup-nyckeln saknar operator_id — slår ihop två förares rader när
+#      samma maskin/objekt/dag delas, vilket migration 20260421 fixade i
+#      huvudimporten men aldrig här.
+#
+# Att köra scriptet skulle förstöra produktionsdata. Använd istället:
+#   reimport_fakt_tid_scoped.py  (eller motsvarande scoped variant)
+# som är begränsad till en maskin + ett objekt + en period och har samma
+# dedup-logik som skogsmaskin_import_version_6.py.
+#
+# Filen är döpt till reimport_fakt_tid_TRASIGT_KOR_INTE.py.gammal som extra
+# synlig markering. Spärren nedan kör först — eventuell körning avbryts
+# omedelbart med exitkod 1.
+# ────────────────────────────────────────────────────────────────────────────
+import sys
+print("STOPP: reimport_fakt_tid.py ar trasigt och far inte koras.")
+print("Det raderar HELA fakt_tid utan filter och har buggig dedup (saknar")
+print("operator_id i nyckeln). Skulle forstora produktionsdata.")
+print("")
+print("Anvand reimport_fakt_tid_scoped.py istallet (scoped till maskin +")
+print("objekt + period, med korrekt 4-tuple dedup).")
+sys.exit(1)
+
+
 """
 Rensa fakt_tid och kör om import av alla MOM-filer.
 Alla entries samlas i minnet, dedupliceras per MonitoringStartTime,
 aggregeras per (datum, maskin_id, objekt_id), skrivs i en batch.
 """
 
-import os, sys, glob, requests
+import os, glob, requests
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
