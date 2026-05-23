@@ -8707,7 +8707,7 @@ export default function PlannerPage() {
             border: visarSomForare ? '1px solid #ff9f0a' : '1px solid rgba(255,255,255,0.08)',
             color: '#fff',
             fontSize: '15px',
-            fontWeight: 600,
+            fontWeight: '600',
             whiteSpace: 'nowrap',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -8716,7 +8716,7 @@ export default function PlannerPage() {
             cursor: visarSomForare ? 'pointer' : 'default',
           }}>
             {visarSomForare && simuleradForare && (
-              <span style={{ color: '#ff9f0a', fontWeight: 600, marginRight: 6 }}>
+              <span style={{ color: '#ff9f0a', fontWeight: '600', marginRight: 6 }}>
                 👁 {simuleradForare.namn.split(' ')[0]} ·
               </span>
             )}
@@ -8724,7 +8724,7 @@ export default function PlannerPage() {
               <>
                 <span>{valtObjekt.namn}</span>
                 {(valtObjekt.areal || valtObjekt.typ) && (
-                  <span style={{ fontWeight: 400, color: 'rgba(255,255,255,0.65)' }}>
+                  <span style={{ fontWeight: '400', color: 'rgba(255,255,255,0.65)' }}>
                     {valtObjekt.areal ? ` · ${valtObjekt.areal} ha` : ''}
                     {valtObjekt.typ ? ` · ${valtObjekt.typ === 'slutavverkning' ? 'Slutavv.' : valtObjekt.typ === 'gallring' ? 'Gallring' : valtObjekt.typ}` : ''}
                   </span>
@@ -8790,7 +8790,7 @@ export default function PlannerPage() {
 
           color: '#fff',
         }}>
-          <span style={{ flex: 1, fontSize: 15, fontWeight: 600, lineHeight: 1.3 }}>
+          <span style={{ flex: 1, fontSize: '15px', fontWeight: '600', lineHeight: 1.3 }}>
             {activeMode.label}
           </span>
           <button
@@ -8804,8 +8804,8 @@ export default function PlannerPage() {
               border: '1px solid rgba(255,255,255,0.35)',
               background: 'rgba(255,255,255,0.18)',
               color: '#fff',
-              fontSize: 14,
-              fontWeight: 600,
+              fontSize: '14px',
+              fontWeight: '600',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
             }}
@@ -8838,14 +8838,14 @@ export default function PlannerPage() {
           animation: 'korvyZoneIn 0.25s cubic-bezier(0.32, 0.72, 0, 1)',
         }}>
           <style>{`@keyframes korvyZoneIn { from { transform: translateY(-12px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }`}</style>
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 30, color: korvyZoneAlert.color, flexShrink: 0 }}>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '30px', color: korvyZoneAlert.color, flexShrink: 0 }}>
             {korvyZoneAlert.zoneType === 'noentry' ? 'block' : 'warning'}
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 17, fontWeight: 700, color: korvyZoneAlert.color }}>
+            <div style={{ fontSize: '17px', fontWeight: '700', color: korvyZoneAlert.color }}>
               {korvyZoneAlert.label}
             </div>
-            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>
+            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>
               Försvinner när du lämnar zonen
             </div>
           </div>
@@ -8898,20 +8898,20 @@ export default function PlannerPage() {
                   background: item.color,
                   flexShrink: 0,
                 }} aria-hidden="true" />
-                <span style={{ fontSize: 17, fontWeight: 700, color: '#fff', minWidth: 18, textAlign: 'center', flexShrink: 0 }} aria-hidden="true">
+                <span style={{ fontSize: '17px', fontWeight: '700', color: '#fff', minWidth: 18, textAlign: 'center', flexShrink: 0 }} aria-hidden="true">
                   {arrow}
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <div style={{ fontSize: '15px', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                     {item.comment || typeName}
                   </div>
                   {item.comment && (
-                    <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.6)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {typeName}
                     </div>
                   )}
                 </div>
-                <div style={{ fontSize: 15, fontWeight: 600, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                <div style={{ fontSize: '15px', fontWeight: '600', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
                   {item.dist} m
                 </div>
               </div>
@@ -8966,20 +8966,20 @@ export default function PlannerPage() {
               <span style={{
                 width: 44, height: 44, borderRadius: 8, background: w.color, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', zIndex: 1,
               }} aria-hidden="true">
-                <span className="material-symbols-outlined" style={{ fontSize: 28, color: '#fff' }}>warning</span>
+                <span className="material-symbols-outlined" style={{ fontSize: '28px', color: '#fff' }}>warning</span>
               </span>
             )}
             <div style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 1 }}>
-              <div style={{ fontSize: 17, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <div style={{ fontSize: '17px', fontWeight: '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                 {w.type}
               </div>
               {w.comment && (
-                <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {w.comment}
                 </div>
               )}
             </div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: w.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0, position: 'relative', zIndex: 1 }}>
+            <div style={{ fontSize: '20px', fontWeight: '700', color: w.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0, position: 'relative', zIndex: 1 }}>
               {w.dist} m
             </div>
           </div>
@@ -9009,8 +9009,8 @@ export default function PlannerPage() {
             border: 'none',
             borderRadius: 14,
             color: '#fff',
-            fontSize: 17,
-            fontWeight: 600,
+            fontSize: '17px',
+            fontWeight: '600',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -9022,7 +9022,7 @@ export default function PlannerPage() {
             boxShadow: '0 4px 16px rgba(48, 209, 88, 0.3)',
           }}
         >
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>play_arrow</span>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>play_arrow</span>
           {startarKorning ? 'Startar…' : 'Starta körning'}
         </button>
       )}
@@ -9050,8 +9050,8 @@ export default function PlannerPage() {
             border: 'none',
             borderRadius: 14,
             color: '#fff',
-            fontSize: 17,
-            fontWeight: 600,
+            fontSize: '17px',
+            fontWeight: '600',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -9062,7 +9062,7 @@ export default function PlannerPage() {
             boxShadow: '0 4px 16px rgba(255, 159, 10, 0.3)',
           }}
         >
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>check_circle</span>
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>check_circle</span>
           Avsluta objekt
         </button>
       )}
@@ -9115,7 +9115,7 @@ export default function PlannerPage() {
                 background: '#ff453a',
                 color: '#fff',
                 fontSize: '13px',
-                fontWeight: 700,
+                fontWeight: '700',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -9183,8 +9183,8 @@ export default function PlannerPage() {
               <div style={{ marginTop: 12 }}>
                 <div style={{
                   padding: '8px 12px 6px',
-                  fontSize: 13,
-                  fontWeight: 600,
+                  fontSize: '13px',
+                  fontWeight: '600',
                   color: 'rgba(255,255,255,0.55)',
                 }}>
                   VY
@@ -9212,7 +9212,7 @@ export default function PlannerPage() {
                           background: 'transparent', border: 'none',
                           borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
                           color: aktiv ? '#ff9f0a' : '#fff',
-                          fontSize: 15, fontWeight: aktiv ? 600 : 500,
+                          fontSize: '15px', fontWeight: aktiv ? 600 : 500,
                           textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
                         }}
                       >
@@ -9220,7 +9220,7 @@ export default function PlannerPage() {
                           className="material-symbols-outlined"
                           aria-hidden="true"
                           style={{
-                            fontSize: 26,
+                            fontSize: '26px',
                             color: aktiv ? '#ff9f0a' : 'rgba(255,255,255,0.85)',
                             flexShrink: 0,
                             width: 32,
@@ -9244,8 +9244,8 @@ export default function PlannerPage() {
               <div style={{ marginTop: 12 }}>
                 <div style={{
                   padding: '8px 12px 6px',
-                  fontSize: 13,
-                  fontWeight: 600,
+                  fontSize: '13px',
+                  fontWeight: '600',
                   color: 'rgba(255,255,255,0.55)',
                 }}>
                   AKTUELLT OBJEKT
@@ -9253,8 +9253,8 @@ export default function PlannerPage() {
                 <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 14, overflow: 'hidden' }}>
                   {/* Skördare */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56 }}>
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 26, color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>person</span>
-                    <span style={{ fontSize: 15, width: 80, flexShrink: 0 }}>Skördare</span>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '26px', color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>person</span>
+                    <span style={{ fontSize: '15px', width: 80, flexShrink: 0 }}>Skördare</span>
                     <select
                       value={valtObjekt.assigned_skordare_user_id ?? ''}
                       onChange={e => handleAssignSkordare(e.target.value || null)}
@@ -9263,7 +9263,7 @@ export default function PlannerPage() {
                         background: 'rgba(255,255,255,0.06)',
                         border: '1px solid rgba(255,255,255,0.08)',
                         borderRadius: 10,
-                        color: '#fff', fontSize: 15,
+                        color: '#fff', fontSize: '15px',
                         appearance: 'none', WebkitAppearance: 'none',
                         colorScheme: 'dark',
                         fontFamily: 'inherit',
@@ -9279,8 +9279,8 @@ export default function PlannerPage() {
                   </div>
                   {/* Skotare */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 26, color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>local_shipping</span>
-                    <span style={{ fontSize: 15, width: 80, flexShrink: 0 }}>Skotare</span>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '26px', color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>local_shipping</span>
+                    <span style={{ fontSize: '15px', width: 80, flexShrink: 0 }}>Skotare</span>
                     <select
                       value={valtObjekt.assigned_skotare_user_id ?? ''}
                       onChange={e => handleAssignSkotare(e.target.value || null)}
@@ -9289,7 +9289,7 @@ export default function PlannerPage() {
                         background: 'rgba(255,255,255,0.06)',
                         border: '1px solid rgba(255,255,255,0.08)',
                         borderRadius: 10,
-                        color: '#fff', fontSize: 15,
+                        color: '#fff', fontSize: '15px',
                         appearance: 'none', WebkitAppearance: 'none',
                         colorScheme: 'dark',
                         fontFamily: 'inherit',
@@ -9311,10 +9311,10 @@ export default function PlannerPage() {
                     border: '1px solid rgba(48, 209, 88, 0.3)',
                     borderRadius: 14,
                     color: '#30d158',
-                    fontSize: 17, fontWeight: 600,
+                    fontSize: '17px', fontWeight: '600',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
                   }}>
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>check_circle</span>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>check_circle</span>
                     Skickad till förare
                   </div>
                 ) : (
@@ -9327,13 +9327,13 @@ export default function PlannerPage() {
                       background: valtObjekt.assigned_skordare_user_id ? '#30d158' : 'rgba(255,255,255,0.06)',
                       border: 'none', borderRadius: 14,
                       color: valtObjekt.assigned_skordare_user_id ? '#fff' : 'rgba(255,255,255,0.35)',
-                      fontSize: 17, fontWeight: 600,
+                      fontSize: '17px', fontWeight: '600',
                       cursor: valtObjekt.assigned_skordare_user_id ? 'pointer' : 'not-allowed',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
                       fontFamily: 'inherit',
                     }}
                   >
-                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>send</span>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>send</span>
                     {sendingKlar ? 'Skickar…' : 'Klar — skicka till förare'}
                   </button>
                 )}
@@ -9420,8 +9420,8 @@ export default function PlannerPage() {
               <div key={group.title} style={{ marginTop: 12 }}>
                 <div style={{
                   padding: '8px 12px 6px',
-                  fontSize: 13,
-                  fontWeight: 600,
+                  fontSize: '13px',
+                  fontWeight: '600',
                   color: 'rgba(255,255,255,0.55)',
                 }}>
                   {group.title}
@@ -9448,8 +9448,8 @@ export default function PlannerPage() {
                         border: 'none',
                         borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
                         color: (item as any).danger ? '#ff453a' : '#fff',
-                        fontSize: 15,
-                        fontWeight: 500,
+                        fontSize: '15px',
+                        fontWeight: '500',
                         textAlign: 'left',
                         cursor: 'pointer',
                         fontFamily: 'inherit',
@@ -9459,7 +9459,7 @@ export default function PlannerPage() {
                         className="material-symbols-outlined"
                         aria-hidden="true"
                         style={{
-                          fontSize: 26,
+                          fontSize: '26px',
                           color: (item as any).danger ? '#ff453a' : 'rgba(255,255,255,0.85)',
                           flexShrink: 0,
                           width: 32,
@@ -9489,18 +9489,18 @@ export default function PlannerPage() {
             background: '#1c1c1e', borderRadius: 20, padding: '28px 24px', maxWidth: 340, width: '100%',
             textAlign: 'center',
           }}>
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 44, color: '#60a5fa', marginBottom: 12, display: 'inline-block' }}>pin_drop</span>
-            <div style={{ fontSize: 14, color: '#8e8e93', marginBottom: 6 }}>Du verkar ha kommit fram till</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 20 }}>{geofencePrompt.namn}</div>
-            <div style={{ fontSize: 14, color: '#8e8e93', marginBottom: 24 }}>Vill du starta objektet?</div>
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '44px', color: '#60a5fa', marginBottom: 12, display: 'inline-block' }}>pin_drop</span>
+            <div style={{ fontSize: '14px', color: '#8e8e93', marginBottom: 6 }}>Du verkar ha kommit fram till</div>
+            <div style={{ fontSize: '20px', fontWeight: '700', color: '#fff', marginBottom: 20 }}>{geofencePrompt.namn}</div>
+            <div style={{ fontSize: '14px', color: '#8e8e93', marginBottom: 24 }}>Vill du starta objektet?</div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={handleGeofenceDismiss} style={{
                 flex: 1, padding: '14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)',
-                background: 'transparent', color: '#8e8e93', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+                background: 'transparent', color: '#8e8e93', fontSize: '15px', fontWeight: '600', cursor: 'pointer',
               }}>Inte nu</button>
               <button onClick={handleGeofenceStart} style={{
                 flex: 1, padding: '14px', borderRadius: 12, border: 'none',
-                background: '#30d158', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+                background: '#30d158', color: '#fff', fontSize: '15px', fontWeight: '600', cursor: 'pointer',
               }}>Ja, starta</button>
             </div>
           </div>
@@ -9519,13 +9519,13 @@ export default function PlannerPage() {
             textAlign: 'center',
           }}>
             <span className="material-symbols-outlined" aria-hidden="true"
-              style={{ fontSize: 44, color: '#ff9f0a', marginBottom: 12, display: 'inline-block' }}>
+              style={{ fontSize: '44px', color: '#ff9f0a', marginBottom: 12, display: 'inline-block' }}>
               check_circle
             </span>
-            <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
+            <div style={{ fontSize: '17px', fontWeight: '700', color: '#fff', marginBottom: 8 }}>
               Avsluta {valtObjekt.namn}?
             </div>
-            <div style={{ fontSize: 14, color: '#a8a8ad', marginBottom: 24, lineHeight: 1.4 }}>
+            <div style={{ fontSize: '14px', color: '#a8a8ad', marginBottom: 24, lineHeight: 1.4 }}>
               Objektet markeras som avslutat. Detta kan inte ångras av föraren.
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -9537,7 +9537,7 @@ export default function PlannerPage() {
                   flex: 1, padding: '14px', borderRadius: 12,
                   border: '1px solid rgba(255,255,255,0.15)',
                   background: 'transparent', color: '#8e8e93',
-                  fontSize: 15, fontWeight: 600, cursor: avsluterObjekt ? 'not-allowed' : 'pointer',
+                  fontSize: '15px', fontWeight: '600', cursor: avsluterObjekt ? 'not-allowed' : 'pointer',
                   fontFamily: 'inherit',
                 }}
               >
@@ -9550,7 +9550,7 @@ export default function PlannerPage() {
                 style={{
                   flex: 1, padding: '14px', borderRadius: 12, border: 'none',
                   background: '#ff9f0a', color: '#fff',
-                  fontSize: 15, fontWeight: 600, cursor: avsluterObjekt ? 'not-allowed' : 'pointer',
+                  fontSize: '15px', fontWeight: '600', cursor: avsluterObjekt ? 'not-allowed' : 'pointer',
                   opacity: avsluterObjekt ? 0.7 : 1, fontFamily: 'inherit',
                 }}
               >
@@ -11392,7 +11392,7 @@ export default function PlannerPage() {
             flexShrink: 0,
           }} />
           <div>
-            <div style={{ fontSize: '13px', color: '#fff', fontWeight: 500 }}>
+            <div style={{ fontSize: '13px', color: '#fff', fontWeight: '500' }}>
               {brandriskData.fwiindex <= 0 ? 'Ingen brandrisk'
                 : brandriskData.fwiindex <= 1 ? 'Liten brandrisk'
                 : brandriskData.fwiindex <= 2 ? 'Normal brandrisk'
@@ -12699,7 +12699,7 @@ export default function PlannerPage() {
                         flex: 1, minHeight: 32, padding: '6px 8px', borderRadius: 7, border: 'none',
                         background: active ? '#fff' : 'transparent',
                         color: active ? '#000' : 'rgba(255,255,255,0.85)',
-                        fontSize: 13, fontWeight: active ? 600 : 500, cursor: 'pointer', fontFamily: 'inherit',
+                        fontSize: '13px', fontWeight: active ? 600 : 500, cursor: 'pointer', fontFamily: 'inherit',
                       });
                       const curWarn = warningSettings[item.id]?.warnDist || item.defaultWarn;
                       const curFade = warningSettings[item.id]?.fadeDist || item.defaultFade;
@@ -12713,33 +12713,33 @@ export default function PlannerPage() {
                         <div style={{ opacity: slidersDisabled ? 0.3 : 1, pointerEvents: slidersDisabled ? 'none' : 'auto' }}>
                           {/* Varningsavstånd */}
                           <div style={{ marginBottom: 12 }}>
-                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Varningsavstånd</div>
+                            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Varningsavstånd</div>
                             <div style={segWrap}>
                               {warnPresets.map(p => (
                                 <button key={p.value} type="button" className="btn-press" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], warnDist: p.value } }))} style={segBtn(pickClosest(warnPresets, curWarn) === p.value)}>
-                                  {p.label} <span style={{ opacity: 0.6, fontSize: 12 }}>{p.value}m</span>
+                                  {p.label} <span style={{ opacity: 0.6, fontSize: '12px' }}>{p.value}m</span>
                                 </button>
                               ))}
                             </div>
                           </div>
                           {/* Synlighetsavstånd */}
                           <div style={{ marginBottom: 12 }}>
-                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Synlighetsavstånd</div>
+                            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Synlighetsavstånd</div>
                             <div style={segWrap}>
                               {fadePresets.map(p => (
                                 <button key={p.value} type="button" className="btn-press" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], fadeDist: p.value } }))} style={segBtn(pickClosest(fadePresets, curFade) === p.value)}>
-                                  {p.label} <span style={{ opacity: 0.6, fontSize: 12 }}>{p.value}m</span>
+                                  {p.label} <span style={{ opacity: 0.6, fontSize: '12px' }}>{p.value}m</span>
                                 </button>
                               ))}
                             </div>
                           </div>
                           {/* Synlighet på avstånd */}
                           <div>
-                            <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Synlighet på avstånd</div>
+                            <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: 6 }}>Synlighet på avstånd</div>
                             <div style={segWrap}>
                               {opacityPresets.map(p => (
                                 <button key={p.value} type="button" className="btn-press" onClick={() => setWarningSettings(prev => ({ ...prev, [item.id]: { ...prev[item.id], minOpacity: p.value } }))} style={segBtn(pickClosest(opacityPresets, curOpacity) === p.value)}>
-                                  {p.label} <span style={{ opacity: 0.6, fontSize: 12 }}>{Math.round(p.value * 100)}%</span>
+                                  {p.label} <span style={{ opacity: 0.6, fontSize: '12px' }}>{Math.round(p.value * 100)}%</span>
                                 </button>
                               ))}
                             </div>
@@ -12866,8 +12866,8 @@ export default function PlannerPage() {
 
             {/* Titel */}
             <div style={{
-              fontSize: 17,
-              fontWeight: 600,
+              fontSize: '17px',
+              fontWeight: '600',
               flex: 1,
               textAlign: 'center',
               color: '#fff',
@@ -18495,7 +18495,7 @@ export default function PlannerPage() {
                     <div key={i}>
                       {showHeader && (
                         <div style={{
-                          fontSize: '13px', fontWeight: 600,                          color: h.typ === 'grot' ? '#8B5E3C' : 'rgba(255,255,255,0.4)',
+                          fontSize: '13px', fontWeight: '600',                          color: h.typ === 'grot' ? '#8B5E3C' : 'rgba(255,255,255,0.4)',
                           padding: '12px 0 6px', marginTop: i > 0 ? '8px' : 0,
                           borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none',
                         }}>
