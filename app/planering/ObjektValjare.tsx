@@ -147,10 +147,10 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
   };
 
   // STEG 7: exkludera avslutade från Oplanerade/Planerade (annars dubblerade)
-  const oplanerade = objekt.filter(o => (!o.ar || !o.manad) && o.status !== 'avslutad');
-  const planerade = objekt.filter(o => o.ar && o.manad && o.status !== 'avslutad');
+  const oplanerade = objekt.filter(o => (!o.ar || !o.manad) && o.status !== 'avslutat');
+  const planerade = objekt.filter(o => o.ar && o.manad && o.status !== 'avslutat');
   const avslutade = objekt
-    .filter(o => o.status === 'avslutad')
+    .filter(o => o.status === 'avslutat')
     .sort((a, b) => (b.avslutad_timestamp || '').localeCompare(a.avslutad_timestamp || ''));
 
   let lista: any[];
@@ -161,7 +161,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
       o.assigned_skotare_user_id === forareFilter.medarbetareId;
     if (activeTab === 'avslutade') {
       lista = objekt
-        .filter(o => baseFilter(o) && o.status === 'avslutad')
+        .filter(o => baseFilter(o) && o.status === 'avslutat')
         .sort((a, b) => (b.avslutad_timestamp || '').localeCompare(a.avslutad_timestamp || ''));
     } else {
       lista = objekt.filter(o => baseFilter(o) && (o.status === 'planerad' || o.status === 'pagaende'));
@@ -334,7 +334,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
           // för att tillåta nestad <button> (knapp-i-knapp är ogiltig HTML).
           const visaStarta = !!(forareFilter && obj.status === 'planerad' && onStartObjekt);
           // STEG 7: avslutade rader dimm:as och visar avslutsdatum istället för avstånd
-          const ärAvslutad = obj.status === 'avslutad';
+          const ärAvslutad = obj.status === 'avslutat';
           const avslutsdatum = ärAvslutad && obj.avslutad_timestamp
             ? obj.avslutad_timestamp.slice(0, 10) : null;
           return (
