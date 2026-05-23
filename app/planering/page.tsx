@@ -1904,6 +1904,32 @@ export default function PlannerPage() {
     await handleStartKorningForObjekt(valtObjekt);
   }, [valtObjekt, handleStartKorningForObjekt]);
 
+  // STEG 7: manuell avsluta-knapp. Sätter status='avslutat' + avslutad_timestamp.
+  // Synlig för alla roller när valtObjekt.status === 'pagaende' (samma villkor
+  // som Starta-pillen men i pagaende-läget). Confirmation-modal innan DB-update
+  // eftersom avsluta är slutlig — admin måste manuellt återställa via SQL.
+  //
+  // OBS audit-trail: samma flagga som STEG 3 (handleStartKorningForObjekt).
+  // En admin som avslutar i "Visa som"-läge syns inte i DB:n som annan actor.
+  const [visarAvslutaConfirmation, setVisarAvslutaConfirmation] = useState(false);
+  const [avsluterObjekt, setAvsluterObjekt] = useState(false);
+
+  const handleAvslutaObjekt = useCallback(async () => {
+    if (!valtObjekt?.id || avsluterObjekt) return;
+    setAvsluterObjekt(true);
+    const nowIso = new Date().toISOString();
+    const { error } = await supabase.from('objekt').update({
+      status: 'avslutat',
+      avslutad_timestamp: nowIso,
+    }).eq('id', valtObjekt.id);
+    setAvsluterObjekt(false);
+    setVisarAvslutaConfirmation(false);
+    if (!error) {
+      setValtObjekt({ ...valtObjekt, status: 'avslutat', avslutad_timestamp: nowIso });
+      if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    }
+  }, [valtObjekt, avsluterObjekt]);
+
   // Simulerad position (för testning vid dator)
   const [simulatedPos, setSimulatedPos] = useState<{lat: number, lng: number} | null>(null);
   const [showSimPosMenu, setShowSimPosMenu] = useState<{x: number, y: number, lat: number, lng: number} | null>(null);
@@ -9001,6 +9027,46 @@ export default function PlannerPage() {
         </button>
       )}
 
+      {/* STEG 7: "Avsluta objekt"-pill — synlig för alla roller (admin + förare)
+          när valt objekt är pågående. Samma slot som Starta-pillen (de är
+          ömsesidigt uteslutande — status är antingen 'planerad' eller 'pagaende').
+          Döljs vid annat aktivt läge — samma villkor som Starta-pillen. */}
+      {valtObjekt?.status === 'pagaende'
+        && !isDrawMode && !isZoneMode && !isArrowMode
+        && !isMeasuring && !skotningDrawing
+        && !korvyActive && !briefingMode && (
+        <button
+          type="button"
+          onClick={() => setVisarAvslutaConfirmation(true)}
+          aria-label="Avsluta objekt"
+          style={{
+            position: 'fixed',
+            top: 'calc(env(safe-area-inset-top) + 90px)',
+            left: 16,
+            right: 16,
+            minHeight: 56,
+            padding: '0 20px',
+            background: '#ff9f0a',
+            border: 'none',
+            borderRadius: 14,
+            color: '#fff',
+            fontSize: 17,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 10,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+            zIndex: 101,
+            boxShadow: '0 4px 16px rgba(255, 159, 10, 0.3)',
+          }}
+        >
+          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>check_circle</span>
+          Avsluta objekt
+        </button>
+      )}
+
       {/* === PLUS-KNAPP (nere höger) — döljs bara när briefing eller volym-panel är öppna */}
       {!briefingMode && !(volymLoading || volymResultat) && (
         <button
@@ -9172,8 +9238,9 @@ export default function PlannerPage() {
             )}
 
             {/* AKTUELLT OBJEKT — tilldelning + "Klar — skicka till förare" (STEG 1)
-                STEG 3: döljs helt för förare — planerarens funktion */}
-            {!isForare && valtObjekt && (
+                STEG 3: döljs helt för förare — planerarens funktion
+                STEG 7: döljs också för avslutade objekt (read-only kvalitetskontroll) */}
+            {!isForare && valtObjekt && valtObjekt.status !== 'avslutat' && (
               <div style={{ marginTop: 12 }}>
                 <div style={{
                   padding: '8px 12px 6px',
@@ -9272,6 +9339,7 @@ export default function PlannerPage() {
                 )}
               </div>
             )}
+
 
             {[
               {
@@ -9434,6 +9502,60 @@ export default function PlannerPage() {
                 flex: 1, padding: '14px', borderRadius: 12, border: 'none',
                 background: '#30d158', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer',
               }}>Ja, starta</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* STEG 7: confirmation-modal innan avsluta. Slutlig action — kan inte ångras via UI. */}
+      {visarAvslutaConfirmation && valtObjekt && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 20,
+        }}>
+          <div style={{
+            background: '#1c1c1e', borderRadius: 20, padding: '28px 24px', maxWidth: 360, width: '100%',
+            textAlign: 'center',
+          }}>
+            <span className="material-symbols-outlined" aria-hidden="true"
+              style={{ fontSize: 44, color: '#ff9f0a', marginBottom: 12, display: 'inline-block' }}>
+              check_circle
+            </span>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
+              Avsluta {valtObjekt.namn}?
+            </div>
+            <div style={{ fontSize: 14, color: '#a8a8ad', marginBottom: 24, lineHeight: 1.4 }}>
+              Objektet markeras som avslutat. Detta kan inte ångras av föraren.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setVisarAvslutaConfirmation(false)}
+                disabled={avsluterObjekt}
+                style={{
+                  flex: 1, padding: '14px', borderRadius: 12,
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  background: 'transparent', color: '#9ca3af',
+                  fontSize: 15, fontWeight: 600, cursor: avsluterObjekt ? 'not-allowed' : 'pointer',
+                  fontFamily: 'inherit',
+                }}
+              >
+                Avbryt
+              </button>
+              <button
+                type="button"
+                onClick={handleAvslutaObjekt}
+                disabled={avsluterObjekt}
+                style={{
+                  flex: 1, padding: '14px', borderRadius: 12, border: 'none',
+                  background: '#ff9f0a', color: '#fff',
+                  fontSize: 15, fontWeight: 600, cursor: avsluterObjekt ? 'not-allowed' : 'pointer',
+                  opacity: avsluterObjekt ? 0.7 : 1, fontFamily: 'inherit',
+                }}
+              >
+                {avsluterObjekt ? 'Avslutar…' : 'Avsluta'}
+              </button>
             </div>
           </div>
         </div>

@@ -156,7 +156,7 @@ Varje ny HPR-fil innehåller alla tidigare stammar plus nya. Två dedupe-strateg
 - `hpr_stammar` — stamdata (hpr_fil_id, stam_nummer, trädslag, dbh, lat, lng, antal_stockar, total_volym, bio_energy_adaption, sortiment). UNIQUE(hpr_fil_id, stam_nummer)
 
 ### Operativa tabeller
-- `objekt` — objekt med planeringsstatus. Status-värden (ej CHECK-constrained): `oplanerad` (default för nya/importerade), `planerad` (= "klar att köra", sätts av planeringsvyns "Klar — skicka till förare"-knapp + `klar_skickad_timestamp`), `pagaende`, `avslutad`, plus äldre värden (`skordning`, `skotning`, `klar`) som översiktsvyn fortfarande använder. Tilldelningsfält: `assigned_skordare_user_id`, `assigned_skotare_user_id` (FK → medarbetare.id, ON DELETE SET NULL). Livscykel-timestamps: `klar_skickad_timestamp`, `pagaende_startad_timestamp`, `avslutad_timestamp`.
+- `objekt` — objekt med planeringsstatus. Status-värden (ej CHECK-constrained): `oplanerad` (default för nya/importerade), `planerad` (= "klar att köra", sätts av planeringsvyns "Klar — skicka till förare"-knapp + `klar_skickad_timestamp`), `pagaende`, `avslutat`, plus äldre värden (`skordning`, `skotning`, `klar`) som översiktsvyn fortfarande använder. Tilldelningsfält: `assigned_skordare_user_id`, `assigned_skotare_user_id` (FK → medarbetare.id, ON DELETE SET NULL). Livscykel-timestamps: `klar_skickad_timestamp`, `pagaende_startad_timestamp`, `avslutad_timestamp`.
 - `maskiner` — maskinregister
 - `maskin_service` — serviceloggar
 - `maskin_logg` — maskinaktivitetslogg
@@ -247,7 +247,7 @@ Huvudvy för traktplanering (~11 000 rader). Innehåller:
 ### Objekthantering
 - Välj objekt från lista eller karta
 - Visa objektinfo (skogsägare, vo_nummer, avverkningsform, certifiering)
-- Statushantering (planerad/pågående/avslutad)
+- Statushantering (planerad/pågående/avslutat)
 
 ---
 
@@ -274,3 +274,15 @@ När förare trycker "Starta körning" sätts `status='pagaende'` + `pagaende_st
 **Förslag:** när en HPR-fil med `objekt_id` kommer in via import-flödet (`scripts/skogsmaskin_import_version_6.py` eller `import_hpr.py`) för ett objekt med `status='planerad'` → sätt automatiskt `status='pagaende'` + `pagaende_startad_timestamp = NOW()`. Skyddsnät om föraren glömt trycka knappen.
 
 **Inte byggt nu** eftersom objekten inte är skarpt upplagda under utveckling — risken att auto-statusbyte triggas på testdata är högre än värdet just nu. Bygg när HPR-objekt-kopplingen är skarp i produktion.
+
+### Avslut-automatik som komplement till "Avsluta objekt"-knappen
+När förare/admin trycker "Avsluta objekt" sätts `status='avslutat'` + `avslutad_timestamp`. Men ett objekt kan vara klart utan att någon har tryckt — skotaren har precis lastat sista lasset, eller produktionen är slut.
+
+**Förslag:** när FPR-filer (skotardata) flödar skarpt och `objekt_id`-kopplingen fungerar, kan objekt avslutas automatiskt när skotad volym når planerad volym (eller liknande signal — t.ex. inga nya HPR-stammar på X dagar för ett `'pagaende'`-objekt). Skyddsnät mot att objekt sitter kvar som `'pagaende'` på obestämd tid.
+
+**Inte byggt nu** eftersom datan inte finns:
+- `fakt_lass` (FPR-tabellen) är tom (0 rader vid STEG 7-bygget)
+- Bara 25 av 802 HPR-filer har `objekt_id`-koppling
+- Inga objekt har planerad eller skotad volym satt
+
+Bygg när FPR-import flödar skarpt OCH HPR-objekt-kopplingen är tillräckligt komplett för att tröskeln blir tillförlitlig.
