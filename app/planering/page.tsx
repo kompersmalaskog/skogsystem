@@ -1915,18 +1915,32 @@ export default function PlannerPage() {
   const [avsluterObjekt, setAvsluterObjekt] = useState(false);
 
   const handleAvslutaObjekt = useCallback(async () => {
-    if (!valtObjekt?.id || avsluterObjekt) return;
+    console.log('[STEG7-debug] handleAvslutaObjekt START', { valtObjektId: valtObjekt?.id, avsluterObjekt });
+    if (!valtObjekt?.id) {
+      console.warn('[STEG7-debug] EARLY RETURN: valtObjekt saknar id');
+      return;
+    }
+    if (avsluterObjekt) {
+      console.warn('[STEG7-debug] EARLY RETURN: avsluterObjekt redan true (race eller fastnat?)');
+      return;
+    }
+    console.log('[STEG7-debug] sätter avsluterObjekt = true');
     setAvsluterObjekt(true);
     const nowIso = new Date().toISOString();
-    const { error } = await supabase.from('objekt').update({
+    console.log('[STEG7-debug] kör supabase.update för id:', valtObjekt.id);
+    const { data, error, status, statusText } = await supabase.from('objekt').update({
       status: 'avslutad',
       avslutad_timestamp: nowIso,
-    }).eq('id', valtObjekt.id);
+    }).eq('id', valtObjekt.id).select();
+    console.log('[STEG7-debug] supabase-resultat:', { status, statusText, rowCount: data?.length, error });
     setAvsluterObjekt(false);
     setVisarAvslutaConfirmation(false);
     if (!error) {
+      console.log('[STEG7-debug] OK — sätter valtObjekt + vibrate');
       setValtObjekt({ ...valtObjekt, status: 'avslutad', avslutad_timestamp: nowIso });
       if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+    } else {
+      console.error('[STEG7-debug] FEL — hoppar över setValtObjekt:', error);
     }
   }, [valtObjekt, avsluterObjekt]);
 
@@ -9545,7 +9559,10 @@ export default function PlannerPage() {
               </button>
               <button
                 type="button"
-                onClick={handleAvslutaObjekt}
+                onClick={() => {
+                  console.log('[STEG7-debug] Modal-Avsluta-knapp KLICKAD (onClick wrapper)');
+                  handleAvslutaObjekt();
+                }}
                 disabled={avsluterObjekt}
                 style={{
                   flex: 1, padding: '14px', borderRadius: 12, border: 'none',
