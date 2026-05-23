@@ -11224,7 +11224,7 @@ export default function PlannerPage() {
                 const fmtDate = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()]}`; };
                 return (
                   <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '20px' }}>
-                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#e8f0e0', marginBottom: '12px' }}>📝 Om trakten</div>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#fff', marginBottom: '12px' }}>📝 Om trakten</div>
 
                     {/* Befintliga anteckningar */}
                     {notes.map((note, idx) => {
@@ -11234,7 +11234,7 @@ export default function PlannerPage() {
                         <div key={note.id} style={{ marginBottom: '10px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                           {/* Rad: nummer + datum + förhandsvisning */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: isEditing ? '8px' : 0 }}>
-                            <div style={{ width: '22px', height: '22px', borderRadius: '11px', background: 'rgba(138,180,96,0.15)', color: '#8ab460', fontSize: '13px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</div>
+                            <div style={{ width: '22px', height: '22px', borderRadius: '11px', background: 'rgba(48,209,88,0.15)', color: '#30d158', fontSize: '13px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</div>
                             <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', flexShrink: 0 }}>{fmtDate(note.date)}</div>
                             {!isEditing && (
                               <div style={{ flex: 1, fontSize: '13px', color: 'rgba(232,240,224,0.6)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -11257,13 +11257,13 @@ export default function PlannerPage() {
                                 onChange={(e) => setNewNoteText(e.target.value)}
                                 autoFocus
                                 rows={2}
-                                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(138,180,96,0.2)', background: 'rgba(255,255,255,0.03)', color: '#e8f0e0', fontSize: '13px', lineHeight: '1.4', resize: 'none', outline: 'none', fontFamily: 'inherit', marginBottom: '8px' }}
+                                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(48,209,88,0.2)', background: 'rgba(255,255,255,0.03)', color: '#fff', fontSize: '13px', lineHeight: '1.4', resize: 'none', outline: 'none', fontFamily: 'inherit', marginBottom: '8px' }}
                               />
                               {/* Ljud för denna anteckning */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                                 <button
                                   onClick={() => toggleNoteAudioRecording(marker.id, note.id)}
-                                  style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecThis ? '0 14px 0 10px' : '0', width: isRecThis ? 'auto' : '36px', background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '16px', animation: isRecThis ? 'pulse 1s infinite' : 'none' }}
+                                  style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecThis ? '0 14px 0 10px' : '0', width: isRecThis ? 'auto' : '36px', background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(48,209,88,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '16px', animation: isRecThis ? 'pulse 1s infinite' : 'none' }}
                                 >{isRecThis ? '⏹' : '🎤'}{isRecThis && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                                 {note.audioData && !isRecThis && (
                                   <>
@@ -11274,7 +11274,7 @@ export default function PlannerPage() {
                                 {!note.audioData && !isRecThis && <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)' }}>Tryck för att spela in</div>}
                               </div>
                               <div style={{ display: 'flex', gap: '6px' }}>
-                                <button onClick={() => { setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, text: newNoteText } : n) } : m)); setEditingNoteId(null); setNewNoteText(''); }} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: '#8ab460', color: '#0a0f08', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Spara</button>
+                                <button onClick={() => { setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).map(n => n.id === note.id ? { ...n, text: newNoteText } : n) } : m)); setEditingNoteId(null); setNewNoteText(''); }} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: '#30d158', color: '#0a0f08', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Spara</button>
                                 <button onClick={() => { setEditingNoteId(null); setNewNoteText(''); }} style={{ padding: '8px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: '13px', cursor: 'pointer' }}>Avbryt</button>
                               </div>
                             </div>
@@ -11295,19 +11295,19 @@ export default function PlannerPage() {
                       const isRecNew = isRecordingAudio && recordingNoteId === newId;
                       const pendingAudio = markers.find(m => m.id === marker.id)?.notes?.find(n => n.id === newId)?.audioData;
                       return (
-                        <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(138,180,96,0.06)', border: '1px solid rgba(138,180,96,0.15)' }}>
+                        <div style={{ padding: '10px 12px', borderRadius: '10px', background: 'rgba(48,209,88,0.06)', border: '1px solid rgba(48,209,88,0.15)' }}>
                           <textarea
                             value={newNoteText}
                             onChange={(e) => setNewNoteText(e.target.value)}
                             autoFocus
                             placeholder="Skriv anteckning..."
                             rows={2}
-                            style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(138,180,96,0.2)', background: 'rgba(255,255,255,0.03)', color: '#e8f0e0', fontSize: '13px', lineHeight: '1.4', resize: 'none', outline: 'none', fontFamily: 'inherit', marginBottom: '8px' }}
+                            style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(48,209,88,0.2)', background: 'rgba(255,255,255,0.03)', color: '#fff', fontSize: '13px', lineHeight: '1.4', resize: 'none', outline: 'none', fontFamily: 'inherit', marginBottom: '8px' }}
                           />
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                             <button
                               onClick={() => toggleNoteAudioRecording(marker.id, newId)}
-                              style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecNew ? '0 14px 0 10px' : '0', width: isRecNew ? 'auto' : '36px', background: isRecNew ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '16px', animation: isRecNew ? 'pulse 1s infinite' : 'none' }}
+                              style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecNew ? '0 14px 0 10px' : '0', width: isRecNew ? 'auto' : '36px', background: isRecNew ? 'rgba(239,68,68,0.3)' : 'rgba(48,209,88,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '16px', animation: isRecNew ? 'pulse 1s infinite' : 'none' }}
                             >{isRecNew ? '⏹' : '🎤'}{isRecNew && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                             {pendingAudio && !isRecNew && (
                               <>
@@ -11327,7 +11327,7 @@ export default function PlannerPage() {
                                 setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).filter(n => n.id !== newId) } : m));
                               }
                               setEditingNoteId(null); setNewNoteText(''); setPendingNewNoteId(null);
-                            }} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: '#8ab460', color: '#0a0f08', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Spara</button>
+                            }} style={{ flex: 1, padding: '8px', borderRadius: '8px', border: 'none', background: '#30d158', color: '#0a0f08', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>Spara</button>
                             <button onClick={() => {
                               setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, notes: (m.notes || []).filter(n => n.id !== newId) } : m));
                               setEditingNoteId(null); setNewNoteText(''); setPendingNewNoteId(null);
@@ -11338,7 +11338,7 @@ export default function PlannerPage() {
                     })() : (
                       <button
                         onClick={() => { const id = `note-${Date.now()}`; setPendingNewNoteId(id); setEditingNoteId('new'); setNewNoteText(''); }}
-                        style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px dashed rgba(138,180,96,0.25)', background: 'transparent', color: '#8ab460', fontSize: '13px', fontWeight: '600', cursor: 'pointer', marginTop: notes.length > 0 ? '4px' : 0 }}
+                        style={{ width: '100%', padding: '10px', borderRadius: '10px', border: '1px dashed rgba(48,209,88,0.25)', background: 'transparent', color: '#30d158', fontSize: '13px', fontWeight: '600', cursor: 'pointer', marginTop: notes.length > 0 ? '4px' : 0 }}
                       >+ Ny anteckning</button>
                     )}
 
@@ -15122,10 +15122,10 @@ export default function PlannerPage() {
                       style={{
                         height: '40px', borderRadius: '20px', border: 'none',
                         padding: isRecThis ? '0 16px 0 12px' : '0 16px',
-                        background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(138,180,96,0.12)',
+                        background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(48,209,88,0.12)',
                         cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
                         gap: '8px', fontSize: '15px', animation: isRecThis ? 'pulse 1s infinite' : 'none',
-                        color: isRecThis ? '#ff453a' : '#8ab460',
+                        color: isRecThis ? '#ff453a' : '#30d158',
                       }}
                     >
                       {isRecThis ? '⏹' : '🎤'}
@@ -17927,7 +17927,7 @@ export default function PlannerPage() {
             background: 'rgba(10,15,8,0.92)',
             backdropFilter: 'blur(30px)', WebkitBackdropFilter: 'blur(30px)',
             borderRadius: '16px',
-            border: '1px solid rgba(138,180,96,0.1)',
+            border: '1px solid rgba(48,209,88,0.1)',
             overflow: 'hidden',
           }}>
             {/* Photo */}
@@ -17940,7 +17940,7 @@ export default function PlannerPage() {
               {cv.title && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: hasContent ? '8px' : '12px' }}>
                   {cv.icon && <span style={{ fontSize: '18px' }}>{cv.icon}</span>}
-                  <span style={{ fontSize: '15px', fontWeight: '600', color: '#e8f0e0' }}>{cv.title}</span>
+                  <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>{cv.title}</span>
                 </div>
               )}
               {/* Comment */}
@@ -17984,9 +17984,9 @@ export default function PlannerPage() {
                   }}
                   style={{
                     flex: 1, padding: '12px',
-                    borderRadius: '10px', border: '1px solid rgba(138,180,96,0.2)',
-                    background: 'rgba(138,180,96,0.12)',
-                    color: '#8ab460', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+                    borderRadius: '10px', border: '1px solid rgba(48,209,88,0.2)',
+                    background: 'rgba(48,209,88,0.12)',
+                    color: '#30d158', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
                   }}
                 >✓ Klar – tillbaka</button>
               </div>
