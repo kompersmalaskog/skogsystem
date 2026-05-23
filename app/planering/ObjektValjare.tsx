@@ -440,7 +440,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                     padding: 0,
                   }}
                 >
-                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 28 }}>play_arrow</span>
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '28px' }}>play_arrow</span>
                 </button>
               ) : (
                 <div style={{ marginLeft: '16px', color: '#8e8e93', fontSize: '20px' }} aria-hidden="true">
