@@ -745,10 +745,6 @@ export default function ProduktionNy() {
       ?? null
   })()
 
-  const goToOversikt = () => {
-    window.location.href = '/maskinvy?ny=1'
-  }
-
   const arbetsdagarUnit = (data?.arbetsdagar ?? 0) === 1 ? 'dag' : 'dagar'
 
   // Rubrik för stapeldiagrammet beror på gruppering
@@ -768,82 +764,48 @@ export default function ProduktionNy() {
         position: 'sticky', top: 0, zIndex: 5,
         background: C.bg, borderBottom: `0.5px solid ${C.divider}`,
       }}>
-        {/* Topp: ‹ Översikt + maskinnamn centrerat */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'auto 1fr auto',
-          alignItems: 'center',
-          padding: '10px 8px 6px',
-        }}>
+        {/* Topbar: maskinnamn centrerat (samma mönster som OversiktNy) */}
+        <div style={{ padding: '14px 16px', textAlign: 'center', position: 'relative' }}>
           <button
-            onClick={goToOversikt}
+            onClick={() => setMaskinOpen(o => !o)}
+            aria-expanded={maskinOpen}
             style={{
-              background: 'transparent', border: 'none',
-              color: C.blue, fontFamily: FONT, fontSize: 15, fontWeight: 400,
-              cursor: 'pointer', padding: '6px 8px', minHeight: 36,
-              display: 'inline-flex', alignItems: 'center',
+              background: 'transparent', border: 'none', color: C.text,
+              fontFamily: FONT, fontSize: 15, fontWeight: 600, letterSpacing: -0.3,
+              cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: 0,
             }}
-            aria-label="Tillbaka till Översikt"
           >
-            <span style={{ fontSize: 20, lineHeight: 1, marginRight: 2 }}>‹</span>
-            Översikt
+            {maskin.namn}
+            <span style={{ color: C.muted, fontSize: 11 }}>▾</span>
           </button>
-
-          <div style={{ position: 'relative', textAlign: 'center', minWidth: 0 }}>
-            <button
-              onClick={() => setMaskinOpen(o => !o)}
-              style={{
-                background: 'transparent', border: 'none', color: C.text,
-                fontFamily: FONT, fontSize: 15, fontWeight: 600, letterSpacing: -0.3,
-                cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6,
-                padding: 0, maxWidth: '100%', overflow: 'hidden',
-              }}
-            >
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {maskin.namn}
-              </span>
-              <span style={{ color: C.muted, fontSize: 11 }}>▾</span>
-            </button>
-            {maskinOpen && (
-              <div style={{
-                position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
-                background: C.card, borderRadius: 12, marginTop: 6,
-                minWidth: 260, overflow: 'hidden', zIndex: 100,
-                boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
-              }}>
-                {MASKINER.map(m => (
-                  <button
-                    key={m.id}
-                    onClick={() => { setMaskin(m); setMaskinOpen(false) }}
-                    style={{
-                      display: 'block', width: '100%', padding: '12px 16px',
-                      background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',
-                      border: 'none', color: C.text, fontFamily: FONT,
-                      fontSize: 14, cursor: 'pointer', textAlign: 'left',
-                    }}
-                  >{m.namn}</button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Spacer för balans */}
-          <div style={{ width: 88 }} />
-        </div>
-
-        {/* Avsnittsrubrik */}
-        <div style={{
-          textAlign: 'center', fontSize: 11, color: C.muted,
-          letterSpacing: 0.4, textTransform: 'uppercase', fontWeight: 500,
-          padding: '2px 0 4px',
-        }}>
-          Produktion
+          {maskinOpen && (
+            <div style={{
+              position: 'absolute', top: '100%', left: '50%', transform: 'translateX(-50%)',
+              background: C.card, borderRadius: 12, marginTop: 6,
+              minWidth: 260, overflow: 'hidden', zIndex: 100,
+              boxShadow: '0 8px 28px rgba(0,0,0,0.6)',
+            }}>
+              {MASKINER.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => { setMaskin(m); setMaskinOpen(false) }}
+                  style={{
+                    display: 'block', width: '100%', padding: '12px 16px',
+                    background: m.id === maskin.id ? 'rgba(255,255,255,0.06)' : 'transparent',
+                    border: 'none', color: C.text, fontFamily: FONT,
+                    fontSize: 14, cursor: 'pointer', textAlign: 'left',
+                  }}
+                >{m.namn}</button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Period-nav ‹ Maj 2026 › */}
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
-          padding: '6px 0 4px',
+          padding: '12px 0 4px',
         }}>
           <button
             onClick={() => setOffset(o => o - 1)}

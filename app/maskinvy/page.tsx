@@ -10,6 +10,19 @@ import ProduktionNy from './ProduktionNy'
 
 type Mode = 'skordare' | 'skotare' | 'jamforelse'
 
+// ──────────────────────────────────────────────────────────────
+// Vy-nav för den nya maskinvyn (?ny=1, mode=skordare).
+// Datadriven — lägg till rader här när nya vyer byggs:
+//   { key: 'idag',    label: 'Idag'    }
+//   { key: 'avbrott', label: 'Avbrott' }
+//   ...
+// Tom key = default-vy (Översikt). Den måste vara först.
+// ──────────────────────────────────────────────────────────────
+const NY_VYER: { key: string; label: string }[] = [
+  { key: '',           label: 'Översikt'   },
+  { key: 'produktion', label: 'Produktion' },
+]
+
 export default function MaskinvyPage() {
   const [mode, setMode] = useState<Mode>('skordare')
   const [ny, setNy] = useState(false)
@@ -22,9 +35,22 @@ export default function MaskinvyPage() {
     setVy(params.get('vy') || '')
   }, [])
 
+  // Vy-navet visas bara när vi är i nya vyn på Skördare-fliken.
+  const showVyNav = ny && mode === 'skordare'
+
+  // Mjuk vy-byte: ingen reload, bara state + URL silent update.
+  const handleVyChange = (newVy: string) => {
+    setVy(newVy)
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    if (newVy) url.searchParams.set('vy', newVy)
+    else      url.searchParams.delete('vy')
+    history.replaceState({}, '', url.toString())
+  }
+
   return (
     <>
-      {/* iOS-style segmented control between TopBar and content */}
+      {/* iOS-style segmented controls under TopBar */}
       <style>{`
         .mv-toggle-bar {
           position: fixed;
@@ -81,8 +107,56 @@ export default function MaskinvyPage() {
         }
         .mv-seg-btn.active { color: #ffffff; font-weight: 600; }
         .mv-seg-btn:active { transform: scale(0.97); }
-        /* Push content down by 52px below the taller toggle bar */
+
+        /* ── Vy-nav (Översikt | Produktion | ...) ─────────────────── */
+        .mv-vy-bar {
+          position: fixed;
+          top: 108px;
+          left: 0;
+          right: 0;
+          height: 44px;
+          background: rgba(0,0,0,0.78);
+          backdrop-filter: saturate(180%) blur(24px);
+          -webkit-backdrop-filter: saturate(180%) blur(24px);
+          border-bottom: 0.5px solid rgba(255,255,255,0.06);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0 16px;
+          z-index: 60;
+        }
+        .mv-vy-seg {
+          display: inline-flex;
+          background: rgba(120,120,128,0.16);
+          border-radius: 9px;
+          padding: 2px;
+          height: 34px;
+        }
+        .mv-vy-btn {
+          min-width: 110px;
+          padding: 0 16px;
+          height: 30px;
+          border: none;
+          border-radius: 7px;
+          background: transparent;
+          color: #8e8e93;
+          font-family: 'Geist', system-ui, sans-serif;
+          font-size: 13px;
+          font-weight: 500;
+          letter-spacing: -0.2px;
+          cursor: pointer;
+          transition: color 200ms ease, background 200ms ease, transform 120ms ease;
+        }
+        .mv-vy-btn.active {
+          background: #3a3a3c;
+          color: #ffffff;
+          font-weight: 600;
+        }
+        .mv-vy-btn:active { transform: scale(0.97); }
+
+        /* Push wrapped content below the toggle bar(s) */
         .mv-wrapper > div { top: 108px !important; }
+        .mv-wrapper.with-vy-nav > div { top: 152px !important; }
       `}</style>
 
       <div className="mv-toggle-bar">
@@ -97,11 +171,29 @@ export default function MaskinvyPage() {
         </div>
       </div>
 
+      {showVyNav && (
+        <div className="mv-vy-bar">
+          <div className="mv-vy-seg" role="tablist" aria-label="Maskinvy-vy">
+            {NY_VYER.map(v => (
+              <button
+                key={v.key || 'default'}
+                role="tab"
+                aria-selected={vy === v.key}
+                className={`mv-vy-btn${vy === v.key ? ' active' : ''}`}
+                onClick={() => handleVyChange(v.key)}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {mode === 'jamforelse' ? (
         <Jamforelse />
       ) : (
         <>
-          <div className="mv-wrapper">
+          <div className={`mv-wrapper${showVyNav ? ' with-vy-nav' : ''}`}>
             {mode === 'skordare'
               ? (ny
                   ? (vy === 'produktion' ? <ProduktionNy /> : <OversiktNy />)
