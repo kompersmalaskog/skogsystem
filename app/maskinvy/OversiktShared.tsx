@@ -485,15 +485,43 @@ export function AndelBadge({
   )
 }
 
+// MachineRefBadge — visar maskinens referensvärde NEUTRALT bredvid
+// förarens (ingen vinnare). Används för hastighetsmått i djupvyn
+// efter att den färgade "+8,9 %"-jämförelsen togs bort.
+export function MachineRefBadge({
+  value, dec, size = 'sm',
+}: {
+  value: number | null
+  dec: number
+  size?: 'sm' | 'md'
+}) {
+  const fontSize = size === 'md' ? 13 : 11
+  if (value === null || !isFinite(value)) {
+    return <span style={{ fontSize, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>—</span>
+  }
+  return (
+    <span style={{ fontSize, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ marginRight: 4 }}>Maskin</span>
+      <span style={{ color: C.text, fontWeight: 500 }}>{fmtSv(value, dec)}</span>
+    </span>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────
-// HeroCard — använd både för Översikt och djupvyer
-// `prev` = värdet att jämföra mot (föregående period i Översikt,
-// maskinens värde i djupvyn). `referenceLabel` styr förklaringstexten.
+// HeroCard — används både för Översikt och djupvyer.
+//
+// Två jämförelse-lägen, styrs av vilken prop som ges:
+//  • `prev` (default i Översikt) → procent-delta i DeltaBadge,
+//    färgad efter riktning. Använder `referenceLabel` som etikett.
+//  • `comparison` (djupvy mot maskinen) → neutral sida-vid-sida
+//    "Förare X · tid h    Maskinen Y · tid h" utan färg.
+//    Tar över helt — DeltaBadge visas inte i detta läge.
 // ─────────────────────────────────────────────────────────────
 export function HeroCard({
   label, unit, dec, value, prev, series,
   lowerIsBetter = false,
   referenceLabel = 'mot föregående period',
+  comparison,
   loading,
 }: {
   label: string
@@ -504,6 +532,14 @@ export function HeroCard({
   series: PeriodKpi[] | null
   lowerIsBetter?: boolean
   referenceLabel?: string
+  comparison?: {
+    selfValue:   number | null
+    compareValue: number | null
+    selfTime:    number | null   // timmar
+    compareTime: number | null   // timmar
+    selfLabel?:    string        // default "Förare"
+    compareLabel?: string        // default "Maskinen"
+  }
   loading: boolean
 }) {
   const trendValues = series?.map(p => p.produktivitet) ?? []
@@ -524,12 +560,45 @@ export function HeroCard({
         <div style={{ fontSize: 14, color: C.muted }}>{unit}</div>
       </div>
 
-      <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 6 }}>
-        {loading
-          ? <span style={{ fontSize: 13, color: C.dim }}>—</span>
-          : <DeltaBadge current={value} previous={prev} lowerIsBetter={lowerIsBetter} size="md" />}
-        <span style={{ fontSize: 11, color: C.dim }}>{referenceLabel}</span>
-      </div>
+      {comparison ? (
+        <div style={{
+          marginTop: 12, fontSize: 12, color: C.muted,
+          display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: 0,
+        }}>
+          {loading ? (
+            <span style={{ color: C.dim }}>—</span>
+          ) : (
+            <>
+              <span style={{ color: C.muted }}>{comparison.selfLabel ?? 'Förare'}{' '}</span>
+              <span style={{ color: C.text, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+                {comparison.selfValue !== null ? fmtSv(comparison.selfValue, dec) : '—'}
+              </span>
+              {comparison.selfTime !== null && (
+                <span style={{ color: C.dim, fontVariantNumeric: 'tabular-nums' }}>
+                  {' '}· {fmtSv(comparison.selfTime, 1)} h
+                </span>
+              )}
+              <span style={{ color: C.dim, margin: '0 10px' }}>·</span>
+              <span style={{ color: C.muted }}>{comparison.compareLabel ?? 'Maskinen'}{' '}</span>
+              <span style={{ color: C.text, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
+                {comparison.compareValue !== null ? fmtSv(comparison.compareValue, dec) : '—'}
+              </span>
+              {comparison.compareTime !== null && (
+                <span style={{ color: C.dim, fontVariantNumeric: 'tabular-nums' }}>
+                  {' '}· {fmtSv(comparison.compareTime, 1)} h
+                </span>
+              )}
+            </>
+          )}
+        </div>
+      ) : (
+        <div style={{ marginTop: 12, display: 'flex', alignItems: 'baseline', gap: 6 }}>
+          {loading
+            ? <span style={{ fontSize: 13, color: C.dim }}>—</span>
+            : <DeltaBadge current={value} previous={prev} lowerIsBetter={lowerIsBetter} size="md" />}
+          <span style={{ fontSize: 11, color: C.dim }}>{referenceLabel}</span>
+        </div>
+      )}
 
       <div style={{ marginTop: 16, height: 60 }}>
         {loading ? (
@@ -597,15 +666,22 @@ export function KpiList({
       )}
       {rows.map((r, i) => {
         const trendValues = (series ?? []).map(p => p[r.metric])
-        // I 'machine'-mode visar totalmått andel av maskinen; hastighetsmått visar procentdelta.
-        const showAndel = mode === 'machine' && r.kind === 'total'
+        // 'machine'-mode:
+        //   • totalmått (Volym/Stammar) → andel av maskinen (neutralt)
+        //   • hastighetsmått (Medelstam/Bränsle/Stammar/G15h) →
+        //     maskinens absolutvärde NEUTRALT (ingen färgad +/−)
+        // 'previous'-mode: procent-delta mot föregående period (Översikt)
+        const showAndel  = mode === 'machine' && r.kind === 'total'
+        const showMachineRef = mode === 'machine' && r.kind === 'rate'
+        // Jämförelse-cellen behöver mer plats i machine-mode för "Maskin 0,70"
+        const cmpCol = mode === 'machine' ? '90px' : '56px'
         return (
           <button
             key={r.label}
             type="button"
             style={{
               display: 'grid',
-              gridTemplateColumns: '1fr auto 56px 80px 14px',
+              gridTemplateColumns: `1fr auto ${cmpCol} 80px 14px`,
               gap: 14, alignItems: 'center',
               padding: '14px 16px',
               borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
@@ -623,7 +699,9 @@ export function KpiList({
                 ? <span style={{ fontSize: 11, color: C.dim }}>—</span>
                 : showAndel
                   ? <AndelBadge part={r.cur} total={r.prev} size="sm" />
-                  : <DeltaBadge current={r.cur} previous={r.prev} lowerIsBetter={r.lowerIsBetter} size="sm" />}
+                  : showMachineRef
+                    ? <MachineRefBadge value={r.prev} dec={r.dec} size="sm" />
+                    : <DeltaBadge current={r.cur} previous={r.prev} lowerIsBetter={r.lowerIsBetter} size="sm" />}
             </div>
             <div style={{ height: 22, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
               {loading

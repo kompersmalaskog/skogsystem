@@ -185,9 +185,14 @@ export default function OperatorDeepView({
           unit="m³/G15h"
           dec={1}
           value={data?.produktivitet ?? null}
-          prev={machineData?.produktivitet ?? null}
+          prev={null}
           series={series}
-          referenceLabel="mot maskinen"
+          comparison={{
+            selfValue:   data?.produktivitet ?? null,
+            compareValue: machineData?.produktivitet ?? null,
+            selfTime:    data?.g15h ?? null,
+            compareTime: machineData?.g15h ?? null,
+          }}
           loading={loading}
         />
         <KpiList
