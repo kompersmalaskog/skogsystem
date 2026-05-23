@@ -11864,7 +11864,7 @@ export default function PlannerPage() {
 
           textAlign: 'center',
         }}>
-          <div style={{ fontSize: '32px', fontWeight: '300', opacity: 0.9 }}>
+          <div style={{ fontSize: '32px', fontWeight: '400', opacity: 0.9 }}>
             {formatLength(calculateLength(measurePath))}
           </div>
           <div style={{ fontSize: '13px', opacity: 0.5, marginTop: '4px' }}>Släpp för att mäta</div>
@@ -13671,7 +13671,7 @@ export default function PlannerPage() {
                   <div style={{ fontSize: '13px', opacity: 0.3, }}>
                     Sparade stickvägar
                   </div>
-                  <div style={{ fontSize: '36px', fontWeight: '300', marginTop: '8px', opacity: 0.9 }}>
+                  <div style={{ fontSize: '36px', fontWeight: '400', marginTop: '8px', opacity: 0.9 }}>
                     {markers.filter(m => m.isLine && (m.lineType?.startsWith('sideRoad') || m.lineType?.startsWith('backRoad'))).length}
                   </div>
                 </div>
@@ -15231,7 +15231,7 @@ export default function PlannerPage() {
               return (
                 <div style={{
                   fontSize: '120px',
-                  fontWeight: '200',
+                  fontWeight: '400',
                   color: isInRange ? '#30d158' : '#fff',
                   lineHeight: 0.9,
                   textShadow: '0 4px 30px rgba(0,0,0,0.9)',
@@ -15306,7 +15306,7 @@ export default function PlannerPage() {
                 background: 'rgba(255,255,255,0.15)',
                 color: '#fff',
                 fontSize: '28px',
-                fontWeight: '300',
+                fontWeight: '400',
                 cursor: 'pointer',
               }}
             >
@@ -15542,7 +15542,7 @@ export default function PlannerPage() {
               style={{
                 width: '40px', height: '40px', borderRadius: '10px',
                 border: 'none', background: 'rgba(0,0,0,0.4)',
-                color: '#fff', fontSize: '17px', fontWeight: '300',
+                color: '#fff', fontSize: '17px', fontWeight: '400',
                 cursor: 'pointer', display: 'flex',
                 alignItems: 'center', justifyContent: 'center',
                 opacity: 0.3,
@@ -15555,7 +15555,7 @@ export default function PlannerPage() {
               style={{
                 width: '40px', height: '40px', borderRadius: '10px',
                 border: 'none', background: 'rgba(0,0,0,0.4)',
-                color: '#fff', fontSize: '17px', fontWeight: '300',
+                color: '#fff', fontSize: '17px', fontWeight: '400',
                 cursor: 'pointer', display: 'flex',
                 alignItems: 'center', justifyContent: 'center',
                 opacity: 0.3,
@@ -15867,7 +15867,7 @@ export default function PlannerPage() {
           {/* VARNING text överst */}
           <div style={{ 
             fontSize: '28px', 
-            fontWeight: '900', 
+            fontWeight: '700', 
             color: '#fff',
             marginBottom: '30px',
             textShadow: '0 2px 10px rgba(0,0,0,0.5)',
@@ -15887,7 +15887,7 @@ export default function PlannerPage() {
           {/* Namn */}
           <div style={{ 
             fontSize: '42px', 
-            fontWeight: '900', 
+            fontWeight: '700', 
             color: '#fff',
             marginBottom: '10px',
             textShadow: '0 2px 10px rgba(0,0,0,0.5)',
@@ -15898,7 +15898,7 @@ export default function PlannerPage() {
           {/* Avstånd */}
           <div style={{ 
             fontSize: '80px', 
-            fontWeight: '900', 
+            fontWeight: '700', 
             color: '#fff',
             marginBottom: '20px',
             textShadow: '0 4px 20px rgba(0,0,0,0.5)',
@@ -15952,7 +15952,7 @@ export default function PlannerPage() {
               background: '#fff',
               color: '#ff453a',
               fontSize: '28px',
-              fontWeight: '900',
+              fontWeight: '700',
               cursor: 'pointer',
               marginTop: '20px',
 
