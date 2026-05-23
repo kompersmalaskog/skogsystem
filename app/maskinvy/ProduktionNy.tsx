@@ -120,6 +120,180 @@ async function fetchProduktion(maskinId: string, start: string, end: string): Pr
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Bucket — en stapel i diagrammet. För V/M en dag, för K en
+// vecka, för Å en månad. Innehåller all data som dagpanelen
+// behöver så aggregeringen sker en gång och panelen läser därifrån.
+// ─────────────────────────────────────────────────────────────
+type BucketKind = 'day' | 'week' | 'month'
+type Bucket = {
+  kind: BucketKind
+  key: string                                  // unik id
+  start: string                                // ISO yyyy-mm-dd (klippt till perioden)
+  end: string                                  // ISO yyyy-mm-dd (klippt till perioden)
+  label: string                                // x-axel ("1/5", "v.18", "Maj")
+  titleLabel: string                           // panel-titel
+  vol: number
+  stammar: number
+  objektNamn: string[]
+  forareNamn: string[]
+  avbrott: { kategori: string; sek: number; antal: number }[]
+  arbetsdagar: number                          // antal dagar med vol > 0 i bucketen
+}
+
+const MAANAD_KORT = ['Jan','Feb','Mar','Apr','Maj','Jun','Jul','Aug','Sep','Okt','Nov','Dec']
+const MAANAD_FULL = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december']
+const VECKODAG    = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag']
+
+function pad2(n: number): string { return String(n).padStart(2, '0') }
+function fmtISO(d: Date): string { return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}` }
+
+// ISO 8601 veckonummer. Vecka 1 = veckan som innehåller årets första torsdag.
+function isoWeek(d: Date): { week: number; year: number } {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  const dayNum = (t.getUTCDay() + 6) % 7      // 0=Mon..6=Sun
+  t.setUTCDate(t.getUTCDate() - dayNum + 3)   // hoppa till torsdagen i den veckan
+  const year = t.getUTCFullYear()
+  const yearStart = new Date(Date.UTC(year, 0, 4))
+  const ysDayNum = (yearStart.getUTCDay() + 6) % 7
+  const week = 1 + Math.round((((t.getTime() - yearStart.getTime()) / 86400000) - 3 + ysDayNum) / 7)
+  return { week, year }
+}
+
+function mondayOf(d: Date): Date {
+  const r = new Date(d)
+  const dow = (r.getDay() + 6) % 7
+  r.setDate(r.getDate() - dow)
+  return r
+}
+
+// Slå ihop avbrott från flera dagar till ett gemensamt set per kategori.
+function aggregateAvbrott(days: DagInfo[]): Bucket['avbrott'] {
+  const agg: Record<string, { sek: number; antal: number }> = {}
+  for (const d of days) {
+    for (const a of d.avbrott) {
+      if (!agg[a.kategori]) agg[a.kategori] = { sek: 0, antal: 0 }
+      agg[a.kategori].sek += a.sek
+      agg[a.kategori].antal += a.antal
+    }
+  }
+  return Object.entries(agg)
+    .map(([kategori, v]) => ({ kategori, sek: v.sek, antal: v.antal }))
+    .sort((a, b) => b.sek - a.sek)
+}
+
+function buildDailyBuckets(perDag: Record<string, DagInfo>, start: string, end: string): Bucket[] {
+  const sD = new Date(start + 'T12:00:00')
+  const eD = new Date(end + 'T12:00:00')
+  const totalDays = Math.round((eD.getTime() - sD.getTime()) / 86400000) + 1
+  const out: Bucket[] = []
+  for (let i = 0; i < totalDays; i++) {
+    const d = new Date(sD); d.setDate(sD.getDate() + i)
+    const datum = fmtISO(d)
+    const dag = perDag[datum]
+    out.push({
+      kind: 'day',
+      key: datum,
+      start: datum,
+      end: datum,
+      label: `${d.getDate()}/${d.getMonth()+1}`,
+      titleLabel: `${VECKODAG[d.getDay()]} ${d.getDate()} ${MAANAD_FULL[d.getMonth()]} ${d.getFullYear()}`,
+      vol: dag?.vol ?? 0,
+      stammar: dag?.stammar ?? 0,
+      objektNamn: dag?.objektNamn ?? [],
+      forareNamn: dag?.forareNamn ?? [],
+      avbrott: dag?.avbrott ?? [],
+      arbetsdagar: (dag?.vol ?? 0) > 0 ? 1 : 0,
+    })
+  }
+  return out
+}
+
+function buildWeeklyBuckets(perDag: Record<string, DagInfo>, start: string, end: string): Bucket[] {
+  const sD = new Date(start + 'T12:00:00')
+  const eD = new Date(end + 'T12:00:00')
+  const firstMon = mondayOf(sD)
+  const out: Bucket[] = []
+  for (let cur = new Date(firstMon); cur <= eD; cur.setDate(cur.getDate() + 7)) {
+    const weekEnd = new Date(cur); weekEnd.setDate(cur.getDate() + 6)
+    const { week, year } = isoWeek(cur)
+    // Klipp till periodens gränser
+    const bStart = cur < sD ? sD : cur
+    const bEnd   = weekEnd > eD ? eD : weekEnd
+    // Aggregera dagar inom veckan OCH inom perioden
+    const days: DagInfo[] = []
+    let vol = 0, stammar = 0, arbetsdagar = 0
+    const objSet = new Set<string>(), forSet = new Set<string>()
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(cur); d.setDate(cur.getDate() + i)
+      if (d < sD || d > eD) continue
+      const dag = perDag[fmtISO(d)]
+      if (!dag) continue
+      days.push(dag)
+      vol += dag.vol
+      stammar += dag.stammar
+      if (dag.vol > 0) arbetsdagar++
+      dag.objektNamn.forEach(n => objSet.add(n))
+      dag.forareNamn.forEach(n => forSet.add(n))
+    }
+    const bsLow = `${bStart.getDate()} ${MAANAD_FULL[bStart.getMonth()].slice(0,3)}`
+    const beLow = `${bEnd.getDate()} ${MAANAD_FULL[bEnd.getMonth()].slice(0,3)}`
+    out.push({
+      kind: 'week',
+      key: `week-${fmtISO(cur)}`,
+      start: fmtISO(bStart),
+      end: fmtISO(bEnd),
+      label: `v.${week}`,
+      titleLabel: `Vecka ${week} · ${bsLow}–${beLow} ${year}`,
+      vol, stammar,
+      objektNamn: Array.from(objSet).sort(),
+      forareNamn: Array.from(forSet).sort(),
+      avbrott: aggregateAvbrott(days),
+      arbetsdagar,
+    })
+  }
+  return out
+}
+
+function buildMonthlyBuckets(perDag: Record<string, DagInfo>, start: string, end: string): Bucket[] {
+  const sD = new Date(start + 'T12:00:00')
+  const eD = new Date(end + 'T12:00:00')
+  const out: Bucket[] = []
+  for (let cur = new Date(sD.getFullYear(), sD.getMonth(), 1); cur <= eD; cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1)) {
+    const monthEnd = new Date(cur.getFullYear(), cur.getMonth() + 1, 0)
+    const bStart = cur < sD ? sD : cur
+    const bEnd   = monthEnd > eD ? eD : monthEnd
+    const days: DagInfo[] = []
+    let vol = 0, stammar = 0, arbetsdagar = 0
+    const objSet = new Set<string>(), forSet = new Set<string>()
+    for (const [datum, dag] of Object.entries(perDag)) {
+      const d = new Date(datum + 'T12:00:00')
+      if (d.getFullYear() !== cur.getFullYear() || d.getMonth() !== cur.getMonth()) continue
+      if (d < sD || d > eD) continue
+      days.push(dag)
+      vol += dag.vol
+      stammar += dag.stammar
+      if (dag.vol > 0) arbetsdagar++
+      dag.objektNamn.forEach(n => objSet.add(n))
+      dag.forareNamn.forEach(n => forSet.add(n))
+    }
+    out.push({
+      kind: 'month',
+      key: `month-${cur.getFullYear()}-${pad2(cur.getMonth()+1)}`,
+      start: fmtISO(bStart),
+      end: fmtISO(bEnd),
+      label: MAANAD_KORT[cur.getMonth()],
+      titleLabel: `${MAANAD_FULL[cur.getMonth()].charAt(0).toUpperCase() + MAANAD_FULL[cur.getMonth()].slice(1)} ${cur.getFullYear()}`,
+      vol, stammar,
+      objektNamn: Array.from(objSet).sort(),
+      forareNamn: Array.from(forSet).sort(),
+      avbrott: aggregateAvbrott(days),
+      arbetsdagar,
+    })
+  }
+  return out
+}
+
 // ── MetricKort ───────────────────────────────────────────────
 function MetricKort({ label, value, unit, dec = 0, loading }: {
   label: string
@@ -145,9 +319,11 @@ function MetricKort({ label, value, unit, dec = 0, loading }: {
 }
 
 // ── BarChart (handritad SVG) ─────────────────────────────────
+// Generisk: tar key/label/vol och returnerar key på klick. Vad
+// "key" betyder (dag, vecka, månad) bestäms av caller.
 function BarChart({ data, onBarClick }: {
-  data: { datum: string; label: string; vol: number }[]
-  onBarClick: (datum: string) => void
+  data: { key: string; label: string; vol: number }[]
+  onBarClick: (key: string) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const [w, setW] = useState(0)
@@ -212,9 +388,9 @@ function BarChart({ data, onBarClick }: {
           const opacity = d.vol === 0 ? 0 : (isAbove ? 1.0 : 0.4)
           return (
             <g
-              key={d.datum}
+              key={d.key}
               style={{ cursor: 'pointer' }}
-              onClick={() => onBarClick(d.datum)}
+              onClick={() => onBarClick(d.key)}
             >
               <rect
                 x={slotX} y={PAD_TOP}
@@ -238,7 +414,7 @@ function BarChart({ data, onBarClick }: {
           const x = i * slotW + slotW / 2
           return (
             <text
-              key={d.datum + '_lbl'}
+              key={d.key + '_lbl'}
               x={x} y={H - 8}
               fill={C.dim} fontSize={10}
               textAnchor="middle" fontFamily={FONT}
@@ -322,10 +498,12 @@ function Calendar({ data, onDayClick }: {
   )
 }
 
-// ── DagDetalj-panel ──────────────────────────────────────────
-function DagDetalj({ datum, dag, onClose }: {
-  datum: string
-  dag: DagInfo | null
+// ── PeriodDetalj-panel ───────────────────────────────────────
+// Visar en bucket (dag/vecka/månad). KPI-raderna växlar lite
+// beroende på kind — vecka/månad får extra rader för
+// arbetsdagar och snitt.
+function PeriodDetalj({ bucket, onClose }: {
+  bucket: Bucket
   onClose: () => void
 }) {
   const [shown, setShown] = useState(false)
@@ -347,17 +525,24 @@ function DagDetalj({ datum, dag, onClose }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const d = new Date(datum + 'T12:00:00')
-  const MONTHS = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december']
-  const WEEKDAYS = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag']
-  const dateStr = `${WEEKDAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
+  const hasProd = bucket.vol > 0
+  const isMulti = bucket.kind !== 'day'
+  const snittPerDag = bucket.arbetsdagar > 0 ? bucket.vol / bucket.arbetsdagar : 0
 
-  const hasProd = (dag?.vol ?? 0) > 0
+  // Underrubrik
+  let subtitle = ''
+  if (bucket.kind === 'day') {
+    subtitle = hasProd ? 'Produktion' : 'Ingen produktion registrerad'
+  } else {
+    subtitle = hasProd
+      ? `${bucket.arbetsdagar} ${bucket.arbetsdagar === 1 ? 'arbetsdag' : 'arbetsdagar'}`
+      : 'Ingen produktion registrerad'
+  }
 
   return (
     <div
       role="dialog"
-      aria-label={`Dagdetalj: ${dateStr}`}
+      aria-label={`Detalj: ${bucket.titleLabel}`}
       style={{
         position: 'fixed', top: 56, left: 0, right: 0, bottom: 0,
         overflow: 'auto', background: C.bg, color: C.text,
@@ -391,22 +576,28 @@ function DagDetalj({ datum, dag, onClose }: {
         <div style={{
           fontSize: 22, fontWeight: 600, color: C.text,
           letterSpacing: -0.4, lineHeight: 1.15, marginBottom: 4,
-        }}>{dateStr}</div>
+        }}>{bucket.titleLabel}</div>
         <div style={{ fontSize: 13, color: C.muted, marginBottom: 20 }}>
-          {hasProd ? 'Produktion' : 'Ingen produktion registrerad'}
+          {subtitle}
         </div>
 
         {/* KPI-rader */}
         <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
-          <KpiRow label="Volym" value={dag ? fmtSv(dag.vol, 0) : '—'} unit="m³sub" first />
-          <KpiRow label="Stammar" value={dag ? fmtSv(dag.stammar, 0) : '—'} unit="st" />
+          <KpiRow label="Volym" value={fmtSv(bucket.vol, 0)} unit="m³sub" first />
+          <KpiRow label="Stammar" value={fmtSv(bucket.stammar, 0)} unit="st" />
+          {isMulti && (
+            <>
+              <KpiRow label="Arbetsdagar" value={String(bucket.arbetsdagar)} unit={bucket.arbetsdagar === 1 ? 'dag' : 'dagar'} />
+              <KpiRow label="m³/dag" value={hasProd ? fmtSv(snittPerDag, 0) : '—'} unit="snitt" />
+            </>
+          )}
         </div>
 
         {/* Objekt */}
-        {(dag?.objektNamn.length ?? 0) > 0 && (
+        {bucket.objektNamn.length > 0 && (
           <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, padding: '14px 16px 4px' }}>Objekt</div>
-            {dag!.objektNamn.map((n, i) => (
+            {bucket.objektNamn.map((n, i) => (
               <div key={i} style={{
                 padding: '10px 16px', fontSize: 14, color: C.text,
                 borderTop: `0.5px solid ${C.divider}`,
@@ -416,10 +607,10 @@ function DagDetalj({ datum, dag, onClose }: {
         )}
 
         {/* Förare */}
-        {(dag?.forareNamn.length ?? 0) > 0 && (
+        {bucket.forareNamn.length > 0 && (
           <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
             <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, padding: '14px 16px 4px' }}>Förare</div>
-            {dag!.forareNamn.map((n, i) => (
+            {bucket.forareNamn.map((n, i) => (
               <div key={i} style={{
                 display: 'flex', alignItems: 'center', gap: 12,
                 padding: '10px 16px',
@@ -440,11 +631,11 @@ function DagDetalj({ datum, dag, onClose }: {
         {/* Avbrott */}
         <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, padding: '14px 16px 4px' }}>Avbrott</div>
-          {(dag?.avbrott.length ?? 0) === 0 ? (
+          {bucket.avbrott.length === 0 ? (
             <div style={{ padding: '8px 16px 14px', fontSize: 13, color: C.dim }}>
               Inga avbrott registrerade
             </div>
-          ) : dag!.avbrott.map((a, i) => {
+          ) : bucket.avbrott.map((a, i) => {
             const min = Math.round(a.sek / 60)
             const h = Math.floor(min / 60)
             const m = min % 60
@@ -504,9 +695,12 @@ export default function ProduktionNy() {
   const [data, setData] = useState<ProduktionData | null>(null)
   const [loading, setLoading] = useState(false)
   const [maskinOpen, setMaskinOpen] = useState(false)
-  const [openDag, setOpenDag] = useState<string | null>(null)
+  const [openBucketKey, setOpenBucketKey] = useState<string | null>(null)
 
   const { label, start, end } = getPeriodRange(period, offset)
+
+  // Stäng panelen automatiskt när period/maskin byts
+  useEffect(() => { setOpenBucketKey(null) }, [period, offset, maskin.id])
 
   useEffect(() => {
     let cancelled = false
@@ -525,26 +719,30 @@ export default function ProduktionNy() {
     return () => { el.textContent = 'Maskinvy' }
   }, [maskin.namn, label])
 
-  // Bygg alla dagar i perioden (även de utan data, så de syns i kalender/staplar)
-  const allDays = (() => {
-    const days: { datum: string; label: string; vol: number; dayOfMonth: number }[] = []
-    const sDate = new Date(start + 'T12:00:00')
-    const eDate = new Date(end + 'T12:00:00')
-    const totalDays = Math.round((eDate.getTime() - sDate.getTime()) / 86400000) + 1
-    for (let i = 0; i < totalDays; i++) {
-      const d = new Date(sDate)
-      d.setDate(sDate.getDate() + i)
-      const pad = (n: number) => String(n).padStart(2, '0')
-      const datum = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-      const labelStr = `${d.getDate()}/${d.getMonth() + 1}`
-      const dag = data?.perDag[datum]
-      days.push({
-        datum, label: labelStr,
-        vol: dag?.vol ?? 0,
-        dayOfMonth: d.getDate(),
-      })
-    }
-    return days
+  // Buckets för stapeldiagrammet (V/M = daglig, K = veckovis, Å = månadsvis).
+  // Kalendern använder fortfarande daglig data — separat lookup nedan.
+  const perDag = data?.perDag ?? {}
+  const dailyBuckets = buildDailyBuckets(perDag, start, end)
+  const bars: Bucket[] = (() => {
+    if (period === 'K') return buildWeeklyBuckets(perDag, start, end)
+    if (period === 'Å') return buildMonthlyBuckets(perDag, start, end)
+    return dailyBuckets
+  })()
+
+  // Calendar-data: alltid daglig.
+  const calendarData = dailyBuckets.map(b => ({
+    datum: b.key,
+    vol: b.vol,
+    dayOfMonth: new Date(b.key + 'T12:00:00').getDate(),
+  }))
+
+  // Slå upp öppen bucket — kan vara i bars (klick från stapel) eller
+  // dailyBuckets (klick från kalender). Slå ihop dem.
+  const openBucket: Bucket | null = (() => {
+    if (!openBucketKey) return null
+    return bars.find(b => b.key === openBucketKey)
+      ?? dailyBuckets.find(b => b.key === openBucketKey)
+      ?? null
   })()
 
   const goToOversikt = () => {
@@ -552,6 +750,12 @@ export default function ProduktionNy() {
   }
 
   const arbetsdagarUnit = (data?.arbetsdagar ?? 0) === 1 ? 'dag' : 'dagar'
+
+  // Rubrik för stapeldiagrammet beror på gruppering
+  const barTitle =
+    period === 'K' ? 'Produktion per vecka' :
+    period === 'Å' ? 'Produktion per månad' :
+    'Produktion per dag'
 
   return (
     <div style={{
@@ -703,28 +907,22 @@ export default function ProduktionNy() {
         {/* Stapeldiagram */}
         <div style={{ background: C.card, borderRadius: 14, padding: '14px 14px', marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 8, padding: '0 4px' }}>
-            Produktion per dag
+            {barTitle}
           </div>
           {loading ? (
             <div style={{
               height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center',
               color: C.dim, fontSize: 11,
             }}>—</div>
-          ) : allDays.length > 35 ? (
-            <div style={{
-              height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexDirection: 'column', gap: 6,
-              color: C.dim, fontSize: 12, textAlign: 'center', padding: '0 24px',
-            }}>
-              <div>{allDays.length} dagar är för många staplar för per-dag-vy</div>
-              <div style={{ fontSize: 11 }}>K/Å-gruppering kommer i steg 2</div>
-            </div>
           ) : (
-            <BarChart data={allDays} onBarClick={(d) => setOpenDag(d)} />
+            <BarChart
+              data={bars.map(b => ({ key: b.key, label: b.label, vol: b.vol }))}
+              onBarClick={(key) => setOpenBucketKey(key)}
+            />
           )}
         </div>
 
-        {/* Kalender */}
+        {/* Kalender — alltid daglig, oavsett period */}
         <div style={{ background: C.card, borderRadius: 14, padding: '14px 16px 16px', marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 12 }}>
             Aktivitet
@@ -734,7 +932,7 @@ export default function ProduktionNy() {
               height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center',
               color: C.dim, fontSize: 11,
             }}>—</div>
-          ) : allDays.length > 100 ? (
+          ) : calendarData.length > 100 ? (
             <div style={{
               height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexDirection: 'column', gap: 6,
@@ -744,18 +942,14 @@ export default function ProduktionNy() {
               <div style={{ fontSize: 11 }}>Kommer i steg 2</div>
             </div>
           ) : (
-            <Calendar data={allDays} onDayClick={(d) => setOpenDag(d)} />
+            <Calendar data={calendarData} onDayClick={(d) => setOpenBucketKey(d)} />
           )}
         </div>
       </div>
 
-      {/* Dag-detalj-panel */}
-      {openDag && (
-        <DagDetalj
-          datum={openDag}
-          dag={data?.perDag[openDag] ?? null}
-          onClose={() => setOpenDag(null)}
-        />
+      {/* Detalj-panel (dag/vecka/månad — beror på vad som klickats) */}
+      {openBucket && (
+        <PeriodDetalj bucket={openBucket} onClose={() => setOpenBucketKey(null)} />
       )}
     </div>
   )
