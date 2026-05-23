@@ -9490,13 +9490,13 @@ export default function PlannerPage() {
             textAlign: 'center',
           }}>
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 44, color: '#60a5fa', marginBottom: 12, display: 'inline-block' }}>pin_drop</span>
-            <div style={{ fontSize: 14, color: '#9ca3af', marginBottom: 6 }}>Du verkar ha kommit fram till</div>
+            <div style={{ fontSize: 14, color: '#8e8e93', marginBottom: 6 }}>Du verkar ha kommit fram till</div>
             <div style={{ fontSize: 20, fontWeight: 700, color: '#fff', marginBottom: 20 }}>{geofencePrompt.namn}</div>
-            <div style={{ fontSize: 14, color: '#9ca3af', marginBottom: 24 }}>Vill du starta objektet?</div>
+            <div style={{ fontSize: 14, color: '#8e8e93', marginBottom: 24 }}>Vill du starta objektet?</div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={handleGeofenceDismiss} style={{
                 flex: 1, padding: '14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)',
-                background: 'transparent', color: '#9ca3af', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+                background: 'transparent', color: '#8e8e93', fontSize: 15, fontWeight: 600, cursor: 'pointer',
               }}>Inte nu</button>
               <button onClick={handleGeofenceStart} style={{
                 flex: 1, padding: '14px', borderRadius: 12, border: 'none',
@@ -9536,7 +9536,7 @@ export default function PlannerPage() {
                 style={{
                   flex: 1, padding: '14px', borderRadius: 12,
                   border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'transparent', color: '#9ca3af',
+                  background: 'transparent', color: '#8e8e93',
                   fontSize: 15, fontWeight: 600, cursor: avsluterObjekt ? 'not-allowed' : 'pointer',
                   fontFamily: 'inherit',
                 }}
