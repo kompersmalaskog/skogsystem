@@ -132,7 +132,7 @@ export type Data = {
 // ─────────────────────────────────────────────────────────────
 // Datahämtning — slim, separat per tabell
 // ─────────────────────────────────────────────────────────────
-async function fetchAll(
+export async function fetchAll(
   table: string, sel: string, ids: string[], start: string, end: string,
   operatorId?: string,
 ): Promise<any[]> {

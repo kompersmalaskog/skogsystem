@@ -6,17 +6,20 @@ import SkotareVy from '../../skotare'
 import MaskinLogg from './MaskinLogg'
 import Jamforelse from './Jamforelse'
 import OversiktNy from './OversiktNy'
+import ProduktionNy from './ProduktionNy'
 
 type Mode = 'skordare' | 'skotare' | 'jamforelse'
 
 export default function MaskinvyPage() {
   const [mode, setMode] = useState<Mode>('skordare')
   const [ny, setNy] = useState(false)
+  const [vy, setVy] = useState<string>('')
 
   useEffect(() => {
     if (typeof window === 'undefined') return
     const params = new URLSearchParams(window.location.search)
     setNy(params.get('ny') === '1')
+    setVy(params.get('vy') || '')
   }, [])
 
   return (
@@ -100,7 +103,9 @@ export default function MaskinvyPage() {
         <>
           <div className="mv-wrapper">
             {mode === 'skordare'
-              ? (ny ? <OversiktNy /> : <Maskinvy />)
+              ? (ny
+                  ? (vy === 'produktion' ? <ProduktionNy /> : <OversiktNy />)
+                  : <Maskinvy />)
               : <SkotareVy />}
           </div>
           {!(ny && mode === 'skordare') && <MaskinLogg mode={mode} />}
