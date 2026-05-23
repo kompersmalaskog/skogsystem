@@ -553,7 +553,7 @@ export default function PlannerPage() {
     map.addLayer({ id: 'zone-fill', type: 'fill', source: 'zones-source', paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.2 } });
     map.addLayer({ id: 'zone-outline-casing', type: 'line', source: 'zones-source', paint: { 'line-color': 'rgba(0,0,0,0.6)', 'line-width': zoneCasingWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'zone-outline', type: 'line', source: 'zones-source', paint: { 'line-color': ['get', 'color'], 'line-width': zoneWidth }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#ffffff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
+    map.addLayer({ id: 'zone-outline-dash', type: 'line', source: 'zones-source', paint: { 'line-color': '#fff', 'line-width': zoneWidth, 'line-dasharray': [2, 2] }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
 
     // === Line layers per type ===
     const lineTypeDefs = [
@@ -568,7 +568,7 @@ export default function PlannerPage() {
       { id: 'stickvag', color: '#ff00ff' },
       { id: 'nature', color: '#30d158', color2: '#ff453a', striped: true },
       { id: 'ditch', color: '#06b6d4', color2: '#0e7490', striped: true },
-      { id: 'trail', color: '#ffffff', dashed: true },
+      { id: 'trail', color: '#fff', dashed: true },
     ];
     lineTypeDefs.forEach((lt: any) => {
       const isBoundary = lt.id === 'boundary';
@@ -658,7 +658,7 @@ export default function PlannerPage() {
         source: 'lines-source',
         filter: ['==', ['get', 'nearby'], true],
         paint: {
-          'line-color': '#ffffff',
+          'line-color': '#fff',
           'line-opacity': 0.55,
           'line-width': ['interpolate', ['linear'], ['zoom'], 14, 6, 17, 12, 19, 18],
           'line-blur': 2,
@@ -691,7 +691,7 @@ export default function PlannerPage() {
     map.addLayer({ id: 'drawing-fill', type: 'fill', source: 'drawing-source', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#7cba3f', 'fill-opacity': 0.15 } });
     map.addLayer({ id: 'drawing-glow', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 12, 'line-opacity': 0.3, 'line-blur': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
     map.addLayer({ id: 'drawing-line', type: 'line', source: 'drawing-source', paint: { 'line-color': '#7cba3f', 'line-width': 4 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
-    map.addLayer({ id: 'drawing-points-layer', type: 'circle', source: 'drawing-points-source', paint: { 'circle-radius': 6, 'circle-color': '#ffffff', 'circle-stroke-color': '#7cba3f', 'circle-stroke-width': 2 } });
+    map.addLayer({ id: 'drawing-points-layer', type: 'circle', source: 'drawing-points-source', paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': '#7cba3f', 'circle-stroke-width': 2 } });
     // Streckad stängningslinje (sista→första punkt)
     map.addSource('drawing-close-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     map.addLayer({ id: 'drawing-close-line', type: 'line', source: 'drawing-close-source', paint: { 'line-color': '#7cba3f', 'line-width': 3, 'line-dasharray': [4, 4], 'line-opacity': 0.6 }, layout: { 'line-cap': 'round', 'line-join': 'round' } });
@@ -1001,7 +1001,7 @@ export default function PlannerPage() {
             'visibility': 'none',
           },
           paint: {
-            'text-color': '#ffffff',
+            'text-color': '#fff',
             'text-halo-color': 'rgba(0,0,0,0.6)',
             'text-halo-width': 1.2,
           },
@@ -4776,7 +4776,7 @@ export default function PlannerPage() {
     { id: 'stickvag', name: 'Test-stickväg', color: '#ff00ff', striped: false },
     { id: 'nature', name: 'Naturvård', color: '#30d158', color2: '#ff453a', striped: true },
     { id: 'ditch', name: 'Dike', color: '#06b6d4', color2: '#0e7490', striped: true },
-    { id: 'trail', name: 'Stig/Led', color: '#ffffff', striped: false, dashed: true },
+    { id: 'trail', name: 'Stig/Led', color: '#fff', striped: false, dashed: true },
   ];
 
   const zoneTypes = [
@@ -4818,7 +4818,7 @@ export default function PlannerPage() {
     { id: 'bla', name: 'Blå', color: '#3b82f6' },
     { id: 'gron', name: 'Grön', color: '#30d158' },
     { id: 'orange', name: 'Orange', color: '#f97316' },
-    { id: 'vit', name: 'Vit', color: '#ffffff' },
+    { id: 'vit', name: 'Vit', color: '#fff' },
     { id: 'svart', name: 'Svart', color: '#1f2937' },
     { id: 'rosa', name: 'Rosa', color: '#ec4899' },
   ];
@@ -5387,7 +5387,7 @@ export default function PlannerPage() {
           source: 'gps-position',
           paint: {
             'circle-radius': 11,
-            'circle-color': '#ffffff',
+            'circle-color': '#fff',
             'circle-opacity': 1,
             'circle-pitch-alignment': 'viewport',
           },
@@ -5610,7 +5610,7 @@ export default function PlannerPage() {
           source: 'maskin-source',
           paint: {
             'circle-radius': 18,
-            'circle-color': '#ffffff',
+            'circle-color': '#fff',
             'circle-opacity': 0.4,
             'circle-stroke-color': '#0a84ff',
             'circle-stroke-width': 2,
@@ -8515,7 +8515,7 @@ export default function PlannerPage() {
     bg: '#000000',
     surface: '#1c1c1e',
     surfaceLight: '#2c2c2e',
-    text: '#ffffff',
+    text: '#fff',
     textMuted: '#8e8e93',
     green: '#30d158',
     blue: '#0a84ff',
@@ -9829,7 +9829,7 @@ export default function PlannerPage() {
             // Mörkare bakgrund för bättre kontrast
             const darkBg = bgColor === 'rgba(0,0,0,0.6)' ? 'rgba(0,0,0,0.9)' : bgColor;
             // Outline-färg per typ: gul → svart outline, grön/svart → vit outline
-            const outlineColor = bgColor === '#f59e0b' ? 'rgba(0,0,0,0.8)' : '#ffffff';
+            const outlineColor = bgColor === '#f59e0b' ? 'rgba(0,0,0,0.8)' : '#fff';
             
             // Returnera null om symbolen inte ska visas
             if (!shouldShow) return null;
