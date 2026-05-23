@@ -7,20 +7,21 @@ import MaskinLogg from './MaskinLogg'
 import Jamforelse from './Jamforelse'
 import OversiktNy from './OversiktNy'
 import ProduktionNy from './ProduktionNy'
+import AvbrottNy from './AvbrottNy'
 
 type Mode = 'skordare' | 'skotare' | 'jamforelse'
 
 // ──────────────────────────────────────────────────────────────
 // Vy-nav för den nya maskinvyn (?ny=1, mode=skordare).
 // Datadriven — lägg till rader här när nya vyer byggs:
-//   { key: 'idag',    label: 'Idag'    }
-//   { key: 'avbrott', label: 'Avbrott' }
+//   { key: 'idag', label: 'Idag' }
 //   ...
 // Tom key = default-vy (Översikt). Den måste vara först.
 // ──────────────────────────────────────────────────────────────
 const NY_VYER: { key: string; label: string }[] = [
   { key: '',           label: 'Översikt'   },
   { key: 'produktion', label: 'Produktion' },
+  { key: 'avbrott',    label: 'Avbrott'    },
 ]
 
 export default function MaskinvyPage() {
@@ -196,7 +197,9 @@ export default function MaskinvyPage() {
           <div className={`mv-wrapper${showVyNav ? ' with-vy-nav' : ''}`}>
             {mode === 'skordare'
               ? (ny
-                  ? (vy === 'produktion' ? <ProduktionNy /> : <OversiktNy />)
+                  ? (vy === 'produktion' ? <ProduktionNy />
+                     : vy === 'avbrott' ? <AvbrottNy />
+                     : <OversiktNy />)
                   : <Maskinvy />)
               : <SkotareVy />}
           </div>
