@@ -367,7 +367,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
               {/* Info */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
-                  fontSize: '16px',
+                  fontSize: '15px',
                   fontWeight: '500',
                   marginBottom: '4px',
                   whiteSpace: 'nowrap',
@@ -406,7 +406,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
 
               {/* Volym */}
               <div style={{ textAlign: 'right', marginLeft: '16px', flexShrink: 0 }}>
-                <div style={{ fontSize: '16px', fontWeight: '500', color: obj.volym ? '#fff' : '#8e8e93' }}>
+                <div style={{ fontSize: '15px', fontWeight: '500', color: obj.volym ? '#fff' : '#8e8e93' }}>
                   {obj.volym ? obj.volym : '–'}
                 </div>
                 <div style={{ fontSize: '13px', color: '#8e8e93' }}>
@@ -577,7 +577,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 border: '1px solid #555',
                 background: 'transparent',
                 color: selectedObj.lat && selectedObj.lng ? '#fff' : '#8e8e93',
-                fontSize: '16px',
+                fontSize: '15px',
                 fontWeight: '500',
                 cursor: selectedObj.lat && selectedObj.lng ? 'pointer' : 'not-allowed',
               }}

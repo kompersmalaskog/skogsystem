@@ -8898,7 +8898,7 @@ export default function PlannerPage() {
                   background: item.color,
                   flexShrink: 0,
                 }} aria-hidden="true" />
-                <span style={{ fontSize: 18, fontWeight: 700, color: '#fff', minWidth: 18, textAlign: 'center', flexShrink: 0 }} aria-hidden="true">
+                <span style={{ fontSize: 17, fontWeight: 700, color: '#fff', minWidth: 18, textAlign: 'center', flexShrink: 0 }} aria-hidden="true">
                   {arrow}
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -8979,7 +8979,7 @@ export default function PlannerPage() {
                 </div>
               )}
             </div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: w.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0, position: 'relative', zIndex: 1 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: w.color, fontVariantNumeric: 'tabular-nums', flexShrink: 0, position: 'relative', zIndex: 1 }}>
               {w.dist} m
             </div>
           </div>
@@ -9212,7 +9212,7 @@ export default function PlannerPage() {
                           background: 'transparent', border: 'none',
                           borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
                           color: aktiv ? '#ff9f0a' : '#fff',
-                          fontSize: 16, fontWeight: aktiv ? 600 : 500,
+                          fontSize: 15, fontWeight: aktiv ? 600 : 500,
                           textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
                         }}
                       >
@@ -9254,7 +9254,7 @@ export default function PlannerPage() {
                   {/* Skördare */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56 }}>
                     <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 26, color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>person</span>
-                    <span style={{ fontSize: 16, width: 80, flexShrink: 0 }}>Skördare</span>
+                    <span style={{ fontSize: 15, width: 80, flexShrink: 0 }}>Skördare</span>
                     <select
                       value={valtObjekt.assigned_skordare_user_id ?? ''}
                       onChange={e => handleAssignSkordare(e.target.value || null)}
@@ -9280,7 +9280,7 @@ export default function PlannerPage() {
                   {/* Skotare */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                     <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 26, color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>local_shipping</span>
-                    <span style={{ fontSize: 16, width: 80, flexShrink: 0 }}>Skotare</span>
+                    <span style={{ fontSize: 15, width: 80, flexShrink: 0 }}>Skotare</span>
                     <select
                       value={valtObjekt.assigned_skotare_user_id ?? ''}
                       onChange={e => handleAssignSkotare(e.target.value || null)}
@@ -9311,7 +9311,7 @@ export default function PlannerPage() {
                     border: '1px solid rgba(48, 209, 88, 0.3)',
                     borderRadius: 14,
                     color: '#30d158',
-                    fontSize: 16, fontWeight: 600,
+                    fontSize: 17, fontWeight: 600,
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
                   }}>
                     <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 22 }}>check_circle</span>
@@ -9327,7 +9327,7 @@ export default function PlannerPage() {
                       background: valtObjekt.assigned_skordare_user_id ? '#30d158' : 'rgba(255,255,255,0.06)',
                       border: 'none', borderRadius: 14,
                       color: valtObjekt.assigned_skordare_user_id ? '#fff' : 'rgba(255,255,255,0.35)',
-                      fontSize: 16, fontWeight: 600,
+                      fontSize: 17, fontWeight: 600,
                       cursor: valtObjekt.assigned_skordare_user_id ? 'pointer' : 'not-allowed',
                       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
                       fontFamily: 'inherit',
@@ -9448,7 +9448,7 @@ export default function PlannerPage() {
                         border: 'none',
                         borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
                         color: (item as any).danger ? '#ff453a' : '#fff',
-                        fontSize: 16,
+                        fontSize: 15,
                         fontWeight: 500,
                         textAlign: 'left',
                         cursor: 'pointer',
@@ -9522,7 +9522,7 @@ export default function PlannerPage() {
               style={{ fontSize: 44, color: '#ff9f0a', marginBottom: 12, display: 'inline-block' }}>
               check_circle
             </span>
-            <div style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: '#fff', marginBottom: 8 }}>
               Avsluta {valtObjekt.namn}?
             </div>
             <div style={{ fontSize: 14, color: '#a8a8ad', marginBottom: 24, lineHeight: 1.4 }}>
@@ -10662,7 +10662,7 @@ export default function PlannerPage() {
             {/* Kommentar */}
             {marker.comment ? (
               <div style={{ 
-                fontSize: '18px', 
+                fontSize: '17px', 
                 color: '#fff',
                 fontWeight: '500',
                 textAlign: 'center',
@@ -10675,7 +10675,7 @@ export default function PlannerPage() {
               </div>
             ) : (
               <div style={{ 
-                fontSize: '16px', 
+                fontSize: '15px', 
                 color: 'rgba(255,255,255,0.3)',
                 textAlign: 'center',
                 fontStyle: 'italic',
@@ -11056,7 +11056,7 @@ export default function PlannerPage() {
                   >
                     {isRecThis ? (
                       <>
-                        <span style={{ fontSize: '18px' }}>⏹</span>
+                        <span style={{ fontSize: '17px' }}>⏹</span>
                         <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>
                       </>
                     ) : (
@@ -11263,7 +11263,7 @@ export default function PlannerPage() {
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                                 <button
                                   onClick={() => toggleNoteAudioRecording(marker.id, note.id)}
-                                  style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecThis ? '0 14px 0 10px' : '0', width: isRecThis ? 'auto' : '36px', background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(48,209,88,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '16px', animation: isRecThis ? 'pulse 1s infinite' : 'none' }}
+                                  style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecThis ? '0 14px 0 10px' : '0', width: isRecThis ? 'auto' : '36px', background: isRecThis ? 'rgba(239,68,68,0.3)' : 'rgba(48,209,88,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '15px', animation: isRecThis ? 'pulse 1s infinite' : 'none' }}
                                 >{isRecThis ? '⏹' : '🎤'}{isRecThis && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                                 {note.audioData && !isRecThis && (
                                   <>
@@ -11307,7 +11307,7 @@ export default function PlannerPage() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                             <button
                               onClick={() => toggleNoteAudioRecording(marker.id, newId)}
-                              style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecNew ? '0 14px 0 10px' : '0', width: isRecNew ? 'auto' : '36px', background: isRecNew ? 'rgba(239,68,68,0.3)' : 'rgba(48,209,88,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '16px', animation: isRecNew ? 'pulse 1s infinite' : 'none' }}
+                              style={{ height: '36px', borderRadius: '18px', border: 'none', padding: isRecNew ? '0 14px 0 10px' : '0', width: isRecNew ? 'auto' : '36px', background: isRecNew ? 'rgba(239,68,68,0.3)' : 'rgba(48,209,88,0.12)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '15px', animation: isRecNew ? 'pulse 1s infinite' : 'none' }}
                             >{isRecNew ? '⏹' : '🎤'}{isRecNew && <span style={{ fontSize: '13px', color: '#ff453a', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{recordingSeconds}s</span>}</button>
                             {pendingAudio && !isRecNew && (
                               <>
@@ -11435,7 +11435,7 @@ export default function PlannerPage() {
                   border: 'none',
                   background: 'rgba(255,255,255,0.06)',
                   color: '#fff',
-                  fontSize: '18px',
+                  fontSize: '17px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -11458,7 +11458,7 @@ export default function PlannerPage() {
                   border: 'none',
                   background: '#30d158',
                   color: '#fff',
-                  fontSize: '18px',
+                  fontSize: '17px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -11487,7 +11487,7 @@ export default function PlannerPage() {
               border: 'none',
               background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontSize: '18px',
+              fontSize: '17px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -11527,7 +11527,7 @@ export default function PlannerPage() {
                   border: 'none',
                   background: 'rgba(255,255,255,0.06)',
                   color: '#fff',
-                  fontSize: '18px',
+                  fontSize: '17px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -11550,7 +11550,7 @@ export default function PlannerPage() {
                   border: 'none',
                   background: '#30d158',
                   color: '#fff',
-                  fontSize: '18px',
+                  fontSize: '17px',
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
@@ -11577,7 +11577,7 @@ export default function PlannerPage() {
               border: 'none',
               background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontSize: '18px',
+              fontSize: '17px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -11635,7 +11635,7 @@ export default function PlannerPage() {
               border: 'none',
               background: gpsPaused ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.06)',
               color: gpsPaused ? '#f59e0b' : '#fff',
-              fontSize: '18px',
+              fontSize: '17px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -11664,7 +11664,7 @@ export default function PlannerPage() {
               border: 'none',
               background: '#30d158',
               color: '#fff',
-              fontSize: '18px',
+              fontSize: '17px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -11684,7 +11684,7 @@ export default function PlannerPage() {
               border: 'none',
               background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontSize: '18px',
+              fontSize: '17px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -11722,7 +11722,7 @@ export default function PlannerPage() {
               border: 'none',
               background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontSize: '18px',
+              fontSize: '17px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -11742,7 +11742,7 @@ export default function PlannerPage() {
               border: 'none',
               background: '#30d158',
               color: '#fff',
-              fontSize: '18px',
+              fontSize: '17px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -11762,7 +11762,7 @@ export default function PlannerPage() {
               border: 'none',
               background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontSize: '18px',
+              fontSize: '17px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -11800,7 +11800,7 @@ export default function PlannerPage() {
               border: 'none',
               background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontSize: '18px',
+              fontSize: '17px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -11837,7 +11837,7 @@ export default function PlannerPage() {
               border: 'none',
               background: 'rgba(255,255,255,0.06)',
               color: '#fff',
-              fontSize: '18px',
+              fontSize: '17px',
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
@@ -13773,7 +13773,7 @@ export default function PlannerPage() {
                   }}
                 >
                   <div style={{ fontSize: '60px', marginBottom: '16px' }}>📷</div>
-                  <div style={{ fontSize: '16px', opacity: 0.7 }}>Tryck för att fota snitsel</div>
+                  <div style={{ fontSize: '15px', opacity: 0.7 }}>Tryck för att fota snitsel</div>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginTop: '8px' }}>(Simulerar i prototyp)</div>
                 </div>
 
@@ -13808,7 +13808,7 @@ export default function PlannerPage() {
                   textAlign: 'center',
                   marginBottom: '20px',
                 }}>
-                  <div style={{ fontSize: '16px', opacity: 0.6, marginBottom: '16px' }}>Appen hittade:</div>
+                  <div style={{ fontSize: '15px', opacity: 0.6, marginBottom: '16px' }}>Appen hittade:</div>
                   <div style={{
                     width: '80px',
                     height: '80px',
@@ -13836,7 +13836,7 @@ export default function PlannerPage() {
                       border: 'none',
                       background: '#30d158',
                       color: '#fff',
-                      fontSize: '16px',
+                      fontSize: '15px',
                       fontWeight: '700',
                       cursor: 'pointer',
                     }}
@@ -13856,7 +13856,7 @@ export default function PlannerPage() {
                       border: '2px solid rgba(255,255,255,0.3)',
                       background: 'transparent',
                       color: '#fff',
-                      fontSize: '16px',
+                      fontSize: '15px',
                       fontWeight: '600',
                       cursor: 'pointer',
                     }}
@@ -14066,7 +14066,7 @@ export default function PlannerPage() {
                     </button>
                     <div style={{ flex: 1, textAlign: 'center' }}>
                       <span style={{ fontSize: '36px', fontWeight: '700' }}>{stickvagSettings.targetDistance}</span>
-                      <span style={{ fontSize: '18px', opacity: 0.6 }}> m</span>
+                      <span style={{ fontSize: '17px', opacity: 0.6 }}> m</span>
                     </div>
                     <button
                       onClick={() => setStickvagSettings(s => ({ ...s, targetDistance: Math.min(50, s.targetDistance + 1) }))}
@@ -14106,7 +14106,7 @@ export default function PlannerPage() {
                     </button>
                     <div style={{ flex: 1, textAlign: 'center' }}>
                       <span style={{ fontSize: '36px', fontWeight: '700' }}>±{stickvagSettings.tolerance}</span>
-                      <span style={{ fontSize: '18px', opacity: 0.6 }}> m</span>
+                      <span style={{ fontSize: '17px', opacity: 0.6 }}> m</span>
                     </div>
                     <button
                       onClick={() => setStickvagSettings(s => ({ ...s, tolerance: Math.min(10, s.tolerance + 1) }))}
@@ -14895,7 +14895,7 @@ export default function PlannerPage() {
                       const posText = `${centerLat}°N, ${centerLon}°E`;
                       return (
                         <>
-                          <div style={{ fontSize: '18px', fontWeight: '600', color: '#fff', marginBottom: '8px', fontFamily: 'monospace' }}>
+                          <div style={{ fontSize: '17px', fontWeight: '600', color: '#fff', marginBottom: '8px', fontFamily: 'monospace' }}>
                             {posText}
                           </div>
                           <button
@@ -15101,7 +15101,7 @@ export default function PlannerPage() {
                 border: '1px solid rgba(255,255,255,0.1)',
                 background: 'rgba(255,255,255,0.05)',
                 color: '#fff',
-                fontSize: '18px',
+                fontSize: '17px',
                 resize: 'none',
                 height: '100px',
                 fontFamily: 'inherit',
@@ -15285,7 +15285,7 @@ export default function PlannerPage() {
                 border: 'none',
                 background: gpsPaused ? 'rgba(245,158,11,0.3)' : 'rgba(255,255,255,0.15)',
                 color: gpsPaused ? '#f59e0b' : '#fff',
-                fontSize: '18px',
+                fontSize: '17px',
                 cursor: 'pointer',
               }}
             >
@@ -15357,7 +15357,7 @@ export default function PlannerPage() {
             </svg>
           </div>
           
-          <div style={{ fontSize: '18px', fontWeight: '500', marginBottom: '6px', opacity: 0.9, color: '#fff' }}>
+          <div style={{ fontSize: '17px', fontWeight: '500', marginBottom: '6px', opacity: 0.9, color: '#fff' }}>
             Väg sparad
           </div>
           <div style={{ fontSize: '13px', opacity: 0.5, marginBottom: '32px', color: '#fff' }}>
@@ -15437,7 +15437,7 @@ export default function PlannerPage() {
             </svg>
           </div>
           
-          <div style={{ fontSize: '18px', fontWeight: '500', marginBottom: '8px', color: '#fff' }}>
+          <div style={{ fontSize: '17px', fontWeight: '500', marginBottom: '8px', color: '#fff' }}>
             Avsluta snitsling?
           </div>
           <div style={{ fontSize: '14px', opacity: 0.5, textAlign: 'center', marginBottom: '32px', lineHeight: 1.5, color: '#fff' }}>
@@ -15542,7 +15542,7 @@ export default function PlannerPage() {
               style={{
                 width: '40px', height: '40px', borderRadius: '10px',
                 border: 'none', background: 'rgba(0,0,0,0.4)',
-                color: '#fff', fontSize: '18px', fontWeight: '300',
+                color: '#fff', fontSize: '17px', fontWeight: '300',
                 cursor: 'pointer', display: 'flex',
                 alignItems: 'center', justifyContent: 'center',
                 opacity: 0.3,
@@ -15555,7 +15555,7 @@ export default function PlannerPage() {
               style={{
                 width: '40px', height: '40px', borderRadius: '10px',
                 border: 'none', background: 'rgba(0,0,0,0.4)',
-                color: '#fff', fontSize: '18px', fontWeight: '300',
+                color: '#fff', fontSize: '17px', fontWeight: '300',
                 cursor: 'pointer', display: 'flex',
                 alignItems: 'center', justifyContent: 'center',
                 opacity: 0.3,
@@ -15772,9 +15772,9 @@ export default function PlannerPage() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                     }}>
                       {isZone ? (
-                        <span style={{ fontSize: '18px', color: '#fff' }}>▢</span>
+                        <span style={{ fontSize: '17px', color: '#fff' }}>▢</span>
                       ) : (
-                        <span style={{ fontSize: '18px', color: '#fff' }}>◉</span>
+                        <span style={{ fontSize: '17px', color: '#fff' }}>◉</span>
                       )}
                     </div>
                     <div style={{ flex: 1 }}>
@@ -16094,7 +16094,7 @@ export default function PlannerPage() {
                       border: 'none',
                       background: 'transparent',
                       color: 'rgba(255,255,255,0.3)',
-                      fontSize: '18px',
+                      fontSize: '17px',
                       cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
@@ -16181,7 +16181,7 @@ export default function PlannerPage() {
                 border: 'none',
                 background: checklistItems.every(i => i.answer !== null) ? '#30d158' : 'rgba(255,255,255,0.1)',
                 color: '#fff',
-                fontSize: '16px',
+                fontSize: '15px',
                 fontWeight: '600',
                 cursor: 'pointer',
               }}
@@ -16232,9 +16232,6 @@ export default function PlannerPage() {
           }}
         >
           <span style={{ fontSize: '20px' }}>{'\u{1F525}'}</span>
-          {brandTestMode !== null && (
-            <div style={{ position: 'absolute', top: -6, right: -6, background: '#eab308', color: '#000', fontSize: '7px', fontWeight: '800', padding: '2px 4px', borderRadius: '4px', lineHeight: '1' }}>TEST</div>
-          )}
         </div>
       )}
 
@@ -16661,7 +16658,7 @@ export default function PlannerPage() {
             padding: '20px 24px',
             borderBottom: '1px solid rgba(255,255,255,0.08)',
           }}>
-            <div style={{ fontSize: '18px', fontWeight: '500', color: '#fff' }}>
+            <div style={{ fontSize: '17px', fontWeight: '500', color: '#fff' }}>
               Prognos
             </div>
             <button
@@ -16673,7 +16670,7 @@ export default function PlannerPage() {
                 border: 'none',
                 background: 'rgba(255,255,255,0.08)',
                 color: 'rgba(255,255,255,0.6)',
-                fontSize: '18px',
+                fontSize: '17px',
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
@@ -16724,7 +16721,7 @@ export default function PlannerPage() {
                   borderRadius: '8px',
                   padding: '10px 14px',
                 }}>
-                  <span style={{ fontSize: '18px', fontWeight: '600', color: manuellPrognos.skordare ? '#fff' : 'rgba(255,255,255,0.3)' }}>
+                  <span style={{ fontSize: '17px', fontWeight: '600', color: manuellPrognos.skordare ? '#fff' : 'rgba(255,255,255,0.3)' }}>
                     {manuellPrognos.skordare || '–'}
                   </span>
                   <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)' }}>h</span>
@@ -16752,7 +16749,7 @@ export default function PlannerPage() {
                   borderRadius: '8px',
                   padding: '10px 14px',
                 }}>
-                  <span style={{ fontSize: '18px', fontWeight: '600', color: manuellPrognos.skotare ? '#fff' : 'rgba(255,255,255,0.3)' }}>
+                  <span style={{ fontSize: '17px', fontWeight: '600', color: manuellPrognos.skotare ? '#fff' : 'rgba(255,255,255,0.3)' }}>
                     {manuellPrognos.skotare || '–'}
                   </span>
                   <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.4)' }}>h</span>
@@ -16786,7 +16783,7 @@ export default function PlannerPage() {
                     borderRadius: '8px',
                     padding: '12px 8px',
                   }}>
-                    <span style={{ fontSize: '18px', fontWeight: '600', color: '#fff' }}>
+                    <span style={{ fontSize: '17px', fontWeight: '600', color: '#fff' }}>
                       {traktData.volym || '–'}
                     </span>
                   </div>
@@ -16803,7 +16800,7 @@ export default function PlannerPage() {
                     borderRadius: '8px',
                     padding: '12px 8px',
                   }}>
-                    <span style={{ fontSize: '18px', fontWeight: '600', color: '#fff' }}>
+                    <span style={{ fontSize: '17px', fontWeight: '600', color: '#fff' }}>
                       {traktData.areal || '–'}
                     </span>
                   </div>
@@ -16840,7 +16837,7 @@ export default function PlannerPage() {
                         </div>
                       </div>
                     </div>
-                    <span style={{ fontSize: '16px', color: 'rgba(255,255,255,0.2)' }}>›</span>
+                    <span style={{ fontSize: '15px', color: 'rgba(255,255,255,0.2)' }}>›</span>
                   </div>
                 </div>
               );
@@ -17331,7 +17328,7 @@ export default function PlannerPage() {
             top: '50px',
             right: '20px',
             color: '#fff',
-            fontSize: '16px',
+            fontSize: '15px',
             opacity: 0.6,
           }}>
             Tryck för att stänga
@@ -17380,7 +17377,7 @@ export default function PlannerPage() {
                 fontSize: '14px',
               }}
             >
-              <span style={{ fontSize: '18px' }}>📍</span>
+              <span style={{ fontSize: '17px' }}>📍</span>
               Sätt min position här
             </div>
             {simulatedPos && (
@@ -17400,7 +17397,7 @@ export default function PlannerPage() {
                   fontSize: '14px',
                 }}
               >
-                <span style={{ fontSize: '18px' }}>✕</span>
+                <span style={{ fontSize: '17px' }}>✕</span>
                 Ta bort simulerad position
               </div>
             )}
@@ -17564,7 +17561,7 @@ export default function PlannerPage() {
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <div>
-                <div style={{ fontSize: '18px', fontWeight: '700', color: '#fff' }}>Traktanalys</div>
+                <div style={{ fontSize: '17px', fontWeight: '700', color: '#fff' }}>Traktanalys</div>
                 <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>{traktLabel}</div>
               </div>
               <button
@@ -17580,7 +17577,7 @@ export default function PlannerPage() {
                   justifyContent: 'center',
                   cursor: 'pointer',
                   color: '#fff',
-                  fontSize: '18px',
+                  fontSize: '17px',
                 }}>
                 ✕
               </button>
@@ -17611,7 +17608,7 @@ export default function PlannerPage() {
                     textAlign: 'center',
                   }}>
                     <div style={{ fontSize: '32px', marginBottom: '8px' }}>✅</div>
-                    <div style={{ fontSize: '16px', fontWeight: '600', color: '#30d158' }}>Inga kända restriktioner</div>
+                    <div style={{ fontSize: '15px', fontWeight: '600', color: '#30d158' }}>Inga kända restriktioner</div>
                     <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '4px' }}>
                       Inga träffar i vattenskydd, naturreservat, Natura 2000, nyckelbiotoper, biotopskydd eller fornlämningsregister
                     </div>
@@ -17825,7 +17822,7 @@ export default function PlannerPage() {
           color: '#fff',
           padding: '12px 28px',
           borderRadius: '12px',
-          fontSize: '16px',
+          fontSize: '15px',
           fontWeight: '600',
           pointerEvents: 'none',
         }}>
@@ -17939,7 +17936,7 @@ export default function PlannerPage() {
               {/* Title */}
               {cv.title && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: hasContent ? '8px' : '12px' }}>
-                  {cv.icon && <span style={{ fontSize: '18px' }}>{cv.icon}</span>}
+                  {cv.icon && <span style={{ fontSize: '17px' }}>{cv.icon}</span>}
                   <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff' }}>{cv.title}</span>
                 </div>
               )}
@@ -18051,7 +18048,7 @@ export default function PlannerPage() {
                 width: '36px', height: '36px', borderRadius: '10px',
                 background: 'rgba(34,197,94,0.2)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: '18px',
+                fontSize: '17px',
               }}>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2">
                   <circle cx="12" cy="12" r="10" />
@@ -18059,7 +18056,7 @@ export default function PlannerPage() {
                 </svg>
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '16px', fontWeight: '700', color: '#fff' }}>Valda högar</div>
+                <div style={{ fontSize: '15px', fontWeight: '700', color: '#fff' }}>Valda högar</div>
                 <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
                   {selectedHogarIdx.size} högar · {totalVol.toFixed(1)} m³ totalt
                 </div>
@@ -18360,7 +18357,7 @@ export default function PlannerPage() {
               style={{
                 width: '36px', height: '36px', borderRadius: '50%',
                 border: 'none', background: 'rgba(255,255,255,0.1)',
-                color: '#fff', fontSize: '18px', cursor: 'pointer',
+                color: '#fff', fontSize: '17px', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}
             >&times;</button>
@@ -18370,7 +18367,7 @@ export default function PlannerPage() {
           <div style={{ padding: '20px', flex: 1, overflowY: 'auto' }}>
             {/* Total volym */}
             <div style={{ fontSize: '28px', fontWeight: '700', color: '#fff', marginBottom: '16px' }}>
-              {valdHog.volym.toFixed(2)} <span style={{ fontSize: '16px', fontWeight: '400', opacity: 0.5 }}>m³</span>
+              {valdHog.volym.toFixed(2)} <span style={{ fontSize: '15px', fontWeight: '400', opacity: 0.5 }}>m³</span>
             </div>
 
             {/* Sortiment-lista */}
@@ -18449,7 +18446,7 @@ export default function PlannerPage() {
               </svg>
             </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '16px', fontWeight: '700', color: '#fff' }}>Skotningsuttag</div>
+              <div style={{ fontSize: '15px', fontWeight: '700', color: '#fff' }}>Skotningsuttag</div>
               <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.4)', marginTop: '2px' }}>
                 {skotningAntalHogar} högar · {skotningHogar.reduce((s, h) => s + h.volym, 0).toFixed(1)} m³ totalt
               </div>
