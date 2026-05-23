@@ -62,3 +62,10 @@ scripts/screenshot-arbetsrapport.mjs
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Throwaway / genererade filer från kalibrerings-arbetet
+backfill_errors.txt
+fill_weather_errors.txt
+dev_server.log
+kontroll_response.json
+verify_hqc_parser.py
