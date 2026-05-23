@@ -120,31 +120,45 @@ function arbetsIntervaller(dagar: Arbetsdag[]): Intervall[] {
 }
 
 /**
- * Längsta sammanhängande gap utan arbete inom [windowStart, windowEnd].
- * Returneras i timmar.
+ * Längsta sammanhängande vilo-gap mellan arbets-intervall vars något moment
+ * ligger inom [windowStart, windowEnd]. Returneras i timmar.
+ *
+ * BUGGFIX 2026-05-21: tidigare klippte funktionen arbets-intervall vid
+ * fönstrets gränser och behandlade fönsterkanterna som implicita arbetsväggar.
+ * En 62h-vila som sträckte sig in/ut ur fönstret räknades då bara som den
+ * del som låg inom. Veckovila-analysen rapporterade falska brott för helger
+ * som faktiskt hade tillräcklig vila — bara att vilan korsade fönstergränsen.
+ *
+ * Nu räknas hela vilo-gapet (oklippt) mellan två arbets-intervall, om gapet
+ * överhuvudtaget överlappar fönstret. Vila före första passet och efter
+ * sista passet räknas INTE — vi vet inte om föraren var ledig eller bara
+ * oregistrerad där (samma princip som dygnsvila-loopen följer).
  */
 function maxGap(windowStart: Date, windowEnd: Date, intervaller: Intervall[]): number {
   const wsT = windowStart.getTime();
   const weT = windowEnd.getTime();
   if (weT <= wsT) return 0;
+  if (intervaller.length < 2) return 0;
 
-  // Klipp intervaller mot fönstret
-  const klippta = intervaller
-    .filter(i => i.end.getTime() > wsT && i.start.getTime() < weT)
-    .map(i => ({
-      start: Math.max(i.start.getTime(), wsT),
-      end: Math.min(i.end.getTime(), weT),
-    }))
-    .sort((a, b) => a.start - b.start);
+  // Sortera stigande på start-tid (säkerhet — anrop ger sorterad lista idag)
+  const sorted = [...intervaller].sort((a, b) => a.start.getTime() - b.start.getTime());
 
-  let max = 0;
-  let cursor = wsT;
-  for (const i of klippta) {
-    if (i.start > cursor) max = Math.max(max, i.start - cursor);
-    if (i.end > cursor) cursor = i.end;
+  let maxMs = 0;
+  let cursor = sorted[0].end.getTime();
+  for (let i = 1; i < sorted.length; i++) {
+    const gapStart = cursor;
+    const gapEnd = sorted[i].start.getTime();
+    // Räkna bara gap som faktiskt overlappar fönstret. Hela gapets längd
+    // räknas — inte den klippta delen.
+    if (gapEnd > gapStart && gapEnd > wsT && gapStart < weT) {
+      const len = gapEnd - gapStart;
+      if (len > maxMs) maxMs = len;
+    }
+    // Uppdatera cursor — hanterar fall där arbets-intervall överlappar
+    // (osannolikt för dygnsdata, men robust).
+    if (sorted[i].end.getTime() > cursor) cursor = sorted[i].end.getTime();
   }
-  if (weT > cursor) max = Math.max(max, weT - cursor);
-  return max / 3600000;
+  return maxMs / 3600000;
 }
 
 export function analyseraVilobrott(
