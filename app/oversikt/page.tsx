@@ -86,8 +86,8 @@ export default function OversiktPage() {
       fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
         () => supabase.from('fakt_produktion').select('objekt_id, volym_m3sub')
       ),
-      fetchAllRows<{ objekt_id: string; volym_m3sob: number }>(
-        () => supabase.from('fakt_lass').select('objekt_id, volym_m3sob')
+      fetchAllRows<{ objekt_id: string; volym_m3sub: number }>(
+        () => supabase.from('fakt_lass').select('objekt_id, volym_m3sub')
       ),
     ]);
 
@@ -100,7 +100,7 @@ export default function OversiktPage() {
     for (const r of lassRows) {
       if (!r.objekt_id) continue;
       if (!map[r.objekt_id]) map[r.objekt_id] = { skordareVol: 0, skotareVol: 0 };
-      map[r.objekt_id].skotareVol += r.volym_m3sob || 0;
+      map[r.objekt_id].skotareVol += r.volym_m3sub || 0;
     }
     setProdMap(map);
   };

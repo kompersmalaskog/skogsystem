@@ -293,12 +293,12 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
   let totalLassVol = 0, totalKor = 0;
   const lassPerDagMap = new Map<string, { lass: number; m3: number }>();
   lassRows.forEach((l: any) => {
-    totalLassVol += l.volym_m3sob || 0;
+    totalLassVol += l.volym_m3sub || 0;
     totalKor += l.korstracka_m || 0;
     if (l.datum) {
       const prev = lassPerDagMap.get(l.datum) || { lass: 0, m3: 0 };
       prev.lass += 1;
-      prev.m3 += (l.volym_m3sob || 0);
+      prev.m3 += (l.volym_m3sub || 0);
       lassPerDagMap.set(l.datum, prev);
     }
   });
