@@ -228,7 +228,7 @@ const kontrollStatusText = (s: string) => {
 };
 
 export default function KalibreringPage() {
-  const [activeTab, setActiveTab] = useState<'today' | 'history' | 'calendar' | 'report'>('today');
+  const [activeTab, setActiveTab] = useState<'today' | 'trend' | 'calendar' | 'report'>('today');
   type ModalEntry = { title: string; subtitle: string; body: React.ReactNode; parentLabel?: string };
   const [modalStack, setModalStack] = useState<ModalEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -257,6 +257,18 @@ export default function KalibreringPage() {
   const [calData, setCalData] = useState<CalResponse | null>(null);
   const [calLoading, setCalLoading] = useState(false);
   const [calError, setCalError] = useState<string | null>(null);
+
+  // === Trend-fliken: lazy fetch när användaren går dit, cache i ref ===
+  type TrendMatstalle = { position_cm: number; snitt_mm: number; stddev_mm: number; n: number };
+  type TrendKontrollPunkt = { filnamn: string; datum: string; dia_snitt_mm: number; antal_stockar: number; object_name: string | null };
+  type TrendKalibreringEv = { datum: string; maskin_id: string; tradslag: string | null; typ: string | null; orsak: string | null };
+  type TrendTradslagData = { antal_kontroller: number; matstallen: TrendMatstalle[]; kontroller: TrendKontrollPunkt[] };
+  type TrendData = { per_tradslag: Record<string, TrendTradslagData>; kalibreringar: TrendKalibreringEv[]; totalt: { antal_kontroller: number; antal_matpunkter: number } };
+  const [trendData, setTrendData] = useState<TrendData | null>(null);
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [trendError, setTrendError] = useState<string | null>(null);
+  const [selectedTrendTradslag, setSelectedTrendTradslag] = useState<string | null>(null);
+  const trendFetchKeyRef = useRef<string | null>(null);
 
   // Globalt maskinfilter — persistent över flikar
   const [selectedMaskinId, setSelectedMaskinId] = useState<string | 'all'>('all');
@@ -328,6 +340,38 @@ export default function KalibreringPage() {
       .catch(err => { if (!cancelled) { setCalError(err?.message || 'Kunde inte ladda kalendern'); setCalLoading(false); } });
     return () => { cancelled = true; };
   }, [activeTab, calManad, calData, calError]);
+
+  // === Trend-fliken: lazy fetch när användaren öppnar fliken eller byter maskinfilter
+  useEffect(() => {
+    if (activeTab !== 'trend') return;
+    const fetchKey = effectiveSelected; // 'all' eller maskin_id — invaliderar cache vid filterbyte
+    if (trendFetchKeyRef.current === fetchKey && trendData && !trendError) return;
+    let cancelled = false;
+    setTrendLoading(true);
+    setTrendError(null);
+    const url = effectiveSelected === 'all'
+      ? `/api/kalibrering/trend?key=skogsystem-debug`
+      : `/api/kalibrering/trend?key=skogsystem-debug&maskin_id=${encodeURIComponent(effectiveSelected)}`;
+    fetch(url)
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: TrendData & { ok?: boolean }) => {
+        if (cancelled) return;
+        setTrendData(data);
+        trendFetchKeyRef.current = fetchKey;
+        // Förvalt trädslag: det med flest kontroller
+        const tradslagSorted = Object.entries(data.per_tradslag)
+          .sort(([, a], [, b]) => b.antal_kontroller - a.antal_kontroller)
+          .map(([k]) => k);
+        if (tradslagSorted.length > 0 && (selectedTrendTradslag == null || !data.per_tradslag[selectedTrendTradslag])) {
+          setSelectedTrendTradslag(tradslagSorted[0]);
+        }
+        setTrendLoading(false);
+      })
+      .catch(err => { if (!cancelled) { setTrendError(err?.message || 'Kunde inte ladda trenddata'); setTrendLoading(false); } });
+    return () => { cancelled = true; };
+    // selectedTrendTradslag är medvetet utelämnad — den är read-only-effekt på första laddning
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, effectiveSelected]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -1187,13 +1231,6 @@ export default function KalibreringPage() {
   const kalibFileSet = new Set(filteredHistorik.map(h => h.filnamn));
   const calibCount = kalibFileSet.size;
 
-  // History list — Historik. Visa ALLA kontroller (tills Trend-vyn ersätter
-  // denna lista — då filtreras äldre kontroller dit via tidsaxel + per-trädslag).
-  const historyList = filteredKalib.map(k => ({
-    kalib: k,
-    date: new Date(k.datum),
-  }));
-
   // === Tolerans-trösklar (oförändrade) ===
   const TOL_LEN = 3; // cm – över denna = utanför
   const TOL_DIA = 4; // mm – över denna = utanför
@@ -1577,6 +1614,58 @@ export default function KalibreringPage() {
         .kalib-list-value.bad{color:#FF3B30}
 
         /* === Kalender-fliken === */
+        /* === Trend-fliken — staplar per mätställe + tidslinje === */
+        .kalib-trend-pills{display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap}
+        .kalib-trend-pill{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:20px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);color:#fff;font-size:14px;font-weight:500;cursor:pointer;transition:background 0.12s}
+        .kalib-trend-pill:hover{background:rgba(255,255,255,0.10)}
+        .kalib-trend-pill.active{background:#fff;color:#000;border-color:#fff}
+        .kalib-trend-pill-count{font-size:12px;opacity:0.7;font-variant-numeric:tabular-nums}
+        .kalib-trend-pill.active .kalib-trend-pill-count{opacity:0.55}
+
+        .kalib-trend-too-few{font-size:13px;color:#FF9F0A;background:rgba(255,159,10,0.10);padding:10px 12px;border-radius:8px;margin:8px 0 14px;line-height:1.4}
+        .kalib-trend-empty{font-size:13px;color:#8E8E93;padding:16px;text-align:center}
+
+        .kalib-trend-chart{position:relative;height:220px;margin:14px 0 6px;padding:0 36px 0 28px}
+        .kalib-trend-chart.muted{opacity:0.55}
+        .kalib-trend-tol{position:absolute;left:28px;right:36px;background:rgba(255,255,255,0.035);border-top:1px dashed rgba(255,255,255,0.18);border-bottom:1px dashed rgba(255,255,255,0.18);pointer-events:none}
+        .kalib-trend-zero{position:absolute;left:28px;right:36px;height:1px;background:rgba(255,255,255,0.32);pointer-events:none}
+        .kalib-trend-bars{position:absolute;left:28px;right:36px;top:0;bottom:0;display:flex;align-items:stretch}
+        .kalib-trend-col{flex:1;display:flex;flex-direction:column;align-items:center;position:relative}
+        .kalib-trend-col-inner{position:relative;flex:1;width:100%}
+        .kalib-trend-noise{position:absolute;left:50%;transform:translateX(-50%);width:22px;background:rgba(255,255,255,0.08);border-radius:3px;pointer-events:none}
+        .kalib-trend-bar{position:absolute;left:50%;transform:translateX(-50%);width:12px;background:#8E8E93;border-radius:2px;transition:background 0.15s}
+        .kalib-trend-bar.tone-ok{background:#8E8E93}
+        .kalib-trend-bar.tone-cold{background:#0A84FF}
+        .kalib-trend-bar.tone-hi{background:#FF9F0A}
+        .kalib-trend-bar.tone-hot{background:#FF453A}
+        .kalib-trend-val{position:absolute;left:50%;transform:translateX(-50%);font-size:11px;font-weight:600;color:#8E8E93;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none}
+        .kalib-trend-val.tone-ok{color:#8E8E93}
+        .kalib-trend-val.tone-cold{color:#0A84FF}
+        .kalib-trend-val.tone-hi{color:#FF9F0A}
+        .kalib-trend-val.tone-hot{color:#FF453A}
+        .kalib-trend-x{position:absolute;bottom:-32px;font-size:12px;color:#8E8E93;font-variant-numeric:tabular-nums}
+        .kalib-trend-n{position:absolute;bottom:-46px;font-size:10px;color:#666;font-variant-numeric:tabular-nums}
+        .kalib-trend-chart{padding-bottom:46px;height:266px}
+        .kalib-trend-y-labels{position:absolute;left:0;top:0;bottom:46px;width:24px;pointer-events:none}
+        .kalib-trend-y-labels span{position:absolute;right:0;transform:translateY(-50%);font-size:10px;color:#666;font-variant-numeric:tabular-nums}
+
+        .kalib-trend-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:#8E8E93}
+        .kalib-trend-legend > span{display:flex;align-items:center;gap:5px}
+        .kalib-trend-leg-bar{display:inline-block;width:8px;height:12px;background:#8E8E93;border-radius:1px}
+        .kalib-trend-leg-noise{display:inline-block;width:14px;height:12px;background:rgba(255,255,255,0.08);border-radius:2px}
+
+        .kalib-trend-timeline{position:relative;height:160px;margin:14px 0 4px;background:rgba(255,255,255,0.02);border-radius:8px}
+        .kalib-trend-dot{position:absolute;width:10px;height:10px;border-radius:50%;background:#8E8E93;transform:translate(-50%,-50%);border:none;padding:0;cursor:pointer;box-shadow:0 0 0 2px rgba(0,0,0,0.55);transition:transform 0.12s}
+        .kalib-trend-dot:hover{transform:translate(-50%,-50%) scale(1.3)}
+        .kalib-trend-dot:disabled{opacity:0.5;cursor:wait}
+        .kalib-trend-dot.tone-ok{background:#8E8E93}
+        .kalib-trend-dot.tone-cold{background:#0A84FF}
+        .kalib-trend-dot.tone-hi{background:#FF9F0A}
+        .kalib-trend-dot.tone-hot{background:#FF453A}
+        .kalib-trend-kalib-line{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,0.35);transform:translateX(-0.5px);pointer-events:none}
+        .kalib-trend-kalib-tag{position:absolute;top:-2px;left:50%;transform:translateX(-50%);font-size:11px;color:#8E8E93;background:#1C1C1E;padding:1px 3px;border-radius:3px;line-height:1}
+        .kalib-trend-tl-x{display:flex;justify-content:space-between;font-size:11px;color:#8E8E93;margin-top:6px;padding:0 4px}
+
         .kalib-cal-header{display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-bottom:14px}
         .kalib-cal-nav{width:44px;height:44px;border-radius:22px;background:#1C1C1E;border:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-family:inherit}
         .kalib-cal-nav:active{background:#2A2A2C}
@@ -1876,7 +1965,7 @@ export default function KalibreringPage() {
       <div className="kalib-page">
         <nav className="kalib-nav">
           <button className={`kalib-pill ${activeTab === 'today' ? 'active' : ''}`} onClick={() => setActiveTab('today')}>Senaste</button>
-          <button className={`kalib-pill ${activeTab === 'history' ? 'active' : ''}`} onClick={() => setActiveTab('history')}>Historik</button>
+          <button className={`kalib-pill ${activeTab === 'trend' ? 'active' : ''}`} onClick={() => setActiveTab('trend')}>Trend</button>
           <button className={`kalib-pill ${activeTab === 'calendar' ? 'active' : ''}`} onClick={() => setActiveTab('calendar')}>Kalender</button>
           <button className={`kalib-pill ${activeTab === 'report' ? 'active' : ''}`} onClick={() => setActiveTab('report')}>Rapport</button>
         </nav>
@@ -1983,77 +2072,223 @@ export default function KalibreringPage() {
             </>
           )}
 
-          {activeTab === 'history' && (
+          {activeTab === 'trend' && (
             <>
               {partialBanner}
-              <div className="kalib-card">
-                <div className="kalib-section-title">Per trädslag</div>
-                <div className="kalib-bars">
-                  {Object.entries(speciesData).map(([key, data]) => {
-                    const name = key === 'gran' ? 'Gran' : key === 'tall' ? 'Tall' : key.charAt(0).toUpperCase() + key.slice(1);
-                    const lenBad = lenOut(data.lenDiff);
-                    const diaBad = diaOut(data.diaDiff);
-                    return (
-                      <div key={key} className="kalib-bar-group" onClick={() => openSpeciesDetail(key)}>
-                        <div className="kalib-bar-content">
-                          <div className="kalib-bar-header">
-                            <span className="kalib-bar-species">{name}</span>
-                            <span className="kalib-bar-count">{data.count} kontroller</span>
-                          </div>
-                          <div className="kalib-bar-row">
-                            <span className="kalib-bar-label">Längd</span>
-                            <div className="kalib-bar-track">
-                              <div className="kalib-bar-zero" />
-                              <div className={`kalib-bar-fill ${data.lenDiff < 0 ? 'neg' : 'pos'} ${lenBad ? 'bad' : ''}`} style={{ width: `${Math.min(50, Math.abs(data.lenDiff) * 10)}%` }} />
-                            </div>
-                            <span className={`kalib-bar-value ${lenBad ? 'bad' : ''}`}>{fmtAvvikelse(data.lenDiff, 'cm')} cm</span>
-                          </div>
-                          <div className="kalib-bar-row">
-                            <span className="kalib-bar-label">Diameter</span>
-                            <div className="kalib-bar-track">
-                              <div className="kalib-bar-zero" />
-                              <div className={`kalib-bar-fill ${data.diaDiff < 0 ? 'neg' : 'pos'} ${diaBad ? 'bad' : ''}`} style={{ width: `${Math.min(50, Math.abs(data.diaDiff) * 10)}%` }} />
-                            </div>
-                            <span className={`kalib-bar-value ${diaBad ? 'bad' : ''}`}>{fmtAvvikelse(data.diaDiff, 'mm')} mm</span>
-                          </div>
-                        </div>
-                        <span className="kalib-bar-chev"><MSym name="chevron_right" size={18} color="#8E8E93" /></span>
-                      </div>
-                    );
-                  })}
+              {trendLoading && (
+                <div className="kalib-card" style={{ textAlign: 'center', color: '#8E8E93' }}>
+                  Laddar trenddata…
                 </div>
-              </div>
-
-              <div className="kalib-card">
-                <div className="kalib-section-title">Alla kontroller</div>
-                <div className="kalib-section-subtitle">{historyList.length} totalt</div>
-                <div className="kalib-list">
-                  {historyList.map(({ kalib: k, date }) => {
-                    const day = date.getDate();
-                    const monthShort = date.toLocaleDateString('sv-SE', { month: 'short' }).replace('.', '');
-                    const isOut = k.status === 'VARNING' || diaOut(k.dia_avvikelse_snitt_mm);
-                    return (
-                      <div key={k.id} className="kalib-list-item" onClick={() => openKontrollFull(k.filnamn)}>
-                        <div className="kalib-list-date">
-                          <span className="kalib-list-day">{day}</span>
-                          <span className="kalib-list-month">{monthShort}</span>
-                        </div>
-                        <div className="kalib-list-info">
-                          <span className="kalib-list-species">{k.object_name || cap(k.tradslag)}</span>
-                          <span className="kalib-list-stem">
-                            {k.object_name ? `${cap(k.tradslag)} · ${k.antal_kontrollstockar} stockar` : `${k.antal_kontrollstockar} stockar`}
-                          </span>
-                        </div>
-                        <div className="kalib-list-bar-container">
-                          <div className={`kalib-list-bar ${isOut ? 'bad' : ''}`} style={{ width: `${Math.min(100, Math.abs(k.dia_avvikelse_snitt_mm) * 20)}%` }} />
-                        </div>
-                        <span className={`kalib-list-value ${isOut ? 'bad' : ''}`}>{fmtAvvikelse(k.dia_avvikelse_snitt_mm, 'mm')} mm</span>
-                      </div>
-                    );
-                  })}
+              )}
+              {trendError && !trendLoading && (
+                <div className="kalib-info-box neutral" style={{ marginBottom: 12 }}>
+                  <span className="kalib-info-icon"><MSym name="error" size={20} color="#8E8E93" /></span>
+                  <div className="kalib-info-content">
+                    <div className="kalib-info-title">Kunde inte ladda trend</div>
+                    <div className="kalib-info-text">{trendError}</div>
+                  </div>
                 </div>
-              </div>
+              )}
+              {!trendLoading && !trendError && trendData && (() => {
+                const TRADSLAG_TRESHOLD = 10;  // Skogforsk: ~10-15 kontroller behövs för pålitligt mönster
+                const tradslagAll = Object.entries(trendData.per_tradslag)
+                  .sort(([, a], [, b]) => b.antal_kontroller - a.antal_kontroller);
+                const trCurrentKey = selectedTrendTradslag ?? tradslagAll[0]?.[0] ?? null;
+                const trCurrent = trCurrentKey ? trendData.per_tradslag[trCurrentKey] : null;
+                const enough = trCurrent ? trCurrent.antal_kontroller >= TRADSLAG_TRESHOLD : false;
 
+                // Diverging-klassning för snittstaplar — exakt samma trösklar som nivå 1/2/3
+                type DivCls2 = 'cold' | 'ok' | 'hi' | 'hot';
+                const diaSnittCls = (a: number): DivCls2 =>
+                  a > 6 ? 'hot' : a > 4 ? 'hi' : a < -4 ? 'cold' : 'ok';
+
+                // Y-skala: ±12 mm (utrymme för stora avvikelser + brus-band)
+                const Y_MAX = 12;
+                const yPctFor = (v: number) => {
+                  const c = Math.max(-Y_MAX, Math.min(Y_MAX, v));
+                  return 50 - (c / Y_MAX) * 45; // 5-95%
+                };
+
+                return (
+                  <>
+                    {/* Trädslag-pillar */}
+                    {tradslagAll.length > 0 && (
+                      <div className="kalib-trend-pills">
+                        {tradslagAll.map(([key, td]) => (
+                          <button
+                            key={key}
+                            className={`kalib-trend-pill ${key === trCurrentKey ? 'active' : ''}`}
+                            onClick={() => setSelectedTrendTradslag(key)}
+                          >
+                            <span className="kalib-trend-pill-name">{cap(key)}</span>
+                            <span className="kalib-trend-pill-count">{td.antal_kontroller}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Mätställe-graf */}
+                    {trCurrent && (
+                      <div className="kalib-card">
+                        <div className="kalib-section-title">Avvikelse per mätställe</div>
+                        <div className="kalib-section-subtitle">
+                          {cap(trCurrentKey ?? '')} · {trCurrent.antal_kontroller} kontroller · diameter
+                        </div>
+
+                        {!enough && (
+                          <div className="kalib-trend-too-few">
+                            För få kontroller för pålitligt mönster ({trCurrent.antal_kontroller} av minst {TRADSLAG_TRESHOLD}).
+                            Färgerna är dämpade tills det finns mer data.
+                          </div>
+                        )}
+
+                        {trCurrent.matstallen.length === 0 ? (
+                          <div className="kalib-trend-empty">Inga mätpunkter för {cap(trCurrentKey ?? '')}.</div>
+                        ) : (
+                          <>
+                            <div className={`kalib-trend-chart ${enough ? '' : 'muted'}`}>
+                              {/* Toleransband ±4 mm */}
+                              <div
+                                className="kalib-trend-tol"
+                                style={{ top: `${yPctFor(4)}%`, bottom: `${100 - yPctFor(-4)}%` }}
+                              />
+                              {/* Nollinje */}
+                              <div className="kalib-trend-zero" style={{ top: `${yPctFor(0)}%` }} />
+                              {/* Staplar per mätställe */}
+                              <div className="kalib-trend-bars">
+                                {trCurrent.matstallen.map((m) => {
+                                  const cls = enough ? diaSnittCls(m.snitt_mm) : 'ok';
+                                  const noiseTop = yPctFor(m.snitt_mm + m.stddev_mm);
+                                  const noiseBottom = yPctFor(m.snitt_mm - m.stddev_mm);
+                                  const noiseHeight = Math.max(2, noiseBottom - noiseTop);
+                                  const barTop = m.snitt_mm >= 0 ? yPctFor(m.snitt_mm) : yPctFor(0);
+                                  const barBottom = m.snitt_mm >= 0 ? yPctFor(0) : yPctFor(m.snitt_mm);
+                                  const barHeight = Math.max(2, barBottom - barTop);
+                                  // Brus-band bredare än stapeln → svagt mönster (visualiseras automatiskt)
+                                  return (
+                                    <div key={m.position_cm} className="kalib-trend-col">
+                                      <div className="kalib-trend-col-inner">
+                                        {/* Brus-band (stddev) — ljust, bakom */}
+                                        <div
+                                          className="kalib-trend-noise"
+                                          style={{ top: `${noiseTop}%`, height: `${noiseHeight}%` }}
+                                          title={`Spridning ±${m.stddev_mm.toFixed(1)} mm (1 σ)`}
+                                        />
+                                        {/* Snitt-stapel */}
+                                        <div
+                                          className={`kalib-trend-bar tone-${cls}`}
+                                          style={{ top: `${barTop}%`, height: `${barHeight}%` }}
+                                          title={`Snitt ${fmtAvvikelse(m.snitt_mm, 'mm')} mm · n=${m.n}`}
+                                        />
+                                        {/* Värde-etikett */}
+                                        <div
+                                          className={`kalib-trend-val tone-${cls}`}
+                                          style={{ top: `${m.snitt_mm >= 0 ? Math.max(2, barTop - 6) : Math.min(94, barBottom + 1)}%` }}
+                                        >
+                                          {fmtAvvikelse(m.snitt_mm, 'mm')}
+                                        </div>
+                                      </div>
+                                      <div className="kalib-trend-x">{m.position_cm} cm</div>
+                                      <div className="kalib-trend-n">n={m.n}</div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {/* Y-axel-etiketter */}
+                              <div className="kalib-trend-y-labels">
+                                <span style={{ top: `${yPctFor(8)}%` }}>+8</span>
+                                <span style={{ top: `${yPctFor(4)}%` }}>+4</span>
+                                <span style={{ top: `${yPctFor(0)}%` }}>0</span>
+                                <span style={{ top: `${yPctFor(-4)}%` }}>−4</span>
+                                <span style={{ top: `${yPctFor(-8)}%` }}>−8 mm</span>
+                              </div>
+                            </div>
+                            <div className="kalib-trend-legend">
+                              <span><span className="kalib-trend-leg-bar" /> Snitt</span>
+                              <span><span className="kalib-trend-leg-noise" /> Spridning ±1 σ</span>
+                              <span>Streckad zon = tolerans ±4 mm</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Tidslinje med kontroller + kalibreringsmarkörer */}
+                    {trCurrent && trCurrent.kontroller.length > 0 && (() => {
+                      const datums = trCurrent.kontroller.map(k => new Date(k.datum).getTime());
+                      const tMin = Math.min(...datums);
+                      const tMax = Math.max(...datums);
+                      const tRange = Math.max(1, tMax - tMin);
+                      const tPct = (iso: string) => {
+                        const t = new Date(iso).getTime();
+                        return 3 + ((t - tMin) / tRange) * 94;
+                      };
+                      const kalibForTr = trendData.kalibreringar.filter((kev) => {
+                        if (kev.tradslag && trCurrentKey && kev.tradslag.toLowerCase() !== trCurrentKey) return false;
+                        const t = new Date(kev.datum).getTime();
+                        return t >= tMin - 86400_000 && t <= tMax + 86400_000;
+                      });
+                      // Tidslinjens y-skala = samma som mätställe-grafen (±12 mm) för konsistens
+                      const tlPctFor = yPctFor;
+                      return (
+                        <div className="kalib-card">
+                          <div className="kalib-section-title">Kontroller över tid</div>
+                          <div className="kalib-section-subtitle">
+                            Tryck på en prick för att öppna kontrollen. Lodrät linje = kalibrering.
+                          </div>
+                          <div className="kalib-trend-timeline">
+                            <div className="kalib-trend-zero" style={{ top: `${tlPctFor(0)}%` }} />
+                            <div
+                              className="kalib-trend-tol"
+                              style={{ top: `${tlPctFor(4)}%`, bottom: `${100 - tlPctFor(-4)}%` }}
+                            />
+                            {/* Kalibreringsmarkörer */}
+                            {kalibForTr.map((kev, i) => (
+                              <div
+                                key={`kev-${i}`}
+                                className="kalib-trend-kalib-line"
+                                style={{ left: `${tPct(kev.datum)}%` }}
+                                title={`Kalibrering ${new Date(kev.datum).toLocaleDateString('sv-SE')}${kev.typ ? ` · ${kev.typ}` : ''}${kev.orsak ? ` · ${kev.orsak}` : ''}`}
+                              >
+                                <span className="kalib-trend-kalib-tag">⚙</span>
+                              </div>
+                            ))}
+                            {/* Kontroll-prickar */}
+                            {trCurrent.kontroller.map((k) => {
+                              const cls = enough ? diaSnittCls(k.dia_snitt_mm) : 'ok';
+                              return (
+                                <button
+                                  key={k.filnamn}
+                                  className={`kalib-trend-dot tone-${cls}`}
+                                  style={{ left: `${tPct(k.datum)}%`, top: `${tlPctFor(k.dia_snitt_mm)}%` }}
+                                  onClick={() => openKontrollFull(k.filnamn)}
+                                  disabled={laddarKontroll === k.filnamn}
+                                  title={`${k.object_name || ''} · ${new Date(k.datum).toLocaleDateString('sv-SE')} · ${fmtAvvikelse(k.dia_snitt_mm, 'mm')} mm`}
+                                  aria-label={`Öppna kontroll ${new Date(k.datum).toLocaleDateString('sv-SE')}`}
+                                />
+                              );
+                            })}
+                          </div>
+                          <div className="kalib-trend-tl-x">
+                            <span>{new Date(tMin).toLocaleDateString('sv-SE', { month: 'short', year: '2-digit' })}</span>
+                            <span>{new Date(tMax).toLocaleDateString('sv-SE', { month: 'short', year: '2-digit' })}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {trendData.totalt.antal_kontroller === 0 && (
+                      <div className="kalib-info-box neutral">
+                        <span className="kalib-info-icon"><MSym name="info" size={20} color="#8E8E93" /></span>
+                        <div className="kalib-info-content">
+                          <div className="kalib-info-title">Ingen trenddata</div>
+                          <div className="kalib-info-text">Inga kontroller hittades för det här filtret.</div>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </>
           )}
 
