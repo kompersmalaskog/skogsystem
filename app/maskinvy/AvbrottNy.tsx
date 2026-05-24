@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import {
   C, FONT, MASKINER, COMBO_IDS, getPeriodRange, fetchAll,
-  fmtSv,
+  fmtSv, fmtTid,
   type Maskin, type Period,
 } from './OversiktShared'
 import { translateKategori } from '../../lib/avbrott-kategorier'
@@ -112,7 +112,7 @@ async function fetchAvbrott(maskinId: string, start: string, end: string): Promi
 
 // ── MetricKort (lokal kopia — samma som ProduktionNy:s) ─────
 function MetricKort({
-  label, value, unit, dec = 0, loading, color,
+  label, value, unit, dec = 0, loading, color, display,
 }: {
   label: string
   value: number | null
@@ -120,7 +120,11 @@ function MetricKort({
   dec?: number
   loading: boolean
   color?: string
+  display?: string     // om satt används denna direkt — för tidsformattering med fmtTid
 }) {
+  const rendered = loading
+    ? '—'
+    : display ?? (value !== null ? fmtSv(value, dec) : '—')
   return (
     <div style={{ background: C.card, borderRadius: 14, padding: '14px 16px' }}>
       <div style={{ fontSize: 11, color: C.muted, marginBottom: 8, fontWeight: 500 }}>{label}</div>
@@ -129,7 +133,7 @@ function MetricKort({
           fontSize: 24, fontWeight: 600, letterSpacing: -0.6,
           color: color ?? C.text, fontVariantNumeric: 'tabular-nums', lineHeight: 1,
         }}>
-          {loading ? '—' : (value !== null ? fmtSv(value, dec) : '—')}
+          {rendered}
         </div>
         {unit && <div style={{ fontSize: 12, color: C.muted }}>{unit}</div>}
       </div>
@@ -228,7 +232,7 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
                 color:      showAlarm ? C.red  : (hasData ? C.text  : C.muted),
                 fontWeight: showAlarm ? 600    : 500,
               }}>
-                {loading ? '—' : `${fmtSv(t.sek / 3600, 1)} h`}
+                {loading ? '—' : fmtTid(t.sek)}
               </div>
 
               {/* Chevron */}
@@ -275,7 +279,7 @@ function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
                       fontVariantNumeric: 'tabular-nums',
                       minWidth: 60, textAlign: 'right',
                     }}>
-                      {fmtSv(k.sek / 3600, 2)} h
+                      {fmtTid(k.sek)}
                     </div>
                   </div>
                 ))}
@@ -322,7 +326,7 @@ function FlyttKort({ timmar, antal }: { timmar: number; antal: number }) {
         fontSize: 16, fontWeight: 600, color: FLYTT_FARG,
         fontVariantNumeric: 'tabular-nums', minWidth: 60, textAlign: 'right',
       }}>
-        {fmtSv(timmar, 1)} h
+        {fmtTid(timmar * 3600)}
       </div>
     </div>
   )
@@ -467,11 +471,11 @@ export default function AvbrottNy() {
           gap: 10, marginBottom: 14,
         }}>
           <MetricKort
-            label="Timmar stopp"
+            label="Stopp"
             value={data?.totalTimmar ?? null}
-            unit="h"
-            dec={1}
+            unit=""
             loading={loading}
+            display={data ? fmtTid(data.totalTimmar * 3600) : undefined}
           />
           <MetricKort
             label="Tillfällen"
@@ -482,10 +486,10 @@ export default function AvbrottNy() {
           <MetricKort
             label="Varav haveri"
             value={data?.reparationTimmar ?? null}
-            unit="h"
-            dec={1}
+            unit=""
             loading={loading}
             color={haveriColor}
+            display={data ? fmtTid(data.reparationTimmar * 3600) : undefined}
           />
         </div>
 

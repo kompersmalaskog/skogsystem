@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { translateKategori } from '@/lib/avbrott-kategorier'
 import {
   C, FONT, MASKINER, COMBO_IDS, getPeriodRange, fetchAll,
-  fmtSv, initials,
+  fmtSv, fmtTid, initials,
   type Maskin, type Period,
 } from './OversiktShared'
 
@@ -635,30 +635,24 @@ function PeriodDetalj({ bucket, onClose }: {
             <div style={{ padding: '8px 16px 14px', fontSize: 13, color: C.dim }}>
               Inga avbrott registrerade
             </div>
-          ) : bucket.avbrott.map((a, i) => {
-            const min = Math.round(a.sek / 60)
-            const h = Math.floor(min / 60)
-            const m = min % 60
-            const tid = h > 0 ? (m > 0 ? `${h}h ${m} min` : `${h}h`) : `${m} min`
-            return (
-              <div key={i} style={{
-                display: 'grid', gridTemplateColumns: '8px 1fr auto auto',
-                gap: 10, alignItems: 'center',
-                padding: '10px 16px',
-                borderTop: `0.5px solid ${C.divider}`,
-              }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: C.red, opacity: 0.7 }} />
-                <div style={{ fontSize: 14, color: C.text }}>{translateKategori(a.kategori)}</div>
-                <div style={{ fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
-                  {a.antal} {a.antal === 1 ? 'gång' : 'ggr'}
-                </div>
-                <div style={{
-                  fontSize: 14, fontWeight: 500, color: C.text,
-                  fontVariantNumeric: 'tabular-nums', minWidth: 70, textAlign: 'right',
-                }}>{tid}</div>
+          ) : bucket.avbrott.map((a, i) => (
+            <div key={i} style={{
+              display: 'grid', gridTemplateColumns: '8px 1fr auto auto',
+              gap: 10, alignItems: 'center',
+              padding: '10px 16px',
+              borderTop: `0.5px solid ${C.divider}`,
+            }}>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: C.red, opacity: 0.7 }} />
+              <div style={{ fontSize: 14, color: C.text }}>{translateKategori(a.kategori)}</div>
+              <div style={{ fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+                {a.antal} {a.antal === 1 ? 'gång' : 'ggr'}
               </div>
-            )
-          })}
+              <div style={{
+                fontSize: 14, fontWeight: 500, color: C.text,
+                fontVariantNumeric: 'tabular-nums', minWidth: 70, textAlign: 'right',
+              }}>{fmtTid(a.sek)}</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

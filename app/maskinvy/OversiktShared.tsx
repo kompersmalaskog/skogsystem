@@ -40,6 +40,30 @@ export function fmtSv(num: number | null | undefined, dec: number = 0): string {
   return num.toLocaleString('sv-SE', { minimumFractionDigits: dec, maximumFractionDigits: dec })
 }
 
+/**
+ * Gemensam tidsformattering — enda sanningskällan för hur tid visas.
+ * Tar sekunder (int/float).
+ *
+ *   0             →  "–"
+ *   < 3 600 sek   →  "45 min"
+ *   < 360 000 sek →  "3 h 11 min"   (under 100 h)
+ *   ≥ 360 000 sek →  "147 h"        (minuter onödiga här)
+ *
+ * Verifiering: 16,6 h × 3 600 = 59 760 sek → "16 h 36 min"
+ *              0,2 h  × 3 600 =    720 sek → "12 min"
+ */
+export function fmtTid(sek: number | null | undefined): string {
+  if (!sek || sek <= 0 || !isFinite(sek)) return '–'
+  const min = Math.round(sek / 60)
+  if (min === 0) return '–'
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  if (h === 0) return `${m} min`
+  if (h >= 100) return `${h} h`
+  if (m === 0) return `${h} h`
+  return `${h} h ${m} min`
+}
+
 export function fmtSvDelta(pct: number): string {
   const abs = Math.abs(pct).toLocaleString('sv-SE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
   if (pct > 0) return `+${abs} %`
@@ -575,7 +599,7 @@ export function HeroCard({
               </span>
               {comparison.selfTime !== null && (
                 <span style={{ color: C.dim, fontVariantNumeric: 'tabular-nums' }}>
-                  {' '}· {fmtSv(comparison.selfTime, 1)} h
+                  {' '}· {fmtTid(comparison.selfTime * 3600)}
                 </span>
               )}
               <span style={{ color: C.dim, margin: '0 10px' }}>·</span>
@@ -585,7 +609,7 @@ export function HeroCard({
               </span>
               {comparison.compareTime !== null && (
                 <span style={{ color: C.dim, fontVariantNumeric: 'tabular-nums' }}>
-                  {' '}· {fmtSv(comparison.compareTime, 1)} h
+                  {' '}· {fmtTid(comparison.compareTime * 3600)}
                 </span>
               )}
             </>
@@ -748,7 +772,6 @@ export function TimeDistribution({ data, loading }: { data: Data | null; loading
         {segments.map(s => {
           const v = values ? (values[s.key] as number) : 0
           const pct = total > 0 ? Math.round(v / total * 100) : null
-          const hours = v / 3600
           return (
             <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
               <div style={{ width: 8, height: 8, borderRadius: 2, background: s.color }} />
@@ -757,7 +780,7 @@ export function TimeDistribution({ data, loading }: { data: Data | null; loading
                 {loading || pct === null ? '—' : `${pct}%`}
               </span>
               <span style={{ color: C.dim, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
-                · {loading || !values ? '—' : `${fmtSv(hours, 1)}h`}
+                · {loading || !values ? '—' : fmtTid(v)}
               </span>
             </div>
           )
@@ -770,15 +793,6 @@ export function TimeDistribution({ data, loading }: { data: Data | null; loading
 // ─────────────────────────────────────────────────────────────
 // AvbrottCard — per kategori, eller tomt-tillstånd
 // ─────────────────────────────────────────────────────────────
-function fmtHm(sek: number): string {
-  const min = Math.round(sek / 60)
-  const h = Math.floor(min / 60)
-  const m = min % 60
-  if (h === 0) return `${m} min`
-  if (m === 0) return `${h}h`
-  return `${h}h ${m} min`
-}
-
 export function AvbrottCard({ data, loading }: { data: Data | null; loading: boolean }) {
   return (
     <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
@@ -808,7 +822,7 @@ export function AvbrottCard({ data, loading }: { data: Data | null; loading: boo
             {k.antal} {k.antal === 1 ? 'gång' : 'ggr'}
           </div>
           <div style={{ fontSize: 14, fontWeight: 500, color: C.text, fontVariantNumeric: 'tabular-nums', minWidth: 70, textAlign: 'right' }}>
-            {fmtHm(k.sek)}
+            {fmtTid(k.sek)}
           </div>
         </div>
       ))}
