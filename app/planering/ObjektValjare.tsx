@@ -367,7 +367,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
               {/* Info */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{
-                  fontSize: '16px',
+                  fontSize: '15px',
                   fontWeight: '500',
                   marginBottom: '4px',
                   whiteSpace: 'nowrap',
@@ -406,7 +406,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
 
               {/* Volym */}
               <div style={{ textAlign: 'right', marginLeft: '16px', flexShrink: 0 }}>
-                <div style={{ fontSize: '16px', fontWeight: '500', color: obj.volym ? '#fff' : '#8e8e93' }}>
+                <div style={{ fontSize: '15px', fontWeight: '500', color: obj.volym ? '#fff' : '#8e8e93' }}>
                   {obj.volym ? obj.volym : '–'}
                 </div>
                 <div style={{ fontSize: '13px', color: '#8e8e93' }}>
@@ -440,7 +440,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                     padding: 0,
                   }}
                 >
-                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 28 }}>play_arrow</span>
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '28px' }}>play_arrow</span>
                 </button>
               ) : (
                 <div style={{ marginLeft: '16px', color: '#8e8e93', fontSize: '20px' }} aria-hidden="true">
@@ -548,7 +548,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 width: '100%',
                 padding: '0',
                 height: '56px',
-                borderRadius: '12px',
+                borderRadius: '14px',
                 border: 'none',
                 background: '#30d158',
                 color: '#fff',
@@ -572,12 +572,12 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
               style={{
                 width: '100%',
                 padding: '0',
-                height: '50px',
-                borderRadius: '12px',
+                height: '56px',
+                borderRadius: '14px',
                 border: '1px solid #555',
                 background: 'transparent',
                 color: selectedObj.lat && selectedObj.lng ? '#fff' : '#8e8e93',
-                fontSize: '16px',
+                fontSize: '15px',
                 fontWeight: '500',
                 cursor: selectedObj.lat && selectedObj.lng ? 'pointer' : 'not-allowed',
               }}
