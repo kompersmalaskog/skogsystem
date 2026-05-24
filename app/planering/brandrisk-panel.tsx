@@ -429,78 +429,23 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           </div>
         )}
 
-        {/* Current + Peak */}
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', gap: 32, padding: '20px 24px 8px' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 500, marginBottom: 4 }}>JUST NU KL {nowHour.toString().padStart(2, '0')}</div>
-            <div style={{ fontSize: 44, fontWeight: 700, letterSpacing: -2, lineHeight: 1, color: MCF_COLORS[currentIdx] }}>{currentIdx}</div>
-            <div style={{ fontSize: 11, marginTop: 6, fontWeight: 600, color: MCF_COLORS[currentIdx] }}>{MCF_TEXTS[currentIdx]?.short || ''} brandrisk</div>
-            <div style={{ fontSize: 10, marginTop: 2, color: 'rgba(255,255,255,0.3)' }}>FWI {currentFwi}</div>
+        {/* HERO — dominant current risk */}
+        <div style={{ textAlign: 'center', padding: '20px 24px 16px' }}>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', fontWeight: 500, marginBottom: 8 }}>
+            JUST NU · KL {nowHour.toString().padStart(2, '0')}
           </div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.12)', paddingBottom: 14 }}>&rarr;</div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 500, marginBottom: 4 }}>DAGENS TOPP KL {peakHour.toString().padStart(2, '0')}</div>
-            <div style={{ fontSize: 44, fontWeight: 700, letterSpacing: -2, lineHeight: 1, color: MCF_COLORS[peakIdx] }}>{peakIdx}</div>
-            <div style={{ fontSize: 11, marginTop: 6, fontWeight: 600, color: MCF_COLORS[peakIdx] }}>{MCF_TEXTS[peakIdx]?.short || ''} brandrisk</div>
-            <div style={{ fontSize: 10, marginTop: 2, color: 'rgba(255,255,255,0.3)' }}>FWI {peakFwi}</div>
+          <div style={{ fontSize: 64, fontWeight: 700, letterSpacing: -3, lineHeight: 1, color: MCF_COLORS[currentIdx] }}>
+            {currentIdx}
           </div>
-        </div>
-
-        {/* Eldningsförbud toggle */}
-        <div style={{ margin: '8px 16px', padding: '10px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 13, color: '#fff', fontWeight: 500 }}>Råder eldningsförbud?</div>
-          <div style={{ display: 'flex', gap: 6, padding: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 12, width: 120 }}>
-            {[true, false].map(val => (
-              <button key={String(val)} onClick={() => onEldningsforbudChange(val)}
-                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: eldningsforbud === val ? (val ? '#ff453a' : 'rgba(255,255,255,0.3)') : 'transparent', color: eldningsforbud === val ? (val ? '#fff' : '#000') : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: eldningsforbud === val ? 700 : 500, cursor: 'pointer' }}>
-                {val ? 'Ja' : 'Nej'}
-              </button>
-            ))}
+          <div style={{ fontSize: 17, marginTop: 8, fontWeight: 600, color: MCF_COLORS[currentIdx] }}>
+            {MCF_TEXTS[currentIdx]?.short || ''} brandrisk
           </div>
-        </div>
-
-        {/* LAGER 2: PLANERING - Fire Clock */}
-        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 20, margin: '12px 16px 10px', padding: '24px 16px 20px', textAlign: 'center' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 16, textAlign: 'left', paddingLeft: 4 }}>
-            Brandriskklocka – {clockLabel} {clockDate && `${clockDate}`}
+          <div style={{ fontSize: 13, marginTop: 6, color: 'rgba(255,255,255,0.3)' }}>
+            FWI {currentFwi}
+            {currentIdx !== peakIdx && (
+              <> · Idag topp kl {peakHour.toString().padStart(2, '0')}: nivå {peakIdx} (FWI {peakFwi})</>
+            )}
           </div>
-          <div style={{ position: 'relative', width: 320, height: 320, margin: '0 auto' }}>
-            <FireClock hourlyIdx={clockHourlyIdx} nowHour={activeDay === 0 ? nowHour : 12} nowMinute={activeDay === 0 ? nowMinute : undefined} />
-            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none' }}>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, marginBottom: 2 }}>Lägre beräknad risk</div>
-              <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5, color: MCF_COLORS[lowestIdx] || MCF_COLORS[1] }}>
-                {lowestStart.toString().padStart(2, '0')}–{lowestEnd.toString().padStart(2, '0')}
-              </div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginBottom: 8 }}>Nivå {lowestIdx} · {MCF_TEXTS[lowestIdx]?.short || ''}</div>
-              <div style={{ width: 30, height: 1, background: 'rgba(255,255,255,0.06)', margin: '6px auto 8px' }} />
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, marginBottom: 2 }}>Högst beräknad risk</div>
-              <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5, color: MCF_COLORS[highestIdx] || MCF_COLORS[4] }}>
-                {highestStart.toString().padStart(2, '0')}–{highestEnd.toString().padStart(2, '0')}
-              </div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>Nivå {highestIdx} · {MCF_TEXTS[highestIdx]?.short || ''}</div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
-            {[1,2,3,4,5,6].map(i => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, color: 'rgba(255,255,255,0.35)' }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: MCF_COLORS[i], flexShrink: 0 }} />{i}
-              </div>
-            ))}
-          </div>
-
-          {/* Day selector */}
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 16 }}>
-            {sortedDaily.slice(0, 7).map((d, i) => (
-              <button key={i} onClick={() => setActiveDay(i)} style={{ padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500, color: activeDay === i ? '#fff' : 'rgba(255,255,255,0.3)', background: activeDay === i ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
-                {d.dayName}
-              </button>
-            ))}
-          </div>
-
-          {windHumNote && (
-            <div style={{ marginTop: 14, fontSize: 12, color: 'rgba(255,255,255,0.2)' }}>{windHumNote}</div>
-          )}
         </div>
 
         {/* VECKA - Week forecast with bars */}
@@ -582,6 +527,63 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
               ))}
             </div>
           </Collapsible>
+        </div>
+
+        {/* LAGER 2: PLANERING - Fire Clock */}
+        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 20, margin: '12px 16px 10px', padding: '24px 16px 20px', textAlign: 'center' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 16, textAlign: 'left', paddingLeft: 4 }}>
+            Brandriskklocka – {clockLabel} {clockDate && `${clockDate}`}
+          </div>
+          <div style={{ position: 'relative', width: 320, height: 320, margin: '0 auto' }}>
+            <FireClock hourlyIdx={clockHourlyIdx} nowHour={activeDay === 0 ? nowHour : 12} nowMinute={activeDay === 0 ? nowMinute : undefined} />
+            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none' }}>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, marginBottom: 2 }}>Lägre beräknad risk</div>
+              <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5, color: MCF_COLORS[lowestIdx] || MCF_COLORS[1] }}>
+                {lowestStart.toString().padStart(2, '0')}–{lowestEnd.toString().padStart(2, '0')}
+              </div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginBottom: 8 }}>Nivå {lowestIdx} · {MCF_TEXTS[lowestIdx]?.short || ''}</div>
+              <div style={{ width: 30, height: 1, background: 'rgba(255,255,255,0.06)', margin: '6px auto 8px' }} />
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, marginBottom: 2 }}>Högst beräknad risk</div>
+              <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5, color: MCF_COLORS[highestIdx] || MCF_COLORS[4] }}>
+                {highestStart.toString().padStart(2, '0')}–{highestEnd.toString().padStart(2, '0')}
+              </div>
+              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>Nivå {highestIdx} · {MCF_TEXTS[highestIdx]?.short || ''}</div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
+            {[1,2,3,4,5,6].map(i => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, color: 'rgba(255,255,255,0.35)' }}>
+                <div style={{ width: 8, height: 8, borderRadius: 2, background: MCF_COLORS[i], flexShrink: 0 }} />{i}
+              </div>
+            ))}
+          </div>
+
+          {/* Day selector */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 16 }}>
+            {sortedDaily.slice(0, 7).map((d, i) => (
+              <button key={i} onClick={() => setActiveDay(i)} style={{ padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500, color: activeDay === i ? '#fff' : 'rgba(255,255,255,0.3)', background: activeDay === i ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+                {d.dayName}
+              </button>
+            ))}
+          </div>
+
+          {windHumNote && (
+            <div style={{ marginTop: 14, fontSize: 12, color: 'rgba(255,255,255,0.2)' }}>{windHumNote}</div>
+          )}
+        </div>
+
+        {/* Eldningsförbud toggle */}
+        <div style={{ margin: '8px 16px', padding: '10px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 13, color: '#fff', fontWeight: 500 }}>Råder eldningsförbud?</div>
+          <div style={{ display: 'flex', gap: 6, padding: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 12, width: 120 }}>
+            {[true, false].map(val => (
+              <button key={String(val)} onClick={() => onEldningsforbudChange(val)}
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: eldningsforbud === val ? (val ? '#ff453a' : 'rgba(255,255,255,0.3)') : 'transparent', color: eldningsforbud === val ? (val ? '#fff' : '#000') : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: eldningsforbud === val ? 700 : 500, cursor: 'pointer' }}>
+                {val ? 'Ja' : 'Nej'}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* === OPERATIONAL SECTIONS (from old panel) === */}
