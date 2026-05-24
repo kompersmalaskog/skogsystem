@@ -1649,7 +1649,9 @@ export default function KalibreringPage() {
         .kalib-trend-y-labels{position:absolute;left:0;top:0;bottom:46px;width:24px;pointer-events:none}
         .kalib-trend-y-labels span{position:absolute;right:0;transform:translateY(-50%);font-size:10px;color:#666;font-variant-numeric:tabular-nums}
 
-        .kalib-trend-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-size:11px;color:#8E8E93}
+        /* Legenden ligger OVANFÖR grafen så den inte krockar med x-axelns
+           mätställe-etiketter (130 cm / 200 cm / ...) längst ner. */
+        .kalib-trend-legend{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0 6px;font-size:11px;color:#8E8E93}
         .kalib-trend-legend > span{display:flex;align-items:center;gap:5px}
         .kalib-trend-leg-bar{display:inline-block;width:8px;height:12px;background:#8E8E93;border-radius:1px}
         .kalib-trend-leg-noise{display:inline-block;width:14px;height:12px;background:rgba(255,255,255,0.08);border-radius:2px}
@@ -2146,6 +2148,11 @@ export default function KalibreringPage() {
                           <div className="kalib-trend-empty">Inga mätpunkter för {cap(trCurrentKey ?? '')}.</div>
                         ) : (
                           <>
+                            <div className="kalib-trend-legend">
+                              <span><span className="kalib-trend-leg-bar" /> Snitt</span>
+                              <span><span className="kalib-trend-leg-noise" /> Spridning ±1 σ</span>
+                              <span>Streckad zon = tolerans ±4 mm</span>
+                            </div>
                             <div className={`kalib-trend-chart ${enough ? '' : 'muted'}`}>
                               {/* Toleransband ±4 mm */}
                               <div
@@ -2202,11 +2209,6 @@ export default function KalibreringPage() {
                                 <span style={{ top: `${yPctFor(-4)}%` }}>−4</span>
                                 <span style={{ top: `${yPctFor(-8)}%` }}>−8 mm</span>
                               </div>
-                            </div>
-                            <div className="kalib-trend-legend">
-                              <span><span className="kalib-trend-leg-bar" /> Snitt</span>
-                              <span><span className="kalib-trend-leg-noise" /> Spridning ±1 σ</span>
-                              <span>Streckad zon = tolerans ±4 mm</span>
                             </div>
                           </>
                         )}
