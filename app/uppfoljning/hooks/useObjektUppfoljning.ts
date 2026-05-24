@@ -49,7 +49,7 @@ export function useObjektUppfoljning(obj: UppfoljningObjekt): UseObjektUppfoljni
           supabase.from('dim_sortiment').select('sortiment_id, namn'),
           supabase.from('dim_tradslag').select('tradslag_id, namn'),
           supabase.from('fakt_avbrott').select('objekt_id, maskin_id, typ, kategori_kod, langd_sek, datum').in('objekt_id', ids),
-          stId ? supabase.from('fakt_lass').select('objekt_id, datum, volym_m3sob, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
+          stId ? supabase.from('fakt_lass').select('objekt_id, datum, volym_m3sub, korstracka_m').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
           stId ? supabase.from('fakt_lass_sortiment').select('objekt_id, sortiment_id, sortiment_namn, volym_m3sub').eq('objekt_id', stId) : Promise.resolve({ data: [] }),
           supabase.from('dim_operator').select('operator_id, operator_namn, operator_key'),
           supabase.from('dim_maskin').select('maskin_id, maskin_typ'),

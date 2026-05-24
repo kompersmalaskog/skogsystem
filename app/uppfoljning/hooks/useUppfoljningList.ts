@@ -94,7 +94,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
             ? fetchPaginated<any>(() => supabase.from('fakt_produktion').select('objekt_id, maskin_id, volym_m3sub, stammar').in('objekt_id', allObjektIds))
             : Promise.resolve([] as any[]),
           allObjektIds.length > 0
-            ? fetchPaginated<any>(() => supabase.from('fakt_lass').select('objekt_id, volym_m3sob').in('objekt_id', allObjektIds))
+            ? fetchPaginated<any>(() => supabase.from('fakt_lass').select('objekt_id, volym_m3sub').in('objekt_id', allObjektIds))
             : Promise.resolve([] as any[]),
           allObjektIds.length > 0
             ? fetchPaginated<any>(() => supabase.from('fakt_tid').select('objekt_id, maskin_id, bransle_liter, datum').in('objekt_id', allObjektIds))
@@ -138,7 +138,7 @@ export function useUppfoljningList(): UseUppfoljningListResult {
         lass.forEach(l => {
           const key = l.objekt_id;
           const prev = lassAgg.get(key) || { vol: 0, count: 0 };
-          prev.vol += (l.volym_m3sob || 0);
+          prev.vol += (l.volym_m3sub || 0);
           prev.count += 1;
           lassAgg.set(key, prev);
         });
