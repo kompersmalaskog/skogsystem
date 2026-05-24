@@ -31,6 +31,7 @@ export type TrendKontroll = {
   filnamn: string;
   datum: string;
   dia_snitt_mm: number;
+  len_snitt_cm: number;
   antal_stockar: number;
   object_name: string | null;
 };
@@ -96,12 +97,13 @@ export async function GET(req: NextRequest) {
     tradslag: string | null;
     antal_kontrollstockar: number | null;
     dia_avvikelse_snitt_mm: number | null;
+    langd_avvikelse_snitt_cm: number | null;
     object_name: string | null;
   };
   let kontrQuery = supabase
     .from("fakt_kalibrering")
     .select(
-      "filnamn,datum,maskin_id,tradslag,antal_kontrollstockar,dia_avvikelse_snitt_mm,object_name",
+      "filnamn,datum,maskin_id,tradslag,antal_kontrollstockar,dia_avvikelse_snitt_mm,langd_avvikelse_snitt_cm,object_name",
     );
   if (maskinId) kontrQuery = kontrQuery.eq("maskin_id", maskinId);
 
@@ -228,6 +230,7 @@ export async function GET(req: NextRequest) {
         filnamn: k.filnamn,
         datum: k.datum,
         dia_snitt_mm: k.dia_avvikelse_snitt_mm ?? 0,
+        len_snitt_cm: k.langd_avvikelse_snitt_cm ?? 0,
         antal_stockar: k.antal_kontrollstockar ?? 0,
         object_name: k.object_name,
       }));

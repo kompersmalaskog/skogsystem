@@ -260,7 +260,7 @@ export default function KalibreringPage() {
 
   // === Trend-fliken: lazy fetch när användaren går dit, cache i ref ===
   type TrendMatstalle = { position_cm: number; snitt_mm: number; stddev_mm: number; n: number };
-  type TrendKontrollPunkt = { filnamn: string; datum: string; dia_snitt_mm: number; antal_stockar: number; object_name: string | null };
+  type TrendKontrollPunkt = { filnamn: string; datum: string; dia_snitt_mm: number; len_snitt_cm: number; antal_stockar: number; object_name: string | null };
   type TrendKalibreringEv = { datum: string; maskin_id: string; tradslag: string | null; typ: string | null; orsak: string | null };
   type TrendTradslagData = { antal_kontroller: number; matstallen: TrendMatstalle[]; kontroller: TrendKontrollPunkt[] };
   type TrendData = { per_tradslag: Record<string, TrendTradslagData>; kalibreringar: TrendKalibreringEv[]; totalt: { antal_kontroller: number; antal_matpunkter: number } };
@@ -268,6 +268,8 @@ export default function KalibreringPage() {
   const [trendLoading, setTrendLoading] = useState(false);
   const [trendError, setTrendError] = useState<string | null>(null);
   const [selectedTrendTradslag, setSelectedTrendTradslag] = useState<string | null>(null);
+  const [trendUnit, setTrendUnit] = useState<'dia' | 'len'>('dia');
+  const [trendPeriod, setTrendPeriod] = useState<'vecka' | 'manad' | 'kvartal' | 'ar'>('manad');
   const trendFetchKeyRef = useRef<string | null>(null);
 
   // Globalt maskinfilter — persistent över flikar
@@ -1614,59 +1616,49 @@ export default function KalibreringPage() {
         .kalib-list-value.bad{color:#FF3B30}
 
         /* === Kalender-fliken === */
-        /* === Trend-fliken — staplar per mätställe + tidslinje === */
-        .kalib-trend-pills{display:flex;gap:8px;margin:0 0 14px;flex-wrap:wrap}
+        /* === Trend-fliken — kurva + tidsfilter + auto-mening === */
+        .kalib-trend-pills{display:flex;gap:8px;margin:0 0 10px;flex-wrap:wrap}
         .kalib-trend-pill{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:20px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);color:#fff;font-size:14px;font-weight:500;cursor:pointer;transition:background 0.12s}
         .kalib-trend-pill:hover{background:rgba(255,255,255,0.10)}
         .kalib-trend-pill.active{background:#fff;color:#000;border-color:#fff}
         .kalib-trend-pill-count{font-size:12px;opacity:0.7;font-variant-numeric:tabular-nums}
         .kalib-trend-pill.active .kalib-trend-pill-count{opacity:0.55}
 
+        /* iOS-segmenterad kontroll: enhetväxling (Dia/Längd) och tidsupplösning */
+        .kalib-trend-seg{display:flex;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.06);border-radius:9px;padding:2px;margin:0 0 10px;width:100%}
+        .kalib-trend-seg-btn{flex:1;padding:7px 4px;border-radius:7px;border:none;background:transparent;color:#8E8E93;font-size:13px;font-weight:500;cursor:pointer;transition:background 0.12s,color 0.12s}
+        .kalib-trend-seg-btn:hover{color:#fff}
+        .kalib-trend-seg-btn.active{background:#3A3A3C;color:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.4)}
+
         .kalib-trend-too-few{font-size:13px;color:#FF9F0A;background:rgba(255,159,10,0.10);padding:10px 12px;border-radius:8px;margin:8px 0 14px;line-height:1.4}
         .kalib-trend-empty{font-size:13px;color:#8E8E93;padding:16px;text-align:center}
 
-        .kalib-trend-chart{position:relative;height:220px;margin:14px 0 6px;padding:0 36px 0 28px}
-        .kalib-trend-chart.muted{opacity:0.55}
-        .kalib-trend-tol{position:absolute;left:28px;right:36px;background:rgba(255,255,255,0.035);border-top:1px dashed rgba(255,255,255,0.18);border-bottom:1px dashed rgba(255,255,255,0.18);pointer-events:none}
-        .kalib-trend-zero{position:absolute;left:28px;right:36px;height:1px;background:rgba(255,255,255,0.32);pointer-events:none}
-        .kalib-trend-bars{position:absolute;left:28px;right:36px;top:0;bottom:0;display:flex;align-items:stretch}
-        .kalib-trend-col{flex:1;display:flex;flex-direction:column;align-items:center;position:relative}
-        .kalib-trend-col-inner{position:relative;flex:1;width:100%}
-        .kalib-trend-noise{position:absolute;left:50%;transform:translateX(-50%);width:22px;background:rgba(255,255,255,0.08);border-radius:3px;pointer-events:none}
-        .kalib-trend-bar{position:absolute;left:50%;transform:translateX(-50%);width:12px;background:#8E8E93;border-radius:2px;transition:background 0.15s}
-        .kalib-trend-bar.tone-ok{background:#8E8E93}
-        .kalib-trend-bar.tone-cold{background:#0A84FF}
-        .kalib-trend-bar.tone-hi{background:#FF9F0A}
-        .kalib-trend-bar.tone-hot{background:#FF453A}
-        .kalib-trend-val{position:absolute;left:50%;transform:translateX(-50%);font-size:11px;font-weight:600;color:#8E8E93;font-variant-numeric:tabular-nums;white-space:nowrap;pointer-events:none}
-        .kalib-trend-val.tone-ok{color:#8E8E93}
-        .kalib-trend-val.tone-cold{color:#0A84FF}
-        .kalib-trend-val.tone-hi{color:#FF9F0A}
-        .kalib-trend-val.tone-hot{color:#FF453A}
-        .kalib-trend-x{position:absolute;bottom:-32px;font-size:12px;color:#8E8E93;font-variant-numeric:tabular-nums}
-        .kalib-trend-n{position:absolute;bottom:-46px;font-size:10px;color:#666;font-variant-numeric:tabular-nums}
-        .kalib-trend-chart{padding-bottom:46px;height:266px}
-        .kalib-trend-y-labels{position:absolute;left:0;top:0;bottom:46px;width:24px;pointer-events:none}
-        .kalib-trend-y-labels span{position:absolute;right:0;transform:translateY(-50%);font-size:10px;color:#666;font-variant-numeric:tabular-nums}
+        /* Trendkurvan: SVG-polyline + HTML-punkter ovanpå för klick/tooltip.
+           Plot-rutan är egen container så att xPctFor/yPct mappar 1:1 mot
+           både SVG:ns viewBox (0..100) och HTML-positionerna (left/top:%). */
+        .kalib-curve{margin:14px 0 0}
+        .kalib-curve.muted{opacity:0.55}
+        .kalib-curve-row{display:flex;height:200px}
+        .kalib-curve-yaxis{flex:0 0 30px;position:relative}
+        .kalib-curve-yaxis span{position:absolute;right:4px;transform:translateY(-50%);font-size:10px;color:#666;font-variant-numeric:tabular-nums}
+        .kalib-curve-plot{flex:1;position:relative;background:rgba(255,255,255,0.02);border-radius:8px}
+        .kalib-curve-tol{position:absolute;left:0;right:0;background:rgba(255,255,255,0.035);border-top:1px dashed rgba(255,255,255,0.18);border-bottom:1px dashed rgba(255,255,255,0.18);pointer-events:none}
+        .kalib-curve-zero{position:absolute;left:0;right:0;height:1px;background:rgba(255,255,255,0.32);pointer-events:none}
+        .kalib-curve-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+        .kalib-curve-dot{position:absolute;width:10px;height:10px;border-radius:50%;background:#8E8E93;transform:translate(-50%,-50%);box-shadow:0 0 0 2px rgba(0,0,0,0.55);pointer-events:none}
+        .kalib-curve-dot.tone-ok{background:#8E8E93}
+        .kalib-curve-dot.tone-cold{background:#0A84FF}
+        .kalib-curve-dot.tone-hi{background:#FF9F0A}
+        .kalib-curve-dot.tone-hot{background:#FF453A}
+        .kalib-curve-kalib{position:absolute;top:0;bottom:0;width:1px;background:repeating-linear-gradient(to bottom,rgba(255,255,255,0.45) 0 3px,transparent 3px 6px);transform:translateX(-0.5px);pointer-events:none}
+        .kalib-curve-kalib-tag{position:absolute;top:-14px;left:50%;transform:translateX(-50%);font-size:10px;color:#8E8E93;background:#1C1C1E;padding:1px 5px;border-radius:3px;line-height:1.3;white-space:nowrap}
 
-        /* Legenden ligger OVANFÖR grafen så den inte krockar med x-axelns
-           mätställe-etiketter (130 cm / 200 cm / ...) längst ner. */
-        .kalib-trend-legend{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0 6px;font-size:11px;color:#8E8E93}
-        .kalib-trend-legend > span{display:flex;align-items:center;gap:5px}
-        .kalib-trend-leg-bar{display:inline-block;width:8px;height:12px;background:#8E8E93;border-radius:1px}
-        .kalib-trend-leg-noise{display:inline-block;width:14px;height:12px;background:rgba(255,255,255,0.08);border-radius:2px}
+        .kalib-curve-xaxis{display:flex;height:24px;margin-top:8px}
+        .kalib-curve-xaxis-spacer{flex:0 0 30px}
+        .kalib-curve-xaxis-inner{flex:1;position:relative}
+        .kalib-curve-xaxis-inner span{position:absolute;transform:translateX(-50%);font-size:11px;color:#8E8E93;font-variant-numeric:tabular-nums;white-space:nowrap;top:0}
 
-        .kalib-trend-timeline{position:relative;height:160px;margin:14px 0 4px;background:rgba(255,255,255,0.02);border-radius:8px}
-        .kalib-trend-dot{position:absolute;width:10px;height:10px;border-radius:50%;background:#8E8E93;transform:translate(-50%,-50%);border:none;padding:0;cursor:pointer;box-shadow:0 0 0 2px rgba(0,0,0,0.55);transition:transform 0.12s}
-        .kalib-trend-dot:hover{transform:translate(-50%,-50%) scale(1.3)}
-        .kalib-trend-dot:disabled{opacity:0.5;cursor:wait}
-        .kalib-trend-dot.tone-ok{background:#8E8E93}
-        .kalib-trend-dot.tone-cold{background:#0A84FF}
-        .kalib-trend-dot.tone-hi{background:#FF9F0A}
-        .kalib-trend-dot.tone-hot{background:#FF453A}
-        .kalib-trend-kalib-line{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,0.35);transform:translateX(-0.5px);pointer-events:none}
-        .kalib-trend-kalib-tag{position:absolute;top:-2px;left:50%;transform:translateX(-50%);font-size:11px;color:#8E8E93;background:#1C1C1E;padding:1px 3px;border-radius:3px;line-height:1}
-        .kalib-trend-tl-x{display:flex;justify-content:space-between;font-size:11px;color:#8E8E93;margin-top:6px;padding:0 4px}
+        .kalib-curve-mening{font-size:14px;color:#fff;line-height:1.45;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:10px;margin-top:14px}
 
         .kalib-cal-header{display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-bottom:14px}
         .kalib-cal-nav{width:44px;height:44px;border-radius:22px;background:#1C1C1E;border:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-family:inherit}
@@ -2099,17 +2091,131 @@ export default function KalibreringPage() {
                 const trCurrent = trCurrentKey ? trendData.per_tradslag[trCurrentKey] : null;
                 const enough = trCurrent ? trCurrent.antal_kontroller >= TRADSLAG_TRESHOLD : false;
 
-                // Diverging-klassning för snittstaplar — exakt samma trösklar som nivå 1/2/3
+                // Diverging-klassning — exakt samma trösklar som nivå 1/2/3.
+                // Tröskeln skiljer mellan diameter (±4mm) och längd (±2cm).
                 type DivCls2 = 'cold' | 'ok' | 'hi' | 'hot';
-                const diaSnittCls = (a: number): DivCls2 =>
-                  a > 6 ? 'hot' : a > 4 ? 'hi' : a < -4 ? 'cold' : 'ok';
-
-                // Y-skala: ±12 mm (utrymme för stora avvikelser + brus-band)
-                const Y_MAX = 12;
-                const yPctFor = (v: number) => {
-                  const c = Math.max(-Y_MAX, Math.min(Y_MAX, v));
-                  return 50 - (c / Y_MAX) * 45; // 5-95%
+                const valCls = (v: number): DivCls2 => {
+                  if (trendUnit === 'dia') {
+                    return v > 6 ? 'hot' : v > 4 ? 'hi' : v < -4 ? 'cold' : 'ok';
+                  }
+                  return v > 3 ? 'hot' : v > 2 ? 'hi' : v < -2 ? 'cold' : 'ok';
                 };
+                const tol = trendUnit === 'dia' ? 4 : 2;
+                const unitTxt = trendUnit === 'dia' ? 'mm' : 'cm';
+                const Y_MAX = trendUnit === 'dia' ? 12 : 6;
+                const yPct = (v: number) => {
+                  const c = Math.max(-Y_MAX, Math.min(Y_MAX, v));
+                  return 50 - (c / Y_MAX) * 45;
+                };
+                const yAxisLabels = trendUnit === 'dia'
+                  ? [{ v: 8, t: '+8' }, { v: 4, t: '+4' }, { v: 0, t: '0' }, { v: -4, t: '−4' }, { v: -8, t: `−8 ${unitTxt}` }]
+                  : [{ v: 4, t: '+4' }, { v: 2, t: '+2' }, { v: 0, t: '0' }, { v: -2, t: '−2' }, { v: -4, t: `−4 ${unitTxt}` }];
+
+                // === Period-bucketing ===
+                type PeriodKey = string;
+                const periodOf = (iso: string): { key: PeriodKey; sortKey: number; label: string; mid: number } => {
+                  const d = new Date(iso);
+                  if (trendPeriod === 'ar') {
+                    const y = d.getFullYear();
+                    return { key: `${y}`, sortKey: y * 10000, label: `${y}`, mid: new Date(y, 6, 1).getTime() };
+                  }
+                  if (trendPeriod === 'kvartal') {
+                    const q = Math.floor(d.getMonth() / 3) + 1;
+                    const y = d.getFullYear();
+                    return { key: `${y}-Q${q}`, sortKey: y * 100 + q, label: `Q${q} ${String(y).slice(2)}`, mid: new Date(y, (q - 1) * 3 + 1, 15).getTime() };
+                  }
+                  if (trendPeriod === 'manad') {
+                    const y = d.getFullYear();
+                    const m = d.getMonth() + 1;
+                    const monthNames = ['Jan','Feb','Mar','Apr','Maj','Jun','Jul','Aug','Sep','Okt','Nov','Dec'];
+                    return { key: `${y}-${String(m).padStart(2, '0')}`, sortKey: y * 100 + m, label: `${monthNames[m - 1]} ${String(y).slice(2)}`, mid: new Date(y, m - 1, 15).getTime() };
+                  }
+                  // vecka — ISO week (Thursday-anchored)
+                  const tmp = new Date(d);
+                  tmp.setHours(0, 0, 0, 0);
+                  tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
+                  const firstThursday = new Date(tmp.getFullYear(), 0, 4);
+                  firstThursday.setDate(firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7));
+                  const week = 1 + Math.round((tmp.getTime() - firstThursday.getTime()) / (7 * 86400000));
+                  const wy = tmp.getFullYear();
+                  return { key: `${wy}-w${String(week).padStart(2, '0')}`, sortKey: wy * 100 + week, label: `v.${week}`, mid: tmp.getTime() };
+                };
+
+                // Bygg periods för aktuellt trädslag + enhet
+                type CurvePoint = { key: string; label: string; sortKey: number; mid: number; avg: number; n: number };
+                const curvePoints: CurvePoint[] = (() => {
+                  if (!trCurrent) return [];
+                  const buckets = new Map<string, { sortKey: number; label: string; mid: number; vals: number[] }>();
+                  for (const k of trCurrent.kontroller) {
+                    const p = periodOf(k.datum);
+                    const v = trendUnit === 'dia' ? k.dia_snitt_mm : k.len_snitt_cm;
+                    const b = buckets.get(p.key);
+                    if (b) { b.vals.push(v); }
+                    else buckets.set(p.key, { sortKey: p.sortKey, label: p.label, mid: p.mid, vals: [v] });
+                  }
+                  const arr: CurvePoint[] = [];
+                  buckets.forEach((b, key) => {
+                    arr.push({ key, label: b.label, sortKey: b.sortKey, mid: b.mid, avg: b.vals.reduce((a, c) => a + c, 0) / b.vals.length, n: b.vals.length });
+                  });
+                  arr.sort((a, b) => a.sortKey - b.sortKey);
+                  return arr;
+                })();
+
+                // Auto-mening: ärlig sammanfattning av kurvan
+                const autoMening = (): string => {
+                  if (curvePoints.length === 0) return '';
+                  if (curvePoints.length === 1) {
+                    const p = curvePoints[0];
+                    return `${p.label}: ${fmtAvvikelse(p.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}. För få perioder för att se trend.`;
+                  }
+                  const allInTol = curvePoints.every((p) => Math.abs(p.avg) <= tol);
+                  if (allInTol) return `Stabilt — inom ±${tol} ${unitTxt} hela perioden.`;
+                  const peak = curvePoints.reduce((a, b) => Math.abs(b.avg) > Math.abs(a.avg) ? b : a);
+                  const peakIdx = curvePoints.indexOf(peak);
+                  const last = curvePoints[curvePoints.length - 1];
+                  if (peak === last) {
+                    const dir = peak.avg > 0 ? (trendUnit === 'dia' ? 'grovt' : 'långt') : (trendUnit === 'dia' ? 'klent' : 'kort');
+                    return `Drar åt ${dir} nu — ${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt} i ${peak.label}.`;
+                  }
+                  const after = curvePoints.slice(peakIdx + 1);
+                  const recovered = after.length > 0 && after.every((p) => Math.abs(p.avg) <= tol);
+                  if (recovered) {
+                    return `Drog iväg i ${peak.label} (${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}), tillbaka inom tolerans efter det.`;
+                  }
+                  return `Topp ${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt} i ${peak.label}.`;
+                };
+
+                // Kalibreringsmarkörer för aktuellt trädslag — knyt till närmaste period
+                const kalibMarkers: { idx: number; label: string }[] = (() => {
+                  if (curvePoints.length === 0) return [];
+                  const out: { idx: number; label: string }[] = [];
+                  for (const kev of trendData.kalibreringar) {
+                    if (kev.tradslag && trCurrentKey && kev.tradslag.toLowerCase() !== trCurrentKey) continue;
+                    const p = periodOf(kev.datum);
+                    let bestIdx = -1, bestDelta = Infinity;
+                    for (let i = 0; i < curvePoints.length; i++) {
+                      const d = Math.abs(curvePoints[i].sortKey - p.sortKey);
+                      if (d < bestDelta) { bestDelta = d; bestIdx = i; }
+                    }
+                    if (bestIdx === -1) continue;
+                    // Tag korta etikett: bara datumet
+                    const dateLabel = new Date(kev.datum).toLocaleDateString('sv-SE', { month: 'short', day: 'numeric' });
+                    out.push({ idx: bestIdx, label: dateLabel });
+                  }
+                  return out;
+                })();
+
+                // X-positioner: jämn fördelning över bredden
+                const xPctFor = (i: number) => {
+                  if (curvePoints.length <= 1) return 50;
+                  return 6 + (i / (curvePoints.length - 1)) * 88;
+                };
+
+                // SVG polyline (om vi har minst 2 punkter) — viewBox är 0..100 i båda
+                // axlar, vilket matchar HTML-dotternas left/top i procent.
+                const polylinePoints = curvePoints.length >= 2
+                  ? curvePoints.map((p, i) => `${xPctFor(i).toFixed(2)},${yPct(p.avg).toFixed(2)}`).join(' ')
+                  : '';
 
                 return (
                   <>
@@ -2129,12 +2235,34 @@ export default function KalibreringPage() {
                       </div>
                     )}
 
-                    {/* Mätställe-graf */}
+                    {/* Enhetväxling (Diameter / Längd) */}
+                    <div className="kalib-trend-seg">
+                      <button
+                        className={`kalib-trend-seg-btn ${trendUnit === 'dia' ? 'active' : ''}`}
+                        onClick={() => setTrendUnit('dia')}
+                      >Diameter</button>
+                      <button
+                        className={`kalib-trend-seg-btn ${trendUnit === 'len' ? 'active' : ''}`}
+                        onClick={() => setTrendUnit('len')}
+                      >Längd</button>
+                    </div>
+
+                    {/* Tidsupplösning */}
+                    <div className="kalib-trend-seg">
+                      <button className={`kalib-trend-seg-btn ${trendPeriod === 'vecka' ? 'active' : ''}`} onClick={() => setTrendPeriod('vecka')}>Vecka</button>
+                      <button className={`kalib-trend-seg-btn ${trendPeriod === 'manad' ? 'active' : ''}`} onClick={() => setTrendPeriod('manad')}>Månad</button>
+                      <button className={`kalib-trend-seg-btn ${trendPeriod === 'kvartal' ? 'active' : ''}`} onClick={() => setTrendPeriod('kvartal')}>Kvartal</button>
+                      <button className={`kalib-trend-seg-btn ${trendPeriod === 'ar' ? 'active' : ''}`} onClick={() => setTrendPeriod('ar')}>År</button>
+                    </div>
+
+                    {/* Trendkurva */}
                     {trCurrent && (
                       <div className="kalib-card">
-                        <div className="kalib-section-title">Avvikelse per mätställe</div>
+                        <div className="kalib-section-title">
+                          {trendUnit === 'dia' ? 'Diameter' : 'Längd'} · {cap(trCurrentKey ?? '')}
+                        </div>
                         <div className="kalib-section-subtitle">
-                          {cap(trCurrentKey ?? '')} · {trCurrent.antal_kontroller} kontroller · diameter
+                          Snitt per {trendPeriod === 'vecka' ? 'vecka' : trendPeriod === 'manad' ? 'månad' : trendPeriod === 'kvartal' ? 'kvartal' : 'år'} · {trCurrent.antal_kontroller} kontroller
                         </div>
 
                         {!enough && (
@@ -2144,140 +2272,89 @@ export default function KalibreringPage() {
                           </div>
                         )}
 
-                        {trCurrent.matstallen.length === 0 ? (
-                          <div className="kalib-trend-empty">Inga mätpunkter för {cap(trCurrentKey ?? '')}.</div>
+                        {curvePoints.length === 0 ? (
+                          <div className="kalib-trend-empty">Inga kontroller för {cap(trCurrentKey ?? '')}.</div>
                         ) : (
                           <>
-                            <div className="kalib-trend-legend">
-                              <span><span className="kalib-trend-leg-bar" /> Snitt</span>
-                              <span><span className="kalib-trend-leg-noise" /> Spridning ±1 σ</span>
-                              <span>Streckad zon = tolerans ±4 mm</span>
-                            </div>
-                            <div className={`kalib-trend-chart ${enough ? '' : 'muted'}`}>
-                              {/* Toleransband ±4 mm */}
-                              <div
-                                className="kalib-trend-tol"
-                                style={{ top: `${yPctFor(4)}%`, bottom: `${100 - yPctFor(-4)}%` }}
-                              />
-                              {/* Nollinje */}
-                              <div className="kalib-trend-zero" style={{ top: `${yPctFor(0)}%` }} />
-                              {/* Staplar per mätställe */}
-                              <div className="kalib-trend-bars">
-                                {trCurrent.matstallen.map((m) => {
-                                  const cls = enough ? diaSnittCls(m.snitt_mm) : 'ok';
-                                  const noiseTop = yPctFor(m.snitt_mm + m.stddev_mm);
-                                  const noiseBottom = yPctFor(m.snitt_mm - m.stddev_mm);
-                                  const noiseHeight = Math.max(2, noiseBottom - noiseTop);
-                                  const barTop = m.snitt_mm >= 0 ? yPctFor(m.snitt_mm) : yPctFor(0);
-                                  const barBottom = m.snitt_mm >= 0 ? yPctFor(0) : yPctFor(m.snitt_mm);
-                                  const barHeight = Math.max(2, barBottom - barTop);
-                                  // Brus-band bredare än stapeln → svagt mönster (visualiseras automatiskt)
-                                  return (
-                                    <div key={m.position_cm} className="kalib-trend-col">
-                                      <div className="kalib-trend-col-inner">
-                                        {/* Brus-band (stddev) — ljust, bakom */}
-                                        <div
-                                          className="kalib-trend-noise"
-                                          style={{ top: `${noiseTop}%`, height: `${noiseHeight}%` }}
-                                          title={`Spridning ±${m.stddev_mm.toFixed(1)} mm (1 σ)`}
-                                        />
-                                        {/* Snitt-stapel */}
-                                        <div
-                                          className={`kalib-trend-bar tone-${cls}`}
-                                          style={{ top: `${barTop}%`, height: `${barHeight}%` }}
-                                          title={`Snitt ${fmtAvvikelse(m.snitt_mm, 'mm')} mm · n=${m.n}`}
-                                        />
-                                        {/* Värde-etikett */}
-                                        <div
-                                          className={`kalib-trend-val tone-${cls}`}
-                                          style={{ top: `${m.snitt_mm >= 0 ? Math.max(2, barTop - 6) : Math.min(94, barBottom + 1)}%` }}
-                                        >
-                                          {fmtAvvikelse(m.snitt_mm, 'mm')}
-                                        </div>
-                                      </div>
-                                      <div className="kalib-trend-x">{m.position_cm} cm</div>
-                                      <div className="kalib-trend-n">n={m.n}</div>
+                            <div className={`kalib-curve ${enough ? '' : 'muted'}`}>
+                              <div className="kalib-curve-row">
+                                <div className="kalib-curve-yaxis">
+                                  {yAxisLabels.map((l) => (
+                                    <span key={l.t} style={{ top: `${yPct(l.v)}%` }}>{l.t}</span>
+                                  ))}
+                                </div>
+                                <div className="kalib-curve-plot">
+                                  {/* Toleranszon */}
+                                  <div
+                                    className="kalib-curve-tol"
+                                    style={{ top: `${yPct(tol)}%`, bottom: `${100 - yPct(-tol)}%` }}
+                                  />
+                                  {/* Nollinje */}
+                                  <div className="kalib-curve-zero" style={{ top: `${yPct(0)}%` }} />
+                                  {/* Kalibreringsmarkörer (lodräta streckade linjer) */}
+                                  {kalibMarkers.map((m, i) => (
+                                    <div
+                                      key={`kev-${i}`}
+                                      className="kalib-curve-kalib"
+                                      style={{ left: `${xPctFor(m.idx)}%` }}
+                                      title={`Kalibrering ${m.label}`}
+                                    >
+                                      <span className="kalib-curve-kalib-tag">⚙ {m.label}</span>
                                     </div>
-                                  );
-                                })}
+                                  ))}
+                                  {/* SVG-linje — fyller hela plot-rutan, viewBox 0..100 i båda axlar
+                                      så att xPctFor/yPct mappar 1:1 mot HTML-dotternas left/top */}
+                                  {polylinePoints && (
+                                    <svg className="kalib-curve-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+                                      <polyline
+                                        points={polylinePoints}
+                                        fill="none"
+                                        stroke="rgba(255,255,255,0.5)"
+                                        strokeWidth="1.5"
+                                        strokeLinejoin="round"
+                                        strokeLinecap="round"
+                                        vectorEffect="non-scaling-stroke"
+                                      />
+                                    </svg>
+                                  )}
+                                  {/* Punkter */}
+                                  {curvePoints.map((p, i) => {
+                                    const cls = enough ? valCls(p.avg) : 'ok';
+                                    return (
+                                      <div
+                                        key={p.key}
+                                        className={`kalib-curve-dot tone-${cls}`}
+                                        style={{ left: `${xPctFor(i)}%`, top: `${yPct(p.avg)}%` }}
+                                        title={`${p.label}: ${fmtAvvikelse(p.avg, unitTxt as 'mm' | 'cm')} ${unitTxt} (n=${p.n})`}
+                                      />
+                                    );
+                                  })}
+                                </div>
                               </div>
-                              {/* Y-axel-etiketter */}
-                              <div className="kalib-trend-y-labels">
-                                <span style={{ top: `${yPctFor(8)}%` }}>+8</span>
-                                <span style={{ top: `${yPctFor(4)}%` }}>+4</span>
-                                <span style={{ top: `${yPctFor(0)}%` }}>0</span>
-                                <span style={{ top: `${yPctFor(-4)}%` }}>−4</span>
-                                <span style={{ top: `${yPctFor(-8)}%` }}>−8 mm</span>
+                              {/* X-axeletiketter (var n:te för att inte krocka) */}
+                              <div className="kalib-curve-xaxis">
+                                <div className="kalib-curve-xaxis-spacer" />
+                                <div className="kalib-curve-xaxis-inner">
+                                  {curvePoints.map((p, i) => {
+                                    const step = curvePoints.length <= 6 ? 1
+                                      : curvePoints.length <= 12 ? 2
+                                      : curvePoints.length <= 26 ? 4
+                                      : Math.ceil(curvePoints.length / 6);
+                                    if (i % step !== 0 && i !== curvePoints.length - 1) return null;
+                                    return (
+                                      <span key={p.key} style={{ left: `${xPctFor(i)}%` }}>{p.label}</span>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             </div>
+
+                            {/* Auto-mening (klartext-sammanfattning) */}
+                            <div className="kalib-curve-mening">{autoMening()}</div>
                           </>
                         )}
                       </div>
                     )}
-
-                    {/* Tidslinje med kontroller + kalibreringsmarkörer */}
-                    {trCurrent && trCurrent.kontroller.length > 0 && (() => {
-                      const datums = trCurrent.kontroller.map(k => new Date(k.datum).getTime());
-                      const tMin = Math.min(...datums);
-                      const tMax = Math.max(...datums);
-                      const tRange = Math.max(1, tMax - tMin);
-                      const tPct = (iso: string) => {
-                        const t = new Date(iso).getTime();
-                        return 3 + ((t - tMin) / tRange) * 94;
-                      };
-                      const kalibForTr = trendData.kalibreringar.filter((kev) => {
-                        if (kev.tradslag && trCurrentKey && kev.tradslag.toLowerCase() !== trCurrentKey) return false;
-                        const t = new Date(kev.datum).getTime();
-                        return t >= tMin - 86400_000 && t <= tMax + 86400_000;
-                      });
-                      // Tidslinjens y-skala = samma som mätställe-grafen (±12 mm) för konsistens
-                      const tlPctFor = yPctFor;
-                      return (
-                        <div className="kalib-card">
-                          <div className="kalib-section-title">Kontroller över tid</div>
-                          <div className="kalib-section-subtitle">
-                            Tryck på en prick för att öppna kontrollen. Lodrät linje = kalibrering.
-                          </div>
-                          <div className="kalib-trend-timeline">
-                            <div className="kalib-trend-zero" style={{ top: `${tlPctFor(0)}%` }} />
-                            <div
-                              className="kalib-trend-tol"
-                              style={{ top: `${tlPctFor(4)}%`, bottom: `${100 - tlPctFor(-4)}%` }}
-                            />
-                            {/* Kalibreringsmarkörer */}
-                            {kalibForTr.map((kev, i) => (
-                              <div
-                                key={`kev-${i}`}
-                                className="kalib-trend-kalib-line"
-                                style={{ left: `${tPct(kev.datum)}%` }}
-                                title={`Kalibrering ${new Date(kev.datum).toLocaleDateString('sv-SE')}${kev.typ ? ` · ${kev.typ}` : ''}${kev.orsak ? ` · ${kev.orsak}` : ''}`}
-                              >
-                                <span className="kalib-trend-kalib-tag">⚙</span>
-                              </div>
-                            ))}
-                            {/* Kontroll-prickar */}
-                            {trCurrent.kontroller.map((k) => {
-                              const cls = enough ? diaSnittCls(k.dia_snitt_mm) : 'ok';
-                              return (
-                                <button
-                                  key={k.filnamn}
-                                  className={`kalib-trend-dot tone-${cls}`}
-                                  style={{ left: `${tPct(k.datum)}%`, top: `${tlPctFor(k.dia_snitt_mm)}%` }}
-                                  onClick={() => openKontrollFull(k.filnamn)}
-                                  disabled={laddarKontroll === k.filnamn}
-                                  title={`${k.object_name || ''} · ${new Date(k.datum).toLocaleDateString('sv-SE')} · ${fmtAvvikelse(k.dia_snitt_mm, 'mm')} mm`}
-                                  aria-label={`Öppna kontroll ${new Date(k.datum).toLocaleDateString('sv-SE')}`}
-                                />
-                              );
-                            })}
-                          </div>
-                          <div className="kalib-trend-tl-x">
-                            <span>{new Date(tMin).toLocaleDateString('sv-SE', { month: 'short', year: '2-digit' })}</span>
-                            <span>{new Date(tMax).toLocaleDateString('sv-SE', { month: 'short', year: '2-digit' })}</span>
-                          </div>
-                        </div>
-                      );
-                    })()}
 
                     {trendData.totalt.antal_kontroller === 0 && (
                       <div className="kalib-info-box neutral">
