@@ -65,6 +65,7 @@ next-env.d.ts
 
 # Throwaway / genererade filer från kalibrerings-arbetet
 backfill_errors.txt
+backfill_maj_errors.txt
 fill_weather_errors.txt
 dev_server.log
 kontroll_response.json
