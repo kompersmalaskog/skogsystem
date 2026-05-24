@@ -431,33 +431,68 @@ export default function KalibreringPage() {
       });
       const lenSnitt = k.langd_avvikelse_snitt_cm ?? 0;
       const diaSnitt = k.dia_avvikelse_snitt_mm ?? 0;
-      // Snittets binära klassning — driver big-value-färgen och bandets marker.
-      // Snittet är antingen inom eller utanför, ingen warn-zon.
-      const lenCls: 'good' | 'bad' = Math.abs(lenSnitt) > 2 ? 'bad' : 'good';
-      const diaCls: 'good' | 'bad' = Math.abs(diaSnitt) > 4 ? 'bad' : 'good';
+
+      // Per-stock distribution — delas av svärmen (visuellt) och big-tonen.
+      // sDia tar max-absolut över mätpunkter + toppen (samma logik som
+      // stocklistan längre ner — utan den missar man fel som bara dyker
+      // upp i ett enskilt mätställe på en annars samlad stock).
+      type StockSwarmEntry = { id: number; stam_nummer: number; stock_nummer: number; sLen: number; sDia: number };
+      const stockDist: StockSwarmEntry[] = data.stockar.map((s) => {
+        const sLen = s.langd_avvikelse_cm ?? 0;
+        const mpA = s.matpunkter
+          .filter((m) => m.diameter_maskin_mm != null && m.diameter_operator_mm != null)
+          .map((m) => (m.diameter_maskin_mm as number) - (m.diameter_operator_mm as number));
+        const sDia = [...mpA, s.dia_avvikelse_mm ?? 0].reduce(
+          (a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0
+        );
+        return { id: s.id, stam_nummer: s.stam_nummer, stock_nummer: s.stock_nummer, sLen, sDia };
+      });
+
+      // Diverging-klassning — exakt samma språk som lollipop i nivå 3.
+      // Diameter ±4 mm = Skogforsks branschstandard, längd ±2 cm = standard.
+      type DivCls = 'cold' | 'ok' | 'hi' | 'hot';
+      const diaSwarmCls = (a: number): DivCls =>
+        a > 6 ? 'hot' : a > 4 ? 'hi' : a < -4 ? 'cold' : 'ok';
+      const lenSwarmCls = (a: number): DivCls =>
+        a > 3 ? 'hot' : a > 2 ? 'hi' : a < -2 ? 'cold' : 'ok';
+
+      // Storsiffrans ton = värsta stocken, inte snittet. "+2mm snitt med
+      // 7 röda stockar" får alltså röd rubrik, inte lugn vit.
+      const divRank: Record<DivCls, number> = { ok: 0, cold: 1, hi: 2, hot: 3 };
+      const worstClsLen: DivCls = stockDist.reduce<DivCls>((w, e) => {
+        const c = lenSwarmCls(e.sLen);
+        return divRank[c] > divRank[w] ? c : w;
+      }, 'ok');
+      const worstClsDia: DivCls = stockDist.reduce<DivCls>((w, e) => {
+        const c = diaSwarmCls(e.sDia);
+        return divRank[c] > divRank[w] ? c : w;
+      }, 'ok');
+
       // Status-raden räknar enskilda stockar utanför tolerans — snittet
       // kan se OK ut även när flera stockar är dåliga.
-      const utanforLen = data.stockar.filter(
-        s => Math.abs(s.langd_avvikelse_cm ?? 0) > 2
-      ).length;
-      const utanforDia = data.stockar.filter(
-        s => Math.abs(s.dia_avvikelse_mm ?? 0) > 4
-      ).length;
-      const lenStatusCls: 'good' | 'bad' = utanforLen === 0 ? 'good' : 'bad';
-      const diaStatusCls: 'good' | 'bad' = utanforDia === 0 ? 'good' : 'bad';
+      const utanforLen = stockDist.filter((e) => Math.abs(e.sLen) > 2).length;
+      const utanforDia = stockDist.filter((e) => Math.abs(e.sDia) > 4).length;
+      const lenStatusTone: 'ok' | 'bad' = utanforLen === 0 ? 'ok' : 'bad';
+      const diaStatusTone: 'ok' | 'bad' = utanforDia === 0 ? 'ok' : 'bad';
       const lenLabel = utanforLen === 0
         ? `Alla ${data.stockar.length} inom tolerans`
-        : `${utanforLen} stockar utanför`;
+        : `${utanforLen} av ${data.stockar.length} stockar utanför`;
       const diaLabel = utanforDia === 0
         ? `Alla ${data.stockar.length} inom tolerans`
-        : `${utanforDia} stockar utanför`;
+        : `${utanforDia} av ${data.stockar.length} stockar utanför`;
 
-      // Bandposition: avvikelse → procent. Clipp till [2,98] så markören
+      // Svärm-position: avvikelse → procent. Clipp till [4,96] så dotter
       // aldrig sitter på kanten även vid extrema värden.
-      const bandPos = (val: number, max: number) => {
+      const swarmX = (val: number, max: number) => {
         const clipped = Math.max(-max, Math.min(max, val));
         const pct = ((clipped + max) / (max * 2)) * 100;
-        return Math.max(2, Math.min(98, pct));
+        return Math.max(4, Math.min(96, pct));
+      };
+      // Deterministisk vertikal jitter — hash på (stam·100+stock) så samma
+      // stock alltid hamnar på samma höjd även vid omrender.
+      const swarmY = (e: StockSwarmEntry) => {
+        const h = (e.stam_nummer * 100 + e.stock_nummer) * 37;
+        return 24 + (h % 52);
       };
 
       // Stem-val + mätare (tas från första stocken — enhetlig per fil i praktiken)
@@ -967,21 +1002,31 @@ export default function KalibreringPage() {
             <div className="kalib-card">
               <div className="kalib-tol-header">
                 <div className="kalib-tol-label">Längd</div>
-                <div className={`kalib-tol-value ${lenCls === 'bad' ? 'bad' : lenCls === 'warn' ? 'warn' : ''}`}>
+                <div className={`kalib-tol-value tone-${worstClsLen}`}>
                   {fmtAvvikelse(lenSnitt, 'cm')} cm
                 </div>
               </div>
-              <div className="kalib-tol-band" aria-label="Toleransband längd">
-                <div className="kalib-tol-zone-bad-l" />
-                <div className="kalib-tol-zone-good" />
-                <div className="kalib-tol-zone-bad-r" />
-                <div className="kalib-tol-band-zero" />
+              <div className="kalib-swarm" aria-label="Stockfördelning längd">
+                <div className="kalib-swarm-tol" />
+                <div className="kalib-swarm-zero" />
+                {stockDist.map((e) => (
+                  <div
+                    key={e.id}
+                    className={`kalib-swarm-dot tone-${lenSwarmCls(e.sLen)}`}
+                    style={{ left: `${swarmX(e.sLen, 4)}%`, top: `${swarmY(e)}%` }}
+                    title={`Stam ${e.stam_nummer}·${e.stock_nummer}: ${fmtAvvikelse(e.sLen, 'cm')} cm`}
+                  />
+                ))}
                 <div
-                  className={`kalib-tol-band-marker ${lenCls}`}
-                  style={{ left: `${bandPos(lenSnitt, 4)}%` }}
+                  className="kalib-swarm-snitt"
+                  style={{ left: `${swarmX(lenSnitt, 4)}%` }}
+                  title={`Snitt: ${fmtAvvikelse(lenSnitt, 'cm')} cm`}
                 />
               </div>
-              <div className={`kalib-tol-status ${lenStatusCls}`}>
+              <div className="kalib-swarm-scale">
+                <span>−4</span><span>±2 tolerans</span><span>+4 cm</span>
+              </div>
+              <div className={`kalib-tol-status tone-${lenStatusTone}`}>
                 <span className="kalib-tol-status-dot" />
                 {lenLabel}
               </div>
@@ -990,21 +1035,31 @@ export default function KalibreringPage() {
             <div className="kalib-card">
               <div className="kalib-tol-header">
                 <div className="kalib-tol-label">Diameter</div>
-                <div className={`kalib-tol-value ${diaCls === 'bad' ? 'bad' : diaCls === 'warn' ? 'warn' : ''}`}>
+                <div className={`kalib-tol-value tone-${worstClsDia}`}>
                   {fmtAvvikelse(diaSnitt, 'mm')} mm
                 </div>
               </div>
-              <div className="kalib-tol-band" aria-label="Toleransband diameter">
-                <div className="kalib-tol-zone-bad-l" />
-                <div className="kalib-tol-zone-good" />
-                <div className="kalib-tol-zone-bad-r" />
-                <div className="kalib-tol-band-zero" />
+              <div className="kalib-swarm" aria-label="Stockfördelning diameter">
+                <div className="kalib-swarm-tol" />
+                <div className="kalib-swarm-zero" />
+                {stockDist.map((e) => (
+                  <div
+                    key={e.id}
+                    className={`kalib-swarm-dot tone-${diaSwarmCls(e.sDia)}`}
+                    style={{ left: `${swarmX(e.sDia, 8)}%`, top: `${swarmY(e)}%` }}
+                    title={`Stam ${e.stam_nummer}·${e.stock_nummer}: ${fmtAvvikelse(e.sDia, 'mm')} mm`}
+                  />
+                ))}
                 <div
-                  className={`kalib-tol-band-marker ${diaCls}`}
-                  style={{ left: `${bandPos(diaSnitt, 8)}%` }}
+                  className="kalib-swarm-snitt"
+                  style={{ left: `${swarmX(diaSnitt, 8)}%` }}
+                  title={`Snitt: ${fmtAvvikelse(diaSnitt, 'mm')} mm`}
                 />
               </div>
-              <div className={`kalib-tol-status ${diaStatusCls}`}>
+              <div className="kalib-swarm-scale">
+                <span>−8</span><span>±4 tolerans</span><span>+8 mm</span>
+              </div>
+              <div className={`kalib-tol-status tone-${diaStatusTone}`}>
                 <span className="kalib-tol-status-dot" />
                 {diaLabel}
               </div>
@@ -1685,23 +1740,36 @@ export default function KalibreringPage() {
         .kalib-tol-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
         .kalib-tol-label{font-size:14px;color:#8E8E93;font-weight:500}
         .kalib-tol-value{font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.01em}
+        /* Legacy binär-klasser (kvar för stocklistan i samma modal) */
         .kalib-tol-value.warn{color:#FF9500}
         .kalib-tol-value.bad{color:#FF3B30}
+        /* Diverging tone-* — samma språk som lollipop i nivå 3 */
+        .kalib-tol-value.tone-ok{color:#fff}
+        .kalib-tol-value.tone-cold{color:#0A84FF}
+        .kalib-tol-value.tone-hi{color:#FF9F0A}
+        .kalib-tol-value.tone-hot{color:#FF453A}
 
-        .kalib-tol-band{position:relative;height:10px;border-radius:5px;display:grid;grid-template-columns:1fr 2fr 1fr;background:rgba(255,255,255,0.04);margin:6px 0 14px}
-        .kalib-tol-zone-bad-l{background:rgba(255,59,48,0.25);border-radius:5px 0 0 5px}
-        .kalib-tol-zone-bad-r{background:rgba(255,59,48,0.25);border-radius:0 5px 5px 0}
-        .kalib-tol-zone-good{background:rgba(52,199,89,0.22)}
-        .kalib-tol-band-zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:rgba(255,255,255,0.35)}
-        .kalib-tol-band-marker{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;transform:translate(-50%,-50%);background:#fff;box-shadow:0 0 0 2px #1C1C1E,0 0 0 3px rgba(255,255,255,0.4);transition:left 0.3s cubic-bezier(0.2,0.8,0.2,1)}
-        .kalib-tol-band-marker.bad{background:#FF3B30}
+        /* === Stock-svärm: en dot per stock, färg per diverging-skala === */
+        .kalib-swarm{position:relative;height:64px;border-radius:8px;background:rgba(255,255,255,0.025);margin:8px 0 6px;overflow:visible}
+        .kalib-swarm-tol{position:absolute;top:0;bottom:0;left:25%;right:25%;background:rgba(255,255,255,0.04);border-left:1px dashed rgba(255,255,255,0.14);border-right:1px dashed rgba(255,255,255,0.14)}
+        .kalib-swarm-zero{position:absolute;top:4px;bottom:4px;left:50%;width:1px;background:rgba(255,255,255,0.35);transform:translateX(-0.5px)}
+        .kalib-swarm-dot{position:absolute;width:10px;height:10px;border-radius:50%;transform:translate(-50%,-50%);background:#8E8E93;box-shadow:0 0 0 2px rgba(0,0,0,0.55)}
+        .kalib-swarm-dot.tone-ok{background:#8E8E93}
+        .kalib-swarm-dot.tone-cold{background:#0A84FF}
+        .kalib-swarm-dot.tone-hi{background:#FF9F0A}
+        .kalib-swarm-dot.tone-hot{background:#FF453A}
+        .kalib-swarm-snitt{position:absolute;bottom:0;width:2px;height:14px;background:rgba(255,255,255,0.85);transform:translateX(-50%);border-radius:1px;pointer-events:none}
+        .kalib-swarm-snitt::after{content:'';position:absolute;bottom:14px;left:50%;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:4px solid rgba(255,255,255,0.85);transform:translateX(-50%)}
+        .kalib-swarm-scale{display:flex;justify-content:space-between;font-size:11px;color:#8E8E93;margin:2px 0 12px;padding:0 2px;font-variant-numeric:tabular-nums}
+        .kalib-swarm-scale span:nth-child(2){opacity:0.7}
 
         .kalib-tol-status{font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px}
         .kalib-tol-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-        .kalib-tol-status.good{color:#34C759}
-        .kalib-tol-status.good .kalib-tol-status-dot{background:#34C759}
-        .kalib-tol-status.bad{color:#FF3B30}
-        .kalib-tol-status.bad .kalib-tol-status-dot{background:#FF3B30}
+        /* Status: grå = ok (ingen onödig grön), röd = utanför */
+        .kalib-tol-status.tone-ok{color:#8E8E93}
+        .kalib-tol-status.tone-ok .kalib-tol-status-dot{background:#8E8E93}
+        .kalib-tol-status.tone-bad{color:#FF3B30}
+        .kalib-tol-status.tone-bad .kalib-tol-status-dot{background:#FF3B30}
 
         .kalib-stockar-list{display:flex;flex-direction:column;gap:6px}
         .kalib-stock-row{display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:12px;cursor:pointer;transition:background 0.12s,border-color 0.12s,transform 0.12s}
