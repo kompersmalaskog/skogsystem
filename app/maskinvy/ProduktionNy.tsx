@@ -416,7 +416,7 @@ function BarChart({ data, onBarClick }: {
             <text
               key={d.key + '_lbl'}
               x={x} y={H - 8}
-              fill={C.dim} fontSize={10}
+              fill={C.muted} fontSize={10}
               textAnchor="middle" fontFamily={FONT}
             >{d.label}</text>
           )
@@ -632,7 +632,7 @@ function PeriodDetalj({ bucket, onClose }: {
         <div style={{ background: C.card, borderRadius: 14, overflow: 'hidden', marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, padding: '14px 16px 4px' }}>Avbrott</div>
           {bucket.avbrott.length === 0 ? (
-            <div style={{ padding: '8px 16px 14px', fontSize: 13, color: C.dim }}>
+            <div style={{ padding: '8px 16px 14px', fontSize: 13, color: C.muted }}>
               Inga avbrott registrerade
             </div>
           ) : bucket.avbrott.map((a, i) => (

@@ -598,17 +598,17 @@ export function HeroCard({
                 {comparison.selfValue !== null ? fmtSv(comparison.selfValue, dec) : '—'}
               </span>
               {comparison.selfTime !== null && (
-                <span style={{ color: C.dim, fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
                   {' '}· {fmtTid(comparison.selfTime * 3600)}
                 </span>
               )}
-              <span style={{ color: C.dim, margin: '0 10px' }}>·</span>
+              <span style={{ color: C.muted, margin: '0 10px' }}>·</span>
               <span style={{ color: C.muted }}>{comparison.compareLabel ?? 'Maskinen'}{' '}</span>
               <span style={{ color: C.text, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
                 {comparison.compareValue !== null ? fmtSv(comparison.compareValue, dec) : '—'}
               </span>
               {comparison.compareTime !== null && (
-                <span style={{ color: C.dim, fontVariantNumeric: 'tabular-nums' }}>
+                <span style={{ color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
                   {' '}· {fmtTid(comparison.compareTime * 3600)}
                 </span>
               )}
@@ -620,7 +620,7 @@ export function HeroCard({
           {loading
             ? <span style={{ fontSize: 13, color: C.dim }}>—</span>
             : <DeltaBadge current={value} previous={prev} lowerIsBetter={lowerIsBetter} size="md" />}
-          <span style={{ fontSize: 11, color: C.dim }}>{referenceLabel}</span>
+          <span style={{ fontSize: 11, color: C.muted }}>{referenceLabel}</span>
         </div>
       )}
 
@@ -629,13 +629,13 @@ export function HeroCard({
           <div style={{
             height: 60, borderRadius: 8, background: 'rgba(255,255,255,0.025)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: C.dim, fontSize: 11,
+            color: C.muted, fontSize: 11,
           }}>—</div>
         ) : trendValid < 2 ? (
           <div style={{
             height: 60, borderRadius: 8, background: 'rgba(255,255,255,0.025)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: C.dim, fontSize: 11,
+            color: C.muted, fontSize: 11,
           }}>För lite trenddata</div>
         ) : (
           <HeroChart values={trendValues} />
@@ -779,7 +779,7 @@ export function TimeDistribution({ data, loading }: { data: Data | null; loading
               <span style={{ color: C.text, fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
                 {loading || pct === null ? '—' : `${pct}%`}
               </span>
-              <span style={{ color: C.dim, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
+              <span style={{ color: C.muted, fontSize: 11, fontVariantNumeric: 'tabular-nums' }}>
                 · {loading || !values ? '—' : fmtTid(v)}
               </span>
             </div>
@@ -800,9 +800,9 @@ export function AvbrottCard({ data, loading }: { data: Data | null; loading: boo
         Avbrott
       </div>
       {loading ? (
-        <div style={{ color: C.dim, fontSize: 13, padding: '0 16px 18px' }}>Laddar…</div>
+        <div style={{ color: C.muted, fontSize: 13, padding: '0 16px 18px' }}>Laddar…</div>
       ) : !data || data.avbrottPerKat.length === 0 ? (
-        <div style={{ color: C.dim, fontSize: 13, padding: '0 16px 18px' }}>
+        <div style={{ color: C.muted, fontSize: 13, padding: '0 16px 18px' }}>
           Inga avbrott registrerade
         </div>
       ) : data.avbrottPerKat.map((k, i) => (
@@ -851,9 +851,9 @@ export function OperatorList({ operatorer, loading, onSelect }: {
         Operatörer
       </div>
       {loading ? (
-        <div style={{ color: C.dim, fontSize: 13, padding: '0 16px 18px' }}>Laddar…</div>
+        <div style={{ color: C.muted, fontSize: 13, padding: '0 16px 18px' }}>Laddar…</div>
       ) : operatorer.length === 0 ? (
-        <div style={{ color: C.dim, fontSize: 13, padding: '0 16px 18px' }}>
+        <div style={{ color: C.muted, fontSize: 13, padding: '0 16px 18px' }}>
           Inga operatörer för perioden
         </div>
       ) : operatorer.map(o => (

@@ -170,9 +170,9 @@ export default function OperatorDeepView({
             fontVariantNumeric: 'tabular-nums',
           }}>
             {periodLabel}
-            <span style={{ color: C.dim }}> · </span>
+            <span style={{ color: C.muted }}> · </span>
             {loading ? '—' : `${fmtSv(data?.g15h ?? 0, 0)} G15h`}
-            <span style={{ color: C.dim }}> · </span>
+            <span style={{ color: C.muted }}> · </span>
             {loading ? '—' : `${data?.dagar ?? 0} ${(data?.dagar ?? 0) === 1 ? 'dag' : 'dagar'}`}
           </div>
         </div>
