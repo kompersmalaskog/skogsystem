@@ -33,8 +33,12 @@ export default function OversiktNy() {
       fetchSeries(maskin.id, period, offset).catch(() => null),
     ]).then(([curD, prevD, ser]) => {
       if (cancelled) return
+      // Delta visas bara när föregående period har jämförbar täckning.
+      // Tröskeln: ≥ 65 % av nuvarande periods prod-dagar.
+      // Skyddar mot t.ex. Å 2026 (100+ dagar) vs Å 2025 (~35 dagar) → "–".
+      const prevValid = (prevD?.dagar ?? 0) >= (curD?.dagar ?? 0) * 0.65
       setData(curD)
-      setPrevData(prevD)
+      setPrevData(prevValid ? prevD : null)
       setSeries(ser)
       setLoading(false)
     })
