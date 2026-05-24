@@ -8,6 +8,7 @@ import Jamforelse from './Jamforelse'
 import OversiktNy from './OversiktNy'
 import ProduktionNy from './ProduktionNy'
 import AvbrottNy from './AvbrottNy'
+import IdagNy from './IdagNy'
 
 type Mode = 'skordare' | 'skotare' | 'jamforelse'
 
@@ -20,6 +21,7 @@ type Mode = 'skordare' | 'skotare' | 'jamforelse'
 // ──────────────────────────────────────────────────────────────
 const NY_VYER: { key: string; label: string }[] = [
   { key: '',           label: 'Översikt'   },
+  { key: 'idag',       label: 'Idag'       },
   { key: 'produktion', label: 'Produktion' },
   { key: 'avbrott',    label: 'Avbrott'    },
 ]
@@ -198,7 +200,8 @@ export default function MaskinvyPage() {
             {mode === 'skordare'
               ? (ny
                   ? (vy === 'produktion' ? <ProduktionNy />
-                     : vy === 'avbrott' ? <AvbrottNy />
+                     : vy === 'avbrott'    ? <AvbrottNy />
+                     : vy === 'idag'       ? <IdagNy />
                      : <OversiktNy />)
                   : <Maskinvy />)
               : <SkotareVy />}
