@@ -9030,48 +9030,8 @@ export default function PlannerPage() {
         </button>
       )}
 
-      {/* STEG 7: "Avsluta objekt"-pill — synlig för alla roller (admin + förare)
-          när valt objekt är pågående. Samma slot som Starta-pillen (de är
-          ömsesidigt uteslutande — status är antingen 'planerad' eller 'pagaende').
-          Döljs vid annat aktivt läge — samma villkor som Starta-pillen. */}
-      {valtObjekt?.status === 'pagaende'
-        && !isDrawMode && !isZoneMode && !isArrowMode
-        && !isMeasuring && !skotningDrawing
-        && !korvyActive && !briefingMode && (
-        <button
-          type="button"
-          onClick={() => setVisarAvslutaConfirmation(true)}
-          aria-label="Avsluta objekt"
-          style={{
-            position: 'fixed',
-            top: 'calc(env(safe-area-inset-top) + 90px)',
-            left: '50%',
-            transform: 'translateX(-50%)',
-            width: 'auto',
-            minWidth: 220,
-            maxWidth: 'calc(100vw - 32px)',
-            minHeight: 56,
-            padding: '0 28px',
-            background: '#e8832a',
-            border: 'none',
-            borderRadius: 14,
-            color: '#fff',
-            fontSize: '17px',
-            fontWeight: '600',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 10,
-            cursor: 'pointer',
-            fontFamily: 'inherit',
-            zIndex: 101,
-            boxShadow: '0 4px 16px rgba(232, 131, 42, 0.3)',
-          }}
-        >
-          <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '22px' }}>check_circle</span>
-          Avsluta objekt
-        </button>
-      )}
+      {/* Avsluta-pill borttagen — åtgärden finns nu i +-menyn (OBJEKT-sektionen).
+          Sallan-handling → ett steg bort i menyn är lämpligt, precis som 'Byt objekt'. */}
 
       {/* === PLUS-KNAPP (nere höger) — döljs bara när briefing eller volym-panel är öppna */}
       {!briefingMode && !(volymLoading || volymResultat) && (
@@ -9414,6 +9374,13 @@ export default function PlannerPage() {
                   { label: 'Checklista', icon: 'check_circle', action: () => { setChecklistOpen(true); } },
                 ],
               },
+              // OBJEKT — Avsluta (alla roller, visas när status=pagaende)
+              ...(valtObjekt?.status === 'pagaende' ? [{
+                title: 'OBJEKT',
+                items: [
+                  { label: 'Avsluta objekt', icon: 'check_circle', avsluta: true, action: () => { setVisarAvslutaConfirmation(true); } },
+                ],
+              }] : []),
               {
                 title: 'ÖVRIGT',
                 items: [
@@ -9453,7 +9420,7 @@ export default function PlannerPage() {
                         background: 'transparent',
                         border: 'none',
                         borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
-                        color: (item as any).danger ? '#ff453a' : '#fff',
+                        color: (item as any).danger ? '#ff453a' : (item as any).avsluta ? '#e8832a' : '#fff',
                         fontSize: '15px',
                         fontWeight: '500',
                         textAlign: 'left',
@@ -9466,7 +9433,7 @@ export default function PlannerPage() {
                         aria-hidden="true"
                         style={{
                           fontSize: '26px',
-                          color: (item as any).danger ? '#ff453a' : 'rgba(255,255,255,0.85)',
+                          color: (item as any).danger ? '#ff453a' : (item as any).avsluta ? '#e8832a' : 'rgba(255,255,255,0.85)',
                           flexShrink: 0,
                           width: 32,
                           textAlign: 'center',
