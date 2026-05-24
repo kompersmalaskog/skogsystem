@@ -22,6 +22,7 @@ interface FaktKalibrering {
   status: string;
   filnamn: string;
   skapad_tid: string;
+  object_name?: string | null;
 }
 
 interface DetaljKontrollStock {
@@ -430,33 +431,68 @@ export default function KalibreringPage() {
       });
       const lenSnitt = k.langd_avvikelse_snitt_cm ?? 0;
       const diaSnitt = k.dia_avvikelse_snitt_mm ?? 0;
-      // Snittets binära klassning — driver big-value-färgen och bandets marker.
-      // Snittet är antingen inom eller utanför, ingen warn-zon.
-      const lenCls: 'good' | 'bad' = Math.abs(lenSnitt) > 2 ? 'bad' : 'good';
-      const diaCls: 'good' | 'bad' = Math.abs(diaSnitt) > 4 ? 'bad' : 'good';
+
+      // Per-stock distribution — delas av svärmen (visuellt) och big-tonen.
+      // sDia tar max-absolut över mätpunkter + toppen (samma logik som
+      // stocklistan längre ner — utan den missar man fel som bara dyker
+      // upp i ett enskilt mätställe på en annars samlad stock).
+      type StockSwarmEntry = { id: number; stam_nummer: number; stock_nummer: number; sLen: number; sDia: number };
+      const stockDist: StockSwarmEntry[] = data.stockar.map((s) => {
+        const sLen = s.langd_avvikelse_cm ?? 0;
+        const mpA = s.matpunkter
+          .filter((m) => m.diameter_maskin_mm != null && m.diameter_operator_mm != null)
+          .map((m) => (m.diameter_maskin_mm as number) - (m.diameter_operator_mm as number));
+        const sDia = [...mpA, s.dia_avvikelse_mm ?? 0].reduce(
+          (a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0
+        );
+        return { id: s.id, stam_nummer: s.stam_nummer, stock_nummer: s.stock_nummer, sLen, sDia };
+      });
+
+      // Diverging-klassning — exakt samma språk som lollipop i nivå 3.
+      // Diameter ±4 mm = Skogforsks branschstandard, längd ±2 cm = standard.
+      type DivCls = 'cold' | 'ok' | 'hi' | 'hot';
+      const diaSwarmCls = (a: number): DivCls =>
+        a > 6 ? 'hot' : a > 4 ? 'hi' : a < -4 ? 'cold' : 'ok';
+      const lenSwarmCls = (a: number): DivCls =>
+        a > 3 ? 'hot' : a > 2 ? 'hi' : a < -2 ? 'cold' : 'ok';
+
+      // Storsiffrans ton = värsta stocken, inte snittet. "+2mm snitt med
+      // 7 röda stockar" får alltså röd rubrik, inte lugn vit.
+      const divRank: Record<DivCls, number> = { ok: 0, cold: 1, hi: 2, hot: 3 };
+      const worstClsLen: DivCls = stockDist.reduce<DivCls>((w, e) => {
+        const c = lenSwarmCls(e.sLen);
+        return divRank[c] > divRank[w] ? c : w;
+      }, 'ok');
+      const worstClsDia: DivCls = stockDist.reduce<DivCls>((w, e) => {
+        const c = diaSwarmCls(e.sDia);
+        return divRank[c] > divRank[w] ? c : w;
+      }, 'ok');
+
       // Status-raden räknar enskilda stockar utanför tolerans — snittet
       // kan se OK ut även när flera stockar är dåliga.
-      const utanforLen = data.stockar.filter(
-        s => Math.abs(s.langd_avvikelse_cm ?? 0) > 2
-      ).length;
-      const utanforDia = data.stockar.filter(
-        s => Math.abs(s.dia_avvikelse_mm ?? 0) > 4
-      ).length;
-      const lenStatusCls: 'good' | 'bad' = utanforLen === 0 ? 'good' : 'bad';
-      const diaStatusCls: 'good' | 'bad' = utanforDia === 0 ? 'good' : 'bad';
+      const utanforLen = stockDist.filter((e) => Math.abs(e.sLen) > 2).length;
+      const utanforDia = stockDist.filter((e) => Math.abs(e.sDia) > 4).length;
+      const lenStatusTone: 'ok' | 'bad' = utanforLen === 0 ? 'ok' : 'bad';
+      const diaStatusTone: 'ok' | 'bad' = utanforDia === 0 ? 'ok' : 'bad';
       const lenLabel = utanforLen === 0
         ? `Alla ${data.stockar.length} inom tolerans`
-        : `${utanforLen} stockar utanför`;
+        : `${utanforLen} av ${data.stockar.length} stockar utanför`;
       const diaLabel = utanforDia === 0
         ? `Alla ${data.stockar.length} inom tolerans`
-        : `${utanforDia} stockar utanför`;
+        : `${utanforDia} av ${data.stockar.length} stockar utanför`;
 
-      // Bandposition: avvikelse → procent. Clipp till [2,98] så markören
+      // Svärm-position: avvikelse → procent. Clipp till [4,96] så dotter
       // aldrig sitter på kanten även vid extrema värden.
-      const bandPos = (val: number, max: number) => {
+      const swarmX = (val: number, max: number) => {
         const clipped = Math.max(-max, Math.min(max, val));
         const pct = ((clipped + max) / (max * 2)) * 100;
-        return Math.max(2, Math.min(98, pct));
+        return Math.max(4, Math.min(96, pct));
+      };
+      // Deterministisk vertikal jitter — hash på (stam·100+stock) så samma
+      // stock alltid hamnar på samma höjd även vid omrender.
+      const swarmY = (e: StockSwarmEntry) => {
+        const h = (e.stam_nummer * 100 + e.stock_nummer) * 37;
+        return 24 + (h % 52);
       };
 
       // Stem-val + mätare (tas från första stocken — enhetlig per fil i praktiken)
@@ -519,7 +555,7 @@ export default function KalibreringPage() {
         const maxPos = hasMp ? mpAvvik[mpAvvik.length - 1].position_cm : 1;
         const range = maxPos - minPos || 1;
         const xPctFor = (pos: number) =>
-          mpAvvik.length === 1 ? 50 : 10 + ((pos - minPos) / range) * 80;
+          mpAvvik.length === 1 ? 50 : 15 + ((pos - minPos) / range) * 70;
         // Y-skala: ±8 mm avvikelse → ±40% från mitten = 10-90% av container.
         // Clampa till 8-92% så markörens ring + label får plats vid kanten.
         const yPctFor = (avvik: number) => {
@@ -527,8 +563,58 @@ export default function KalibreringPage() {
           const raw = 50 - (clamped / 8) * 40;
           return Math.max(8, Math.min(92, raw));
         };
-        const mpClsFn = (a: number): 'good' | 'warn' | 'bad' =>
-          Math.abs(a) > 4 ? 'bad' : Math.abs(a) > 3 ? 'warn' : 'good';
+        // Diverging-klassning per mätpunkt: visar riktning (för litet vs för stort),
+        // inte bara avvikelsens storlek. Asymmetrisk — orange/röd för "för stort"
+        // i två intensiteter, en blå nivå för "för litet". Tröskeln ±4 mm matchar
+        // Skogforsks branschstandard för kalibreringskontroll.
+        type MpDiv = 'cold' | 'ok' | 'hi' | 'hot';
+        const mpDivCls = (a: number): MpDiv =>
+          a > 6 ? 'hot'      // > +6 mm — klart för stort, röd
+          : a > 4 ? 'hi'     // +4 till +6 — över gräns, orange
+          : a < -4 ? 'cold'  // < -4 — för litet, blå
+          : 'ok';            // ±4 — inom tolerans, neutral grå
+
+        // Diagnos baserad på riktnings-konsensus. En mening, mänskligt språk.
+        // Outlier = |avvikelse| > 4 mm (Skogforsks branschstandard).
+        type DiagnosTone = 'ok' | 'warn' | 'bad';
+        type Diagnos = { tone: DiagnosTone; text: string } | null;
+        const buildDiagnos = (): Diagnos => {
+          if (!hasMp) return null;
+          const outliers = mpAvvik.filter((p) => Math.abs(p.avvikelse) > 4);
+          if (outliers.length === 0) {
+            return { tone: 'ok', text: 'Mätningen är samlad, inom tolerans.' };
+          }
+          if (outliers.length === 1) {
+            const o = outliers[0];
+            return {
+              tone: 'warn',
+              text:
+                `Punkten ${fmtAvvikelse(o.avvikelse, 'mm')} mm vid ${o.position_cm} cm sticker ut. ` +
+                `Annars samlat. Kontrollera anliggning vid den grovleken.`,
+            };
+          }
+          const signs = outliers.map((o) => Math.sign(o.avvikelse));
+          const allSame = signs.every((s) => s === signs[0]);
+          if (allSame) {
+            const avg = outliers.reduce((a, o) => a + o.avvikelse, 0) / outliers.length;
+            const dir = avg > 0 ? 'grovt' : 'smalt';
+            return {
+              tone: 'bad',
+              text:
+                `Drar systematiskt åt ${dir} — ${Math.round(Math.abs(avg))} mm i snitt på ` +
+                `${outliers.length} av ${mpAvvik.length} punkter. Tyder på kalibreringsfel — ` +
+                `men bekräfta med fler stammar innan du justerar.`,
+            };
+          }
+          return {
+            tone: 'bad',
+            text:
+              `Spretigt — ${outliers.length} av ${mpAvvik.length} punkter pekar olika håll. ` +
+              `Tyder på mekaniskt problem (givare/mäthjul/anliggning). ` +
+              `Kalibrering hjälper inte mot spridning.`,
+          };
+        };
+        const diagnos = buildDiagnos();
 
         pushModal({
           title: `Stock ${s.stock_nummer}`,
@@ -556,9 +642,9 @@ export default function KalibreringPage() {
               <div className="kalib-card">
                 <div className="kalib-tol-header">
                   <div className="kalib-tol-label">Diameter</div>
-                  <div className={`kalib-tol-value ${maxCls === 'bad' ? 'bad' : maxCls === 'warn' ? 'warn' : ''}`}>
+                  <div className={`kalib-tol-value ${diagnos?.tone === 'bad' ? 'bad' : diagnos?.tone === 'warn' ? 'warn' : ''}`}>
                     {hasMp && maxAvvikPos !== null
-                      ? `max ${fmtAvvikelse(maxAvvik, 'mm')} mm @ ${maxAvvikPos} cm`
+                      ? `störst fel: ${fmtAvvikelse(maxAvvik, 'mm')} mm vid ${maxAvvikPos} cm`
                       : `${fmtAvvikelse(maxAvvik, 'mm')} mm`}
                   </div>
                 </div>
@@ -571,7 +657,7 @@ export default function KalibreringPage() {
                       {mpAvvik.flatMap((p, i) => {
                         const xP = xPctFor(p.position_cm);
                         const yP = yPctFor(p.avvikelse);
-                        const cls = mpClsFn(p.avvikelse);
+                        const cls = mpDivCls(p.avvikelse);
                         const above = p.avvikelse >= 0;
                         return [
                           <div
@@ -607,6 +693,11 @@ export default function KalibreringPage() {
                       <span>{minPos} cm</span>
                       <span>{maxPos} cm</span>
                     </div>
+                    {diagnos && (
+                      <div className={`kalib-stock-diagnos ${diagnos.tone}`}>
+                        {diagnos.text}
+                      </div>
+                    )}
                   </>
                 ) : (
                   <div className="kalib-stock-mo-line">
@@ -623,7 +714,7 @@ export default function KalibreringPage() {
                   </div>
                   <div className="kalib-mp-list">
                     {mpAvvik.map((p, i) => {
-                      const cls = mpClsFn(p.avvikelse);
+                      const cls = mpDivCls(p.avvikelse);
                       return (
                         <div key={i} className="kalib-mp-row">
                           <div className="kalib-mp-pos">{p.position_cm} cm</div>
@@ -638,6 +729,223 @@ export default function KalibreringPage() {
                     })}
                   </div>
                 </>
+              )}
+            </>
+          ),
+        });
+      };
+
+      // === Nivå 2 — stammen som den ligger, stockar rot→topp ===
+      // Mellan översikten och detaljmodalen. Tryck på stock → nivå 3.
+      const openStamVy = (stamNummer: number) => {
+        const stamStockar = data.stockar
+          .filter((st) => st.stam_nummer === stamNummer)
+          .sort((a, b) => a.stock_nummer - b.stock_nummer);
+        if (stamStockar.length === 0) return;
+
+        // Alla stam-nummer i kontrollen (för pillarna)
+        const alleStammar = Array.from(
+          new Set(data.stockar.map((st) => st.stam_nummer)),
+        ).sort((a, b) => a - b);
+
+        // Sortimentsmix + total längd för subtitle
+        const sortimentSet = new Set(
+          stamStockar.map((st) => st.sortiment_namn).filter((x): x is string => !!x),
+        );
+        const sortimentText = Array.from(sortimentSet).join(' · ') || '–';
+        const totalCm = stamStockar.reduce((a, st) => a + (st.maskin_langd_cm ?? 0), 0);
+        const totalM = (totalCm / 100).toFixed(1);
+
+        // Skala för stock-storlek — relativ inom stammen så förhållandena
+        // syns men inga absoluta px-värden tappar sig i extrema fall.
+        const maxLangd = Math.max(...stamStockar.map((st) => st.maskin_langd_cm ?? 0), 1);
+        const maxDia = Math.max(...stamStockar.map((st) => st.maskin_toppdia_mm ?? 0), 1);
+
+        // Per-stock diverging-klassning (samma trösklar som nivå 3 + null-fall)
+        const stockDivCls = (
+          avvik: number | null,
+        ): 'cold' | 'ok' | 'hi' | 'hot' | 'null' => {
+          if (avvik == null) return 'null';
+          return avvik > 6 ? 'hot'
+            : avvik > 4 ? 'hi'
+            : avvik < -4 ? 'cold'
+            : 'ok';
+        };
+
+        // === Stamhållning — planområden i den täta diameterprofilen ===
+        // Profil finns bara för kontrollstammar (758 i prod). Hela sektionen
+        // göms när profilen saknas (ingen tom ruta).
+        const stamData = data.stammar.find((st) => st.stam_nummer === stamNummer);
+        const profile = (stamData?.stem_diameter_profile ?? [])
+          .slice()
+          .sort((a, b) => a.position_cm - b.position_cm);
+        const hasProfile = profile.length > 1;
+
+        type Plan = { startCm: number; endCm: number; lengthCm: number; diameterMm: number };
+        // Algoritm (Skogforsks grunddefinition): icke-minskande sträcka ≥ 30 cm.
+        // För varje punkt i — j går framåt så länge dia[j] >= dia[j-1].
+        // Sträckan [i, j-1] är planområde om endCm - startCm >= 30.
+        const findPlanomraden = (): Plan[] => {
+          if (!hasProfile) return [];
+          const out: Plan[] = [];
+          let i = 0;
+          while (i < profile.length - 1) {
+            let j = i + 1;
+            while (j < profile.length && profile[j].diameter_mm >= profile[j - 1].diameter_mm) {
+              j++;
+            }
+            const startCm = profile[i].position_cm;
+            const endCm = profile[j - 1].position_cm;
+            const length = endCm - startCm;
+            if (length >= 30) {
+              out.push({
+                startCm,
+                endCm,
+                lengthCm: length,
+                diameterMm: profile[i].diameter_mm,
+              });
+            }
+            i = j;
+          }
+          return out;
+        };
+        const planer = findPlanomraden();
+
+        // Mappa planområden till stockar — planet börjar/slutar vid pos på STAMMEN,
+        // stockarna har egen kumulativ längd. Ett plan kan sträcka sig över flera
+        // stockar; varje stock samlar de segment som faller inom sina gränser.
+        type PlanSegment = {
+          startInStockCm: number;
+          endInStockCm: number;
+          diameterMm: number;
+          lengthCm: number;
+        };
+        const stockGränser: number[] = [0];
+        for (const st of stamStockar) {
+          stockGränser.push(stockGränser[stockGränser.length - 1] + (st.maskin_langd_cm ?? 0));
+        }
+        const planerPerStock: PlanSegment[][] = stamStockar.map(() => []);
+        for (const p of planer) {
+          let i = 0;
+          while (i < stamStockar.length && stockGränser[i + 1] <= p.startCm) i++;
+          while (i < stamStockar.length && stockGränser[i] < p.endCm) {
+            const sStart = stockGränser[i];
+            const sEnd = stockGränser[i + 1];
+            planerPerStock[i].push({
+              startInStockCm: Math.max(0, p.startCm - sStart),
+              endInStockCm: Math.min(sEnd - sStart, p.endCm - sStart),
+              diameterMm: p.diameterMm,
+              lengthCm: p.lengthCm,
+            });
+            i++;
+          }
+        }
+
+        pushModal({
+          title: `Stam ${stamNummer}`,
+          subtitle: `${stamStockar.length} stockar · ${sortimentText} · ${totalM} m`,
+          body: (
+            <>
+              {alleStammar.length > 1 && (
+                <div className="kalib-stam-vaxlare">
+                  {alleStammar.map((n) => (
+                    <button
+                      key={n}
+                      className={`kalib-stam-pill ${n === stamNummer ? 'active' : ''}`}
+                      onClick={() => {
+                        if (n !== stamNummer) {
+                          popModal();
+                          openStamVy(n);
+                        }
+                      }}
+                    >
+                      Stam {n}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {planer.length > 0 && (
+                <div className="kalib-stam-explain">
+                  En stam ska bli klenare mot toppen. Där den slutar smalna tappar
+                  mätorganen kontakt — då fastnar diametern. Röda fält = där det
+                  händer.
+                </div>
+              )}
+
+              <div className="kalib-stam-virket">
+                {stamStockar.map((st, idx) => {
+                  // Stam-vyn handlar nu om stamhållning, inte dia-avvikelse —
+                  // alla stockar har neutral grå form. Dia-avvikelsen visas
+                  // som text i etiketten + finns i lollipop på nivå 3.
+                  const widthPct = 35 + ((st.maskin_langd_cm ?? maxLangd) / maxLangd) * 60;
+                  const heightPx = 16 + ((st.maskin_toppdia_mm ?? maxDia) / maxDia) * 18;
+                  const lenM = st.maskin_langd_cm != null
+                    ? (st.maskin_langd_cm / 100).toFixed(1).replace('.', ',')
+                    : '–';
+                  const avvik = st.dia_avvikelse_mm;
+                  const avvikText = avvik != null
+                    ? `${fmtAvvikelse(avvik, 'mm')} mm`
+                    : 'mätning saknas';
+                  const stockLenCm = st.maskin_langd_cm ?? 0;
+                  const segments = planerPerStock[idx] ?? [];
+                  return (
+                    <div
+                      key={st.id}
+                      className="kalib-stam-stock-row"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => openStockDetalj(st, data.stammar)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          openStockDetalj(st, data.stammar);
+                        }
+                      }}
+                    >
+                      <div
+                        className="kalib-stam-stock-form ok"
+                        style={{
+                          width: `${widthPct}%`,
+                          height: `${heightPx}px`,
+                          borderRadius: `${heightPx / 2}px`,
+                        }}
+                      >
+                        {stockLenCm > 0 && segments.map((seg, j) => (
+                          <div
+                            key={j}
+                            className="kalib-stam-stock-plan-overlay"
+                            style={{
+                              left: `${(seg.startInStockCm / stockLenCm) * 100}%`,
+                              width: `${((seg.endInStockCm - seg.startInStockCm) / stockLenCm) * 100}%`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                      <div className="kalib-stam-stock-label">
+                        Stock {st.stock_nummer} · {st.sortiment_namn ?? '–'} · {lenM} m · {avvikText}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {planer.length > 0 && (
+                <div className="kalib-card kalib-stamhallning-detalj">
+                  <div className="kalib-stamhallning-list">
+                    {planer.map((p, idx) => {
+                      const startM = (p.startCm / 100).toFixed(1).replace('.', ',');
+                      const endM = (p.endCm / 100).toFixed(1).replace('.', ',');
+                      return (
+                        <div key={idx} className="kalib-stamhallning-row">
+                          <span className="kalib-stamhallning-pos">{startM} – {endM} m</span>
+                          <span className="kalib-stamhallning-len">{p.lengthCm} cm</span>
+                          <span className="kalib-stamhallning-dia">{p.diameterMm} mm</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               )}
             </>
           ),
@@ -694,21 +1002,31 @@ export default function KalibreringPage() {
             <div className="kalib-card">
               <div className="kalib-tol-header">
                 <div className="kalib-tol-label">Längd</div>
-                <div className={`kalib-tol-value ${lenCls === 'bad' ? 'bad' : lenCls === 'warn' ? 'warn' : ''}`}>
+                <div className={`kalib-tol-value tone-${worstClsLen}`}>
                   {fmtAvvikelse(lenSnitt, 'cm')} cm
                 </div>
               </div>
-              <div className="kalib-tol-band" aria-label="Toleransband längd">
-                <div className="kalib-tol-zone-bad-l" />
-                <div className="kalib-tol-zone-good" />
-                <div className="kalib-tol-zone-bad-r" />
-                <div className="kalib-tol-band-zero" />
+              <div className="kalib-swarm" aria-label="Stockfördelning längd">
+                <div className="kalib-swarm-tol" />
+                <div className="kalib-swarm-zero" />
+                {stockDist.map((e) => (
+                  <div
+                    key={e.id}
+                    className={`kalib-swarm-dot tone-${lenSwarmCls(e.sLen)}`}
+                    style={{ left: `${swarmX(e.sLen, 4)}%`, top: `${swarmY(e)}%` }}
+                    title={`Stam ${e.stam_nummer}·${e.stock_nummer}: ${fmtAvvikelse(e.sLen, 'cm')} cm`}
+                  />
+                ))}
                 <div
-                  className={`kalib-tol-band-marker ${lenCls}`}
-                  style={{ left: `${bandPos(lenSnitt, 4)}%` }}
+                  className="kalib-swarm-snitt"
+                  style={{ left: `${swarmX(lenSnitt, 4)}%` }}
+                  title={`Snitt: ${fmtAvvikelse(lenSnitt, 'cm')} cm`}
                 />
               </div>
-              <div className={`kalib-tol-status ${lenStatusCls}`}>
+              <div className="kalib-swarm-scale">
+                <span>−4</span><span>±2 tolerans</span><span>+4 cm</span>
+              </div>
+              <div className={`kalib-tol-status tone-${lenStatusTone}`}>
                 <span className="kalib-tol-status-dot" />
                 {lenLabel}
               </div>
@@ -717,21 +1035,31 @@ export default function KalibreringPage() {
             <div className="kalib-card">
               <div className="kalib-tol-header">
                 <div className="kalib-tol-label">Diameter</div>
-                <div className={`kalib-tol-value ${diaCls === 'bad' ? 'bad' : diaCls === 'warn' ? 'warn' : ''}`}>
+                <div className={`kalib-tol-value tone-${worstClsDia}`}>
                   {fmtAvvikelse(diaSnitt, 'mm')} mm
                 </div>
               </div>
-              <div className="kalib-tol-band" aria-label="Toleransband diameter">
-                <div className="kalib-tol-zone-bad-l" />
-                <div className="kalib-tol-zone-good" />
-                <div className="kalib-tol-zone-bad-r" />
-                <div className="kalib-tol-band-zero" />
+              <div className="kalib-swarm" aria-label="Stockfördelning diameter">
+                <div className="kalib-swarm-tol" />
+                <div className="kalib-swarm-zero" />
+                {stockDist.map((e) => (
+                  <div
+                    key={e.id}
+                    className={`kalib-swarm-dot tone-${diaSwarmCls(e.sDia)}`}
+                    style={{ left: `${swarmX(e.sDia, 8)}%`, top: `${swarmY(e)}%` }}
+                    title={`Stam ${e.stam_nummer}·${e.stock_nummer}: ${fmtAvvikelse(e.sDia, 'mm')} mm`}
+                  />
+                ))}
                 <div
-                  className={`kalib-tol-band-marker ${diaCls}`}
-                  style={{ left: `${bandPos(diaSnitt, 8)}%` }}
+                  className="kalib-swarm-snitt"
+                  style={{ left: `${swarmX(diaSnitt, 8)}%` }}
+                  title={`Snitt: ${fmtAvvikelse(diaSnitt, 'mm')} mm`}
                 />
               </div>
-              <div className={`kalib-tol-status ${diaStatusCls}`}>
+              <div className="kalib-swarm-scale">
+                <span>−8</span><span>±4 tolerans</span><span>+8 mm</span>
+              </div>
+              <div className={`kalib-tol-status tone-${diaStatusTone}`}>
                 <span className="kalib-tol-status-dot" />
                 {diaLabel}
               </div>
@@ -774,11 +1102,11 @@ export default function KalibreringPage() {
                     key={s.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => openStockDetalj(s, data.stammar)}
+                    onClick={() => openStamVy(s.stam_nummer)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        openStockDetalj(s, data.stammar);
+                        openStamVy(s.stam_nummer);
                       }
                     }}
                     className={`kalib-stock-row ${worst === 'bad' ? 'bad' : worst === 'warn' ? 'warn' : ''}`}
@@ -851,8 +1179,9 @@ export default function KalibreringPage() {
   const kalibFileSet = new Set(filteredHistorik.map(h => h.filnamn));
   const calibCount = kalibFileSet.size;
 
-  // History list — Historik
-  const historyList = filteredKalib.slice(0, 30).map(k => ({
+  // History list — Historik. Visa ALLA kontroller (tills Trend-vyn ersätter
+  // denna lista — då filtreras äldre kontroller dit via tidsaxel + per-trädslag).
+  const historyList = filteredKalib.map(k => ({
     kalib: k,
     date: new Date(k.datum),
   }));
@@ -1411,23 +1740,36 @@ export default function KalibreringPage() {
         .kalib-tol-header{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px}
         .kalib-tol-label{font-size:14px;color:#8E8E93;font-weight:500}
         .kalib-tol-value{font-size:22px;font-weight:700;color:#fff;letter-spacing:-0.01em}
+        /* Legacy binär-klasser (kvar för stocklistan i samma modal) */
         .kalib-tol-value.warn{color:#FF9500}
         .kalib-tol-value.bad{color:#FF3B30}
+        /* Diverging tone-* — samma språk som lollipop i nivå 3 */
+        .kalib-tol-value.tone-ok{color:#fff}
+        .kalib-tol-value.tone-cold{color:#0A84FF}
+        .kalib-tol-value.tone-hi{color:#FF9F0A}
+        .kalib-tol-value.tone-hot{color:#FF453A}
 
-        .kalib-tol-band{position:relative;height:10px;border-radius:5px;display:grid;grid-template-columns:1fr 2fr 1fr;background:rgba(255,255,255,0.04);margin:6px 0 14px}
-        .kalib-tol-zone-bad-l{background:rgba(255,59,48,0.25);border-radius:5px 0 0 5px}
-        .kalib-tol-zone-bad-r{background:rgba(255,59,48,0.25);border-radius:0 5px 5px 0}
-        .kalib-tol-zone-good{background:rgba(52,199,89,0.22)}
-        .kalib-tol-band-zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:rgba(255,255,255,0.35)}
-        .kalib-tol-band-marker{position:absolute;top:50%;width:14px;height:14px;border-radius:50%;transform:translate(-50%,-50%);background:#fff;box-shadow:0 0 0 2px #1C1C1E,0 0 0 3px rgba(255,255,255,0.4);transition:left 0.3s cubic-bezier(0.2,0.8,0.2,1)}
-        .kalib-tol-band-marker.bad{background:#FF3B30}
+        /* === Stock-svärm: en dot per stock, färg per diverging-skala === */
+        .kalib-swarm{position:relative;height:64px;border-radius:8px;background:rgba(255,255,255,0.025);margin:8px 0 6px;overflow:visible}
+        .kalib-swarm-tol{position:absolute;top:0;bottom:0;left:25%;right:25%;background:rgba(255,255,255,0.04);border-left:1px dashed rgba(255,255,255,0.14);border-right:1px dashed rgba(255,255,255,0.14)}
+        .kalib-swarm-zero{position:absolute;top:4px;bottom:4px;left:50%;width:1px;background:rgba(255,255,255,0.35);transform:translateX(-0.5px)}
+        .kalib-swarm-dot{position:absolute;width:10px;height:10px;border-radius:50%;transform:translate(-50%,-50%);background:#8E8E93;box-shadow:0 0 0 2px rgba(0,0,0,0.55)}
+        .kalib-swarm-dot.tone-ok{background:#8E8E93}
+        .kalib-swarm-dot.tone-cold{background:#0A84FF}
+        .kalib-swarm-dot.tone-hi{background:#FF9F0A}
+        .kalib-swarm-dot.tone-hot{background:#FF453A}
+        .kalib-swarm-snitt{position:absolute;bottom:0;width:2px;height:14px;background:rgba(255,255,255,0.85);transform:translateX(-50%);border-radius:1px;pointer-events:none}
+        .kalib-swarm-snitt::after{content:'';position:absolute;bottom:14px;left:50%;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-bottom:4px solid rgba(255,255,255,0.85);transform:translateX(-50%)}
+        .kalib-swarm-scale{display:flex;justify-content:space-between;font-size:11px;color:#8E8E93;margin:2px 0 12px;padding:0 2px;font-variant-numeric:tabular-nums}
+        .kalib-swarm-scale span:nth-child(2){opacity:0.7}
 
         .kalib-tol-status{font-size:13px;font-weight:500;display:flex;align-items:center;gap:8px}
         .kalib-tol-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
-        .kalib-tol-status.good{color:#34C759}
-        .kalib-tol-status.good .kalib-tol-status-dot{background:#34C759}
-        .kalib-tol-status.bad{color:#FF3B30}
-        .kalib-tol-status.bad .kalib-tol-status-dot{background:#FF3B30}
+        /* Status: grå = ok (ingen onödig grön), röd = utanför */
+        .kalib-tol-status.tone-ok{color:#8E8E93}
+        .kalib-tol-status.tone-ok .kalib-tol-status-dot{background:#8E8E93}
+        .kalib-tol-status.tone-bad{color:#FF3B30}
+        .kalib-tol-status.tone-bad .kalib-tol-status-dot{background:#FF3B30}
 
         .kalib-stockar-list{display:flex;flex-direction:column;gap:6px}
         .kalib-stock-row{display:flex;align-items:center;gap:12px;min-height:56px;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:12px;cursor:pointer;transition:background 0.12s,border-color 0.12s,transform 0.12s}
@@ -1452,18 +1794,21 @@ export default function KalibreringPage() {
         .kalib-stock-mo-line{font-size:13px;color:#8E8E93;margin-top:6px}
 
         .kalib-lollipop{position:relative;height:150px;margin:14px 0 4px;background:rgba(255,255,255,0.02);border-radius:8px}
-        .kalib-lollipop-tol-band{position:absolute;left:0;right:0;top:30%;height:40%;background:rgba(52,199,89,0.10)}
-        .kalib-lollipop-zero-line{position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(255,255,255,0.18)}
+        .kalib-lollipop-tol-band{position:absolute;left:0;right:0;top:30%;height:40%;background:rgba(255,255,255,0.035);border-top:1px dashed rgba(255,255,255,0.20);border-bottom:1px dashed rgba(255,255,255,0.20)}
+        .kalib-lollipop-zero-line{position:absolute;left:0;right:0;top:50%;height:1px;background:rgba(255,255,255,0.32)}
         .kalib-lollipop-stem{position:absolute;width:2px;background:rgba(255,255,255,0.4);transform:translateX(-1px)}
-        .kalib-lollipop-marker{position:absolute;width:14px;height:14px;border-radius:50%;background:#fff;transform:translate(-50%,-50%);box-shadow:0 0 0 2px #1C1C1E,0 0 0 3px rgba(255,255,255,0.3);transition:left 0.3s,top 0.3s}
-        .kalib-lollipop-marker.good{background:#34C759}
-        .kalib-lollipop-marker.warn{background:#FF9500}
-        .kalib-lollipop-marker.bad{background:#FF3B30}
+        .kalib-lollipop-marker{position:absolute;width:14px;height:14px;border-radius:50%;background:#8E8E93;transform:translate(-50%,-50%);box-shadow:0 0 0 2px #1C1C1E,0 0 0 3px rgba(255,255,255,0.3);transition:left 0.3s,top 0.3s}
+        .kalib-lollipop-marker.ok{background:#8E8E93}
+        .kalib-lollipop-marker.cold{background:#0A84FF}
+        .kalib-lollipop-marker.hi{background:#FF9F0A}
+        .kalib-lollipop-marker.hot{background:#FF453A}
         .kalib-lollipop-label{position:absolute;transform:translateX(-50%);font-size:11px;font-weight:600;color:#fff;white-space:nowrap;font-variant-numeric:tabular-nums;pointer-events:none}
-        .kalib-lollipop-label.warn{color:#FF9500}
-        .kalib-lollipop-label.bad{color:#FF3B30}
+        .kalib-lollipop-label.ok{color:#8E8E93}
+        .kalib-lollipop-label.cold{color:#0A84FF}
+        .kalib-lollipop-label.hi{color:#FF9F0A}
+        .kalib-lollipop-label.hot{color:#FF453A}
 
-        .kalib-lollipop-axis{display:flex;justify-content:space-between;margin-top:6px;padding:0 8px;font-size:11px;color:#8E8E93}
+        .kalib-lollipop-axis{display:flex;justify-content:space-between;margin-top:6px;padding:0 16px;font-size:11px;color:#8E8E93}
 
         .kalib-mp-list{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:12px;overflow:hidden;font-variant-numeric:tabular-nums}
         .kalib-mp-row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:0.5px solid rgba(255,255,255,0.08)}
@@ -1471,8 +1816,43 @@ export default function KalibreringPage() {
         .kalib-mp-pos{width:60px;font-size:13px;color:#8E8E93;flex-shrink:0}
         .kalib-mp-vals{flex:1;font-size:13px;color:#fff}
         .kalib-mp-diff{font-size:13px;font-weight:600;color:#fff;flex-shrink:0;min-width:44px;text-align:right}
-        .kalib-mp-diff.warn{color:#FF9500}
-        .kalib-mp-diff.bad{color:#FF3B30}
+        .kalib-mp-diff.ok{color:#8E8E93}
+        .kalib-mp-diff.cold{color:#0A84FF}
+        .kalib-mp-diff.hi{color:#FF9F0A}
+        .kalib-mp-diff.hot{color:#FF453A}
+
+        /* === Nivå 2: stammen som den ligger, stockar rot→topp === */
+        .kalib-stam-vaxlare{display:flex;gap:6px;margin:0 0 14px;justify-content:center;flex-wrap:wrap}
+        .kalib-stam-pill{height:32px;padding:0 14px;border-radius:16px;background:rgba(255,255,255,0.06);color:#8E8E93;border:none;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;transition:background 0.12s,color 0.12s}
+        .kalib-stam-pill.active{background:#fff;color:#000;font-weight:600}
+
+        .kalib-stam-virket{display:flex;flex-direction:column;gap:18px;padding:8px 0 4px}
+        .kalib-stam-stock-row{display:flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform 0.12s,opacity 0.12s}
+        .kalib-stam-stock-row:hover{opacity:0.92}
+        .kalib-stam-stock-row:active{transform:scale(0.97)}
+        .kalib-stam-stock-form{position:relative;overflow:hidden;background:#8E8E93;border:1px solid rgba(255,255,255,0.10);transition:background 0.15s;box-shadow:inset 0 1px 0 rgba(255,255,255,0.08),inset 0 -1px 0 rgba(0,0,0,0.15)}
+        .kalib-stam-stock-form.ok{background:#8E8E93}
+        .kalib-stam-stock-form.cold{background:#0A84FF}
+        .kalib-stam-stock-form.hi{background:#FF9F0A}
+        .kalib-stam-stock-form.hot{background:#FF453A}
+        .kalib-stam-stock-form.null{background:transparent;border:1.5px dashed rgba(255,255,255,0.25);box-shadow:none}
+        .kalib-stam-stock-label{font-size:12px;color:#8E8E93;margin-top:8px;font-variant-numeric:tabular-nums;text-align:center;line-height:1.3}
+
+        /* Stamhållning — planområden markerade som röda fält på stockarna */
+        .kalib-stam-explain{font-size:13px;line-height:1.5;color:#8E8E93;padding:12px 14px;background:rgba(255,255,255,0.04);border-radius:10px;margin:0 0 14px;border:1px solid rgba(255,255,255,0.06)}
+        .kalib-stam-stock-plan-overlay{position:absolute;top:0;bottom:0;background:rgba(255,69,58,0.65);pointer-events:none}
+        .kalib-stamhallning-detalj{margin-top:14px;padding:14px 16px}
+        .kalib-stamhallning-list{display:flex;flex-direction:column;gap:1px;border-radius:10px;overflow:hidden}
+        .kalib-stamhallning-row{display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(255,255,255,0.04);font-size:13px;font-variant-numeric:tabular-nums}
+        .kalib-stamhallning-pos{flex:1;color:#fff}
+        .kalib-stamhallning-len{color:#8E8E93;min-width:54px;text-align:right}
+        .kalib-stamhallning-dia{color:#8E8E93;min-width:60px;text-align:right}
+
+        /* Diagnos-mening under lollipop — en mening, mänskligt språk, färgton matchar allvar */
+        .kalib-stock-diagnos{font-size:13px;line-height:1.5;padding:12px 14px;border-radius:10px;margin:14px 0 4px}
+        .kalib-stock-diagnos.ok{background:rgba(255,255,255,0.04);color:#fff;border:1px solid rgba(255,255,255,0.06)}
+        .kalib-stock-diagnos.warn{background:rgba(255,159,10,0.10);color:#fff;border:1px solid rgba(255,159,10,0.28)}
+        .kalib-stock-diagnos.bad{background:rgba(255,69,58,0.10);color:#fff;border:1px solid rgba(255,69,58,0.32)}
 
         @media(max-width:480px){
           .kalib-page-title{font-size:28px}
@@ -1634,7 +2014,8 @@ export default function KalibreringPage() {
               </div>
 
               <div className="kalib-card">
-                <div className="kalib-section-title">Senaste kontrollerna</div>
+                <div className="kalib-section-title">Alla kontroller</div>
+                <div className="kalib-section-subtitle">{historyList.length} totalt</div>
                 <div className="kalib-list">
                   {historyList.map(({ kalib: k, date }) => {
                     const day = date.getDate();
@@ -1647,8 +2028,10 @@ export default function KalibreringPage() {
                           <span className="kalib-list-month">{monthShort}</span>
                         </div>
                         <div className="kalib-list-info">
-                          <span className="kalib-list-species">{cap(k.tradslag)}</span>
-                          <span className="kalib-list-stem">{k.antal_kontrollstockar} stockar</span>
+                          <span className="kalib-list-species">{k.object_name || cap(k.tradslag)}</span>
+                          <span className="kalib-list-stem">
+                            {k.object_name ? `${cap(k.tradslag)} · ${k.antal_kontrollstockar} stockar` : `${k.antal_kontrollstockar} stockar`}
+                          </span>
                         </div>
                         <div className="kalib-list-bar-container">
                           <div className={`kalib-list-bar ${isOut ? 'bad' : ''}`} style={{ width: `${Math.min(100, Math.abs(k.dia_avvikelse_snitt_mm) * 20)}%` }} />
