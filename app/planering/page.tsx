@@ -1925,8 +1925,8 @@ export default function PlannerPage() {
     setAvsluterObjekt(false);
     setVisarAvslutaConfirmation(false);
     if (!error) {
-      setValtObjekt({ ...valtObjekt, status: 'avslutat', avslutad_timestamp: nowIso });
       if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+      setValtObjekt(null); // öppnar ObjektValjare — samma mekanik som "Byt objekt"
     }
   }, [valtObjekt, avsluterObjekt]);
 
