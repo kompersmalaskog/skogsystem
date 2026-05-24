@@ -867,25 +867,33 @@ export default function KalibreringPage() {
 
               {planer.length > 0 && (
                 <div className="kalib-stam-explain">
-                  En stam ska bli klenare mot toppen. Där den slutar smalna tappar
-                  mätorganen kontakt — då fastnar diametern. Röda fält = där det
-                  händer.
+                  Stockens färg = hur mycket den drar. Streckade fält = där
+                  mätorganen tappar kontakt och diametern fastnar.
                 </div>
               )}
 
               <div className="kalib-stam-virket">
                 {stamStockar.map((st, idx) => {
-                  // Stam-vyn handlar nu om stamhållning, inte dia-avvikelse —
-                  // alla stockar har neutral grå form. Dia-avvikelsen visas
-                  // som text i etiketten + finns i lollipop på nivå 3.
+                  // Form-färg = stockens egen diameteravvikelse, samma diverging-
+                  // skala som svärmen i nivå 1 och lollipop i nivå 3. sDia =
+                  // max abs över mätpunkter + topp (en mätpunkt som sticker ut
+                  // ska kunna färga stocken röd även om toppen är mild).
+                  const mpA = st.matpunkter
+                    .filter((m) => m.diameter_maskin_mm != null && m.diameter_operator_mm != null)
+                    .map((m) => (m.diameter_maskin_mm as number) - (m.diameter_operator_mm as number));
+                  const hasAvvikData = mpA.length > 0 || st.dia_avvikelse_mm != null;
+                  const sDia = [...mpA, st.dia_avvikelse_mm ?? 0].reduce(
+                    (a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0
+                  );
+                  const formCls = hasAvvikData ? stockDivCls(sDia) : stockDivCls(null);
+
                   const widthPct = 35 + ((st.maskin_langd_cm ?? maxLangd) / maxLangd) * 60;
                   const heightPx = 16 + ((st.maskin_toppdia_mm ?? maxDia) / maxDia) * 18;
                   const lenM = st.maskin_langd_cm != null
                     ? (st.maskin_langd_cm / 100).toFixed(1).replace('.', ',')
                     : '–';
-                  const avvik = st.dia_avvikelse_mm;
-                  const avvikText = avvik != null
-                    ? `${fmtAvvikelse(avvik, 'mm')} mm`
+                  const avvikText = hasAvvikData
+                    ? `${fmtAvvikelse(sDia, 'mm')} mm`
                     : 'mätning saknas';
                   const stockLenCm = st.maskin_langd_cm ?? 0;
                   const segments = planerPerStock[idx] ?? [];
@@ -904,7 +912,7 @@ export default function KalibreringPage() {
                       }}
                     >
                       <div
-                        className="kalib-stam-stock-form ok"
+                        className={`kalib-stam-stock-form ${formCls}`}
                         style={{
                           width: `${widthPct}%`,
                           height: `${heightPx}px`,
@@ -1840,7 +1848,10 @@ export default function KalibreringPage() {
 
         /* Stamhållning — planområden markerade som röda fält på stockarna */
         .kalib-stam-explain{font-size:13px;line-height:1.5;color:#8E8E93;padding:12px 14px;background:rgba(255,255,255,0.04);border-radius:10px;margin:0 0 14px;border:1px solid rgba(255,255,255,0.06)}
-        .kalib-stam-stock-plan-overlay{position:absolute;top:0;bottom:0;background:rgba(255,69,58,0.65);pointer-events:none}
+        /* Planområde-overlay: mörk diagonalskraffering + mörka sidokanter.
+           Syns mot vilken stockfärg som helst (grå/blå/orange/röd) utan att
+           förväxlas med stockens egen avvikelsefärg. */
+        .kalib-stam-stock-plan-overlay{position:absolute;top:0;bottom:0;pointer-events:none;background-image:repeating-linear-gradient(-45deg,rgba(0,0,0,0.55) 0 3px,transparent 3px 7px);border-left:1.5px solid rgba(0,0,0,0.75);border-right:1.5px solid rgba(0,0,0,0.75)}
         .kalib-stamhallning-detalj{margin-top:14px;padding:14px 16px}
         .kalib-stamhallning-list{display:flex;flex-direction:column;gap:1px;border-radius:10px;overflow:hidden}
         .kalib-stamhallning-row{display:flex;align-items:center;gap:8px;padding:10px 12px;background:rgba(255,255,255,0.04);font-size:13px;font-variant-numeric:tabular-nums}
