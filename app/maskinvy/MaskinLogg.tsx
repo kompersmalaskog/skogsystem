@@ -82,7 +82,8 @@ export default function MaskinLogg({ mode }: { mode: 'skordare' | 'skotare' }) {
       const byDay: Record<string, { g15: number }> = {};
       for (const r of tidRes.data) {
         if (!byDay[r.datum]) byDay[r.datum] = { g15: 0 };
-        byDay[r.datum].g15 += (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0);
+        // G15 = processing + terrain (PONSSE-definition). other_work räknas inte in.
+        byDay[r.datum].g15 += (r.processing_sek || 0) + (r.terrain_sek || 0);
       }
       // Also get production volumes
       const prodRes = await supabase.from('fakt_produktion').select('datum, volym_m3sub')

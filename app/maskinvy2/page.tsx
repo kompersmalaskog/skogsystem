@@ -118,7 +118,8 @@ function aggregate(tid: TidRow[], prod: ProdRow[]): Agg {
   const av = tid.reduce((s, r) => s + (r.avbrott_sek || 0), 0);
   const ra = tid.reduce((s, r) => s + (r.rast_sek || 0), 0);
   const br = tid.reduce((s, r) => s + (r.bransle_liter || 0), 0);
-  const g15 = p + te + ow;
+  // G15 = processing + terrain (verifierat mot PONSSE). other_work räknas inte in.
+  const g15 = p + te;
   const arb = g15 + ma + di + av;
   return { volym: v, stammar: st, g15Sek: g15, totalTidSek: arb + ra, bransle: br, processingSek: p, terrainSek: te, otherSek: ow, kortStoppSek: ks, maintenanceSek: ma, disturbanceSek: di, avbrottSek: av, rastSek: ra };
 }
@@ -170,7 +171,7 @@ function aggregateOperators(
     if (!map.has(id)) map.set(id, { g15: 0, proc: 0, terr: 0, other: 0, ks: 0, maint: 0, dist: 0, avb: 0, rast: 0, bransle: 0, maskinCount: new Map() });
     const d = map.get(id)!;
     const rp = r.processing_sek || 0, rt = r.terrain_sek || 0, ro = r.other_work_sek || 0;
-    d.g15 += rp + rt + ro;
+    d.g15 += rp + rt;   // G15 = P + T (PONSSE-definition). 'other' visas separat nedan.
     d.proc += rp; d.terr += rt; d.other += ro;
     d.ks += r.kort_stopp_sek || 0;
     d.maint += r.maintenance_sek || 0;
@@ -187,7 +188,7 @@ function aggregateOperators(
     const id = r.operator_id || 'unknown';
     if (!opObjG15.has(id)) opObjG15.set(id, new Map());
     const m = opObjG15.get(id)!;
-    m.set(r.objekt_id, (m.get(r.objekt_id) || 0) + (r.processing_sek || 0) + (r.terrain_sek || 0) + (r.other_work_sek || 0));
+    m.set(r.objekt_id, (m.get(r.objekt_id) || 0) + (r.processing_sek || 0) + (r.terrain_sek || 0));
   }
 
   // Total G15 per objekt (sum across all operators)

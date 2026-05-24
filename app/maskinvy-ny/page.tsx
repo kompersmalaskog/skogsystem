@@ -174,7 +174,8 @@ export default function MaskinvyNyPage() {
       const dailyArr: DailyData[] = Array.from(allDates).sort().map(d => {
         const p = prodByDay[d] || { volym: 0, stammar: 0 }
         const t = tidByDay[d] || { proc: 0, terr: 0, other: 0, bransle: 0 }
-        const totalSek = t.proc + t.terr + t.other
+        // G15 = processing + terrain (PONSSE-definition). 'other' summeras inte här.
+        const totalSek = t.proc + t.terr
         return { datum: d, volym: p.volym, stammar: p.stammar, g15h: totalSek / 3600, bransle: t.bransle }
       })
 
@@ -193,7 +194,7 @@ export default function MaskinvyNyPage() {
           totOther += r.other_work_sek || 0
         }
       }
-      const totTime = totProc + totTerr + totOther
+      const totTime = totProc + totTerr   // G15 = P + T (PONSSE). totOther räknas separat.
       const estTotal = totTime > 0 ? totTime / 0.85 : 1
 
       setKpi({
