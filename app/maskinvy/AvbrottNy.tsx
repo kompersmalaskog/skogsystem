@@ -6,6 +6,7 @@ import {
   fmtSv,
   type Maskin, type Period,
 } from './OversiktShared'
+import { translateKategori } from '../../lib/avbrott-kategorier'
 
 // ─────────────────────────────────────────────────────────────
 // Avbrott-vyn (?ny=1&vy=avbrott) — STEG 1.
@@ -13,8 +14,7 @@ import {
 // Svarar på: "Vad stoppar maskinen, och är det skötsel eller haveri?"
 //
 // Steg 1: kontextrad + flytt-utlyft + avbrottsstapel + typ-lista
-// (icke-klickbar). Steg 2 (senare): drill-down till kategorier
-// per typ + översättningar för REPAIR_*-koder.
+// Steg 2: accordion drill-down per typ + REPAIR_*-översättningar.
 // ─────────────────────────────────────────────────────────────
 
 // Typer i fakt_avbrott.typ (verifierat — fältet är ifyllt på alla rader)
@@ -169,55 +169,118 @@ function ProportionsStapel({ perTyp }: { perTyp: TypAgg[] }) {
   )
 }
 
-// ── TypList ──────────────────────────────────────────────────
+// ── TypList med accordion drill-down ────────────────────────
 function TypList({ perTyp, loading }: { perTyp: TypAgg[]; loading: boolean }) {
-  // Sortera på sek fallande för listan (Reparation behåller färgen
-  // oavsett position).
+  const [expanded, setExpanded] = useState<string | null>(null)
+  // Sortera på sek fallande (Reparation håller sin färg oavsett position)
   const sorted = [...perTyp].sort((a, b) => b.sek - a.sek)
+
   return (
     <div>
       {sorted.map((t, i) => {
-        const isHaveri = t.typ === 'Reparation'
-        const hasData = t.antal > 0
-        const labelColor = isHaveri ? C.red : C.text
-        const labelWeight = isHaveri ? 600 : 500
-        const valueColor = isHaveri
-          ? (hasData ? C.red : C.dim)
-          : (hasData ? C.text : C.muted)
+        const isHaveri    = t.typ === 'Reparation'
+        const hasData     = t.antal > 0
+        const showAlarm   = isHaveri && hasData   // rött+bold bara om faktisk reparation
+        const isExpanded  = expanded === t.typ
+        const hasKat      = !loading && t.kategorier.length > 0
+
         return (
-          <div
-            key={t.typ}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: '8px 1fr auto auto',
-              gap: 10, alignItems: 'center',
-              padding: '12px 16px',
-              borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
-            }}
-          >
-            <div style={{
-              width: 8, height: 8, borderRadius: 2,
-              background: TYP_FARG[t.typ],
-              opacity: hasData ? 1 : 0.4,
-            }} />
-            <div style={{
-              fontSize: 14, color: labelColor, fontWeight: labelWeight,
-              letterSpacing: -0.1,
-            }}>{t.typ}</div>
-            <div style={{
-              fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums',
-              minWidth: 50, textAlign: 'right',
-            }}>
-              {loading ? '—' : `${t.antal} ${t.antal === 1 ? 'gång' : 'ggr'}`}
+          <div key={t.typ}>
+            {/* ─ Typ-rad ─ */}
+            <div
+              role={hasKat ? 'button' : undefined}
+              onClick={hasKat ? () => setExpanded(isExpanded ? null : t.typ) : undefined}
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '8px 1fr auto auto 18px',
+                gap: 10, alignItems: 'center',
+                padding: '12px 16px',
+                borderTop: i > 0 ? `0.5px solid ${C.divider}` : 'none',
+                cursor: hasKat ? 'pointer' : 'default',
+              }}
+            >
+              {/* Färgprick */}
+              <div style={{
+                width: 8, height: 8, borderRadius: 2,
+                background: TYP_FARG[t.typ],
+                opacity: hasData ? 1 : 0.4,
+              }} />
+
+              {/* Typnamn */}
+              <div style={{
+                fontSize: 14, letterSpacing: -0.1,
+                color:      showAlarm ? C.red  : (hasData ? C.text  : C.muted),
+                fontWeight: showAlarm ? 600    : 500,
+              }}>{t.typ}</div>
+
+              {/* Antal */}
+              <div style={{
+                fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums',
+                minWidth: 50, textAlign: 'right',
+              }}>
+                {loading ? '—' : `${t.antal} ${t.antal === 1 ? 'gång' : 'ggr'}`}
+              </div>
+
+              {/* Timmar */}
+              <div style={{
+                fontSize: 14, fontVariantNumeric: 'tabular-nums',
+                minWidth: 60, textAlign: 'right',
+                color:      showAlarm ? C.red  : (hasData ? C.text  : C.muted),
+                fontWeight: showAlarm ? 600    : 500,
+              }}>
+                {loading ? '—' : `${fmtSv(t.sek / 3600, 1)} h`}
+              </div>
+
+              {/* Chevron */}
+              <div style={{
+                color: C.muted, fontSize: 13, textAlign: 'center',
+                transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform 200ms cubic-bezier(0.32,0.72,0,1)',
+                opacity: hasKat ? 1 : 0,
+                lineHeight: 1,
+              }}>›</div>
             </div>
-            <div style={{
-              fontSize: 14, fontWeight: isHaveri ? 600 : 500,
-              color: valueColor,
-              fontVariantNumeric: 'tabular-nums',
-              minWidth: 60, textAlign: 'right',
-            }}>
-              {loading ? '—' : `${fmtSv(t.sek / 3600, 1)} h`}
-            </div>
+
+            {/* ─ Accordion: kategorier ─ */}
+            {isExpanded && hasKat && (
+              <div style={{
+                background: 'rgba(255,255,255,0.025)',
+                borderTop: `0.5px solid ${C.divider}`,
+              }}>
+                {t.kategorier.map((k, ki) => (
+                  <div
+                    key={k.kategori}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr auto auto',
+                      gap: 10, alignItems: 'center',
+                      padding: '9px 16px 9px 36px',
+                      borderTop: ki > 0
+                        ? `0.5px solid rgba(255,255,255,0.04)`
+                        : 'none',
+                    }}
+                  >
+                    <div style={{ fontSize: 13, color: C.text }}>
+                      {translateKategori(k.kategori)}
+                    </div>
+                    <div style={{
+                      fontSize: 11, color: C.muted,
+                      fontVariantNumeric: 'tabular-nums',
+                      minWidth: 50, textAlign: 'right',
+                    }}>
+                      {k.antal} {k.antal === 1 ? 'gång' : 'ggr'}
+                    </div>
+                    <div style={{
+                      fontSize: 13, fontWeight: 500, color: C.text,
+                      fontVariantNumeric: 'tabular-nums',
+                      minWidth: 60, textAlign: 'right',
+                    }}>
+                      {fmtSv(k.sek / 3600, 2)} h
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )
       })}
