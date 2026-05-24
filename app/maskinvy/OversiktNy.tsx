@@ -47,6 +47,14 @@ export default function OversiktNy() {
 
   const { label } = getPeriodRange(period, offset)
 
+  // Konkret jämförelse-etikett: "mot april", "mot vecka 18", "mot 2025" …
+  const refLabel = (() => {
+    const prevL = getPeriodRange(period, offset - 1).label
+    if (period === 'Å') return `mot ${prevL}`                                     // "mot 2025"
+    if (period === 'M') return `mot ${prevL.split(' ')[0].toLowerCase()}`          // "mot april"
+    return `mot ${prevL.split(' · ')[0].toLowerCase()}`                            // "mot vecka 18" / "mot kvartal 1"
+  })()
+
   // Skriv maskinnamn + period till global TopBar (samma mönster som gamla vyn)
   useEffect(() => {
     const el = document.getElementById('topbar-title')
@@ -166,6 +174,7 @@ export default function OversiktNy() {
           value={data?.produktivitet ?? null}
           prev={prevData?.produktivitet ?? null}
           series={series}
+          referenceLabel={refLabel}
           loading={loading}
         />
         <KpiList data={data} prev={prevData} series={series} loading={loading} />
