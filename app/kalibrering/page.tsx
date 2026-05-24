@@ -270,6 +270,9 @@ export default function KalibreringPage() {
   const [selectedTrendTradslag, setSelectedTrendTradslag] = useState<string | null>(null);
   const [trendUnit, setTrendUnit] = useState<'dia' | 'len'>('dia');
   const [trendPeriod, setTrendPeriod] = useState<'vecka' | 'manad' | 'kvartal' | 'ar'>('manad');
+  // Anchor = en datum-sträng (ISO) inuti det fönster användaren tittar på.
+  // null = "auto, använd senaste kontroll för aktuellt trädslag".
+  const [trendAnchor, setTrendAnchor] = useState<string | null>(null);
   const trendFetchKeyRef = useRef<string | null>(null);
 
   // Globalt maskinfilter — persistent över flikar
@@ -1624,11 +1627,18 @@ export default function KalibreringPage() {
         .kalib-trend-pill-count{font-size:12px;opacity:0.7;font-variant-numeric:tabular-nums}
         .kalib-trend-pill.active .kalib-trend-pill-count{opacity:0.55}
 
-        /* iOS-segmenterad kontroll: enhetväxling (Dia/Längd) och tidsupplösning */
+        /* iOS-segmenterad kontroll: enhetväxling (Dia/Längd) och fönsterbredd */
         .kalib-trend-seg{display:flex;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.06);border-radius:9px;padding:2px;margin:0 0 10px;width:100%}
         .kalib-trend-seg-btn{flex:1;padding:7px 4px;border-radius:7px;border:none;background:transparent;color:#8E8E93;font-size:13px;font-weight:500;cursor:pointer;transition:background 0.12s,color 0.12s}
         .kalib-trend-seg-btn:hover{color:#fff}
         .kalib-trend-seg-btn.active{background:#3A3A3C;color:#fff;box-shadow:0 1px 2px rgba(0,0,0,0.4)}
+
+        /* Bläddringsrad: pilar + fönsteretikett. Som månads-navigatorn i Kalendern. */
+        .kalib-trend-nav{display:flex;align-items:center;justify-content:space-between;padding:6px 0;margin:0 0 6px}
+        .kalib-trend-nav-btn{width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.06);border:none;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.12s}
+        .kalib-trend-nav-btn:hover:not(:disabled){background:rgba(255,255,255,0.12)}
+        .kalib-trend-nav-btn:disabled{background:rgba(255,255,255,0.03);cursor:default}
+        .kalib-trend-nav-label{font-size:16px;font-weight:600;color:#fff;letter-spacing:-0.01em;font-variant-numeric:tabular-nums}
 
         .kalib-trend-too-few{font-size:13px;color:#FF9F0A;background:rgba(255,159,10,0.10);padding:10px 12px;border-radius:8px;margin:8px 0 14px;line-height:1.4}
         .kalib-trend-empty{font-size:13px;color:#8E8E93;padding:16px;text-align:center}
@@ -2092,7 +2102,6 @@ export default function KalibreringPage() {
                 const enough = trCurrent ? trCurrent.antal_kontroller >= TRADSLAG_TRESHOLD : false;
 
                 // Diverging-klassning — exakt samma trösklar som nivå 1/2/3.
-                // Tröskeln skiljer mellan diameter (±4mm) och längd (±2cm).
                 type DivCls2 = 'cold' | 'ok' | 'hi' | 'hot';
                 const valCls = (v: number): DivCls2 => {
                   if (trendUnit === 'dia') {
@@ -2111,111 +2120,164 @@ export default function KalibreringPage() {
                   ? [{ v: 8, t: '+8' }, { v: 4, t: '+4' }, { v: 0, t: '0' }, { v: -4, t: '−4' }, { v: -8, t: `−8 ${unitTxt}` }]
                   : [{ v: 4, t: '+4' }, { v: 2, t: '+2' }, { v: 0, t: '0' }, { v: -2, t: '−2' }, { v: -4, t: `−4 ${unitTxt}` }];
 
-                // === Period-bucketing ===
-                type PeriodKey = string;
-                const periodOf = (iso: string): { key: PeriodKey; sortKey: number; label: string; mid: number } => {
-                  const d = new Date(iso);
-                  if (trendPeriod === 'ar') {
-                    const y = d.getFullYear();
-                    return { key: `${y}`, sortKey: y * 10000, label: `${y}`, mid: new Date(y, 6, 1).getTime() };
-                  }
-                  if (trendPeriod === 'kvartal') {
-                    const q = Math.floor(d.getMonth() / 3) + 1;
-                    const y = d.getFullYear();
-                    return { key: `${y}-Q${q}`, sortKey: y * 100 + q, label: `Q${q} ${String(y).slice(2)}`, mid: new Date(y, (q - 1) * 3 + 1, 15).getTime() };
-                  }
-                  if (trendPeriod === 'manad') {
-                    const y = d.getFullYear();
-                    const m = d.getMonth() + 1;
-                    const monthNames = ['Jan','Feb','Mar','Apr','Maj','Jun','Jul','Aug','Sep','Okt','Nov','Dec'];
-                    return { key: `${y}-${String(m).padStart(2, '0')}`, sortKey: y * 100 + m, label: `${monthNames[m - 1]} ${String(y).slice(2)}`, mid: new Date(y, m - 1, 15).getTime() };
-                  }
-                  // vecka — ISO week (Thursday-anchored)
+                // === FÖNSTER-MODELL: filtret bestämmer hur BRETT tidsfönster man ser,
+                // inte hur kontroller klumpas. Inom fönstret är varje dag = en punkt
+                // (dag-snitt om flera kontroller samma dag), placerad på sin riktiga
+                // x-position i tiden.
+                const isoWeek = (d: Date): number => {
                   const tmp = new Date(d);
                   tmp.setHours(0, 0, 0, 0);
                   tmp.setDate(tmp.getDate() + 3 - ((tmp.getDay() + 6) % 7));
                   const firstThursday = new Date(tmp.getFullYear(), 0, 4);
                   firstThursday.setDate(firstThursday.getDate() + 3 - ((firstThursday.getDay() + 6) % 7));
-                  const week = 1 + Math.round((tmp.getTime() - firstThursday.getTime()) / (7 * 86400000));
-                  const wy = tmp.getFullYear();
-                  return { key: `${wy}-w${String(week).padStart(2, '0')}`, sortKey: wy * 100 + week, label: `v.${week}`, mid: tmp.getTime() };
+                  return 1 + Math.round((tmp.getTime() - firstThursday.getTime()) / (7 * 86400000));
+                };
+                const startOfWeek = (d: Date): Date => {
+                  const x = new Date(d);
+                  x.setHours(0, 0, 0, 0);
+                  const day = (x.getDay() + 6) % 7; // mån=0
+                  x.setDate(x.getDate() - day);
+                  return x;
+                };
+                const windowRange = (anchor: Date): { start: Date; end: Date } => {
+                  if (trendPeriod === 'vecka') {
+                    const s = startOfWeek(anchor);
+                    return { start: s, end: new Date(s.getFullYear(), s.getMonth(), s.getDate() + 7) };
+                  }
+                  if (trendPeriod === 'manad') {
+                    return {
+                      start: new Date(anchor.getFullYear(), anchor.getMonth(), 1),
+                      end: new Date(anchor.getFullYear(), anchor.getMonth() + 1, 1),
+                    };
+                  }
+                  if (trendPeriod === 'kvartal') {
+                    const qStart = Math.floor(anchor.getMonth() / 3) * 3;
+                    return {
+                      start: new Date(anchor.getFullYear(), qStart, 1),
+                      end: new Date(anchor.getFullYear(), qStart + 3, 1),
+                    };
+                  }
+                  // ar
+                  return {
+                    start: new Date(anchor.getFullYear(), 0, 1),
+                    end: new Date(anchor.getFullYear() + 1, 0, 1),
+                  };
+                };
+                const windowLabel = (anchor: Date): string => {
+                  if (trendPeriod === 'vecka') return `Vecka ${isoWeek(anchor)} · ${anchor.getFullYear()}`;
+                  if (trendPeriod === 'manad') {
+                    const months = ['Januari','Februari','Mars','April','Maj','Juni','Juli','Augusti','September','Oktober','November','December'];
+                    return `${months[anchor.getMonth()]} ${anchor.getFullYear()}`;
+                  }
+                  if (trendPeriod === 'kvartal') return `Q${Math.floor(anchor.getMonth() / 3) + 1} ${anchor.getFullYear()}`;
+                  return `${anchor.getFullYear()}`;
+                };
+                const shiftWindow = (anchor: Date, delta: -1 | 1): Date => {
+                  const x = new Date(anchor);
+                  if (trendPeriod === 'vecka') x.setDate(x.getDate() + delta * 7);
+                  else if (trendPeriod === 'manad') x.setMonth(x.getMonth() + delta);
+                  else if (trendPeriod === 'kvartal') x.setMonth(x.getMonth() + delta * 3);
+                  else x.setFullYear(x.getFullYear() + delta);
+                  return x;
                 };
 
-                // Bygg periods för aktuellt trädslag + enhet
-                type CurvePoint = { key: string; label: string; sortKey: number; mid: number; avg: number; n: number };
+                // Anchor: explicit (efter bläddring) eller auto = senaste kontrollen
+                // för aktuellt trädslag. Kontroller är sorterade datum desc, så [0] = senaste.
+                const defaultAnchor: Date = trCurrent && trCurrent.kontroller.length > 0
+                  ? new Date(trCurrent.kontroller[0].datum)
+                  : new Date();
+                const anchor: Date = trendAnchor ? new Date(trendAnchor) : defaultAnchor;
+                const range = windowRange(anchor);
+                const startMs = range.start.getTime();
+                const endMs = range.end.getTime();
+                const winLabel = windowLabel(anchor);
+
+                // Filtrera kontroller inom fönstret + gruppera per dag (dag-snitt om flera samma dag)
+                type CurvePoint = { key: string; label: string; ts: number; avg: number; n: number; filnamns: string[] };
                 const curvePoints: CurvePoint[] = (() => {
                   if (!trCurrent) return [];
-                  const buckets = new Map<string, { sortKey: number; label: string; mid: number; vals: number[] }>();
+                  const dayBuckets = new Map<string, { ts: number; vals: number[]; filnamns: string[] }>();
                   for (const k of trCurrent.kontroller) {
-                    const p = periodOf(k.datum);
+                    const d = new Date(k.datum);
+                    const t = d.getTime();
+                    if (t < startMs || t >= endMs) continue;
                     const v = trendUnit === 'dia' ? k.dia_snitt_mm : k.len_snitt_cm;
-                    const b = buckets.get(p.key);
-                    if (b) { b.vals.push(v); }
-                    else buckets.set(p.key, { sortKey: p.sortKey, label: p.label, mid: p.mid, vals: [v] });
+                    const dayKey = `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+                    const dayTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).getTime();
+                    const b = dayBuckets.get(dayKey);
+                    if (b) { b.vals.push(v); b.filnamns.push(k.filnamn); }
+                    else dayBuckets.set(dayKey, { ts: dayTs, vals: [v], filnamns: [k.filnamn] });
                   }
                   const arr: CurvePoint[] = [];
-                  buckets.forEach((b, key) => {
-                    arr.push({ key, label: b.label, sortKey: b.sortKey, mid: b.mid, avg: b.vals.reduce((a, c) => a + c, 0) / b.vals.length, n: b.vals.length });
+                  dayBuckets.forEach((b, key) => {
+                    arr.push({
+                      key,
+                      label: new Date(b.ts).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }),
+                      ts: b.ts,
+                      avg: b.vals.reduce((a, c) => a + c, 0) / b.vals.length,
+                      n: b.vals.length,
+                      filnamns: b.filnamns,
+                    });
                   });
-                  arr.sort((a, b) => a.sortKey - b.sortKey);
+                  arr.sort((a, b) => a.ts - b.ts);
                   return arr;
                 })();
 
-                // Auto-mening: ärlig sammanfattning av kurvan
+                // X-position baserat på faktiskt datum inom fönstret (4-96% för marginal)
+                const xPctFor = (ts: number) => {
+                  const range = endMs - startMs;
+                  if (range <= 0) return 50;
+                  const raw = ((ts - startMs) / range) * 100;
+                  return Math.max(4, Math.min(96, raw));
+                };
+
+                // SVG polyline (om vi har minst 2 punkter)
+                const polylinePoints = curvePoints.length >= 2
+                  ? curvePoints.map((p) => `${xPctFor(p.ts).toFixed(2)},${yPct(p.avg).toFixed(2)}`).join(' ')
+                  : '';
+
+                // Auto-mening: ärlig sammanfattning av FÖNSTRET
                 const autoMening = (): string => {
                   if (curvePoints.length === 0) return '';
                   if (curvePoints.length === 1) {
                     const p = curvePoints[0];
-                    return `${p.label}: ${fmtAvvikelse(p.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}. För få perioder för att se trend.`;
+                    return `Enstaka kontroll ${p.label}: ${fmtAvvikelse(p.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}.`;
                   }
                   const allInTol = curvePoints.every((p) => Math.abs(p.avg) <= tol);
-                  if (allInTol) return `Stabilt — inom ±${tol} ${unitTxt} hela perioden.`;
+                  if (allInTol) return `Stabilt inom ±${tol} ${unitTxt} under ${winLabel.toLowerCase()}.`;
                   const peak = curvePoints.reduce((a, b) => Math.abs(b.avg) > Math.abs(a.avg) ? b : a);
                   const peakIdx = curvePoints.indexOf(peak);
                   const last = curvePoints[curvePoints.length - 1];
                   if (peak === last) {
                     const dir = peak.avg > 0 ? (trendUnit === 'dia' ? 'grovt' : 'långt') : (trendUnit === 'dia' ? 'klent' : 'kort');
-                    return `Drar åt ${dir} nu — ${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt} i ${peak.label}.`;
+                    return `Drar åt ${dir} senast — ${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt} ${peak.label}.`;
                   }
                   const after = curvePoints.slice(peakIdx + 1);
                   const recovered = after.length > 0 && after.every((p) => Math.abs(p.avg) <= tol);
                   if (recovered) {
-                    return `Drog iväg i ${peak.label} (${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}), tillbaka inom tolerans efter det.`;
+                    return `Drog iväg ${peak.label} (${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}), tillbaka inom tolerans efter det.`;
                   }
-                  return `Topp ${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt} i ${peak.label}.`;
+                  return `Värst ${peak.label}: ${fmtAvvikelse(peak.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}.`;
                 };
 
-                // Kalibreringsmarkörer för aktuellt trädslag — knyt till närmaste period
-                const kalibMarkers: { idx: number; label: string }[] = (() => {
-                  if (curvePoints.length === 0) return [];
-                  const out: { idx: number; label: string }[] = [];
-                  for (const kev of trendData.kalibreringar) {
-                    if (kev.tradslag && trCurrentKey && kev.tradslag.toLowerCase() !== trCurrentKey) continue;
-                    const p = periodOf(kev.datum);
-                    let bestIdx = -1, bestDelta = Infinity;
-                    for (let i = 0; i < curvePoints.length; i++) {
-                      const d = Math.abs(curvePoints[i].sortKey - p.sortKey);
-                      if (d < bestDelta) { bestDelta = d; bestIdx = i; }
-                    }
-                    if (bestIdx === -1) continue;
-                    // Tag korta etikett: bara datumet
-                    const dateLabel = new Date(kev.datum).toLocaleDateString('sv-SE', { month: 'short', day: 'numeric' });
-                    out.push({ idx: bestIdx, label: dateLabel });
-                  }
-                  return out;
-                })();
+                // Kalibreringsmarkörer som faller inom fönstret
+                const kalibMarkers: { ts: number; label: string }[] = trendData.kalibreringar
+                  .filter((kev) => {
+                    if (kev.tradslag && trCurrentKey && kev.tradslag.toLowerCase() !== trCurrentKey) return false;
+                    const t = new Date(kev.datum).getTime();
+                    return t >= startMs && t < endMs;
+                  })
+                  .map((kev) => ({
+                    ts: new Date(kev.datum).getTime(),
+                    label: new Date(kev.datum).toLocaleDateString('sv-SE', { day: 'numeric', month: 'short' }),
+                  }));
 
-                // X-positioner: jämn fördelning över bredden
-                const xPctFor = (i: number) => {
-                  if (curvePoints.length <= 1) return 50;
-                  return 6 + (i / (curvePoints.length - 1)) * 88;
-                };
-
-                // SVG polyline (om vi har minst 2 punkter) — viewBox är 0..100 i båda
-                // axlar, vilket matchar HTML-dotternas left/top i procent.
-                const polylinePoints = curvePoints.length >= 2
-                  ? curvePoints.map((p, i) => `${xPctFor(i).toFixed(2)},${yPct(p.avg).toFixed(2)}`).join(' ')
-                  : '';
+                // Bläddringshandlers
+                const onPrev = () => setTrendAnchor(shiftWindow(anchor, -1).toISOString());
+                const onNext = () => setTrendAnchor(shiftWindow(anchor, +1).toISOString());
+                // Nästa-knapp = disabled om fönstret hamnar bortom dagens datum
+                const nextRange = windowRange(shiftWindow(anchor, +1));
+                const canGoNext = nextRange.start.getTime() <= Date.now();
 
                 return (
                   <>
@@ -2226,7 +2288,7 @@ export default function KalibreringPage() {
                           <button
                             key={key}
                             className={`kalib-trend-pill ${key === trCurrentKey ? 'active' : ''}`}
-                            onClick={() => setSelectedTrendTradslag(key)}
+                            onClick={() => { setSelectedTrendTradslag(key); setTrendAnchor(null); }}
                           >
                             <span className="kalib-trend-pill-name">{cap(key)}</span>
                             <span className="kalib-trend-pill-count">{td.antal_kontroller}</span>
@@ -2255,6 +2317,28 @@ export default function KalibreringPage() {
                       <button className={`kalib-trend-seg-btn ${trendPeriod === 'ar' ? 'active' : ''}`} onClick={() => setTrendPeriod('ar')}>År</button>
                     </div>
 
+                    {/* Bläddring inom fönstret */}
+                    {trCurrent && (
+                      <div className="kalib-trend-nav">
+                        <button
+                          className="kalib-trend-nav-btn"
+                          onClick={onPrev}
+                          aria-label="Föregående fönster"
+                        >
+                          <MSym name="chevron_left" size={22} color="#fff" />
+                        </button>
+                        <div className="kalib-trend-nav-label">{winLabel}</div>
+                        <button
+                          className="kalib-trend-nav-btn"
+                          onClick={onNext}
+                          disabled={!canGoNext}
+                          aria-label="Nästa fönster"
+                        >
+                          <MSym name="chevron_right" size={22} color={canGoNext ? '#fff' : '#3A3A3C'} />
+                        </button>
+                      </div>
+                    )}
+
                     {/* Trendkurva */}
                     {trCurrent && (
                       <div className="kalib-card">
@@ -2262,7 +2346,9 @@ export default function KalibreringPage() {
                           {trendUnit === 'dia' ? 'Diameter' : 'Längd'} · {cap(trCurrentKey ?? '')}
                         </div>
                         <div className="kalib-section-subtitle">
-                          Snitt per {trendPeriod === 'vecka' ? 'vecka' : trendPeriod === 'manad' ? 'månad' : trendPeriod === 'kvartal' ? 'kvartal' : 'år'} · {trCurrent.antal_kontroller} kontroller
+                          {curvePoints.length === 0
+                            ? 'Inga kontroller i fönstret'
+                            : `${curvePoints.reduce((a, p) => a + p.n, 0)} kontroller · ${curvePoints.length} dag${curvePoints.length === 1 ? '' : 'ar'}`}
                         </div>
 
                         {!enough && (
@@ -2273,7 +2359,9 @@ export default function KalibreringPage() {
                         )}
 
                         {curvePoints.length === 0 ? (
-                          <div className="kalib-trend-empty">Inga kontroller för {cap(trCurrentKey ?? '')}.</div>
+                          <div className="kalib-trend-empty">
+                            Inga kontroller i {winLabel.toLowerCase()}. Bläddra ‹ › för att se andra perioder.
+                          </div>
                         ) : (
                           <>
                             <div className={`kalib-curve ${enough ? '' : 'muted'}`}>
@@ -2296,14 +2384,13 @@ export default function KalibreringPage() {
                                     <div
                                       key={`kev-${i}`}
                                       className="kalib-curve-kalib"
-                                      style={{ left: `${xPctFor(m.idx)}%` }}
+                                      style={{ left: `${xPctFor(m.ts)}%` }}
                                       title={`Kalibrering ${m.label}`}
                                     >
                                       <span className="kalib-curve-kalib-tag">⚙ {m.label}</span>
                                     </div>
                                   ))}
-                                  {/* SVG-linje — fyller hela plot-rutan, viewBox 0..100 i båda axlar
-                                      så att xPctFor/yPct mappar 1:1 mot HTML-dotternas left/top */}
+                                  {/* SVG-linje — fyller hela plot-rutan, viewBox 0..100 i båda axlar */}
                                   {polylinePoints && (
                                     <svg className="kalib-curve-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
                                       <polyline
@@ -2318,33 +2405,61 @@ export default function KalibreringPage() {
                                     </svg>
                                   )}
                                   {/* Punkter */}
-                                  {curvePoints.map((p, i) => {
+                                  {curvePoints.map((p) => {
                                     const cls = enough ? valCls(p.avg) : 'ok';
                                     return (
                                       <div
                                         key={p.key}
                                         className={`kalib-curve-dot tone-${cls}`}
-                                        style={{ left: `${xPctFor(i)}%`, top: `${yPct(p.avg)}%` }}
-                                        title={`${p.label}: ${fmtAvvikelse(p.avg, unitTxt as 'mm' | 'cm')} ${unitTxt} (n=${p.n})`}
+                                        style={{ left: `${xPctFor(p.ts)}%`, top: `${yPct(p.avg)}%` }}
+                                        title={`${p.label}: ${fmtAvvikelse(p.avg, unitTxt as 'mm' | 'cm')} ${unitTxt}${p.n > 1 ? ` (snitt av ${p.n} kontroller)` : ''}`}
                                       />
                                     );
                                   })}
                                 </div>
                               </div>
-                              {/* X-axeletiketter (var n:te för att inte krocka) */}
+                              {/* X-axeletiketter: fönstrets ändar + jämn fördelning */}
                               <div className="kalib-curve-xaxis">
                                 <div className="kalib-curve-xaxis-spacer" />
                                 <div className="kalib-curve-xaxis-inner">
-                                  {curvePoints.map((p, i) => {
-                                    const step = curvePoints.length <= 6 ? 1
-                                      : curvePoints.length <= 12 ? 2
-                                      : curvePoints.length <= 26 ? 4
-                                      : Math.ceil(curvePoints.length / 6);
-                                    if (i % step !== 0 && i !== curvePoints.length - 1) return null;
-                                    return (
-                                      <span key={p.key} style={{ left: `${xPctFor(i)}%` }}>{p.label}</span>
-                                    );
-                                  })}
+                                  {(() => {
+                                    // Generera lagom täta etiketter beroende på fönstertyp
+                                    const labels: { x: number; label: string }[] = [];
+                                    const startD = new Date(startMs);
+                                    if (trendPeriod === 'vecka') {
+                                      // Mån-Sön: visa varje dag
+                                      const days = ['Mån','Tis','Ons','Tor','Fre','Lör','Sön'];
+                                      for (let i = 0; i < 7; i++) {
+                                        const ts = new Date(startD.getFullYear(), startD.getMonth(), startD.getDate() + i, 12).getTime();
+                                        labels.push({ x: xPctFor(ts), label: days[i] });
+                                      }
+                                    } else if (trendPeriod === 'manad') {
+                                      // Visa dag-tal var 5:e dag
+                                      for (let dag = 1; dag <= 31; dag += 5) {
+                                        const ts = new Date(startD.getFullYear(), startD.getMonth(), dag, 12).getTime();
+                                        if (ts >= endMs) break;
+                                        labels.push({ x: xPctFor(ts), label: String(dag) });
+                                      }
+                                    } else if (trendPeriod === 'kvartal') {
+                                      // 3 månadsnamn
+                                      const months = ['Jan','Feb','Mar','Apr','Maj','Jun','Jul','Aug','Sep','Okt','Nov','Dec'];
+                                      for (let m = 0; m < 3; m++) {
+                                        const monthIdx = startD.getMonth() + m;
+                                        const ts = new Date(startD.getFullYear(), monthIdx, 15).getTime();
+                                        labels.push({ x: xPctFor(ts), label: months[monthIdx % 12] });
+                                      }
+                                    } else {
+                                      // år: 12 månadsbokstäver eller var 2:a
+                                      const months = ['J','F','M','A','M','J','J','A','S','O','N','D'];
+                                      for (let m = 0; m < 12; m++) {
+                                        const ts = new Date(startD.getFullYear(), m, 15).getTime();
+                                        labels.push({ x: xPctFor(ts), label: months[m] });
+                                      }
+                                    }
+                                    return labels.map((l, i) => (
+                                      <span key={i} style={{ left: `${l.x}%` }}>{l.label}</span>
+                                    ));
+                                  })()}
                                 </div>
                               </div>
                             </div>
