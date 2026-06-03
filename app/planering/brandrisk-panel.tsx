@@ -9,11 +9,6 @@ const MCF_COLORS: Record<number, string> = {
   3: "#FFD60A", 4: "#FF9F0A", 5: "#FF453A", 6: "#AF52DE",
 };
 
-const MCF_RGB: Record<number, [number, number, number]> = {
-  1: [0,122,255], 2: [52,199,89], 3: [255,214,10],
-  4: [255,159,10], 5: [255,69,58], 6: [175,82,222],
-};
-
 interface McfText {
   name: string;
   short: string;
@@ -30,15 +25,15 @@ const MCF_TEXTS: Record<number, McfText> = {
   6: { name: "Extremt stor skogsbrandsrisk", short: "Extrem", desc: "Markens ytskikt extremt torrt. Antändningsrisken mycket stor, brand utvecklas explosivt. Stor risk för toppbrand", fwi: "FWI 28+ · Ofta eldningsförbud" },
 };
 
-const OPACITY: Record<number, number> = { 1: 0.25, 2: 0.4, 3: 0.55, 4: 0.7, 5: 0.85, 6: 0.95 };
-const R_BOOST: Record<number, number> = { 1: 0, 2: 0, 3: 4, 4: 9, 5: 14, 6: 18 };
-const GLOW_BLUR: Record<number, number> = { 1: 0, 2: 0, 3: 2, 4: 5, 5: 9, 6: 14 };
-const GLOW_OPACITY: Record<number, number> = { 1: 0, 2: 0, 3: 0.25, 4: 0.45, 5: 0.65, 6: 0.85 };
-const BAR_GLOW: Record<number, string> = {
-  3: "0 0 6px rgba(255,214,10,0.25)",
-  4: "0 0 10px rgba(255,159,10,0.35), 0 0 3px rgba(255,159,10,0.2)",
-  5: "0 0 14px rgba(255,69,58,0.4), 0 0 4px rgba(255,69,58,0.25)",
-  6: "0 0 18px rgba(175,82,222,0.5), 0 0 5px rgba(175,82,222,0.3)",
+// Band cell backgrounds — rgba so inset box-shadow stays at full white opacity
+const MCF_BAND_BG: Record<number, string> = {
+  0: 'rgba(142,142,147,0.15)',
+  1: 'rgba(0,122,255,0.3)',
+  2: 'rgba(52,199,89,0.4)',
+  3: 'rgba(255,214,10,0.55)',
+  4: 'rgba(255,159,10,0.7)',
+  5: 'rgba(255,69,58,0.85)',
+  6: 'rgba(175,82,222,0.95)',
 };
 
 const SAMRAD_STEPS: { title: string; desc: string }[] = [
@@ -71,89 +66,6 @@ const DOCS: DocGroup[] = [
     { title: "SBF 127:17 – Regler för brandskydd", sub: "Brandskyddsföreningen", url: "https://www.brandskyddsforeningen.se/webbshop/normer-och-regelverk/sbf-12717-regler-for-brandskydd-pa-arbetsfordon-skogs-anlaggningsmaskiner/" },
   ]},
 ];
-
-// === SVG helpers ===
-function p2c(cx: number, cy: number, r: number, deg: number): [number, number] {
-  const rad = (deg - 90) * Math.PI / 180;
-  return [cx + r * Math.cos(rad), cy + r * Math.sin(rad)];
-}
-
-// === FireClock Component ===
-function FireClock({ hourlyIdx, nowHour, nowMinute }: { hourlyIdx: number[]; nowHour: number; nowMinute?: number }) {
-  const timeLabel = nowMinute !== undefined ? `${nowHour.toString().padStart(2, '0')}:${nowMinute.toString().padStart(2, '0')}` : 'NU';
-  const CX = 155, CY = 155, R_OUT = 135, R_IN = 92, GAP = 1.2;
-  const segments = [];
-  const labels: Record<number, string> = { 0: "00", 3: "03", 6: "06", 9: "09", 12: "12", 15: "15", 18: "18", 21: "21" };
-
-  for (let h = 0; h < 24; h++) {
-    const s = h * 15 + GAP / 2, e = (h + 1) * 15 - GAP / 2;
-    const idx = hourlyIdx[h] || 1;
-    const [r, g, b] = MCF_RGB[idx] || MCF_RGB[1];
-    const rOut = R_OUT + (R_BOOST[idx] || 0);
-    const [ox1, oy1] = p2c(CX, CY, rOut, s);
-    const [ox2, oy2] = p2c(CX, CY, rOut, e);
-    const [ix2, iy2] = p2c(CX, CY, R_IN, e);
-    const [ix1, iy1] = p2c(CX, CY, R_IN, s);
-    segments.push(
-      <path key={h} d={`M${ox1},${oy1} A${rOut},${rOut} 0 0,1 ${ox2},${oy2} L${ix2},${iy2} A${R_IN},${R_IN} 0 0,0 ${ix1},${iy1} Z`}
-        fill={`rgba(${r},${g},${b},${OPACITY[idx] || 0.25})`}
-        filter={idx >= 3 ? `url(#glow${idx})` : undefined} />
-    );
-  }
-
-  const nowIdx = hourlyIdx[nowHour] || 1;
-  const nowRout = R_OUT + (R_BOOST[nowIdx] || 0);
-  const nowDeg = nowHour * 15;
-  const [mx, my] = p2c(CX, CY, nowRout, nowDeg);
-  const [tx1, ty1] = p2c(CX, CY, nowRout + 2, nowDeg);
-  const [tx2, ty2] = p2c(CX, CY, nowRout + 9, nowDeg);
-  const [nx, ny] = p2c(CX, CY, nowRout + 22, nowDeg);
-
-  return (
-    <svg viewBox="-15 -15 340 340" style={{ width: "100%", height: "100%" }}>
-      <defs>
-        {[3,4,5,6].map(lvl => {
-          const [r,g,b] = MCF_RGB[lvl];
-          return (
-            <filter key={lvl} id={`glow${lvl}`} x="-50%" y="-50%" width="200%" height="200%">
-              <feFlood floodColor={`rgb(${r},${g},${b})`} floodOpacity={GLOW_OPACITY[lvl]} result="color" />
-              <feComposite in="color" in2="SourceGraphic" operator="in" result="colored" />
-              <feGaussianBlur in="colored" stdDeviation={GLOW_BLUR[lvl]} result="blur" />
-              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-            </filter>
-          );
-        })}
-      </defs>
-      {segments}
-      <circle cx={CX} cy={CY} r={R_IN - 5} fill="rgba(0,0,0,0.8)" />
-      {Object.entries(labels).map(([h, label]) => {
-        const hi = parseInt(h), deg = hi * 15;
-        const [x, y] = p2c(CX, CY, R_OUT + 24, deg);
-        const isKey = [0,6,12,18].includes(hi);
-        return <text key={h} x={x} y={y + 4} textAnchor="middle" fill={isKey ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.25)"}
-          fontSize={isKey ? 12 : 10} fontWeight={isKey ? 600 : 400} fontFamily="-apple-system, sans-serif">{label}</text>;
-      })}
-      {Array.from({ length: 24 }, (_, h) => {
-        const deg = h * 15, major = h % 6 === 0;
-        const [x1, y1] = p2c(CX, CY, R_IN - 5, deg);
-        const [x2, y2] = p2c(CX, CY, R_IN - (major ? 14 : 9), deg);
-        return <line key={`t${h}`} x1={x1} y1={y1} x2={x2} y2={y2}
-          stroke={major ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.06)"}
-          strokeWidth={major ? 1.5 : 0.75} />;
-      })}
-      <circle cx={mx} cy={my} r={10} fill="rgba(255,255,255,0.08)" />
-      <circle cx={mx} cy={my} r={5} fill="#fff" />
-      <circle cx={mx} cy={my} r={2} fill="#000" />
-      <line x1={tx1} y1={ty1} x2={tx2} y2={ty2} stroke="#fff" strokeWidth={2} strokeLinecap="round" />
-      <rect x={nx - 18} y={ny - 8} width={36} height={16} rx={4} fill="rgba(255,255,255,0.18)" />
-      <text x={nx} y={ny + 4} textAnchor="middle" fill="#fff" fontSize={10} fontWeight={700} fontFamily="-apple-system, sans-serif">{timeLabel}</text>
-      <circle cx={mx} cy={my} r={5} fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth={1.5}>
-        <animate attributeName="r" from="5" to="14" dur="2s" repeatCount="indefinite" />
-        <animate attributeName="stroke-opacity" from="0.5" to="0" dur="2s" repeatCount="indefinite" />
-      </circle>
-    </svg>
-  );
-}
 
 // === Collapsible Component ===
 function Collapsible({ title, children, borderTop = true }: { title: string; children: React.ReactNode; borderTop?: boolean }) {
@@ -239,6 +151,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
   const [devSimulating, setDevSimulating] = useState(false);
   const realDataRef = useRef<SmhiBrandriskData | null>(null);
   const [activeDay, setActiveDay] = useState(0);
+  const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
   const lastFetchRef = useRef<string>('');
 
@@ -334,36 +247,36 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
       : data.daily;
   })();
 
-  // Active day's hourly data for the fire clock
+  // Active day's hourly data
   const activeDayData = sortedDaily[activeDay];
   const clockHourlyIdx = activeDayData?.hourlyIdx || data.todayHourlyIdx;
-  const clockLabel = activeDayData?.dayName || 'Idag';
-  const clockDate = activeDayData ? new Date(activeDayData.date).toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'short' }) : '';
 
-  // Find wind/humidity note for the active day
-  const windHumNote = activeDayData ? (() => {
-    const peakEntries = clockHourlyIdx.map((idx, h) => ({ idx, h })).filter(e => e.idx >= 3);
-    if (peakEntries.length === 0) return null;
-    const startH = peakEntries[0].h;
-    const endH = peakEntries[peakEntries.length - 1].h;
-    const windPart = activeDayData.windLevel ? activeDayData.wind.split(' ').slice(1).join(' ') : '';
-    const humPart = activeDayData.humLevel ? activeDayData.humidity.toLowerCase() : '';
-    const parts = [windPart && `Vind ${windPart}`, humPart && humPart].filter(Boolean);
-    if (parts.length === 0) return null;
-    return `${parts.join(' + ')} driver risken kl ${startH.toString().padStart(2, '0')}–${endH.toString().padStart(2, '0')}`;
-  })() : null;
+  // Peak timing — longest contiguous block at peak level (handles non-contiguous peaks correctly)
+  const activePeakIdx = Math.max(...clockHourlyIdx.filter(i => i > 0));
+  const peakBlocks: { start: number; end: number; len: number }[] = [];
+  let _blockStart = -1;
+  for (let _h = 0; _h <= 24; _h++) {
+    const atPeak = _h < 24 && clockHourlyIdx[_h] === activePeakIdx;
+    if (atPeak && _blockStart === -1) _blockStart = _h;
+    if (!atPeak && _blockStart !== -1) { peakBlocks.push({ start: _blockStart, end: _h - 1, len: _h - _blockStart }); _blockStart = -1; }
+  }
+  const longestPeakBlock = peakBlocks.length > 0 ? peakBlocks.reduce((a, b) => b.len > a.len ? b : a) : { start: 12, end: 14 };
+  const activePeakStart = longestPeakBlock.start;
+  const activePeakEnd = longestPeakBlock.end;
 
-  // Lowest risk info for clock center
-  const lowestHours = clockHourlyIdx.map((idx, h) => ({ idx, h }));
-  const lowestIdx = Math.min(...clockHourlyIdx.filter(i => i > 0));
-  const lowestPeriod = lowestHours.filter(e => e.idx === lowestIdx);
-  const lowestStart = lowestPeriod.length > 0 ? lowestPeriod[0].h : 0;
-  const lowestEnd = lowestPeriod.length > 0 ? lowestPeriod[lowestPeriod.length - 1].h : 5;
-
-  const highestIdx = Math.max(...clockHourlyIdx);
-  const highestPeriod = lowestHours.filter(e => e.idx === highestIdx);
-  const highestStart = highestPeriod.length > 0 ? highestPeriod[0].h : 12;
-  const highestEnd = highestPeriod.length > 0 ? highestPeriod[highestPeriod.length - 1].h : 17;
+  // Klartext-rad derivation
+  const dagsdelsFras = activePeakStart >= 6 && activePeakStart <= 11 ? 'på förmiddagen'
+    : activePeakStart >= 12 && activePeakStart <= 13 ? 'runt lunch'
+    : activePeakStart >= 14 && activePeakStart <= 17 ? 'efter lunch'
+    : activePeakStart >= 18 && activePeakStart <= 21 ? 'på kvällen'
+    : '';
+  const peakKl = `kl ${activePeakStart.toString().padStart(2, '0')} till ${activePeakEnd.toString().padStart(2, '0')}`;
+  const klartextRubrik = dagsdelsFras ? `Farligast ${dagsdelsFras} – ${peakKl}` : `Farligast ${peakKl}`;
+  const lugnesmening = activeDay === 0
+    ? (currentIdx >= activePeakIdx
+      ? `Topprisk just nu – ${MCF_TEXTS[currentIdx]?.short?.toLowerCase() || ''} brandrisk.`
+      : `Just nu ${MCF_TEXTS[currentIdx]?.short?.toLowerCase() || ''} brandrisk. Stiger ${dagsdelsFras || peakKl}.`)
+    : `Väntat topp ${dagsdelsFras || peakKl} – ${MCF_TEXTS[activePeakIdx]?.short?.toLowerCase() || ''} brandrisk.`;
 
   const updatedTime = new Date(data.updatedAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 
@@ -429,78 +342,23 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           </div>
         )}
 
-        {/* Current + Peak */}
-        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-end', gap: 32, padding: '20px 24px 8px' }}>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 500, marginBottom: 4 }}>JUST NU KL {nowHour.toString().padStart(2, '0')}</div>
-            <div style={{ fontSize: 44, fontWeight: 700, letterSpacing: -2, lineHeight: 1, color: MCF_COLORS[currentIdx] }}>{currentIdx}</div>
-            <div style={{ fontSize: 11, marginTop: 6, fontWeight: 600, color: MCF_COLORS[currentIdx] }}>{MCF_TEXTS[currentIdx]?.short || ''} brandrisk</div>
-            <div style={{ fontSize: 10, marginTop: 2, color: 'rgba(255,255,255,0.3)' }}>FWI {currentFwi}</div>
+        {/* HERO — dominant current risk */}
+        <div style={{ textAlign: 'center', padding: '20px 24px 16px' }}>
+          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.25)', fontWeight: 500, marginBottom: 8 }}>
+            JUST NU · KL {nowHour.toString().padStart(2, '0')}
           </div>
-          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.12)', paddingBottom: 14 }}>&rarr;</div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', fontWeight: 500, marginBottom: 4 }}>DAGENS TOPP KL {peakHour.toString().padStart(2, '0')}</div>
-            <div style={{ fontSize: 44, fontWeight: 700, letterSpacing: -2, lineHeight: 1, color: MCF_COLORS[peakIdx] }}>{peakIdx}</div>
-            <div style={{ fontSize: 11, marginTop: 6, fontWeight: 600, color: MCF_COLORS[peakIdx] }}>{MCF_TEXTS[peakIdx]?.short || ''} brandrisk</div>
-            <div style={{ fontSize: 10, marginTop: 2, color: 'rgba(255,255,255,0.3)' }}>FWI {peakFwi}</div>
+          <div style={{ fontSize: 64, fontWeight: 700, letterSpacing: -3, lineHeight: 1, color: MCF_COLORS[currentIdx] }}>
+            {currentIdx}
           </div>
-        </div>
-
-        {/* Eldningsförbud toggle */}
-        <div style={{ margin: '8px 16px', padding: '10px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontSize: 13, color: '#fff', fontWeight: 500 }}>Råder eldningsförbud?</div>
-          <div style={{ display: 'flex', gap: 6, padding: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 12, width: 120 }}>
-            {[true, false].map(val => (
-              <button key={String(val)} onClick={() => onEldningsforbudChange(val)}
-                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: eldningsforbud === val ? (val ? '#ff453a' : 'rgba(255,255,255,0.3)') : 'transparent', color: eldningsforbud === val ? (val ? '#fff' : '#000') : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: eldningsforbud === val ? 700 : 500, cursor: 'pointer' }}>
-                {val ? 'Ja' : 'Nej'}
-              </button>
-            ))}
+          <div style={{ fontSize: 17, marginTop: 8, fontWeight: 600, color: MCF_COLORS[currentIdx] }}>
+            {MCF_TEXTS[currentIdx]?.short || ''} brandrisk
           </div>
-        </div>
-
-        {/* LAGER 2: PLANERING - Fire Clock */}
-        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 20, margin: '12px 16px 10px', padding: '24px 16px 20px', textAlign: 'center' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 16, textAlign: 'left', paddingLeft: 4 }}>
-            Brandriskklocka – {clockLabel} {clockDate && `${clockDate}`}
+          <div style={{ fontSize: 13, marginTop: 6, color: 'rgba(255,255,255,0.3)' }}>
+            FWI {currentFwi}
+            {currentIdx !== peakIdx && (
+              <> · Idag topp kl {peakHour.toString().padStart(2, '0')}: nivå {peakIdx} (FWI {peakFwi})</>
+            )}
           </div>
-          <div style={{ position: 'relative', width: 320, height: 320, margin: '0 auto' }}>
-            <FireClock hourlyIdx={clockHourlyIdx} nowHour={activeDay === 0 ? nowHour : 12} nowMinute={activeDay === 0 ? nowMinute : undefined} />
-            <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center', pointerEvents: 'none' }}>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, marginBottom: 2 }}>Lägre beräknad risk</div>
-              <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5, color: MCF_COLORS[lowestIdx] || MCF_COLORS[1] }}>
-                {lowestStart.toString().padStart(2, '0')}–{lowestEnd.toString().padStart(2, '0')}
-              </div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginBottom: 8 }}>Nivå {lowestIdx} · {MCF_TEXTS[lowestIdx]?.short || ''}</div>
-              <div style={{ width: 30, height: 1, background: 'rgba(255,255,255,0.06)', margin: '6px auto 8px' }} />
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.2)', fontWeight: 500, marginBottom: 2 }}>Högst beräknad risk</div>
-              <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: -0.5, color: MCF_COLORS[highestIdx] || MCF_COLORS[4] }}>
-                {highestStart.toString().padStart(2, '0')}–{highestEnd.toString().padStart(2, '0')}
-              </div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>Nivå {highestIdx} · {MCF_TEXTS[highestIdx]?.short || ''}</div>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
-            {[1,2,3,4,5,6].map(i => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 9, color: 'rgba(255,255,255,0.35)' }}>
-                <div style={{ width: 8, height: 8, borderRadius: 2, background: MCF_COLORS[i], flexShrink: 0 }} />{i}
-              </div>
-            ))}
-          </div>
-
-          {/* Day selector */}
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginTop: 16 }}>
-            {sortedDaily.slice(0, 7).map((d, i) => (
-              <button key={i} onClick={() => setActiveDay(i)} style={{ padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500, color: activeDay === i ? '#fff' : 'rgba(255,255,255,0.3)', background: activeDay === i ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
-                {d.dayName}
-              </button>
-            ))}
-          </div>
-
-          {windHumNote && (
-            <div style={{ marginTop: 14, fontSize: 12, color: 'rgba(255,255,255,0.2)' }}>{windHumNote}</div>
-          )}
         </div>
 
         {/* VECKA - Week forecast with bars */}
@@ -582,6 +440,92 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
               ))}
             </div>
           </Collapsible>
+        </div>
+
+        {/* LAGER 2: TIDSBAND */}
+        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 20, margin: '12px 16px 10px', padding: '20px 16px 16px' }}>
+          {/* Klartext-rad 1 */}
+          <div style={{ fontSize: 15, fontWeight: 500, color: '#fff', marginBottom: 4 }}>
+            🔥 {klartextRubrik}
+          </div>
+          {/* Klartext-rad 2 */}
+          <div style={{ fontSize: 13, color: '#8e8e93', marginBottom: 16 }}>
+            {lugnesmening}
+          </div>
+
+          {/* Dag-flikar */}
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 4, marginBottom: 16 }}>
+            {sortedDaily.slice(0, 7).map((d, i) => (
+              <button key={i} onClick={() => { setActiveDay(i); setSelectedHour(null); }} style={{ padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 500, color: activeDay === i ? '#fff' : 'rgba(255,255,255,0.3)', background: activeDay === i ? 'rgba(255,255,255,0.08)' : 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
+                {d.dayName}
+              </button>
+            ))}
+          </div>
+
+          {/* Tidsband + markörer */}
+          <div style={{ position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 2, borderRadius: 8, overflow: 'hidden' }}>
+              {clockHourlyIdx.map((idx, h) => {
+                const isNow = activeDay === 0 && h === nowHour;
+                return (
+                  <div key={h} onClick={() => setSelectedHour(selectedHour === h ? null : h)}
+                    style={{ flex: 1, height: 34, background: MCF_BAND_BG[idx] || MCF_BAND_BG[1], cursor: 'pointer', boxSizing: 'border-box', boxShadow: isNow ? 'inset 0 0 0 2px rgba(255,255,255,0.9)' : 'none' }}
+                  />
+                );
+              })}
+            </div>
+            {/* Nu-markör */}
+            {activeDay === 0 && (
+              <div style={{ position: 'absolute', top: '100%', marginTop: 2, left: `${(nowHour + 0.5) / 24 * 100}%`, transform: 'translateX(-50%)', fontSize: 8, color: 'rgba(255,255,255,0.55)', lineHeight: 1, pointerEvents: 'none' }}>▲</div>
+            )}
+          </div>
+
+          {/* Dagsdels-etiketter */}
+          <div style={{ display: 'flex', marginTop: 14 }}>
+            {[
+              { label: 'Natt', hours: 6, startH: 0 },
+              { label: 'Morgon', hours: 6, startH: 6 },
+              { label: 'Lunch', hours: 2, startH: 12 },
+              { label: 'Eftermiddag', hours: 4, startH: 14 },
+              { label: 'Kväll', hours: 6, startH: 18 },
+            ].map(({ label, hours, startH }) => {
+              const isCurrent = activeDay === 0 && nowHour >= startH && nowHour < startH + hours;
+              return (
+                <div key={label} style={{ flex: hours, textAlign: 'center', fontSize: 11, color: isCurrent ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)', fontWeight: isCurrent ? 500 : 400, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                  {label}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Klockslag-linjal */}
+          <div style={{ position: 'relative', height: 16, marginTop: 2 }}>
+            {[0, 6, 12, 18, 23].map(h => (
+              <div key={h} style={{ position: 'absolute', ...(h === 23 ? { right: 0 } : { left: `${(h / 24) * 100}%`, transform: h === 0 ? 'none' : 'translateX(-50%)' }), fontSize: 11, color: 'rgba(255,255,255,0.2)', whiteSpace: 'nowrap' }}>
+                kl {h.toString().padStart(2, '0')}
+              </div>
+            ))}
+          </div>
+
+          {/* Tooltip vid tap */}
+          {selectedHour !== null && (
+            <div style={{ marginTop: 10, textAlign: 'center', fontSize: 13, color: '#fff', background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '8px 12px' }}>
+              kl {selectedHour.toString().padStart(2, '0')}: {MCF_TEXTS[clockHourlyIdx[selectedHour]]?.short || ''} brandrisk (nivå {clockHourlyIdx[selectedHour]})
+            </div>
+          )}
+        </div>
+
+        {/* Eldningsförbud toggle */}
+        <div style={{ margin: '8px 16px', padding: '10px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 13, color: '#fff', fontWeight: 500 }}>Råder eldningsförbud?</div>
+          <div style={{ display: 'flex', gap: 6, padding: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 12, width: 120 }}>
+            {[true, false].map(val => (
+              <button key={String(val)} onClick={() => onEldningsforbudChange(val)}
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: eldningsforbud === val ? (val ? '#ff453a' : 'rgba(255,255,255,0.3)') : 'transparent', color: eldningsforbud === val ? (val ? '#fff' : '#000') : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: eldningsforbud === val ? 700 : 500, cursor: 'pointer' }}>
+                {val ? 'Ja' : 'Nej'}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* === OPERATIONAL SECTIONS (from old panel) === */}
