@@ -165,8 +165,8 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
   const secStyle: React.CSSProperties = { marginTop: '24px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '20px' };
   const headStyle: React.CSSProperties = { fontSize: '17px', fontWeight: 600, color: '#fff', marginBottom: '12px' };
   const summaryStyle: React.CSSProperties = { ...headStyle, cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' };
-  const textStyle: React.CSSProperties = { fontSize: '13px', color: 'rgba(255,255,255,0.5)', lineHeight: '1.7' };
-  const linkStyle: React.CSSProperties = { fontSize: '13px', color: '#60a5fa', textDecoration: 'none' };
+  const textStyle: React.CSSProperties = { fontSize: '13px', color: '#8e8e93', lineHeight: '1.7' };
+  const linkStyle: React.CSSProperties = { fontSize: '13px', color: '#0a84ff', textDecoration: 'none' };
 
   const fetchData = useCallback(async () => {
     if (testMode !== null) {
@@ -223,8 +223,8 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
       <div style={{ padding: '12px' }}>
         <div style={{ background: '#000', borderRadius: '20px', padding: '60px 24px', textAlign: 'center' }}>
           <div style={{ display: 'inline-block', width: '24px', height: '24px', border: '2.5px solid rgba(255,255,255,0.1)', borderTopColor: '#FF9F0A', borderRadius: '50%', animation: 'spin 0.8s linear infinite', marginBottom: '16px' }} />
-          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>Hämtar brandriskdata...</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)', marginTop: 6 }}>SMHI fwif1g API</div>
+          <div style={{ fontSize: 15, color: '#8e8e93', fontWeight: 500 }}>Hämtar brandriskdata...</div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.2)', marginTop: 6 }}>SMHI fwif1g API</div>
         </div>
       </div>
     );
@@ -271,12 +271,48 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
     : activePeakStart >= 18 && activePeakStart <= 21 ? 'på kvällen'
     : '';
   const peakKl = `kl ${activePeakStart.toString().padStart(2, '0')} till ${activePeakEnd.toString().padStart(2, '0')}`;
-  const klartextRubrik = dagsdelsFras ? `Farligast ${dagsdelsFras} – ${peakKl}` : `Farligast ${peakKl}`;
-  const lugnesmening = activeDay === 0
-    ? (currentIdx >= activePeakIdx
-      ? `Topprisk just nu – ${MCF_TEXTS[currentIdx]?.short?.toLowerCase() || ''} brandrisk.`
-      : `Just nu ${MCF_TEXTS[currentIdx]?.short?.toLowerCase() || ''} brandrisk. Stiger ${dagsdelsFras || peakKl}.`)
-    : `Väntat topp ${dagsdelsFras || peakKl} – ${MCF_TEXTS[activePeakIdx]?.short?.toLowerCase() || ''} brandrisk.`;
+  const peakEndKl = `kl ${activePeakEnd.toString().padStart(2, '0')}`;
+
+  // Klartext: koherent rad 1 (rubrik) + rad 2 (underrad). Fem lägen — "farligast senare"
+  // används BARA när toppen faktiskt ligger framåt (C/D/E). Är vi i toppen nu (A/A′)
+  // byter rad 1 till "just nu" och rad 2 säger när det lättar — kan aldrig motsäga varandra.
+  const curShort = MCF_TEXTS[currentIdx]?.short || '';
+  const peakShort = MCF_TEXTS[activePeakIdx]?.short || '';
+  const farligastRubrik = dagsdelsFras ? `Farligast ${dagsdelsFras} – ${peakKl}` : `Farligast ${peakKl}`;
+  const peakStillComing = activeDay === 0 && clockHourlyIdx.some((idx, h) => h >= nowHour && idx === activePeakIdx);
+
+  let klartextRubrik: string;
+  let lugnesmening: string;
+
+  if (activeDay !== 0) {
+    // Läge E — annan dag (ingen "just nu")
+    klartextRubrik = farligastRubrik;
+    lugnesmening = `Väntad topp: ${peakShort.toLowerCase()} brandrisk ${dagsdelsFras || peakKl}.`;
+  } else if (currentIdx >= activePeakIdx) {
+    // Läge A / A′ — vi är i toppen nu
+    if (activePeakEnd >= 21) {
+      klartextRubrik = 'Farligast just nu';
+      lugnesmening = `${curShort} brandrisk – håller i sig kvällen ut.`;
+    } else if (activePeakEnd > nowHour) {
+      klartextRubrik = `Farligast just nu – till ${peakEndKl}`;
+      lugnesmening = `${curShort} brandrisk. Lättar efter ${peakEndKl}.`;
+    } else {
+      klartextRubrik = `${curShort} brandrisk just nu`;
+      lugnesmening = `Som högst ${peakKl} idag.`;
+    }
+  } else if (!peakStillComing) {
+    // Läge B — toppen passerad, avtagande
+    klartextRubrik = dagsdelsFras ? `Lugnare nu – toppen var ${dagsdelsFras}` : `Lugnare nu – toppen var ${peakKl}`;
+    lugnesmening = `${curShort} brandrisk just nu, avtagande.`;
+  } else if (activePeakIdx - currentIdx >= 2) {
+    // Läge C — topp kvar, stor uppgång
+    klartextRubrik = farligastRubrik;
+    lugnesmening = `Lugnt nu (${curShort.toLowerCase()}). Stiger till ${peakShort.toLowerCase()} ${dagsdelsFras || peakKl}.`;
+  } else {
+    // Läge D — topp kvar, nära
+    klartextRubrik = farligastRubrik;
+    lugnesmening = `Just nu ${curShort.toLowerCase()} brandrisk – stiger snart till ${peakShort.toLowerCase()}.`;
+  }
 
   const updatedTime = new Date(data.updatedAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 
@@ -306,15 +342,15 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
         {/* TESTLÄGE banner */}
         {(testMode !== null || isTestFallback) && (
-          <div style={{ background: 'rgba(234,179,8,0.2)', border: '2px solid #eab308', borderRadius: 12, padding: '12px 16px', marginBottom: 16, textAlign: 'center' }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#eab308' }}>
+          <div style={{ background: 'rgba(255,214,10,0.2)', border: '2px solid #FFD60A', borderRadius: 12, padding: '12px 16px', marginBottom: 16, textAlign: 'center' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#FFD60A' }}>
               {testMode !== null ? `TESTLÄGE – simulerad brandrisk (FWI ${testMode})` : 'TESTLÄGE – kunde inte hämta data'}
             </div>
-            <div style={{ fontSize: 13, color: 'rgba(234,179,8,0.85)', marginTop: 4 }}>
+            <div style={{ fontSize: 13, color: 'rgba(255,214,10,0.85)', marginTop: 4 }}>
               {testMode !== null ? 'Data nedan är simulerad. Avsluta via Inställningar.' : 'Visar simulerad data.'}
             </div>
             {isTestFallback && testMode === null && (
-              <button className="btn-press" type="button" onClick={() => { lastFetchRef.current = ''; fetchData(); }} style={{ marginTop: 10, padding: '8px 18px', borderRadius: 10, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', minHeight: 40 }}>Försök igen</button>
+              <button className="btn-press" type="button" onClick={() => { lastFetchRef.current = ''; fetchData(); }} style={{ marginTop: 10, padding: '8px 18px', borderRadius: 10, border: 'none', background: '#0a84ff', color: '#fff', fontSize: 15, fontWeight: 600, cursor: 'pointer', minHeight: 40 }}>Försök igen</button>
             )}
           </div>
         )}
@@ -325,10 +361,10 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 24px' }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.6)' }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: '#8e8e93' }}>
             {data.location}
           </div>
-          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)' }}>Uppdaterad {updatedTime}</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.2)' }}>Uppdaterad {updatedTime}</div>
         </div>
 
         {/* Eldningsförbud */}
@@ -337,7 +373,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <div style={{ fontSize: 18, flexShrink: 0 }}>&#x1F525;</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: MCF_COLORS[5] }}>Eldningsförbud råder</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>Beslut av räddningstjänsten</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 1 }}>Beslut av räddningstjänsten</div>
             </div>
           </div>
         )}
@@ -363,12 +399,12 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
 
         {/* VECKA - Week forecast with bars */}
         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: 16, margin: '0 16px 10px', padding: '18px 20px' }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 14 }}>Vecka – högsta nivå per dag</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.3)', marginBottom: 14 }}>Vecka – högsta nivå per dag</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {sortedDaily.map((d, i) => (
               <div key={i}>
                 <div style={{ display: 'flex', alignItems: 'center', padding: '12px 0', gap: 12, ...(i === 0 ? { background: 'rgba(255,255,255,0.03)', margin: '0 -20px', padding: '12px 20px', borderRadius: 10 } : {}) }}>
-                  <div style={{ width: 32, fontSize: 14, fontWeight: 500, color: i === 0 ? '#fff' : 'rgba(255,255,255,0.5)', flexShrink: 0 }}>{d.dayName}</div>
+                  <div style={{ width: 32, fontSize: 15, fontWeight: 500, color: i === 0 ? '#fff' : '#8e8e93', flexShrink: 0 }}>{d.dayName}</div>
                   <div style={{ flex: 1, height: 28, background: 'rgba(255,255,255,0.03)', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
                     <div style={{ height: '100%', width: barWidths[d.fwiIndex] || '17%', background: MCF_COLORS[d.fwiIndex], borderRadius: 8, display: 'flex', alignItems: 'center', paddingLeft: 10, gap: 6 }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: 'rgba(0,0,0,0.7)' }}>{d.fwiIndex}</span>
@@ -376,11 +412,11 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                     </div>
                   </div>
                   <div style={{ width: 70, flexShrink: 0, textAlign: 'right', fontSize: 12, color: 'rgba(255,255,255,0.3)', fontWeight: 500, lineHeight: 1.3 }}>
-                    FWI <span style={{ fontWeight: 700, color: 'rgba(255,255,255,0.55)' }}>{d.fwi}</span><br />
-                    <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.15)', fontWeight: 400 }}>topp kl {d.peakHour}</span>
+                    FWI <span style={{ fontWeight: 700, color: '#8e8e93' }}>{d.fwi}</span><br />
+                    <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.15)', fontWeight: 400 }}>topp kl {d.peakHour}</span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', gap: 10, padding: '2px 0 0 44px', fontSize: 10, color: 'rgba(255,255,255,0.18)' }}>
+                <div style={{ display: 'flex', gap: 10, padding: '2px 0 0 44px', fontSize: 11, color: 'rgba(255,255,255,0.18)' }}>
                   <span style={{ color: wxColor[d.windLevel] || 'inherit' }}>{d.wind}</span>
                   <span>{d.temp}</span>
                   <span style={{ color: wxColor[d.humLevel] || 'inherit' }}>{d.humidity}</span>
@@ -399,12 +435,12 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 <div style={{ width: 24, height: 24, borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'rgba(0,0,0,0.7)', flexShrink: 0, marginTop: 1, background: MCF_COLORS[i] }}>{i}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2, color: MCF_COLORS[i] }}>{MCF_TEXTS[i].name}</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4 }}>{MCF_TEXTS[i].desc}</div>
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.18)', marginTop: 3, fontWeight: 500 }}>{MCF_TEXTS[i].fwi}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', lineHeight: 1.4 }}>{MCF_TEXTS[i].desc}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.18)', marginTop: 3, fontWeight: 500 }}>{MCF_TEXTS[i].fwi}</div>
                 </div>
               </div>
             ))}
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.12)', paddingTop: 10, textAlign: 'center' }}>Källa: MCF (Brandrisk Ute) · SMHI · Skogforsk</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.12)', paddingTop: 10, textAlign: 'center' }}>Källa: MCF (Brandrisk Ute) · SMHI · Skogforsk</div>
           </Collapsible>
 
           <Collapsible title="Samrådsrutin vid nivå 4 eller högre">
@@ -413,25 +449,25 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <div style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(255,159,10,0.12)', color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>{i + 1}</div>
                   <div style={{ flex: 1, fontSize: 12, lineHeight: 1.5 }}>
-                    <strong style={{ color: 'rgba(255,255,255,0.5)', display: 'block', fontWeight: 600, marginBottom: 1 }}>{s.title}</strong>
+                    <strong style={{ color: '#8e8e93', display: 'block', fontWeight: 600, marginBottom: 1 }}>{s.title}</strong>
                     <span style={{ color: 'rgba(255,255,255,0.25)' }}>{s.desc}</span>
                   </div>
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.12)', paddingTop: 10, textAlign: 'center' }}>Källa: Skogforsk – Branschgemensamma riktlinjer för riskhantering avseende brand (2022)</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.12)', paddingTop: 10, textAlign: 'center' }}>Källa: Skogforsk – Branschgemensamma riktlinjer för riskhantering avseende brand (2022)</div>
           </Collapsible>
 
           <Collapsible title="Källor och dokument">
             <div style={{ padding: '8px 0' }}>
               {DOCS.map((group, gi) => (
                 <div key={gi}>
-                  <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.9)', padding: gi === 0 ? '0 0 6px' : '14px 0 6px' }}>{group.group}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.9)', padding: gi === 0 ? '0 0 6px' : '14px 0 6px' }}>{group.group}</div>
                   {group.items.map((doc, di) => (
-                    <a key={di} href={doc.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', textDecoration: 'none', borderBottom: di < group.items.length - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none', color: '#60a5fa' }}>
+                    <a key={di} href={doc.url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', textDecoration: 'none', borderBottom: di < group.items.length - 1 ? '1px solid rgba(255,255,255,0.03)' : 'none', color: '#0a84ff' }}>
                       <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                        <span style={{ fontSize: 12, fontWeight: 500, color: '#60a5fa' }}>{doc.title}</span>
-                        <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 1 }}>{doc.sub}</span>
+                        <span style={{ fontSize: 12, fontWeight: 500, color: '#0a84ff' }}>{doc.title}</span>
+                        <span style={{ fontSize: 11, color: '#8e8e93', marginTop: 1 }}>{doc.sub}</span>
                       </div>
                       <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: 16, flexShrink: 0 }}>&#x203A;</span>
                     </a>
@@ -466,7 +502,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
               })}
             </div>
             {activeDay === 0 && (
-              <div style={{ position: 'absolute', top: '100%', marginTop: 2, left: `${(nowHour + 0.5) / 24 * 100}%`, transform: 'translateX(-50%)', fontSize: 8, color: 'rgba(255,255,255,0.55)', lineHeight: 1, pointerEvents: 'none' }}>▲</div>
+              <div style={{ position: 'absolute', top: '100%', marginTop: 2, left: `${(nowHour + 0.5) / 24 * 100}%`, transform: 'translateX(-50%)', fontSize: 8, color: '#8e8e93', lineHeight: 1, pointerEvents: 'none' }}>▲</div>
             )}
           </div>
           <div style={{ display: 'flex', marginTop: 14 }}>
@@ -479,7 +515,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             ].map(({ label, hours, startH }) => {
               const isCurrent = activeDay === 0 && nowHour >= startH && nowHour < startH + hours;
               return (
-                <div key={label} style={{ flex: hours, textAlign: 'center', fontSize: 11, color: isCurrent ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)', fontWeight: isCurrent ? 500 : 400, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                <div key={label} style={{ flex: hours, textAlign: 'center', fontSize: 10, letterSpacing: -0.2, color: isCurrent ? '#8e8e93' : 'rgba(255,255,255,0.2)', fontWeight: isCurrent ? 500 : 400, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', padding: '0 2px', boxSizing: 'border-box' }}>
                   {label}
                 </div>
               );
@@ -499,13 +535,23 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           )}
         </div>
 
+        {/* === BEREDSKAP-avdelare — skiljer daglig prognos (ovan) från admin (nedan) === */}
+        <div style={{ margin: '28px 16px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: '#8e8e93' }}>BEREDSKAP</span>
+            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+          </div>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', textAlign: 'center', marginTop: 6 }}>Vid förhöjd risk · en gång per objekt</div>
+        </div>
+
         {/* Eldningsförbud toggle */}
         <div style={{ margin: '8px 16px', padding: '10px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 13, color: '#fff', fontWeight: 500 }}>Råder eldningsförbud?</div>
           <div style={{ display: 'flex', gap: 6, padding: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 12, width: 120 }}>
             {[true, false].map(val => (
               <button key={String(val)} onClick={() => onEldningsforbudChange(val)}
-                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: eldningsforbud === val ? (val ? '#ff453a' : 'rgba(255,255,255,0.3)') : 'transparent', color: eldningsforbud === val ? (val ? '#fff' : '#000') : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: eldningsforbud === val ? 700 : 500, cursor: 'pointer' }}>
+                style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: 'none', background: eldningsforbud === val ? (val ? '#ff453a' : 'rgba(255,255,255,0.3)') : 'transparent', color: eldningsforbud === val ? (val ? '#fff' : '#000') : '#8e8e93', fontSize: 12, fontWeight: eldningsforbud === val ? 700 : 500, cursor: 'pointer' }}>
                 {val ? 'Ja' : 'Nej'}
               </button>
             ))}
@@ -520,22 +566,22 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <details open>
               <summary style={summaryStyle}>
                 <span>Samråd brandrisk</span>
-                {brandSamrad.kvitterad ? <span style={{ fontSize: 11, fontWeight: 500, textTransform: 'none' as const, color: '#30d158' }}>Kvitterat</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
+                {brandSamrad.kvitterad ? <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'none' as const, color: '#30d158' }}>Kvitterat</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
               </summary>
               <div style={{ marginTop: 12 }}>
                 <div style={textStyle}>Enligt Skogforsks branschgemensamma riktlinjer (2022) krävs samråd mellan uppdragstagare och uppdragsgivare vid FWI &#x2265; 4.</div>
                 {/* Beredskapsnivå */}
-                <div style={{ marginTop: 16, fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 8 }}>Beredskapsnivå</div>
+                <div style={{ marginTop: 16, fontSize: 12, color: '#8e8e93', marginBottom: 8 }}>Beredskapsnivå</div>
                 <div style={{ display: 'flex', gap: 6, padding: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 12, marginBottom: 16 }}>
                   {(['normal', 'hojd'] as const).map(niva => (
                     <button key={niva} onClick={() => onSamradChange({ ...brandSamrad, beredskapsniva: niva })}
-                      style={{ flex: 1, padding: '10px 0', borderRadius: 8, border: 'none', background: brandSamrad.beredskapsniva === niva ? (niva === 'hojd' ? '#eab308' : '#30d158') : 'transparent', color: brandSamrad.beredskapsniva === niva ? '#000' : 'rgba(255,255,255,0.5)', fontSize: 12, fontWeight: brandSamrad.beredskapsniva === niva ? 700 : 500, cursor: 'pointer' }}>
+                      style={{ flex: 1, padding: '10px 0', borderRadius: 8, border: 'none', background: brandSamrad.beredskapsniva === niva ? (niva === 'hojd' ? '#FFD60A' : '#30d158') : 'transparent', color: brandSamrad.beredskapsniva === niva ? '#000' : '#8e8e93', fontSize: 12, fontWeight: brandSamrad.beredskapsniva === niva ? 700 : 500, cursor: 'pointer' }}>
                       {niva === 'normal' ? 'Normal' : 'Höjd'}
                     </button>
                   ))}
                 </div>
                 {/* Åtgärder */}
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 8 }}>Beslutade åtgärder</div>
+                <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 8 }}>Beslutade åtgärder</div>
                 <div style={{ marginBottom: 16 }}>
                   {atgardsAlternativ.map((atg, i) => (
                     <div key={i} onClick={() => onSamradChange({ ...brandSamrad, atgarder: brandSamrad.atgarder.includes(atg) ? brandSamrad.atgarder.filter((a: string) => a !== atg) : [...brandSamrad.atgarder, atg] })}
@@ -543,7 +589,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                       <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${brandSamrad.atgarder.includes(atg) ? '#30d158' : 'rgba(255,255,255,0.15)'}`, background: brandSamrad.atgarder.includes(atg) ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                         {brandSamrad.atgarder.includes(atg) && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
                       </div>
-                      <span style={{ fontSize: 13, color: brandSamrad.atgarder.includes(atg) ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)', textDecoration: brandSamrad.atgarder.includes(atg) ? 'line-through' : 'none', lineHeight: 1.4 }}>{atg}</span>
+                      <span style={{ fontSize: 13, color: brandSamrad.atgarder.includes(atg) ? 'rgba(255,255,255,0.3)' : '#8e8e93', textDecoration: brandSamrad.atgarder.includes(atg) ? 'line-through' : 'none', lineHeight: 1.4 }}>{atg}</span>
                     </div>
                   ))}
                   {brandSamrad.atgarder.includes('Tidsanpassad körning') && (
@@ -551,20 +597,20 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                   )}
                 </div>
                 {/* Blöt mark undantag */}
-                <div style={{ background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+                <div style={{ background: 'rgba(10,132,255,0.08)', border: '1px solid rgba(10,132,255,0.2)', borderRadius: 12, padding: 14, marginBottom: 16 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 12, color: '#60a5fa', fontWeight: 500 }}>Arbete sker enbart på blöt mark (myr/sumpskog)</span>
+                    <span style={{ fontSize: 12, color: '#0a84ff', fontWeight: 500 }}>Arbete sker enbart på blöt mark (myr/sumpskog)</span>
                     <div style={{ display: 'flex', gap: 6, padding: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 10, width: 100 }}>
                       {[true, false].map(val => (
                         <button key={String(val)} onClick={() => onSamradChange({ ...brandSamrad, blotMarkUndantag: val })}
-                          style={{ flex: 1, padding: '6px 0', borderRadius: 7, border: 'none', background: brandSamrad.blotMarkUndantag === val ? '#60a5fa' : 'transparent', color: brandSamrad.blotMarkUndantag === val ? '#000' : 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: brandSamrad.blotMarkUndantag === val ? 700 : 500, cursor: 'pointer' }}>
+                          style={{ flex: 1, padding: '6px 0', borderRadius: 7, border: 'none', background: brandSamrad.blotMarkUndantag === val ? '#0a84ff' : 'transparent', color: brandSamrad.blotMarkUndantag === val ? '#000' : '#8e8e93', fontSize: 11, fontWeight: brandSamrad.blotMarkUndantag === val ? 700 : 500, cursor: 'pointer' }}>
                           {val ? 'Ja' : 'Nej'}
                         </button>
                       ))}
                     </div>
                   </div>
                   {brandSamrad.blotMarkUndantag && (
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 1.6 }}>
+                    <div style={{ fontSize: 12, color: '#8e8e93', lineHeight: 1.6 }}>
                       Dokumentera att maskinen håller sig inom markerat blött område. Band/slirskydd behålls – krävs för bärighet. GPS-spår verifieras mot blöta zoner.
                     </div>
                   )}
@@ -572,22 +618,22 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 {/* Uppdragsgivare */}
                 <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>Uppdragsgivare kontaktad</div>
+                    <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Uppdragsgivare kontaktad</div>
                     <input type="text" placeholder="Namn" value={brandSamrad.uppdragsgivareNamn} onChange={e => onSamradChange({ ...brandSamrad, uppdragsgivareNamn: e.target.value })} style={inputStyle} />
                   </div>
                   <div style={{ width: 140, flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>Telefon</div>
+                    <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Telefon</div>
                     <input type="tel" placeholder="07X-XXX XX XX" value={brandSamrad.uppdragsgivareTel} onChange={e => onSamradChange({ ...brandSamrad, uppdragsgivareTel: e.target.value })} style={inputStyle} />
                   </div>
                 </div>
                 {/* Datum + kvittera */}
                 <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
                   <div style={{ width: 200, flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>Datum & tid</div>
+                    <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Datum & tid</div>
                     <input type="datetime-local" value={brandSamrad.datum} onChange={e => onSamradChange({ ...brandSamrad, datum: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
                   </div>
                   <button className="btn-press" onClick={() => onSamradChange({ ...brandSamrad, kvitterad: !brandSamrad.kvitterad })}
-                    style={{ flex: 1, padding: 14, borderRadius: 12, border: 'none', background: brandSamrad.kvitterad ? 'rgba(34,197,94,0.15)' : '#30d158', color: brandSamrad.kvitterad ? '#30d158' : '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                    style={{ flex: 1, padding: 14, borderRadius: 14, border: 'none', background: brandSamrad.kvitterad ? 'rgba(34,197,94,0.15)' : '#30d158', color: brandSamrad.kvitterad ? '#30d158' : '#000', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
                     {brandSamrad.kvitterad ? 'Kvitterat \u2713' : 'Kvittera samråd'}
                   </button>
                 </div>
@@ -602,7 +648,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             <details>
               <summary style={summaryStyle}>
                 <span>Utrustning</span>
-                <span style={{ fontSize: 11, fontWeight: 500, textTransform: 'none' as const, color: brandUtrustning.every(Boolean) ? '#30d158' : 'rgba(255,255,255,0.3)' }}>{brandUtrustning.filter(Boolean).length}/{brandUtrustning.length}</span>
+                <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'none' as const, color: brandUtrustning.every(Boolean) ? '#30d158' : 'rgba(255,255,255,0.3)' }}>{brandUtrustning.filter(Boolean).length}/{brandUtrustning.length}</span>
               </summary>
               <div style={{ marginTop: 12 }}>
                 <div style={{ ...textStyle, marginBottom: 12 }}>Källa: Brandskyddsföreningens SBF 127</div>
@@ -612,7 +658,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                     <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${brandUtrustning[i] ? '#30d158' : 'rgba(255,255,255,0.15)'}`, background: brandUtrustning[i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       {brandUtrustning[i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
                     </div>
-                    <span style={{ fontSize: 13, color: brandUtrustning[i] ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.6)', textDecoration: brandUtrustning[i] ? 'line-through' : 'none', lineHeight: 1.4 }}>{label}</span>
+                    <span style={{ fontSize: 13, color: brandUtrustning[i] ? 'rgba(255,255,255,0.3)' : '#8e8e93', textDecoration: brandUtrustning[i] ? 'line-through' : 'none', lineHeight: 1.4 }}>{label}</span>
                   </div>
                 ))}
               </div>
@@ -633,7 +679,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 {brandNearbyWater.map((w, i) => (
                   <a key={i} href={`https://www.google.com/maps/dir/?api=1&destination=${w.lat},${w.lon}`} target="_blank" rel="noopener noreferrer"
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', textDecoration: 'none' }}>
-                    <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>{'\u{1F4A7}'} {w.name}</span>
+                    <span style={{ fontSize: 13, color: '#8e8e93' }}>{'\u{1F4A7}'} {w.name}</span>
                     <span style={linkStyle}>{w.dist < 1000 ? `${w.dist}m` : `${(w.dist / 1000).toFixed(1)} km`} &rarr;</span>
                   </a>
                 ))}
@@ -655,7 +701,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 {brandNearbyFireStation.map((s, i) => (
                   <a key={i} href={`https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lon}`} target="_blank" rel="noopener noreferrer"
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', textDecoration: 'none' }}>
-                    <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>{'\u{1F692}'} {s.name}</span>
+                    <span style={{ fontSize: 13, color: '#8e8e93' }}>{'\u{1F692}'} {s.name}</span>
                     <span style={linkStyle}>{(s.dist / 1000).toFixed(1)} km (~{Math.round(s.dist / 1000 / 60 * 60)} min) &rarr;</span>
                   </a>
                 ))}
@@ -676,21 +722,21 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 {mapCenter.lat.toFixed(4)}°N, {mapCenter.lng.toFixed(4)}°E
               </div>
               <button className="btn-press" onClick={() => navigator.clipboard?.writeText(`${mapCenter.lat.toFixed(6)}, ${mapCenter.lng.toFixed(6)}`)}
-                style={{ fontSize: 12, color: '#60a5fa', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 12 }}>
+                style={{ fontSize: 12, color: '#0a84ff', background: 'none', border: 'none', cursor: 'pointer', padding: 0, marginBottom: 12 }}>
                 Kopiera koordinater
               </button>
               <div style={{ ...textStyle, marginBottom: 12 }}>Ge denna position vid larm till 112</div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>Tillfartsväg</div>
+              <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Tillfartsväg</div>
               <textarea value={brandLarmTillfart} onChange={e => onLarmTillfartChange(e.target.value)} placeholder="Beskriv bästa tillfartsväg..."
                 style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 16, marginBottom: 8 }}>Vid larm – förmedla</div>
+              <div style={{ fontSize: 12, color: '#8e8e93', marginTop: 16, marginBottom: 8 }}>Vid larm – förmedla</div>
               {larmLabels.map((label, i) => (
                 <div key={i} onClick={() => { const n = [...brandLarmChecklista]; n[i] = !n[i]; onLarmChecklistaChange(n); }}
                   style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', cursor: 'pointer' }}>
                   <div style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${brandLarmChecklista[i] ? '#30d158' : 'rgba(255,255,255,0.15)'}`, background: brandLarmChecklista[i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     {brandLarmChecklista[i] && <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
                   </div>
-                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.4 }}>{label}</span>
+                  <span style={{ fontSize: 12, color: '#8e8e93', lineHeight: 1.4 }}>{label}</span>
                 </div>
               ))}
             </div>
@@ -711,7 +757,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 { label: 'Lokal räddningstjänst', nameKey: 'raddningstjanstNamn', telKey: 'raddningstjanstTel' },
               ].map(({ label, nameKey, telKey }) => (
                 <div key={nameKey}>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>{label}</div>
+                  <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>{label}</div>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <input type="text" placeholder="Namn" value={(brandKontakter as any)[nameKey]} onChange={e => onKontakterChange({ ...brandKontakter, [nameKey]: e.target.value })} style={{ ...inputStyle, flex: 1 }} />
                     <div style={{ position: 'relative', width: 160 }}>
@@ -742,16 +788,16 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 <textarea placeholder="Åtgärd vidtagen" value={brandNewTillbud.atgard} onChange={e => onNewTillbudChange({ ...brandNewTillbud, atgard: e.target.value })} style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} />
                 <input type="text" placeholder="Rapporterad till (namn)" value={brandNewTillbud.rapporteradTill} onChange={e => onNewTillbudChange({ ...brandNewTillbud, rapporteradTill: e.target.value })} style={inputStyle} />
                 <button className="btn-press" onClick={onSaveTillbud}
-                  style={{ padding: 14, borderRadius: 12, border: 'none', background: '#60a5fa', color: '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  style={{ padding: 14, borderRadius: 14, border: 'none', background: '#0a84ff', color: '#000', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
                   Spara tillbud
                 </button>
               </div>
               {brandTillbud.length > 0 && (
                 <div style={{ marginTop: 16 }}>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 8 }}>Tidigare tillbud</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', marginBottom: 8 }}>Tidigare tillbud</div>
                   {brandTillbud.map((t, i) => (
-                    <div key={i} style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                      <span style={{ color: 'rgba(255,255,255,0.6)' }}>{new Date(t.datum).toLocaleDateString('sv-SE')}</span> – {t.beskrivning.slice(0, 50)}
+                    <div key={i} style={{ fontSize: 12, color: '#8e8e93', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                      <span style={{ color: '#8e8e93' }}>{new Date(t.datum).toLocaleDateString('sv-SE')}</span> – {t.beskrivning.slice(0, 50)}
                     </div>
                   ))}
                 </div>
@@ -772,17 +818,17 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                 <input type="text" placeholder="Brandvaktens namn" value={brandBrandvakt.namn} onChange={e => onBrandvaktChange({ ...brandBrandvakt, namn: e.target.value })} style={inputStyle} />
                 <div style={{ display: 'flex', gap: 8 }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>Start</div>
+                    <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 4 }}>Start</div>
                     <input type="datetime-local" value={brandBrandvakt.starttid} onChange={e => onBrandvaktChange({ ...brandBrandvakt, starttid: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 4 }}>Slut</div>
+                    <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 4 }}>Slut</div>
                     <input type="datetime-local" value={brandBrandvakt.sluttid} onChange={e => onBrandvaktChange({ ...brandBrandvakt, sluttid: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
                   </div>
                 </div>
                 <textarea placeholder="Noteringar" value={brandBrandvakt.noteringar} onChange={e => onBrandvaktChange({ ...brandBrandvakt, noteringar: e.target.value })} style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} />
                 <button className="btn-press" onClick={onSaveBrandvakt}
-                  style={{ padding: 14, borderRadius: 12, border: 'none', background: '#60a5fa', color: '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  style={{ padding: 14, borderRadius: 14, border: 'none', background: '#0a84ff', color: '#000', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
                   Spara brandvaktslogg
                 </button>
               </div>
@@ -795,17 +841,17 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           <details>
             <summary style={summaryStyle}>
               <span>Efterkontroll</span>
-              {brandEfterkontroll.kvitterad ? <span style={{ fontSize: 11, fontWeight: 500, textTransform: 'none' as const, color: '#30d158' }}>Utförd &#x2713;</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
+              {brandEfterkontroll.kvitterad ? <span style={{ fontSize: 12, fontWeight: 500, textTransform: 'none' as const, color: '#30d158' }}>Utförd &#x2713;</span> : <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.2)' }}>&#x203A;</span>}
             </summary>
             <div style={{ marginTop: 12 }}>
               <div style={textStyle}>Trakten ska avsynas efter avslutat arbete (Skogforsk).</div>
               <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', marginTop: 14 }}>
                 <div style={{ width: 200, flexShrink: 0 }}>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 6 }}>Datum & tid</div>
+                  <div style={{ fontSize: 12, color: '#8e8e93', marginBottom: 6 }}>Datum & tid</div>
                   <input type="datetime-local" value={brandEfterkontroll.datum} onChange={e => onEfterkontrollChange({ ...brandEfterkontroll, datum: e.target.value })} style={{ ...inputStyle, colorScheme: 'dark' }} />
                 </div>
                 <button className="btn-press" onClick={() => onEfterkontrollChange({ ...brandEfterkontroll, kvitterad: !brandEfterkontroll.kvitterad })}
-                  style={{ flex: 1, padding: 14, borderRadius: 12, border: 'none', background: brandEfterkontroll.kvitterad ? 'rgba(34,197,94,0.15)' : '#30d158', color: brandEfterkontroll.kvitterad ? '#30d158' : '#000', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  style={{ flex: 1, padding: 14, borderRadius: 14, border: 'none', background: brandEfterkontroll.kvitterad ? 'rgba(34,197,94,0.15)' : '#30d158', color: brandEfterkontroll.kvitterad ? '#30d158' : '#000', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
                   {brandEfterkontroll.kvitterad ? 'Utförd \u2713' : 'Efterkontroll utförd'}
                 </button>
               </div>
@@ -837,7 +883,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
                   onStatusChange?.({ status: 'done', currentFwi: simulated.currentFwi, currentIdx: simulated.currentIdx });
                 }
               }}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: devSimulating ? '#eab308' : 'rgba(255,255,255,0.15)', padding: '6px 12px' }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: devSimulating ? '#FFD60A' : 'rgba(255,255,255,0.15)', padding: '6px 12px' }}
             >
               {devSimulating ? 'Avsluta simulering' : 'Simulera hög risk'}
             </button>
@@ -845,7 +891,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
         )}
 
         {/* Footer */}
-        <div style={{ margin: '8px 16px 32px', fontSize: 10, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6, textAlign: 'center' }}>
+        <div style={{ margin: '8px 16px 32px', fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6, textAlign: 'center' }}>
           Beslutsstöd. Prognoser: SMHI. Brandbeteende: MCF. Riktlinjer: Skogforsk (2022). Bedöm alltid lokalt. Arbetsgivaren ansvarar (AML 1977:1160).
         </div>
       </div>
