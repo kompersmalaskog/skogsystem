@@ -535,6 +535,16 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
           )}
         </div>
 
+        {/* === BEREDSKAP-avdelare — skiljer daglig prognos (ovan) från admin (nedan) === */}
+        <div style={{ margin: '28px 16px 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 2, color: 'rgba(255,255,255,0.4)' }}>BEREDSKAP</span>
+            <div style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.08)' }} />
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', textAlign: 'center', marginTop: 6 }}>Vid förhöjd risk · en gång per objekt</div>
+        </div>
+
         {/* Eldningsförbud toggle */}
         <div style={{ margin: '8px 16px', padding: '10px 16px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ fontSize: 13, color: '#fff', fontWeight: 500 }}>Råder eldningsförbud?</div>
