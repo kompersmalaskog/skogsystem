@@ -271,12 +271,48 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
     : activePeakStart >= 18 && activePeakStart <= 21 ? 'på kvällen'
     : '';
   const peakKl = `kl ${activePeakStart.toString().padStart(2, '0')} till ${activePeakEnd.toString().padStart(2, '0')}`;
-  const klartextRubrik = dagsdelsFras ? `Farligast ${dagsdelsFras} – ${peakKl}` : `Farligast ${peakKl}`;
-  const lugnesmening = activeDay === 0
-    ? (currentIdx >= activePeakIdx
-      ? `Topprisk just nu – ${MCF_TEXTS[currentIdx]?.short?.toLowerCase() || ''} brandrisk.`
-      : `Just nu ${MCF_TEXTS[currentIdx]?.short?.toLowerCase() || ''} brandrisk. Stiger ${dagsdelsFras || peakKl}.`)
-    : `Väntat topp ${dagsdelsFras || peakKl} – ${MCF_TEXTS[activePeakIdx]?.short?.toLowerCase() || ''} brandrisk.`;
+  const peakEndKl = `kl ${activePeakEnd.toString().padStart(2, '0')}`;
+
+  // Klartext: koherent rad 1 (rubrik) + rad 2 (underrad). Fem lägen — "farligast senare"
+  // används BARA när toppen faktiskt ligger framåt (C/D/E). Är vi i toppen nu (A/A′)
+  // byter rad 1 till "just nu" och rad 2 säger när det lättar — kan aldrig motsäga varandra.
+  const curShort = MCF_TEXTS[currentIdx]?.short || '';
+  const peakShort = MCF_TEXTS[activePeakIdx]?.short || '';
+  const farligastRubrik = dagsdelsFras ? `Farligast ${dagsdelsFras} – ${peakKl}` : `Farligast ${peakKl}`;
+  const peakStillComing = activeDay === 0 && clockHourlyIdx.some((idx, h) => h >= nowHour && idx === activePeakIdx);
+
+  let klartextRubrik: string;
+  let lugnesmening: string;
+
+  if (activeDay !== 0) {
+    // Läge E — annan dag (ingen "just nu")
+    klartextRubrik = farligastRubrik;
+    lugnesmening = `Väntad topp: ${peakShort.toLowerCase()} brandrisk ${dagsdelsFras || peakKl}.`;
+  } else if (currentIdx >= activePeakIdx) {
+    // Läge A / A′ — vi är i toppen nu
+    if (activePeakEnd >= 21) {
+      klartextRubrik = 'Farligast just nu';
+      lugnesmening = `${curShort} brandrisk – håller i sig kvällen ut.`;
+    } else if (activePeakEnd > nowHour) {
+      klartextRubrik = `Farligast just nu – till ${peakEndKl}`;
+      lugnesmening = `${curShort} brandrisk. Lättar efter ${peakEndKl}.`;
+    } else {
+      klartextRubrik = `${curShort} brandrisk just nu`;
+      lugnesmening = `Som högst ${peakKl} idag.`;
+    }
+  } else if (!peakStillComing) {
+    // Läge B — toppen passerad, avtagande
+    klartextRubrik = dagsdelsFras ? `Lugnare nu – toppen var ${dagsdelsFras}` : `Lugnare nu – toppen var ${peakKl}`;
+    lugnesmening = `${curShort} brandrisk just nu, avtagande.`;
+  } else if (activePeakIdx - currentIdx >= 2) {
+    // Läge C — topp kvar, stor uppgång
+    klartextRubrik = farligastRubrik;
+    lugnesmening = `Lugnt nu (${curShort.toLowerCase()}). Stiger till ${peakShort.toLowerCase()} ${dagsdelsFras || peakKl}.`;
+  } else {
+    // Läge D — topp kvar, nära
+    klartextRubrik = farligastRubrik;
+    lugnesmening = `Just nu ${curShort.toLowerCase()} brandrisk – stiger snart till ${peakShort.toLowerCase()}.`;
+  }
 
   const updatedTime = new Date(data.updatedAt).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
 
@@ -479,7 +515,7 @@ export default function BrandriskPanel(props: BrandriskPanelProps) {
             ].map(({ label, hours, startH }) => {
               const isCurrent = activeDay === 0 && nowHour >= startH && nowHour < startH + hours;
               return (
-                <div key={label} style={{ flex: hours, textAlign: 'center', fontSize: 11, color: isCurrent ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)', fontWeight: isCurrent ? 500 : 400, overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                <div key={label} style={{ flex: hours, textAlign: 'center', fontSize: 10, letterSpacing: -0.2, color: isCurrent ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.2)', fontWeight: isCurrent ? 500 : 400, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', padding: '0 2px', boxSizing: 'border-box' }}>
                   {label}
                 </div>
               );
