@@ -2649,9 +2649,23 @@ def save_mom_to_supabase(data: Dict) -> bool:
 
             if affected:
                 # Steg 2: scanna ALLA MOM-filer i Behandlade/<maskin>/mom/ för
-                # de berörda datumen. Dedup på 4-tuple — senast lästa vinner.
+                # de berörda datumen. Dedup på 4-tuple — MEST KOMPLETTA vinner
+                # (störst processing+terrain), oberoende av filordning.
                 merged_entries = {}
                 files_scanned = 0
+
+                # MOM-export är kumulativ per session (4-tuple): en senare/större
+                # export är ett superset av en tidigare. Behåll därför alltid den
+                # entry som har störst (processing+terrain). Då blir summan SAMMA
+                # oavsett i vilken ordning filerna processas — det är detta som
+                # fixar Steg-3-klubbningen som sänkte 2026-05-27.
+                def _keep(ek, entry):
+                    cur = merged_entries.get(ek)
+                    if cur is None or (
+                        (entry.get('processing_sek') or 0) + (entry.get('terrain_sek') or 0)
+                        > (cur.get('processing_sek') or 0) + (cur.get('terrain_sek') or 0)
+                    ):
+                        merged_entries[ek] = entry
                 affected_maskins = sorted({m for m, _ in affected})
                 affected_dates_all = sorted({d for _, d in affected})
                 logger.info(f"  Re-aggregerar tid för maskin={affected_maskins} datum={affected_dates_all[0]}->{affected_dates_all[-1]}")
@@ -2680,13 +2694,15 @@ def save_mom_to_supabase(data: Dict) -> bool:
                             if ek_maskin != maskin_id:
                                 continue
                             if str(entry.get('datum') or '') in dates_for_maskin:
-                                merged_entries[ek] = entry  # 4-tuple dedup
+                                _keep(ek, entry)  # 4-tuple dedup, mest kompletta vinner
 
                 # Steg 3: lägg explicit in nuvarande filens entries — filen kan
                 # ännu inte ha flyttats till Behandlade av import-pipelinen.
+                # _keep() ser till att en mindre (äldre) trigger-fil ALDRIG
+                # klubbar ett större värde som redan hittats i scanningen.
                 for ek, entry in data['tid_entries'].items():
                     if len(ek) == 4:
-                        merged_entries[ek] = entry
+                        _keep(ek, entry)
 
                 logger.info(f"  Scannade {files_scanned} filer, {len(merged_entries)} unika entries efter dedup")
 
