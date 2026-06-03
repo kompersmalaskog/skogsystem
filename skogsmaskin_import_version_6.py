@@ -2607,60 +2607,123 @@ def save_mom_to_supabase(data: Dict) -> bool:
             if upsert_data('fakt_skift', data['skift'], ['maskin_id', 'inloggning_tid', 'filnamn']) == 0:
                 logger.warning(f"  Skift-data kunde inte sparas (ej kritiskt)")
 
-        # Tid – global entry-level deduplicering över filer.
-        # MOM-filer har överlappande entries mellan sessioner. Vi samlar ALLA
-        # entries i _GLOBAL_TID_ENTRIES och re-aggregerar per (datum, maskin, objekt).
+        # Tid — re-aggregera från ALLA filer i Behandlade/<maskin>/mom/ för
+        # berörda (datum, maskin). 4-tuple-dedup på (start_time, maskin, objekt,
+        # operator) skyddar mot order-of-arrival och dubbeläsning.
+        #
+        # Bakgrund: auto_import_watch.py kör skogsmaskin_import_version_6.py via
+        # subprocess.run() per filevent → ny Python-process varje gång, så
+        # _GLOBAL_TID_ENTRIES (modulvariabel) var ALLTID tom vid start. Det
+        # gjorde att en liten "morgon-export" (1 entry, 5 min) som kom efter
+        # en stor "kvällsexport" (12h) aggregerade till bara 5 min, sedan
+        # UPSERT-överskrev tidigare rad → upp till 99 % förlust på dagar med
+        # flera filer. Vi läser nu samtliga filer i Behandlade vid varje import
+        # så summan är oberoende av filordning.
+        #
+        # OBS: 'runtime = P + T + OW' längre ner inkluderar fortfarande OW i
+        # tomgang-härledningen. Det är en SEPARAT bugg (G15 i appen är redan
+        # rättad i transform.ts till P + T). Tomgang-fixen kräver också reimport
+        # av historisk data och tas i en följande commit.
+        rows = []
         if data.get('tid_entries'):
             global _GLOBAL_TID_ENTRIES, _GLOBAL_TID_OPERATORS
-            # Merge nya entries (senaste fil vinner vid dubbletter)
-            _GLOBAL_TID_ENTRIES.update(data['tid_entries'])
+            # _GLOBAL_TID_OPERATORS används som fallback för legacy 3-tuple-keys
+            # där operator inte ingår direkt i entry_key.
             _GLOBAL_TID_OPERATORS.update(data.get('tid_operator', {}))
 
-            # Re-aggregera berörda (datum, maskin, objekt, operator) — operator
-            # ingår i nyckeln så per-förare rast/tid bevaras när samma maskin
-            # delas av flera operatörer samma dag.
-            affected_days = set()
+            # Steg 1: identifiera vilka (maskin, datum) och vilka 4-tuple-keys
+            # som påverkas av NUVARANDE fil. Vi UPSERTar bara dessa rader.
+            affected = set()        # set of (maskin, datum_str)
+            affected_keys = set()   # set of (datum_str, maskin, objekt, operator)
             for entry_key, entry in data['tid_entries'].items():
                 if len(entry_key) == 4:
-                    start_time_str, maskin, objekt, operator = entry_key
+                    _, maskin, objekt, operator = entry_key
                 else:
-                    start_time_str, maskin, objekt = entry_key
+                    _, maskin, objekt = entry_key
                     operator = entry.get('operator_id') or _GLOBAL_TID_OPERATORS.get((entry['datum'], maskin, objekt))
-                datum = entry['datum']
-                affected_days.add((datum, maskin, objekt, operator))
+                datum_str = str(entry.get('datum') or '')
+                if not datum_str:
+                    continue
+                affected.add((maskin, datum_str))
+                affected_keys.add((datum_str, maskin, objekt, operator))
 
-            tid_fields = ['processing_sek', 'terrain_sek', 'other_work_sek',
-                          'maintenance_sek', 'disturbance_sek', 'rast_sek',
-                          'avbrott_sek', 'kort_stopp_sek', 'bransle_liter',
-                          'engine_time_sek', 'korstracka_m',
-                          'terrain_korstracka_m', 'terrain_bransle_liter']
+            if affected:
+                # Steg 2: scanna ALLA MOM-filer i Behandlade/<maskin>/mom/ för
+                # de berörda datumen. Dedup på 4-tuple — senast lästa vinner.
+                merged_entries = {}
+                files_scanned = 0
+                affected_maskins = sorted({m for m, _ in affected})
+                affected_dates_all = sorted({d for _, d in affected})
+                logger.info(f"  Re-aggregerar tid för maskin={affected_maskins} datum={affected_dates_all[0]}->{affected_dates_all[-1]}")
 
-            agg = defaultdict(lambda: {f: 0 for f in tid_fields})
-            for ek, entry in _GLOBAL_TID_ENTRIES.items():
-                if len(ek) == 4:
-                    ek_operator = ek[3]
-                else:
-                    ek_operator = entry.get('operator_id') or _GLOBAL_TID_OPERATORS.get((entry['datum'], ek[1], ek[2]))
-                dag_key = (entry['datum'], ek[1], ek[2], ek_operator)
-                if dag_key in affected_days:
+                for maskin_id in affected_maskins:
+                    dates_for_maskin = {d for m, d in affected if m == maskin_id}
+                    mom_dir = os.path.join(BEHANDLADE, maskin_id, 'mom')
+                    if not os.path.isdir(mom_dir):
+                        continue
+                    mom_files = sorted(
+                        os.path.join(mom_dir, f)
+                        for f in os.listdir(mom_dir)
+                        if f.lower().endswith('.mom')
+                    )
+                    for f in mom_files:
+                        try:
+                            file_data = parse_mom_file(f)
+                        except Exception as e:
+                            logger.warning(f"  Kunde inte re-parsa {os.path.basename(f)}: {e}")
+                            continue
+                        files_scanned += 1
+                        for ek, entry in file_data.get('tid_entries', {}).items():
+                            if len(ek) != 4:
+                                continue
+                            _, ek_maskin, _, _ = ek
+                            if ek_maskin != maskin_id:
+                                continue
+                            if str(entry.get('datum') or '') in dates_for_maskin:
+                                merged_entries[ek] = entry  # 4-tuple dedup
+
+                # Steg 3: lägg explicit in nuvarande filens entries — filen kan
+                # ännu inte ha flyttats till Behandlade av import-pipelinen.
+                for ek, entry in data['tid_entries'].items():
+                    if len(ek) == 4:
+                        merged_entries[ek] = entry
+
+                logger.info(f"  Scannade {files_scanned} filer, {len(merged_entries)} unika entries efter dedup")
+
+                tid_fields = ['processing_sek', 'terrain_sek', 'other_work_sek',
+                              'maintenance_sek', 'disturbance_sek', 'rast_sek',
+                              'avbrott_sek', 'kort_stopp_sek', 'bransle_liter',
+                              'engine_time_sek', 'korstracka_m',
+                              'terrain_korstracka_m', 'terrain_bransle_liter']
+
+                # Steg 4: aggregera per (datum, maskin, objekt, operator) — bara
+                # de keys som påverkas av aktuella filen.
+                agg = defaultdict(lambda: {f: 0 for f in tid_fields})
+                for ek, entry in merged_entries.items():
+                    if len(ek) != 4:
+                        continue
+                    _, maskin, objekt, operator = ek
+                    datum = str(entry.get('datum') or '')
+                    dag_key = (datum, maskin, objekt, operator)
+                    if dag_key not in affected_keys:
+                        continue
                     for f in tid_fields:
                         agg[dag_key][f] += (entry.get(f) or 0)
 
-            rows = []
-            for dag_key, values in agg.items():
-                datum, maskin, objekt, operator = dag_key
-                runtime = values['processing_sek'] + values['terrain_sek'] + values['other_work_sek']
-                g0 = runtime - values['kort_stopp_sek']
-                tomgang = max(0, values['engine_time_sek'] - g0)
-                rows.append({
-                    'datum': datum,
-                    'maskin_id': maskin,
-                    'operator_id': operator,
-                    'objekt_id': objekt,
-                    **values,
-                    'tomgang_sek': tomgang,
-                    'filnamn': data.get('filnamn', ''),
-                })
+                for dag_key, values in agg.items():
+                    datum, maskin, objekt, operator = dag_key
+                    runtime = values['processing_sek'] + values['terrain_sek'] + values['other_work_sek']
+                    g0 = runtime - values['kort_stopp_sek']
+                    tomgang = max(0, values['engine_time_sek'] - g0)
+                    rows.append({
+                        'datum': datum,
+                        'maskin_id': maskin,
+                        'operator_id': operator,
+                        'objekt_id': objekt,
+                        **values,
+                        'tomgang_sek': tomgang,
+                        'filnamn': data.get('filnamn', ''),
+                    })
 
             # Fallback: om WorkCategory saknas i MOM-filen → processing_sek = 0 och terrain_sek = 0
             # men engine_time_sek > 0. Sätt processing_sek = 88% av engine_time_sek som uppskattning.
