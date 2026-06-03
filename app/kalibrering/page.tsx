@@ -1670,6 +1670,46 @@ export default function KalibreringPage() {
 
         .kalib-curve-mening{font-size:14px;color:#fff;line-height:1.45;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:10px;margin-top:14px}
 
+        /* === Kontroll-lista under kurvan: dag-grupperade kort, Apple-rent === */
+        /* Topprad: lugn orientering, ingen rubrik-stor stil. */
+        .kalib-trend-list-top{font-size:14px;font-weight:500;color:#fff;margin:14px 0 4px;padding:0 4px;letter-spacing:-0.01em}
+        .kalib-trend-list-top-tertiary{font-size:12px;font-weight:400;color:#8E8E93;margin-left:2px}
+
+        /* Tom-stat: bara text, ingen tom låda. */
+        .kalib-trend-list-empty{font-size:13px;color:#8E8E93;text-align:center;padding:24px 12px;line-height:1.4}
+
+        /* Dag-grupp: mjuk rubrik + ett kort som rymmer alla dagens rader. */
+        .kalib-trend-day{margin-top:14px}
+        .kalib-trend-day-header{font-size:12px;font-weight:500;color:#8E8E93;padding:0 4px 6px;letter-spacing:-0.005em}
+        .kalib-trend-day-card{background:#1C1C1E;border:0.5px solid rgba(255,255,255,0.08);border-radius:12px;overflow:hidden}
+
+        /* Rad: knapp som tar hela bredden, 12px gap, 12/14 padding, separerad
+           med 0.5px botten-border utom på sista. */
+        .kalib-trend-row{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;background:transparent;border:none;border-bottom:0.5px solid rgba(255,255,255,0.08);cursor:pointer;text-align:left;font-family:inherit;color:inherit;transition:background 0.12s}
+        .kalib-trend-row:hover:not(:disabled){background:rgba(255,255,255,0.04)}
+        .kalib-trend-row:active:not(:disabled){background:rgba(255,255,255,0.07)}
+        .kalib-trend-row:disabled{opacity:0.6;cursor:wait}
+        .kalib-trend-row.last{border-bottom:none}
+
+        /* Färgprick 8×8 — diverging-skala, samma värden som nivå 1/2/3. */
+        .kalib-trend-row-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#B4B2A9}
+        .kalib-trend-row-dot.tone-ok{background:#B4B2A9}
+        .kalib-trend-row-dot.tone-cold{background:#378ADD}
+        .kalib-trend-row-dot.tone-hi{background:#EF9F27}
+        .kalib-trend-row-dot.tone-hot{background:#E24B4A}
+
+        /* Mittenkolumn: objektnamn + meta staplade, ellipsis vid truncate. */
+        .kalib-trend-row-info{flex:1;min-width:0}
+        .kalib-trend-row-name{font-size:14px;font-weight:500;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .kalib-trend-row-meta{font-size:12px;color:#8E8E93;margin-top:2px}
+
+        /* Värde: grå inom tolerans, annars samma färg som pricken. */
+        .kalib-trend-row-val{font-size:14px;font-weight:500;flex-shrink:0;font-variant-numeric:tabular-nums;color:#8E8E93}
+        .kalib-trend-row-val.tone-ok{color:#8E8E93}
+        .kalib-trend-row-val.tone-cold{color:#378ADD}
+        .kalib-trend-row-val.tone-hi{color:#EF9F27}
+        .kalib-trend-row-val.tone-hot{color:#E24B4A}
+
         .kalib-cal-header{display:flex;align-items:center;justify-content:space-between;padding:10px 0;margin-bottom:14px}
         .kalib-cal-nav{width:44px;height:44px;border-radius:22px;background:#1C1C1E;border:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;cursor:pointer;color:#fff;font-family:inherit}
         .kalib-cal-nav:active{background:#2A2A2C}
@@ -2470,6 +2510,119 @@ export default function KalibreringPage() {
                         )}
                       </div>
                     )}
+
+                    {/* === Kontroll-lista för det valda fönstret === */}
+                    {trCurrent && (() => {
+                      // Enskilda kontroller inom [startMs, endMs), nyast först.
+                      // Inom samma datum: filnamn desc som stabil fallback.
+                      const inWindow = trCurrent.kontroller
+                        .filter((k) => {
+                          const t = new Date(k.datum).getTime();
+                          return t >= startMs && t < endMs;
+                        })
+                        .sort((a, b) => {
+                          const dt = new Date(b.datum).getTime() - new Date(a.datum).getTime();
+                          if (dt !== 0) return dt;
+                          return a.filnamn < b.filnamn ? 1 : a.filnamn > b.filnamn ? -1 : 0;
+                        });
+
+                      // Tom-stat: lugn text, ingen tom låda
+                      if (inWindow.length === 0) {
+                        const periodOrd =
+                          trendPeriod === 'vecka' ? 'vecka'
+                          : trendPeriod === 'manad' ? 'månad'
+                          : trendPeriod === 'kvartal' ? 'kvartal'
+                          : 'år';
+                        return (
+                          <div className="kalib-trend-list-empty">
+                            Inga kontroller denna {periodOrd}
+                          </div>
+                        );
+                      }
+
+                      // Antal unika trakter
+                      const trakterSet = new Set<string>();
+                      for (const k of inWindow) {
+                        if (k.object_name) trakterSet.add(k.object_name);
+                      }
+                      const trakterN = trakterSet.size;
+
+                      // Gruppera per dag
+                      type DayGroup = { dayKey: string; label: string; ts: number; items: typeof inWindow };
+                      const weekdays = ['Söndag','Måndag','Tisdag','Onsdag','Torsdag','Fredag','Lördag'];
+                      const monthsLong = ['januari','februari','mars','april','maj','juni','juli','augusti','september','oktober','november','december'];
+                      const dayMap = new Map<string, DayGroup>();
+                      for (const k of inWindow) {
+                        const d = new Date(k.datum);
+                        const dayKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                        const dayTs = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12).getTime();
+                        const label = `${weekdays[d.getDay()]} ${d.getDate()} ${monthsLong[d.getMonth()]}`;
+                        const g = dayMap.get(dayKey);
+                        if (g) g.items.push(k);
+                        else dayMap.set(dayKey, { dayKey, label, ts: dayTs, items: [k] });
+                      }
+                      const dayGroups = Array.from(dayMap.values()).sort((a, b) => b.ts - a.ts);
+
+                      // Eget format med riktigt minustecken (Skogforsk-spec på listan)
+                      const fmtList = (v: number): string => {
+                        if (trendUnit === 'dia') {
+                          const r = Math.round(v);
+                          if (r === 0) return `0 ${unitTxt}`;
+                          if (r > 0) return `+${r} ${unitTxt}`;
+                          return `−${Math.abs(r)} ${unitTxt}`;
+                        }
+                        const r = Number(v.toFixed(1));
+                        if (r === 0) return `0 ${unitTxt}`;
+                        if (r > 0) return `+${r} ${unitTxt}`;
+                        return `−${Math.abs(r)} ${unitTxt}`;
+                      };
+
+                      return (
+                        <>
+                          {/* Topprad — lugn orientering */}
+                          <div className="kalib-trend-list-top">
+                            <span className="kalib-trend-list-top-primary">{winLabel}</span>
+                            <span className="kalib-trend-list-top-tertiary">
+                              · {inWindow.length} kontroller · {trakterN} {trakterN === 1 ? 'trakt' : 'trakter'}
+                            </span>
+                          </div>
+
+                          {dayGroups.map((g) => (
+                            <div key={g.dayKey} className="kalib-trend-day">
+                              <div className="kalib-trend-day-header">{g.label}</div>
+                              <div className="kalib-trend-day-card">
+                                {g.items.map((k, idx) => {
+                                  const v = trendUnit === 'dia' ? k.dia_snitt_mm : k.len_snitt_cm;
+                                  const cls = valCls(v);
+                                  const isLast = idx === g.items.length - 1;
+                                  return (
+                                    <button
+                                      key={k.filnamn}
+                                      type="button"
+                                      className={`kalib-trend-row ${isLast ? 'last' : ''}`}
+                                      onClick={() => openKontrollFull(k.filnamn)}
+                                      disabled={laddarKontroll === k.filnamn}
+                                    >
+                                      <span className={`kalib-trend-row-dot tone-${cls}`} aria-hidden="true" />
+                                      <div className="kalib-trend-row-info">
+                                        <div className="kalib-trend-row-name">{k.object_name || 'Okänd trakt'}</div>
+                                        <div className="kalib-trend-row-meta">
+                                          {cap(trCurrentKey ?? '')} · {k.antal_stockar} stock{k.antal_stockar === 1 ? '' : 'ar'}
+                                        </div>
+                                      </div>
+                                      <span className={`kalib-trend-row-val tone-${cls}`}>
+                                        {fmtList(v)}
+                                      </span>
+                                      <MSym name="chevron_right" size={16} color="#8E8E93" />
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      );
+                    })()}
 
                     {trendData.totalt.antal_kontroller === 0 && (
                       <div className="kalib-info-box neutral">
