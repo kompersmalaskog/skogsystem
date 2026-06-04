@@ -15,7 +15,7 @@ import {
 //
 // ÄRLIGHETSREGEL: Gamla vyn kallade alltid data för "idag" utan
 // att kolla om den faktiskt var dagsfärsk. Vi visar alltid
-// explict hur gammal datan är. Grön prick = data från idag.
+// explicit hur gammal datan är. Grön prick = data från idag.
 // Dämpat varningsband = data från ett äldre datum.
 //
 // STEG 2 (separat): "Vem kör" från fakt_skift.
@@ -38,11 +38,39 @@ function fmtTimeHHMM(iso: string): string {
   }
 }
 
+/** "GRAN" → "Gran", "BJÖRK" → "Björk" */
+function toTitleCase(s: string): string {
+  if (!s) return s
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
+}
+
+/** Artfärg för proportionsstaplar i HourPanel */
+function tradslakFarg(namn: string): string {
+  const u = (namn || '').toUpperCase()
+  if (u.startsWith('GRAN'))                            return '#30d158'
+  if (u.startsWith('TALL'))                            return '#ff9f0a'
+  if (u.startsWith('BJÖRK') || u.startsWith('BJORK')) return '#ffd60a'
+  return '#636366'
+}
+
 // ── Typer ─────────────────────────────────────────────────────
 type FreshnessInfo = {
   senasteDatum: string          // 'YYYY-MM-DD' — vilket datum som visas
   senasteSkapadTid: string | null  // ISO timestamp — när senaste filen importerades
   daysDiff: number              // 0 = data från idag, 1 = igår, …
+}
+
+type StamDetail = {
+  hour: number
+  tradslag_id: string
+  dbh_mm: number
+}
+
+type AvbrottDetail = {
+  hour: number
+  langd_sek: number
+  typ: string | null
+  kategori_kod: string | null
 }
 
 type IdagData = {
@@ -53,6 +81,10 @@ type IdagData = {
   produktivitet: number | null  // volym / g15h
   hourBuckets: Record<number, number>  // timme (0–23) → antal stammar
   hasRytm: boolean              // false om detalj_stam var tom/misslyckad
+  // HourPanel-data (steg 1)
+  stamDetalj: StamDetail[]
+  avbrottDetalj: AvbrottDetail[] | null  // null = fetch misslyckades
+  tradNamn: Record<string, string>       // tradslag_id → namn ("GRAN" etc.)
 }
 
 // ── Datahämtning ─────────────────────────────────────────────
@@ -84,7 +116,7 @@ async function fetchDetaljStam(ids: string[], datum: string): Promise<any[]> {
   const endTs   = `${datum}T23:59:59.999`
   while (true) {
     const { data, error } = await supabase
-      .from('detalj_stam').select('tidpunkt')
+      .from('detalj_stam').select('tidpunkt, tradslag_id, dbh_mm')
       .in('maskin_id', ids)
       .gte('tidpunkt', startTs)
       .lte('tidpunkt', endTs)
@@ -98,12 +130,35 @@ async function fetchDetaljStam(ids: string[], datum: string): Promise<any[]> {
   return rows
 }
 
+/** fakt_avbrott — alla avbrott för aktuell dag, bucketas på starttimme (klockslag) */
+async function fetchAvbrottForDay(ids: string[], datum: string): Promise<any[]> {
+  const { data, error } = await supabase
+    .from('fakt_avbrott')
+    .select('klockslag, langd_sek, typ, kategori_kod')
+    .in('maskin_id', ids)
+    .eq('datum', datum)
+  if (error) throw error
+  return data || []
+}
+
+/** dim_tradslag → { tradslag_id: namn } — för att visa artnamn i HourPanel */
+async function fetchTradslagNamn(ids: string[]): Promise<Record<string, string>> {
+  const { data } = await supabase
+    .from('dim_tradslag')
+    .select('tradslag_id, namn')
+    .in('maskin_id', ids)
+  const map: Record<string, string> = {}
+  for (const r of (data || [])) {
+    if (r.tradslag_id && r.namn) map[r.tradslag_id] = r.namn as string
+  }
+  return map
+}
+
 async function fetchIdag(maskinId: string): Promise<IdagData | null> {
   const ids = COMBO_IDS[maskinId] || [maskinId]
 
   // Steg 1: Hitta senaste datum + skapad_tid — visar hur färsk datan är.
-  // ORDER BY datum DESC, skapad_tid DESC → senaste dag, och inom den
-  // dagen den senast importerade raden (= senaste MOM-filen).
+  // ORDER BY datum DESC, skapad_tid DESC → senaste dag + senast importerade raden.
   const { data: latestRows } = await supabase
     .from('fakt_produktion')
     .select('datum, skapad_tid')
@@ -114,7 +169,7 @@ async function fetchIdag(maskinId: string): Promise<IdagData | null> {
 
   if (!latestRows || latestRows.length === 0) return null
 
-  const senasteDatum    = latestRows[0].datum as string
+  const senasteDatum     = latestRows[0].datum as string
   const senasteSkapadTid = (latestRows[0].skapad_tid as string | null) ?? null
 
   // Räkna ut dagar sedan (kalender-dagar, inte sekunder — undviker DST-problem)
@@ -125,19 +180,22 @@ async function fetchIdag(maskinId: string): Promise<IdagData | null> {
     (new Date(todayStr + 'T12:00:00').getTime() - new Date(senasteDatum + 'T12:00:00').getTime()) / 86400000,
   )
 
-  // Steg 2: Hämta prod, tid och stamrytm parallellt.
-  // Prod + tid hämtas SEPARAT och mergas aldrig i SQL — CLAUDE.md-regel.
-  // Promise.allSettled: om detalj_stam misslyckas visas ändå siffror.
-  const [prodResult, tidResult, rytmResult] = await Promise.allSettled([
+  // Steg 2: Parallella hämtningar.
+  // Prod + tid hämtas SEPARAT — CLAUDE.md-regel (aldrig JOIN).
+  // Promise.allSettled: om enskild hämtning misslyckas visas ändå resten.
+  const [prodResult, tidResult, rytmResult, avbrottResult, tradNamnResult] = await Promise.allSettled([
     fetchPaged('fakt_produktion', 'volym_m3sub, stammar', ids, senasteDatum),
     fetchPaged('fakt_tid', 'processing_sek, terrain_sek', ids, senasteDatum),
     fetchDetaljStam(ids, senasteDatum),
+    fetchAvbrottForDay(ids, senasteDatum),
+    fetchTradslagNamn(ids),
   ])
 
   const prodRows = prodResult.status === 'fulfilled' ? prodResult.value : []
   const tidRows  = tidResult.status  === 'fulfilled' ? tidResult.value  : []
   const rytmRows = rytmResult.status === 'fulfilled' ? rytmResult.value : []
   const hasRytm  = rytmResult.status === 'fulfilled'
+  const tradNamn = tradNamnResult.status === 'fulfilled' ? tradNamnResult.value : {}
 
   // Aggregera produktion
   let volym = 0, stammar = 0
@@ -154,12 +212,35 @@ async function fetchIdag(maskinId: string): Promise<IdagData | null> {
   }
   const g15h = (proc + terr) / 3600
 
-  // Bucketa stammar per timme
+  // Bucketa stammar per timme + bygg stamDetalj för HourPanel
   const hourBuckets: Record<number, number> = {}
+  const stamDetalj: StamDetail[] = []
   for (const r of rytmRows) {
     if (!r.tidpunkt) continue
     const h = new Date(r.tidpunkt).getHours()
     hourBuckets[h] = (hourBuckets[h] || 0) + 1
+    stamDetalj.push({
+      hour: h,
+      tradslag_id: r.tradslag_id || '',
+      dbh_mm: r.dbh_mm || 0,
+    })
+  }
+
+  // Bygg avbrottDetalj — null om fetch misslyckades (ärlighet: "okänt" ≠ "inga")
+  let avbrottDetalj: AvbrottDetail[] | null = null
+  if (avbrottResult.status === 'fulfilled') {
+    avbrottDetalj = []
+    for (const r of avbrottResult.value) {
+      if (!r.klockslag) continue
+      const h = parseInt(r.klockslag.split(':')[0], 10)
+      if (isNaN(h)) continue
+      avbrottDetalj.push({
+        hour: h,
+        langd_sek: r.langd_sek || 0,
+        typ: r.typ ?? null,
+        kategori_kod: r.kategori_kod ?? null,
+      })
+    }
   }
 
   return {
@@ -168,11 +249,14 @@ async function fetchIdag(maskinId: string): Promise<IdagData | null> {
     produktivitet: g15h > 0 ? volym / g15h : null,
     hourBuckets,
     hasRytm,
+    stamDetalj,
+    avbrottDetalj,
+    tradNamn,
   }
 }
 
 // ── FreshnessRow ──────────────────────────────────────────────
-// Vyns viktigaste element — stand om data är dagsfärsk eller äldre.
+// Vyns viktigaste element — status om data är dagsfärsk eller äldre.
 function FreshnessRow({
   freshness, loading,
 }: {
@@ -219,14 +303,12 @@ function FreshnessRow({
   return (
     <div style={{
       ...baseStyle,
-      // Stale data: subtle warning tint so the banner draws the eye
       background: isFresh ? C.card : '#1c1c1e',
       border: isFresh ? 'none' : `0.5px solid rgba(255,159,10,0.25)`,
     }}>
       <div style={{
         width: 8, height: 8, borderRadius: 4,
         background: dotColor, flexShrink: 0,
-        // Grön prick: subtle glow
         boxShadow: isFresh ? `0 0 0 3px rgba(48,209,88,0.18)` : 'none',
       }} />
       <span style={{
@@ -308,16 +390,18 @@ function SiffraCard({ data, loading }: { data: IdagData | null; loading: boolean
 //  • Grön 55% opacity = pågående timme (sista stapeln om dagsfärsk)
 //  • #2c2c2e platshållare = timmar som inte hänt än (om dagsfärsk)
 //  • Tunn markering = förflutna timmar utan stammar (t.ex. rast)
-//  • Ingen "effektivitet" eller "trötthet" i rubrik/tooltips
+//  • Vit underline = vald timme (öppnar HourPanel)
 //
 // VIKTIG NOTE: Kallas bara "Dagens rytm / stammar per timme".
 function RytmChart({
-  hourBuckets, isFresh, hasRytm, loading,
+  hourBuckets, isFresh, hasRytm, loading, selectedHour, onBarClick,
 }: {
   hourBuckets: Record<number, number>
   isFresh: boolean
   hasRytm: boolean
   loading: boolean
+  selectedHour?: number | null
+  onBarClick?: (hour: number | null) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [cw, setCw] = useState(0)
@@ -351,7 +435,6 @@ function RytmChart({
       ? Math.min(23, Math.max(maxH + 1, currentHour + 1))
       : Math.min(23, maxH + 1)
   } else if (isFresh) {
-    // Inga stammar än idag — visa från 6 till nuvarande timme
     startH = 6
     endH = Math.min(23, currentHour + 1)
   }
@@ -360,7 +443,6 @@ function RytmChart({
   const maxCount = Math.max(...displayHours.map(h => hourBuckets[h] || 0), 1)
   const numBars = displayHours.length
 
-  // Visa bara varannna timme som label om många staplar
   const showEvery = numBars > 10 ? 2 : 1
 
   function renderBars(width: number) {
@@ -369,9 +451,10 @@ function RytmChart({
       const count = hourBuckets[h] || 0
       const x = i * (barW + GAP)
 
-      const isCurrent = isFresh && h === currentHour
-      const isFuture  = isFresh && h > currentHour
-      const hasCount  = count > 0
+      const isCurrent  = isFresh && h === currentHour
+      const isFuture   = isFresh && h > currentHour
+      const hasCount   = count > 0
+      const isSelected = selectedHour === h
 
       // Beräkna bar-höjd
       const barH = hasCount ? Math.max(3, (count / maxCount) * CHART_H) : 0
@@ -379,13 +462,13 @@ function RytmChart({
 
       // Färg
       let barFill: string
-      if (isFuture)      barFill = C.divider                     // #2c2c2e platshållare
-      else if (isCurrent) barFill = 'rgba(48,209,88,0.55)'       // pågående timme
-      else if (hasCount)  barFill = C.green                      // förfluten timme med stammar
+      if (isFuture)       barFill = C.divider                     // #2c2c2e platshållare
+      else if (isCurrent) barFill = 'rgba(48,209,88,0.55)'        // pågående timme
+      else if (hasCount)  barFill = C.green                       // förfluten timme med stammar
       else                barFill = 'transparent'
 
-      const showLabel = i % showEvery === 0
-      const labelColor = isFuture ? C.dim : C.muted
+      const showLabel  = i % showEvery === 0
+      const labelColor = isFuture ? C.dim : (isSelected ? '#fff' : C.muted)
 
       return (
         <g key={h}>
@@ -402,6 +485,11 @@ function RytmChart({
             <rect x={x} y={CHART_H - 2} width={barW} height={2} rx={1}
                   fill={C.dim} opacity={0.35} />
           )}
+          {/* Selektion-indikator: vit linje i botten av stapelområdet */}
+          {isSelected && (
+            <rect x={x} y={CHART_H - 3} width={barW} height={3} rx={1.5}
+                  fill="#fff" opacity={0.85} />
+          )}
           {/* Timlabel */}
           {showLabel && (
             <text
@@ -415,6 +503,16 @@ function RytmChart({
               {String(h).padStart(2, '0')}
             </text>
           )}
+          {/* Klick-yta — placeras sist (ovanpå) för att fånga tryck */}
+          {onBarClick && (
+            <rect
+              x={x - 1} y={0}
+              width={barW + 2} height={CHART_H + LABEL_H}
+              fill="transparent"
+              style={{ cursor: 'pointer' }}
+              onClick={() => onBarClick(selectedHour === h ? null : h)}
+            />
+          )}
         </g>
       )
     })
@@ -423,7 +521,9 @@ function RytmChart({
   return (
     <div style={{ background: C.card, borderRadius: 14, padding: '18px 18px 14px', marginBottom: 12 }}>
       <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 1 }}>Dagens rytm</div>
-      <div style={{ fontSize: 11, color: C.dim, marginBottom: 16 }}>stammar per timme</div>
+      <div style={{ fontSize: 11, color: C.dim, marginBottom: 16 }}>
+        stammar per timme{onBarClick ? ' · tryck på stapel för detaljer' : ''}
+      </div>
 
       <div ref={containerRef} style={{ width: '100%' }}>
         {loading ? (
@@ -434,7 +534,6 @@ function RytmChart({
             <span style={{ fontSize: 12, color: C.muted }}>Laddar…</span>
           </div>
         ) : !hasRytm ? (
-          // detalj_stam-frågan misslyckades (RLS eller nätverksfel)
           <div style={{
             height: CHART_H + LABEL_H,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -442,7 +541,6 @@ function RytmChart({
             <span style={{ fontSize: 12, color: C.dim }}>Rytmdata saknas för denna maskin</span>
           </div>
         ) : populatedHours.length === 0 && !isFresh ? (
-          // Gammalt datum, inga stammar i detalj_stam för den dagen
           <div style={{
             height: CHART_H + LABEL_H,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -481,6 +579,204 @@ function LegendDot({ color, label }: { color: string; label: string }) {
   )
 }
 
+// ── TradslagRow ───────────────────────────────────────────────
+// En art med proportionsstapel i HourPanel.
+function TradslagRow({
+  namn, count, total, avgDbhCm,
+}: {
+  namn: string
+  count: number
+  total: number
+  avgDbhCm: number
+}) {
+  const pct      = total > 0 ? count / total : 0
+  const barColor = tradslakFarg(namn)
+  const display  = toTitleCase(namn)
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        alignItems: 'baseline', marginBottom: 5,
+      }}>
+        <span style={{ fontSize: 14, color: C.text, fontWeight: 500 }}>{display}</span>
+        <span style={{ fontSize: 12, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+          {count} st · {fmtSv(avgDbhCm, 1)} cm
+        </span>
+      </div>
+      {/* Proportionsstapel */}
+      <div style={{ height: 5, background: C.divider, borderRadius: 3, overflow: 'hidden', marginBottom: 3 }}>
+        <div style={{
+          height: '100%',
+          width: `${Math.round(pct * 100)}%`,
+          background: barColor,
+          borderRadius: 3,
+        }} />
+      </div>
+      <div style={{ fontSize: 10, color: C.dim }}>{Math.round(pct * 100)} %</div>
+    </div>
+  )
+}
+
+// ── AvbrottRow ────────────────────────────────────────────────
+function AvbrottRow({ avbrott }: { avbrott: AvbrottDetail }) {
+  const label = avbrott.typ || avbrott.kategori_kod || 'Avbrott'
+  return (
+    <div style={{
+      display: 'flex', justifyContent: 'space-between',
+      alignItems: 'center', padding: '7px 0',
+      borderBottom: `0.5px solid ${C.divider}`,
+    }}>
+      <span style={{ fontSize: 13, color: C.muted }}>{label}</span>
+      <span style={{ fontSize: 12, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>
+        {fmtTid(avbrott.langd_sek)}
+      </span>
+    </div>
+  )
+}
+
+// ── HourPanel ─────────────────────────────────────────────────
+// Öppnas vid tryck på en stapel i RytmChart.
+// Innehåll: trädslag (alltid), avbrott (alltid), tidsnot (alltid),
+// slutsatsrad (alltid). Inget G15h — fakt_tid är dagsaggregat.
+function HourPanel({
+  selectedHour,
+  stamDetalj,
+  avbrottDetalj,
+  tradNamn,
+  onClose,
+}: {
+  selectedHour: number
+  stamDetalj: StamDetail[]
+  avbrottDetalj: AvbrottDetail[] | null
+  tradNamn: Record<string, string>
+  onClose: () => void
+}) {
+  const hourStammar = stamDetalj.filter(s => s.hour === selectedHour)
+  const hourAvbrott = avbrottDetalj !== null
+    ? avbrottDetalj.filter(a => a.hour === selectedHour)
+    : null
+
+  // Gruppera per tradslag
+  const tradMap = new Map<string, { count: number; dbhSum: number }>()
+  for (const s of hourStammar) {
+    const prev = tradMap.get(s.tradslag_id) || { count: 0, dbhSum: 0 }
+    tradMap.set(s.tradslag_id, { count: prev.count + 1, dbhSum: prev.dbhSum + s.dbh_mm })
+  }
+
+  const totalStammar = hourStammar.length
+  const avgDbhCm = totalStammar > 0
+    ? hourStammar.reduce((sum, s) => sum + s.dbh_mm, 0) / totalStammar / 10
+    : 0
+
+  // Sortera arter efter antal (störst först)
+  const tradEntries = Array.from(tradMap.entries())
+    .map(([id, v]) => ({
+      id,
+      namn: tradNamn[id] || id,
+      count: v.count,
+      avgDbhCm: v.dbhSum / v.count / 10,
+    }))
+    .sort((a, b) => b.count - a.count)
+
+  // Slutsatsrad
+  let slutsats: string
+  if (totalStammar === 0) {
+    slutsats = 'Ingen registrerad aktivitet denna timme'
+  } else if (tradEntries.length === 1) {
+    slutsats = `${totalStammar} stammar · snitt ${fmtSv(avgDbhCm, 1)} cm · enbart ${toTitleCase(tradEntries[0].namn)}`
+  } else {
+    slutsats = `${totalStammar} stammar · snitt ${fmtSv(avgDbhCm, 1)} cm · ${toTitleCase(tradEntries[0].namn)} dominerar`
+  }
+
+  const endHour = selectedHour + 1
+
+  const sectionLabel: React.CSSProperties = {
+    fontSize: 11, color: C.muted, fontWeight: 600,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+    marginBottom: 10,
+  }
+
+  return (
+    <div style={{
+      background: C.card, borderRadius: 14,
+      padding: '16px 18px 18px',
+      marginBottom: 12,
+      border: `0.5px solid rgba(255,255,255,0.07)`,
+    }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between',
+        alignItems: 'center', marginBottom: 18,
+      }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: C.text, letterSpacing: -0.3 }}>
+          Kl {String(selectedHour).padStart(2, '0')}–{String(endHour).padStart(2, '0')}
+        </span>
+        <button
+          onClick={onClose}
+          style={{
+            background: 'rgba(120,120,128,0.18)', border: 'none',
+            color: C.muted, fontFamily: FONT, fontSize: 12,
+            cursor: 'pointer', padding: '4px 10px', borderRadius: 6,
+            letterSpacing: -0.1,
+          }}
+        >
+          stäng
+        </button>
+      </div>
+
+      {/* ── Trädslag ────────────────────────────────────────── */}
+      <div style={{ marginBottom: 18 }}>
+        <div style={sectionLabel}>
+          {totalStammar === 0
+            ? 'Vad som kördes'
+            : `Vad som kördes · ${totalStammar} stammar · snitt ${fmtSv(avgDbhCm, 1)} cm`}
+        </div>
+        {totalStammar === 0 ? (
+          <div style={{ fontSize: 13, color: C.dim }}>Inga stammar registrerade</div>
+        ) : (
+          tradEntries.map(t => (
+            <TradslagRow
+              key={t.id}
+              namn={t.namn}
+              count={t.count}
+              total={totalStammar}
+              avgDbhCm={t.avgDbhCm}
+            />
+          ))
+        )}
+      </div>
+
+      {/* ── Avbrott ─────────────────────────────────────────── */}
+      <div style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 14, marginBottom: 18 }}>
+        <div style={sectionLabel}>Avbrott</div>
+        {hourAvbrott === null ? (
+          <div style={{ fontSize: 13, color: C.dim }}>Avbrottsdata kunde inte hämtas</div>
+        ) : hourAvbrott.length === 0 ? (
+          <div style={{ fontSize: 13, color: C.dim }}>Inga avbrott</div>
+        ) : (
+          <>
+            {hourAvbrott.map((a, i) => <AvbrottRow key={i} avbrott={a} />)}
+          </>
+        )}
+      </div>
+
+      {/* ── Tidsnot ─────────────────────────────────────────── */}
+      {/* fakt_tid är ett dagsaggregat — vi kan inte dela upp det per timme */}
+      <div style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 12, marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: C.dim, lineHeight: 1.6 }}>
+          Processnings- och körtid finns inte per timme — fakt_tid är ett dagsaggregat
+        </div>
+      </div>
+
+      {/* ── Slutsatsrad ─────────────────────────────────────── */}
+      <div style={{ fontSize: 13, color: C.muted, lineHeight: 1.5 }}>
+        {slutsats}
+      </div>
+    </div>
+  )
+}
+
 // ── HintRad ───────────────────────────────────────────────────
 function HintRad() {
   return (
@@ -498,15 +794,17 @@ function HintRad() {
 // IdagNy — huvud-komponent
 // ─────────────────────────────────────────────────────────────
 export default function IdagNy() {
-  const [maskin, setMaskin]       = useState<Maskin>(MASKINER[0])
+  const [maskin, setMaskin]         = useState<Maskin>(MASKINER[0])
   const [maskinOpen, setMaskinOpen] = useState(false)
-  const [data, setData]           = useState<IdagData | null>(null)
-  const [loading, setLoading]     = useState(true)
+  const [data, setData]             = useState<IdagData | null>(null)
+  const [loading, setLoading]       = useState(true)
+  const [selectedHour, setSelectedHour] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setData(null)
+    setSelectedHour(null)
     fetchIdag(maskin.id)
       .then(d => { if (!cancelled) { setData(d); setLoading(false) } })
       .catch(() => { if (!cancelled) setLoading(false) })
@@ -593,9 +891,22 @@ export default function IdagNy() {
           isFresh={isFresh}
           hasRytm={data?.hasRytm ?? false}
           loading={loading}
+          selectedHour={selectedHour}
+          onBarClick={setSelectedHour}
         />
 
-        {/* 4. Hänvisning till Produktion — ingen detaljredovisning här */}
+        {/* 4. Tim-detaljpanel — visas när en stapel är vald */}
+        {selectedHour !== null && data && (
+          <HourPanel
+            selectedHour={selectedHour}
+            stamDetalj={data.stamDetalj}
+            avbrottDetalj={data.avbrottDetalj}
+            tradNamn={data.tradNamn}
+            onClose={() => setSelectedHour(null)}
+          />
+        )}
+
+        {/* 5. Hänvisning till Produktion */}
         <HintRad />
       </div>
     </div>
