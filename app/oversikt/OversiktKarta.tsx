@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
 import { ff } from './oversikt-styles';
@@ -34,10 +34,10 @@ function AnimatedNumber({ value, style }: { value: number; style?: React.CSSProp
   return <span style={style}>{formatVolym(display)}</span>;
 }
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+/* Använd den DELADE klienten (lib/supabase.ts = @supabase/ssr createBrowserClient).
+   En egen createClient() från @supabase/supabase-js lagrar sessionen i localStorage,
+   men login lagrar den i cookies via @supabase/ssr → getUser() blir null här och
+   förarläget faller tyst till admin. Samma klient som login = sessionen syns. */
 
 declare global {
   interface Window { maplibregl: any; }
