@@ -8,6 +8,7 @@ import {
   type Maskin, type Period, type Data, type Operator, type PeriodKpi,
 } from './OversiktShared'
 import OperatorDeepView from './OperatorDeepView'
+import VolymDeepView from './VolymDeepView'
 
 export default function OversiktNy() {
   const [maskin, setMaskin] = useState<Maskin>(MASKINER[0])
@@ -21,6 +22,8 @@ export default function OversiktNy() {
 
   // Djupvy-state: aktiv operatör som vyas. null = ingen djupvy öppen.
   const [deepOperator, setDeepOperator] = useState<Operator | null>(null)
+  // Volym-djupvy
+  const [volymOpen, setVolymOpen] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -177,7 +180,7 @@ export default function OversiktNy() {
           referenceLabel={refLabel}
           loading={loading}
         />
-        <KpiList data={data} prev={prevData} series={series} loading={loading} />
+        <KpiList data={data} prev={prevData} series={series} loading={loading} onVolymClick={() => setVolymOpen(true)} />
         <TimeDistribution data={data} loading={loading} />
         <OperatorList
           operatorer={data?.operatorer ?? []}
@@ -185,6 +188,17 @@ export default function OversiktNy() {
           onSelect={(op) => setDeepOperator(op)}
         />
       </div>
+
+      {/* Volym-djupvy */}
+      {volymOpen && (
+        <VolymDeepView
+          maskin={maskin}
+          period={period}
+          offset={offset}
+          periodLabel={label}
+          onClose={() => setVolymOpen(false)}
+        />
+      )}
 
       {/* Operatör-djupvy som overlay */}
       {deepOperator && (
