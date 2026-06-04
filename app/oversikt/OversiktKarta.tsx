@@ -149,9 +149,11 @@ function ObjCard({ obj, prod, warnings, maskinNamn, ko }: {
   if (o.transport_kommentar) noteringar.push(o.transport_kommentar);
   if (o.skordare_manuell_fallning && o.skordare_manuell_fallning_text) noteringar.push(o.skordare_manuell_fallning_text);
   if (o.markagare_ska_ha_ved && o.markagare_ved_text) noteringar.push(o.markagare_ved_text);
+  // Hänsyn lever inte längre på kartan (Beslut 6) — listas under "Visa mer"
+  const hasHansyn = !!warnings?.items?.some(i => i.level === 'hansyn');
   const hasDetails = !!(ber?.tradslag?.length || ber?.jordart || ber?.restriktioner?.length ||
     o.barighet || o.terrang || o.transport_kommentar || o.grot_volym ||
-    o.skordare_maskin || o.skotare_maskin || o.anteckningar || o.info_anteckningar || o.ovrigt_info || noteringar.length);
+    o.skordare_maskin || o.skotare_maskin || o.anteckningar || o.info_anteckningar || o.ovrigt_info || noteringar.length || hasHansyn);
 
   const Sec = ({ label }: { label: string }) => (
     <div style={{ ...T.label, marginBottom: SP.sm }}>{label}</div>
@@ -193,19 +195,18 @@ function ObjCard({ obj, prod, warnings, maskinNamn, ko }: {
           }}>{st.l}</div>
         </div>
 
-        {/* Varning (Beslut 6) — värsta först, övriga som "+N till" */}
-        {warnings?.level && (() => {
-          const wc = warnings.level === 'fara' ? C.red : C.orange;
-          const wbg = warnings.level === 'fara' ? C.rd : C.od;
-          const first = warnings.items[0];
-          const rest = warnings.items.length - 1;
+        {/* Fara (Beslut 6) — bara kritiska faror i glansbannern; hänsyn flyttat till "Visa mer" */}
+        {warnings && warnings.items.some(i => i.level === 'fara') && (() => {
+          const faror = warnings.items.filter(i => i.level === 'fara');
+          const first = faror[0];
+          const rest = faror.length - 1;
           return (
             <div style={{
               display: 'flex', alignItems: 'center', gap: SP.sm, marginBottom: SP.lg,
-              padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: wbg,
-              border: `1px solid ${wc}40`,
+              padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: C.rd,
+              border: `1px solid ${C.red}40`,
             }}>
-              <span style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderBottom: `12px solid ${wc}`, flexShrink: 0 }} />
+              <span style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderBottom: `12px solid ${C.red}`, flexShrink: 0 }} />
               <span style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>
                 {first?.label}{rest > 0 ? ` +${rest} till` : ''}
               </span>
@@ -272,6 +273,18 @@ function ObjCard({ obj, prod, warnings, maskinNamn, ko }: {
         {expanded && (
           <div style={{ marginTop: SP.md }}>
             <Div />
+
+            {/* Hänsyn (Beslut 6) — orange markeringar, borta från kartan men listas här */}
+            {warnings && warnings.items.some(i => i.level === 'hansyn') && (
+              <div style={{ padding: `${SP.md}px 0` }}>
+                <Sec label="Hänsyn" />
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP.sm }}>
+                  {[...new Set(warnings.items.filter(i => i.level === 'hansyn').map(i => i.label))].map((lbl, i) => (
+                    <span key={i} style={{ ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: C.od, border: `1px solid ${C.orange}40` }}>{lbl}</span>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Trädslag */}
             {ber?.tradslag && ber.tradslag.length > 0 && !ber.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt')) && (() => {
@@ -685,10 +698,13 @@ function buildMarkerEl(
       g.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(${dotSize / 2 - 5}px,${dotSize / 2 - 5}px);width:11px;height:11px;border-radius:2px;background:${C.yellow};border:1px solid rgba(0,0,0,.4);pointer-events:none`;
       w.appendChild(g);
     } else if (b.kind === 'warning') {
-      const wc = b.level === 'fara' ? C.red : C.orange;
-      const t = document.createElement('div');
-      t.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-${dotSize / 2 + 12}px,-${dotSize / 2 + 6}px);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid ${wc};pointer-events:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))`;
-      w.appendChild(t);
+      // Litet hörnmärke PÅ markören (uppe vänster) — speglar köbadgen uppe höger.
+      // Bara kritisk fara (röd) når hit; hänsyn visas aldrig på kartan.
+      const wm = document.createElement('div');
+      wm.title = 'Fara';
+      wm.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-${dotSize / 2 + 4}px,-${dotSize / 2 + 4}px);width:15px;height:15px;border-radius:50%;background:${C.red};border:1.5px solid #fff;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.5);pointer-events:none`;
+      wm.innerHTML = `<span style="font-size:11px;font-weight:800;color:#fff;font-family:${ff};line-height:1">!</span>`;
+      w.appendChild(wm);
     }
   });
 
@@ -1009,8 +1025,10 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     const qn = queueNums[obj.id];
     if (qn != null && !isMachine) badges.push({ kind: 'queue', n: qn });
     if (obj.grot_volym && obj.grot_volym > 0) badges.push({ kind: 'grot' });
+    // Endast kritiska faror (powerline/warning) når kartan — hänsyn/neutralt visas
+    // bara i ObjCard (under "Visa mer"), aldrig som märke på markören.
     const w = warningsByObj[obj.id];
-    if (w?.level) badges.push({ kind: 'warning', level: w.level });
+    if (w?.items?.some(i => i.level === 'fara')) badges.push({ kind: 'warning', level: 'fara' });
 
     const sublabels: string[] = [];
     if (maskinFilter && isActive) {
@@ -1066,7 +1084,16 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       style: {
         version: 8,
         sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '&copy; OSM' } },
-        layers: [{ id: 'osm', type: 'raster', source: 'osm' }],
+        // Dämpad basemap (Apple Maps-känsla): tona ner OSM-rastret så markörer + rutt
+        // sticker ut. Inga nya tiles/nyckel — bara raster-paint på rutorna vi redan har.
+        layers: [{
+          id: 'osm', type: 'raster', source: 'osm',
+          paint: {
+            'raster-saturation': -0.7,    // ta bort OSM:s skrikande färger → grått, lugnt
+            'raster-brightness-min': 0.2, // lyft skuggorna → diset, viskar i bakgrunden
+            'raster-contrast': -0.15,     // platta ut → inga lysande vita ytor
+          },
+        }],
       },
       center, zoom: 10,
     });
@@ -1454,35 +1481,20 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       </div>
       )}
 
-      {/* Legend + total distance */}
-      <div style={{
-        position: 'absolute',
-        ...((selectedObj || selectedGrotObj) ? { top: 70 } : { bottom: 16 }),
-        left: 16, display: 'flex', gap: 10, background: 'rgba(0,0,0,.65)',
-        backdropFilter: 'blur(12px)', padding: '8px 14px', borderRadius: 12, zIndex: 10,
-        alignItems: 'center',
-      }}>
-        {Object.entries(ST).filter(([k]) => ['oplanerad', 'planerad', 'pagaende', 'avslutat'].includes(k)).map(([k, v]) => (
-          <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <div style={{ width: 6, height: 6, borderRadius: '50%', background: v.c, opacity: 0.7 }} />
-            <span style={{ fontSize: 11, color: C.t3 }}>{v.l}</span>
-          </div>
-        ))}
-        {showGrot && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-            <div style={{ width: 6, height: 6, background: C.yellow, transform: 'rotate(45deg)', borderRadius: 1 }} />
-            <span style={{ fontSize: 11, color: C.t3 }}>GROT</span>
-          </div>
-        )}
-        {totalDistance.total > 0 && (
-          <>
-            <div style={{ width: 1, height: 12, background: 'rgba(255,255,255,0.1)' }} />
-            <span style={{ fontSize: 11, color: C.t2, fontWeight: 600, fontFamily: ff }}>
-              Total rutt: {totalDistance.anyApprox ? '~' : ''}{totalDistance.total < 1 ? `${Math.round(totalDistance.total * 1000)} m` : `${totalDistance.total.toFixed(1)} km`}
-            </span>
-          </>
-        )}
-      </div>
+      {/* Route-distans — legenden borttagen (markörfärgen + form säger statusen själv) */}
+      {totalDistance.total > 0 && (
+        <div style={{
+          position: 'absolute',
+          ...((selectedObj || selectedGrotObj) ? { top: 70 } : { bottom: 16 }),
+          left: 16, display: 'flex', gap: 10, background: 'rgba(0,0,0,.65)',
+          backdropFilter: 'blur(12px)', padding: '8px 14px', borderRadius: 12, zIndex: 10,
+          alignItems: 'center',
+        }}>
+          <span style={{ fontSize: 11, color: C.t2, fontWeight: 600, fontFamily: ff }}>
+            Total rutt: {totalDistance.anyApprox ? '~' : ''}{totalDistance.total < 1 ? `${Math.round(totalDistance.total * 1000)} m` : `${totalDistance.total.toFixed(1)} km`}
+          </span>
+        </div>
+      )}
 
       {selectedObj && (() => {
         const ko = koByObjekt[selectedObj.id];
