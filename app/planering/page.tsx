@@ -10499,7 +10499,7 @@ export default function PlannerPage() {
           background: colors.blue,
           color: '#fff',
           padding: '10px 20px',
-          borderRadius: '20px',
+          borderRadius: '16px',
           fontSize: '13px',
           fontWeight: '600',
           zIndex: 150,
@@ -10520,7 +10520,7 @@ export default function PlannerPage() {
           background: colors.blue,
           color: '#fff',
           padding: '12px 24px',
-          borderRadius: '20px',
+          borderRadius: '16px',
           fontSize: '13px',
           fontWeight: '600',
           zIndex: 150,
@@ -11893,7 +11893,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a', 
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
             }}>
@@ -11949,7 +11949,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a', 
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
             }}>
@@ -12013,7 +12013,7 @@ export default function PlannerPage() {
               <div key={group.group} style={{
                 background: '#0a0a0a',
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '20px',
+                borderRadius: '16px',
                 padding: '8px',
                 marginBottom: '16px',
               }}>
@@ -12076,7 +12076,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a',
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
             }}>
@@ -12135,7 +12135,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a',
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
             }}>
@@ -12193,7 +12193,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a',
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
             }}>
@@ -12296,7 +12296,7 @@ export default function PlannerPage() {
               <div style={{
                 background: '#0a0a0a', 
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '20px',
+                borderRadius: '16px',
                 padding: '8px',
                 marginBottom: '16px',
               }}>
@@ -12356,7 +12356,7 @@ export default function PlannerPage() {
               <div style={{
                 background: '#0a0a0a',
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '20px',
+                borderRadius: '16px',
                 padding: '8px',
                 marginBottom: '16px',
               }}>
@@ -12416,7 +12416,7 @@ export default function PlannerPage() {
               style={{
                 background: '#0a0a0a',
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '20px',
+                borderRadius: '16px',
                 padding: '18px 20px',
                 marginBottom: '16px',
                 display: 'flex',
@@ -12489,7 +12489,7 @@ export default function PlannerPage() {
             <div style={{
               background: drivingMode ? 'rgba(34,197,94,0.1)' : '#0a0a0a',
               border: `1px solid ${drivingMode ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)'}`,
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '14px 18px',
               marginBottom: '16px',
               display: 'flex',
@@ -12511,7 +12511,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a',
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
               opacity: drivingMode ? 1 : 0.4,
@@ -12567,7 +12567,7 @@ export default function PlannerPage() {
               <div key={section.section} style={{
                 background: '#0a0a0a',
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '20px',
+                borderRadius: '16px',
                 padding: '8px',
                 marginBottom: '16px',
                 opacity: warningShowAll ? 0.4 : 1,
@@ -12912,7 +12912,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px',
+                  borderRadius: '16px', padding: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>
                     Skotningsstatus
@@ -12968,7 +12968,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                 }}>
                   {symbolCategories.map((category) => (
@@ -13017,7 +13017,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '20px',
                 }}>
                   <div style={{
@@ -13096,7 +13096,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                 }}>
                   <div
@@ -13162,7 +13162,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '16px',
                 }}>
                   {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
@@ -13219,7 +13219,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '16px',
                 }}>
                   {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
@@ -13280,7 +13280,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '16px',
                 }}>
                   {zoneTypes.map(type => (
@@ -13331,7 +13331,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '20px',
                 }}>
                   <div style={{
@@ -13384,7 +13384,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                 }}>
                   <div
@@ -13459,7 +13459,7 @@ export default function PlannerPage() {
                 {/* Huvudval */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
@@ -13568,7 +13568,7 @@ export default function PlannerPage() {
                 {/* Inställningar */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
@@ -13637,7 +13637,7 @@ export default function PlannerPage() {
                 {/* Statistik */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '20px',
                   textAlign: 'center',
                 }}>
@@ -13657,7 +13657,7 @@ export default function PlannerPage() {
                 {/* Fota snitsel */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
@@ -13692,7 +13692,7 @@ export default function PlannerPage() {
                 {/* Färgval */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '16px',
                 }}>
                   {vagColors.map((color) => (
@@ -13734,7 +13734,7 @@ export default function PlannerPage() {
                   }}
                   style={{
                     background: '#1c1c1e',
-                    borderRadius: '20px',
+                    borderRadius: '16px',
                     height: '300px',
                     display: 'flex',
                     flexDirection: 'column',
@@ -13776,7 +13776,7 @@ export default function PlannerPage() {
               <div style={{ padding: '20px' }}>
                 <div style={{
                   background: 'rgba(255,255,255,0.06)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '30px',
                   textAlign: 'center',
                   marginBottom: '20px',
@@ -13846,7 +13846,7 @@ export default function PlannerPage() {
                 {/* Vald färg */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '20px',
                   marginBottom: '16px',
                   display: 'flex',
@@ -13869,7 +13869,7 @@ export default function PlannerPage() {
                 {/* Välj typ */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
@@ -13954,7 +13954,7 @@ export default function PlannerPage() {
                 {/* Starta-knapp */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                 }}>
                   <div
@@ -14121,7 +14121,7 @@ export default function PlannerPage() {
                 {/* MARKFÖRHÅLLANDEN */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markförhållanden</div>
 
@@ -14163,7 +14163,7 @@ export default function PlannerPage() {
                 {/* HINDER & HÄNSYN */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Hinder & hänsyn</div>
                   {(() => {
@@ -14194,7 +14194,7 @@ export default function PlannerPage() {
                 {/* SKÖRDARE */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skördare</div>
 
@@ -14271,7 +14271,7 @@ export default function PlannerPage() {
                 {/* SKOTARE */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skotare</div>
 
@@ -14365,7 +14365,7 @@ export default function PlannerPage() {
                 {/* TRANSPORT */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Transport</div>
 
@@ -14409,7 +14409,7 @@ export default function PlannerPage() {
                 {/* MARKÄGARE */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markägare</div>
 
@@ -14440,7 +14440,7 @@ export default function PlannerPage() {
                 {/* ANTECKNINGAR */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Anteckningar</div>
                   <textarea
@@ -14465,7 +14465,7 @@ export default function PlannerPage() {
                 {/* Lägen */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
@@ -14563,7 +14563,7 @@ export default function PlannerPage() {
                 {/* Generellt tillstånd */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '16px 20px',
                   marginBottom: '16px',
                 }}>
@@ -14667,7 +14667,7 @@ export default function PlannerPage() {
                 {/* Karta */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                 }}>
                   {/* Lager */}
@@ -14843,7 +14843,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '24px',
                 }}>
                   {/* === SOS === */}
@@ -15226,7 +15226,7 @@ export default function PlannerPage() {
               background: 'rgba(245,158,11,0.2)',
               color: '#f59e0b',
               padding: '8px 20px',
-              borderRadius: '20px',
+              borderRadius: '16px',
               fontSize: '13px',
               fontWeight: '500',
             }}>
@@ -15338,7 +15338,7 @@ export default function PlannerPage() {
           </div>
 
           <div style={{
-            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '20px',
+            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '20px',
             width: '100%', maxWidth: '260px',
           }}>
             <div style={{ 
@@ -17387,7 +17387,7 @@ export default function PlannerPage() {
           background: '#f59e0b',
           color: '#000',
           padding: '6px 12px',
-          borderRadius: '20px',
+          borderRadius: '16px',
           fontSize: '13px',
           fontWeight: '700',
           zIndex: 400,
