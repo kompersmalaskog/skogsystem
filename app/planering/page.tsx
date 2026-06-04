@@ -8888,7 +8888,7 @@ export default function PlannerPage() {
                 alignItems: 'center',
                 gap: 12,
                 padding: '8px 4px',
-                borderBottom: i < korvyNextItems.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                borderBottom: i < korvyNextItems.length - 1 ? '1px solid rgba(255,255,255,0.08)' : 'none',
                 minHeight: 44,
               }}>
                 <span style={{
@@ -9155,7 +9155,7 @@ export default function PlannerPage() {
                 }}>
                   VY
                 </div>
-                <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 14, overflow: 'hidden' }}>
+                <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 14, overflow: 'hidden' }}>
                   {[
                     { id: null as string | null, label: 'Planerare' },
                     ...medarbetareLista
@@ -9176,7 +9176,7 @@ export default function PlannerPage() {
                           width: '100%', minHeight: 56, padding: '0 16px',
                           display: 'flex', alignItems: 'center', gap: 14,
                           background: 'transparent', border: 'none',
-                          borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                          borderTop: i > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none',
                           color: aktiv ? '#ff9f0a' : '#fff',
                           fontSize: '15px', fontWeight: aktiv ? 600 : 500,
                           textAlign: 'left', cursor: 'pointer', fontFamily: 'inherit',
@@ -9216,7 +9216,7 @@ export default function PlannerPage() {
                 }}>
                   AKTUELLT OBJEKT
                 </div>
-                <div style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 14, overflow: 'hidden' }}>
+                <div style={{ background: 'rgba(255,255,255,0.06)', borderRadius: 14, overflow: 'hidden' }}>
                   {/* Skördare */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56 }}>
                     <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '26px', color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>person</span>
@@ -9244,7 +9244,7 @@ export default function PlannerPage() {
                     </select>
                   </div>
                   {/* Skotare */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56, borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 16px', minHeight: 56, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
                     <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '26px', color: 'rgba(255,255,255,0.85)', flexShrink: 0, width: 32, textAlign: 'center' }}>local_shipping</span>
                     <span style={{ fontSize: '15px', width: 80, flexShrink: 0 }}>Skotare</span>
                     <select
@@ -9400,7 +9400,7 @@ export default function PlannerPage() {
                   {group.title}
                 </div>
                 <div style={{
-                  background: 'rgba(255,255,255,0.04)',
+                  background: 'rgba(255,255,255,0.06)',
                   borderRadius: 14,
                   overflow: 'hidden',
                 }}>
@@ -9419,7 +9419,7 @@ export default function PlannerPage() {
                         gap: 14,
                         background: 'transparent',
                         border: 'none',
-                        borderTop: i > 0 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                        borderTop: i > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none',
                         color: (item as any).danger ? '#ff453a' : (item as any).avsluta ? '#e8832a' : '#fff',
                         fontSize: '15px',
                         fontWeight: '500',
@@ -10640,7 +10640,7 @@ export default function PlannerPage() {
                 fontWeight: '500',
                 textAlign: 'center',
                 padding: '16px',
-                background: 'rgba(255,255,255,0.05)',
+                background: 'rgba(255,255,255,0.06)',
                 borderRadius: '12px',
                 lineHeight: '1.5',
               }}>
@@ -10727,7 +10727,7 @@ export default function PlannerPage() {
 
                 {/* Resultat */}
                 {(rc.status === 'ok' || rc.status === 'warning') && (
-                  <div style={{ padding: '16px', background: cat === 'enskild' ? 'rgba(255,255,255,0.05)' : 'transparent', borderRadius: '16px', border: cat === 'enskild' ? '1px solid rgba(34,197,94,0.3)' : 'none' }}>
+                  <div style={{ padding: '16px', background: cat === 'enskild' ? 'rgba(255,255,255,0.06)' : 'transparent', borderRadius: '16px', border: cat === 'enskild' ? '1px solid rgba(34,197,94,0.3)' : 'none' }}>
 
                     {/* ===== RUBRIK ===== */}
                     <div style={{ fontSize: '15px', fontWeight: '700', textAlign: 'center', marginBottom: '4px', color: cat === 'enskild' ? '#30d158' : cat === 'allman' ? '#ff453a' : '#eab308' }}>
@@ -10770,7 +10770,7 @@ export default function PlannerPage() {
                             <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.35)', marginBottom: '12px' }}>Väglagen 43§</div>
 
                             {/* Tillstånd-toggle */}
-                            <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
+                            <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '12px' }}>
                               {(['ej_sokt', 'sokt', 'beviljat'] as const).map(t => {
                                 const isActive = rc.tillstand === t;
                                 const label = t === 'ej_sokt' ? 'Ej sökt' : t === 'sokt' ? 'Sökt' : 'Beviljat';
@@ -10836,7 +10836,7 @@ export default function PlannerPage() {
                                   return { ...m, roadCheck: { ...m.roadCheck, checklist: newCl } };
                                 }));
                               }}
-                              style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '7px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                              style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '7px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                               <div style={{ width: '18px', height: '18px', borderRadius: '4px', border: `1.5px solid ${rc.checklist![i] ? '#30d158' : 'rgba(255,255,255,0.15)'}`, background: rc.checklist![i] ? 'rgba(34,197,94,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '1px' }}>
                                 {rc.checklist![i] && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="3"><path d="M5 13l4 4L19 7" /></svg>}
                               </div>
@@ -11204,7 +11204,7 @@ export default function PlannerPage() {
                       const isEditing = editingNoteId === note.id;
                       const isRecThis = isRecordingAudio && recordingNoteId === note.id;
                       return (
-                        <div key={note.id} style={{ marginBottom: '10px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div key={note.id} style={{ marginBottom: '10px', padding: '10px 12px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)' }}>
                           {/* Rad: nummer + datum + förhandsvisning */}
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: isEditing ? '8px' : 0 }}>
                             <div style={{ width: '22px', height: '22px', borderRadius: '11px', background: 'rgba(48,209,88,0.15)', color: '#30d158', fontSize: '13px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</div>
@@ -11230,7 +11230,7 @@ export default function PlannerPage() {
                                 onChange={(e) => setNewNoteText(e.target.value)}
                                 autoFocus
                                 rows={2}
-                                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(48,209,88,0.2)', background: 'rgba(255,255,255,0.03)', color: '#fff', fontSize: '13px', lineHeight: '1.4', resize: 'none', outline: 'none', fontFamily: 'inherit', marginBottom: '8px' }}
+                                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(48,209,88,0.2)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '13px', lineHeight: '1.4', resize: 'none', outline: 'none', fontFamily: 'inherit', marginBottom: '8px' }}
                               />
                               {/* Ljud för denna anteckning */}
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
@@ -11275,7 +11275,7 @@ export default function PlannerPage() {
                             autoFocus
                             placeholder="Skriv anteckning..."
                             rows={2}
-                            style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(48,209,88,0.2)', background: 'rgba(255,255,255,0.03)', color: '#fff', fontSize: '13px', lineHeight: '1.4', resize: 'none', outline: 'none', fontFamily: 'inherit', marginBottom: '8px' }}
+                            style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(48,209,88,0.2)', background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: '13px', lineHeight: '1.4', resize: 'none', outline: 'none', fontFamily: 'inherit', marginBottom: '8px' }}
                           />
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
                             <button
@@ -11858,7 +11858,7 @@ export default function PlannerPage() {
           {/* Header */}
           <div style={{
             padding: '55px 20px 20px',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -12453,7 +12453,7 @@ export default function PlannerPage() {
           {/* Header */}
           <div style={{
             padding: '55px 20px 20px',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -12785,7 +12785,7 @@ export default function PlannerPage() {
           {/* Header: titel centrerad, X-knapp till höger (pil till vänster vid back-navigation) */}
           <div style={{
             padding: '4px 12px 12px',
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
+            borderBottom: '1px solid rgba(255,255,255,0.08)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -14181,7 +14181,7 @@ export default function PlannerPage() {
                         ? (zoneTypes.find(z => z.id === m.zoneType)?.color || '#666')
                         : '#888';
                       return (
-                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                           <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: farg, flexShrink: 0 }} />
                           <span style={{ fontSize: '14px', color: '#fff' }}>{namn}</span>
                           {m.comment && <span style={{ fontSize: '13px', opacity: 0.4, marginLeft: 'auto' }}>{m.comment}</span>}
@@ -14599,7 +14599,7 @@ export default function PlannerPage() {
                         padding: '10px 12px',
                         borderRadius: '10px',
                         border: '1px solid rgba(255,255,255,0.15)',
-                        background: 'rgba(255,255,255,0.05)',
+                        background: 'rgba(255,255,255,0.06)',
                         color: '#fff',
                         fontSize: '14px',
                         appearance: 'none',
@@ -14635,7 +14635,7 @@ export default function PlannerPage() {
                         padding: '10px 12px',
                         borderRadius: '10px',
                         border: '1px solid rgba(255,255,255,0.15)',
-                        background: 'rgba(255,255,255,0.05)',
+                        background: 'rgba(255,255,255,0.06)',
                         color: '#fff',
                         fontSize: '14px',
                         colorScheme: 'dark',
@@ -14877,7 +14877,7 @@ export default function PlannerPage() {
                             className="btn-press"
                             style={{
                               padding: '8px 16px', borderRadius: '8px',
-                              border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.05)',
+                              border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)',
                               color: '#fff', fontSize: '13px', cursor: 'pointer', marginBottom: '8px',
                             }}
                           >
@@ -14908,7 +14908,7 @@ export default function PlannerPage() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="btn-press"
-                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)' }}
+                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)' }}
                           >
                             <span style={{ fontSize: '20px' }}>🏥</span>
                             <div style={{ flex: 1 }}>
@@ -14936,7 +14936,7 @@ export default function PlannerPage() {
                             target="_blank"
                             rel="noopener noreferrer"
                             className="btn-press"
-                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.03)' }}
+                            style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)' }}
                           >
                             <span style={{ fontSize: '20px' }}>🏥</span>
                             <div style={{ flex: 1 }}>
@@ -15072,7 +15072,7 @@ export default function PlannerPage() {
                 padding: '16px',
                 borderRadius: '16px',
                 border: '1px solid rgba(255,255,255,0.1)',
-                background: 'rgba(255,255,255,0.05)',
+                background: 'rgba(255,255,255,0.06)',
                 color: '#fff',
                 fontSize: '17px',
                 resize: 'none',
@@ -15642,7 +15642,7 @@ export default function PlannerPage() {
                   </div>
 
                   <div style={{
-                    background: 'rgba(255,255,255,0.03)',
+                    background: 'rgba(255,255,255,0.06)',
                     border: '1px solid rgba(255,255,255,0.08)',
                     borderRadius: '16px',
                     padding: '16px',
@@ -15762,7 +15762,7 @@ export default function PlannerPage() {
 
                   {selectedOversiktItem.comment && (
                     <div style={{
-                      background: 'rgba(255,255,255,0.03)',
+                      background: 'rgba(255,255,255,0.06)',
                       border: '1px solid rgba(255,255,255,0.08)',
                       borderRadius: '16px',
                       padding: '16px',
@@ -16010,7 +16010,7 @@ export default function PlannerPage() {
                   padding: '16px',
                   marginBottom: '8px',
                   borderRadius: '12px',
-                  background: item.answer !== null ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)',
+                  background: item.answer !== null ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.02)',
                   border: item.answer === null ? '1px solid rgba(251,191,36,0.3)' : '1px solid transparent',
                 }}
               >
@@ -16098,7 +16098,7 @@ export default function PlannerPage() {
                   padding: '12px 16px',
                   borderRadius: '12px',
                   border: '1px solid rgba(255,255,255,0.15)',
-                  background: 'rgba(255,255,255,0.05)',
+                  background: 'rgba(255,255,255,0.06)',
                   color: '#fff',
                   fontSize: '14px',
                   outline: 'none',
@@ -16419,7 +16419,7 @@ export default function PlannerPage() {
                   {riskLabels.map((label, i) => (
                     <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', marginBottom: '14px' }}>
                       <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', flex: 1, lineHeight: '1.4' }}>{label}</div>
-                      <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px', flexShrink: 0 }}>
+                      <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '12px', flexShrink: 0 }}>
                         {([true, false] as const).map(val => {
                           const isActive = bRisk[i] === val;
                           const activeColor = val ? '#eab308' : '#30d158';
@@ -16495,14 +16495,14 @@ export default function PlannerPage() {
                             placeholder="Ange namn eller företag"
                             style={{
                               width: '100%', padding: '10px 12px', borderRadius: '8px',
-                              border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
+                              border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)',
                               color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box',
                             }}
                           />
                         </div>
                         <div style={{ width: '140px', flexShrink: 0 }}>
                           <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: '6px' }}>TMA-bil beställd?</div>
-                          <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
+                          <div style={{ display: 'flex', gap: '6px', padding: '4px', background: 'rgba(255,255,255,0.06)', borderRadius: '12px' }}>
                             {([true, false] as const).map(val => {
                               const isActive = bSamrad.tmaBil === val;
                               const activeColor = val ? '#30d158' : 'rgba(255,255,255,0.3)';
@@ -16523,7 +16523,7 @@ export default function PlannerPage() {
                         {samradLabels.map((label, i) => (
                           <div key={i}
                             onClick={() => setTmaSamrad(prev => { const old = prev[boundaryId] || bSamrad; const cb = [...old.checkboxes]; cb[i] = !cb[i]; return { ...prev, [boundaryId]: { ...old, checkboxes: cb } }; })}
-                            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                            style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                             <div style={{
                               width: '18px', height: '18px', borderRadius: '4px',
                               border: `1.5px solid ${bSamrad.checkboxes[i] ? '#30d158' : 'rgba(255,255,255,0.15)'}`,
@@ -16549,7 +16549,7 @@ export default function PlannerPage() {
                             onChange={e => { const v = e.target.value; setTmaSamrad(prev => ({ ...prev, [boundaryId]: { ...bSamrad, datum: v } })); }}
                             style={{
                               width: '100%', padding: '10px 12px', borderRadius: '8px',
-                              border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)',
+                              border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.06)',
                               color: '#fff', fontSize: '13px', outline: 'none', boxSizing: 'border-box',
                               colorScheme: 'dark',
                             }}
@@ -16657,7 +16657,7 @@ export default function PlannerPage() {
           <div style={{ padding: '24px' }}>
             {/* Tid-sektion */}
             <div style={{
-              background: 'rgba(255,255,255,0.04)',
+              background: 'rgba(255,255,255,0.06)',
               borderRadius: '16px',
               padding: '20px',
               marginBottom: '16px',
@@ -16679,7 +16679,7 @@ export default function PlannerPage() {
                   justifyContent: 'space-between',
                   marginBottom: '16px',
                   paddingBottom: '16px',
-                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  borderBottom: '1px solid rgba(255,255,255,0.08)',
                   cursor: 'pointer',
                 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -16732,7 +16732,7 @@ export default function PlannerPage() {
             
             {/* Traktdata */}
             <div style={{
-              background: 'rgba(255,255,255,0.04)',
+              background: 'rgba(255,255,255,0.06)',
               borderRadius: '16px',
               padding: '20px',
               marginBottom: '16px',
@@ -16793,7 +16793,7 @@ export default function PlannerPage() {
                   key={`prognos-tma-${bmId}`}
                   onClick={() => setTmaOpen(bmId)}
                   style={{
-                    background: 'rgba(255,255,255,0.04)',
+                    background: 'rgba(255,255,255,0.06)',
                     borderRadius: '16px',
                     padding: '20px',
                     marginBottom: '16px',
@@ -16819,7 +16819,7 @@ export default function PlannerPage() {
             {/* TMA loading */}
             {Object.values(tmaResults).some(r => r.status === 'loading') && (
               <div style={{
-                background: 'rgba(255,255,255,0.04)',
+                background: 'rgba(255,255,255,0.06)',
                 borderRadius: '16px',
                 padding: '20px',
                 marginBottom: '16px',
@@ -16840,7 +16840,7 @@ export default function PlannerPage() {
             {/* TMA error */}
             {Object.entries(tmaResults).filter(([, r]) => r.status === 'error').map(([bmId, result]) => (
               <div key={`prognos-tma-err-${bmId}`} style={{
-                background: 'rgba(255,255,255,0.04)',
+                background: 'rgba(255,255,255,0.06)',
                 borderRadius: '16px',
                 padding: '20px',
                 marginBottom: '16px',
@@ -16881,7 +16881,7 @@ export default function PlannerPage() {
               const forhallanden = beraknaForhallanden();
               return (
                 <div style={{
-                  background: 'rgba(255,255,255,0.04)',
+                  background: 'rgba(255,255,255,0.06)',
                   borderRadius: '16px',
                   padding: '20px',
                   marginBottom: '24px',
@@ -17937,7 +17937,7 @@ export default function PlannerPage() {
                   style={{
                     flex: 1, padding: '12px',
                     borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)',
-                    background: 'rgba(255,255,255,0.04)',
+                    background: 'rgba(255,255,255,0.06)',
                     color: 'rgba(232,240,224,0.7)', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
                   }}
                 >← Tillbaka</button>
@@ -18059,7 +18059,7 @@ export default function PlannerPage() {
             {multiSelectMode && (
               <div style={{
                 padding: '10px 16px', background: 'rgba(34,197,94,0.08)',
-                borderBottom: '1px solid rgba(255,255,255,0.04)',
+                borderBottom: '1px solid rgba(255,255,255,0.08)',
                 fontSize: '13px', color: 'rgba(34,197,94,0.7)', textAlign: 'center',
               }}>
                 Tryck på fler högar på kartan för att lägga till
@@ -18083,7 +18083,7 @@ export default function PlannerPage() {
                       borderRadius: '10px',
                       background: multiSelectChecked[i] ? 'rgba(34,197,94,0.08)' : 'transparent',
                       cursor: 'pointer',
-                      borderBottom: '1px solid rgba(255,255,255,0.04)',
+                      borderBottom: '1px solid rgba(255,255,255,0.08)',
                     }}
                   >
                     <div style={{
@@ -18345,7 +18345,7 @@ export default function PlannerPage() {
 
             {/* Sortiment-lista */}
             <div style={{
-              background: 'rgba(255,255,255,0.04)', borderRadius: '12px',
+              background: 'rgba(255,255,255,0.06)', borderRadius: '12px',
               padding: '12px', marginBottom: '16px',
             }}>
               {Object.entries(valdHog.sortimentVolym)
@@ -18364,7 +18364,7 @@ export default function PlannerPage() {
                       display: 'flex', alignItems: 'center', gap: '10px',
                       padding: '8px 4px',
                       borderBottom: i < Object.keys(valdHog.sortimentVolym).length - 1
-                        ? '1px solid rgba(255,255,255,0.05)' : 'none',
+                        ? '1px solid rgba(255,255,255,0.08)' : 'none',
                     }}>
                       <div style={{
                         width: '10px', height: '10px', borderRadius: '50%',
@@ -18470,7 +18470,7 @@ export default function PlannerPage() {
                         <div style={{
                           fontSize: '13px', fontWeight: '600',                          color: h.typ === 'grot' ? '#8B5E3C' : '#8e8e93',
                           padding: '12px 0 6px', marginTop: i > 0 ? '8px' : 0,
-                          borderTop: i > 0 ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                          borderTop: i > 0 ? '1px solid rgba(255,255,255,0.08)' : 'none',
                         }}>
                           {h.typ === 'virke' ? 'Virke' : 'GROT'}
                         </div>
@@ -18483,7 +18483,7 @@ export default function PlannerPage() {
                           borderRadius: '10px',
                           background: skotningChecked[i] ? 'rgba(29,158,117,0.08)' : 'transparent',
                           cursor: 'pointer',
-                          borderBottom: '1px solid rgba(255,255,255,0.04)',
+                          borderBottom: '1px solid rgba(255,255,255,0.08)',
                         }}
                       >
                         <div style={{
