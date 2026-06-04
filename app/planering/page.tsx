@@ -9462,7 +9462,7 @@ export default function PlannerPage() {
             background: '#1c1c1e', borderRadius: 20, padding: '28px 24px', maxWidth: 340, width: '100%',
             textAlign: 'center',
           }}>
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '44px', color: '#60a5fa', marginBottom: 12, display: 'inline-block' }}>pin_drop</span>
+            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '44px', color: '#0a84ff', marginBottom: 12, display: 'inline-block' }}>pin_drop</span>
             <div style={{ fontSize: '14px', color: '#8e8e93', marginBottom: 6 }}>Du verkar ha kommit fram till</div>
             <div style={{ fontSize: '20px', fontWeight: '700', color: '#fff', marginBottom: 20 }}>{geofencePrompt.namn}</div>
             <div style={{ fontSize: '14px', color: '#8e8e93', marginBottom: 24 }}>Vill du starta objektet?</div>
@@ -10785,7 +10785,7 @@ export default function PlannerPage() {
                             </div>
 
                             <a href="https://www.trafikverket.se/e-tjanster/upplag-av-virke-eller-skogsbransle-vid-vag/" target="_blank" rel="noopener noreferrer"
-                              style={{ display: 'block', textAlign: 'center', marginTop: '16px', fontSize: '13px', color: '#60a5fa', textDecoration: 'none' }}>
+                              style={{ display: 'block', textAlign: 'center', marginTop: '16px', fontSize: '13px', color: '#0a84ff', textDecoration: 'none' }}>
                               Sök tillstånd hos Trafikverket →
                             </a>
                           </>
@@ -10902,7 +10902,7 @@ export default function PlannerPage() {
                     <div style={{ marginTop: '20px', textAlign: 'center' as const }}>
                       <a href="https://www.skogforsk.se/cd_20200406123332/contentassets/8431ded2d08246c69be60fa9eb35b7fb/100401_upplag_av_virke_och_skogsbransle_vid_allman_och_enskild_vag_utg_6.pdf"
                         target="_blank" rel="noopener noreferrer"
-                        style={{ fontSize: '13px', color: '#60a5fa', textDecoration: 'none' }}>
+                        style={{ fontSize: '13px', color: '#0a84ff', textDecoration: 'none' }}>
                         Trafikverket & Skogforsk instruktion (PDF) →
                       </a>
                     </div>
@@ -11153,8 +11153,8 @@ export default function PlannerPage() {
                         width: '18px',
                         height: '18px',
                         borderRadius: '50%',
-                        border: '2px solid rgba(59,130,246,0.3)',
-                        borderTopColor: '#3b82f6',
+                        border: '2px solid rgba(10,132,255,0.3)',
+                        borderTopColor: '#0a84ff',
                         animation: 'spin 0.8s linear infinite',
                       }} />
                     )}
@@ -12953,7 +12953,7 @@ export default function PlannerPage() {
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
                         <span style={{ color: '#8e8e93' }}>Totalt kvar</span>
-                        <span style={{ fontWeight: '700', color: '#3b82f6' }}>
+                        <span style={{ fontWeight: '700', color: '#0a84ff' }}>
                           {kvarData.reduce((s, d) => s + Math.max(0, d.kvar), 0).toFixed(1)} m³
                         </span>
                       </div>
@@ -14917,7 +14917,7 @@ export default function PlannerPage() {
                                 {h.dist} km · ~{Math.max(5, Math.round(h.dist * 0.9))} min
                               </div>
                             </div>
-                            <span style={{ fontSize: '13px', color: '#60a5fa' }}>Navigera →</span>
+                            <span style={{ fontSize: '13px', color: '#0a84ff' }}>Navigera →</span>
                           </a>
                         ))}
                       </div>
@@ -14945,7 +14945,7 @@ export default function PlannerPage() {
                                 {h.dist} km · ~{Math.max(5, Math.round(h.dist * 0.9))} min
                               </div>
                             </div>
-                            <span style={{ fontSize: '13px', color: '#60a5fa' }}>Navigera →</span>
+                            <span style={{ fontSize: '13px', color: '#0a84ff' }}>Navigera →</span>
                           </a>
                         ))}
                       </div>
@@ -16232,7 +16232,7 @@ export default function PlannerPage() {
         const headStyle: React.CSSProperties = { fontSize: '13px', fontWeight: '600', color: '#fff', marginBottom: '12px' };
         const summaryStyle: React.CSSProperties = { ...headStyle, cursor: 'pointer', listStyle: 'none', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0' };
         const textStyle = { fontSize: '13px', color: '#8e8e93', lineHeight: '1.7' as const };
-        const linkStyle = { fontSize: '13px', color: '#60a5fa', textDecoration: 'none' as const };
+        const linkStyle = { fontSize: '13px', color: '#0a84ff', textDecoration: 'none' as const };
 
         // Riskbedömning (7 frågor: 0-3 original, 4-6 väder)
         const riskLabels = [
@@ -16480,7 +16480,7 @@ export default function PlannerPage() {
                   {bSamrad.kvitterad ? (
                     <div style={{ fontSize: '13px', color: '#30d158', fontWeight: '500' }}>
                       Samråd genomfört {bSamrad.kvitteradDatum}
-                      <button onClick={() => setTmaSamrad(prev => ({ ...prev, [boundaryId]: { ...bSamrad, kvitterad: false, kvitteradDatum: '' } }))} style={{ marginLeft: '12px', fontSize: '13px', color: '#60a5fa', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Ändra</button>
+                      <button onClick={() => setTmaSamrad(prev => ({ ...prev, [boundaryId]: { ...bSamrad, kvitterad: false, kvitteradDatum: '' } }))} style={{ marginLeft: '12px', fontSize: '13px', color: '#0a84ff', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Ändra</button>
                     </div>
                   ) : (
                     <>
@@ -16830,7 +16830,7 @@ export default function PlannerPage() {
                 <div style={{
                   width: '16px', height: '16px', borderRadius: '50%',
                   border: '2px solid rgba(255,255,255,0.2)',
-                  borderTopColor: '#60a5fa',
+                  borderTopColor: '#0a84ff',
                   animation: 'spin 1s linear infinite',
                 }} />
                 <span style={{ fontSize: '13px', color: '#8e8e93' }}>Kontrollerar vägar nära traktgränsen...</span>
@@ -16864,7 +16864,7 @@ export default function PlannerPage() {
                   style={{
                     marginTop: '10px',
                     fontSize: '13px',
-                    color: '#60a5fa',
+                    color: '#0a84ff',
                     background: 'none',
                     border: 'none',
                     cursor: 'pointer',
