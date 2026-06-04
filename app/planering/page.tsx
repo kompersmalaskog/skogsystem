@@ -565,7 +565,6 @@ export default function PlannerPage() {
       { id: 'sideRoadRed', color: '#ff453a' },
       { id: 'sideRoadYellow', color: '#fbbf24' },
       { id: 'sideRoadBlue', color: '#3b82f6' },
-      { id: 'stickvag', color: '#ff00ff' },
       { id: 'nature', color: '#30d158', color2: '#ff453a', striped: true },
       { id: 'ditch', color: '#06b6d4', color2: '#0e7490', striped: true },
       { id: 'trail', color: '#fff', dashed: true },
@@ -4773,7 +4772,6 @@ export default function PlannerPage() {
     { id: 'sideRoadRed', name: 'Stickväg Röd', color: '#ff453a', striped: false },
     { id: 'sideRoadYellow', name: 'Stickväg Gul', color: '#fbbf24', striped: false },
     { id: 'sideRoadBlue', name: 'Stickväg Blå', color: '#3b82f6', striped: false },
-    { id: 'stickvag', name: 'Test-stickväg', color: '#ff00ff', striped: false },
     { id: 'nature', name: 'Naturvård', color: '#30d158', color2: '#ff453a', striped: true },
     { id: 'ditch', name: 'Dike', color: '#06b6d4', color2: '#0e7490', striped: true },
     { id: 'trail', name: 'Stig/Led', color: '#fff', striped: false, dashed: true },
@@ -4785,7 +4783,7 @@ export default function PlannerPage() {
     { id: 'protected', name: 'Naturvård', color: '#30d158', icon: 'naturecorner' },
     { id: 'culture', name: 'Kulturmiljö', color: '#f59e0b', icon: 'culturemonument' },
     { id: 'noentry', name: 'Ej framkomlig', color: '#ff453a', icon: 'warning' },
-    { id: 'fornlamning', name: 'Fornlämning', color: '#ff453a', icon: 'culturemonument' },
+    { id: 'fornlamning', name: 'Fornlämning', color: '#b45309', icon: 'culturemonument' },
   ];
 
   const warningCategories = [
@@ -5907,7 +5905,7 @@ export default function PlannerPage() {
     }
 
     const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue',
-      'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag', 'nature', 'ditch', 'trail'];
+      'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
     // Non-boundary lines (boundary is always visible during briefing)
     const dimmableLineTypes = lineTypeIds.filter(lt => lt !== 'boundary');
 
@@ -6372,7 +6370,7 @@ export default function PlannerPage() {
     };
     try {
       // Line layers per type
-      const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag', 'nature', 'ditch', 'trail'];
+      const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
       const stripedTypeIds = ['boundary', 'mainRoad', 'nature', 'ditch'];
       lineTypeIds.forEach(id => {
         const vis = visibleLayers.lines && visibleLines[id] ? 'visible' : 'none';
@@ -6873,7 +6871,7 @@ export default function PlannerPage() {
     
     const stickvägar = markers.filter(m => 
       m.isLine && 
-      (m.lineType === 'stickvag' || ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')) &&
+      (['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')) &&
       m.path && m.path.length > 1
     );
     
@@ -12367,7 +12365,7 @@ export default function PlannerPage() {
                 }}>
                   Linjetyper
                 </div>
-                {lineTypes.filter(l => !l.id.includes('sideRoad') && !l.id.includes('backRoad') && l.id !== 'stickvag').map(line => (
+                {lineTypes.filter(l => !l.id.includes('sideRoad') && !l.id.includes('backRoad')).map(line => (
                   <div
                     key={line.id}
                     onClick={() => setVisibleLines(prev => ({ ...prev, [line.id]: !prev[line.id] }))}
@@ -13165,7 +13163,7 @@ export default function PlannerPage() {
                   borderRadius: '16px',
                   padding: '16px',
                 }}>
-                  {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
+                  {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad')).map(type => (
                     <div
                       key={type.id}
                       onClick={() => {
@@ -13222,7 +13220,7 @@ export default function PlannerPage() {
                   borderRadius: '16px',
                   padding: '16px',
                 }}>
-                  {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
+                  {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad')).map(type => (
                     <div
                       key={type.id}
                       onClick={() => {
