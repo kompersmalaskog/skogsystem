@@ -8804,7 +8804,7 @@ export default function PlannerPage() {
               border: '1px solid rgba(255,255,255,0.35)',
               background: 'rgba(255,255,255,0.18)',
               color: '#fff',
-              fontSize: '14px',
+              fontSize: '13px',
               fontWeight: '600',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
@@ -9463,9 +9463,9 @@ export default function PlannerPage() {
             textAlign: 'center',
           }}>
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '44px', color: '#0a84ff', marginBottom: 12, display: 'inline-block' }}>pin_drop</span>
-            <div style={{ fontSize: '14px', color: '#8e8e93', marginBottom: 6 }}>Du verkar ha kommit fram till</div>
+            <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: 6 }}>Du verkar ha kommit fram till</div>
             <div style={{ fontSize: '20px', fontWeight: '700', color: '#fff', marginBottom: 20 }}>{geofencePrompt.namn}</div>
-            <div style={{ fontSize: '14px', color: '#8e8e93', marginBottom: 24 }}>Vill du starta objektet?</div>
+            <div style={{ fontSize: '13px', color: '#8e8e93', marginBottom: 24 }}>Vill du starta objektet?</div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={handleGeofenceDismiss} style={{
                 flex: 1, padding: '14px', borderRadius: 12, border: '1px solid rgba(255,255,255,0.15)',
@@ -9498,7 +9498,7 @@ export default function PlannerPage() {
             <div style={{ fontSize: '17px', fontWeight: '700', color: '#fff', marginBottom: 8 }}>
               Avsluta {valtObjekt.namn}?
             </div>
-            <div style={{ fontSize: '14px', color: '#a8a8ad', marginBottom: 24, lineHeight: 1.4 }}>
+            <div style={{ fontSize: '13px', color: '#a8a8ad', marginBottom: 24, lineHeight: 1.4 }}>
               Objektet markeras som avslutat. Detta kan inte ångras av föraren.
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
@@ -10500,7 +10500,7 @@ export default function PlannerPage() {
           color: '#fff',
           padding: '10px 20px',
           borderRadius: '20px',
-          fontSize: '14px',
+          fontSize: '13px',
           fontWeight: '600',
           zIndex: 150,
           animation: 'fadeIn 0.2s ease',
@@ -10521,7 +10521,7 @@ export default function PlannerPage() {
           color: '#fff',
           padding: '12px 24px',
           borderRadius: '20px',
-          fontSize: '14px',
+          fontSize: '13px',
           fontWeight: '600',
           zIndex: 150,
           animation: 'fadeIn 0.2s ease',
@@ -10696,7 +10696,7 @@ export default function PlannerPage() {
               }}>
                 {/* Loading */}
                 {rc.status === 'loading' && (
-                  <div style={{ textAlign: 'center', color: '#8e8e93', fontSize: '14px', padding: '14px' }}>
+                  <div style={{ textAlign: 'center', color: '#8e8e93', fontSize: '13px', padding: '14px' }}>
                     <div style={{
                       display: 'inline-block', width: '16px', height: '16px',
                       border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#fff',
@@ -10711,7 +10711,7 @@ export default function PlannerPage() {
                 {/* Error */}
                 {rc.status === 'error' && (
                   <div style={{ textAlign: 'center', padding: '14px' }}>
-                    <div style={{ color: '#8e8e93', fontSize: '14px', marginBottom: '8px' }}>{rc.message}</div>
+                    <div style={{ color: '#8e8e93', fontSize: '13px', marginBottom: '8px' }}>{rc.message}</div>
                     <button
                       onClick={() => {
                         const { lat, lon } = svgToLatLon(marker.x, marker.y);
@@ -11197,7 +11197,7 @@ export default function PlannerPage() {
                 const fmtDate = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()]}`; };
                 return (
                   <div style={{ marginTop: '20px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '20px' }}>
-                    <div style={{ fontSize: '14px', fontWeight: '700', color: '#fff', marginBottom: '12px' }}>📝 Om trakten</div>
+                    <div style={{ fontSize: '13px', fontWeight: '700', color: '#fff', marginBottom: '12px' }}>📝 Om trakten</div>
 
                     {/* Befintliga anteckningar */}
                     {notes.map((note, idx) => {
@@ -11443,7 +11443,7 @@ export default function PlannerPage() {
             </>
           ) : (
             <>
-              <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att mäta</span>
+              <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Dra för att mäta</span>
             </>
           )}
           {/* Stäng */}
@@ -11534,7 +11534,7 @@ export default function PlannerPage() {
               </button>
             </>
           ) : (
-            <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att mäta yta</span>
+            <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Dra för att mäta yta</span>
           )}
           {/* Stäng */}
           <button
@@ -11763,7 +11763,7 @@ export default function PlannerPage() {
 
           zIndex: 700,
         }}>
-          <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita</span>
+          <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Dra för att rita</span>
           <button
             onClick={cancelDrawing}
             style={{
@@ -11800,7 +11800,7 @@ export default function PlannerPage() {
           padding: '4px',
 
         }}>
-          <span style={{ fontSize: '14px', opacity: 0.6, padding: '0 12px' }}>Tryck för att placera</span>
+          <span style={{ fontSize: '13px', opacity: 0.6, padding: '0 12px' }}>Tryck för att placera</span>
           <button
             onClick={cancelDrawing}
             style={{
@@ -12502,7 +12502,7 @@ export default function PlannerPage() {
                 borderRadius: '50%',
                 background: drivingMode ? '#30d158' : 'rgba(255,255,255,0.2)',
               }} />
-              <span style={{ fontSize: '14px', color: drivingMode ? '#30d158' : '#8e8e93', fontWeight: '500' }}>
+              <span style={{ fontSize: '13px', color: drivingMode ? '#30d158' : '#8e8e93', fontWeight: '500' }}>
                 {drivingMode ? 'Körläge aktivt — proximity-varningar på' : 'Körläge av — alla symboler visas normalt'}
               </span>
             </div>
@@ -12918,7 +12918,7 @@ export default function PlannerPage() {
                     Skotningsstatus
                   </div>
                   {kvarData.length === 0 ? (
-                    <div style={{ fontSize: '14px', color: '#8e8e93', textAlign: 'center', padding: '20px 0' }}>
+                    <div style={{ fontSize: '13px', color: '#8e8e93', textAlign: 'center', padding: '20px 0' }}>
                       Ingen skotningsdata för detta objekt
                     </div>
                   ) : (<>
@@ -12951,7 +12951,7 @@ export default function PlannerPage() {
                           {kvarData.reduce((s, d) => s + Math.max(0, d.uttag), 0).toFixed(1)} m³
                         </span>
                       </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                         <span style={{ color: '#8e8e93' }}>Totalt kvar</span>
                         <span style={{ fontWeight: '700', color: '#0a84ff' }}>
                           {kvarData.reduce((s, d) => s + Math.max(0, d.kvar), 0).toFixed(1)} m³
@@ -13207,7 +13207,7 @@ export default function PlannerPage() {
                           }} />
                         )}
                       </div>
-                      <span style={{ fontSize: '14px', opacity: 0.8 }}>{type.name}</span>
+                      <span style={{ fontSize: '13px', opacity: 0.8 }}>{type.name}</span>
                     </div>
                   ))}
                 </div>
@@ -13268,7 +13268,7 @@ export default function PlannerPage() {
                           }} />
                         )}
                       </div>
-                      <span style={{ fontSize: '14px', opacity: 0.8 }}>{type.name}</span>
+                      <span style={{ fontSize: '13px', opacity: 0.8 }}>{type.name}</span>
                     </div>
                   ))}
                 </div>
@@ -14020,7 +14020,7 @@ export default function PlannerPage() {
             {activeCategory === 'gallring' && subMenu === 'stickvag-settings' && (
               <div style={{ padding: '20px' }}>
                 <div style={{ marginBottom: '24px' }}>
-                  <div style={{ fontSize: '14px', opacity: 0.6, marginBottom: '8px' }}>Målavstånd</div>
+                  <div style={{ fontSize: '13px', opacity: 0.6, marginBottom: '8px' }}>Målavstånd</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <button
                       onClick={() => setStickvagSettings(s => ({ ...s, targetDistance: Math.max(10, s.targetDistance - 1) }))}
@@ -14060,7 +14060,7 @@ export default function PlannerPage() {
                 </div>
 
                 <div style={{ marginBottom: '24px' }}>
-                  <div style={{ fontSize: '14px', opacity: 0.6, marginBottom: '8px' }}>Tolerans (±)</div>
+                  <div style={{ fontSize: '13px', opacity: 0.6, marginBottom: '8px' }}>Tolerans (±)</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                     <button
                       onClick={() => setStickvagSettings(s => ({ ...s, tolerance: Math.max(1, s.tolerance - 1) }))}
@@ -14106,7 +14106,7 @@ export default function PlannerPage() {
                   padding: '16px',
                   textAlign: 'center',
                 }}>
-                  <div style={{ fontSize: '14px', opacity: 0.7 }}>Godkänt avstånd:</div>
+                  <div style={{ fontSize: '13px', opacity: 0.7 }}>Godkänt avstånd:</div>
                   <div style={{ fontSize: '20px', fontWeight: '700', color: '#30d158' }}>
                     {stickvagSettings.targetDistance - stickvagSettings.tolerance} - {stickvagSettings.targetDistance + stickvagSettings.tolerance} m
                   </div>
@@ -14127,12 +14127,12 @@ export default function PlannerPage() {
 
                   {/* Bärighet */}
                   <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Bärighet</div>
+                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Bärighet</div>
                     <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
                       {[{ id: 'bra', label: 'Bra' }, { id: 'medel', label: 'Medel' }, { id: 'dalig', label: 'Dålig' }].map(opt => (
                         <div key={opt.id} onClick={() => setInfoBarighet(opt.id)}
                           style={{
-                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '14px', cursor: 'pointer',
+                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
                             background: infoBarighet === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
                             color: infoBarighet === opt.id ? '#fff' : '#8e8e93',
                             fontWeight: infoBarighet === opt.id ? '600' : '400',
@@ -14144,12 +14144,12 @@ export default function PlannerPage() {
 
                   {/* Terräng */}
                   <div>
-                    <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Terräng</div>
+                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Terräng</div>
                     <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
                       {[{ id: 'flackt', label: 'Flackt' }, { id: 'kuperat', label: 'Kuperat' }, { id: 'brant', label: 'Brant' }].map(opt => (
                         <div key={opt.id} onClick={() => setInfoTerrang(opt.id)}
                           style={{
-                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '14px', cursor: 'pointer',
+                            flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
                             background: infoTerrang === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
                             color: infoTerrang === opt.id ? '#fff' : '#8e8e93',
                             fontWeight: infoTerrang === opt.id ? '600' : '400',
@@ -14171,7 +14171,7 @@ export default function PlannerPage() {
                     const hinderZoner = markers.filter(m => m.isZone);
                     const alla = [...hinderSymboler, ...hinderZoner];
                     if (alla.length === 0) {
-                      return <div style={{ fontSize: '14px', opacity: 0.3, padding: '8px 0' }}>Inga hinder ritade på kartan</div>;
+                      return <div style={{ fontSize: '13px', opacity: 0.3, padding: '8px 0' }}>Inga hinder ritade på kartan</div>;
                     }
                     return alla.map(m => {
                       const namn = m.isZone
@@ -14183,7 +14183,7 @@ export default function PlannerPage() {
                       return (
                         <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                           <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: farg, flexShrink: 0 }} />
-                          <span style={{ fontSize: '14px', color: '#fff' }}>{namn}</span>
+                          <span style={{ fontSize: '13px', color: '#fff' }}>{namn}</span>
                           {m.comment && <span style={{ fontSize: '13px', opacity: 0.4, marginLeft: 'auto' }}>{m.comment}</span>}
                         </div>
                       );
@@ -14200,14 +14200,14 @@ export default function PlannerPage() {
 
                   {/* Maskin dropdown */}
                   <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
+                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
                     <select
                       value={infoSkordareMaskin}
                       onChange={e => setInfoSkordareMaskin(e.target.value)}
                       style={{
                         width: '100%', padding: '12px 16px', borderRadius: '10px',
                         background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '14px', outline: 'none',
+                        color: '#fff', fontSize: '13px', outline: 'none',
                         appearance: 'none', WebkitAppearance: 'none',
                       }}
                     >
@@ -14218,7 +14218,7 @@ export default function PlannerPage() {
 
                   {/* Band toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareBand ? '12px' : '16px' }}>
-                    <span style={{ fontSize: '14px', color: '#fff' }}>Band</span>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Band</span>
                     <div onClick={() => setInfoSkordareBand(!infoSkordareBand)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
                       background: infoSkordareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
@@ -14232,7 +14232,7 @@ export default function PlannerPage() {
                         {[{ id: '1', label: '1 par' }, { id: '2', label: '2 par' }].map(opt => (
                           <div key={opt.id} onClick={() => setInfoSkordareBandPar(opt.id)}
                             style={{
-                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '14px', cursor: 'pointer',
+                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
                               background: infoSkordareBandPar === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
                               color: infoSkordareBandPar === opt.id ? '#fff' : '#8e8e93',
                               fontWeight: infoSkordareBandPar === opt.id ? '600' : '400',
@@ -14245,7 +14245,7 @@ export default function PlannerPage() {
 
                   {/* Manuell fällning toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkordareManFall ? '12px' : '0' }}>
-                    <span style={{ fontSize: '14px', color: '#fff' }}>Manuell fällning</span>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Manuell fällning</span>
                     <div onClick={() => setInfoSkordareManFall(!infoSkordareManFall)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
                       background: infoSkordareManFall ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
@@ -14261,7 +14261,7 @@ export default function PlannerPage() {
                       style={{
                         width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px', marginTop: '4px',
                         background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '14px', outline: 'none', resize: 'vertical',
+                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
                         fontFamily: 'inherit',
                       }}
                     />
@@ -14277,14 +14277,14 @@ export default function PlannerPage() {
 
                   {/* Maskin dropdown */}
                   <div style={{ marginBottom: '16px' }}>
-                    <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
+                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Maskin</div>
                     <select
                       value={infoSkotareMaskin}
                       onChange={e => setInfoSkotareMaskin(e.target.value)}
                       style={{
                         width: '100%', padding: '12px 16px', borderRadius: '10px',
                         background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '14px', outline: 'none',
+                        color: '#fff', fontSize: '13px', outline: 'none',
                         appearance: 'none', WebkitAppearance: 'none',
                       }}
                     >
@@ -14296,12 +14296,12 @@ export default function PlannerPage() {
                   {/* Konfiguration – bara Elephant King */}
                   {infoSkotareMaskin === 'Elephant King AF' && (
                     <div style={{ marginBottom: '16px' }}>
-                      <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Konfiguration</div>
+                      <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Konfiguration</div>
                       <div style={{ display: 'flex', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.1)' }}>
                         {[{ id: 'bred', label: 'Bred' }, { id: 'smal', label: 'Smal' }].map(opt => (
                           <div key={opt.id} onClick={() => setInfoSkotareKonfig(opt.id)}
                             style={{
-                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '14px', cursor: 'pointer',
+                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
                               background: infoSkotareKonfig === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
                               color: infoSkotareKonfig === opt.id ? '#fff' : '#8e8e93',
                               fontWeight: infoSkotareKonfig === opt.id ? '600' : '400',
@@ -14314,7 +14314,7 @@ export default function PlannerPage() {
 
                   {/* Band toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoSkotareBand ? '12px' : '16px' }}>
-                    <span style={{ fontSize: '14px', color: '#fff' }}>Band</span>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Band</span>
                     <div onClick={() => setInfoSkotareBand(!infoSkotareBand)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
                       background: infoSkotareBand ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
@@ -14328,7 +14328,7 @@ export default function PlannerPage() {
                         {[{ id: '1', label: '1 par' }, { id: '2', label: '2 par' }].map(opt => (
                           <div key={opt.id} onClick={() => setInfoSkotareBandPar(opt.id)}
                             style={{
-                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '14px', cursor: 'pointer',
+                              flex: 1, padding: '10px 0', textAlign: 'center', fontSize: '13px', cursor: 'pointer',
                               background: infoSkotareBandPar === opt.id ? 'rgba(255,255,255,0.15)' : 'transparent',
                               color: infoSkotareBandPar === opt.id ? '#fff' : '#8e8e93',
                               fontWeight: infoSkotareBandPar === opt.id ? '600' : '400',
@@ -14341,7 +14341,7 @@ export default function PlannerPage() {
 
                   {/* Lastreder breddat */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                    <span style={{ fontSize: '14px', color: '#fff' }}>Lastreder breddat</span>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Lastreder breddat</span>
                     <div onClick={() => setInfoSkotareLastreder(!infoSkotareLastreder)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
                       background: infoSkotareLastreder ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
@@ -14352,7 +14352,7 @@ export default function PlannerPage() {
 
                   {/* Ris skotas direkt */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ fontSize: '14px', color: '#fff' }}>Ris skotas direkt</span>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Ris skotas direkt</span>
                     <div onClick={() => setInfoSkotareRisDirekt(!infoSkotareRisDirekt)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
                       background: infoSkotareRisDirekt ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
@@ -14371,7 +14371,7 @@ export default function PlannerPage() {
 
                   {/* Trailer kan köra in */}
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: !infoTrailerIn ? '12px' : '16px' }}>
-                    <span style={{ fontSize: '14px', color: '#fff' }}>Trailer kan köra in</span>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Trailer kan köra in</span>
                     <div onClick={() => setInfoTrailerIn(!infoTrailerIn)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
                       background: infoTrailerIn ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
@@ -14391,7 +14391,7 @@ export default function PlannerPage() {
 
                   {/* Kommentar */}
                   <div>
-                    <div style={{ fontSize: '14px', color: '#fff', marginBottom: '8px' }}>Kommentar</div>
+                    <div style={{ fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Kommentar</div>
                     <textarea
                       value={infoTransportKommentar}
                       onChange={e => setInfoTransportKommentar(e.target.value)}
@@ -14399,7 +14399,7 @@ export default function PlannerPage() {
                       style={{
                         width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px',
                         background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '14px', outline: 'none', resize: 'vertical',
+                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
                         fontFamily: 'inherit',
                       }}
                     />
@@ -14414,7 +14414,7 @@ export default function PlannerPage() {
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markägare</div>
 
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: infoMarkagareVed ? '12px' : '0' }}>
-                    <span style={{ fontSize: '14px', color: '#fff' }}>Ska ha ved</span>
+                    <span style={{ fontSize: '13px', color: '#fff' }}>Ska ha ved</span>
                     <div onClick={() => setInfoMarkagareVed(!infoMarkagareVed)} style={{
                       width: '44px', height: '26px', borderRadius: '13px', padding: '2px', cursor: 'pointer',
                       background: infoMarkagareVed ? '#30d158' : 'rgba(255,255,255,0.1)', transition: 'background 0.2s ease',
@@ -14430,7 +14430,7 @@ export default function PlannerPage() {
                       style={{
                         width: '100%', minHeight: '70px', padding: '12px', borderRadius: '10px',
                         background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                        color: '#fff', fontSize: '14px', outline: 'none', resize: 'vertical',
+                        color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
                         fontFamily: 'inherit',
                       }}
                     />
@@ -14450,7 +14450,7 @@ export default function PlannerPage() {
                     style={{
                       width: '100%', minHeight: '100px', padding: '12px', borderRadius: '10px',
                       background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                      color: '#fff', fontSize: '14px', outline: 'none', resize: 'vertical',
+                      color: '#fff', fontSize: '13px', outline: 'none', resize: 'vertical',
                       fontFamily: 'inherit',
                     }}
                   />
@@ -14601,7 +14601,7 @@ export default function PlannerPage() {
                         border: '1px solid rgba(255,255,255,0.15)',
                         background: 'rgba(255,255,255,0.06)',
                         color: '#fff',
-                        fontSize: '14px',
+                        fontSize: '13px',
                         appearance: 'none',
                         WebkitAppearance: 'none',
                         cursor: 'pointer',
@@ -14637,7 +14637,7 @@ export default function PlannerPage() {
                         border: '1px solid rgba(255,255,255,0.15)',
                         background: 'rgba(255,255,255,0.06)',
                         color: '#fff',
-                        fontSize: '14px',
+                        fontSize: '13px',
                         colorScheme: 'dark',
                       }}
                     />
@@ -14912,7 +14912,7 @@ export default function PlannerPage() {
                           >
                             <span style={{ fontSize: '20px' }}>🏥</span>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: '14px', color: '#fff' }}>{h.name}</div>
+                              <div style={{ fontSize: '13px', color: '#fff' }}>{h.name}</div>
                               <div style={{ fontSize: '13px', color: '#8e8e93' }}>
                                 {h.dist} km · ~{Math.max(5, Math.round(h.dist * 0.9))} min
                               </div>
@@ -14940,7 +14940,7 @@ export default function PlannerPage() {
                           >
                             <span style={{ fontSize: '20px' }}>🏥</span>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: '14px', color: '#fff' }}>{h.name}</div>
+                              <div style={{ fontSize: '13px', color: '#fff' }}>{h.name}</div>
                               <div style={{ fontSize: '13px', color: '#8e8e93' }}>
                                 {h.dist} km · ~{Math.max(5, Math.round(h.dist * 0.9))} min
                               </div>
@@ -15367,7 +15367,7 @@ export default function PlannerPage() {
               setStickvagOversikt(true);
             }} style={{
               width: '100%', padding: '14px', borderRadius: '12px', border: 'none',
-              background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: '14px',
+              background: 'rgba(255,255,255,0.08)', color: '#fff', fontSize: '13px',
               fontWeight: '500', cursor: 'pointer',
             }}>
               Översikt
@@ -15377,7 +15377,7 @@ export default function PlannerPage() {
           <button onClick={() => setShowAvslutaBekraftelse(true)} style={{
             marginTop: '24px', padding: '12px 24px',
             border: 'none', background: 'transparent', color: '#fff',
-            fontSize: '14px', opacity: 0.4, cursor: 'pointer',
+            fontSize: '13px', opacity: 0.4, cursor: 'pointer',
           }}>
             Avsluta snitsling
           </button>
@@ -15413,7 +15413,7 @@ export default function PlannerPage() {
           <div style={{ fontSize: '17px', fontWeight: '500', marginBottom: '8px', color: '#fff' }}>
             Avsluta snitsling?
           </div>
-          <div style={{ fontSize: '14px', opacity: 0.5, textAlign: 'center', marginBottom: '32px', lineHeight: 1.5, color: '#fff' }}>
+          <div style={{ fontSize: '13px', opacity: 0.5, textAlign: 'center', marginBottom: '32px', lineHeight: 1.5, color: '#fff' }}>
             Allt ditt arbete sparas automatiskt.<br/>
             Du kan fortsätta när som helst.
           </div>
@@ -15424,16 +15424,16 @@ export default function PlannerPage() {
             marginBottom: '12px', color: '#fff',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <span style={{ opacity: 0.5, fontSize: '14px' }}>Sparade vägar</span>
-              <span style={{ fontSize: '14px' }}>{markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length} st</span>
+              <span style={{ opacity: 0.5, fontSize: '13px' }}>Sparade vägar</span>
+              <span style={{ fontSize: '13px' }}>{markers.filter(m => m.isLine && ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')).length} st</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-              <span style={{ opacity: 0.5, fontSize: '14px' }}>Symboler</span>
-              <span style={{ fontSize: '14px' }}>{markers.filter(m => m.isMarker).length} st</span>
+              <span style={{ opacity: 0.5, fontSize: '13px' }}>Symboler</span>
+              <span style={{ fontSize: '13px' }}>{markers.filter(m => m.isMarker).length} st</span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <span style={{ opacity: 0.5, fontSize: '14px' }}>Zoner</span>
-              <span style={{ fontSize: '14px' }}>{markers.filter(m => m.isZone).length} st</span>
+              <span style={{ opacity: 0.5, fontSize: '13px' }}>Zoner</span>
+              <span style={{ fontSize: '13px' }}>{markers.filter(m => m.isZone).length} st</span>
             </div>
           </div>
 
@@ -15471,7 +15471,7 @@ export default function PlannerPage() {
               background: 'none',
               border: 'none',
               color: '#fff',
-              fontSize: '14px',
+              fontSize: '13px',
               opacity: 0.5,
               cursor: 'pointer',
             }}
@@ -15648,12 +15648,12 @@ export default function PlannerPage() {
                     padding: '16px',
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                      <span style={{ opacity: 0.5, fontSize: '14px', color: '#fff' }}>Längd</span>
-                      <span style={{ fontSize: '14px', color: '#fff' }}>{Math.round(längd)} m</span>
+                      <span style={{ opacity: 0.5, fontSize: '13px', color: '#fff' }}>Längd</span>
+                      <span style={{ fontSize: '13px', color: '#fff' }}>{Math.round(längd)} m</span>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span style={{ opacity: 0.5, fontSize: '14px', color: '#fff' }}>Kommentar</span>
-                      <span style={{ fontSize: '14px', opacity: 0.5, color: '#fff' }}>
+                      <span style={{ opacity: 0.5, fontSize: '13px', color: '#fff' }}>Kommentar</span>
+                      <span style={{ fontSize: '13px', opacity: 0.5, color: '#fff' }}>
                         {selectedOversiktVag.comment || 'Ingen'}
                       </span>
                     </div>
@@ -15669,7 +15669,7 @@ export default function PlannerPage() {
                       border: 'none',
                       background: 'rgba(255,255,255,0.08)',
                       color: '#fff',
-                      fontSize: '14px',
+                      fontSize: '13px',
                       cursor: 'pointer',
                     }}
                   >
@@ -15690,7 +15690,7 @@ export default function PlannerPage() {
                       border: 'none',
                       background: 'rgba(239,68,68,0.2)',
                       color: '#ff453a',
-                      fontSize: '14px',
+                      fontSize: '13px',
                       cursor: 'pointer',
                       pointerEvents: 'auto',
                     }}
@@ -15769,7 +15769,7 @@ export default function PlannerPage() {
                       marginBottom: '16px',
                     }}>
                       <div style={{ opacity: 0.5, fontSize: '13px', color: '#fff', marginBottom: '8px' }}>Kommentar</div>
-                      <div style={{ fontSize: '14px', color: '#fff' }}>{selectedOversiktItem.comment}</div>
+                      <div style={{ fontSize: '13px', color: '#fff' }}>{selectedOversiktItem.comment}</div>
                     </div>
                   )}
 
@@ -15782,7 +15782,7 @@ export default function PlannerPage() {
                       border: 'none',
                       background: 'rgba(255,255,255,0.08)',
                       color: '#fff',
-                      fontSize: '14px',
+                      fontSize: '13px',
                       cursor: 'pointer',
                     }}
                   >
@@ -15803,7 +15803,7 @@ export default function PlannerPage() {
                       border: 'none',
                       background: 'rgba(239,68,68,0.2)',
                       color: '#ff453a',
-                      fontSize: '14px',
+                      fontSize: '13px',
                       cursor: 'pointer',
                       pointerEvents: 'auto',
                     }}
@@ -15975,7 +15975,7 @@ export default function PlannerPage() {
                 Checklista
               </div>
               <div style={{ 
-                fontSize: '14px', 
+                fontSize: '13px', 
                 color: checklistItems.every(i => i.answer !== null) ? '#30d158' : '#fbbf24',
                 fontWeight: '500',
               }}>
@@ -16100,7 +16100,7 @@ export default function PlannerPage() {
                   border: '1px solid rgba(255,255,255,0.15)',
                   background: 'rgba(255,255,255,0.06)',
                   color: '#fff',
-                  fontSize: '14px',
+                  fontSize: '13px',
                   outline: 'none',
                 }}
                 onKeyDown={(e) => {
@@ -16133,7 +16133,7 @@ export default function PlannerPage() {
                   border: 'none',
                   background: newChecklistItem.trim() ? colors.blue : 'rgba(255,255,255,0.1)',
                   color: '#fff',
-                  fontSize: '14px',
+                  fontSize: '13px',
                   fontWeight: '600',
                   cursor: newChecklistItem.trim() ? 'pointer' : 'default',
                   opacity: newChecklistItem.trim() ? 1 : 0.5,
@@ -16449,7 +16449,7 @@ export default function PlannerPage() {
               <details style={secStyle}>
                 <summary style={summaryStyle}>
                   <span>Att tänka på</span>
-                  <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>›</span>
+                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)' }}>›</span>
                 </summary>
                 <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                   {[
@@ -16469,7 +16469,7 @@ export default function PlannerPage() {
                   {bSamrad.kvitterad ? (
                     <span style={{ fontSize: '13px', fontWeight: '500', letterSpacing: '0', textTransform: 'none' as const, color: '#30d158' }}>Genomfört</span>
                   ) : (
-                    <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>›</span>
+                    <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)' }}>›</span>
                   )}
                 </summary>
                 <div style={{ marginTop: '12px' }}>
@@ -16559,7 +16559,7 @@ export default function PlannerPage() {
                           onClick={() => setTmaSamrad(prev => ({ ...prev, [boundaryId]: { ...bSamrad, kvitterad: true, kvitteradDatum: bSamrad.datum } }))}
                           style={{
                             flex: 1, padding: '14px', borderRadius: '12px', border: 'none',
-                            background: '#30d158', color: '#000', fontSize: '14px', fontWeight: '600',
+                            background: '#30d158', color: '#000', fontSize: '13px', fontWeight: '600',
                             cursor: 'pointer',
                           }}
                         >
@@ -16575,7 +16575,7 @@ export default function PlannerPage() {
               <details style={secStyle}>
                 <summary style={summaryStyle}>
                   <span>TMA-leverantörer</span>
-                  <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.2)' }}>›</span>
+                  <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)' }}>›</span>
                 </summary>
                 <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div>
@@ -16697,7 +16697,7 @@ export default function PlannerPage() {
                   <span style={{ fontSize: '17px', fontWeight: '600', color: manuellPrognos.skordare ? '#fff' : 'rgba(255,255,255,0.3)' }}>
                     {manuellPrognos.skordare || '–'}
                   </span>
-                  <span style={{ fontSize: '14px', color: '#8e8e93' }}>h</span>
+                  <span style={{ fontSize: '13px', color: '#8e8e93' }}>h</span>
                 </div>
               </div>
               
@@ -16725,7 +16725,7 @@ export default function PlannerPage() {
                   <span style={{ fontSize: '17px', fontWeight: '600', color: manuellPrognos.skotare ? '#fff' : 'rgba(255,255,255,0.3)' }}>
                     {manuellPrognos.skotare || '–'}
                   </span>
-                  <span style={{ fontSize: '14px', color: '#8e8e93' }}>h</span>
+                  <span style={{ fontSize: '13px', color: '#8e8e93' }}>h</span>
                 </div>
               </div>
             </div>
@@ -16804,7 +16804,7 @@ export default function PlannerPage() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: isRed ? '#ff453a' : '#eab308', flexShrink: 0 }} />
                       <div>
-                        <div style={{ fontSize: '14px', fontWeight: '500', color: '#fff' }}>Avverkning nära väg</div>
+                        <div style={{ fontSize: '13px', fontWeight: '500', color: '#fff' }}>Avverkning nära väg</div>
                         <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '2px' }}>
                           {roadLabel}{speedLabel ? ` · ${speedLabel}` : ''} · {mainRoad.distance}m
                         </div>
@@ -16921,11 +16921,11 @@ export default function PlannerPage() {
                       alignItems: 'center',
                       marginBottom: '12px' 
                     }}>
-                      <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>
+                      <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>
                         Svår terräng
                       </span>
                       <span style={{ 
-                        fontSize: '14px', 
+                        fontSize: '13px', 
                         fontWeight: '600', 
                         color: '#fff',
                         background: 'rgba(255,255,255,0.06)',
@@ -17035,11 +17035,11 @@ export default function PlannerPage() {
                       alignItems: 'center',
                       marginBottom: '12px' 
                     }}>
-                      <span style={{ fontSize: '14px', color: 'rgba(255,255,255,0.7)' }}>
+                      <span style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>
                         Dålig bärighet
                       </span>
                       <span style={{ 
-                        fontSize: '14px', 
+                        fontSize: '13px', 
                         fontWeight: '600', 
                         color: '#fff',
                         background: 'rgba(255,255,255,0.06)',
@@ -17164,7 +17164,7 @@ export default function PlannerPage() {
                 onClick={(e) => e.stopPropagation()}
               >
                 <div style={{ 
-                  fontSize: '14px', 
+                  fontSize: '13px', 
                   color: '#8e8e93', 
                   marginBottom: '20px',
                 }}>
@@ -17347,7 +17347,7 @@ export default function PlannerPage() {
                 borderRadius: '8px',
                 cursor: 'pointer',
                 color: '#fff',
-                fontSize: '14px',
+                fontSize: '13px',
               }}
             >
               <span style={{ fontSize: '17px' }}>📍</span>
@@ -17367,7 +17367,7 @@ export default function PlannerPage() {
                   borderRadius: '8px',
                   cursor: 'pointer',
                   color: '#ff453a',
-                  fontSize: '14px',
+                  fontSize: '13px',
                 }}
               >
                 <span style={{ fontSize: '17px' }}>✕</span>
@@ -17562,7 +17562,7 @@ export default function PlannerPage() {
                 padding: '32px 0',
                 textAlign: 'center',
                 color: '#8e8e93',
-                fontSize: '14px',
+                fontSize: '13px',
               }}>
                 <div style={{ fontSize: '28px', marginBottom: '12px', animation: 'pulse 1.5s infinite' }}>🔍</div>
                 Analyserar trakten mot register...
@@ -17601,7 +17601,7 @@ export default function PlannerPage() {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                             <span style={{ fontSize: '20px' }}>{cfg.icon}</span>
                             <div style={{ flex: 1 }}>
-                              <div style={{ fontSize: '14px', fontWeight: '600', color: '#fff' }}>{hit.name}</div>
+                              <div style={{ fontSize: '13px', fontWeight: '600', color: '#fff' }}>{hit.name}</div>
                               {hit.details && (
                                 <div style={{ fontSize: '13px', color: '#8e8e93', marginTop: '2px' }}>{hit.details}</div>
                               )}
@@ -17705,7 +17705,7 @@ export default function PlannerPage() {
                 textAlign: 'center',
               }}>
                 <div style={{ fontSize: '32px', marginBottom: '8px' }}>❌</div>
-                <div style={{ fontSize: '14px', color: 'rgba(239,68,68,0.8)' }}>Analysen misslyckades</div>
+                <div style={{ fontSize: '13px', color: 'rgba(239,68,68,0.8)' }}>Analysen misslyckades</div>
                 {analysis.errors.map((e, i) => (
                   <div key={i} style={{ fontSize: '13px', color: '#8e8e93', marginTop: '4px' }}>{e}</div>
                 ))}
@@ -17938,7 +17938,7 @@ export default function PlannerPage() {
                     flex: 1, padding: '12px',
                     borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)',
                     background: 'rgba(255,255,255,0.06)',
-                    color: 'rgba(232,240,224,0.7)', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+                    color: 'rgba(232,240,224,0.7)', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
                   }}
                 >← Tillbaka</button>
                 <button
@@ -17956,7 +17956,7 @@ export default function PlannerPage() {
                     flex: 1, padding: '12px',
                     borderRadius: '10px', border: '1px solid rgba(48,209,88,0.2)',
                     background: 'rgba(48,209,88,0.12)',
-                    color: '#30d158', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
+                    color: '#30d158', fontSize: '13px', fontWeight: '600', cursor: 'pointer',
                   }}
                 >✓ Klar – tillbaka</button>
               </div>
@@ -18069,7 +18069,7 @@ export default function PlannerPage() {
             {/* Sortiment list */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
               {grouped.length === 0 ? (
-                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>
+                <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '13px' }}>
                   Inga sortiment i valda högar.
                 </div>
               ) : (
@@ -18104,11 +18104,11 @@ export default function PlannerPage() {
                       background: h.color, flexShrink: 0,
                     }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '14px', color: '#fff', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontSize: '13px', color: '#fff', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {h.sortiment}
                       </div>
                     </div>
-                    <div style={{ fontSize: '14px', color: '#8e8e93', fontWeight: '500', flexShrink: 0 }}>
+                    <div style={{ fontSize: '13px', color: '#8e8e93', fontWeight: '500', flexShrink: 0 }}>
                       {h.volym.toFixed(1)} m³
                     </div>
                   </div>
@@ -18137,7 +18137,7 @@ export default function PlannerPage() {
                     padding: '14px', borderRadius: '12px',
                     background: 'rgba(34,197,94,0.15)',
                     textAlign: 'center', color: '#30d158',
-                    fontSize: '14px', fontWeight: '600',
+                    fontSize: '13px', fontWeight: '600',
                   }}>
                     Sparat!
                   </div>
@@ -18370,8 +18370,8 @@ export default function PlannerPage() {
                         width: '10px', height: '10px', borderRadius: '50%',
                         background: getCol(s), flexShrink: 0,
                       }} />
-                      <span style={{ flex: 1, fontSize: '14px', color: '#fff' }}>{s}</span>
-                      <span style={{ fontSize: '14px', fontWeight: '600', color: '#fff' }}>
+                      <span style={{ flex: 1, fontSize: '13px', color: '#fff' }}>{s}</span>
+                      <span style={{ fontSize: '13px', fontWeight: '600', color: '#fff' }}>
                         {v.toFixed(2)} m³
                       </span>
                     </div>
@@ -18452,7 +18452,7 @@ export default function PlannerPage() {
           {/* Sortiment list */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px' }}>
             {skotningHogar.length === 0 ? (
-              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '14px' }}>
+              <div style={{ padding: '40px 20px', textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '13px' }}>
                 Inga högar hittades inom det markerade området. Kontrollera att lager är aktiverade.
               </div>
             ) : (
@@ -18504,11 +18504,11 @@ export default function PlannerPage() {
                           background: h.color, flexShrink: 0,
                         }} />
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: '14px', color: '#fff', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontSize: '13px', color: '#fff', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {h.sortiment}
                           </div>
                         </div>
-                        <div style={{ fontSize: '14px', color: '#8e8e93', fontWeight: '500', flexShrink: 0 }}>
+                        <div style={{ fontSize: '13px', color: '#8e8e93', fontWeight: '500', flexShrink: 0 }}>
                           {h.volym.toFixed(1)} m³
                         </div>
                       </div>
@@ -18541,7 +18541,7 @@ export default function PlannerPage() {
                   padding: '14px', borderRadius: '12px',
                   background: 'rgba(29,158,117,0.15)',
                   textAlign: 'center', color: '#1d9e75',
-                  fontSize: '14px', fontWeight: '600',
+                  fontSize: '13px', fontWeight: '600',
                 }}>
                   Sparat!
                 </div>
