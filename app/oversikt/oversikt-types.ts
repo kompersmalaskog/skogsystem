@@ -58,6 +58,17 @@ export interface OversiktObjekt {
   kontakt_telefon?: string;
   trailer_behovs?: boolean;
   ovrigt_info?: string;
+  // Förarvy — verifierade kolumner i objekt-tabellen (se brief-oversikt-karta.md)
+  markagare_tel?: string | null;
+  markagare_epost?: string | null;
+  volym_planerad?: number | null;
+  volym_skordad?: number | null;
+  volym_skotad?: number | null;
+  anteckningar?: string | null;
+  ordning?: number | null;
+  assigned_skordare_user_id?: string | null;
+  assigned_skotare_user_id?: string | null;
+  grot?: boolean | null;
   // Dates
   faktisk_slut: string | null;
   // GROT
@@ -112,14 +123,30 @@ export const C = {
   rd: 'rgba(255,69,58,0.12)',
 };
 
+/* Status — appens egna status-system (tvingas INTE mot iOS-paletten, se brief).
+   De fyra verkliga värdena är förstklassiga; markörformen bär distinktionen:
+   oplanerad = ofylld kontur · planerad = fylld blå · pagaende = fylld grön + puls ·
+   avslutat = nedtonad grå + bock. pagaende (grön, pulsar) och avslutat (grå, bock)
+   är tydligt olika. Äldre/utgående värden behålls bakåtkompatibelt. */
 export const ST: Record<string, { l: string; c: string; bg: string }> = {
-  importerad: { l: 'Importerad', c: C.blue, bg: C.bd },
-  planerad: { l: 'Planerad', c: C.t3, bg: 'rgba(113,113,122,0.1)' },
+  oplanerad: { l: 'Oplanerad', c: C.t3, bg: 'rgba(142,142,147,0.12)' },
+  planerad: { l: 'Planerad', c: C.blue, bg: C.bd },
   pagaende: { l: 'Pågående', c: C.green, bg: C.gd },
+  avslutat: { l: 'Avslutat', c: C.t3, bg: 'rgba(142,142,147,0.12)' },
+  // Utgående/äldre värden — finns ej i objekt.status enligt brief, behålls för bakåtkompatibilitet
+  importerad: { l: 'Importerad', c: C.blue, bg: C.bd },
   skordning: { l: 'Skördning', c: C.yellow, bg: C.yd },
   skotning: { l: 'Skotning', c: C.orange, bg: C.od },
   klar: { l: 'Klar', c: C.t3, bg: 'rgba(113,113,122,0.1)' },
 };
+
+/** Statusgrupper för förarvyn — avgör synlighet och markörbehandling. */
+export const STATUS_AVSLUTADE = ['avslutat', 'klar'];
+export const STATUS_AKTIV = ['pagaende', 'skordning', 'skotning'];
+/** True om status saknar färdig form/färg och ska renderas med kontur-fallback. */
+export function isOkandStatus(status: string): boolean {
+  return !(status in ST);
+}
 
 export const TF: Record<string, string> = {
   slutavverkning: C.yellow,

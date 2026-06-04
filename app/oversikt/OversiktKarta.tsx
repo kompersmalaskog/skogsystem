@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { motion } from 'framer-motion';
-import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF, T, BTN, SP } from './oversikt-types';
+import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
 
@@ -121,14 +121,29 @@ function SpeciesSegment({ pct, color, delay }: { pct: number; color: string; del
 }
 
 /* ── ObjCard popup (positioned fixed at screen bottom) ── */
-function ObjCard({ obj, prod }: { obj: OversiktObjekt; prod?: ProdAgg }) {
+function ObjCard({ obj, prod, warnings, maskinNamn, ko }: {
+  obj: OversiktObjekt;
+  prod?: ProdAgg;
+  warnings?: ObjWarnings;
+  maskinNamn?: string | null;
+  ko?: { maskinId: string; ordning: number };
+}) {
   const o = obj;
   const tf = TF[o.typ] || C.yellow;
   const [expanded, setExpanded] = useState(false);
 
-  const st = ST[o.status] || ST.planerad;
-  const kontaktNamn = o.kontakt_namn || o.markagare || null;
-  const kontaktTel = o.kontakt_telefon || null;
+  const st = ST[o.status] || ST.oplanerad;
+  const typLabel = o.atgard || (o.typ === 'gallring' ? 'Gallring' : 'Slutavverkning');
+  // Markägare (Beslut 3): markagare + Ring (markagare_tel) + Sms-mall
+  const markNamn = o.markagare || o.kontakt_namn || null;
+  const markTel = o.markagare_tel || o.kontakt_telefon || null;
+  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
+  const smsBody = encodeURIComponent(`Vi är på gång till ${o.namn}`);
+  const smsHref = markTel ? `sms:${markTel}${isIOS ? '&' : '?'}body=${smsBody}` : null;
+  // Skördat/Skotat (Beslut 3): objekt-kolumner först, prod-summor som fallback
+  const skordat = (o.volym_skordad ?? 0) || (prod?.skordareVol ?? 0);
+  const skotat = (o.volym_skotad ?? 0) || (prod?.skotareVol ?? 0);
+  const progress = skordat > 0 ? Math.min(100, Math.round((skotat / skordat) * 100)) : 0;
   const ber = o.trakt_data?.beraknad;
   const noteringar: string[] = [];
   if (o.transport_kommentar) noteringar.push(o.transport_kommentar);
@@ -136,7 +151,7 @@ function ObjCard({ obj, prod }: { obj: OversiktObjekt; prod?: ProdAgg }) {
   if (o.markagare_ska_ha_ved && o.markagare_ved_text) noteringar.push(o.markagare_ved_text);
   const hasDetails = !!(ber?.tradslag?.length || ber?.jordart || ber?.restriktioner?.length ||
     o.barighet || o.terrang || o.transport_kommentar || o.grot_volym ||
-    o.skordare_maskin || o.skotare_maskin || o.info_anteckningar || o.ovrigt_info || noteringar.length);
+    o.skordare_maskin || o.skotare_maskin || o.anteckningar || o.info_anteckningar || o.ovrigt_info || noteringar.length);
 
   const Sec = ({ label }: { label: string }) => (
     <div style={{ ...T.label, marginBottom: SP.sm }}>{label}</div>
@@ -167,8 +182,9 @@ function ObjCard({ obj, prod }: { obj: OversiktObjekt; prod?: ProdAgg }) {
           <div style={{ flex: 1 }}>
             <div style={T.h1}>{o.namn}</div>
             <div style={{ ...T.caption, marginTop: SP.xs }}>
-              {o.volym ? `${formatVolym(o.volym)} m³` : '–'}
+              {typLabel}
               {o.areal ? ` · ${o.areal} ha` : ''}
+              {o.volym ? ` · ${formatVolym(o.volym)} m³` : ''}
             </div>
           </div>
           <div style={{
@@ -177,33 +193,77 @@ function ObjCard({ obj, prod }: { obj: OversiktObjekt; prod?: ProdAgg }) {
           }}>{st.l}</div>
         </div>
 
-        {/* Produktion om finns */}
-        {prod && (prod.skordareVol > 0 || prod.skotareVol > 0) && (
-          <>
-            <div style={{ display: 'flex', gap: SP.md, marginBottom: SP.lg }}>
-              {prod.skordareVol > 0 && (
-                <div style={{ flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` }}>
-                  <div style={{ ...T.h2, fontSize: 20 }}>{formatVolym(Math.round(prod.skordareVol))}</div>
-                  <div style={{ ...T.caption, marginTop: SP.xs }}>Skördat m³</div>
-                </div>
-              )}
-              {prod.skotareVol > 0 && (
-                <div style={{ flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` }}>
-                  <div style={{ ...T.h2, fontSize: 20 }}>{formatVolym(Math.round(prod.skotareVol))}</div>
-                  <div style={{ ...T.caption, marginTop: SP.xs }}>Skotat m³</div>
-                </div>
-              )}
+        {/* Varning (Beslut 6) — värsta först, övriga som "+N till" */}
+        {warnings?.level && (() => {
+          const wc = warnings.level === 'fara' ? C.red : C.orange;
+          const wbg = warnings.level === 'fara' ? C.rd : C.od;
+          const first = warnings.items[0];
+          const rest = warnings.items.length - 1;
+          return (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: SP.sm, marginBottom: SP.lg,
+              padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: wbg,
+              border: `1px solid ${wc}40`,
+            }}>
+              <span style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderBottom: `12px solid ${wc}`, flexShrink: 0 }} />
+              <span style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>
+                {first?.label}{rest > 0 ? ` +${rest} till` : ''}
+              </span>
             </div>
+          );
+        })()}
+
+        {/* Maskin + köplats */}
+        {(maskinNamn || ko) && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP.lg }}>
+            <span style={{ ...T.caption, color: C.t3 }}>Maskin</span>
+            <span style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>
+              {maskinNamn || '–'}{ko ? ` · plats ${ko.ordning}` : ''}
+            </span>
+          </div>
+        )}
+
+        {/* Skördat / Skotat (Beslut 3) — progress = skotad/skordad */}
+        {(skordat > 0 || skotat > 0) && (
+          <>
+            <div style={{ display: 'flex', gap: SP.md, marginBottom: SP.md }}>
+              <div style={{ flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` }}>
+                <div style={{ ...T.h2, fontSize: 20 }}>{formatVolym(Math.round(skordat))}</div>
+                <div style={{ ...T.caption, marginTop: SP.xs }}>Skördat m³</div>
+              </div>
+              <div style={{ flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` }}>
+                <div style={{ ...T.h2, fontSize: 20 }}>{formatVolym(Math.round(skotat))}</div>
+                <div style={{ ...T.caption, marginTop: SP.xs }}>Skotat m³</div>
+              </div>
+            </div>
+            {skordat > 0 && (
+              <div style={{ marginBottom: SP.lg }}>
+                <div style={{ height: 6, borderRadius: 3, background: C.surface, overflow: 'hidden' }}>
+                  <div style={{ width: `${progress}%`, height: '100%', background: C.green, borderRadius: 3 }} />
+                </div>
+                <div style={{ ...T.caption, marginTop: SP.xs, textAlign: 'right' }}>{progress}% skotat</div>
+              </div>
+            )}
             <Div />
           </>
         )}
 
-        {/* Markägare */}
-        {kontaktNamn && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: `${SP.md}px 0` }}>
-            <span style={T.body}>{kontaktNamn}</span>
-            {kontaktTel && (
-              <a href={`tel:${kontaktTel}`} style={{ ...T.caption, color: C.blue, textDecoration: 'none', fontWeight: 500 }}>{kontaktTel}</a>
+        {/* Markägare — Ring + Sms (Beslut 3) */}
+        {markNamn && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP.md, padding: `${SP.md}px 0` }}>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ ...T.caption, color: C.t3 }}>Markägare</div>
+              <div style={{ ...T.body, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{markNamn}</div>
+            </div>
+            {markTel && (
+              <div style={{ display: 'flex', gap: SP.sm, flexShrink: 0 }}>
+                <a href={`tel:${markTel}`} onClick={(e) => e.stopPropagation()}
+                  style={{ ...BTN.secondary, minHeight: 36, padding: '0 14px', color: C.blue, textDecoration: 'none' }}>Ring</a>
+                {smsHref && (
+                  <a href={smsHref} onClick={(e) => e.stopPropagation()}
+                    style={{ ...BTN.secondary, minHeight: 36, padding: '0 14px', color: C.blue, textDecoration: 'none' }}>Sms</a>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -274,10 +334,11 @@ function ObjCard({ obj, prod }: { obj: OversiktObjekt; prod?: ProdAgg }) {
             )}
 
             {/* Anteckningar */}
-            {(o.info_anteckningar || o.ovrigt_info) && (
+            {(o.anteckningar || o.info_anteckningar || o.ovrigt_info) && (
               <div style={{ padding: `${SP.md}px 0` }}>
                 <Sec label="Anteckningar" />
-                {o.info_anteckningar && <div style={{ ...T.caption, color: C.t2, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{o.info_anteckningar}</div>}
+                {o.anteckningar && <div style={{ ...T.caption, color: C.t2, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{o.anteckningar}</div>}
+                {o.info_anteckningar && <div style={{ ...T.caption, color: C.t2, lineHeight: 1.6, whiteSpace: 'pre-wrap', marginTop: SP.sm }}>{o.info_anteckningar}</div>}
                 {o.ovrigt_info && <div style={{ ...T.caption, color: C.t2, lineHeight: 1.6, whiteSpace: 'pre-wrap', marginTop: SP.sm }}>{o.ovrigt_info}</div>}
               </div>
             )}
@@ -388,6 +449,94 @@ function GrotCard({ obj }: { obj: OversiktObjekt }) {
   );
 }
 
+/* ── Förar-sheet (Beslut 1): Nu störst + dragbart för Härnäst-listan ──
+   Read-only. Källa: maskin_ko sorterad på ordning. Tryck → öppnar ObjCard. */
+function DriverSheet({ queue, maskinNamn, prodMap, warningsByObj, onSelect }: {
+  queue: OversiktObjekt[];
+  maskinNamn: string | null;
+  prodMap: Record<string, ProdAgg>;
+  warningsByObj: Record<string, ObjWarnings>;
+  onSelect: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (!queue.length) return null;
+
+  const aktivaKvar = queue.filter(o => !STATUS_AVSLUTADE.includes(o.status));
+  const nu = aktivaKvar.find(o => STATUS_AKTIV.includes(o.status)) || aktivaKvar[0] || queue[0];
+  const harnast = aktivaKvar.filter(o => o.id !== nu.id);
+  const nuSt = ST[nu.status] || ST.oplanerad;
+
+  const Row = ({ o, idx }: { o: OversiktObjekt; idx: number }) => {
+    const st = ST[o.status] || ST.oplanerad;
+    const w = warningsByObj[o.id];
+    return (
+      <button onClick={(e) => { e.stopPropagation(); onSelect(o.id); }} style={{
+        display: 'flex', alignItems: 'center', gap: SP.md, width: '100%', textAlign: 'left',
+        padding: `${SP.md}px ${SP.xs}px`, background: 'transparent', border: 'none',
+        borderTop: `1px solid ${C.border}`, cursor: 'pointer', fontFamily: ff,
+      }}>
+        <div style={{ width: 24, height: 24, borderRadius: 12, background: st.bg, color: st.c, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>{idx}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...T.body, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.namn}</div>
+          <div style={T.caption}>{o.volym ? `${formatVolym(o.volym)} m³` : '–'}{o.areal ? ` · ${o.areal} ha` : ''}</div>
+        </div>
+        {w?.level && <span style={{ width: 0, height: 0, borderLeft: '6px solid transparent', borderRight: '6px solid transparent', borderBottom: `10px solid ${w.level === 'fara' ? C.red : C.orange}`, flexShrink: 0 }} />}
+        <span style={{ ...T.caption, color: st.c, flexShrink: 0 }}>{st.l}</span>
+      </button>
+    );
+  };
+
+  return (
+    <motion.div
+      drag="y"
+      dragConstraints={{ top: 0, bottom: 0 }}
+      dragElastic={0.2}
+      onDragEnd={(_e, info) => { if (info.offset.y < -50) setExpanded(true); else if (info.offset.y > 50) setExpanded(false); }}
+      onClick={(e) => e.stopPropagation()}
+      style={{
+        position: 'absolute', bottom: 16, left: '50%', x: '-50%',
+        width: 420, maxWidth: 'calc(100% - 24px)',
+        background: C.surface3, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+        borderRadius: 16, border: `1px solid ${C.border}`, zIndex: 20, overflow: 'hidden',
+      }}
+    >
+      {/* Draghandtag */}
+      <div onClick={() => setExpanded(e => !e)} style={{ padding: `${SP.sm}px 0 0`, display: 'flex', justifyContent: 'center', cursor: 'grab' }}>
+        <div style={{ width: 36, height: 5, borderRadius: 3, background: 'rgba(255,255,255,0.2)' }} />
+      </div>
+
+      <div style={{ padding: SP.lg, paddingTop: SP.md }}>
+        <div style={{ ...T.label, marginBottom: SP.sm, display: 'flex', justifyContent: 'space-between' }}>
+          <span>NU{maskinNamn ? ` · ${maskinNamn}` : ''}</span>
+          <span style={{ color: C.t3 }}>{aktivaKvar.length} kvar</span>
+        </div>
+
+        {/* Nu — störst */}
+        <button onClick={(e) => { e.stopPropagation(); onSelect(nu.id); }} style={{ width: '100%', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: ff, padding: 0 }}>
+          <div style={{ ...T.h1, fontSize: 24 }}>{nu.namn}</div>
+          <div style={{ ...T.caption, marginTop: 2 }}>
+            {nu.volym ? `${formatVolym(nu.volym)} m³` : '–'}{nu.areal ? ` · ${nu.areal} ha` : ''}
+            {' · '}<span style={{ color: nuSt.c, fontWeight: 600 }}>{nuSt.l}</span>
+          </div>
+        </button>
+
+        {/* Härnäst */}
+        {harnast.length > 0 && !expanded && (
+          <div style={{ ...T.caption, color: C.blue, marginTop: SP.md, cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); setExpanded(true); }}>
+            Visa härnäst ({harnast.length})
+          </div>
+        )}
+        {harnast.length > 0 && expanded && (
+          <div style={{ marginTop: SP.md, maxHeight: '42vh', overflowY: 'auto' }}>
+            <div style={{ ...T.label, marginBottom: SP.xs }}>HÄRNÄST</div>
+            {harnast.map((o, i) => <Row key={o.id} o={o} idx={i + 1} />)}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
 /* ── Build GROT diamond marker ── */
 function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
   const clr = grotEffectiveColor(obj.grot_status, obj.grot_deadline);
@@ -414,127 +563,173 @@ function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: ()
 /* ── Route colors per machine ── */
 const RC = ['#3b82f6', '#f97316', '#22c55e', '#a855f7', '#ec4899', '#06b6d4'];
 
-/* ── Marker info passed to builder ── */
-interface MInfo {
-  obj: OversiktObjekt;
-  queueNum: number | null;
-  isMachinePos: boolean;
-  isHistoryKlar: boolean;
-  showChips: boolean;
-  maskinName: string | null;
+/* ── Faror & hänsyn (Beslut 6) — klassning av planering_markeringar ──
+   Semantiken ligger i data: type/zoneType/lineType/arrowType (se brief). */
+const FARA_SUBTYPER = new Set(['powerline', 'warning']);
+const HANSYN_SUBTYPER = new Set([
+  'eternitytree', 'naturecorner', 'protected', 'fornlamning',
+  'culture', 'culturemonument', 'highstump',
+]);
+const SUB_LABEL: Record<string, string> = {
+  powerline: 'Kraftledning', warning: 'Varning',
+  eternitytree: 'Eternitträd', naturecorner: 'Naturhänsyn', protected: 'Skyddat område',
+  fornlamning: 'Fornlämning', culture: 'Kulturmiljö', culturemonument: 'Kulturminne',
+  highstump: 'Högstubbe',
+};
+export type FaraNiva = 'fara' | 'hansyn';
+export interface ObjWarnings { level: FaraNiva | null; items: { label: string; level: FaraNiva }[]; }
+interface MarkeringRow { objekt_id: string | null; typ: string | null; data: any; }
+
+/* Inloggad medarbetare — roll (forare/admin/planerare) + maskinkoppling.
+   Kedjan: auth-user → medarbetare via user_id → maskin_id → maskin_ko → objekt.
+   Bekräftat i Supabase: user_id = uuid (mot auth-user), maskin_id = text som matchar
+   maskin_ko.maskin_id direkt (t.ex. A030353) — inget uuid/text-gissande. */
+interface Medarbetare { id: string; namn: string | null; roll: string | null; maskin_id: string | null; }
+
+/* Sentinel-filter för förare utan giltig maskin: matchar ALDRIG ett maskin_ko-id,
+   så kartan blir tom istället för att falla tillbaka på "visa alla" (fail-closed). */
+const FORARE_UTAN_MASKIN = '__forare_utan_maskin__';
+
+function markeringSub(data: any): string | null {
+  if (!data || typeof data !== 'object') return null;
+  return data.type || data.zoneType || data.lineType || data.arrowType || null;
+}
+function classifyMarkering(data: any): FaraNiva | 'neutral' {
+  const sub = markeringSub(data);
+  if (!sub) return 'neutral';
+  if (FARA_SUBTYPER.has(sub)) return 'fara';
+  if (HANSYN_SUBTYPER.has(sub)) return 'hansyn';
+  return 'neutral';
 }
 
-/* ── Build a MapLibre marker DOM element ── */
-function buildMarkerEl(
-  info: MInfo,
-  maskinKo: MaskinKoItem[],
-  maskiner: Maskin[],
-  isSelected: boolean,
-  onClick: () => void,
-): HTMLDivElement {
-  const { obj, queueNum, isMachinePos, isHistoryKlar, showChips, maskinName } = info;
-  const isActive = obj.status === 'pagaende' || obj.status === 'skordning' || obj.status === 'skotning';
-  const tf = isHistoryKlar ? '#52525b' : (TF[obj.typ] || C.yellow);
-  const st = ST[obj.status] || ST.planerad;
-  const isStop = queueNum !== null;
-  const dotSize = isSelected ? 38 : isMachinePos ? 36 : isStop ? 36 : isActive ? 30 : isHistoryKlar ? 16 : 24;
-  const hitSize = 38; // constant so MapLibre anchor never shifts
+/* ── Marker badges (Beslut 2): köordning, GROT-hörn, fara/hänsyn ── */
+type MarkerBadge =
+  | { kind: 'queue'; n: number }
+  | { kind: 'grot' }
+  | { kind: 'warning'; level: FaraNiva };
 
-  // Wrapper — no position property, MapLibre's .maplibregl-marker class handles it
+interface MarkerOpts {
+  isSelected: boolean;
+  label: string;
+  volym?: number | null;
+  sublabels?: string[];   // visas ovanför markören (maskinnamn/chips)
+  onClick: () => void;
+}
+
+/* ── Build a MapLibre marker DOM element — (form, status, badges[]) ──
+   form: 'circle' = objekt, 'machine' = maskinposition (rundad fyrkant + kugghjul).
+   Färg = status och FYLLER markören (ej svag ring). Endast aktiva pulserar.
+   Okänd/oplanerad status → ofylld kontur (filtreras aldrig bort, Beslut 5). */
+function buildMarkerEl(
+  form: 'circle' | 'machine',
+  status: string,
+  badges: MarkerBadge[],
+  opts: MarkerOpts,
+): HTMLDivElement {
+  const { isSelected, label, volym, sublabels, onClick } = opts;
+  const st = ST[status] || { l: status, c: C.t3, bg: 'transparent' };
+  const known = status in ST;
+  const isActive = STATUS_AKTIV.includes(status);
+  const isDone = STATUS_AVSLUTADE.includes(status);
+  const isContour = status === 'oplanerad' || !known;
+
+  const dotSize = isSelected ? 36 : form === 'machine' ? 34 : isActive ? 32 : isDone ? 20 : 28;
+  const hitSize = 40; // konstant så MapLibre-ankaret aldrig hoppar
+
   const w = document.createElement('div');
   w.className = 'ovk-marker';
-  w.dataset.objektId = obj.id;
-  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isHistoryKlar ? '0.3' : '1'}`;
+  w.dataset.objektId = label;
+  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isDone ? '0.55' : '1'}`;
 
-  // Glowing pulse rings — ONLY for active objects (pagaende/skordning/skotning)
-  if (isActive) {
-    const pulseColor = st.c;
-    // Outer expanding ring
-    const p = document.createElement('div');
-    p.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;border:2px solid ${pulseColor};animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) infinite;pointer-events:none`;
-    w.appendChild(p);
-    // Second ring with offset for continuous effect
-    const p2 = document.createElement('div');
-    p2.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;border:1.5px solid ${pulseColor};animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) 1.25s infinite;pointer-events:none`;
-    w.appendChild(p2);
-    // Static glow behind the dot
+  // Puls — ENDAST aktiva objekt (cirkelform)
+  if (isActive && form === 'circle') {
+    const ring = document.createElement('div');
+    ring.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;border:2px solid ${st.c};animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) infinite;pointer-events:none`;
+    w.appendChild(ring);
     const glow = document.createElement('div');
-    glow.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 8}px;height:${dotSize + 8}px;margin-left:-${(dotSize + 8) / 2}px;margin-top:-${(dotSize + 8) / 2}px;border-radius:50%;background:radial-gradient(circle,${pulseColor}25 0%,transparent 70%);pointer-events:none;animation:glowPulse 3s ease-in-out infinite`;
+    glow.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 10}px;height:${dotSize + 10}px;margin-left:-${(dotSize + 10) / 2}px;margin-top:-${(dotSize + 10) / 2}px;border-radius:50%;background:radial-gradient(circle,${st.c}30 0%,transparent 70%);pointer-events:none;animation:glowPulse 3s ease-in-out infinite`;
     w.appendChild(glow);
   }
 
-  // Dot circle
   const dot = document.createElement('div');
-  if (isHistoryKlar) {
-    // Klar in history mode: gray circle with checkmark
-    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${C.bg};border:1.5px solid #52525b;display:flex;align-items:center;justify-content:center`;
-    dot.innerHTML = `<span style="font-size:${Math.round(dotSize * 0.55)}px;color:#71717a;line-height:1">✓</span>`;
-  } else if (isMachinePos) {
-    // Machine position: white rounded square with gear icon + pulse ring
+  if (form === 'machine') {
+    // Maskinposition: vit rundad fyrkant med kugghjul + puls
     const pulse = document.createElement('div');
-    pulse.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 12}px;height:${dotSize + 12}px;margin-left:-${(dotSize + 12) / 2}px;margin-top:-${(dotSize + 12) / 2}px;border-radius:10px;border:2px solid rgba(255,255,255,0.5);animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) infinite;pointer-events:none`;
+    pulse.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 12}px;height:${dotSize + 12}px;margin-left:-${(dotSize + 12) / 2}px;margin-top:-${(dotSize + 12) / 2}px;border-radius:11px;border:2px solid rgba(255,255,255,0.5);animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) infinite;pointer-events:none`;
     w.appendChild(pulse);
     dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(255,255,255,0.25),0 2px 8px rgba(0,0,0,.4)`;
     dot.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
-  } else if (queueNum !== null) {
-    // Stop pin: colored circle (orange/yellow) with white number — 36px
-    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${tf};display:flex;align-items:center;justify-content:center;box-shadow:${isSelected ? `0 0 20px ${tf}40` : '0 2px 8px rgba(0,0,0,.5)'}`;
-    dot.innerHTML = `<span style="font-size:16px;font-weight:800;color:#fff;font-family:${ff};text-shadow:0 1px 2px rgba(0,0,0,.3)">${queueNum}</span>`;
+  } else if (isDone) {
+    // Avslutat: nedtonad grå cirkel med bock
+    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${C.bg};border:1.5px solid #52525b;display:flex;align-items:center;justify-content:center`;
+    dot.innerHTML = `<span style="font-size:${Math.round(dotSize * 0.6)}px;color:#8e8e93;line-height:1">✓</span>`;
+  } else if (isContour) {
+    // Oplanerad/okänd: ofylld kontur (renderas alltid, döljs aldrig tyst)
+    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:transparent;border:2px dashed ${st.c};box-shadow:${isSelected ? `0 0 16px ${st.c}40` : 'none'}`;
   } else {
-    // Active (pulsing) or unqueued: status inner dot
-    const innerSize = isSelected ? 10 : isActive ? 8 : 6;
-    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${C.bg};border:2px solid ${tf};display:flex;align-items:center;justify-content:center;box-shadow:${isSelected ? `0 0 20px ${tf}25` : 'none'}`;
-    const inner = document.createElement('div');
-    inner.style.cssText = `width:${innerSize}px;height:${innerSize}px;border-radius:50%;background:${st.c}`;
-    dot.appendChild(inner);
+    // Planerad/pågående: FYLLD markör med statusfärg
+    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${st.c};border:2px solid rgba(255,255,255,0.85);box-shadow:${isSelected ? `0 0 20px ${st.c}66` : '0 2px 8px rgba(0,0,0,.5)'}`;
   }
   w.appendChild(dot);
 
-  // Name label below — dark background for readability
-  // CSS class controls visibility based on zoom level
+  // Badges
+  badges.forEach(b => {
+    if (b.kind === 'queue') {
+      const q = document.createElement('div');
+      q.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(${dotSize / 2 - 6}px,-${dotSize / 2 + 6}px);min-width:16px;height:16px;padding:0 3px;border-radius:8px;background:#fff;color:#000;font-size:11px;font-weight:800;font-family:${ff};display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.5);pointer-events:none`;
+      q.textContent = String(b.n);
+      w.appendChild(q);
+    } else if (b.kind === 'grot') {
+      const g = document.createElement('div');
+      g.title = 'GROT';
+      g.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(${dotSize / 2 - 5}px,${dotSize / 2 - 5}px);width:11px;height:11px;border-radius:2px;background:${C.yellow};border:1px solid rgba(0,0,0,.4);pointer-events:none`;
+      w.appendChild(g);
+    } else if (b.kind === 'warning') {
+      const wc = b.level === 'fara' ? C.red : C.orange;
+      const t = document.createElement('div');
+      t.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-${dotSize / 2 + 12}px,-${dotSize / 2 + 6}px);width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:12px solid ${wc};pointer-events:none;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))`;
+      w.appendChild(t);
+    }
+  });
+
+  // Maskinnamn/chips ovanför
+  if (sublabels && sublabels.length) {
+    const md = document.createElement('div');
+    md.style.cssText = `position:absolute;bottom:${hitSize / 2 + dotSize / 2 + 6}px;left:50%;transform:translateX(-50%);display:flex;gap:3px;pointer-events:none;white-space:nowrap`;
+    sublabels.forEach(s => {
+      const ch = document.createElement('div');
+      ch.style.cssText = `background:rgba(0,0,0,.85);padding:3px 8px;border-radius:6px`;
+      ch.innerHTML = `<span style="font-size:11px;font-weight:600;color:#fff;font-family:${ff}">${s}</span>`;
+      md.appendChild(ch);
+    });
+    w.appendChild(md);
+  }
+
+  // Namn-etikett under (zoom-styrd synlighet via .ovk-lbl)
   const lbl = document.createElement('div');
   lbl.className = isActive ? 'ovk-lbl ovk-lbl-active' : 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + dotSize / 2 + 4}px;left:50%;transform:translateX(-50%);text-align:center;pointer-events:none;white-space:nowrap`;
-  const clr = isHistoryKlar ? '#71717a' : '#fff';
-  const volLabel = obj.volym ? ` (${Math.round(obj.volym)} m³)` : '';
-  let html = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${obj.namn}${volLabel}</div>`;
-  if (isHistoryKlar) {
-    html += `<div style="font-size:11px;color:#71717a;font-family:${ff};margin-top:2px;background:rgba(0,0,0,0.6);padding:1px 6px;border-radius:4px;display:inline-block">Klar</div>`;
-  }
-  lbl.innerHTML = html;
+  const clr = isDone ? '#8e8e93' : '#fff';
+  const volLabel = volym ? ` (${Math.round(volym)} m³)` : '';
+  lbl.innerHTML = `<div style="font-size:13px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:3px 8px;border-radius:6px">${label}${volLabel}</div>`;
   w.appendChild(lbl);
-
-  // Machine name above active prick (when maskinFilter is active)
-  if (maskinName) {
-    const md = document.createElement('div');
-    md.style.cssText = `position:absolute;bottom:${hitSize / 2 + dotSize / 2 + 6}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
-    md.innerHTML = `<div style="background:rgba(0,0,0,0.85);padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;color:#fff;font-family:${ff}">${maskinName}</div>`;
-    w.appendChild(md);
-  } else if (showChips) {
-    // Machine chips for active objects (no maskinFilter)
-    const koForObj = maskinKo.filter(k => k.objekt_id === obj.id);
-    if (koForObj.length > 0) {
-      const md = document.createElement('div');
-      md.style.cssText = `position:absolute;bottom:${hitSize / 2 + dotSize / 2 + 6}px;left:50%;transform:translateX(-50%);display:flex;gap:3px;pointer-events:none;white-space:nowrap`;
-      koForObj.forEach(k => {
-        const m = maskiner.find(mm => mm.maskin_id === k.maskin_id);
-        if (m) {
-          const ch = document.createElement('div');
-          ch.style.cssText = `background:rgba(0,0,0,.85);padding:3px 8px;border-radius:6px`;
-          ch.innerHTML = `<span style="font-size:11px;font-weight:600;color:#fff;font-family:${ff}">${getMaskinDisplayName(m)}</span>`;
-          md.appendChild(ch);
-        }
-      });
-      w.appendChild(md);
-    }
-  }
 
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
   return w;
 }
 
 /* ════════════════════════════════════════════════════════════════ */
-export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: Props) {
+export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskiner, maskinKo: propMaskinKo, prodMap }: Props) {
+  // Self-fetch: OversiktKarta äger sin egen data så förarvyn kan berika objekt
+  // (kolumner som page.tsx:OBJEKT_SELECT saknar), läsa inloggad medarbetare och
+  // köra realtime — utan att röra page.tsx (parallellt spår arbetar där).
+  // page.tsx mappar INTE om objekt-raderna, så select('*') ger samma form + extra.
+  const [objekt, setObjekt] = useState<OversiktObjekt[]>(propObjekt);
+  const [maskiner, setMaskiner] = useState<Maskin[]>(propMaskiner);
+  const [maskinKo, setMaskinKo] = useState<MaskinKoItem[]>(propMaskinKo);
+  const [markeringar, setMarkeringar] = useState<MarkeringRow[]>([]);
+  const [me, setMe] = useState<Medarbetare | null>(null);
+
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markersMapRef = useRef<Map<string, any>>(new Map());
@@ -545,7 +740,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedGrotId, setSelectedGrotId] = useState<string | null>(null);
   const [filt, setFilt] = useState<'alla' | 'slutavverkning' | 'gallring'>('alla');
-  const [showHist, setShowHist] = useState(false);
+  const [showDone, setShowDone] = useState(true); // Beslut 5: avslutade syns som default
   const [showGrot, setShowGrot] = useState(false);
   const [maskinFilter, setMaskinFilter] = useState<string | null>(null);
   const [showMaskinDrop, setShowMaskinDrop] = useState(false);
@@ -553,6 +748,123 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
   const [zoomLevel, setZoomLevel] = useState(10);
   const [osrmDist, setOsrmDist] = useState<Record<string, SegmentDist>>({});
   const osrmCacheRef = useRef<Record<string, SegmentDist>>({});
+
+  /* ── Self-fetch: berikade objekt + maskin_ko (live-källor) ── */
+  const refetchObjekt = useCallback(async () => {
+    const PAGE = 1000;
+    const all: any[] = [];
+    let from = 0;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const { data, error } = await supabase.from('objekt').select('*').order('namn').range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      all.push(...data);
+      if (data.length < PAGE) break;
+      from += PAGE;
+    }
+    if (all.length) setObjekt(all as OversiktObjekt[]);
+  }, []);
+
+  const refetchKo = useCallback(async () => {
+    const { data } = await supabase.from('maskin_ko').select('*').order('ordning');
+    if (data) setMaskinKo(data as MaskinKoItem[]);
+  }, []);
+
+  /* ── Mount: inloggad medarbetare (roll/maskin) + berika objekt/kö + markeringar ── */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: auth } = await supabase.auth.getUser();
+        const uid = auth?.user?.id;
+        if (uid) {
+          const { data: m } = await supabase
+            .from('medarbetare').select('id, namn, roll, maskin_id')
+            .eq('user_id', uid).maybeSingle();
+          if (!cancelled && m) setMe(m as Medarbetare);
+        }
+      } catch { /* ej inloggad (dev) — fortsätt med prop-data */ }
+
+      await refetchObjekt();
+      await refetchKo();
+
+      const { data: maskinerData } = await supabase.from('dim_maskin').select('*').order('modell');
+      if (!cancelled && maskinerData) setMaskiner(maskinerData as Maskin[]);
+
+      const { data: mk } = await supabase
+        .from('planering_markeringar').select('objekt_id, typ, data');
+      if (!cancelled && mk) setMarkeringar(mk as MarkeringRow[]);
+    })();
+    return () => { cancelled = true; };
+  }, [refetchObjekt, refetchKo]);
+
+  /* ── Realtime (Beslut 4): omkastad kö / statusbyte syns utan omladdning ── */
+  useEffect(() => {
+    const ch = supabase
+      .channel('oversikt-forarvy')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'maskin_ko' }, () => { refetchKo(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'objekt' }, () => { refetchObjekt(); })
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [refetchObjekt, refetchKo]);
+
+  /* ── Roll & förarläge ──
+     FAIL-CLOSED: rollen (medarbetare.roll) avgör förarläget — ALDRIG om maskin-
+     länken råkar matcha. En förare utan giltig maskin ser sin egen (tomma) rutt,
+     aldrig admin-läge (= alla objekt = privilegieeskalering + precis den röra
+     förarvyn ska ta bort). medarbetare.maskin_id är text och matchar
+     maskin_ko.maskin_id direkt (t.ex. A030353) — inget uuid/text-gissande. */
+  const isDriver = me?.roll === 'forare';
+  const driverMaskinId = me?.maskin_id ?? null;
+  const driverMode = isDriver;
+
+  // Förare: lås kartan till egen maskins rutt. Saknas/ogiltig maskin → sentinel-
+  // filter som inte matchar något objekt (tom karta), ALDRIG hela kartan.
+  useEffect(() => {
+    if (!driverMode) return;
+    setMaskinFilter(driverMaskinId ?? FORARE_UTAN_MASKIN);
+    setShowFilterPanel(false);
+  }, [driverMode, driverMaskinId]);
+
+  /* ── Faror & hänsyn per objekt (Beslut 6) ── */
+  const warningsByObj = useMemo(() => {
+    const map: Record<string, ObjWarnings> = {};
+    for (const m of markeringar) {
+      if (!m.objekt_id) continue;
+      const level = classifyMarkering(m.data);
+      if (level === 'neutral') continue;
+      const sub = markeringSub(m.data) || '';
+      const label = SUB_LABEL[sub] || sub;
+      if (!map[m.objekt_id]) map[m.objekt_id] = { level: null, items: [] };
+      map[m.objekt_id].items.push({ label, level });
+    }
+    for (const id in map) {
+      const w = map[id];
+      // värsta först: fara (röd) före hänsyn (orange)
+      w.items.sort((a, b) => (a.level === 'fara' ? 0 : 1) - (b.level === 'fara' ? 0 : 1));
+      w.level = w.items.some(i => i.level === 'fara') ? 'fara' : 'hansyn';
+    }
+    return map;
+  }, [markeringar]);
+
+  /* ── Kö-info per objekt: maskin + plats (lägsta ordning vinner) ── */
+  const koByObjekt = useMemo(() => {
+    const map: Record<string, { maskinId: string; ordning: number }> = {};
+    [...maskinKo].sort((a, b) => a.ordning - b.ordning).forEach(k => {
+      if (!map[k.objekt_id]) map[k.objekt_id] = { maskinId: k.maskin_id, ordning: k.ordning };
+    });
+    return map;
+  }, [maskinKo]);
+
+  /* ── Förarens kö i ordning (Beslut 1: Nu + Härnäst) ── */
+  const driverQueue = useMemo(() => {
+    if (!driverMaskinId) return [];
+    return maskinKo
+      .filter(k => k.maskin_id === driverMaskinId)
+      .sort((a, b) => a.ordning - b.ordning)
+      .map(k => objekt.find(o => o.id === k.objekt_id))
+      .filter((o): o is OversiktObjekt => !!o);
+  }, [driverMaskinId, maskinKo, objekt]);
 
   const selectedObj = selectedId ? objekt.find(o => o.id === selectedId) : null;
   const handleMarkerClick = useCallback((id: string) => {
@@ -665,9 +977,9 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
       }
       list = list.filter(o => ids.has(o.id));
     } else {
-      // No machine filter: show only planned objects (not importerad/unplanned)
-      const PLANERADE = ['planerad', 'pagaende', 'skordning', 'skotning'];
-      list = list.filter(o => PLANERADE.includes(o.status) || (showHist && o.status === 'klar'));
+      // Beslut 5: inget objekt döljs tyst. Visa alla status (oplanerad/okänd = kontur,
+      // avslutat = nedtonad + bock). "Avslutade"-toggeln är ett UTTRYCKLIGT filter.
+      if (!showDone) list = list.filter(o => !STATUS_AVSLUTADE.includes(o.status));
       if (filt !== 'alla') {
         list = list.filter(o => {
           if (filt === 'slutavverkning') return o.typ === 'slutavverkning' || o.typ === 'slut';
@@ -676,7 +988,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
       }
     }
     return list.map(o => o.id);
-  }, [objekt, filt, maskinFilter, maskinKo, showHist]);
+  }, [objekt, filt, maskinFilter, maskinKo, showDone]);
 
   /* ── GROT objects (with coordinates and grot_volym > 0) ── */
   const grotObjekt = useMemo(() => {
@@ -686,26 +998,39 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
 
   const selectedGrotObj = selectedGrotId ? objekt.find(o => o.id === selectedGrotId) : null;
 
-  /* ── Helper: build marker info ── */
-  const mkInfo = useCallback((obj: OversiktObjekt): MInfo => {
-    const isK = obj.status === 'klar';
-    const isA = obj.status === 'pagaende' || obj.status === 'skordning' || obj.status === 'skotning';
+  /* ── Helper: bygg argument till buildMarkerEl (form, status, badges, opts) ── */
+  const markerArgs = useCallback((obj: OversiktObjekt): {
+    form: 'circle' | 'machine'; status: string; badges: MarkerBadge[]; opts: MarkerOpts;
+  } => {
+    const isMachine = machinePositions.has(obj.id);
+    const isActive = STATUS_AKTIV.includes(obj.status);
 
-    let maskinName: string | null = null;
-    if (maskinFilter && isA) {
+    const badges: MarkerBadge[] = [];
+    const qn = queueNums[obj.id];
+    if (qn != null && !isMachine) badges.push({ kind: 'queue', n: qn });
+    if (obj.grot_volym && obj.grot_volym > 0) badges.push({ kind: 'grot' });
+    const w = warningsByObj[obj.id];
+    if (w?.level) badges.push({ kind: 'warning', level: w.level });
+
+    const sublabels: string[] = [];
+    if (maskinFilter && isActive) {
       const m = maskiner.find(x => x.maskin_id === maskinFilter);
-      if (m) maskinName = getMaskinDisplayName(m);
+      if (m) sublabels.push(getMaskinDisplayName(m));
     }
 
     return {
-      obj,
-      queueNum: (!isK && queueNums[obj.id] != null) ? queueNums[obj.id] : null,
-      isMachinePos: machinePositions.has(obj.id),
-      isHistoryKlar: isK,
-      showChips: isA,
-      maskinName,
+      form: isMachine ? 'machine' : 'circle',
+      status: obj.status,
+      badges,
+      opts: {
+        isSelected: selectedId === obj.id,
+        label: obj.namn,
+        volym: obj.volym,
+        sublabels,
+        onClick: () => handleMarkerClick(obj.id),
+      },
     };
-  }, [queueNums, machinePositions, maskinFilter, maskiner]);
+  }, [machinePositions, queueNums, warningsByObj, maskinFilter, maskiner, selectedId, handleMarkerClick]);
 
   /* ── Load MapLibre CDN ── */
   useEffect(() => {
@@ -919,13 +1244,14 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
       if (!have.has(id)) {
         const o = objekt.find(x => x.id === id);
         if (!o || o.lat == null || o.lng == null) return;
-        const el = buildMarkerEl(mkInfo(o), maskinKo, maskiner, false, () => handleMarkerClick(id));
+        const a = markerArgs(o);
+        const el = buildMarkerEl(a.form, a.status, a.badges, { ...a.opts, isSelected: false });
         const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat([o.lng, o.lat]).addTo(mapRef.current);
         markersMapRef.current.set(id, marker);
       }
     });
-  }, [visIds, mapReady, objekt, maskiner, maskinKo, handleMarkerClick, mkInfo]);
+  }, [visIds, mapReady, objekt, markerArgs]);
 
   /* ── Auto-fit bounds when machine filter changes ── */
   useEffect(() => {
@@ -943,21 +1269,21 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
     }
   }, [maskinFilter, visIds, objekt, mapStyleLoaded]);
 
-  /* ── Update marker content (selection, numbers, history state) ── */
+  /* ── Update marker content (selection, badges, status) ── */
   useEffect(() => {
     if (!mapRef.current || !mapReady) return;
     markersMapRef.current.forEach((marker, id) => {
       const o = objekt.find(x => x.id === id);
       if (!o) return;
-      const info = mkInfo(o);
-      const newEl = buildMarkerEl(info, maskinKo, maskiner, selectedId === id, () => handleMarkerClick(id));
+      const a = markerArgs(o);
+      const newEl = buildMarkerEl(a.form, a.status, a.badges, a.opts);
       const el = marker.getElement();
       // Replace children only — preserve MapLibre's transform on the wrapper
       while (el.lastChild) el.removeChild(el.lastChild);
       while (newEl.firstChild) el.appendChild(newEl.firstChild);
-      el.style.opacity = info.isHistoryKlar ? '0.3' : '1';
+      el.style.opacity = STATUS_AVSLUTADE.includes(o.status) ? '0.55' : '1';
     });
-  }, [selectedId, queueNums, showHist, maskinFilter, objekt, maskinKo, maskiner, mapReady, handleMarkerClick, mkInfo]);
+  }, [selectedId, objekt, mapReady, markerArgs]);
 
   /* ── GROT markers: sync ── */
   useEffect(() => {
@@ -1016,20 +1342,23 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
         </div>
       )}
 
-      {/* ── Filter button (top right) ── */}
+      {/* ── Filter button (top right) — döljs i förarläge (read-only rutt) ── */}
+      {!driverMode && (
       <button onClick={e => { e.stopPropagation(); setShowFilterPanel(p => !p); }} style={{
         position: 'absolute', top: 16, right: 16, zIndex: 15,
         width: 44, height: 44, borderRadius: 12,
         background: showFilterPanel ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,.75)',
         backdropFilter: 'blur(16px)', border: `1px solid ${C.border}`,
-        color: (filt !== 'alla' || showHist || showGrot || maskinFilter) ? C.yellow : C.t1,
+        color: (filt !== 'alla' || !showDone || showGrot || maskinFilter) ? C.yellow : C.t1,
         fontSize: 18, cursor: 'pointer',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" /></svg>
       </button>
+      )}
 
-      {/* ── Filter panel (slides in from right) ── */}
+      {/* ── Filter panel (slides in from right) — döljs i förarläge ── */}
+      {!driverMode && (
       <div onClick={e => e.stopPropagation()} style={{
         position: 'absolute', top: 0, right: 0, bottom: 0, width: 280, zIndex: 14,
         background: 'rgba(7,7,8,0.95)', backdropFilter: 'blur(24px)',
@@ -1069,12 +1398,12 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
         {/* Visa */}
         <div style={{ fontSize: 13, fontWeight: 600, color: C.t3, marginBottom: 8, fontFamily: ff }}>Visa</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 20 }}>
-          <button onClick={() => setShowHist(h => !h)} style={{
-            padding: '12px 14px', minHeight: 44, background: showHist ? 'rgba(255,255,255,0.08)' : 'transparent',
-            color: showHist ? C.t1 : C.t2, border: 'none', borderRadius: 8, fontSize: 17,
-            fontWeight: showHist ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
+          <button onClick={() => setShowDone(h => !h)} style={{
+            padding: '12px 14px', minHeight: 44, background: showDone ? 'rgba(255,255,255,0.08)' : 'transparent',
+            color: showDone ? C.t1 : C.t2, border: 'none', borderRadius: 8, fontSize: 17,
+            fontWeight: showDone ? 600 : 400, cursor: 'pointer', fontFamily: ff, textAlign: 'left',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          }}>Historik <span style={{ fontSize: 13, color: showHist ? C.green : C.t4 }}>{showHist ? 'På' : 'Av'}</span></button>
+          }}>Avslutade <span style={{ fontSize: 13, color: showDone ? C.green : C.t4 }}>{showDone ? 'På' : 'Av'}</span></button>
           <button onClick={() => { setShowGrot(g => !g); if (showGrot) setSelectedGrotId(null); }} style={{
             padding: '12px 14px', minHeight: 44, background: showGrot ? C.yd : 'transparent',
             color: showGrot ? C.yellow : C.t2, border: 'none', borderRadius: 8, fontSize: 17,
@@ -1123,6 +1452,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
           </div>
         </>)}
       </div>
+      )}
 
       {/* Legend + total distance */}
       <div style={{
@@ -1132,7 +1462,7 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
         backdropFilter: 'blur(12px)', padding: '8px 14px', borderRadius: 12, zIndex: 10,
         alignItems: 'center',
       }}>
-        {Object.entries(ST).filter(([k]) => ['planerad', 'pagaende', 'klar'].includes(k)).map(([k, v]) => (
+        {Object.entries(ST).filter(([k]) => ['oplanerad', 'planerad', 'pagaende', 'avslutat'].includes(k)).map(([k, v]) => (
           <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <div style={{ width: 6, height: 6, borderRadius: '50%', background: v.c, opacity: 0.7 }} />
             <span style={{ fontSize: 11, color: C.t3 }}>{v.l}</span>
@@ -1154,8 +1484,31 @@ export default function OversiktKarta({ objekt, maskiner, maskinKo, prodMap }: P
         )}
       </div>
 
-      {selectedObj && <ObjCard obj={selectedObj} prod={prodMap[selectedObj.id]} />}
+      {selectedObj && (() => {
+        const ko = koByObjekt[selectedObj.id];
+        const m = ko ? maskiner.find(x => x.maskin_id === ko.maskinId) : undefined;
+        return (
+          <ObjCard
+            obj={selectedObj}
+            prod={prodMap[selectedObj.id]}
+            warnings={warningsByObj[selectedObj.id]}
+            maskinNamn={m ? getMaskinDisplayName(m) : (ko?.maskinId ?? null)}
+            ko={ko}
+          />
+        );
+      })()}
       {selectedGrotObj && <GrotCard obj={selectedGrotObj} />}
+
+      {/* Förar-sheet (Beslut 1) — bara i förarläge när inget kort är öppet */}
+      {driverMode && !selectedObj && !selectedGrotObj && (
+        <DriverSheet
+          queue={driverQueue}
+          maskinNamn={(() => { const m = maskiner.find(x => x.maskin_id === driverMaskinId); return m ? getMaskinDisplayName(m) : (driverMaskinId ?? null); })()}
+          prodMap={prodMap}
+          warningsByObj={warningsByObj}
+          onSelect={(id) => setSelectedId(id)}
+        />
+      )}
     </div>
   );
 }
