@@ -23,6 +23,27 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
+// === Kartlegend-palett: enda källan för kartans feature-färger ===
+// Alla kart-arrayer (lineTypeDefs, lineTypes, zoneTypes, symbolCategories,
+// getIconBackground/Border, arrowTypes) refererar dessa nycklar så att karta
+// och UI-picker aldrig kan drifta isär. Funktionsnamn där färgen har EN
+// funktion; färgnamn (gul/vatten) där färgen är multifunktions-bas.
+// OBS: UI-chrome refererar INTE hit (egen färgaxel). vagColors (gallring-
+// snitsel = fysiska band) hålls medvetet inline — separat semantisk axel.
+const LEGEND = {
+  fara:          '#ff453a',  // röd       – traktgräns, ej framkomlig, naturvårds-kantrand
+  gul:           '#fbbf24',  // gul       – gräns/basväg-rand, gul väg, kultur-ikonkant
+  vatten:        '#3b82f6',  // blå       – basväg, blå väg, blött, körriktning
+  naturvard:     '#30d158',  // grön      – naturvårdslinje/-zon, naturvård-ikon, fällriktning
+  naturvardKant: '#4ade80',  // ljusgrön  – naturvård-ikonkant
+  kultur:        '#f59e0b',  // ljus amber – kulturmiljö
+  fornlamning:   '#b45309',  // mörk amber – fornlämning (starkt lagskydd)
+  brant:         '#a855f7',  // lila      – brant
+  dike:          '#06b6d4',  // cyan      – dike
+  dikeKant:      '#0e7490',  // mörk cyan – dikeskant
+  vit:           '#fff',     // vit       – stig/led
+};
+
 // === Outlier-filter: skydda 2D-rendering mot felaktiga markeringar med
 // koordinater >1000 SVG-units från objekt-centrum (typiskt ritade när
 // mapCenter stod på fel referens innan ett objekt valts → hamnar km bort).
@@ -557,17 +578,17 @@ export default function PlannerPage() {
 
     // === Line layers per type ===
     const lineTypeDefs = [
-      { id: 'boundary', color: '#ff453a', color2: '#fbbf24', striped: true },
-      { id: 'mainRoad', color: '#3b82f6', color2: '#fbbf24', striped: true },
-      { id: 'backRoadRed', color: '#ff453a' },
-      { id: 'backRoadYellow', color: '#fbbf24' },
-      { id: 'backRoadBlue', color: '#3b82f6' },
-      { id: 'sideRoadRed', color: '#ff453a' },
-      { id: 'sideRoadYellow', color: '#fbbf24' },
-      { id: 'sideRoadBlue', color: '#3b82f6' },
-      { id: 'nature', color: '#30d158', color2: '#ff453a', striped: true },
-      { id: 'ditch', color: '#06b6d4', color2: '#0e7490', striped: true },
-      { id: 'trail', color: '#fff', dashed: true },
+      { id: 'boundary', color: LEGEND.fara, color2: LEGEND.gul, striped: true },
+      { id: 'mainRoad', color: LEGEND.vatten, color2: LEGEND.gul, striped: true },
+      { id: 'backRoadRed', color: LEGEND.fara },
+      { id: 'backRoadYellow', color: LEGEND.gul },
+      { id: 'backRoadBlue', color: LEGEND.vatten },
+      { id: 'sideRoadRed', color: LEGEND.fara },
+      { id: 'sideRoadYellow', color: LEGEND.gul },
+      { id: 'sideRoadBlue', color: LEGEND.vatten },
+      { id: 'nature', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },
+      { id: 'ditch', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
+      { id: 'trail', color: LEGEND.vit, dashed: true },
     ];
     lineTypeDefs.forEach((lt: any) => {
       const isBoundary = lt.id === 'boundary';
@@ -4693,23 +4714,23 @@ export default function PlannerPage() {
   const getIconBackground = (symbolId: string): string => {
     const greenIcons = ['eternitytree', 'naturecorner'];
     const orangeIcons = ['culturemonument', 'culturestump'];
-    if (greenIcons.includes(symbolId)) return '#30d158';
-    if (orangeIcons.includes(symbolId)) return '#f59e0b';
+    if (greenIcons.includes(symbolId)) return LEGEND.naturvard;
+    if (orangeIcons.includes(symbolId)) return LEGEND.kultur;
     return 'rgba(0,0,0,0.6)';
   };
 
   const getIconBorder = (symbolId: string): string => {
     const greenIcons = ['eternitytree', 'naturecorner'];
     const orangeIcons = ['culturemonument', 'culturestump'];
-    if (greenIcons.includes(symbolId)) return '#4ade80';
-    if (orangeIcons.includes(symbolId)) return '#fbbf24';
+    if (greenIcons.includes(symbolId)) return LEGEND.naturvardKant;
+    if (orangeIcons.includes(symbolId)) return LEGEND.gul;
     return 'rgba(255,255,255,0.15)';
   };
 
   const symbolCategories = [
     {
       name: 'Naturvård',
-      bgColor: '#30d158',
+      bgColor: LEGEND.naturvard,
       symbols: [
         { id: 'eternitytree', name: 'Evighetsträd' },
         { id: 'naturecorner', name: 'Naturhörna' },
@@ -4717,7 +4738,7 @@ export default function PlannerPage() {
     },
     {
       name: 'Kultur',
-      bgColor: '#f59e0b',
+      bgColor: LEGEND.kultur,
       symbols: [
         { id: 'culturemonument', name: 'Kulturminne' },
         { id: 'culturestump', name: 'Kulturstubbe' },
@@ -4764,26 +4785,26 @@ export default function PlannerPage() {
   const markerTypes = symbolCategories.flatMap(cat => cat.symbols);
 
   const lineTypes = [
-    { id: 'boundary', name: 'Traktgräns', color: '#ff453a', color2: '#fbbf24', striped: true },
-    { id: 'mainRoad', name: 'Basväg', color: '#3b82f6', color2: '#fbbf24', striped: true },
-    { id: 'backRoadRed', name: 'Backväg Röd', color: '#ff453a', striped: false, isBackRoad: true },
-    { id: 'backRoadYellow', name: 'Backväg Gul', color: '#fbbf24', striped: false, isBackRoad: true },
-    { id: 'backRoadBlue', name: 'Backväg Blå', color: '#3b82f6', striped: false, isBackRoad: true },
-    { id: 'sideRoadRed', name: 'Stickväg Röd', color: '#ff453a', striped: false },
-    { id: 'sideRoadYellow', name: 'Stickväg Gul', color: '#fbbf24', striped: false },
-    { id: 'sideRoadBlue', name: 'Stickväg Blå', color: '#3b82f6', striped: false },
-    { id: 'nature', name: 'Naturvård', color: '#30d158', color2: '#ff453a', striped: true },
-    { id: 'ditch', name: 'Dike', color: '#06b6d4', color2: '#0e7490', striped: true },
-    { id: 'trail', name: 'Stig/Led', color: '#fff', striped: false, dashed: true },
+    { id: 'boundary', name: 'Traktgräns', color: LEGEND.fara, color2: LEGEND.gul, striped: true },
+    { id: 'mainRoad', name: 'Basväg', color: LEGEND.vatten, color2: LEGEND.gul, striped: true },
+    { id: 'backRoadRed', name: 'Backväg Röd', color: LEGEND.fara, striped: false, isBackRoad: true },
+    { id: 'backRoadYellow', name: 'Backväg Gul', color: LEGEND.gul, striped: false, isBackRoad: true },
+    { id: 'backRoadBlue', name: 'Backväg Blå', color: LEGEND.vatten, striped: false, isBackRoad: true },
+    { id: 'sideRoadRed', name: 'Stickväg Röd', color: LEGEND.fara, striped: false },
+    { id: 'sideRoadYellow', name: 'Stickväg Gul', color: LEGEND.gul, striped: false },
+    { id: 'sideRoadBlue', name: 'Stickväg Blå', color: LEGEND.vatten, striped: false },
+    { id: 'nature', name: 'Naturvård', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },
+    { id: 'ditch', name: 'Dike', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
+    { id: 'trail', name: 'Stig/Led', color: LEGEND.vit, striped: false, dashed: true },
   ];
 
   const zoneTypes = [
-    { id: 'wet', name: 'Blött', color: '#3b82f6', icon: 'wet' },
-    { id: 'steep', name: 'Brant', color: '#a855f7', icon: 'steep' },
-    { id: 'protected', name: 'Naturvård', color: '#30d158', icon: 'naturecorner' },
-    { id: 'culture', name: 'Kulturmiljö', color: '#f59e0b', icon: 'culturemonument' },
-    { id: 'noentry', name: 'Ej framkomlig', color: '#ff453a', icon: 'warning' },
-    { id: 'fornlamning', name: 'Fornlämning', color: '#b45309', icon: 'culturemonument' },
+    { id: 'wet', name: 'Blött', color: LEGEND.vatten, icon: 'wet' },
+    { id: 'steep', name: 'Brant', color: LEGEND.brant, icon: 'steep' },
+    { id: 'protected', name: 'Naturvård', color: LEGEND.naturvard, icon: 'naturecorner' },
+    { id: 'culture', name: 'Kulturmiljö', color: LEGEND.kultur, icon: 'culturemonument' },
+    { id: 'noentry', name: 'Ej framkomlig', color: LEGEND.fara, icon: 'warning' },
+    { id: 'fornlamning', name: 'Fornlämning', color: LEGEND.fornlamning, icon: 'culturemonument' },
   ];
 
   const warningCategories = [
@@ -4805,8 +4826,8 @@ export default function PlannerPage() {
   ];
 
   const arrowTypes = [
-    { id: 'fellingdirection', name: 'Fällriktning', color: '#30d158' },
-    { id: 'drivedirection', name: 'Körriktning', color: '#3b82f6' },
+    { id: 'fellingdirection', name: 'Fällriktning', color: LEGEND.naturvard },
+    { id: 'drivedirection', name: 'Körriktning', color: LEGEND.vatten },
   ];
 
   // Färger för stickvägar/backvägar (Gallring)
