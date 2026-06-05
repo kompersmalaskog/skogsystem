@@ -4814,13 +4814,13 @@ export default function PlannerPage() {
       { id: 'avverkning',    name: 'Avverkning',    color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
       { id: 'infrastruktur', name: 'Infrastruktur', color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
       { id: 'terrang',       name: 'Terräng',       color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
-      { id: 'ovrigt',        name: 'Övrigt/Varning', color: '#E53935', defaultWarn: 50, defaultFade: 300 },
+      { id: 'ovrigt',        name: 'Övrigt/Varning', color: LEGEND.fara, defaultWarn: 50, defaultFade: 300 },
     ]},
     { section: 'Zoner', items: [
       { id: 'zone_wet',        name: 'Blött område',     color: '#3b82f6', defaultWarn: 30, defaultFade: 200 },
       { id: 'zone_steep',      name: 'Brant',            color: '#a855f7', defaultWarn: 30, defaultFade: 200 },
       { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#30d158', defaultWarn: 30, defaultFade: 200 },
-      { id: 'zone_culture',    name: 'Fornlämningszon',  color: '#ff453a', defaultWarn: 50, defaultFade: 300 },
+      { id: 'zone_culture',    name: 'Fornlämningszon',  color: LEGEND.fornlamning, defaultWarn: 50, defaultFade: 300 },
       { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ff453a', defaultWarn: 30, defaultFade: 200 },
     ]},
   ];
