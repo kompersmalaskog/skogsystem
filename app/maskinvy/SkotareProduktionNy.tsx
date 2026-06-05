@@ -348,6 +348,76 @@ function BarChart({ data, onBarClick }: {
   )
 }
 
+// ── Aktivitetskalender ────────────────────────────────────────
+// Exakt samma layout som skördarens Calendar i ProduktionNy,
+// men med blå färg (#0a84ff) konsekvent med stapeldiagrammet.
+// Aktiva dagar = dagar med minst ett lass.
+function SkotareCalendar({ data, onDayClick }: {
+  data: { datum: string; volym: number; lass: number; dayOfMonth: number }[]
+  onDayClick: (datum: string) => void
+}) {
+  if (data.length === 0) return null
+
+  const firstDate = new Date(data[0].datum + 'T12:00:00')
+  const firstDow  = firstDate.getDay()
+  const padBefore = firstDow === 0 ? 6 : firstDow - 1
+
+  const cells: ((typeof data[0]) | null)[] = []
+  for (let i = 0; i < padBefore; i++) cells.push(null)
+  for (const d of data) cells.push(d)
+  while (cells.length % 7 !== 0) cells.push(null)
+
+  return (
+    <div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4, marginBottom: 8 }}>
+        {['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'].map((d, i) => (
+          <div key={i} style={{
+            fontSize: 10, color: C.muted, textAlign: 'center', fontWeight: 500,
+            letterSpacing: 0.3,
+          }}>{d}</div>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 4 }}>
+        {cells.map((c, i) => {
+          if (!c) return <div key={i} style={{ aspectRatio: '1', borderRadius: 6 }} />
+          const aktiv = c.lass > 0
+          const bg    = aktiv ? C.blue : '#2c2c2e'
+          const color = aktiv ? '#001a33' : C.muted
+          return (
+            <button
+              key={i}
+              onClick={() => onDayClick(c.datum)}
+              title={aktiv
+                ? `${c.dayOfMonth}: ${c.lass} lass · ${Math.round(c.volym).toLocaleString('sv-SE')} m³`
+                : `${c.dayOfMonth}: Ej aktiv`}
+              style={{
+                aspectRatio: '1', borderRadius: 6, border: 'none',
+                background: bg,
+                fontSize: 12, fontWeight: 600, color,
+                fontFamily: FONT, cursor: 'pointer',
+                fontVariantNumeric: 'tabular-nums',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              {c.dayOfMonth}
+            </button>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', gap: 16, marginTop: 14, fontSize: 11, color: C.muted }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 10, height: 10, borderRadius: 3, background: C.blue }} />
+          <span>Utkörning</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{ width: 10, height: 10, borderRadius: 3, background: '#2c2c2e' }} />
+          <span>Ej aktiv</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── MetricKort ────────────────────────────────────────────────
 function MetricKort({ label, value, unit, dec = 0, loading }: {
   label: string; value: number | null; unit: string; dec?: number; loading: boolean
@@ -529,13 +599,21 @@ export default function SkotareProduktionNy() {
   }, [maskin.namn, label])
 
   // Bygg buckets beroende på period
-  const perDag      = data?.perDag ?? {}
+  const perDag       = data?.perDag ?? {}
   const dailyBuckets = buildDailyBuckets(perDag, start, end)
   const bars: Bucket[] = (() => {
     if (period === 'K') return buildWeeklyBuckets(perDag, start, end)
     if (period === 'Å') return buildMonthlyBuckets(perDag, start, end)
     return dailyBuckets
   })()
+
+  // Kalender — alltid dagliga buckets, oavsett period (samma som skördarens kalender)
+  const calendarData = dailyBuckets.map(b => ({
+    datum:      b.key,
+    volym:      b.volym,
+    lass:       b.lass,
+    dayOfMonth: new Date(b.key + 'T12:00:00').getDate(),
+  }))
 
   // Slå upp öppen bucket
   const openBucket: Bucket | null = openBucketKey
@@ -702,6 +780,33 @@ export default function SkotareProduktionNy() {
             <BarChart
               data={bars.map(b => ({ key: b.key, label: b.label, vol: b.volym }))}
               onBarClick={key => setOpenBucketKey(key)}
+            />
+          )}
+        </div>
+
+        {/* Aktivitetskalender — alltid daglig, oavsett vald period */}
+        <div style={{ background: C.card, borderRadius: 14, padding: '14px 16px 16px', marginBottom: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 12 }}>
+            Aktivitet
+          </div>
+          {loading ? (
+            <div style={{
+              height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: C.dim, fontSize: 11,
+            }}>—</div>
+          ) : calendarData.length > 100 ? (
+            <div style={{
+              height: 120, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              flexDirection: 'column', gap: 6,
+              color: C.dim, fontSize: 12, textAlign: 'center',
+            }}>
+              <div>Årsvyns kalender</div>
+              <div style={{ fontSize: 11 }}>Kommer i steg 2</div>
+            </div>
+          ) : (
+            <SkotareCalendar
+              data={calendarData}
+              onDayClick={d => setOpenBucketKey(d)}
             />
           )}
         </div>
