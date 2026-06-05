@@ -11,6 +11,7 @@ import AvbrottNy from './AvbrottNy'
 import IdagNy from './IdagNy'
 import SkotareOversiktNy from './SkotareOversiktNy'
 import SkotareProduktionNy from './SkotareProduktionNy'
+import SkotareAvbrottNy from './SkotareAvbrottNy'
 
 type Mode = 'skordare' | 'skotare' | 'jamforelse'
 
@@ -29,6 +30,7 @@ const NY_VYER: { key: string; label: string }[] = [
 const SKOTARE_NY_VYER: { key: string; label: string }[] = [
   { key: '',           label: 'Översikt'   },
   { key: 'produktion', label: 'Produktion' },
+  { key: 'avbrott',    label: 'Avbrott'    },
 ]
 
 export default function MaskinvyPage() {
@@ -214,6 +216,7 @@ export default function MaskinvyPage() {
                   : <Maskinvy />)
               : (ny
                   ? (vy === 'produktion' ? <SkotareProduktionNy />
+                     : vy === 'avbrott'  ? <SkotareAvbrottNy />
                      : <SkotareOversiktNy />)
                   : <SkotareVy />)}
           </div>
