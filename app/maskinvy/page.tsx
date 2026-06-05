@@ -9,6 +9,7 @@ import OversiktNy from './OversiktNy'
 import ProduktionNy from './ProduktionNy'
 import AvbrottNy from './AvbrottNy'
 import IdagNy from './IdagNy'
+import SkotareOversiktNy from './SkotareOversiktNy'
 
 type Mode = 'skordare' | 'skotare' | 'jamforelse'
 
@@ -204,9 +205,9 @@ export default function MaskinvyPage() {
                      : vy === 'idag'       ? <IdagNy />
                      : <OversiktNy />)
                   : <Maskinvy />)
-              : <SkotareVy />}
+              : (ny ? <SkotareOversiktNy /> : <SkotareVy />)}
           </div>
-          {!(ny && mode === 'skordare') && <MaskinLogg mode={mode} />}
+          {!(ny && (mode === 'skordare' || mode === 'skotare')) && <MaskinLogg mode={mode} />}
         </>
       )}
     </>
