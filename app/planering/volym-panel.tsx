@@ -27,7 +27,7 @@ export default function VolymPanel({ resultat, loading, onClose, onRetry, korbar
       right: 0,
       background: '#111',
       borderTop: '1px solid rgba(255,255,255,0.1)',
-      borderRadius: '20px 20px 0 0',
+      borderRadius: '16px 16px 0 0',
       zIndex: 450,
       maxHeight: 'calc(70vh + env(safe-area-inset-bottom, 0px))',
       paddingBottom: 'env(safe-area-inset-bottom, 0px)',
@@ -56,7 +56,7 @@ export default function VolymPanel({ resultat, loading, onClose, onRetry, korbar
       {loading && (
         <div style={{ padding: '40px 20px', textAlign: 'center' }}>
           <div style={{ width: '32px', height: '32px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#30d158', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 12px' }} />
-          <div style={{ fontSize: '14px', opacity: 0.75 }}>Beräknar volym via Skogliga Grunddata...</div>
+          <div style={{ fontSize: '13px', opacity: 0.75 }}>Beräknar volym via Skogliga Grunddata...</div>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       )}
@@ -64,7 +64,7 @@ export default function VolymPanel({ resultat, loading, onClose, onRetry, korbar
       {resultat?.status === 'error' && (
         <div style={{ padding: '24px 20px', textAlign: 'center' }}>
           <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', color: '#ff453a', marginBottom: '8px', display: 'block' }}>warning</span>
-          <div style={{ fontSize: '14px', color: '#ff453a' }}>{resultat.felmeddelande}</div>
+          <div style={{ fontSize: '13px', color: '#ff453a' }}>{resultat.felmeddelande}</div>
           {onRetry && (
             <button type="button" onClick={onRetry} style={retryBtnStyle}>Försök igen</button>
           )}
@@ -74,7 +74,7 @@ export default function VolymPanel({ resultat, loading, onClose, onRetry, korbar
       {resultat?.status === 'no_data' && (
         <div style={{ padding: '24px 20px', textAlign: 'center' }}>
           <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '32px', opacity: 0.5, marginBottom: '8px', display: 'block' }}>forest</span>
-          <div style={{ fontSize: '14px', opacity: 0.75 }}>{resultat.felmeddelande}</div>
+          <div style={{ fontSize: '13px', opacity: 0.75 }}>{resultat.felmeddelande}</div>
           <div style={{ fontSize: '13px', opacity: 0.65, marginTop: '4px' }}>Areal: {resultat.areal} ha</div>
           {onRetry && (
             <button type="button" onClick={onRetry} style={retryBtnStyle}>Försök igen</button>
@@ -114,11 +114,11 @@ export default function VolymPanel({ resultat, loading, onClose, onRetry, korbar
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
               <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '10px 12px', textAlign: 'center' }}>
                 <div style={{ fontSize: '13px', opacity: 0.75, marginBottom: '4px' }}>Skogsmark</div>
-                <div style={{ fontSize: '14px', fontWeight: '600' }}>{fmtNum(resultat.arealSkog, 2)} ha ({Math.round(resultat.andelSkog * 100)}%)</div>
+                <div style={{ fontSize: '13px', fontWeight: '600' }}>{fmtNum(resultat.arealSkog, 2)} ha ({Math.round(resultat.andelSkog * 100)}%)</div>
               </div>
               <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: '12px', padding: '10px 12px', textAlign: 'center' }}>
                 <div style={{ fontSize: '13px', opacity: 0.75, marginBottom: '4px' }}>Medeldiameter</div>
-                <div style={{ fontSize: '14px', fontWeight: '600' }}>{resultat.medeldiameter} cm</div>
+                <div style={{ fontSize: '13px', fontWeight: '600' }}>{resultat.medeldiameter} cm</div>
               </div>
             </div>
           )}
@@ -144,10 +144,10 @@ export default function VolymPanel({ resultat, loading, onClose, onRetry, korbar
             {/* Rader */}
             {resultat.tradslag.map(t => (
               <div key={t.namn} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 80px 50px', gap: '4px', padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
-                <span style={{ fontSize: '14px' }}>{t.namn}</span>
-                <span style={{ fontSize: '14px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(t.volymHa, 1)}</span>
-                <span style={{ fontSize: '14px', textAlign: 'right', fontWeight: '500', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(t.totalVolym)}</span>
-                <span style={{ fontSize: '14px', textAlign: 'right', opacity: 0.75, fontVariantNumeric: 'tabular-nums' }}>{Math.round(t.andel * 100)}%</span>
+                <span style={{ fontSize: '13px' }}>{t.namn}</span>
+                <span style={{ fontSize: '13px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(t.volymHa, 1)}</span>
+                <span style={{ fontSize: '13px', textAlign: 'right', fontWeight: '500', fontVariantNumeric: 'tabular-nums' }}>{fmtNum(t.totalVolym)}</span>
+                <span style={{ fontSize: '13px', textAlign: 'right', opacity: 0.75, fontVariantNumeric: 'tabular-nums' }}>{Math.round(t.andel * 100)}%</span>
               </div>
             ))}
           </div>
@@ -168,7 +168,7 @@ export default function VolymPanel({ resultat, loading, onClose, onRetry, korbar
               }}>
                 {/* Ja/Nej-bedömning */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                  <span style={{ fontSize: '14px', fontWeight: '600', color: resultat.gallring.behov ? '#ff453a' : '#30d158' }}>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: resultat.gallring.behov ? '#ff453a' : '#30d158' }}>
                     Gallringsbehov: {resultat.gallring.behov ? 'Ja' : 'Nej'}
                   </span>
                   <span style={{ fontSize: '13px', opacity: 0.75 }}>Mall: {resultat.gallring.sis}</span>
@@ -191,7 +191,7 @@ export default function VolymPanel({ resultat, loading, onClose, onRetry, korbar
                   ].map(item => (
                     <div key={item.label} style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: '13px', opacity: 0.75, marginBottom: '2px' }}>{item.label}</div>
-                      <div style={{ fontSize: '14px', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{item.value}</div>
+                      <div style={{ fontSize: '13px', fontWeight: '600', fontVariantNumeric: 'tabular-nums' }}>{item.value}</div>
                       <div style={{ fontSize: '13px', opacity: 0.7 }}>{item.unit}</div>
                     </div>
                   ))}
