@@ -271,7 +271,7 @@ export async function fetchData(
     }
   })
   .filter(o => o.volym > 0 || o.stammar > 0)
-  .sort((a, b) => b.volym - a.volym)
+  .sort((a, b) => a.namn.localeCompare(b.namn, 'sv'))
 
   return {
     volym, stammar, g15h, produktivitet, medelstam,
@@ -840,7 +840,8 @@ export function AvbrottCard({ data, loading }: { data: Data | null; loading: boo
 }
 
 // ─────────────────────────────────────────────────────────────
-// OperatorList — initialer, namn, G15h + m³/G15h, volym + chevron
+// OperatorList — initialer, namn, takt (m³/G15h) som huvudtal,
+// dagar + volym som grå kontext. Sorteras alfabetiskt — ingen ranking.
 // Klickbar via onSelect — utan: bara visning.
 // ─────────────────────────────────────────────────────────────
 export function initials(namn: string): string {
@@ -890,12 +891,14 @@ export function OperatorList({ operatorer, loading, onSelect }: {
           <div>
             <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>{o.namn}</div>
             <div style={{ fontSize: 11, color: C.muted, marginTop: 2, fontVariantNumeric: 'tabular-nums' }}>
-              {fmtSv(o.g15h, 0)} G15h · {o.prod !== null ? fmtSv(o.prod, 1) : '—'} m³/G15h
+              {fmtSv(o.dagar, 0)} {o.dagar === 1 ? 'dag' : 'dagar'} · {fmtSv(o.volym, 0)} m³
             </div>
           </div>
-          <div style={{ fontSize: 15, fontWeight: 500, color: C.text, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>
-            {fmtSv(o.volym, 0)}
-            <span style={{ fontSize: 11, color: C.muted, marginLeft: 3, fontWeight: 400 }}>m³</span>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 15, fontWeight: 500, color: C.text, fontVariantNumeric: 'tabular-nums' }}>
+              {o.prod !== null ? fmtSv(o.prod, 1) : '—'}
+            </div>
+            <div style={{ fontSize: 11, color: C.muted, marginTop: 1 }}>m³/G15h</div>
           </div>
           <div style={{ color: C.dim, fontSize: 16, textAlign: 'right' }}>›</div>
         </button>
