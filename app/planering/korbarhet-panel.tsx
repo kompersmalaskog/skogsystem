@@ -145,7 +145,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
               {cfg.icon}
             </div>
             <div>
-              <div style={{ fontSize: '14px', fontWeight: '700', color: cfg.color, marginBottom: '2px' }}>
+              <div style={{ fontSize: '13px', fontWeight: '700', color: cfg.color, marginBottom: '2px' }}>
                 {cfg.label}
               </div>
               <div style={{ fontSize: '13px', opacity: 0.85, lineHeight: '1.4' }}>
@@ -253,7 +253,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
             <div style={{
               background: 'rgba(96,165,250,0.12)',
               border: '1px solid rgba(96,165,250,0.25)',
-              borderRadius: '10px',
+              borderRadius: '12px',
               padding: '8px 12px',
               fontSize: '13px',
               marginBottom: '12px',
@@ -269,7 +269,7 @@ export default function KorbarhetPanel({ resultat, loading, totalVolymM3sk }: Ko
             <div style={{
               background: 'rgba(239,68,68,0.12)',
               border: '1px solid rgba(239,68,68,0.25)',
-              borderRadius: '10px',
+              borderRadius: '12px',
               padding: '10px 12px',
               fontSize: '13px',
             }}>
