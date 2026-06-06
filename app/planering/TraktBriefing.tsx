@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { ZONE_COLORS } from '@/lib/zone-colors'
 
 // === Types ===
 interface Point { x: number; y: number }
@@ -109,11 +110,6 @@ const ICON_SVG: Record<string, string> = {
   warning: '<path d="M12 3 L22 21 L2 21 Z" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/><line x1="12" y1="9" x2="12" y2="14" stroke="#fff" stroke-width="2.5" stroke-linecap="round"/><circle cx="12" cy="17" r="1.2" fill="#fff"/>',
 };
 
-// Zone colors (must match page.tsx zoneTypes)
-const ZONE_COLORS: Record<string, string> = {
-  wet: '#3b82f6', steep: '#a855f7', protected: '#30d158',
-  culture: '#f59e0b', noentry: '#ff453a', fornlamning: '#ff453a',
-};
 // Zone icon mapping (zones use a different icon type than their zoneType id)
 const ZONE_ICON: Record<string, string> = {
   wet: 'wet', steep: 'steep', protected: 'naturecorner',
