@@ -54,6 +54,9 @@ interface SymbolCategory {
   symbols: { id: string; name: string }[];
 }
 
+// STEG 6a-3: en rad i objekt_kvittering (per objekt + roll). kvitterat_at satt = låst kvitto.
+export type KvittRad = { checked_ids: string[]; kvitterat_av_id: string | null; kvitterat_av_namn: string | null; kvitterat_at: string | null };
+
 interface Props {
   markers: Marker[];
   mapInstanceRef: React.MutableRefObject<any>;
@@ -66,7 +69,12 @@ interface Props {
   traktName?: string;
   onClose: () => void;
   onActiveMarkerChange?: (markerId: string | null) => void;
-  onStartDriving?: () => void;
+  currentRole?: 'skordare' | 'skotare' | null;
+  kvittSkordare?: KvittRad | null;
+  kvittSkotare?: KvittRad | null;
+  onKvittera?: (checkedIds: string[]) => void;
+  isAdmin?: boolean;
+  onNollstall?: (roll: 'skordare' | 'skotare') => void;
   mode?: 'briefing' | 'checklist';
   checkedStepIds?: string[];
   onChecklistChange?: (checkedIds: string[]) => void;
@@ -246,7 +254,8 @@ function getBearing(from: {lat:number;lon:number}, to: {lat:number;lon:number}) 
 export default function TraktBriefing({
   markers, mapInstanceRef, svgToLatLon, symbolCategories,
   lineTypes, zoneTypes, overlays, setOverlays, traktName, onClose, onActiveMarkerChange,
-  onStartDriving,
+  currentRole = null, kvittSkordare = null, kvittSkotare = null, onKvittera,
+  isAdmin = false, onNollstall,
   mode = 'briefing', checkedStepIds, onChecklistChange, onBriefingComplete, onShowOnMap,
 }: Props) {
   const [currentStep, setCurrentStep] = useState(-1);
@@ -258,18 +267,24 @@ export default function TraktBriefing({
   const rotationRef = useRef<any>(null);
   const wmsPulseRef = useRef<any>(null);
   const prevOverlaysRef = useRef<Record<string, boolean> | null>(null);
-  // Checklist state (for toolbar compat)
+  // Checklist state — EN lista (mandatory + Kvittering sammanslagna, STEG 6a-3)
   const [checklistOpen, setChecklistOpen] = useState(false);
-  const [checkedItems, setCheckedItems] = useState<Set<string>>(() => new Set(checkedStepIds || []));
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  const [resetConfirm, setResetConfirm] = useState<'skordare' | 'skotare' | null>(null);  // admin-nollställning (L3)
   const [panelHeight, setPanelHeight] = useState(50);
   const dragStartRef = useRef<{ y: number; h: number } | null>(null);
 
-  // Mandatory checklist state (pre-driving)
-  const [mandatoryChecklistOpen, setMandatoryChecklistOpen] = useState(false);
-  const [mandatoryChecked, setMandatoryChecked] = useState<Set<string>>(new Set());
-  const [mandatoryExpanded, setMandatoryExpanded] = useState<string | null>(null);
-  const [mapViewItem, setMapViewItem] = useState<string | null>(null);
+  // Aktuell rolls kvitto + checkad-set (härledd från checkedStepIds = minRolls checked_ids)
+  const myKvitto: KvittRad | null = currentRole === 'skordare' ? kvittSkordare : currentRole === 'skotare' ? kvittSkotare : null;
+  const kvitterat = !!myKvitto?.kvitterat_at;
+  const checkedSet = new Set(checkedStepIds || []);
+  // G4 + läsläge: efter kvitto, eller om man inte är tilldelad rollen, går inget att bocka.
+  const toggleItem = (id: string) => {
+    if (kvitterat || currentRole === null) return;
+    const next = new Set(checkedSet);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    onChecklistChange?.(Array.from(next));
+  };
 
   // === BUILD STEPS ===
   useEffect(() => {
@@ -666,10 +681,9 @@ export default function TraktBriefing({
         try { map.setPaintProperty('wms-layer-fastighetsgranser', 'raster-opacity', 0.7); } catch {}
       }
     }
-    onChecklistChange?.(Array.from(checkedItems));
     onActiveMarkerChange?.(null);
     onClose();
-  }, [onClose, onActiveMarkerChange, mapInstanceRef, checkedItems, onChecklistChange]);
+  }, [onClose, onActiveMarkerChange, mapInstanceRef]);
 
   // Keyboard
   useEffect(() => {
@@ -732,7 +746,7 @@ export default function TraktBriefing({
   // ============================================================
   // === START SCREEN — just map + button ===
   // ============================================================
-  if (currentStep === -1 && !checklistOpen && !mandatoryChecklistOpen) {
+  if (currentStep === -1 && !checklistOpen) {
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', pointerEvents: 'none' }}>
         <button onClick={() => goToStep(0)} style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}>
@@ -743,603 +757,238 @@ export default function TraktBriefing({
   }
 
   // ============================================================
-  // === MAP VIEW ITEM — floating back button ===
-  // ============================================================
-  if (mapViewItem && !mandatoryChecklistOpen && !checklistOpen) {
-    return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', pointerEvents: 'none' }}>
-        <div style={{ display: 'flex', gap: '10px', marginBottom: 'max(44px, env(safe-area-inset-bottom))', pointerEvents: 'auto' }}>
-          <button
-            onClick={() => {
-              const src = mapViewItem.startsWith('mandatory-') ? 'mandatory' : 'checklist';
-              if (src === 'mandatory') setMandatoryChecklistOpen(true);
-              else setChecklistOpen(true);
-              setMapViewItem(null);
-              onActiveMarkerChange?.(null);
-            }}
-            style={{ ...glassBtnStyle, background: 'rgba(255,255,255,0.06)', color: '#e8f0e0', border: '1px solid rgba(255,255,255,0.1)' }}
-          >← Tillbaka</button>
-          <button
-            onClick={() => {
-              const itemId = mapViewItem.replace('mandatory-', '');
-              setMandatoryChecked(prev => { const n = new Set(prev); n.add(itemId); return n; });
-              const src = mapViewItem.startsWith('mandatory-') ? 'mandatory' : 'checklist';
-              if (src === 'mandatory') setMandatoryChecklistOpen(true);
-              else {
-                setCheckedItems(prev => { const n = new Set(prev); n.add(itemId); onChecklistChange?.(Array.from(n)); return n; });
-                setChecklistOpen(true);
-              }
-              setMapViewItem(null);
-              onActiveMarkerChange?.(null);
-            }}
-            style={{ ...glassBtnStyle }}
-          >✓ Klar</button>
-        </div>
-      </div>
-    );
-  }
-
-  // ============================================================
-  // === MANDATORY CHECKLIST (pre-driving) ===
-  // ============================================================
-  if (mandatoryChecklistOpen) {
-    const boundary = markers.find(m => m.isLine && m.lineType === 'boundary');
-    const aboutNotes = boundary?.notes || [];
-    const aboutComment = boundary?.comment;
-    const aboutAudio = boundary?.audioData;
-    const hasLegacyAbout = !!(aboutComment || aboutAudio) && aboutNotes.length === 0;
-    const mandatorySteps = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about');
-    const aboutCheckCount = aboutNotes.length > 0 ? aboutNotes.length : (hasLegacyAbout ? 1 : 0);
-    const totalMandatory = mandatorySteps.length + aboutCheckCount;
-    const checkedMandatoryCount = mandatoryChecked.size;
-    const allChecked = checkedMandatoryCount >= totalMandatory;
-    const progressPct = totalMandatory > 0 ? Math.round((checkedMandatoryCount / totalMandatory) * 100) : 0;
-    const fmtDate = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()]}`; };
-
-    return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 700, background: 'rgba(10,15,8,0.95)', backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)', display: 'flex', flexDirection: 'column' }}>
-        {/* Header */}
-        <div style={{ padding: '20px 20px 0', flexShrink: 0 }}>
-          <div style={{ paddingTop: 'env(safe-area-inset-top)' }} />
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <div style={{ fontSize: '18px', fontWeight: '700', color: '#e8f0e0' }}>Gå igenom innan du kör</div>
-            <div
-              onClick={() => { setMandatoryChecklistOpen(false); }}
-              style={{ width: '30px', height: '30px', borderRadius: '15px', background: 'rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
-            >
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="2" strokeLinecap="round">
-                <path d="M1 1 L11 11" /><path d="M11 1 L1 11" />
-              </svg>
-            </div>
-          </div>
-          <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.4)', marginBottom: '12px' }}>{checkedMandatoryCount} av {totalMandatory} avklarade</div>
-          {/* Progress bar */}
-          <div style={{ height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)' }}>
-            <div style={{ height: '100%', borderRadius: '2px', background: A, width: `${progressPct}%`, transition: 'width 0.3s ease' }} />
-          </div>
-        </div>
-
-        {/* Content — flat list */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0', WebkitOverflowScrolling: 'touch' }}>
-          {/* Om trakten — anteckningar (direkt från boundary marker) */}
-          {aboutNotes.length > 0 && (
-            <div>
-              <div style={{ padding: '12px 20px 6px', fontSize: '11px', fontWeight: '700', color: 'rgba(138,180,96,0.4)' }}>
-                Anteckningar
-              </div>
-              {aboutNotes.map((note, idx) => {
-                const noteKey = `about-note-${note.id}`;
-                const isNoteChecked = mandatoryChecked.has(noteKey);
-                const isNoteExpanded = mandatoryExpanded === noteKey;
-                const isNew = checkedStepIds && !checkedStepIds.includes(noteKey);
-                return (
-                  <div key={note.id}>
-                    <div
-                      onClick={() => setMandatoryExpanded(prev => prev === noteKey ? null : noteKey)}
-                      style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 20px', opacity: isNoteChecked ? 0.35 : 1, background: isNoteExpanded ? 'rgba(138,180,96,0.06)' : 'transparent', cursor: 'pointer', transition: 'opacity 0.3s, background 0.2s' }}
-                    >
-                      <div
-                        onClick={(e) => { e.stopPropagation(); setMandatoryChecked(prev => { const n = new Set(prev); if (n.has(noteKey)) n.delete(noteKey); else n.add(noteKey); return n; }); }}
-                        style={{ width: '22px', height: '22px', borderRadius: '6px', border: isNoteChecked ? 'none' : '2px solid rgba(255,255,255,0.12)', background: isNoteChecked ? A : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
-                      >
-                        {isNoteChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
-                      </div>
-                      <div style={{ width: '22px', height: '22px', borderRadius: '11px', background: 'rgba(138,180,96,0.15)', color: A, fontSize: '11px', fontWeight: '700', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{idx + 1}</div>
-                      <div style={{ flex: 1, fontSize: '13px', fontWeight: '500', color: isNoteChecked ? 'rgba(255,255,255,0.25)' : 'rgba(232,240,224,0.7)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {note.audioData && !note.text ? '🎤 Röstmeddelande' : (note.text || '')}
-                        {note.audioData && note.text ? ' 🎤' : ''}
-                      </div>
-                      {isNew && !isNoteChecked && (
-                        <div style={{ padding: '2px 6px', borderRadius: '4px', background: 'rgba(138,180,96,0.2)', color: A, fontSize: '10px', fontWeight: '700', flexShrink: 0 }}>NY</div>
-                      )}
-                    </div>
-                    {isNoteExpanded && (
-                      <div style={{ padding: '4px 20px 12px 74px' }}>
-                        {note.audioData && (
-                          <div style={{ marginBottom: '8px' }}>
-                            <audio controls src={note.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
-                          </div>
-                        )}
-                        {note.text && (
-                          <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)' }}>
-                            <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.6)', lineHeight: '1.5' }}>{note.text}</div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {/* Legacy fallback: comment/audio without notes */}
-          {hasLegacyAbout && (() => {
-            const isChecked = mandatoryChecked.has('about');
-            const isExpanded = mandatoryExpanded === 'about';
-            return (
-              <div>
-                <div
-                  onClick={() => setMandatoryExpanded(prev => prev === 'about' ? null : 'about')}
-                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 20px', opacity: isChecked ? 0.35 : 1, background: isExpanded ? 'rgba(138,180,96,0.06)' : 'transparent', cursor: 'pointer', transition: 'opacity 0.3s, background 0.2s' }}
-                >
-                  <div
-                    onClick={(e) => { e.stopPropagation(); setMandatoryChecked(prev => { const n = new Set(prev); if (n.has('about')) n.delete('about'); else n.add('about'); return n; }); }}
-                    style={{ width: '22px', height: '22px', borderRadius: '6px', border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.12)', background: isChecked ? A : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
-                  >
-                    {isChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
-                  </div>
-                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 18, flexShrink: 0, color: 'rgba(255,255,255,0.85)' }}>edit_note</span>
-                  <div style={{ flex: 1, fontSize: '14px', fontWeight: '500', color: isChecked ? 'rgba(255,255,255,0.25)' : '#e8f0e0' }}>Om trakten</div>
-                </div>
-                {isExpanded && (
-                  <div style={{ padding: '4px 20px 12px 72px' }}>
-                    {aboutAudio && (
-                      <div style={{ marginBottom: '8px' }}>
-                        <audio controls src={aboutAudio} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
-                      </div>
-                    )}
-                    {aboutComment && (
-                      <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)' }}>
-                        <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.6)', lineHeight: '1.5' }}>{aboutComment}</div>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
-
-          {/* Markeringar — flat list, no category grouping */}
-          {mandatorySteps.length > 0 && aboutNotes.length > 0 && (
-            <div style={{ padding: '12px 20px 6px', fontSize: '11px', fontWeight: '700', color: 'rgba(138,180,96,0.4)' }}>
-              Markeringar
-            </div>
-          )}
-          {mandatorySteps.map(item => {
-            const isChecked = mandatoryChecked.has(item.id);
-            const isExpanded = mandatoryExpanded === item.id;
-            return (
-              <div key={item.id}>
-                <div
-                  onClick={() => {
-                    if (isExpanded) { setMandatoryExpanded(null); onActiveMarkerChange?.(null); }
-                    else {
-                      setMandatoryExpanded(item.id);
-                      onActiveMarkerChange?.(item.marker?.id || null);
-                    }
-                  }}
-                  style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 20px', opacity: isChecked ? 0.35 : 1, background: isExpanded ? 'rgba(138,180,96,0.06)' : 'transparent', cursor: 'pointer', transition: 'opacity 0.3s, background 0.2s' }}
-                >
-                  <div
-                    onClick={(e) => { e.stopPropagation(); setMandatoryChecked(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); return n; }); }}
-                    style={{ width: '22px', height: '22px', borderRadius: '6px', border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.12)', background: isChecked ? A : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: 'pointer' }}
-                  >
-                    {isChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '700' }}>&#10003;</span>}
-                  </div>
-                  <MarkerIconSvg marker={item.marker} fallbackEmoji={item.icon} size={28} />
-                  <div style={{ flex: 1, fontSize: '14px', fontWeight: '500', color: isChecked ? 'rgba(255,255,255,0.25)' : '#e8f0e0' }}>{item.title}</div>
-                </div>
-                {isExpanded && (
-                  <div style={{ padding: '4px 20px 12px 72px' }}>
-                    {item.audioData && (
-                      <div style={{ marginBottom: '8px' }}>
-                        <audio controls src={item.audioData} style={{ width: '100%', height: '36px', borderRadius: '8px' }} />
-                      </div>
-                    )}
-                    {item.comment && (
-                      <div style={{ padding: '10px 14px', borderRadius: '8px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.04)', marginBottom: '8px' }}>
-                        <div style={{ fontSize: '13px', color: 'rgba(232,240,224,0.6)', lineHeight: '1.5' }}>{item.comment}</div>
-                      </div>
-                    )}
-                    {item.photoData && (
-                      <div style={{ marginBottom: '8px' }}>
-                        <img src={item.photoData} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }} />
-                      </div>
-                    )}
-                    {item.center && (
-                      <button
-                        onClick={() => {
-                          if (onShowOnMap && item.center) {
-                            onShowOnMap(item.id, item.center, item.marker?.id, 'mandatory', {
-                              bbox: item.bbox, zoom: item.zoom, type: item.type,
-                              comment: item.comment, audioData: item.audioData, photoData: item.photoData, title: item.title, icon: item.icon,
-                            });
-                            setMandatoryChecklistOpen(false);
-                          }
-                        }}
-                        style={{ padding: '8px 16px', borderRadius: '10px', border: '1px solid rgba(138,180,96,0.15)', background: 'rgba(138,180,96,0.06)', color: A, fontSize: '13px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                      ><span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 16 }}>pin_drop</span> Visa på kartan</button>
-                    )}
-                    {!item.audioData && !item.comment && !item.photoData && (
-                      <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>Ingen extra information</div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Footer */}
-        <div style={{ padding: '16px 20px', paddingBottom: 'max(20px, env(safe-area-inset-bottom))', borderTop: '1px solid rgba(255,255,255,0.04)', flexShrink: 0 }}>
-          <button
-            onClick={() => {
-              onStartDriving?.();
-              handleClose();
-            }}
-            disabled={!allChecked}
-            style={{
-              width: '100%', padding: '16px',
-              background: allChecked ? A : 'rgba(138,180,96,0.1)',
-              color: allChecked ? '#0a0f08' : 'rgba(138,180,96,0.3)',
-              border: 'none', borderRadius: '14px',
-              fontSize: '16px', fontWeight: '700',
-              cursor: allChecked ? 'pointer' : 'default',
-              transition: 'all 0.3s ease',
-            }}
-          >
-            Jag har tagit del av allt – börja köra
-          </button>
-          {!allChecked && (
-            <div style={{ textAlign: 'center', fontSize: '12px', color: 'rgba(255,255,255,0.2)', marginTop: '8px' }}>
-              Bocka av alla punkter ovan för att fortsätta
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // ============================================================
-  // === CHECKLIST MODE (toolbar compat) ===
+  // === KVITTERING — EN lista, tre tillstånd (STEG 6a-3) ===
+  // att göra → kvitterat → referens (låst). Två oberoende roller.
   // ============================================================
   if (checklistOpen) {
-    const checklistBoundary = markers.find(m => m.isLine && m.lineType === 'boundary');
-    const checklistNotes = checklistBoundary?.notes || [];
-    const checklistLegacyComment = checklistBoundary?.comment;
-    const checklistLegacyAudio = checklistBoundary?.audioData;
-    const hasChecklistLegacy = !!(checklistLegacyComment || checklistLegacyAudio) && checklistNotes.length === 0;
-    const checklistSteps = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about');
-    const noteCheckCount = checklistNotes.length > 0 ? checklistNotes.length : (hasChecklistLegacy ? 1 : 0);
-    const totalItems = checklistSteps.length + noteCheckCount;
-    const noteCheckedCount = checklistNotes.length > 0
-      ? checklistNotes.filter(n => checkedItems.has(`about-note-${n.id}`)).length
-      : (hasChecklistLegacy && checkedItems.has('about') ? 1 : 0);
-    const checkedCount = checklistSteps.filter(s => checkedItems.has(s.id)).length + noteCheckedCount;
-    const progressPctCL = totalItems > 0 ? Math.round((checkedCount / totalItems) * 100) : 0;
-    const fmtDateCL = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'][d.getMonth()]}`; };
+    const boundary = markers.find(m => m.isLine && m.lineType === 'boundary');
+    const notes = boundary?.notes || [];
+    const legacyComment = boundary?.comment;
+    const legacyAudio = boundary?.audioData;
+    const hasLegacy = !!(legacyComment || legacyAudio) && notes.length === 0;
+    const listSteps = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about');
 
-    // Inline audio play
-    const toggleAudio = (src: string, id: string) => {
-      if (expandedItem === id) {
-        setExpandedItem(null);
-      } else {
-        setExpandedItem(id);
-      }
+    type Entry =
+      | { kind: 'note'; id: string; note: { id: string; date: string; text?: string; audioData?: string } }
+      | { kind: 'legacy'; id: string }
+      | { kind: 'step'; id: string; step: BriefingStep };
+    const entries: Entry[] = [
+      ...notes.map((n): Entry => ({ kind: 'note', id: `about-note-${n.id}`, note: n })),
+      ...(hasLegacy ? [{ kind: 'legacy', id: 'about' } as Entry] : []),
+      ...listSteps.map((s): Entry => ({ kind: 'step', id: s.id, step: s })),
+    ];
+
+    const totalItems = entries.length;
+    const checkedCount = entries.filter(e => checkedSet.has(e.id)).length;
+    const allChecked = checkedCount === totalItems;            // 0===0 → tom lista tillåts (matchar gammalt)
+    const lasläge = kvitterat || currentRole === null;          // referens / read-only
+    const kanKora = allChecked && !kvitterat && currentRole !== null;  // G1: trippellåsets villkor
+    const progressPct = totalItems > 0 ? Math.round((checkedCount / totalItems) * 100) : 100;
+
+    const MÅN = ['jan','feb','mar','apr','maj','jun','jul','aug','sep','okt','nov','dec'];
+    const fmtDate = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${MÅN[d.getMonth()]}`; };
+    const fmtDateTime = (iso: string) => { const d = new Date(iso); return `${d.getDate()} ${MÅN[d.getMonth()]} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; };
+    const toggleAudio = (id: string) => setExpandedItem(prev => prev === id ? null : id);
+
+    // EN checkbox-form: rundad fyrkant, grön A. Låst i referens.
+    const cbx = (isChecked: boolean): React.CSSProperties => ({
+      width: '22px', height: '22px', borderRadius: '6px',
+      border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.12)',
+      background: isChecked ? A : 'transparent',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0, cursor: lasläge ? 'default' : 'pointer', transition: 'all 0.2s',
+      opacity: lasläge && !isChecked ? 0.4 : 1,
+    });
+    // Radfärgstrimma från kartans färger (lib/zone-colors.ts + ICON_BG)
+    const stripColor = (m?: Marker): string => {
+      if (m?.isZone && m.zoneType) return ZONE_COLORS[m.zoneType] || A;
+      if (m?.type && ICON_BG[m.type]) return ICON_BG[m.type].bg;
+      return A;
     };
 
-    const allDone = checkedCount === totalItems && totalItems > 0;
-    const newNotesCount = checklistNotes.filter(n => checkedStepIds && !checkedStepIds.includes(`about-note-${n.id}`)).length;
-    const hasNotes = checklistNotes.length > 0 || hasChecklistLegacy;
+    const renderRow = (e: Entry, asNew: boolean) => {
+      const isChecked = checkedSet.has(e.id);
+      const audioId = `audio-${e.id}`;
+      const audioOpen = expandedItem === audioId;
+      const stepEntry = e.kind === 'step' ? e.step : null;
+      const strip = stepEntry ? stripColor(stepEntry.marker) : A;
+      const audioData = e.kind === 'note' ? e.note.audioData : e.kind === 'legacy' ? (legacyAudio || undefined) : stepEntry?.audioData;
+      const photoData = stepEntry?.photoData;
+      return (
+        <div key={e.id} style={{ display: 'flex', marginBottom: '8px', borderRadius: '14px', overflow: 'hidden', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)', opacity: isChecked && !asNew ? 0.5 : 1, transition: 'opacity 0.3s' }}>
+          <div style={{ width: '3px', background: strip, flexShrink: 0 }} />
+          <div style={{ flex: 1, padding: '14px 16px', minWidth: 0 }}>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              {asNew
+                ? <div style={{ fontSize: '10px', fontWeight: '800', color: A, background: 'rgba(138,180,96,0.2)', padding: '3px 7px', borderRadius: '6px', flexShrink: 0, marginTop: '1px' }}>NY</div>
+                : <div onClick={lasläge ? undefined : () => toggleItem(e.id)} style={{ ...cbx(isChecked), marginTop: '1px' }}>{isChecked && <span style={{ color: '#0a0f08', fontSize: '13px', fontWeight: '800' }}>&#10003;</span>}</div>}
+              {stepEntry && <MarkerIconSvg marker={stepEntry.marker} fallbackEmoji={stepEntry.icon} size={32} />}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {e.kind === 'note' && (
+                  <>
+                    <div style={{ fontSize: '12px', color: 'rgba(138,180,96,0.5)', fontWeight: '500', marginBottom: '4px' }}>{fmtDate(e.note.date)}</div>
+                    {e.note.text
+                      ? <div style={{ fontSize: '15px', fontWeight: '500', color: isChecked ? 'rgba(255,255,255,0.3)' : '#f0f4ec', textDecoration: isChecked && !asNew ? 'line-through' : 'none', lineHeight: '1.45', wordBreak: 'break-word' }}>{e.note.text}</div>
+                      : <div style={{ fontSize: '15px', color: 'rgba(240,244,236,0.5)', fontStyle: 'italic' }}>Röstmeddelande</div>}
+                  </>
+                )}
+                {e.kind === 'legacy' && (
+                  legacyComment
+                    ? <div style={{ fontSize: '15px', fontWeight: '500', color: isChecked ? 'rgba(255,255,255,0.3)' : '#f0f4ec', textDecoration: isChecked && !asNew ? 'line-through' : 'none', lineHeight: '1.45', wordBreak: 'break-word' }}>{legacyComment}</div>
+                    : <div style={{ fontSize: '15px', color: 'rgba(240,244,236,0.5)' }}>Om trakten</div>
+                )}
+                {stepEntry && (
+                  <>
+                    <div style={{ fontSize: '15px', fontWeight: '600', color: isChecked ? 'rgba(255,255,255,0.3)' : '#f0f4ec', textDecoration: isChecked && !asNew ? 'line-through' : 'none' }}>{stepEntry.title}</div>
+                    {stepEntry.comment && <div style={{ fontSize: '13px', color: 'rgba(240,244,236,0.4)', marginTop: '3px', lineHeight: '1.4', wordBreak: 'break-word' }}>{stepEntry.comment}</div>}
+                  </>
+                )}
+                {audioData && (
+                  <div style={{ marginTop: '8px' }}>
+                    <button onClick={(ev) => { ev.stopPropagation(); toggleAudio(audioId); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '10px', background: audioOpen ? 'rgba(138,180,96,0.15)' : 'rgba(138,180,96,0.06)', border: `1px solid ${audioOpen ? 'rgba(138,180,96,0.25)' : 'rgba(138,180,96,0.1)'}`, color: A, fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>
+                      <span style={{ fontSize: '13px' }}>{audioOpen ? '⏹' : '🎤'}</span>{audioOpen ? 'Stoppa' : 'Lyssna'}
+                    </button>
+                    {audioOpen && <div style={{ marginTop: '8px' }}><audio controls autoPlay src={audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} /></div>}
+                  </div>
+                )}
+                {photoData && <div style={{ marginTop: '8px' }}><img src={photoData} alt="" style={{ width: '100%', maxHeight: '200px', objectFit: 'cover', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.06)' }} /></div>}
+              </div>
+              {stepEntry && stepEntry.center && (
+                <button onClick={(ev) => { ev.stopPropagation(); if (onShowOnMap && stepEntry.center) onShowOnMap(stepEntry.id, stepEntry.center, stepEntry.marker?.id, 'checklist', { bbox: stepEntry.bbox, zoom: stepEntry.zoom, type: stepEntry.type, comment: stepEntry.comment, audioData: stepEntry.audioData, photoData: stepEntry.photoData, title: stepEntry.title, icon: stepEntry.icon }); }} style={{ width: '32px', height: '32px', borderRadius: '16px', background: 'rgba(138,180,96,0.06)', border: '1px solid rgba(138,180,96,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 16 }}>pin_drop</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
 
-    // Checkbox with gradient green + glow
-    const cbx = (isChecked: boolean): React.CSSProperties => ({
-      width: '22px', height: '22px', borderRadius: '11px',
-      border: isChecked ? 'none' : '2px solid rgba(255,255,255,0.12)',
-      background: isChecked ? '#30d158' : 'transparent',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      flexShrink: 0, cursor: 'pointer', transition: 'all 0.2s',
-    });
+    const roleRows: { roll: 'skordare' | 'skotare'; label: string; rad: KvittRad | null }[] = [
+      { roll: 'skordare', label: 'Skördare', rad: kvittSkordare },
+      { roll: 'skotare', label: 'Skotare', rad: kvittSkotare },
+    ];
+    const checkedEntries = entries.filter(e => checkedSet.has(e.id));
+    const nyaEntries = entries.filter(e => !checkedSet.has(e.id));
+    const noteEntries = entries.filter(e => e.kind === 'note' || e.kind === 'legacy');
+    const stepEntries = entries.filter(e => e.kind === 'step');
 
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 700, background: '#0c0f0a', display: 'flex', flexDirection: 'column' }}>
-        {/* ── HEADER (sticky + blur) ── */}
-        <div style={{
-          position: 'sticky', top: 0, zIndex: 10, flexShrink: 0,
-          background: 'rgba(12,15,10,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
-          padding: '0 20px', borderBottom: '1px solid rgba(255,255,255,0.04)',
-        }}>
+        {/* HEADER */}
+        <div style={{ position: 'sticky', top: 0, zIndex: 10, flexShrink: 0, background: 'rgba(12,15,10,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', padding: '0 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
           <div style={{ paddingTop: 'env(safe-area-inset-top)' }} />
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 0 12px' }}>
-            <div style={{ fontSize: '18px', fontWeight: '700', color: '#f0f4ec', letterSpacing: '-0.3px' }}>Kvittering</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ fontSize: '13px', color: 'rgba(240,244,236,0.3)', fontWeight: '500' }}>{checkedCount} av {totalItems}</div>
-              <div onClick={handleClose} style={{
-                width: '32px', height: '32px', borderRadius: '16px',
-                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.06)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-              }}>
-                <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round"><path d="M1 1L11 11"/><path d="M11 1L1 11"/></svg>
-              </div>
+            <div style={{ fontSize: '17px', fontWeight: '700', color: '#f0f4ec', letterSpacing: '-0.3px' }}>{lasläge ? 'Kvittering' : 'Gå igenom innan du kör'}</div>
+            <div onClick={handleClose} style={{ width: '32px', height: '32px', borderRadius: '16px', background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="rgba(255,255,255,0.4)" strokeWidth="2" strokeLinecap="round"><path d="M1 1L11 11"/><path d="M11 1L1 11"/></svg>
             </div>
           </div>
-          {/* Progress bar */}
-          <div style={{ height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.04)', marginBottom: '12px' }}>
-            <div style={{
-              height: '100%', borderRadius: '2px',
-              background: '#30d158',
-              width: `${progressPctCL}%`, transition: 'width 0.4s ease',
-
-            }} />
-          </div>
-        </div>
-
-        {/* ── SCROLLABLE CONTENT ── */}
-        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '20px 16px 120px' }}>
-
-          {/* ══════════ FRÅN PLANERAREN ══════════ */}
-          {hasNotes && (
-            <div style={{
-              background: 'rgba(138,180,96,0.04)',
-              border: '1px solid rgba(138,180,96,0.1)',
-              borderRadius: '16px',
-              padding: '16px',
-              marginBottom: '24px',
-            }}>
-              {/* Section header */}
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 15 }}>edit_note</span>
-                  <span style={{ fontSize: '14px', fontWeight: '600', color: 'rgba(138,180,96,0.7)', }}>Från planeraren</span>
-                </div>
-                {newNotesCount > 0 && (
-                  <div style={{
-                    padding: '2px 8px', borderRadius: '8px',
-                    background: 'rgba(138,180,96,0.12)', color: A,
-                    fontSize: '11px', fontWeight: '600',
-                  }}>{newNotesCount} {newNotesCount === 1 ? 'ny' : 'nya'}</div>
-                )}
-              </div>
-
-              {/* Notes */}
-              {checklistNotes.map((note) => {
-                const noteKey = `about-note-${note.id}`;
-                const isNChecked = checkedItems.has(noteKey);
-                const isNew = checkedStepIds && !checkedStepIds.includes(noteKey);
-                const isAudioOpen = expandedItem === `audio-${noteKey}`;
-                return (
-                  <div key={note.id} style={{
-                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)',
-                    borderRadius: '14px', padding: '14px 16px', marginBottom: '8px',
-                    opacity: isNChecked ? 0.35 : 1, transition: 'opacity 0.3s',
-                  }}>
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                      {/* Checkbox */}
-                      <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has(noteKey)) n.delete(noteKey); else n.add(noteKey); onChecklistChange?.(Array.from(n)); return n; }); }} style={{ ...cbx(isNChecked), marginTop: '2px' }}>
-                        {isNChecked && <span style={{ color: '#0a0f08', fontSize: '11px', fontWeight: '800' }}>&#10003;</span>}
-                      </div>
-                      {/* Content */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        {/* Date + new dot */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                          <span style={{ fontSize: '12px', color: 'rgba(138,180,96,0.5)', fontWeight: '500' }}>{fmtDateCL(note.date)}</span>
-                          {isNew && !isNChecked && (
-                            <div style={{ width: '6px', height: '6px', borderRadius: '3px', background: A,}} />
-                          )}
-                        </div>
-                        {/* Text — LARGE and dominant */}
-                        {note.text && (
-                          <div style={{
-                            fontSize: '17px', fontWeight: '500', color: isNChecked ? 'rgba(255,255,255,0.3)' : '#f0f4ec',
-                            textDecoration: isNChecked ? 'line-through' : 'none',
-                            lineHeight: '1.45', wordBreak: 'break-word',
-                          }}>{note.text}</div>
-                        )}
-                        {!note.text && note.audioData && (
-                          <div style={{ fontSize: '15px', color: isNChecked ? 'rgba(255,255,255,0.25)' : 'rgba(240,244,236,0.5)', fontStyle: 'italic', textDecoration: isNChecked ? 'line-through' : 'none' }}>Röstmeddelande</div>
-                        )}
-                        {/* Audio: "Lyssna" button with text */}
-                        {note.audioData && (
-                          <div style={{ marginTop: '10px' }}>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); toggleAudio(note.audioData!, `audio-${noteKey}`); }}
-                              style={{
-                                display: 'flex', alignItems: 'center', gap: '6px',
-                                padding: '6px 12px', borderRadius: '10px',
-                                background: isAudioOpen ? 'rgba(138,180,96,0.15)' : 'rgba(138,180,96,0.06)',
-                                border: `1px solid ${isAudioOpen ? 'rgba(138,180,96,0.25)' : 'rgba(138,180,96,0.1)'}`,
-                                color: A, fontSize: '12px', fontWeight: '600', cursor: 'pointer',
-                                transition: 'all 0.15s',
-                              }}
-                            >
-                              <span style={{ fontSize: '13px' }}>{isAudioOpen ? '⏹' : '🎤'}</span>
-                              {isAudioOpen ? 'Stoppa' : 'Lyssna'}
-                            </button>
-                            {isAudioOpen && (
-                              <div style={{ marginTop: '8px' }}>
-                                <audio controls autoPlay src={note.audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/* Legacy about */}
-              {hasChecklistLegacy && (() => {
-                const isLChecked = checkedItems.has('about');
-                const isAudioOpen = expandedItem === 'audio-about';
-                return (
-                  <div style={{
-                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)',
-                    borderRadius: '14px', padding: '14px 16px',
-                    opacity: isLChecked ? 0.35 : 1, transition: 'opacity 0.3s',
-                  }}>
-                    <div style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                      <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has('about')) n.delete('about'); else n.add('about'); onChecklistChange?.(Array.from(n)); return n; }); }} style={{ ...cbx(isLChecked), marginTop: '2px' }}>
-                        {isLChecked && <span style={{ color: '#0a0f08', fontSize: '11px', fontWeight: '800' }}>&#10003;</span>}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        {checklistLegacyComment && (
-                          <div style={{
-                            fontSize: '17px', fontWeight: '500', color: isLChecked ? 'rgba(255,255,255,0.3)' : '#f0f4ec',
-                            textDecoration: isLChecked ? 'line-through' : 'none',
-                            lineHeight: '1.45', wordBreak: 'break-word',
-                          }}>{checklistLegacyComment}</div>
-                        )}
-                        {checklistLegacyAudio && (
-                          <div style={{ marginTop: checklistLegacyComment ? '10px' : '0' }}>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); toggleAudio(checklistLegacyAudio!, 'audio-about'); }}
-                              style={{
-                                display: 'flex', alignItems: 'center', gap: '6px',
-                                padding: '6px 12px', borderRadius: '10px',
-                                background: isAudioOpen ? 'rgba(138,180,96,0.15)' : 'rgba(138,180,96,0.06)',
-                                border: `1px solid ${isAudioOpen ? 'rgba(138,180,96,0.25)' : 'rgba(138,180,96,0.1)'}`,
-                                color: A, fontSize: '12px', fontWeight: '600', cursor: 'pointer',
-                              }}
-                            >
-                              <span style={{ fontSize: '13px' }}>{isAudioOpen ? '⏹' : '🎤'}</span>
-                              {isAudioOpen ? 'Stoppa' : 'Lyssna'}
-                            </button>
-                            {isAudioOpen && (
-                              <div style={{ marginTop: '8px' }}>
-                                <audio controls autoPlay src={checklistLegacyAudio} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          )}
-
-          {/* ══════════ MARKERINGAR ══════════ */}
-          {checklistSteps.length > 0 && (
-            <div style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.15)', padding: '0 4px 10px' }}>
-                Markeringar
-              </div>
-
-              {checklistSteps.map(item => {
-                const isChecked = checkedItems.has(item.id);
-                const isAudioOpen = expandedItem === `audio-${item.id}`;
-                return (
-                  <div key={item.id} style={{
-                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.05)',
-                    borderRadius: '16px', padding: '14px 16px', marginBottom: '10px',
-                    opacity: isChecked ? 0.35 : 1, transition: 'opacity 0.3s',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      {/* Checkbox */}
-                      <div onClick={() => { setCheckedItems(prev => { const n = new Set(prev); if (n.has(item.id)) n.delete(item.id); else n.add(item.id); onChecklistChange?.(Array.from(n)); return n; }); }} style={cbx(isChecked)}>
-                        {isChecked && <span style={{ color: '#0a0f08', fontSize: '11px', fontWeight: '800' }}>&#10003;</span>}
-                      </div>
-                      {/* Map icon — same as on the map */}
-                      <MarkerIconSvg marker={item.marker} fallbackEmoji={item.icon} size={32} />
-                      {/* Title + subtitle (full text, no ellipsis) */}
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{
-                          fontSize: '15px', fontWeight: '600',
-                          color: isChecked ? 'rgba(255,255,255,0.3)' : '#f0f4ec',
-                          textDecoration: isChecked ? 'line-through' : 'none',
-                        }}>{item.title}</div>
-                        {item.comment && (
-                          <div style={{
-                            fontSize: '13px', color: isChecked ? 'rgba(255,255,255,0.15)' : 'rgba(240,244,236,0.4)',
-                            marginTop: '3px', lineHeight: '1.4', wordBreak: 'break-word',
-                          }}>{item.comment}</div>
-                        )}
-                      </div>
-                      {/* Right-side buttons */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                        {item.audioData && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleAudio(item.audioData!, `audio-${item.id}`); }}
-                            style={{
-                              width: '32px', height: '32px', borderRadius: '16px',
-                              background: isAudioOpen ? 'rgba(138,180,96,0.12)' : 'rgba(255,255,255,0.04)',
-                              border: '1px solid rgba(255,255,255,0.06)',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              cursor: 'pointer', fontSize: '14px',
-                            }}
-                          >
-                            {isAudioOpen ? '⏹' : '🎤'}
-                          </button>
-                        )}
-                        {item.center && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (onShowOnMap && item.center) {
-                                onChecklistChange?.(Array.from(checkedItems));
-                                onShowOnMap(item.id, item.center, item.marker?.id, 'checklist', {
-                                  bbox: item.bbox, zoom: item.zoom, type: item.type,
-                                  comment: item.comment, audioData: item.audioData, photoData: item.photoData, title: item.title, icon: item.icon,
-                                });
-                              }
-                            }}
-                            style={{
-                              width: '32px', height: '32px', borderRadius: '16px',
-                              background: 'rgba(138,180,96,0.06)',
-                              border: '1px solid rgba(138,180,96,0.12)',
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                              cursor: 'pointer', fontSize: '14px',
-                            }}
-                          ><span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 16 }}>pin_drop</span></button>
-                        )}
-                      </div>
-                    </div>
-                    {/* Inline audio player */}
-                    {isAudioOpen && item.audioData && (
-                      <div style={{ marginTop: '10px', paddingLeft: '66px' }}>
-                        <audio controls autoPlay src={item.audioData} style={{ width: '100%', height: '32px', borderRadius: '8px' }} />
-                      </div>
+          {/* STATUS-STRIP: båda roller */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingBottom: '12px' }}>
+            {roleRows.map(({ roll, label, rad }) => {
+              const done = !!rad?.kvitterat_at;
+              const isMe = currentRole === roll;
+              return (
+                <div key={roll} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', padding: '6px 10px', borderRadius: '8px', background: isMe ? 'rgba(138,180,96,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${isMe ? 'rgba(138,180,96,0.18)' : 'rgba(255,255,255,0.05)'}` }}>
+                  <span style={{ fontWeight: '700', color: isMe ? A : 'rgba(240,244,236,0.6)', minWidth: '60px' }}>{label}</span>
+                  {done
+                    ? <span style={{ color: A, fontWeight: '600' }}>&#10003; Kvitterat · {rad?.kvitterat_av_namn || '—'}{rad?.kvitterat_at ? ` ${fmtDateTime(rad.kvitterat_at)}` : ''}</span>
+                    : <span style={{ color: 'rgba(255,255,255,0.35)' }}>&#9675; Ej kvitterat</span>}
+                  <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    {isMe && <span style={{ fontSize: '11px', fontWeight: '700', color: A, background: 'rgba(138,180,96,0.15)', padding: '2px 7px', borderRadius: '8px' }}>du</span>}
+                    {/* G3: admin-nollställning — syns ENBART för admin/chef när rollen är kvitterad */}
+                    {isAdmin && done && (
+                      resetConfirm === roll
+                        ? <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <button onClick={() => { onNollstall?.(roll); setResetConfirm(null); }} style={{ fontSize: '11px', fontWeight: '700', color: '#ff453a', background: 'rgba(255,69,58,0.15)', border: '1px solid rgba(255,69,58,0.3)', padding: '3px 8px', borderRadius: '8px', cursor: 'pointer' }}>Bekräfta</button>
+                            <button onClick={() => setResetConfirm(null)} style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.5)', background: 'transparent', border: 'none', padding: '3px 4px', cursor: 'pointer' }}>Avbryt</button>
+                          </span>
+                        : <button onClick={() => setResetConfirm(roll)} style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.4)', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '3px 8px', borderRadius: '8px', cursor: 'pointer' }}>Nollställ</button>
                     )}
                   </div>
-                );
-              })}
+                </div>
+              );
+            })}
+          </div>
+          {/* PROGRESS — bara i att-göra */}
+          {!lasläge && (
+            <div style={{ paddingBottom: '12px' }}>
+              <div style={{ fontSize: '13px', color: 'rgba(240,244,236,0.4)', marginBottom: '8px' }}>{checkedCount} av {totalItems} avklarade</div>
+              <div style={{ height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.06)' }}>
+                <div style={{ height: '100%', borderRadius: '2px', background: A, width: `${progressPct}%`, transition: 'width 0.3s ease' }} />
+              </div>
             </div>
           )}
         </div>
 
-        {/* ── BOTTOM BUTTON ── */}
-        <div style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          padding: '16px 20px', paddingBottom: 'max(16px, env(safe-area-inset-bottom))',
-          background: '#0c0f0a',
-          pointerEvents: 'none',
-        }}>
-          <button
-            onClick={handleClose}
-            style={{
-              width: '100%', padding: '16px', borderRadius: '14px', border: 'none',
-              background: allDone
-                ? '#30d158'
-                : 'rgba(255,255,255,0.06)',
-              color: allDone ? '#0c0f0a' : 'rgba(255,255,255,0.3)',
-              fontSize: '15px', fontWeight: '700', cursor: 'pointer',
-              transition: 'all 0.3s', pointerEvents: 'auto',
-            }}
-          >
-            {allDone ? 'Allt kvitterat' : `${totalItems - checkedCount} kvar att kvittera`}
-          </button>
+        {/* CONTENT — partition (kvitterat/tillkommet) BARA vid faktiskt kvitto; admin/ej-tilldelad
+            (lasläge utan kvitto) får vanlig läslägeslista, inte allt under "Tillkommet" */}
+        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '16px 16px 20px' }}>
+          {kvitterat ? (
+            <>
+              {checkedEntries.length > 0 && (
+                <div style={{ marginBottom: nyaEntries.length > 0 ? '20px' : '0' }}>
+                  {checkedEntries.map(e => renderRow(e, false))}
+                </div>
+              )}
+              {nyaEntries.length > 0 && (
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: '700', color: 'rgba(138,180,96,0.5)', padding: '0 4px 10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Tillkommet efter kvittering</div>
+                  {nyaEntries.map(e => renderRow(e, true))}
+                </div>
+              )}
+              {totalItems === 0 && (
+                <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '13px', padding: '40px 0' }}>Inga markeringar på trakten</div>
+              )}
+            </>
+          ) : (
+            <>
+              {noteEntries.length > 0 && (
+                <div style={{ marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0 4px 10px' }}>
+                    <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 15, color: 'rgba(138,180,96,0.7)' }}>edit_note</span>
+                    <span style={{ fontSize: '13px', fontWeight: '600', color: 'rgba(138,180,96,0.7)' }}>Från planeraren</span>
+                  </div>
+                  {noteEntries.map(e => renderRow(e, false))}
+                </div>
+              )}
+              {stepEntries.length > 0 && (
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.3)', padding: '0 4px 10px' }}>Markeringar</div>
+                  {stepEntries.map(e => renderRow(e, false))}
+                </div>
+              )}
+              {totalItems === 0 && (
+                <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.3)', fontSize: '13px', padding: '40px 0' }}>Inga markeringar på trakten</div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* FOOTER */}
+        <div style={{ flexShrink: 0, padding: '16px 20px', paddingBottom: 'max(16px, env(safe-area-inset-bottom))', borderTop: '1px solid rgba(255,255,255,0.04)', background: '#0c0f0a' }}>
+          {lasläge ? (
+            <button onClick={handleClose} style={{ width: '100%', padding: '16px', borderRadius: '16px', border: 'none', background: 'rgba(255,255,255,0.06)', color: 'rgba(240,244,236,0.7)', fontSize: '15px', fontWeight: '700', cursor: 'pointer' }}>
+              {currentRole === null ? 'Stäng' : 'Stäng – kvitterat'}
+            </button>
+          ) : (
+            <>
+              <button
+                disabled={!kanKora}
+                onClick={() => { if (!kanKora) return; onKvittera?.(Array.from(checkedSet)); handleClose(); }}
+                style={{ width: '100%', padding: '16px', borderRadius: '16px', border: 'none', background: kanKora ? A : 'rgba(138,180,96,0.12)', color: kanKora ? '#0a0f08' : 'rgba(138,180,96,0.35)', fontSize: '16px', fontWeight: '700', cursor: kanKora ? 'pointer' : 'default', transition: 'all 0.3s ease' }}
+              >
+                Jag har tagit del av allt – börja köra
+              </button>
+              {currentRole === null && (
+                <div style={{ textAlign: 'center', fontSize: '12px', color: 'rgba(255,255,255,0.25)', marginTop: '8px' }}>Du är inte tilldelad den här trakten</div>
+              )}
+              {currentRole !== null && !allChecked && (
+                <div style={{ textAlign: 'center', fontSize: '12px', color: 'rgba(255,255,255,0.25)', marginTop: '8px' }}>Bocka av alla punkter ovan för att fortsätta</div>
+              )}
+            </>
+          )}
         </div>
       </div>
     );
@@ -1358,7 +1007,7 @@ export default function TraktBriefing({
           onClick={() => {
             const total = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about').length;
             onBriefingComplete?.(total);
-            setMandatoryChecklistOpen(true);
+            setChecklistOpen(true);
           }}
           style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}
         >
