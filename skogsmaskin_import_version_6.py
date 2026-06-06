@@ -121,6 +121,20 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+def _git_commit_short():
+    """Kort git-hash för katalogen skriptet ligger i. 'unknown' om ej git-repo
+    (t.ex. en lös kopia utanför repot — avslöjar att fel skript kört)."""
+    try:
+        import subprocess
+        here = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(['git', '-C', here, 'rev-parse', '--short', 'HEAD'],
+                             capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() or 'unknown'
+    except Exception:
+        return 'unknown'
+
+
 # ============================================================
 # SUPABASE-ANSLUTNING (via REST API)
 # ============================================================
@@ -3544,6 +3558,9 @@ def main():
     ╚═══════════════════════════════════════════════════════════╝
     """)
     
+    logger.info(f"=== START skogsmaskin_import | git={_git_commit_short()} "
+                f"| script={os.path.abspath(__file__)} | py={sys.version.split()[0]} ===")
+
     # Skapa mappar om de inte finns
     os.makedirs(INKOMMANDE, exist_ok=True)
     os.makedirs(BEHANDLADE, exist_ok=True)

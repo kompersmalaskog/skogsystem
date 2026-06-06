@@ -67,6 +67,20 @@ ch = logging.StreamHandler()
 ch.setFormatter(formatter)
 logger.addHandler(ch)
 
+
+def _git_commit_short():
+    """Kort git-hash för katalogen skriptet ligger i. 'unknown' om ej git-repo
+    (t.ex. en lös kopia utanför repot — avslöjar att fel skript kört)."""
+    try:
+        import subprocess
+        here = os.path.dirname(os.path.abspath(__file__))
+        out = subprocess.run(['git', '-C', here, 'rev-parse', '--short', 'HEAD'],
+                             capture_output=True, text=True, timeout=5)
+        return out.stdout.strip() or 'unknown'
+    except Exception:
+        return 'unknown'
+
+
 # ============================================================
 # IMPORT-FUNKTIONER
 # ============================================================
@@ -255,6 +269,8 @@ class IncomingFileHandler(FileSystemEventHandler):
 def main():
     logger.info("=" * 60)
     logger.info("AUTO IMPORT WATCH — Startar")
+    logger.info(f"Version: git={_git_commit_short()} "
+                f"| script={os.path.abspath(__file__)} | py={PYTHON_EXE}")
     logger.info(f"Bevakar: {WATCH_DIR}")
     logger.info(f"MOM-script: {MOM_IMPORT_SCRIPT}")
     logger.info(f"HPR-script: {HPR_IMPORT_SCRIPT}")
