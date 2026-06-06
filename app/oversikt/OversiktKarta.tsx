@@ -120,13 +120,24 @@ function SpeciesSegment({ pct, color, delay }: { pct: number; color: string; del
   );
 }
 
-/* ── ObjCard popup (positioned fixed at screen bottom) ── */
-function ObjCard({ obj, prod, warnings, maskinNamn, ko }: {
+/* Humanisera restriktionsnamn — strippa rå kod i slutet, t.ex.
+   "Vägmärke (L1955:7217)" → "Vägmärke". Parenteser utan siffror (riktiga ord)
+   behålls. Blir resultatet tomt (namnet var bara en kod) → behåll originalet. */
+function cleanRestrName(name: string): string {
+  const cleaned = name.replace(/\s*\([^)]*\d[^)]*\)\s*$/, '').trim();
+  return cleaned || name;
+}
+
+/* ── ObjCard popup (positioned fixed at screen bottom) ──
+   EN konsekvent mall för ALLA objekt — fast sektionsordning:
+   1 Titel+status · 2 typ·areal·volym · 3 Avstånd+Köplats · 4 Fara (enda röda) ·
+   5 Markägare+Ring/Sms · 6 Navigera hit · 7 Visa mer (Hänsyn·Restriktioner·Trädslag·Logistik).
+   Saknas data i en sektion: utelämna tyst eller visa "–", aldrig egen layout per objekt. */
+function ObjCard({ obj, warnings, koPlats, devicePos }: {
   obj: OversiktObjekt;
-  prod?: ProdAgg;
   warnings?: ObjWarnings;
-  maskinNamn?: string | null;
-  ko?: { maskinId: string; ordning: number };
+  koPlats?: { pos: number; total: number };
+  devicePos?: { lat: number; lng: number } | null;
 }) {
   const o = obj;
   const tf = TF[o.typ] || C.yellow;
@@ -134,31 +145,56 @@ function ObjCard({ obj, prod, warnings, maskinNamn, ko }: {
 
   const st = ST[o.status] || ST.oplanerad;
   const typLabel = o.atgard || (o.typ === 'gallring' ? 'Gallring' : 'Slutavverkning');
-  // Markägare (Beslut 3): markagare + Ring (markagare_tel) + Sms-mall
+  // 5. Markägare (Beslut 3): markagare + Ring (markagare_tel) + Sms-mall
   const markNamn = o.markagare || o.kontakt_namn || null;
   const markTel = o.markagare_tel || o.kontakt_telefon || null;
   const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent);
   const smsBody = encodeURIComponent(`Vi är på gång till ${o.namn}`);
   const smsHref = markTel ? `sms:${markTel}${isIOS ? '&' : '?'}body=${smsBody}` : null;
-  // Skördat/Skotat (Beslut 3): objekt-kolumner först, prod-summor som fallback
-  const skordat = (o.volym_skordad ?? 0) || (prod?.skordareVol ?? 0);
-  const skotat = (o.volym_skotad ?? 0) || (prod?.skotareVol ?? 0);
-  const progress = skordat > 0 ? Math.min(100, Math.round((skotat / skordat) * 100)) : 0;
   const ber = o.trakt_data?.beraknad;
-  const noteringar: string[] = [];
-  if (o.transport_kommentar) noteringar.push(o.transport_kommentar);
-  if (o.skordare_manuell_fallning && o.skordare_manuell_fallning_text) noteringar.push(o.skordare_manuell_fallning_text);
-  if (o.markagare_ska_ha_ved && o.markagare_ved_text) noteringar.push(o.markagare_ved_text);
-  // Hänsyn lever inte längre på kartan (Beslut 6) — listas under "Visa mer"
-  const hasHansyn = !!warnings?.items?.some(i => i.level === 'hansyn');
-  const hasDetails = !!(ber?.tradslag?.length || ber?.jordart || ber?.restriktioner?.length ||
-    o.barighet || o.terrang || o.transport_kommentar || o.grot_volym ||
-    o.skordare_maskin || o.skotare_maskin || o.anteckningar || o.info_anteckningar || o.ovrigt_info || noteringar.length || hasHansyn);
 
+  // 3. Avstånd — OSRM riktig körväg FRÅN enhetens GPS-position. Aldrig fågelväg:
+  //    ingen GPS-behörighet ELLER OSRM-miss → "–" (ingen haversine-fallback).
+  const [roadKm, setRoadKm] = useState<number | null>(null);
+  const [roadLoading, setRoadLoading] = useState(false);
+  useEffect(() => {
+    if (!devicePos || o.lat == null || o.lng == null) { setRoadKm(null); setRoadLoading(false); return; }
+    let cancelled = false;
+    setRoadLoading(true);
+    (async () => {
+      try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${devicePos.lng},${devicePos.lat};${o.lng},${o.lat}?overview=false`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const meters = json?.routes?.[0]?.distance;
+        if (!cancelled) setRoadKm(typeof meters === 'number' ? meters / 1000 : null);
+      } catch {
+        if (!cancelled) setRoadKm(null);
+      } finally {
+        if (!cancelled) setRoadLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [devicePos, o.lat, o.lng]);
+  const avstandLabel = !devicePos ? '–'
+    : roadLoading ? '…'
+    : roadKm == null ? '–'
+    : roadKm < 1 ? `${Math.round(roadKm * 1000)} m` : `${roadKm.toFixed(1)} km`;
+
+  // 7. Visa mer — innehåll i fast ordning: Hänsyn · Restriktioner · Trädslag · Logistik
+  const hansynLabels = warnings ? [...new Set(warnings.items.filter(i => i.level === 'hansyn').map(i => i.label))] : [];
+  const restrLabels = ber?.restriktioner?.length ? [...new Set(ber.restriktioner.map(r => cleanRestrName(r.name)))] : [];
+  const tradslag = (ber?.tradslag || []).filter(ts => !ts.namn.toLowerCase().includes('okänt') && ts.andel > 0).slice(0, 6);
+  const tsTotal = tradslag.reduce((s, ts) => s + ts.andel, 0);
+  const hasLogistik = !!(o.barighet || o.terrang);
+  const hasDetails = hansynLabels.length > 0 || restrLabels.length > 0 || tradslag.length > 0 || hasLogistik;
+
+  const statBox: React.CSSProperties = { flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` };
+  const chip: React.CSSProperties = { ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm };
+  const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': '#FFA726', 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' };
   const Sec = ({ label }: { label: string }) => (
     <div style={{ ...T.label, marginBottom: SP.sm }}>{label}</div>
   );
-  const Div = () => <div style={{ height: 1, background: C.border }} />;
 
   return (
     <motion.div
@@ -177,7 +213,7 @@ function ObjCard({ obj, prod, warnings, maskinNamn, ko }: {
       }}
     >
       <div style={{ height: 2, background: `linear-gradient(90deg,${tf},transparent)` }} />
-      <div style={{ padding: SP.xl, maxHeight: expanded ? '70vh' : '40vh', overflowY: 'auto' }}>
+      <div style={{ padding: SP.xl, maxHeight: '54vh', overflowY: 'auto' }}>
 
         {/* Sammanfattning — alltid synlig */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: SP.md, marginBottom: SP.lg }}>
@@ -195,10 +231,21 @@ function ObjCard({ obj, prod, warnings, maskinNamn, ko }: {
           }}>{st.l}</div>
         </div>
 
-        {/* Fara (Beslut 6) — bara kritiska faror i glansbannern; hänsyn flyttat till "Visa mer" */}
+        {/* 3. Avstånd + Köplats — alltid synlig; "–" när data saknas */}
+        <div style={{ display: 'flex', gap: SP.md, marginBottom: SP.lg }}>
+          <div style={statBox}>
+            <div style={{ ...T.h2, fontSize: 20 }}>{avstandLabel}</div>
+            <div style={{ ...T.caption, marginTop: SP.xs }}>Avstånd</div>
+          </div>
+          <div style={statBox}>
+            <div style={{ ...T.h2, fontSize: 20 }}>{koPlats ? `${koPlats.pos} av ${koPlats.total}` : '–'}</div>
+            <div style={{ ...T.caption, marginTop: SP.xs }}>Köplats</div>
+          </div>
+        </div>
+
+        {/* 4. Fara (Beslut 6) — enda röda elementet, bara verklig fara (powerline/warning) */}
         {warnings && warnings.items.some(i => i.level === 'fara') && (() => {
           const faror = warnings.items.filter(i => i.level === 'fara');
-          const first = faror[0];
           const rest = faror.length - 1;
           return (
             <div style={{
@@ -208,176 +255,109 @@ function ObjCard({ obj, prod, warnings, maskinNamn, ko }: {
             }}>
               <span style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderBottom: `12px solid ${C.red}`, flexShrink: 0 }} />
               <span style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>
-                {first?.label}{rest > 0 ? ` +${rest} till` : ''}
+                {faror[0]?.label}{rest > 0 ? ` +${rest} till` : ''}
               </span>
             </div>
           );
         })()}
 
-        {/* Maskin + köplats */}
-        {(maskinNamn || ko) && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: SP.lg }}>
-            <span style={{ ...T.caption, color: C.t3 }}>Maskin</span>
-            <span style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>
-              {maskinNamn || '–'}{ko ? ` · plats ${ko.ordning}` : ''}
-            </span>
+        {/* 5. Markägare + Ring/Sms (Beslut 3) — alltid; namn eller "–", knappar om nummer finns */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP.md, marginBottom: SP.lg }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ ...T.caption, color: C.t3 }}>Markägare</div>
+            <div style={{ ...T.body, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{markNamn || '–'}</div>
           </div>
+          {markTel && (
+            <div style={{ display: 'flex', gap: SP.sm, flexShrink: 0 }}>
+              <a href={`tel:${markTel}`} onClick={(e) => e.stopPropagation()}
+                style={{ ...BTN.secondary, minHeight: 36, padding: '0 14px', color: C.blue, textDecoration: 'none' }}>Ring</a>
+              {smsHref && (
+                <a href={smsHref} onClick={(e) => e.stopPropagation()}
+                  style={{ ...BTN.secondary, minHeight: 36, padding: '0 14px', color: C.blue, textDecoration: 'none' }}>Sms</a>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 6. Navigera hit — primär åtgärd, alltid när koordinater finns */}
+        {o.lat != null && o.lng != null && (
+          <button onClick={() => {
+            const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            const url = ios
+              ? `maps://maps.apple.com/?daddr=${o.lat},${o.lng}`
+              : `https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}`;
+            window.open(url, '_blank');
+          }} style={{ ...BTN.primary, width: '100%', fontFamily: ff }}>
+            Navigera hit
+          </button>
         )}
 
-        {/* Skördat / Skotat (Beslut 3) — progress = skotad/skordad */}
-        {(skordat > 0 || skotat > 0) && (
+        {/* 7. Visa mer → Hänsyn · Restriktioner · Trädslag · Logistik (fast ordning) */}
+        {hasDetails && (
           <>
-            <div style={{ display: 'flex', gap: SP.md, marginBottom: SP.md }}>
-              <div style={{ flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` }}>
-                <div style={{ ...T.h2, fontSize: 20 }}>{formatVolym(Math.round(skordat))}</div>
-                <div style={{ ...T.caption, marginTop: SP.xs }}>Skördat m³</div>
-              </div>
-              <div style={{ flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` }}>
-                <div style={{ ...T.h2, fontSize: 20 }}>{formatVolym(Math.round(skotat))}</div>
-                <div style={{ ...T.caption, marginTop: SP.xs }}>Skotat m³</div>
-              </div>
-            </div>
-            {skordat > 0 && (
-              <div style={{ marginBottom: SP.lg }}>
-                <div style={{ height: 6, borderRadius: 3, background: C.surface, overflow: 'hidden' }}>
-                  <div style={{ width: `${progress}%`, height: '100%', background: C.green, borderRadius: 3 }} />
-                </div>
-                <div style={{ ...T.caption, marginTop: SP.xs, textAlign: 'right' }}>{progress}% skotat</div>
-              </div>
-            )}
-            <Div />
-          </>
-        )}
+            <button onClick={() => setExpanded(!expanded)}
+              style={{ ...BTN.secondary, width: '100%', marginTop: SP.sm, fontFamily: ff }}>
+              {expanded ? 'Visa mindre' : 'Visa mer'}
+            </button>
+            {expanded && (
+              <div style={{ marginTop: SP.md }}>
 
-        {/* Markägare — Ring + Sms (Beslut 3) */}
-        {markNamn && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: SP.md, padding: `${SP.md}px 0` }}>
-            <div style={{ minWidth: 0 }}>
-              <div style={{ ...T.caption, color: C.t3 }}>Markägare</div>
-              <div style={{ ...T.body, fontSize: 15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{markNamn}</div>
-            </div>
-            {markTel && (
-              <div style={{ display: 'flex', gap: SP.sm, flexShrink: 0 }}>
-                <a href={`tel:${markTel}`} onClick={(e) => e.stopPropagation()}
-                  style={{ ...BTN.secondary, minHeight: 36, padding: '0 14px', color: C.blue, textDecoration: 'none' }}>Ring</a>
-                {smsHref && (
-                  <a href={smsHref} onClick={(e) => e.stopPropagation()}
-                    style={{ ...BTN.secondary, minHeight: 36, padding: '0 14px', color: C.blue, textDecoration: 'none' }}>Sms</a>
+                {/* Hänsyn — orange chips */}
+                {hansynLabels.length > 0 && (
+                  <div style={{ padding: `${SP.md}px 0` }}>
+                    <Sec label="Hänsyn" />
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP.sm }}>
+                      {hansynLabels.map((lbl, i) => (
+                        <span key={i} style={{ ...chip, background: C.od, border: `1px solid ${C.orange}40` }}>{lbl}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Restriktioner — neutrala/grå chips (INTE röda), humaniserade namn */}
+                {restrLabels.length > 0 && (
+                  <div style={{ padding: `${SP.md}px 0` }}>
+                    <Sec label="Restriktioner" />
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP.sm }}>
+                      {restrLabels.map((lbl, i) => (
+                        <span key={i} style={{ ...chip, background: C.surface, border: `1px solid ${C.border}` }}>{lbl}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Trädslag — stapel + % */}
+                {tradslag.length > 0 && (
+                  <div style={{ padding: `${SP.md}px 0` }}>
+                    <Sec label="Trädslag" />
+                    <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', marginBottom: SP.sm }}>
+                      {tradslag.map((ts, i) => (
+                        <div key={i} style={{ width: `${(ts.andel / tsTotal) * 100}%`, minWidth: 3, height: '100%', background: TRADSLAG_FARG[ts.namn] || '#9E9E9E' }} />
+                      ))}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: `${SP.xs}px ${SP.lg}px` }}>
+                      {tradslag.map((ts, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP.sm }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 4, background: TRADSLAG_FARG[ts.namn] || '#9E9E9E', flexShrink: 0 }} />
+                          <span style={T.caption}>{ts.namn} {Math.round(ts.andel * 100)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Logistik — Bärighet, Terräng */}
+                {hasLogistik && (
+                  <div style={{ padding: `${SP.md}px 0` }}>
+                    <Sec label="Logistik" />
+                    {o.barighet && <div style={T.caption}><span style={{ color: C.t3 }}>Bärighet:</span> <span style={{ color: C.t1 }}>{o.barighet}</span></div>}
+                    {o.terrang && <div style={{ ...T.caption, marginTop: SP.xs }}><span style={{ color: C.t3 }}>Terräng:</span> <span style={{ color: C.t1 }}>{o.terrang}</span></div>}
+                  </div>
                 )}
               </div>
             )}
-          </div>
+          </>
         )}
-
-        {/* Expanderad detalj */}
-        {expanded && (
-          <div style={{ marginTop: SP.md }}>
-            <Div />
-
-            {/* Hänsyn (Beslut 6) — orange markeringar, borta från kartan men listas här */}
-            {warnings && warnings.items.some(i => i.level === 'hansyn') && (
-              <div style={{ padding: `${SP.md}px 0` }}>
-                <Sec label="Hänsyn" />
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP.sm }}>
-                  {[...new Set(warnings.items.filter(i => i.level === 'hansyn').map(i => i.label))].map((lbl, i) => (
-                    <span key={i} style={{ ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: C.od, border: `1px solid ${C.orange}40` }}>{lbl}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Trädslag */}
-            {ber?.tradslag && ber.tradslag.length > 0 && !ber.tradslag.every(ts => ts.namn.toLowerCase().includes('okänt')) && (() => {
-              const TRADSLAG_FARG: Record<string, string> = { 'Gran': '#66BB6A', 'Tall': '#FFA726', 'Björk': '#FFF176', 'Ek': '#A1887F', 'Bok': '#BCAAA4', 'Contorta': '#FF8A65' };
-              const slag = ber.tradslag.filter(ts => !ts.namn.toLowerCase().includes('okänt') && ts.andel > 0).slice(0, 6);
-              const total = slag.reduce((s, ts) => s + ts.andel, 0);
-              return (
-                <div style={{ padding: `${SP.md}px 0` }}>
-                  <Sec label="Trädslag" />
-                  <div style={{ display: 'flex', height: 14, borderRadius: 7, overflow: 'hidden', marginBottom: SP.sm }}>
-                    {slag.map((ts, i) => (
-                      <div key={i} style={{ width: `${(ts.andel / total) * 100}%`, minWidth: 3, height: '100%', background: TRADSLAG_FARG[ts.namn] || '#9E9E9E' }} />
-                    ))}
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: `${SP.xs}px ${SP.lg}px` }}>
-                    {slag.map((ts, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: SP.sm }}>
-                        <span style={{ width: 8, height: 8, borderRadius: 4, background: TRADSLAG_FARG[ts.namn] || '#9E9E9E', flexShrink: 0 }} />
-                        <span style={T.caption}>{ts.namn} {Math.round(ts.andel * 100)}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Restriktioner */}
-            {ber?.restriktioner && ber.restriktioner.length > 0 && (
-              <div style={{ padding: `${SP.md}px 0` }}>
-                <div style={{ background: C.rd, border: `1px solid ${C.red}20`, borderRadius: SP.md, padding: SP.md }}>
-                  <Sec label={`Restriktioner (${ber.restriktioner.length})`} />
-                  {ber.restriktioner.slice(0, 5).map((r, i) => (
-                    <div key={i} style={{ ...T.caption, color: C.t1, marginBottom: SP.xs }}>
-                      {r.name}{r.warning ? <span style={{ color: C.red }}> — {r.warning}</span> : ''}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Logistik */}
-            {(o.barighet || o.terrang || o.transport_kommentar) && (
-              <div style={{ padding: `${SP.md}px 0` }}>
-                <Sec label="Logistik" />
-                {o.barighet && <div style={T.caption}><span style={{ color: C.t3 }}>Bärighet:</span> <span style={{ color: C.t1 }}>{o.barighet}</span></div>}
-                {o.terrang && <div style={{ ...T.caption, marginTop: SP.xs }}><span style={{ color: C.t3 }}>Terräng:</span> <span style={{ color: C.t1 }}>{o.terrang}</span></div>}
-                {o.transport_kommentar && <div style={{ ...T.caption, color: C.t1, marginTop: SP.xs }}>{o.transport_kommentar}</div>}
-              </div>
-            )}
-
-            {/* Maskiner */}
-            {(o.skordare_maskin || o.skotare_maskin) && (
-              <div style={{ padding: `${SP.md}px 0` }}>
-                <Sec label="Maskiner" />
-                <div style={{ display: 'flex', gap: SP.sm, flexWrap: 'wrap' }}>
-                  {o.skordare_maskin && <span style={{ ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: C.surface, border: `1px solid ${C.border}` }}>{o.skordare_maskin}</span>}
-                  {o.skotare_maskin && <span style={{ ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: C.surface, border: `1px solid ${C.border}` }}>{o.skotare_maskin}</span>}
-                </div>
-              </div>
-            )}
-
-            {/* Anteckningar */}
-            {(o.anteckningar || o.info_anteckningar || o.ovrigt_info) && (
-              <div style={{ padding: `${SP.md}px 0` }}>
-                <Sec label="Anteckningar" />
-                {o.anteckningar && <div style={{ ...T.caption, color: C.t2, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{o.anteckningar}</div>}
-                {o.info_anteckningar && <div style={{ ...T.caption, color: C.t2, lineHeight: 1.6, whiteSpace: 'pre-wrap', marginTop: SP.sm }}>{o.info_anteckningar}</div>}
-                {o.ovrigt_info && <div style={{ ...T.caption, color: C.t2, lineHeight: 1.6, whiteSpace: 'pre-wrap', marginTop: SP.sm }}>{o.ovrigt_info}</div>}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Knappar */}
-        <div style={{ display: 'flex', gap: SP.sm, marginTop: SP.lg }}>
-          {hasDetails && (
-            <button onClick={() => setExpanded(!expanded)}
-              style={{ ...BTN.secondary, flex: 1, fontFamily: ff }}>
-              {expanded ? 'Visa mindre' : 'Visa mer'}
-            </button>
-          )}
-          {o.lat != null && o.lng != null && (
-            <button onClick={() => {
-              const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
-              const url = isIOS
-                ? `maps://maps.apple.com/?daddr=${o.lat},${o.lng}`
-                : `https://www.google.com/maps/dir/?api=1&destination=${o.lat},${o.lng}`;
-              window.open(url, '_blank');
-            }} style={{ ...BTN.primary, flex: 1, fontFamily: ff }}>
-              Navigera hit
-            </button>
-          )}
-        </div>
       </div>
     </motion.div>
   );
@@ -765,6 +745,19 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   const [osrmDist, setOsrmDist] = useState<Record<string, SegmentDist>>({});
   const osrmCacheRef = useRef<Record<string, SegmentDist>>({});
 
+  // Förarens enhet-GPS (watch) → används för "Avstånd" (OSRM-körväg) i ObjCard.
+  // Nekad/ej stödd → null → kortet visar "–" (aldrig fågelväg-fallback).
+  const [devicePos, setDevicePos] = useState<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    const id = navigator.geolocation.watchPosition(
+      p => setDevicePos({ lat: p.coords.latitude, lng: p.coords.longitude }),
+      () => setDevicePos(null),
+      { enableHighAccuracy: true, maximumAge: 30000, timeout: 20000 },
+    );
+    return () => navigator.geolocation.clearWatch(id);
+  }, []);
+
   /* ── Self-fetch: berikade objekt + maskin_ko (live-källor) ── */
   const refetchObjekt = useCallback(async () => {
     const PAGE = 1000;
@@ -871,6 +864,23 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     });
     return map;
   }, [maskinKo]);
+
+  /* ── Köplats per objekt: "X av Y" i objektets maskinkö (samma maskin koByObjekt valt) ── */
+  const koPlatsByObj = useMemo(() => {
+    const queues: Record<string, string[]> = {};
+    const grouped: Record<string, MaskinKoItem[]> = {};
+    for (const k of maskinKo) (grouped[k.maskin_id] ||= []).push(k);
+    for (const mid in grouped) {
+      queues[mid] = grouped[mid].slice().sort((a, b) => a.ordning - b.ordning).map(k => k.objekt_id);
+    }
+    const out: Record<string, { pos: number; total: number }> = {};
+    for (const objId in koByObjekt) {
+      const q = queues[koByObjekt[objId].maskinId] || [];
+      const idx = q.indexOf(objId);
+      if (idx >= 0) out[objId] = { pos: idx + 1, total: q.length };
+    }
+    return out;
+  }, [maskinKo, koByObjekt]);
 
   /* ── Förarens kö i ordning (Beslut 1: Nu + Härnäst) ── */
   const driverQueue = useMemo(() => {
@@ -1496,19 +1506,14 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         </div>
       )}
 
-      {selectedObj && (() => {
-        const ko = koByObjekt[selectedObj.id];
-        const m = ko ? maskiner.find(x => x.maskin_id === ko.maskinId) : undefined;
-        return (
-          <ObjCard
-            obj={selectedObj}
-            prod={prodMap[selectedObj.id]}
-            warnings={warningsByObj[selectedObj.id]}
-            maskinNamn={m ? getMaskinDisplayName(m) : (ko?.maskinId ?? null)}
-            ko={ko}
-          />
-        );
-      })()}
+      {selectedObj && (
+        <ObjCard
+          obj={selectedObj}
+          warnings={warningsByObj[selectedObj.id]}
+          koPlats={koPlatsByObj[selectedObj.id]}
+          devicePos={devicePos}
+        />
+      )}
       {selectedGrotObj && <GrotCard obj={selectedGrotObj} />}
 
       {/* Förar-sheet (Beslut 1) — bara i förarläge när inget kort är öppet */}
