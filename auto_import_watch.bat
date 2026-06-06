@@ -11,10 +11,12 @@
 
 cd /d "C:\Kompersmåla Skog\Kompersmåla Skog\Appen\skogsystem-claude"
 
-:: Starta med pythonw (ingen konsolfönster) om tillgängligt, annars python
+:: VIKTIGT: kör SPÅRAT — ingen `start`/detach. cmd väntar då på watchdog-processen,
+:: så Schemalagd uppgift håller den "Running" och Stop-ScheduledTask dödar hela trädet
+:: (.bat + pythonw). pythonw = inget konsolfönster; python (med fönster) som fallback.
 where pythonw >nul 2>nul
 if %errorlevel%==0 (
-    start "" /B pythonw auto_import_watch.py
+    pythonw auto_import_watch.py
 ) else (
-    start "" /MIN python auto_import_watch.py
+    python auto_import_watch.py
 )
