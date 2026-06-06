@@ -288,6 +288,7 @@ function BarChart({
       </svg>
 
       {/* ── Kontextrad (HTML) — X lass · Y m³ per maskin per klass ── */}
+      {/* Tal vita, prefix (W:/EK:) och enheter (m³) i grått — samma princip som Översikt */}
       <div style={{
         display: 'grid', gridTemplateColumns: `repeat(${NK}, 1fr)`,
         gap: 4, marginTop: 6,
@@ -297,20 +298,164 @@ function BarChart({
           const eKl = ek.klasser[ki]
           return (
             <div key={ki} style={{ fontSize: 10, fontVariantNumeric: 'tabular-nums' }}>
-              <div style={{ color: WISENT.color, opacity: wKl.lass > 0 ? 0.85 : 0.3, marginBottom: 1 }}>
-                {wKl.lass > 0
-                  ? `W: ${wKl.lass} · ${fmtSv(wKl.volym, 0)} m³`
-                  : 'W: —'}
+              <div style={{ marginBottom: 1 }}>
+                {wKl.lass > 0 ? (
+                  <>
+                    <span style={{ color: C.muted }}>W: </span>
+                    <span style={{ color: C.text, fontWeight: 500 }}>{wKl.lass}</span>
+                    <span style={{ color: C.muted }}> · </span>
+                    <span style={{ color: C.text, fontWeight: 500 }}>{fmtSv(wKl.volym, 0)}</span>
+                    <span style={{ color: C.muted }}> m³</span>
+                  </>
+                ) : <span style={{ color: C.dim }}>W: —</span>}
               </div>
-              <div style={{ color: EK.color, opacity: eKl.lass > 0 ? 0.85 : 0.3 }}>
-                {eKl.lass > 0
-                  ? `EK: ${eKl.lass} · ${fmtSv(eKl.volym, 0)} m³`
-                  : 'EK: —'}
+              <div>
+                {eKl.lass > 0 ? (
+                  <>
+                    <span style={{ color: C.muted }}>EK: </span>
+                    <span style={{ color: C.text, fontWeight: 500 }}>{eKl.lass}</span>
+                    <span style={{ color: C.muted }}> · </span>
+                    <span style={{ color: C.text, fontWeight: 500 }}>{fmtSv(eKl.volym, 0)}</span>
+                    <span style={{ color: C.muted }}> m³</span>
+                  </>
+                ) : <span style={{ color: C.dim }}>EK: —</span>}
               </div>
             </div>
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// ── FordelningsStaplar ────────────────────────────────────────
+// Horisontell avståndsprofil per maskin — visa på EN BLICK om maskinen
+// kör nära (vänstertung) eller långt (högertung).
+//
+// Segmentbredd = andel lass i klassen. Nyansstyrka:
+//   0-500m = full opacity → 2km+ = lite transparent
+// Tal vita, enheter/prefix grå — samma princip som kontextraden.
+//
+// VERIFIERAT maj: Wisent 36/40/21/3 %, EK 16/9/33/42 %
+
+// Omvandla hex (#RRGGBB) + opacity → rgba(r,g,b,a) så att
+// text-barn inte påverkas av parent opacity.
+function hexToRgba(hex: string, a: number): string {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${a})`
+}
+
+// Nyansstyrka per avståndsklass: nära = täckande, långt = lätt transparent
+const KLASS_OPACITET = [1.0, 0.72, 0.48, 0.28]
+
+function FordelningsStaplar({
+  wisent, ek, loading,
+}: {
+  wisent:  MaskinAgg
+  ek:      MaskinAgg
+  loading: boolean
+}) {
+  const shares = (agg: MaskinAgg): number[] =>
+    agg.klasser.map(kl => agg.totalLass > 0 ? (kl.lass / agg.totalLass) * 100 : 0)
+
+  const wShares = shares(wisent)
+  const eShares = shares(ek)
+
+  // En rad per maskin
+  const MaskinRad = ({
+    maskin, agg, seg,
+  }: {
+    maskin: typeof WISENT
+    agg:    MaskinAgg
+    seg:    number[]
+  }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+      {/* Maskin-etikett (fast bredd) */}
+      <div style={{ width: 52, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
+          <div style={{ width: 7, height: 7, borderRadius: 1.5, background: maskin.color }} />
+          <span style={{ fontSize: 11, color: C.muted, fontWeight: 500 }}>{maskin.kort}</span>
+        </div>
+        <div style={{ fontSize: 10, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>
+          {agg.totalLass} lass
+        </div>
+      </div>
+
+      {/* Stapel */}
+      <div style={{
+        flex: 1, height: 26, borderRadius: 5, overflow: 'hidden',
+        display: 'flex', gap: 2, background: C.divider,
+      }}>
+        {seg.map((pct, ki) => {
+          if (pct < 0.5) return null
+          const bg       = hexToRgba(maskin.color, KLASS_OPACITET[ki])
+          const showPct  = pct >= 10
+          return (
+            <div
+              key={ki}
+              style={{
+                flex:            pct,
+                background:      bg,
+                display:         'flex',
+                alignItems:      'center',
+                justifyContent:  'center',
+                overflow:        'hidden',
+                minWidth:        0,
+              }}
+            >
+              {showPct && (
+                <span style={{
+                  fontSize: 11, fontWeight: 700, color: '#fff',
+                  fontVariantNumeric: 'tabular-nums',
+                  textShadow: '0 1px 3px rgba(0,0,0,0.55)',
+                  lineHeight: 1,
+                }}>
+                  {Math.round(pct)}%
+                </span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+
+  return (
+    <div style={{ background: C.card, borderRadius: 14, padding: '16px 18px 14px', marginBottom: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 14 }}>
+        Avståndsprofil — lass
+      </div>
+
+      {loading ? (
+        <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <span style={{ fontSize: 12, color: C.muted }}>Laddar…</span>
+        </div>
+      ) : (
+        <>
+          <MaskinRad maskin={WISENT} agg={wisent} seg={wShares} />
+          <MaskinRad maskin={EK}     agg={ek}     seg={eShares} />
+
+          {/* Legende — visar vad de 4 nyanserna betyder */}
+          <div style={{
+            display: 'flex', gap: 12, marginTop: 8,
+            paddingTop: 10, borderTop: `0.5px solid ${C.divider}`,
+            flexWrap: 'wrap',
+          }}>
+            {KLASSER.map((kl, ki) => (
+              <div key={ki} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{
+                  width: 10, height: 10, borderRadius: 2,
+                  // Neutral blå för legende — visar nyansen oavsett maskin
+                  background: hexToRgba(C.blue, KLASS_OPACITET[ki]),
+                }} />
+                <span style={{ fontSize: 11, color: C.muted }}>{kl.label}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -487,7 +632,15 @@ export default function SkotareJamforelseNy() {
           </span>
         </div>
 
-        {/* Stapeldiagram */}
+        {/* ── Fördelningsstaplar — grundvy, visar avståndsprofil på en blick ── */}
+        {data && (
+          <FordelningsStaplar
+            wisent={data.wisent} ek={data.ek}
+            loading={loading}
+          />
+        )}
+
+        {/* ── Stapeldiagram per klass ── */}
         <div style={{ background: C.card, borderRadius: 14, padding: '16px 16px 16px', marginBottom: 12 }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: C.muted, marginBottom: 14 }}>
             {mattDef.label} per avståndsklass
