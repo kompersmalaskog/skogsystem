@@ -316,53 +316,13 @@ export default function TraktBriefing({
     const extentKm = Math.max(maxLat - minLat, (maxLon - minLon) * Math.cos(centerLat * Math.PI / 180)) * 111;
     const overviewZoom = extentKm < 0.5 ? 17 : extentKm < 1 ? 16.5 : extentKm < 2 ? 16 : 15.5;
 
-    // 1. OVERVIEW — smooth organic arc orbit
-    const rLat = (maxLat - minLat) * 0.45 + 0.001;
-    const rLon = (maxLon - minLon) * 0.45 + 0.0015;
-    const arcPoints: { lat: number; lon: number }[] = [];
-    const arcCount = 60;
-    for (let i = 0; i <= arcCount; i++) {
-      const t = i / arcCount;
-      const angleDeg = 270 - 360 * t;
-      const angleRad = angleDeg * Math.PI / 180;
-      const rVar = 1 + 0.15 * Math.sin(t * Math.PI * 3);
-      arcPoints.push({
-        lat: centerLat + rLat * rVar * Math.sin(angleRad),
-        lon: centerLon + rLon * rVar * Math.cos(angleRad),
-      });
-    }
-    const interestMarkers = [...landings, ...symbolMarkers];
-    const symAngles: number[] = [];
-    for (const m of interestMarkers) {
-      let sll: { lat: number; lon: number };
-      if (m.isZone && m.path && m.path.length > 0) {
-        let cx = 0, cy = 0;
-        for (const p of m.path!) { cx += p.x; cy += p.y; }
-        sll = svgToLatLon(cx / m.path!.length, cy / m.path!.length);
-      } else {
-        sll = svgToLatLon(m.x, m.y);
-      }
-      symAngles.push(Math.atan2(sll.lat - centerLat, sll.lon - centerLon) * 180 / Math.PI);
-    }
-    const arcWeightsArr: number[] = [];
-    for (let i = 0; i < arcCount; i++) {
-      const segAngle = 270 - 360 * (i + 0.5) / arcCount;
-      let w = 1.0;
-      for (const sa of symAngles) {
-        const diff = Math.abs(((segAngle - sa + 540) % 360) - 180);
-        if (diff < 30) w += 1.5 * (1 - diff / 30);
-      }
-      arcWeightsArr.push(w);
-    }
-    const wTotal = arcWeightsArr.reduce((a, b) => a + b, 0);
-    const arcCDF = [0];
-    for (let i = 0; i < arcCount; i++) {
-      arcCDF.push(arcCDF[i] + arcWeightsArr[i] / wTotal);
-    }
+    // 1. OVERVIEW — stilla helbild av trakten (fitBounds, ingen rörelse). STEG 6d-1.
+    const ovPadLat = Math.max((maxLat - minLat) * 0.12, 0.0008);
+    const ovPadLon = Math.max((maxLon - minLon) * 0.12, 0.0012);
     built.push({
-      id: 'overview', type: 'overview', title: 'Överflygning', icon: 'map',
-      center: { lat: centerLat, lon: centerLon }, zoom: overviewZoom, pitch: 60,
-      path: arcPoints, arcCDF,
+      id: 'overview', type: 'overview', title: 'Hela trakten', icon: 'map',
+      center: { lat: centerLat, lon: centerLon }, zoom: overviewZoom, pitch: 0,
+      bbox: [minLon - ovPadLon, minLat - ovPadLat, maxLon + ovPadLon, maxLat + ovPadLat],
     });
 
     // 2. OM TRAKTEN — data hämtas direkt från boundary markers i checklistorna,
@@ -568,95 +528,12 @@ export default function TraktBriefing({
       prevOverlaysRef.current = null;
     }
 
-    // OVERVIEW: smooth organic arc, 12s, pitch 55-65
-    if (step.type === 'overview' && step.path && step.path.length > 1) {
-      const arcPath = step.path;
-      const arcCenter = step.center!;
-      const baseZoom = step.zoom || 16;
-      const cdf = step.arcCDF;
-      const startBear = getBearing(arcPath[0], arcCenter);
-      map.jumpTo({ center: [arcPath[0].lon, arcPath[0].lat], zoom: baseZoom, pitch: 60, bearing: startBear });
-      const arcDuration = 12000;
-      const startTime = performance.now();
-      const mapTime = (t: number): number => {
-        if (!cdf || cdf.length < 2) return t;
-        let lo = 0, hi = cdf.length - 2;
-        while (lo < hi) { const mid = (lo + hi) >> 1; cdf[mid + 1] < t ? lo = mid + 1 : hi = mid; }
-        const segLen = cdf[lo + 1] - cdf[lo];
-        return segLen > 0 ? (lo + (t - cdf[lo]) / segLen) / (cdf.length - 1) : lo / (cdf.length - 1);
-      };
-      overviewBusyRef.current = true;
-      setOverviewBusy(true);
-      const tick = () => {
-        if (!mapInstanceRef.current) return;
-        const elapsed = performance.now() - startTime;
-        if (elapsed >= arcDuration) {
-          setOverviewPhase('topdown');
-          mapInstanceRef.current.flyTo({
-            center: [arcCenter.lon, arcCenter.lat], zoom: baseZoom - 0.8, pitch: 0, bearing: 0, duration: 2000, essential: true,
-          });
-          rotationRef.current = setTimeout(() => { overviewBusyRef.current = false; setOverviewBusy(false); }, 4500) as any;
-          return;
-        }
-        const rawT = elapsed / arcDuration;
-        const eased = rawT < 0.5 ? 2 * rawT * rawT : 1 - (-2 * rawT + 2) ** 2 / 2;
-        const arcT = mapTime(eased);
-        const idx = arcT * (arcPath.length - 1);
-        const i = Math.floor(idx);
-        const frac = idx - i;
-        const p0 = arcPath[Math.min(i, arcPath.length - 1)];
-        const p1 = arcPath[Math.min(i + 1, arcPath.length - 1)];
-        const lat = p0.lat + (p1.lat - p0.lat) * frac;
-        const lon = p0.lon + (p1.lon - p0.lon) * frac;
-        const baseBear = getBearing({ lat, lon }, arcCenter);
-        const bearOff = 10 * Math.sin(arcT * Math.PI * 3);
-        const zoomVar = 0.6 * Math.sin(arcT * Math.PI * 4);
-        const pitch = 60 + 5 * Math.sin(arcT * Math.PI * 2);
-        mapInstanceRef.current.jumpTo({ center: [lon, lat], bearing: baseBear + bearOff, zoom: baseZoom + zoomVar, pitch });
-        rotationRef.current = requestAnimationFrame(tick) as any;
-      };
-      rotationRef.current = requestAnimationFrame(tick) as any;
-    }
-    // PROPERTY: fly straight
-    else if (step.type === 'property' && step.path && step.path.length > 1) {
-      const propPath = step.path;
-      const propBearing = step.bearing || getBearing(propPath[0], propPath[propPath.length - 1]);
-      map.flyTo({ center: [propPath[0].lon, propPath[0].lat], zoom: step.zoom || 16.5, pitch: step.pitch || 63, bearing: propBearing, duration: 2000, essential: true });
-      const totalPropPts = propPath.length;
-      const propInterval = 700;
-      let propIdx = 0;
-      const propStepSz = Math.max(1, Math.floor(totalPropPts / 15));
-      const propAnim = setInterval(() => {
-        if (!mapInstanceRef.current) { clearInterval(propAnim); return; }
-        propIdx += propStepSz;
-        if (propIdx >= totalPropPts) { clearInterval(propAnim); return; }
-        const p = propPath[propIdx];
-        const nextI = Math.min(propIdx + propStepSz, totalPropPts - 1);
-        const np = propPath[nextI];
-        mapInstanceRef.current.easeTo({ center: [p.lon, p.lat], bearing: getBearing(p, np), duration: propInterval - 50, pitch: step.pitch || 63, zoom: step.zoom || 16.5 });
-      }, propInterval);
-      rotationRef.current = propAnim;
-    }
-    // MAINROAD: animate along path
-    else if (step.type === 'mainroad' && step.path && step.path.length > 1) {
-      const pathPts = step.path;
-      const totalPts = pathPts.length;
-      const stepSize = Math.max(1, Math.floor(totalPts / 12));
-      const interval = 900;
-      let idx = 0;
-      map.flyTo({ center: [pathPts[0].lon, pathPts[0].lat], zoom: step.zoom || 16.5, pitch: 60, bearing: 0, duration: 1500, essential: true });
-      const pathAnim = setInterval(() => {
-        if (!mapInstanceRef.current) { clearInterval(pathAnim); return; }
-        idx += stepSize;
-        if (idx >= totalPts) { clearInterval(pathAnim); return; }
-        const p = pathPts[idx];
-        mapInstanceRef.current.easeTo({ center: [p.lon, p.lat], duration: interval - 50, pitch: 60, zoom: step.zoom || 16.5 });
-      }, interval);
-      rotationRef.current = pathAnim;
-    }
-    // ALL OTHER: smooth flyTo
-    else if (step.center) {
-      map.flyTo({ center: [step.center.lon, step.center.lat], zoom: step.zoom || 15, pitch: step.pitch || 60, bearing: step.bearing ?? 0, duration: 1800, essential: true });
+    // STEG 6d-1: lugn kamera — stilla helbild (fitBounds, ingen orbit/vobbel) för
+    // overview; enkel mjuk flyTo till feature för allt annat (ingen "res längs"-resa).
+    if (step.type === 'overview' && step.bbox) {
+      map.fitBounds(step.bbox, { padding: 50, pitch: 0, bearing: 0, duration: 1500, essential: true });
+    } else if (step.center) {
+      map.flyTo({ center: [step.center.lon, step.center.lat], zoom: step.zoom || 15, pitch: step.pitch || 60, bearing: step.bearing ?? 0, duration: 1500, essential: true });
     }
 
     setFadeIn(false);
@@ -1059,7 +936,7 @@ export default function TraktBriefing({
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
             <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 28, color: '#fff' }}>{step.icon}</span>
             <div style={{ fontSize: '18px', fontWeight: '600', color: '#e8f0e0' }}>
-              {step.type === 'overview' ? (overviewPhase === 'orbit' ? 'Överflygning' : 'Hela trakten') : step.title}
+              {step.title}
             </div>
           </div>
 
