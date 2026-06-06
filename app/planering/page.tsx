@@ -12,6 +12,7 @@ import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
+import { ZONE_COLORS } from '@/lib/zone-colors'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
@@ -4799,12 +4800,12 @@ export default function PlannerPage() {
   ];
 
   const zoneTypes = [
-    { id: 'wet', name: 'Blött', color: LEGEND.vatten, icon: 'wet' },
-    { id: 'steep', name: 'Brant', color: LEGEND.brant, icon: 'steep' },
-    { id: 'protected', name: 'Naturvård', color: LEGEND.naturvard, icon: 'naturecorner' },
-    { id: 'culture', name: 'Kulturmiljö', color: LEGEND.kultur, icon: 'culturemonument' },
-    { id: 'noentry', name: 'Ej framkomlig', color: LEGEND.fara, icon: 'warning' },
-    { id: 'fornlamning', name: 'Fornlämning', color: LEGEND.fornlamning, icon: 'culturemonument' },
+    { id: 'wet', name: 'Blött', color: ZONE_COLORS.wet, icon: 'wet' },
+    { id: 'steep', name: 'Brant', color: ZONE_COLORS.steep, icon: 'steep' },
+    { id: 'protected', name: 'Naturvård', color: ZONE_COLORS.protected, icon: 'naturecorner' },
+    { id: 'culture', name: 'Kulturmiljö', color: ZONE_COLORS.culture, icon: 'culturemonument' },
+    { id: 'noentry', name: 'Ej framkomlig', color: ZONE_COLORS.noentry, icon: 'warning' },
+    { id: 'fornlamning', name: 'Fornlämning', color: ZONE_COLORS.fornlamning, icon: 'culturemonument' },
   ];
 
   const warningCategories = [
