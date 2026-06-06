@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
+import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
 
 /* ── Animated count-up hook ── */
 function useCountUp(target: number, duration = 1.2, active = true): number {
@@ -1091,23 +1092,22 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
 
     const map = new window.maplibregl.Map({
       container: mapContainerRef.current,
-      style: {
-        version: 8,
-        sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '&copy; OSM' } },
-        // Dämpad basemap (Apple Maps-känsla): tona ner OSM-rastret så markörer + rutt
-        // sticker ut. Inga nya tiles/nyckel — bara raster-paint på rutorna vi redan har.
-        layers: [{
-          id: 'osm', type: 'raster', source: 'osm',
-          paint: {
-            'raster-saturation': -0.7,    // ta bort OSM:s skrikande färger → grått, lugnt
-            'raster-brightness-min': 0.2, // lyft skuggorna → diset, viskar i bakgrunden
-            'raster-contrast': -0.15,     // platta ut → inga lysande vita ytor
-          },
-        }],
-      },
+      // Baskarta: egen nedtonad Lantmäteriet-vektorstil (se forarkarta-stil.ts).
+      // Tiles via /api/forarkarta (nyckel server-side). Ersätter rå OSM-raster.
+      style: buildForarkartaStyle(),
       center, zoom: 10,
+      // Platt 2D ovanifrån — ingen tilt, norr upp. 3D/lutning gör det svårare
+      // för en förare att läsa avstånd och riktningar.
+      maxPitch: 0,
+      dragRotate: false,
+      // Egen attribution-kontroll nedan (CC-BY: '© Lantmäteriet').
+      attributionControl: false,
     });
     mapRef.current = map;
+    // Lås till platt, norr-upp: stäng av två-finger-rotation också.
+    try { map.touchZoomRotate.disableRotation(); } catch { /* äldre maplibre */ }
+    // CC-BY — '© Lantmäteriet' MÅSTE synas på kartan.
+    map.addControl(new window.maplibregl.AttributionControl({ customAttribution: FORARKARTA_ATTRIBUTION, compact: true }));
 
     map.on('zoom', () => setZoomLevel(map.getZoom()));
 
