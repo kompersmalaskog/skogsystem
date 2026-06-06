@@ -210,6 +210,10 @@ interface ManuellPrognos {
 // Zoner (isZoneMode) hanteras separat och är alltid polygoner.
 const POLYGON_LINE_TYPES = new Set<string>(['boundary']);
 
+// STEG 6a-3: en rad i objekt_kvittering (per objekt + roll). kvitterat_at satt = låst kvitto.
+type KvittRad = { checked_ids: string[]; kvitterat_av_id: string | null; kvitterat_av_namn: string | null; kvitterat_at: string | null };
+const EMPTY_KVITT: KvittRad = { checked_ids: [], kvitterat_av_id: null, kvitterat_av_namn: null, kvitterat_at: null };
+
 export default function PlannerPage() {
   // === OBJEKTVAL ===
   const [valtObjekt, setValtObjekt] = useState<any>(null);
@@ -237,6 +241,16 @@ export default function PlannerPage() {
   const isAdminRiktig = currentMedarbetare?.roll === 'admin' || currentMedarbetare?.roll === 'chef';
   const isForare = effectiveMedarbetare?.roll === 'forare';
   const visarSomForare = simuleradForareId !== null;
+
+  // STEG 6a-3: härled förarens roll PÅ DETTA OBJEKT genom att matcha
+  // effectiveMedarbetare.id mot objektets tilldelningar. null = ej tilldelad
+  // (admin/annan) → kvittering i läsläge för båda roller.
+  const minRoll: 'skordare' | 'skotare' | null =
+    effectiveMedarbetare?.id && valtObjekt
+      ? (valtObjekt.assigned_skordare_user_id === effectiveMedarbetare.id ? 'skordare'
+         : valtObjekt.assigned_skotare_user_id === effectiveMedarbetare.id ? 'skotare'
+         : null)
+      : null;
 
   const handleVaxlaVy = useCallback((forareId: string | null) => {
     setSimuleradForareId(forareId);
@@ -1044,51 +1058,61 @@ export default function PlannerPage() {
   const [briefingMode, setBriefingMode] = useState(false);
   const [briefingHighlightId, setBriefingHighlightId] = useState<string | null>(null);
   const [briefingCompleted, setBriefingCompleted] = useState(false);
-  const [briefingCheckedIds, setBriefingCheckedIds] = useState<string[]>([]);
+  // STEG 6a-3: per-roll kvittering (objekt_kvittering) — två oberoende rader/objekt.
+  const [kvittSkordare, setKvittSkordare] = useState<KvittRad | null>(null);
+  const [kvittSkotare, setKvittSkotare] = useState<KvittRad | null>(null);
+  // Aktuell rolls kvitto + härledda checked_ids (ersätter gamla briefingCheckedIds-state).
+  const minRollKvitto: KvittRad | null = minRoll === 'skordare' ? kvittSkordare : minRoll === 'skotare' ? kvittSkotare : null;
+  const briefingCheckedIds: string[] = minRollKvitto?.checked_ids ?? [];
   const [briefingChecklistMode, setBriefingChecklistMode] = useState(false);
   const [briefingStepTotal, setBriefingStepTotal] = useState(0);
   const [checklistMapView, setChecklistMapView] = useState<{ itemId: string; center: { lat: number; lon: number }; markerId?: string; source: 'checklist' | 'mandatory'; bbox?: [number,number,number,number]; zoom?: number; type?: string; comment?: string; audioData?: string; photoData?: string; title?: string; icon?: string } | null>(null);
   const checklistPulseRef = useRef<any>(null);
   const checklistPrevOverlaysRef = useRef<Record<string, boolean> | null>(null);
 
-  // === KVITTERINGS-STATUS: Ladda från Supabase ===
-  const kvitteringLoadedRef = useRef(false);
+  // === KVITTERING (objekt_kvittering): ladda BÅDA roller för valt objekt ===
   useEffect(() => {
-    kvitteringLoadedRef.current = false;
-    if (!valtObjekt?.id) return;
-    const load = async () => {
+    if (!valtObjekt?.id) { setKvittSkordare(null); setKvittSkotare(null); return; }
+    let avbruten = false;
+    (async () => {
       const { data, error } = await supabase
-        .from('kvittering_status')
-        .select('checked_ids')
-        .eq('objekt_id', valtObjekt.id)
-        .maybeSingle();
-      if (error) {
-        console.error('[Kvittering] Ladda fel:', error);
-      } else if (data?.checked_ids) {
-        setBriefingCheckedIds(data.checked_ids);
-      }
-      kvitteringLoadedRef.current = true;
-    };
-    load();
+        .from('objekt_kvittering')
+        .select('roll, checked_ids, kvitterat_av_id, kvitterat_av_namn, kvitterat_at')
+        .eq('objekt_id', valtObjekt.id);
+      if (avbruten) return;
+      if (error) { console.error('[Kvittering] Ladda fel:', error); return; }
+      const rad = (r: 'skordare' | 'skotare'): KvittRad | null => {
+        const d = data?.find((x: any) => x.roll === r);
+        return d ? { checked_ids: d.checked_ids ?? [], kvitterat_av_id: d.kvitterat_av_id, kvitterat_av_namn: d.kvitterat_av_namn, kvitterat_at: d.kvitterat_at } : null;
+      };
+      setKvittSkordare(rad('skordare'));
+      setKvittSkotare(rad('skotare'));
+    })();
+    return () => { avbruten = true; };
   }, [valtObjekt?.id]);
 
-  // === KVITTERINGS-STATUS: Spara till Supabase (debounced) ===
-  const kvitteringSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  useEffect(() => {
-    if (!valtObjekt?.id || !kvitteringLoadedRef.current) return;
-    if (kvitteringSaveTimeoutRef.current) clearTimeout(kvitteringSaveTimeoutRef.current);
-    kvitteringSaveTimeoutRef.current = setTimeout(async () => {
+  // === KVITTERING: spara aktuell rolls checked_ids (debounced, per-roll upsert) ===
+  const kvittSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const scheduleKvittUpsert = useCallback((roll: 'skordare' | 'skotare', patch: Record<string, unknown>) => {
+    const objektId = valtObjekt?.id;
+    if (!objektId) return;
+    if (kvittSaveTimers.current[roll]) clearTimeout(kvittSaveTimers.current[roll]);
+    kvittSaveTimers.current[roll] = setTimeout(async () => {
       const { error } = await supabase
-        .from('kvittering_status')
-        .upsert({
-          objekt_id: valtObjekt.id,
-          checked_ids: briefingCheckedIds,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'objekt_id' });
+        .from('objekt_kvittering')
+        .upsert({ objekt_id: objektId, roll, ...patch, updated_at: new Date().toISOString() }, { onConflict: 'objekt_id,roll' });
       if (error) console.error('[Kvittering] Spara fel:', error);
-    }, 1500);
-    return () => { if (kvitteringSaveTimeoutRef.current) clearTimeout(kvitteringSaveTimeoutRef.current); };
-  }, [briefingCheckedIds, valtObjekt?.id]);
+    }, 1200);
+  }, [valtObjekt?.id]);
+
+  // Skriv aktuell rolls checked_ids (optimistiskt + debounced). Fryst efter kvitto.
+  const persistCheckedIds = useCallback((ids: string[]) => {
+    if (!valtObjekt?.id || !minRoll) return;            // ej tilldelad → ingen persistens
+    if (minRollKvitto?.kvitterat_at) return;             // kvitterat → checked_ids frysta (G4)
+    const setter = minRoll === 'skordare' ? setKvittSkordare : setKvittSkotare;
+    setter(prev => ({ ...(prev ?? EMPTY_KVITT), checked_ids: ids }));
+    scheduleKvittUpsert(minRoll, { checked_ids: ids });
+  }, [valtObjekt?.id, minRoll, minRollKvitto?.kvitterat_at, scheduleKvittUpsert]);
 
   // === BRIEFING-STATUS: Ladda från Supabase ===
   const briefingLoadedRef = useRef(false);
@@ -1255,6 +1279,12 @@ export default function PlannerPage() {
 
   // Körläge
   const [drivingMode, setDrivingMode] = useState(false);
+  // STEG 6a-3: körläge HÄRLEDS från kvittot (objekt_kvittering) — inte från objekt.driving_mode.
+  // Min rolls kvitterat_at satt ⇒ körläge på. Stänger korsroll-läckan (skotaren ärver inte
+  // skördarens körläge) och post-reset-läckan (nollställt kvitto ⇒ körläge av) — en sanningskälla.
+  useEffect(() => {
+    setDrivingMode(!!minRollKvitto?.kvitterat_at);
+  }, [minRollKvitto?.kvitterat_at]);
   const [acknowledgedWarnings, setAcknowledgedWarnings] = useState<string[]>([]); // IDs av kvitterade
   const [activeWarning, setActiveWarning] = useState<Warning | null>(null); // Markör som visar varning
   const [fullscreenPhoto, setFullscreenPhoto] = useState<string | null>(null); // Foto i fullskärm
@@ -1362,7 +1392,7 @@ export default function PlannerPage() {
     const loadInfo = async () => {
       const { data, error } = await supabase
         .from('objekt')
-        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, driving_mode, stickvag_settings, checklist_items, generellt_tillstand')
+        .select('barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text, skotare_maskin, skotare_band, skotare_band_par, skotare_lastreder_breddat, skotare_ris_direkt, skotare_konfiguration, transport_trailer_in, transport_kommentar, markagare_ska_ha_ved, markagare_ved_text, info_anteckningar, prognos_settings, manuell_prognos, trakt_data, stickvag_settings, checklist_items, generellt_tillstand')
         .eq('id', valtObjekt.id)
         .single();
       if (!error && data) {
@@ -1388,7 +1418,7 @@ export default function PlannerPage() {
         if (data.prognos_settings) setPrognosSettings(data.prognos_settings);
         if (data.manuell_prognos) setManuellPrognos(data.manuell_prognos);
         if (data.trakt_data) setTraktData(data.trakt_data);
-        if (data.driving_mode) setDrivingMode(data.driving_mode);
+        // körläge (driving_mode) läses INTE längre härifrån — härleds från kvittot (STEG 6a-3)
         if (data.stickvag_settings) setStickvagSettings(data.stickvag_settings);
         if (data.checklist_items) setChecklistItems(data.checklist_items);
         if (data.generellt_tillstand) setGenerelltTillstand(data.generellt_tillstand);
@@ -1433,14 +1463,13 @@ export default function PlannerPage() {
         prognos_settings: prognosSettings,
         manuell_prognos: manuellPrognos,
         trakt_data: traktData,
-        driving_mode: drivingMode,
         stickvag_settings: stickvagSettings,
         checklist_items: checklistItems,
         generellt_tillstand: generelltTillstand,
       })
       .eq('id', valtObjekt.id);
     if (error) console.error('Spara info fel:', error);
-  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, prognosSettings, manuellPrognos, traktData, drivingMode, stickvagSettings, checklistItems, generelltTillstand]);
+  }, [valtObjekt?.id, infoLoaded, infoBarighet, infoTerrang, infoSkordareMaskin, infoSkordareBand, infoSkordareBandPar, infoSkordareManFall, infoSkordareManFallText, infoSkotareMaskin, infoSkotareBand, infoSkotareBandPar, infoSkotareLastreder, infoSkotareRisDirekt, infoSkotareKonfig, infoTrailerIn, infoTransportKommentar, infoMarkagareVed, infoMarkagareVedText, infoAnteckningar, prognosSettings, manuellPrognos, traktData, stickvagSettings, checklistItems, generelltTillstand]);
 
   useEffect(() => {
     if (!infoLoaded) return;
@@ -17839,9 +17868,41 @@ export default function PlannerPage() {
           onActiveMarkerChange={setBriefingHighlightId}
           mode={briefingChecklistMode ? 'checklist' : 'briefing'}
           checkedStepIds={briefingCheckedIds}
-          onChecklistChange={setBriefingCheckedIds}
+          onChecklistChange={persistCheckedIds}
+          currentRole={minRoll}
+          kvittSkordare={kvittSkordare}
+          kvittSkotare={kvittSkotare}
+          onKvittera={(checkedIds: string[]) => {
+            if (!valtObjekt?.id || !minRoll) return;
+            const at = new Date().toISOString();
+            const patch = { checked_ids: checkedIds, kvitterat_av_id: effectiveMedarbetare?.id ?? null, kvitterat_av_namn: effectiveMedarbetare?.namn ?? null, kvitterat_at: at };
+            const setter = minRoll === 'skordare' ? setKvittSkordare : setKvittSkotare;
+            setter(prev => ({ ...(prev ?? EMPTY_KVITT), ...patch }));   // optimistiskt → kvitterat_at satt
+            supabase.from('objekt_kvittering')
+              .upsert({ objekt_id: valtObjekt.id, roll: minRoll, ...patch, updated_at: at }, { onConflict: 'objekt_id,roll' })
+              .then(({ error }) => { if (error) console.error('[Kvittering] Kvitto-fel:', error); });
+            // Körläge slås på automatiskt: kvitterat_at satt ⇒ härlednings-effekten (L1285) sätter drivingMode.
+          }}
+          isAdmin={isAdminRiktig}
+          onNollstall={(roll: 'skordare' | 'skotare') => {
+            if (!valtObjekt?.id) return;
+            const at = new Date().toISOString();
+            // 1) audit-logg (vem nollställde) — riktig användare, ej simulerad
+            supabase.from('kvittering_reset_logg').insert({
+              objekt_id: valtObjekt.id, roll,
+              nollstalld_av_id: currentMedarbetare?.id ?? null,
+              nollstalld_av_namn: currentMedarbetare?.namn ?? null,
+              nollstalld_at: at,
+            }).then(({ error }) => { if (error) console.error('[Kvittering] Reset-logg fel:', error); });
+            // 2) rensa rollens rad → tillbaka till att-göra (kvitto + checked_ids nollas)
+            const cleared = { checked_ids: [] as string[], kvitterat_av_id: null, kvitterat_av_namn: null, kvitterat_at: null };
+            const setter = roll === 'skordare' ? setKvittSkordare : setKvittSkotare;
+            setter(() => ({ ...cleared }));   // optimistiskt → härlednings-effekten drar körläge till false
+            supabase.from('objekt_kvittering')
+              .upsert({ objekt_id: valtObjekt.id, roll, ...cleared, updated_at: at }, { onConflict: 'objekt_id,roll' })
+              .then(({ error }) => { if (error) console.error('[Kvittering] Nollställ fel:', error); });
+          }}
           onBriefingComplete={(total: number) => { setBriefingCompleted(true); setBriefingStepTotal(total); }}
-          onStartDriving={() => setDrivingMode(true)}
           onShowOnMap={(itemId, center, markerId, source, extra) => {
             setBriefingChecklistMode(false);
             setBriefingHighlightId(markerId || null);
@@ -17966,7 +18027,7 @@ export default function PlannerPage() {
                     cleanupPropertyPulse();
                     const id = cv.itemId;
                     if (cv.source !== 'mandatory') {
-                      setBriefingCheckedIds(prev => prev.includes(id) ? prev : [...prev, id]);
+                      persistCheckedIds(briefingCheckedIds.includes(id) ? briefingCheckedIds : [...briefingCheckedIds, id]);
                     }
                     setBriefingHighlightId(null);
                     setBriefingChecklistMode(true);
