@@ -13,6 +13,8 @@ import time
 import subprocess
 import logging
 import threading
+import socket
+import errno
 from datetime import datetime
 from pathlib import Path
 
@@ -79,6 +81,34 @@ def _git_commit_short():
         return out.stdout.strip() or 'unknown'
     except Exception:
         return 'unknown'
+
+
+# Single-instance-lås: bind en fast localhost-port. Bara EN process kan hålla porten
+# åt gången; OS:et släpper den automatiskt vid exit/krasch (inget stale-lås). Hindrar
+# att två watchdoggar kör samtidigt även om två tasks/launchers fyrar — rotorsaken till
+# den dubbel-import vi sett.
+_SINGLE_INSTANCE_PORT = 49281   # godtyckligt högt privat-portnummer, enbart för låset
+_lock_socket = None
+
+
+def _acquire_single_instance(port: int = _SINGLE_INSTANCE_PORT) -> bool:
+    """True = vi fick låset (eller kunde ej sätta upp det -> blockera inte importen).
+    False = en annan instans håller redan låset (porten upptagen)."""
+    global _lock_socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(('127.0.0.1', port))
+    except OSError as e:
+        try:
+            s.close()
+        except Exception:
+            pass
+        if getattr(e, 'errno', None) in (errno.EADDRINUSE, 10048, 48):
+            return False  # porten upptagen = annan instans kör redan
+        logger.warning(f"Single-instance-lås kunde ej tas (oväntat fel: {e}) — fortsätter UTAN lås.")
+        return True
+    _lock_socket = s  # håll socketen öppen processen ut (frigörs av OS vid exit)
+    return True
 
 
 # ============================================================
@@ -271,6 +301,10 @@ def main():
     logger.info("AUTO IMPORT WATCH — Startar")
     logger.info(f"Version: git={_git_commit_short()} "
                 f"| script={os.path.abspath(__file__)} | py={PYTHON_EXE}")
+    if not _acquire_single_instance():
+        logger.warning("En annan auto_import_watch-instans håller redan single-instance-låset "
+                       "— avslutar (ingen dubbel-bevakning).")
+        sys.exit(0)
     logger.info(f"Bevakar: {WATCH_DIR}")
     logger.info(f"MOM-script: {MOM_IMPORT_SCRIPT}")
     logger.info(f"HPR-script: {HPR_IMPORT_SCRIPT}")
