@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
-import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, TF, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
+import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
 import { ff } from './oversikt-styles';
 import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
@@ -141,7 +141,6 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
   devicePos?: { lat: number; lng: number } | null;
 }) {
   const o = obj;
-  const tf = TF[o.typ] || C.yellow;
   const [expanded, setExpanded] = useState(false);
 
   const st = ST[o.status] || ST.oplanerad;
@@ -213,7 +212,6 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
         boxShadow: C.shadowMd, zIndex: 20,
       }}
     >
-      <div style={{ height: 2, background: `linear-gradient(90deg,${tf},transparent)` }} />
       <div style={{ padding: SP.xl, maxHeight: '54vh', overflowY: 'auto' }}>
 
         {/* Sammanfattning — alltid synlig */}
@@ -610,38 +608,51 @@ interface MarkerOpts {
   onClick: () => void;
 }
 
-/* ── Build a MapLibre marker DOM element — (form, status, badges[]) ──
-   form: 'circle' = objekt, 'machine' = maskinposition (rundad fyrkant + kugghjul).
-   Färg = status och FYLLER markören (ej svag ring). Endast aktiva pulserar.
-   Okänd/oplanerad status → ofylld kontur (filtreras aldrig bort, Beslut 5). */
+/* ── Markörfärg = BARA status (en färg, en betydelse) ──
+   grå = oplanerad/avslutat · blå = planerad · grön = pågående.
+   Typ bärs av FORM (cirkel = gallring, rundad fyrkant = slutavverkning),
+   aldrig av färg. Rött finns bara som faro-badge. */
+const MARKER_GRAY = '#8e8e93';
+function markerStatusColor(status: string): string {
+  if (STATUS_AKTIV.includes(status)) return C.green;                 // pågående (+ skördning/skotning)
+  if (status === 'planerad' || status === 'importerad') return C.blue;
+  return MARKER_GRAY;                                                 // oplanerad / avslutat / okänd
+}
+
+/* ── Build a MapLibre marker DOM element — form=objekt/maskin, shape=typ ──
+   Färg = status (markerStatusColor) och FYLLER markören. Endast aktiva pulserar.
+   Okänd/oplanerad → ofylld kontur (filtreras aldrig bort, Beslut 5). */
 function buildMarkerEl(
   form: 'circle' | 'machine',
+  shape: 'circle' | 'square',
   status: string,
   badges: MarkerBadge[],
   opts: MarkerOpts,
 ): HTMLDivElement {
   const { isSelected, label, volym, sublabels, onClick } = opts;
-  const st = ST[status] || { l: status, c: C.t3, bg: 'transparent' };
   const known = status in ST;
   const isActive = STATUS_AKTIV.includes(status);
   const isDone = STATUS_AVSLUTADE.includes(status);
   const isContour = status === 'oplanerad' || !known;
+  const sc = markerStatusColor(status); // markörfärg = BARA status (grå/blå/grön)
 
   const dotSize = isSelected ? 36 : form === 'machine' ? 34 : isActive ? 32 : isDone ? 20 : 28;
   const hitSize = 40; // konstant så MapLibre-ankaret aldrig hoppar
+  // Form = typ: rundad fyrkant = slutavverkning, cirkel = gallring.
+  const radiusFor = (sz: number) => (shape === 'square' ? `${Math.max(4, Math.round(sz * 0.28))}px` : '50%');
 
   const w = document.createElement('div');
   w.className = 'ovk-marker';
   w.dataset.objektId = label;
   w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isDone ? '0.55' : '1'}`;
 
-  // Puls — ENDAST aktiva objekt (cirkelform)
+  // Puls — ENDAST aktiva objekt. Ringen följer markörformen.
   if (isActive && form === 'circle') {
     const ring = document.createElement('div');
-    ring.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:50%;border:2px solid ${st.c};animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) infinite;pointer-events:none`;
+    ring.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize}px;height:${dotSize}px;margin-left:-${dotSize / 2}px;margin-top:-${dotSize / 2}px;border-radius:${radiusFor(dotSize)};border:2px solid ${sc};animation:pulseRing 2.5s cubic-bezier(0.4,0,0.2,1) infinite;pointer-events:none`;
     w.appendChild(ring);
     const glow = document.createElement('div');
-    glow.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 10}px;height:${dotSize + 10}px;margin-left:-${(dotSize + 10) / 2}px;margin-top:-${(dotSize + 10) / 2}px;border-radius:50%;background:radial-gradient(circle,${st.c}30 0%,transparent 70%);pointer-events:none;animation:glowPulse 3s ease-in-out infinite`;
+    glow.style.cssText = `position:absolute;left:50%;top:50%;width:${dotSize + 10}px;height:${dotSize + 10}px;margin-left:-${(dotSize + 10) / 2}px;margin-top:-${(dotSize + 10) / 2}px;border-radius:50%;background:radial-gradient(circle,${sc}30 0%,transparent 70%);pointer-events:none;animation:glowPulse 3s ease-in-out infinite`;
     w.appendChild(glow);
   }
 
@@ -654,15 +665,15 @@ function buildMarkerEl(
     dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:10px;background:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 12px rgba(255,255,255,0.25),0 2px 8px rgba(0,0,0,.4)`;
     dot.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
   } else if (isDone) {
-    // Avslutat: nedtonad grå cirkel med bock
-    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${C.bg};border:1.5px solid #52525b;display:flex;align-items:center;justify-content:center`;
-    dot.innerHTML = `<span style="font-size:${Math.round(dotSize * 0.6)}px;color:#8e8e93;line-height:1">✓</span>`;
+    // Avslutat: nedtonad GRÅ markör (ej svart) med bock — i status-skalan.
+    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:${radiusFor(dotSize)};background:${sc};border:1.5px solid rgba(255,255,255,0.5);display:flex;align-items:center;justify-content:center`;
+    dot.innerHTML = `<span style="font-size:${Math.round(dotSize * 0.6)}px;color:#fff;line-height:1">✓</span>`;
   } else if (isContour) {
-    // Oplanerad/okänd: ofylld kontur (renderas alltid, döljs aldrig tyst)
-    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:transparent;border:2px dashed ${st.c};box-shadow:${isSelected ? `0 0 16px ${st.c}40` : 'none'}`;
+    // Oplanerad/okänd: ofylld grå kontur (renderas alltid, döljs aldrig tyst)
+    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:${radiusFor(dotSize)};background:transparent;border:2px dashed ${sc};box-shadow:${isSelected ? `0 0 16px ${sc}40` : 'none'}`;
   } else {
-    // Planerad/pågående: FYLLD markör med statusfärg
-    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:50%;background:${st.c};border:2px solid rgba(255,255,255,0.85);box-shadow:${isSelected ? `0 0 20px ${st.c}66` : '0 2px 8px rgba(0,0,0,.5)'}`;
+    // Planerad (blå) / pågående (grön): FYLLD markör med statusfärg
+    dot.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${dotSize}px;height:${dotSize}px;border-radius:${radiusFor(dotSize)};background:${sc};border:2px solid rgba(255,255,255,0.85);box-shadow:${isSelected ? `0 0 20px ${sc}66` : '0 2px 8px rgba(0,0,0,.5)'}`;
   }
   w.appendChild(dot);
 
@@ -1027,7 +1038,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
 
   /* ── Helper: bygg argument till buildMarkerEl (form, status, badges, opts) ── */
   const markerArgs = useCallback((obj: OversiktObjekt): {
-    form: 'circle' | 'machine'; status: string; badges: MarkerBadge[]; opts: MarkerOpts;
+    form: 'circle' | 'machine'; shape: 'circle' | 'square'; status: string; badges: MarkerBadge[]; opts: MarkerOpts;
   } => {
     const isMachine = machinePositions.has(obj.id);
     const isActive = STATUS_AKTIV.includes(obj.status);
@@ -1049,6 +1060,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
 
     return {
       form: isMachine ? 'machine' : 'circle',
+      shape: obj.typ === 'gallring' ? 'circle' : 'square',
       status: obj.status,
       badges,
       opts: {
@@ -1226,46 +1238,14 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     return () => { cancelled = true; };
   }, [routeData, maskinFilter]);
 
-  /* ── Distance labels — only when a specific machine is filtered ── */
+  /* ── Fix #3: per-segment-avstånd borttagna — gav kart-brus (många textpiller
+     ovanpå varandra vid maskinfiltrering). Linjen + numrerade markörer visar
+     ordningen, 'Total rutt'-chipen visar summan. Behåll bara städning av ev.
+     kvarvarande etikett-markörer. (Ev. framtida: visa EN delsträcka vid tryck på
+     just det benet — men aldrig allt på en gång.) ── */
   useEffect(() => {
     distMarkersRef.current.forEach(m => m.remove());
     distMarkersRef.current = [];
-
-    if (!mapRef.current || !mapStyleLoaded || !maskinFilter) return;
-
-    routeData.forEach(rd => {
-      let cumDist = 0;
-      for (let i = 0; i < rd.lineCoords.length - 1; i++) {
-        const [lng1, lat1] = rd.lineCoords[i];
-        const [lng2, lat2] = rd.lineCoords[i + 1];
-
-        const key = segKey(lng1, lat1, lng2, lat2);
-        const seg = osrmDist[key];
-        const segDist = seg ? seg.km : haversineKm(lat1, lng1, lat2, lng2);
-        cumDist += segDist;
-        const prefix = seg && !seg.approx ? '' : '~';
-        const segText = segDist < 1 ? `${prefix}${Math.round(segDist * 1000)} m` : `${prefix}${segDist.toFixed(1)} km`;
-
-        // Place at midpoint of road geometry
-        let midLng: number, midLat: number;
-        if (seg?.geometry && seg.geometry.length > 2) {
-          const midIdx = Math.floor(seg.geometry.length / 2);
-          [midLng, midLat] = seg.geometry[midIdx];
-        } else {
-          midLng = (lng1 + lng2) / 2;
-          midLat = (lat1 + lat2) / 2;
-        }
-
-        const el = document.createElement('div');
-        el.style.cssText = `background:rgba(0,0,0,0.85);color:#fff;font-size:12px;font-weight:600;font-family:${ff};padding:4px 10px;border-radius:8px;pointer-events:none;white-space:nowrap`;
-        el.textContent = segText;
-
-        const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
-          .setLngLat([midLng, midLat])
-          .addTo(mapRef.current);
-        distMarkersRef.current.push(marker);
-      }
-    });
   }, [routeData, mapStyleLoaded, maskinFilter, osrmDist]);
 
   /* ── Sync markers: add new, remove stale ── */
@@ -1282,7 +1262,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
         const o = objekt.find(x => x.id === id);
         if (!o || o.lat == null || o.lng == null) return;
         const a = markerArgs(o);
-        const el = buildMarkerEl(a.form, a.status, a.badges, { ...a.opts, isSelected: false });
+        const el = buildMarkerEl(a.form, a.shape, a.status, a.badges, { ...a.opts, isSelected: false });
         const marker = new window.maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat([o.lng, o.lat]).addTo(mapRef.current);
         markersMapRef.current.set(id, marker);
@@ -1313,7 +1293,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       const o = objekt.find(x => x.id === id);
       if (!o) return;
       const a = markerArgs(o);
-      const newEl = buildMarkerEl(a.form, a.status, a.badges, a.opts);
+      const newEl = buildMarkerEl(a.form, a.shape, a.status, a.badges, a.opts);
       const el = marker.getElement();
       // Replace children only — preserve MapLibre's transform on the wrapper
       while (el.lastChild) el.removeChild(el.lastChild);
