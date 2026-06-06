@@ -9,17 +9,26 @@ import OversiktNy from './OversiktNy'
 import ProduktionNy from './ProduktionNy'
 import AvbrottNy from './AvbrottNy'
 import IdagNy from './IdagNy'
+import SkotareOversiktNy from './SkotareOversiktNy'
+import SkotareProduktionNy from './SkotareProduktionNy'
+import SkotareAvbrottNy from './SkotareAvbrottNy'
+import SkotareIdagNy from './SkotareIdagNy'
 
 type Mode = 'skordare' | 'skotare' | 'jamforelse'
 
 // ──────────────────────────────────────────────────────────────
-// Vy-nav för den nya maskinvyn (?ny=1, mode=skordare).
-// Datadriven — lägg till rader här när nya vyer byggs:
-//   { key: 'idag', label: 'Idag' }
-//   ...
+// Vy-nav för den nya maskinvyn (?ny=1).
+// Datadriven — lägg till rader när nya vyer byggs.
 // Tom key = default-vy (Översikt). Den måste vara först.
 // ──────────────────────────────────────────────────────────────
 const NY_VYER: { key: string; label: string }[] = [
+  { key: '',           label: 'Översikt'   },
+  { key: 'idag',       label: 'Idag'       },
+  { key: 'produktion', label: 'Produktion' },
+  { key: 'avbrott',    label: 'Avbrott'    },
+]
+
+const SKOTARE_NY_VYER: { key: string; label: string }[] = [
   { key: '',           label: 'Översikt'   },
   { key: 'idag',       label: 'Idag'       },
   { key: 'produktion', label: 'Produktion' },
@@ -38,8 +47,11 @@ export default function MaskinvyPage() {
     setVy(params.get('vy') || '')
   }, [])
 
-  // Vy-navet visas bara när vi är i nya vyn på Skördare-fliken.
-  const showVyNav = ny && mode === 'skordare'
+  // Vy-navet visas när vi är i nya vyn på Skördare- eller Skotare-fliken.
+  const showVyNav = ny && (mode === 'skordare' || mode === 'skotare')
+
+  // Vilka vy-knappar ska visas i navet?
+  const vyNavList = mode === 'skotare' ? SKOTARE_NY_VYER : NY_VYER
 
   // Mjuk vy-byte: ingen reload, bara state + URL silent update.
   const handleVyChange = (newVy: string) => {
@@ -177,7 +189,7 @@ export default function MaskinvyPage() {
       {showVyNav && (
         <div className="mv-vy-bar">
           <div className="mv-vy-seg" role="tablist" aria-label="Maskinvy-vy">
-            {NY_VYER.map(v => (
+            {vyNavList.map(v => (
               <button
                 key={v.key || 'default'}
                 role="tab"
@@ -204,9 +216,14 @@ export default function MaskinvyPage() {
                      : vy === 'idag'       ? <IdagNy />
                      : <OversiktNy />)
                   : <Maskinvy />)
-              : <SkotareVy />}
+              : (ny
+                  ? (vy === 'produktion' ? <SkotareProduktionNy />
+                     : vy === 'avbrott'  ? <SkotareAvbrottNy />
+                     : vy === 'idag'     ? <SkotareIdagNy />
+                     : <SkotareOversiktNy />)
+                  : <SkotareVy />)}
           </div>
-          {!(ny && mode === 'skordare') && <MaskinLogg mode={mode} />}
+          {!(ny && (mode === 'skordare' || mode === 'skotare')) && <MaskinLogg mode={mode} />}
         </>
       )}
     </>

@@ -240,7 +240,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 border: filter === f.key ? '1px solid #fff' : '1px solid #555',
                 background: filter === f.key ? '#fff' : 'transparent',
                 color: filter === f.key ? '#000' : '#fff',
-                fontSize: '14px',
+                fontSize: '13px',
                 fontWeight: '500',
                 cursor: 'pointer',
               }}
@@ -265,7 +265,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
               background: 'none',
               border: 'none',
               color: activeTab === 'oplanerade' ? '#fff' : '#8e8e93',
-              fontSize: '14px',
+              fontSize: '13px',
               fontWeight: '500',
               cursor: 'pointer',
               borderBottom: activeTab === 'oplanerade' ? '2px solid #fff' : '2px solid transparent',
@@ -284,7 +284,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
             background: 'none',
             border: 'none',
             color: activeTab === 'planerade' ? '#fff' : '#8e8e93',
-            fontSize: '14px',
+            fontSize: '13px',
             fontWeight: '500',
             cursor: 'pointer',
             borderBottom: activeTab === 'planerade' ? '2px solid #fff' : '2px solid transparent',
@@ -302,7 +302,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
             background: 'none',
             border: 'none',
             color: activeTab === 'avslutade' ? '#fff' : '#8e8e93',
-            fontSize: '14px',
+            fontSize: '13px',
             fontWeight: '500',
             cursor: 'pointer',
             borderBottom: activeTab === 'avslutade' ? '2px solid #fff' : '2px solid transparent',
@@ -322,7 +322,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
         )}
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#8e8e93', fontSize: '14px' }}>
+          <div style={{ textAlign: 'center', padding: '60px 20px', color: '#8e8e93', fontSize: '13px' }}>
             Laddar...
           </div>
         ) : lista.map((obj: any) => {
@@ -392,7 +392,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 </div>
               ) : (dist !== null || roadDist[obj.id]) && (
                 <div style={{ textAlign: 'right', marginLeft: '12px', flexShrink: 0 }}>
-                  <div style={{ fontSize: '14px', color: '#8e8e93' }}>
+                  <div style={{ fontSize: '13px', color: '#8e8e93' }}>
                     {typeof roadDist[obj.id] === 'number'
                       ? `${roadDist[obj.id]} km`
                       : roadDist[obj.id] === 'loading'
@@ -457,7 +457,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
             textAlign: 'center',
             padding: '60px 20px',
             color: '#8e8e93',
-            fontSize: '14px',
+            fontSize: '13px',
           }}>
             Inga objekt
           </div>
@@ -548,7 +548,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 width: '100%',
                 padding: '0',
                 height: '56px',
-                borderRadius: '14px',
+                borderRadius: '16px',
                 border: 'none',
                 background: '#30d158',
                 color: '#fff',
@@ -573,7 +573,7 @@ export default function ObjektValjare({ onSelectObjekt, onNavigera, forareFilter
                 width: '100%',
                 padding: '0',
                 height: '56px',
-                borderRadius: '14px',
+                borderRadius: '16px',
                 border: '1px solid #555',
                 background: 'transparent',
                 color: selectedObj.lat && selectedObj.lng ? '#fff' : '#8e8e93',

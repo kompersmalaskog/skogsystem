@@ -12,6 +12,7 @@ import { beraknaKorbarhet, type KorbarhetsResultat } from '../../lib/korbarhet'
 import { useMapLayers } from '@/lib/hooks/useMapLayers'
 import { wmsLayerGroups, wmsLayers } from '@/lib/mapLayers'
 import { markerIconDefs, loadMarkerImageForMaplibre, canvasToMapLibreImage } from '@/lib/marker-icons'
+import { ZONE_COLORS } from '@/lib/zone-colors'
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon'
 import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 
@@ -22,6 +23,27 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
+
+// === Kartlegend-palett: enda källan för kartans feature-färger ===
+// Alla kart-arrayer (lineTypeDefs, lineTypes, zoneTypes, symbolCategories,
+// getIconBackground/Border, arrowTypes) refererar dessa nycklar så att karta
+// och UI-picker aldrig kan drifta isär. Funktionsnamn där färgen har EN
+// funktion; färgnamn (gul/vatten) där färgen är multifunktions-bas.
+// OBS: UI-chrome refererar INTE hit (egen färgaxel). vagColors (gallring-
+// snitsel = fysiska band) hålls medvetet inline — separat semantisk axel.
+const LEGEND = {
+  fara:          '#ff453a',  // röd       – traktgräns, ej framkomlig, naturvårds-kantrand
+  gul:           '#fbbf24',  // gul       – gräns/basväg-rand, gul väg, kultur-ikonkant
+  vatten:        '#3b82f6',  // blå       – basväg, blå väg, blött, körriktning
+  naturvard:     '#30d158',  // grön      – naturvårdslinje/-zon, naturvård-ikon, fällriktning
+  naturvardKant: '#4ade80',  // ljusgrön  – naturvård-ikonkant
+  kultur:        '#f59e0b',  // ljus amber – kulturmiljö
+  fornlamning:   '#b45309',  // mörk amber – fornlämning (starkt lagskydd)
+  brant:         '#a855f7',  // lila      – brant
+  dike:          '#06b6d4',  // cyan      – dike
+  dikeKant:      '#0e7490',  // mörk cyan – dikeskant
+  vit:           '#fff',     // vit       – stig/led
+};
 
 // === Outlier-filter: skydda 2D-rendering mot felaktiga markeringar med
 // koordinater >1000 SVG-units från objekt-centrum (typiskt ritade när
@@ -557,18 +579,17 @@ export default function PlannerPage() {
 
     // === Line layers per type ===
     const lineTypeDefs = [
-      { id: 'boundary', color: '#ff453a', color2: '#fbbf24', striped: true },
-      { id: 'mainRoad', color: '#3b82f6', color2: '#fbbf24', striped: true },
-      { id: 'backRoadRed', color: '#ff453a' },
-      { id: 'backRoadYellow', color: '#fbbf24' },
-      { id: 'backRoadBlue', color: '#3b82f6' },
-      { id: 'sideRoadRed', color: '#ff453a' },
-      { id: 'sideRoadYellow', color: '#fbbf24' },
-      { id: 'sideRoadBlue', color: '#3b82f6' },
-      { id: 'stickvag', color: '#ff00ff' },
-      { id: 'nature', color: '#30d158', color2: '#ff453a', striped: true },
-      { id: 'ditch', color: '#06b6d4', color2: '#0e7490', striped: true },
-      { id: 'trail', color: '#fff', dashed: true },
+      { id: 'boundary', color: LEGEND.fara, color2: LEGEND.gul, striped: true },
+      { id: 'mainRoad', color: LEGEND.vatten, color2: LEGEND.gul, striped: true },
+      { id: 'backRoadRed', color: LEGEND.fara },
+      { id: 'backRoadYellow', color: LEGEND.gul },
+      { id: 'backRoadBlue', color: LEGEND.vatten },
+      { id: 'sideRoadRed', color: LEGEND.fara },
+      { id: 'sideRoadYellow', color: LEGEND.gul },
+      { id: 'sideRoadBlue', color: LEGEND.vatten },
+      { id: 'nature', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },
+      { id: 'ditch', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
+      { id: 'trail', color: LEGEND.vit, dashed: true },
     ];
     lineTypeDefs.forEach((lt: any) => {
       const isBoundary = lt.id === 'boundary';
@@ -4694,23 +4715,23 @@ export default function PlannerPage() {
   const getIconBackground = (symbolId: string): string => {
     const greenIcons = ['eternitytree', 'naturecorner'];
     const orangeIcons = ['culturemonument', 'culturestump'];
-    if (greenIcons.includes(symbolId)) return '#30d158';
-    if (orangeIcons.includes(symbolId)) return '#f59e0b';
+    if (greenIcons.includes(symbolId)) return LEGEND.naturvard;
+    if (orangeIcons.includes(symbolId)) return LEGEND.kultur;
     return 'rgba(0,0,0,0.6)';
   };
 
   const getIconBorder = (symbolId: string): string => {
     const greenIcons = ['eternitytree', 'naturecorner'];
     const orangeIcons = ['culturemonument', 'culturestump'];
-    if (greenIcons.includes(symbolId)) return '#4ade80';
-    if (orangeIcons.includes(symbolId)) return '#fbbf24';
+    if (greenIcons.includes(symbolId)) return LEGEND.naturvardKant;
+    if (orangeIcons.includes(symbolId)) return LEGEND.gul;
     return 'rgba(255,255,255,0.15)';
   };
 
   const symbolCategories = [
     {
       name: 'Naturvård',
-      bgColor: '#30d158',
+      bgColor: LEGEND.naturvard,
       symbols: [
         { id: 'eternitytree', name: 'Evighetsträd' },
         { id: 'naturecorner', name: 'Naturhörna' },
@@ -4718,7 +4739,7 @@ export default function PlannerPage() {
     },
     {
       name: 'Kultur',
-      bgColor: '#f59e0b',
+      bgColor: LEGEND.kultur,
       symbols: [
         { id: 'culturemonument', name: 'Kulturminne' },
         { id: 'culturestump', name: 'Kulturstubbe' },
@@ -4765,27 +4786,26 @@ export default function PlannerPage() {
   const markerTypes = symbolCategories.flatMap(cat => cat.symbols);
 
   const lineTypes = [
-    { id: 'boundary', name: 'Traktgräns', color: '#ff453a', color2: '#fbbf24', striped: true },
-    { id: 'mainRoad', name: 'Basväg', color: '#3b82f6', color2: '#fbbf24', striped: true },
-    { id: 'backRoadRed', name: 'Backväg Röd', color: '#ff453a', striped: false, isBackRoad: true },
-    { id: 'backRoadYellow', name: 'Backväg Gul', color: '#fbbf24', striped: false, isBackRoad: true },
-    { id: 'backRoadBlue', name: 'Backväg Blå', color: '#3b82f6', striped: false, isBackRoad: true },
-    { id: 'sideRoadRed', name: 'Stickväg Röd', color: '#ff453a', striped: false },
-    { id: 'sideRoadYellow', name: 'Stickväg Gul', color: '#fbbf24', striped: false },
-    { id: 'sideRoadBlue', name: 'Stickväg Blå', color: '#3b82f6', striped: false },
-    { id: 'stickvag', name: 'Test-stickväg', color: '#ff00ff', striped: false },
-    { id: 'nature', name: 'Naturvård', color: '#30d158', color2: '#ff453a', striped: true },
-    { id: 'ditch', name: 'Dike', color: '#06b6d4', color2: '#0e7490', striped: true },
-    { id: 'trail', name: 'Stig/Led', color: '#fff', striped: false, dashed: true },
+    { id: 'boundary', name: 'Traktgräns', color: LEGEND.fara, color2: LEGEND.gul, striped: true },
+    { id: 'mainRoad', name: 'Basväg', color: LEGEND.vatten, color2: LEGEND.gul, striped: true },
+    { id: 'backRoadRed', name: 'Backväg Röd', color: LEGEND.fara, striped: false, isBackRoad: true },
+    { id: 'backRoadYellow', name: 'Backväg Gul', color: LEGEND.gul, striped: false, isBackRoad: true },
+    { id: 'backRoadBlue', name: 'Backväg Blå', color: LEGEND.vatten, striped: false, isBackRoad: true },
+    { id: 'sideRoadRed', name: 'Stickväg Röd', color: LEGEND.fara, striped: false },
+    { id: 'sideRoadYellow', name: 'Stickväg Gul', color: LEGEND.gul, striped: false },
+    { id: 'sideRoadBlue', name: 'Stickväg Blå', color: LEGEND.vatten, striped: false },
+    { id: 'nature', name: 'Naturvård', color: LEGEND.naturvard, color2: LEGEND.fara, striped: true },
+    { id: 'ditch', name: 'Dike', color: LEGEND.dike, color2: LEGEND.dikeKant, striped: true },
+    { id: 'trail', name: 'Stig/Led', color: LEGEND.vit, striped: false, dashed: true },
   ];
 
   const zoneTypes = [
-    { id: 'wet', name: 'Blött', color: '#3b82f6', icon: 'wet' },
-    { id: 'steep', name: 'Brant', color: '#a855f7', icon: 'steep' },
-    { id: 'protected', name: 'Naturvård', color: '#30d158', icon: 'naturecorner' },
-    { id: 'culture', name: 'Kulturmiljö', color: '#f59e0b', icon: 'culturemonument' },
-    { id: 'noentry', name: 'Ej framkomlig', color: '#ff453a', icon: 'warning' },
-    { id: 'fornlamning', name: 'Fornlämning', color: '#ff453a', icon: 'culturemonument' },
+    { id: 'wet', name: 'Blött', color: ZONE_COLORS.wet, icon: 'wet' },
+    { id: 'steep', name: 'Brant', color: ZONE_COLORS.steep, icon: 'steep' },
+    { id: 'protected', name: 'Naturvård', color: ZONE_COLORS.protected, icon: 'naturecorner' },
+    { id: 'culture', name: 'Kulturmiljö', color: ZONE_COLORS.culture, icon: 'culturemonument' },
+    { id: 'noentry', name: 'Ej framkomlig', color: ZONE_COLORS.noentry, icon: 'warning' },
+    { id: 'fornlamning', name: 'Fornlämning', color: ZONE_COLORS.fornlamning, icon: 'culturemonument' },
   ];
 
   const warningCategories = [
@@ -4795,20 +4815,20 @@ export default function PlannerPage() {
       { id: 'avverkning',    name: 'Avverkning',    color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
       { id: 'infrastruktur', name: 'Infrastruktur', color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
       { id: 'terrang',       name: 'Terräng',       color: 'rgba(0,0,0,0.9)', defaultWarn: 30, defaultFade: 200 },
-      { id: 'ovrigt',        name: 'Övrigt/Varning', color: '#E53935', defaultWarn: 50, defaultFade: 300 },
+      { id: 'ovrigt',        name: 'Övrigt/Varning', color: LEGEND.fara, defaultWarn: 50, defaultFade: 300 },
     ]},
     { section: 'Zoner', items: [
       { id: 'zone_wet',        name: 'Blött område',     color: '#3b82f6', defaultWarn: 30, defaultFade: 200 },
       { id: 'zone_steep',      name: 'Brant',            color: '#a855f7', defaultWarn: 30, defaultFade: 200 },
       { id: 'zone_protected',  name: 'Naturvårdszon',    color: '#30d158', defaultWarn: 30, defaultFade: 200 },
-      { id: 'zone_culture',    name: 'Fornlämningszon',  color: '#ff453a', defaultWarn: 50, defaultFade: 300 },
+      { id: 'zone_culture',    name: 'Fornlämningszon',  color: LEGEND.fornlamning, defaultWarn: 50, defaultFade: 300 },
       { id: 'zone_noentry',    name: 'Ej framkomlig',    color: '#ff453a', defaultWarn: 30, defaultFade: 200 },
     ]},
   ];
 
   const arrowTypes = [
-    { id: 'fellingdirection', name: 'Fällriktning', color: '#30d158' },
-    { id: 'drivedirection', name: 'Körriktning', color: '#3b82f6' },
+    { id: 'fellingdirection', name: 'Fällriktning', color: LEGEND.naturvard },
+    { id: 'drivedirection', name: 'Körriktning', color: LEGEND.vatten },
   ];
 
   // Färger för stickvägar/backvägar (Gallring)
@@ -5907,7 +5927,7 @@ export default function PlannerPage() {
     }
 
     const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue',
-      'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag', 'nature', 'ditch', 'trail'];
+      'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
     // Non-boundary lines (boundary is always visible during briefing)
     const dimmableLineTypes = lineTypeIds.filter(lt => lt !== 'boundary');
 
@@ -6372,7 +6392,7 @@ export default function PlannerPage() {
     };
     try {
       // Line layers per type
-      const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'stickvag', 'nature', 'ditch', 'trail'];
+      const lineTypeIds = ['boundary', 'mainRoad', 'backRoadRed', 'backRoadYellow', 'backRoadBlue', 'sideRoadRed', 'sideRoadYellow', 'sideRoadBlue', 'nature', 'ditch', 'trail'];
       const stripedTypeIds = ['boundary', 'mainRoad', 'nature', 'ditch'];
       lineTypeIds.forEach(id => {
         const vis = visibleLayers.lines && visibleLines[id] ? 'visible' : 'none';
@@ -6873,7 +6893,7 @@ export default function PlannerPage() {
     
     const stickvägar = markers.filter(m => 
       m.isLine && 
-      (m.lineType === 'stickvag' || ['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')) &&
+      (['sideRoadRed', 'sideRoadYellow', 'sideRoadBlue'].includes(m.lineType || '')) &&
       m.path && m.path.length > 1
     );
     
@@ -10499,7 +10519,7 @@ export default function PlannerPage() {
           background: colors.blue,
           color: '#fff',
           padding: '10px 20px',
-          borderRadius: '20px',
+          borderRadius: '16px',
           fontSize: '13px',
           fontWeight: '600',
           zIndex: 150,
@@ -10520,7 +10540,7 @@ export default function PlannerPage() {
           background: colors.blue,
           color: '#fff',
           padding: '12px 24px',
-          borderRadius: '20px',
+          borderRadius: '16px',
           fontSize: '13px',
           fontWeight: '600',
           zIndex: 150,
@@ -11893,7 +11913,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a', 
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
             }}>
@@ -11949,7 +11969,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a', 
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
             }}>
@@ -12013,7 +12033,7 @@ export default function PlannerPage() {
               <div key={group.group} style={{
                 background: '#0a0a0a',
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '20px',
+                borderRadius: '16px',
                 padding: '8px',
                 marginBottom: '16px',
               }}>
@@ -12076,7 +12096,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a',
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
             }}>
@@ -12135,7 +12155,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a',
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
             }}>
@@ -12193,7 +12213,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a',
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
             }}>
@@ -12296,7 +12316,7 @@ export default function PlannerPage() {
               <div style={{
                 background: '#0a0a0a', 
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '20px',
+                borderRadius: '16px',
                 padding: '8px',
                 marginBottom: '16px',
               }}>
@@ -12356,7 +12376,7 @@ export default function PlannerPage() {
               <div style={{
                 background: '#0a0a0a',
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '20px',
+                borderRadius: '16px',
                 padding: '8px',
                 marginBottom: '16px',
               }}>
@@ -12367,7 +12387,7 @@ export default function PlannerPage() {
                 }}>
                   Linjetyper
                 </div>
-                {lineTypes.filter(l => !l.id.includes('sideRoad') && !l.id.includes('backRoad') && l.id !== 'stickvag').map(line => (
+                {lineTypes.filter(l => !l.id.includes('sideRoad') && !l.id.includes('backRoad')).map(line => (
                   <div
                     key={line.id}
                     onClick={() => setVisibleLines(prev => ({ ...prev, [line.id]: !prev[line.id] }))}
@@ -12416,7 +12436,7 @@ export default function PlannerPage() {
               style={{
                 background: '#0a0a0a',
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '20px',
+                borderRadius: '16px',
                 padding: '18px 20px',
                 marginBottom: '16px',
                 display: 'flex',
@@ -12489,7 +12509,7 @@ export default function PlannerPage() {
             <div style={{
               background: drivingMode ? 'rgba(34,197,94,0.1)' : '#0a0a0a',
               border: `1px solid ${drivingMode ? 'rgba(34,197,94,0.2)' : 'rgba(255,255,255,0.08)'}`,
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '14px 18px',
               marginBottom: '16px',
               display: 'flex',
@@ -12511,7 +12531,7 @@ export default function PlannerPage() {
             <div style={{
               background: '#0a0a0a',
               border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: '20px',
+              borderRadius: '16px',
               padding: '8px',
               marginBottom: '16px',
               opacity: drivingMode ? 1 : 0.4,
@@ -12567,7 +12587,7 @@ export default function PlannerPage() {
               <div key={section.section} style={{
                 background: '#0a0a0a',
                 border: '1px solid rgba(255,255,255,0.08)',
-                borderRadius: '20px',
+                borderRadius: '16px',
                 padding: '8px',
                 marginBottom: '16px',
                 opacity: warningShowAll ? 0.4 : 1,
@@ -12912,7 +12932,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px',
+                  borderRadius: '16px', padding: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>
                     Skotningsstatus
@@ -12968,7 +12988,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                 }}>
                   {symbolCategories.map((category) => (
@@ -13017,7 +13037,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '20px',
                 }}>
                   <div style={{
@@ -13096,7 +13116,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                 }}>
                   <div
@@ -13162,10 +13182,10 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '16px',
                 }}>
-                  {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
+                  {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad')).map(type => (
                     <div
                       key={type.id}
                       onClick={() => {
@@ -13219,10 +13239,10 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '16px',
                 }}>
-                  {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad') && t.id !== 'stickvag').map(type => (
+                  {lineTypes.filter(t => !t.id.includes('sideRoad') && !t.id.includes('backRoad')).map(type => (
                     <div
                       key={type.id}
                       onClick={() => {
@@ -13280,7 +13300,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '16px',
                 }}>
                   {zoneTypes.map(type => (
@@ -13331,7 +13351,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '20px',
                 }}>
                   <div style={{
@@ -13384,7 +13404,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                 }}>
                   <div
@@ -13459,7 +13479,7 @@ export default function PlannerPage() {
                 {/* Huvudval */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
@@ -13568,7 +13588,7 @@ export default function PlannerPage() {
                 {/* Inställningar */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
@@ -13637,7 +13657,7 @@ export default function PlannerPage() {
                 {/* Statistik */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '20px',
                   textAlign: 'center',
                 }}>
@@ -13657,7 +13677,7 @@ export default function PlannerPage() {
                 {/* Fota snitsel */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
@@ -13692,7 +13712,7 @@ export default function PlannerPage() {
                 {/* Färgval */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '16px',
                 }}>
                   {vagColors.map((color) => (
@@ -13734,7 +13754,7 @@ export default function PlannerPage() {
                   }}
                   style={{
                     background: '#1c1c1e',
-                    borderRadius: '20px',
+                    borderRadius: '16px',
                     height: '300px',
                     display: 'flex',
                     flexDirection: 'column',
@@ -13776,7 +13796,7 @@ export default function PlannerPage() {
               <div style={{ padding: '20px' }}>
                 <div style={{
                   background: 'rgba(255,255,255,0.06)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '30px',
                   textAlign: 'center',
                   marginBottom: '20px',
@@ -13846,7 +13866,7 @@ export default function PlannerPage() {
                 {/* Vald färg */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '20px',
                   marginBottom: '16px',
                   display: 'flex',
@@ -13869,7 +13889,7 @@ export default function PlannerPage() {
                 {/* Välj typ */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
@@ -13954,7 +13974,7 @@ export default function PlannerPage() {
                 {/* Starta-knapp */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                 }}>
                   <div
@@ -14121,7 +14141,7 @@ export default function PlannerPage() {
                 {/* MARKFÖRHÅLLANDEN */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markförhållanden</div>
 
@@ -14163,7 +14183,7 @@ export default function PlannerPage() {
                 {/* HINDER & HÄNSYN */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Hinder & hänsyn</div>
                   {(() => {
@@ -14194,7 +14214,7 @@ export default function PlannerPage() {
                 {/* SKÖRDARE */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skördare</div>
 
@@ -14271,7 +14291,7 @@ export default function PlannerPage() {
                 {/* SKOTARE */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Skotare</div>
 
@@ -14365,7 +14385,7 @@ export default function PlannerPage() {
                 {/* TRANSPORT */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Transport</div>
 
@@ -14409,7 +14429,7 @@ export default function PlannerPage() {
                 {/* MARKÄGARE */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '16px' }}>Markägare</div>
 
@@ -14440,7 +14460,7 @@ export default function PlannerPage() {
                 {/* ANTECKNINGAR */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px', padding: '16px', marginBottom: '16px',
+                  borderRadius: '16px', padding: '16px', marginBottom: '16px',
                 }}>
                   <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Anteckningar</div>
                   <textarea
@@ -14465,7 +14485,7 @@ export default function PlannerPage() {
                 {/* Lägen */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                   marginBottom: '16px',
                 }}>
@@ -14563,7 +14583,7 @@ export default function PlannerPage() {
                 {/* Generellt tillstånd */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '16px 20px',
                   marginBottom: '16px',
                 }}>
@@ -14667,7 +14687,7 @@ export default function PlannerPage() {
                 {/* Karta */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '8px',
                 }}>
                   {/* Lager */}
@@ -14843,7 +14863,7 @@ export default function PlannerPage() {
               <div style={{ padding: '12px' }}>
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '20px',
+                  borderRadius: '16px',
                   padding: '24px',
                 }}>
                   {/* === SOS === */}
@@ -15226,7 +15246,7 @@ export default function PlannerPage() {
               background: 'rgba(245,158,11,0.2)',
               color: '#f59e0b',
               padding: '8px 20px',
-              borderRadius: '20px',
+              borderRadius: '16px',
               fontSize: '13px',
               fontWeight: '500',
             }}>
@@ -15338,7 +15358,7 @@ export default function PlannerPage() {
           </div>
 
           <div style={{
-            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '20px', padding: '20px',
+            background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '20px',
             width: '100%', maxWidth: '260px',
           }}>
             <div style={{ 
@@ -17387,7 +17407,7 @@ export default function PlannerPage() {
           background: '#f59e0b',
           color: '#000',
           padding: '6px 12px',
-          borderRadius: '20px',
+          borderRadius: '16px',
           fontSize: '13px',
           fontWeight: '700',
           zIndex: 400,
