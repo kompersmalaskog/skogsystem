@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
 import { ff } from './oversikt-styles';
-import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
+import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotDeadlineDays } from './oversikt-utils';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
 
 /* ── Animated count-up hook ── */
@@ -129,6 +129,48 @@ function cleanRestrName(name: string): string {
   return cleaned || name;
 }
 
+/* ── OSRM körväg-avstånd FRÅN enhetens GPS → label. Ingen GPS-behörighet eller
+   OSRM-miss → "–" (aldrig fågelväg). Delas av ObjCard + GrotCard. ── */
+function useRoadKm(devicePos: { lat: number; lng: number } | null | undefined, lat: number | null, lng: number | null): string {
+  const [roadKm, setRoadKm] = useState<number | null>(null);
+  const [roadLoading, setRoadLoading] = useState(false);
+  useEffect(() => {
+    if (!devicePos || lat == null || lng == null) { setRoadKm(null); setRoadLoading(false); return; }
+    let cancelled = false;
+    setRoadLoading(true);
+    (async () => {
+      try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${devicePos.lng},${devicePos.lat};${lng},${lat}?overview=false`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const meters = json?.routes?.[0]?.distance;
+        if (!cancelled) setRoadKm(typeof meters === 'number' ? meters / 1000 : null);
+      } catch {
+        if (!cancelled) setRoadKm(null);
+      } finally {
+        if (!cancelled) setRoadLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [devicePos, lat, lng]);
+  return !devicePos ? '–' : roadLoading ? '…' : roadKm == null ? '–' : roadKm < 1 ? `${Math.round(roadKm * 1000)} m` : `${roadKm.toFixed(1)} km`;
+}
+
+/* ── GROT-deadline-bevakning ──
+   Färg/etikett styrs av DEADLINE, inte grot_status (opålitlig: bara
+   'ej_aktuellt'/'skotat' finns). Trösklarna är lätt justerbara här. */
+const GROT_BROWN = '#8d6e63';   // lugn brun — ingen/avlägsen deadline
+const GROT_ORANGE_DAGAR = 30;   // ≤ så här många dgr kvar → orange (närmar sig)
+const GROT_ROD_DAGAR = 7;       // ≤ så här många dgr kvar (eller passerad) → röd
+function grotDeadlineInfo(deadline: string | null): { color: string; label: string; days: number | null } {
+  const days = grotDeadlineDays(deadline);
+  if (days === null) return { color: GROT_BROWN, label: '', days: null };
+  if (days < 0) return { color: C.red, label: 'Försenad', days };
+  if (days <= GROT_ROD_DAGAR) return { color: C.red, label: days === 0 ? 'Idag' : `${days} dgr`, days };
+  if (days <= GROT_ORANGE_DAGAR) return { color: C.orange, label: days <= 14 ? `${days} dgr` : `${Math.ceil(days / 7)} v`, days };
+  return { color: GROT_BROWN, label: '', days };   // avlägsen deadline → lugn tills den närmar sig
+}
+
 /* ── ObjCard popup (positioned fixed at screen bottom) ──
    EN konsekvent mall för ALLA objekt — fast sektionsordning:
    1 Titel+status · 2 typ·areal·volym · 3 Avstånd+Köplats · 4 Fara (enda röda) ·
@@ -153,33 +195,8 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
   const smsHref = markTel ? `sms:${markTel}${isIOS ? '&' : '?'}body=${smsBody}` : null;
   const ber = o.trakt_data?.beraknad;
 
-  // 3. Avstånd — OSRM riktig körväg FRÅN enhetens GPS-position. Aldrig fågelväg:
-  //    ingen GPS-behörighet ELLER OSRM-miss → "–" (ingen haversine-fallback).
-  const [roadKm, setRoadKm] = useState<number | null>(null);
-  const [roadLoading, setRoadLoading] = useState(false);
-  useEffect(() => {
-    if (!devicePos || o.lat == null || o.lng == null) { setRoadKm(null); setRoadLoading(false); return; }
-    let cancelled = false;
-    setRoadLoading(true);
-    (async () => {
-      try {
-        const url = `https://router.project-osrm.org/route/v1/driving/${devicePos.lng},${devicePos.lat};${o.lng},${o.lat}?overview=false`;
-        const res = await fetch(url);
-        const json = await res.json();
-        const meters = json?.routes?.[0]?.distance;
-        if (!cancelled) setRoadKm(typeof meters === 'number' ? meters / 1000 : null);
-      } catch {
-        if (!cancelled) setRoadKm(null);
-      } finally {
-        if (!cancelled) setRoadLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [devicePos, o.lat, o.lng]);
-  const avstandLabel = !devicePos ? '–'
-    : roadLoading ? '…'
-    : roadKm == null ? '–'
-    : roadKm < 1 ? `${Math.round(roadKm * 1000)} m` : `${roadKm.toFixed(1)} km`;
+  // 3. Avstånd — OSRM körväg från enhetens GPS (delad hook). Ingen GPS/OSRM → "–".
+  const avstandLabel = useRoadKm(devicePos, o.lat, o.lng);
 
   // 7. Visa mer — innehåll i fast ordning: Hänsyn · Restriktioner · Trädslag · Logistik
   const hansynLabels = warnings ? [...new Set(warnings.items.filter(i => i.level === 'hansyn').map(i => i.label))] : [];
@@ -374,78 +391,75 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
 }
 
 /* ── GROT popup card ── */
-function GrotCard({ obj }: { obj: OversiktObjekt }) {
-  const lass = obj.grot_volym ? Math.ceil(obj.grot_volym / 20) : 0;
-  const clr = grotEffectiveColor(obj.grot_status, obj.grot_deadline);
-  const bgTint = `${clr}15`;
-  const deadlineDays = grotDeadlineDays(obj.grot_deadline);
-  const isDone = grotStepIndex(obj.grot_status) >= 3;
-  const isOverdue = !isDone && deadlineDays !== null && deadlineDays < 0;
-  const isUrgent = !isDone && deadlineDays !== null && deadlineDays >= 0 && deadlineDays <= 14;
-  const stepIdx = grotStepIndex(obj.grot_status);
-  const sl: Record<string, string> = { ej_aktuellt: 'Ej aktuellt', hoglagd: 'Höglagd', flisad: 'Flisad', borttransporterad: 'Klar', bortkord: 'Klar' };
+function GrotCard({ obj, devicePos }: { obj: OversiktObjekt; devicePos?: { lat: number; lng: number } | null }) {
+  const info = grotDeadlineInfo(obj.grot_deadline);
+  const avstandLabel = useRoadKm(devicePos, obj.lat, obj.lng);
+  const deadlineDate = obj.grot_deadline
+    ? new Date(obj.grot_deadline + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
+  const d = info.days;
+  const dagText = d == null ? ''
+    : d < 0 ? `försenad ${Math.abs(d)} ${Math.abs(d) === 1 ? 'dag' : 'dagar'}`
+    : d === 0 ? 'idag'
+    : `om ${d} ${d === 1 ? 'dag' : 'dagar'}`;
 
   return (
     <div onClick={(e) => e.stopPropagation()} style={{
       position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
-      width: 300, maxWidth: 'calc(100% - 24px)',
-      background: 'rgba(28,28,30,0.97)', backdropFilter: 'blur(24px)',
+      width: 340, maxWidth: 'calc(100% - 24px)',
+      background: C.surface3, backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
       borderRadius: 12, overflow: 'hidden', border: `1px solid ${C.border}`, zIndex: 20,
       animation: 'fadeUp .2s ease-out',
     }}>
-      <div style={{ height: 2, background: `linear-gradient(90deg,${clr},transparent)` }} />
-      <div style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <div style={{ width: 10, height: 10, background: clr, transform: 'rotate(45deg)', borderRadius: 2, flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>{obj.namn}</div>
-            <div style={{ fontSize: 11, color: C.t3 }}>{sl[obj.grot_status] || obj.grot_status}</div>
+      <div style={{ height: 2, background: `linear-gradient(90deg,${info.color},transparent)` }} />
+      <div style={{ padding: SP.xl, maxHeight: '54vh', overflowY: 'auto' }}>
+
+        {/* Titel + GROT-diamant */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: SP.sm, marginBottom: SP.lg }}>
+          <div style={{ width: 12, height: 12, background: info.color, transform: 'rotate(45deg)', borderRadius: 2, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.85)' }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={T.h2}>{obj.namn}</div>
+            <div style={T.caption}>GROT</div>
           </div>
-          {isOverdue && (
-            <span style={{ fontSize: 11, fontWeight: 600, color: C.red, padding: '2px 8px', background: C.rd, borderRadius: 5 }}>Försenad</span>
-          )}
-          {isUrgent && (
-            <span style={{ fontSize: 11, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 5 }}>
-              {deadlineDays === 0 ? 'Idag' : `${deadlineDays}d kvar`}
-            </span>
-          )}
         </div>
 
-        {/* Step indicator */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 10 }}>
-          {GROT_STEPS.map((step, i) => {
-            const filled = stepIdx >= i + 1;
-            return (
-              <React.Fragment key={step.key}>
-                {i > 0 && <div style={{ width: 16, height: 2, background: filled ? step.color : 'rgba(255,255,255,0.06)' }} />}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: filled ? step.color : 'rgba(255,255,255,0.08)' }} />
-                  <span style={{ fontSize: 11, color: filled ? step.color : C.t4, fontWeight: filled ? 600 : 400 }}>{step.label}</span>
-                </div>
-              </React.Fragment>
-            );
-          })}
+        {/* Deadline-bevakning + varför-text (grot_anteckning) */}
+        {deadlineDate ? (
+          <div style={{ marginBottom: SP.lg, padding: SP.md, borderRadius: SP.sm, background: `${info.color}1f`, border: `1px solid ${info.color}55` }}>
+            <div style={{ ...T.caption, color: info.color, fontWeight: 700 }}>
+              Ömtålig: klar senast {deadlineDate} — {dagText}
+            </div>
+            {obj.grot_anteckning && (
+              <div style={{ ...T.caption, color: C.t1, fontWeight: 400, marginTop: SP.xs, lineHeight: 1.4 }}>{obj.grot_anteckning}</div>
+            )}
+          </div>
+        ) : obj.grot_anteckning ? (
+          <div style={{ ...T.caption, color: C.t2, marginBottom: SP.lg, lineHeight: 1.4 }}>{obj.grot_anteckning}</div>
+        ) : null}
+
+        {/* GROT-mängd + Avstånd */}
+        <div style={{ display: 'flex', gap: SP.md, marginBottom: SP.lg }}>
+          <div style={{ flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` }}>
+            <div style={{ ...T.h2, fontSize: 20 }}>{obj.grot_volym != null ? formatVolym(obj.grot_volym) : '–'}</div>
+            <div style={{ ...T.caption, marginTop: SP.xs }}>{obj.grot_volym != null ? 'GROT m³' : 'ej mätt än'}</div>
+          </div>
+          <div style={{ flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` }}>
+            <div style={{ ...T.h2, fontSize: 20 }}>{avstandLabel}</div>
+            <div style={{ ...T.caption, marginTop: SP.xs }}>Avstånd</div>
+          </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 2, borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
-          <div style={{ flex: 1, background: bgTint, padding: '8px 4px', textAlign: 'center' }}>
-            <div style={{ fontSize: 13, color: C.t4, marginBottom: 2 }}>Volym</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{obj.grot_volym ? formatVolym(obj.grot_volym) : '–'} <span style={{ fontSize: 13, fontWeight: 400, color: C.t4 }}>m³</span></div>
-          </div>
-          <div style={{ flex: 1, background: bgTint, padding: '8px 4px', textAlign: 'center' }}>
-            <div style={{ fontSize: 13, color: C.t4, marginBottom: 2 }}>Lass</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{lass || '–'} <span style={{ fontSize: 13, fontWeight: 400, color: C.t4 }}>st</span></div>
-          </div>
-        </div>
-        {obj.grot_deadline && (
-          <div style={{ fontSize: 11, color: isOverdue ? C.red : isUrgent ? C.yellow : C.t3, marginBottom: 6 }}>
-            Senast: {new Date(obj.grot_deadline + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' })}
-          </div>
-        )}
-        {obj.grot_anteckning && (
-          <div style={{ fontSize: 11, color: C.t3, padding: '8px 10px', background: bgTint, borderRadius: 8 }}>
-            {obj.grot_anteckning}
-          </div>
+        {/* Navigera hit */}
+        {obj.lat != null && obj.lng != null && (
+          <button onClick={() => {
+            const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            const url = ios
+              ? `maps://maps.apple.com/?daddr=${obj.lat},${obj.lng}`
+              : `https://www.google.com/maps/dir/?api=1&destination=${obj.lat},${obj.lng}`;
+            window.open(url, '_blank');
+          }} style={{ ...BTN.primary, width: '100%', fontFamily: ff }}>
+            Navigera hit
+          </button>
         )}
       </div>
     </div>
@@ -540,23 +554,35 @@ function DriverSheet({ queue, maskinNamn, prodMap, warningsByObj, onSelect }: {
   );
 }
 
-/* ── Build GROT diamond marker ── */
+/* ── Build GROT diamond marker — egen brun/orange/röd symbol, DEADLINE-styrd ──
+   Brun = ingen/avlägsen deadline · orange = närmar sig · röd = nära/passerad. */
 function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
-  const clr = grotEffectiveColor(obj.grot_status, obj.grot_deadline);
-  const sz = isSelected ? 16 : 12;
-  const hitSize = 24;
+  const info = grotDeadlineInfo(obj.grot_deadline);
+  const clr = info.color;
+  const sz = isSelected ? 18 : 14;
+  const hitSize = 28;
   const w = document.createElement('div');
   w.className = 'ovk-grot-marker';
-  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isSelected ? '1' : '0.7'}`;
+  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isSelected ? '1' : '0.92'}`;
 
+  // Diamant (roterad fyrkant) — egen GROT-symbol, skild från status-markörerna.
   const diamond = document.createElement('div');
-  diamond.style.cssText = `position:absolute;left:50%;top:50%;width:${sz}px;height:${sz}px;transform:translate(-50%,-50%) rotate(45deg);background:${clr};border-radius:2px;box-shadow:${isSelected ? `0 0 12px ${clr}60` : '0 1px 4px rgba(0,0,0,.4)'}`;
+  diamond.style.cssText = `position:absolute;left:50%;top:50%;width:${sz}px;height:${sz}px;transform:translate(-50%,-50%) rotate(45deg);background:${clr};border:1.5px solid rgba(255,255,255,0.85);border-radius:2px;box-shadow:${isSelected ? `0 0 12px ${clr}80` : '0 1px 4px rgba(0,0,0,.4)'}`;
   w.appendChild(diamond);
 
+  // Brådske-etikett ovanför (bara orange/röd): 'X dgr' / 'X v' / 'Försenad'.
+  if (info.label) {
+    const badge = document.createElement('div');
+    badge.style.cssText = `position:absolute;bottom:${hitSize / 2 + sz / 2 + 3}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap;background:${clr};padding:2px 7px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.5)`;
+    badge.innerHTML = `<span style="font-size:11px;font-weight:800;color:#fff;font-family:${ff}">${info.label}</span>`;
+    w.appendChild(badge);
+  }
+
+  // Namn-etikett under.
   const lbl = document.createElement('div');
   lbl.className = 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + sz / 2 + 4}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
-  lbl.innerHTML = `<div style="font-size:11px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
+  lbl.innerHTML = `<div style="font-size:11px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
   w.appendChild(lbl);
 
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
@@ -1045,7 +1071,13 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
   /* ── GROT objects (with coordinates and grot_volym > 0) ── */
   const grotObjekt = useMemo(() => {
     if (!showGrot) return [];
-    return objekt.filter(o => o.lat != null && o.lng != null && o.grot_volym && o.grot_volym > 0);
+    // GROT-relevant: grot=true ELLER deadline ELLER volym. Göm bara 'skotat'
+    // (klart). grot_status är i övrigt opålitlig — bygg inte mer logik på den.
+    return objekt.filter(o =>
+      o.lat != null && o.lng != null &&
+      o.grot_status !== 'skotat' &&
+      (o.grot === true || o.grot_deadline != null || o.grot_volym != null)
+    );
   }, [objekt, showGrot]);
 
   const selectedGrotObj = selectedGrotId ? objekt.find(o => o.id === selectedGrotId) : null;
@@ -1508,7 +1540,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
           devicePos={devicePos}
         />
       )}
-      {selectedGrotObj && <GrotCard obj={selectedGrotObj} />}
+      {selectedGrotObj && <GrotCard obj={selectedGrotObj} devicePos={devicePos} />}
 
       {/* Förar-sheet (Beslut 1) — bara i förarläge när inget kort är öppet */}
       {driverMode && !selectedObj && !selectedGrotObj && (
