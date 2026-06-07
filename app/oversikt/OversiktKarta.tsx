@@ -1037,6 +1037,9 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
 
   /* ── Visible object IDs ── */
   const visIds = useMemo(() => {
+    // GROT-lagret på → grot är det man tittar på: dölj vanliga statusmarkörer så
+    // GROT-diamanterna inte staplas ovanpå dem (endast diamanterna visas då).
+    if (showGrot) return [];
     let list = objekt.filter(o => o.lat != null && o.lng != null);
 
     if (maskinFilter) {
@@ -1066,7 +1069,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       }
     }
     return list.map(o => o.id);
-  }, [objekt, filt, maskinFilter, maskinKo, showDone]);
+  }, [objekt, filt, maskinFilter, maskinKo, showDone, showGrot]);
 
   /* ── GROT objects (with coordinates and grot_volym > 0) ── */
   const grotObjekt = useMemo(() => {
