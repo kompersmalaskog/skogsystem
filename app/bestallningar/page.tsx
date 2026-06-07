@@ -1,16 +1,23 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
+import { TreePine, Trees } from 'lucide-react'
 
 const MANADER = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 const TYP = {
-  slutavverkning: { namn: 'Slutavverkning', ikon: '🪵', farg: '#FF9F0A' },
-  gallring: { namn: 'Gallring', ikon: '🌲', farg: '#30D158' },
+  slutavverkning: { namn: 'Slutavverkning', Ikon: TreePine, farg: '#FF9F0A' },
+  gallring: { namn: 'Gallring', Ikon: Trees, farg: '#30D158' },
 } as const
 
 type TypNyckel = keyof typeof TYP
 type Bolag = { id: number; namn: string }
 type Bestallning = { id: string; ar: number; manad: number; typ: TypNyckel; bolag: string; bolag_id: number | null; volym: number }
+
+// Typ-ikon i typfärgen (lucide line-ikon, ersätter emoji).
+function TypIkon({ typ, size }: { typ: TypNyckel; size: number }) {
+  const Ikon = TYP[typ].Ikon
+  return <Ikon size={size} color={TYP[typ].farg} strokeWidth={2} />
+}
 
 const fmt = (n: number) => Math.round(Number(n) || 0).toLocaleString('sv-SE')
 
@@ -155,10 +162,13 @@ export default function Bestallningar() {
 
   // ---- styles ----
   const navBtn: React.CSSProperties = { width: 44, height: 44, borderRadius: 22, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 22, cursor: 'pointer' }
-  const kort: React.CSSProperties = { background: '#1c1c1e', borderRadius: 16, padding: 20 }
-  const kundRad: React.CSSProperties = { width: '100%', minHeight: 48, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 0', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)', color: '#fff', cursor: 'pointer', textAlign: 'left' }
+  const kort: React.CSSProperties = { background: '#1c1c1e', borderRadius: 16, padding: 16 }
+  const kundRad: React.CSSProperties = { width: '100%', minHeight: 44, display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', background: 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.06)', color: '#fff', cursor: 'pointer', textAlign: 'left' }
   const overlay: React.CSSProperties = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 100 }
-  const sheetWrap: React.CSSProperties = { position: 'fixed', left: 0, right: 0, bottom: 0, background: '#1c1c1e', borderRadius: '24px 24px 0 0', zIndex: 101, maxHeight: '88vh', overflowY: 'auto', paddingBottom: 'env(safe-area-inset-bottom)', animation: closing ? 'slideDown 0.25s ease forwards' : 'slideUp 0.35s cubic-bezier(0.4,0,0.2,1)' }
+  // Centrerad till samma 480px-kolumn. left:0/right:0 behålls som ankare så att
+  // margin:auto kan centrera ett position:fixed-element; centreringen sker via
+  // margin (ej transform) så slide-animationen (translateY) inte krockar.
+  const sheetWrap: React.CSSProperties = { position: 'fixed', left: 0, right: 0, bottom: 0, maxWidth: 480, margin: '0 auto', background: '#1c1c1e', borderRadius: '24px 24px 0 0', zIndex: 101, maxHeight: '88vh', overflowY: 'auto', paddingBottom: 'env(safe-area-inset-bottom)', animation: closing ? 'slideDown 0.25s ease forwards' : 'slideUp 0.35s cubic-bezier(0.4,0,0.2,1)' }
   const grip: React.CSSProperties = { padding: '14px 0 6px', display: 'flex', justifyContent: 'center', cursor: 'pointer' }
   const gripBar: React.CSSProperties = { width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.2)' }
   const sheetTitel: React.CSSProperties = { fontSize: 22, fontWeight: 700, textAlign: 'center', margin: '6px 0 20px' }
@@ -172,9 +182,11 @@ export default function Bestallningar() {
     <div style={{ minHeight: '100vh', background: '#000', color: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', paddingBottom: 120 }}>
       <style>{`@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}@keyframes slideDown{from{transform:translateY(0)}to{transform:translateY(100%)}}`}</style>
 
-      {/* Header + månadsväljare */}
+      {/* Centrerad mobil-kolumn — aldrig kant-till-kant på desktop */}
+      <div style={{ maxWidth: 480, margin: '0 auto' }}>
+
+      {/* Månadsväljare (sidtiteln visas i toppbaren) */}
       <div style={{ padding: '60px 20px 8px', textAlign: 'center' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 }}>Beställningar</div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
           <button onClick={() => bytManad(-1)} style={navBtn}>‹</button>
           <div style={{ fontSize: 22, fontWeight: 700, minWidth: 170 }}>{MANADER[month].toLowerCase()} {year}</div>
@@ -185,14 +197,14 @@ export default function Bestallningar() {
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60, color: 'rgba(255,255,255,0.4)' }}>Laddar…</div>
       ) : (
-        <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {(['slutavverkning', 'gallring'] as TypNyckel[]).map(typ => {
             const { rader, total } = perTyp(typ)
             const t = TYP[typ]
             return (
               <div key={typ} style={kort}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-                  <span style={{ fontSize: 24 }}>{t.ikon}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <TypIkon typ={typ} size={20} />
                   <span style={{ fontSize: 18, fontWeight: 600 }}>{t.namn}</span>
                 </div>
                 <div style={{ fontSize: 30, fontWeight: 700 }}>
@@ -201,7 +213,7 @@ export default function Bestallningar() {
 
                 {/* Mix-stapel: varje kunds andel av typens total (riktig nämnare) */}
                 {total > 0 && (
-                  <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', gap: 2, marginTop: 14, marginBottom: 16 }}>
+                  <div style={{ display: 'flex', height: 6, borderRadius: 3, overflow: 'hidden', gap: 2, marginTop: 12, marginBottom: 12 }}>
                     {rader.map((b, i) => (
                       <div key={b.id} title={`${b.bolag}: ${fmt(b.volym)}`}
                         style={{ flex: `${(Number(b.volym) / total) * 100} 0 0`, background: t.farg, opacity: i % 2 === 0 ? 1 : 0.55, borderRadius: 2 }} />
@@ -231,6 +243,7 @@ export default function Bestallningar() {
           <button onClick={oppnaNy} style={{ width: '100%', padding: 18, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 16, color: '#fff', fontSize: 17, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>+ Ny beställning</button>
         </div>
       )}
+      </div>
 
       {sheet && <div onClick={closeSheet} style={overlay} />}
 
@@ -247,7 +260,7 @@ export default function Bestallningar() {
                   return (
                     <button key={typ} onClick={() => { setValdTyp(typ); setSteg(2) }}
                       style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 16, padding: '20px 22px', background: `${t.farg}1a`, border: `1px solid ${t.farg}55`, borderRadius: 18, cursor: 'pointer', marginBottom: 14 }}>
-                      <span style={{ fontSize: 32 }}>{t.ikon}</span>
+                      <TypIkon typ={typ} size={26} />
                       <span style={{ fontSize: 18, fontWeight: 600, color: t.farg }}>{t.namn}</span>
                     </button>
                   )
@@ -284,7 +297,7 @@ export default function Bestallningar() {
               <>
                 <h2 style={sheetTitel}>Ange volym</h2>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 20, color: 'rgba(255,255,255,0.6)' }}>
-                  <span style={{ fontSize: 26 }}>{TYP[valdTyp].ikon}</span>
+                  <TypIkon typ={valdTyp} size={22} />
                   <span style={{ fontSize: 17 }}>{valdBolag.namn}</span>
                 </div>
                 <input autoFocus type="number" inputMode="numeric" value={valdVolym} onChange={e => setValdVolym(e.target.value)} placeholder="0" style={volymInput} />
@@ -305,7 +318,7 @@ export default function Bestallningar() {
             {/* Kontext (ej redigerbar) + Spara överst (iOS-mönster, top-right) */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 24 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-                <span style={{ fontSize: 36 }}>{TYP[redigerar.typ].ikon}</span>
+                <TypIkon typ={redigerar.typ} size={28} />
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 20, fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{redigerar.bolag}</div>
                   <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 2 }}>{TYP[redigerar.typ].namn} · {MANADER[(redigerar.manad || 1) - 1].toLowerCase()} {redigerar.ar}</div>
