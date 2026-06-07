@@ -449,7 +449,7 @@ export default function TraktBriefing({
     const map = mapInstanceRef.current;
     const ov = steps.find(s => s.type === 'overview');
     if (!map || !ov?.bbox) return;
-    map.fitBounds(ov.bbox, { padding: { top: 60, left: 40, right: 40, bottom: Math.round(window.innerHeight * 0.40) }, pitch: 0, bearing: 0, duration: 1200, essential: true });
+    map.fitBounds(ov.bbox, { padding: { top: 90, left: 70, right: 70, bottom: Math.round(window.innerHeight * 0.40) }, pitch: 0, bearing: 0, maxZoom: 15.5, duration: 1200, essential: true });
   }, [steps.length, walkStarted, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup on unmount
@@ -904,7 +904,17 @@ export default function TraktBriefing({
       const map = mapInstanceRef.current;
       if (e && e.kind === 'step' && e.step.center) {
         onActiveMarkerChange?.(e.step.marker?.id || null);
-        if (map) map.flyTo({ center: [e.step.center.lon, e.step.center.lat], zoom: e.step.zoom || 17, pitch: 0, duration: 1200, essential: true, offset: [0, -Math.round(window.innerHeight * 0.18)] });
+        if (map) {
+          const c = e.step.center;
+          // Rama markeringen med LUFT: zon/fastighet har egen bbox; punkt → liten bbox (~180 m).
+          const r = 180;
+          const dLat = r / 111320;
+          const dLon = r / (111320 * Math.cos(c.lat * Math.PI / 180));
+          const bbox = e.step.bbox || [c.lon - dLon, c.lat - dLat, c.lon + dLon, c.lat + dLat] as [number, number, number, number];
+          // bottom-padding = bottenkortets yta → markeringen hamnar i SYNLIGA ytan OVANFÖR kortet.
+          const cardPx = Math.round(window.innerHeight * 0.46);
+          map.fitBounds(bbox, { padding: { top: 80, left: 50, right: 50, bottom: cardPx }, pitch: 0, maxZoom: 17, duration: 1200, essential: true });
+        }
       } else {
         onActiveMarkerChange?.(null);
       }
