@@ -66,18 +66,19 @@ export default async function Page() {
     redirect('/arbetsrapport');
   }
 
-  // 1. Hämta alla slutavverknings-objekt
+  // 1. Hämta alla slutavverknings-objekt via StanForD-fältet cutting_method
+  //    (sätts av importen). atgard är manuellt/inkonsekvent — se aggregate.ts.
   const { data: dimRows } = await supabase
     .from('dim_objekt')
     .select('objekt_id, object_name, skogsagare')
-    .ilike('atgard', 'slutavverkning');
+    .eq('cutting_method', 'ClearCutting');
   const dim = dimRows ?? [];
 
   let rader: ObjektRad[] = [];
   if (dim.length > 0) {
     const objektIds = dim.map(d => d.objekt_id);
 
-    // 2. Mappa till objekt.id (uuid) via vo_nummer
+    // 2. Mappa till objekt.id (uuid) via vo_nummer — för HPR-datum
     const { data: objektRows } = await supabase
       .from('objekt')
       .select('id, vo_nummer')
@@ -87,43 +88,44 @@ export default async function Page() {
       if (o.vo_nummer) uuidByVo.set(o.vo_nummer, o.id);
     }
 
-    // 3. hpr_filer för dessa uuids
+    // 3. hpr_filer — enbart för att härleda första datum ur filnamnets timestamp.
+    //    (stammar_count är opålitlig efter fristående HPR-import; faktiskt antal
+    //     stammar räknas från detalj_stam i steg 4.)
     const uuids = Array.from(uuidByVo.values()).filter((u): u is string => !!u);
-    const hprByUuid = new Map<string, { stammar_count: number; first_filnamn: string }>();
+    const firstFilByUuid = new Map<string, string>();
     if (uuids.length > 0) {
       const { data: hprRows } = await supabase
         .from('hpr_filer')
-        .select('objekt_id, stammar_count, filnamn')
+        .select('objekt_id, filnamn')
         .in('objekt_id', uuids);
       for (const h of hprRows ?? []) {
-        const a = hprByUuid.get(h.objekt_id) ?? { stammar_count: 0, first_filnamn: '' };
-        // CLAUDE.md: använd BARA filen med högst stammar_count per objekt
-        if ((h.stammar_count ?? 0) > a.stammar_count) {
-          a.stammar_count = h.stammar_count ?? 0;
-        }
-        if (!a.first_filnamn || (h.filnamn && h.filnamn < a.first_filnamn)) {
-          a.first_filnamn = h.filnamn ?? '';
-        }
-        hprByUuid.set(h.objekt_id, a);
+        const cur = firstFilByUuid.get(h.objekt_id);
+        if (h.filnamn && (!cur || h.filnamn < cur)) firstFilByUuid.set(h.objekt_id, h.filnamn);
       }
     }
 
-    // 4. Bygg rader — bara objekt som faktiskt har HPR-filer
+    // 4. Faktiskt antal stammar per objekt från detalj_stam (verklig
+    //    dataförekomst, oberoende av hpr_filer.stammar_count).
+    const stammarByObj = new Map<string, number>();
+    await Promise.all(objektIds.map(async (oid) => {
+      const { count } = await supabase
+        .from('detalj_stam')
+        .select('*', { count: 'exact', head: true })
+        .eq('objekt_id', oid);
+      stammarByObj.set(oid, count ?? 0);
+    }));
+
+    // 5. Bygg rader — bara objekt som faktiskt har stam-data
     rader = dim
       .map((d) => {
         const uuid = uuidByVo.get(d.objekt_id);
-        const hpr = uuid ? hprByUuid.get(uuid) : null;
-        // Hämta datum från filnamn-suffix om möjligt (HPR-import lagrar inte
-        // fil_datum-kolumnen, men filnamnet innehåller en timestamp)
-        const datumFromFilename = hpr?.first_filnamn
-          ? extractDateFromFilename(hpr.first_filnamn)
-          : null;
+        const fil = uuid ? firstFilByUuid.get(uuid) : null;
         return {
           objekt_id: d.objekt_id,
           namn: d.object_name ?? d.objekt_id,
           skogsagare: d.skogsagare ?? null,
-          stammar: hpr?.stammar_count ?? 0,
-          forsta_datum: datumFromFilename,
+          stammar: stammarByObj.get(d.objekt_id) ?? 0,
+          forsta_datum: fil ? extractDateFromFilename(fil) : null,
         };
       })
       .filter((r) => r.stammar > 0)
@@ -156,8 +158,8 @@ export default async function Page() {
           <div style={{ marginTop: 32 }}>
             <p style={{ fontSize: 14, color: COL.textSecondary, margin: 0, lineHeight: 1.6 }}>
               Inga slutavverkade objekt med importerade HPR-filer hittades.
-              Sätt <code>dim_objekt.atgard = &apos;Slutavverkning&apos;</code> manuellt på relevanta
-              objekt och importera deras HPR-filer.
+              Objekt klassas som slutavverkning via maskinens <code>cutting_method</code>{' '}
+              (StanForD ClearCutting). Importera HPR-filer för slutavverkningsobjekt.
             </p>
           </div>
         ) : (

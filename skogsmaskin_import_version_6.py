@@ -147,6 +147,82 @@ SUPABASE_HEADERS = {}
 _GLOBAL_TID_ENTRIES = {}
 _GLOBAL_TID_OPERATORS = {}
 
+# ── Operator email-cache ─────────────────────────────────────────────────────
+# Nyckel: (maskin_id, email_lowercase) → kanoniskt operator_id.
+# Laddas lättjefullt från dim_operator första gången resolve anropas.
+# Uppdateras in-session när ett nytt id skapas, så FPR-filer som
+# kommer efter MOM i samma körning redan hittar rätt id.
+_op_email_cache: Dict[tuple, str] = {}
+_op_cache_loaded: bool = False
+
+def _ensure_op_cache() -> None:
+    """Ladda dim_operator-emailar från Supabase en gång per skriptkörning."""
+    global _op_cache_loaded
+    if _op_cache_loaded:
+        return
+    _op_cache_loaded = True
+    try:
+        resp = requests.get(
+            f"{SUPABASE_URL}/rest/v1/dim_operator"
+            "?select=operator_id,maskin_id,email&email=not.is.null",
+            headers=SUPABASE_HEADERS, timeout=15
+        )
+        if resp.status_code == 200:
+            for row in resp.json():
+                mid = row.get('maskin_id') or ''
+                em  = (row.get('email') or '').strip().lower()
+                oid = row.get('operator_id') or ''
+                if mid and em and oid:
+                    _op_email_cache[(mid, em)] = oid
+            logger.debug(f"Operator-cache laddad: {len(_op_email_cache)} poster")
+    except Exception as e:
+        logger.warning(f"Kunde inte ladda operator email-cache: {e}")
+
+
+def resolve_operator_id(maskin_id: str, op_key: str, email: str, namn: str = '') -> str:
+    """
+    Returnera kanoniskt operator_id.
+
+    Fallback-ordning:
+      1. email finns + träff i dim_operator → återanvänd befintligt id
+      2. annars → f"{maskin_id}_{op_key}"  (= nuvarande beteende, säker separat rad)
+
+    Loggar WARNING om föraren har ett riktigt namn men saknar e-post —
+    det är ett maskin-konfigurationsproblem. Rottne (inget namn, inget e-post)
+    loggas bara på DEBUG-nivå.
+    """
+    if email:
+        _ensure_op_cache()
+        em_key = (maskin_id, email.strip().lower())
+        if em_key in _op_email_cache:
+            logger.debug(
+                f"  Operator normaliserad: {maskin_id}_{op_key} -> "
+                f"{_op_email_cache[em_key]} (email: {email})"
+            )
+            return _op_email_cache[em_key]
+    else:
+        har_riktigt_namn = namn and not namn.startswith('Operator ')
+        if har_riktigt_namn:
+            logger.warning(
+                f"  OPERATOR SAKNAR E-POST: '{namn}' pa {maskin_id} "
+                f"(key={op_key}) -- skapar {maskin_id}_{op_key}. "
+                f"Lagg in e-post i maskinen for automatisk normalisering."
+            )
+        else:
+            logger.debug(
+                f"  Operator {maskin_id}_{op_key} har inget namn/e-post "
+                f"(forvanta for Rottne)"
+            )
+
+    op_id = f"{maskin_id}_{op_key}"
+    if email:
+        # Registrera i session-cache: efterföljande filer i samma körning
+        # normaliserar direkt mot detta id utan att behöva träffa DB.
+        _op_email_cache[(maskin_id, email.strip().lower())] = op_id
+    return op_id
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 def init_supabase():
     """Initierar headers för Supabase REST API"""
     global SUPABASE_HEADERS
@@ -350,6 +426,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         contact = find_element(op_def, 'ContactInformation', ns)
 
         namn = ''
+        email = ''
         if contact is not None:
             fname = get_text(contact, 'FirstName', ns)
             lname = get_text(contact, 'LastName', ns)
@@ -357,6 +434,7 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             # Skip UUID-like names (Rottne sometimes puts UUIDs instead of real names)
             if candidate and not _UUID_RE.match(candidate):
                 namn = candidate
+            email = (get_text(contact, 'Email', ns) or '').strip()
         if not namn:
             candidate = get_text(op_def, 'OperatorUserID', ns)
             if candidate and not _UUID_RE.match(candidate):
@@ -365,12 +443,16 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
             namn = f"Operatör {op_key}"
 
         if op_key:
-            data['operatorer'].append({
-                'operator_id': f"{maskin_id}_{op_key}",
+            op_id = resolve_operator_id(maskin_id, op_key, email, namn)
+            entry = {
+                'operator_id': op_id,
                 'operator_key': op_key,
                 'operator_namn': namn,
-                'maskin_id': maskin_id
-            })
+                'maskin_id': maskin_id,
+            }
+            if email:
+                entry['email'] = email
+            data['operatorer'].append(entry)
     
     # === OBJEKT ===
     for obj_def in find_all_elements(machine, 'ObjectDefinition', ns):
@@ -1942,22 +2024,28 @@ def parse_fpr_file(filepath: str) -> Dict[str, Any]:
         contact = find_element(op_def, 'ContactInformation', ns)
 
         namn = ''
+        email = ''
         if contact is not None:
             fname = get_text(contact, 'FirstName', ns)
             lname = get_text(contact, 'LastName', ns)
             candidate = f"{fname} {lname}".strip()
             if candidate and not _UUID_RE.match(candidate):
                 namn = candidate
+            email = (get_text(contact, 'Email', ns) or '').strip()
         if not namn:
             namn = f"Operatör {op_key}"
 
         if op_key:
-            data['operatorer'].append({
-                'operator_id': f"{maskin_id}_{op_key}",
+            op_id = resolve_operator_id(maskin_id, op_key, email, namn)
+            entry = {
+                'operator_id': op_id,
                 'operator_key': op_key,
                 'operator_namn': namn,
-                'maskin_id': maskin_id
-            })
+                'maskin_id': maskin_id,
+            }
+            if email:
+                entry['email'] = email
+            data['operatorer'].append(entry)
     
     # Bygg location_coords_map tidigt så det är tillgängligt för objekt-parsning
     location_coords_map = {}
