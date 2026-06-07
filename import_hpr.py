@@ -52,14 +52,48 @@ SUPABASE_KEY = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY")            # service
 ONEDRIVE_BASE = r"C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer"
 BEHANDLADE = os.path.join(ONEDRIVE_BASE, "Behandlade")
 
-LOG_FILE = os.path.join(ONEDRIVE_BASE, "hpr_import_logg.txt")
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(SCRIPT_DIR, "hpr_import_logg.txt")  # repo-mappen, EJ OneDrive (OneDrive-synk gav [Errno 22] på flush)
+
+# Robust loggning: en logg-hicka (flush mot synkande fil / stängd konsol) får ALDRIG
+# spamma eller stoppa importen. Svälj OSError i emit/flush + stäng av logging-propagering.
+logging.raiseExceptions = False
+
+
+class _SafeFileHandler(logging.FileHandler):
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            super().flush()
+        except Exception:
+            pass
+
+
+class _SafeStreamHandler(logging.StreamHandler):
+    def emit(self, record):
+        try:
+            super().emit(record)
+        except Exception:
+            pass
+
+    def flush(self):
+        try:
+            super().flush()
+        except Exception:
+            pass
+
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
+        _SafeFileHandler(LOG_FILE, encoding='utf-8'),
+        _SafeStreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
