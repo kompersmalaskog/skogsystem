@@ -449,7 +449,9 @@ export default function TraktBriefing({
     const map = mapInstanceRef.current;
     const ov = steps.find(s => s.type === 'overview');
     if (!map || !ov?.bbox) return;
-    map.fitBounds(ov.bbox, { padding: { top: 90, left: 70, right: 70, bottom: Math.round(window.innerHeight * 0.40) }, pitch: 0, bearing: 0, maxZoom: 15.5, duration: 1200, essential: true });
+    // bottom = start-panelens faktiska höjd (~210 px) + luft → trakten centreras i den
+    // SYNLIGA ytan OVANFÖR panelen (inte i hela viewporten → toppen klipps inte).
+    map.fitBounds(ov.bbox, { padding: { top: 90, left: 70, right: 70, bottom: 250 }, pitch: 0, bearing: 0, maxZoom: 15.5, duration: 1200, essential: true });
   }, [steps.length, walkStarted, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup on unmount
