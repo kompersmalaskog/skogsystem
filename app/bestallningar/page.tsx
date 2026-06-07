@@ -1,10 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-
-const SUPABASE_URL = 'https://mxydghzfacbenbgpodex.supabase.co'
-// Anon-nyckeln lämnas oförändrad denna pass (flaggad för launch-härdning).
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14eWRnaHpmYWNiZW5iZ3BvZGV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4NzU2MjMsImV4cCI6MjA4NDQ1MTYyM30.NRBG5HcAtEXRTyf4YTp71A3iATk6U3DGhfdJ5EYlMyo'
-const HEADERS = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+import { supabase } from '@/lib/supabase'
 
 const MANADER = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 const TYP = {
@@ -45,10 +41,16 @@ export default function Bestallningar() {
 
   const fetchBestallningar = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await fetch(`${SUPABASE_URL}/rest/v1/bestallningar?select=*&ar=eq.${year}&manad=eq.${manad1}&order=volym.desc`, { headers: HEADERS })
-      setBestallningar(res.ok ? await res.json() : [])
-    } catch { setBestallningar([]) }
+    // Läs som inloggad användare (session-JWT via lib/supabase) — read_bestallningar
+    // ger authenticated SELECT, och sidan är låst bakom login.
+    const { data, error } = await supabase
+      .from('bestallningar')
+      .select('*')
+      .eq('ar', year)
+      .eq('manad', manad1)
+      .order('volym', { ascending: false })
+    if (error) { console.error('Kunde inte hämta beställningar:', error); setBestallningar([]) }
+    else setBestallningar((data ?? []) as Bestallning[])
     setLoading(false)
   }, [year, manad1])
 
@@ -101,29 +103,24 @@ export default function Bestallningar() {
     if (!valdTyp || !valdBolag) return
     const v = parseFloat(valdVolym)
     if (!(v > 0)) return
-    try {
-      // Merge-nyckel: (ar, manad, typ, bolag_id) — full nyckel, bälte och hängslen
-      // mot att merga över fel månad om fetch-logiken nånsin ändras.
-      const befintlig = bestallningar.find(b =>
-        b.typ === valdTyp &&
-        b.bolag_id === valdBolag.id &&
-        b.ar === year &&
-        b.manad === manad1
-      )
-      if (befintlig) {
-        await fetch(`${SUPABASE_URL}/rest/v1/bestallningar?id=eq.${befintlig.id}`, {
-          method: 'PATCH', headers: { ...HEADERS, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ volym: Number(befintlig.volym) + v, uppdaterad_at: new Date().toISOString() }),
-        })
-      } else {
-        await fetch(`${SUPABASE_URL}/rest/v1/bestallningar`, {
-          method: 'POST', headers: { ...HEADERS, 'Content-Type': 'application/json' },
-          // Skriver BÅDE bolag_id OCH kanoniskt bolag.namn (helis text-match bevaras).
-          body: JSON.stringify({ ar: year, manad: manad1, typ: valdTyp, bolag_id: valdBolag.id, bolag: valdBolag.namn, volym: v }),
-        })
-      }
-      await fetchBestallningar()
-    } catch {}
+    // Merge-nyckel: (ar, manad, typ, bolag_id) — full nyckel, bälte och hängslen
+    // mot att merga över fel månad om fetch-logiken nånsin ändras.
+    const befintlig = bestallningar.find(b =>
+      b.typ === valdTyp &&
+      b.bolag_id === valdBolag.id &&
+      b.ar === year &&
+      b.manad === manad1
+    )
+    // Skriv som inloggad användare (session-JWT via lib/supabase) — RLS kräver authenticated.
+    // Skriver BÅDE bolag_id OCH kanoniskt bolag.namn (helis text-match bevaras).
+    const { error } = befintlig
+      ? await supabase.from('bestallningar')
+          .update({ volym: Number(befintlig.volym) + v, uppdaterad_at: new Date().toISOString() })
+          .eq('id', befintlig.id)
+      : await supabase.from('bestallningar')
+          .insert({ ar: year, manad: manad1, typ: valdTyp, bolag_id: valdBolag.id, bolag: valdBolag.namn, volym: v })
+    if (error) { console.error('Spara misslyckades:', error); alert('Kunde inte spara: ' + error.message); return }
+    await fetchBestallningar()
     closeSheet()
   }
 
@@ -133,23 +130,22 @@ export default function Bestallningar() {
     if (!redigerar) return
     const v = parseFloat(redVolym)
     if (!(v > 0)) return
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/bestallningar?id=eq.${redigerar.id}`, {
-        method: 'PATCH', headers: { ...HEADERS, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ volym: v, uppdaterad_at: new Date().toISOString() }),
-      })
-      await fetchBestallningar()
-    } catch {}
+    // Skriv som inloggad användare (session-JWT via lib/supabase).
+    const { error } = await supabase.from('bestallningar')
+      .update({ volym: v, uppdaterad_at: new Date().toISOString() })
+      .eq('id', redigerar.id)
+    if (error) { console.error('Uppdatering misslyckades:', error); alert('Kunde inte spara: ' + error.message); return }
+    await fetchBestallningar()
     closeSheet()
   }
 
   const taBort = async () => {
     if (!redigerar) return
     if (!confirm(`Ta bort ${redigerar.bolag}s beställning på ${fmt(redigerar.volym)}?`)) return
-    try {
-      await fetch(`${SUPABASE_URL}/rest/v1/bestallningar?id=eq.${redigerar.id}`, { method: 'DELETE', headers: HEADERS })
-      await fetchBestallningar()
-    } catch {}
+    // Radera som inloggad användare (session-JWT via lib/supabase).
+    const { error } = await supabase.from('bestallningar').delete().eq('id', redigerar.id)
+    if (error) { console.error('Borttagning misslyckades:', error); alert('Kunde inte ta bort: ' + error.message); return }
+    await fetchBestallningar()
     closeSheet()
   }
 
