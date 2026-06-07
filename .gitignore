@@ -70,3 +70,7 @@ fill_weather_errors.txt
 dev_server.log
 kontroll_response.json
 verify_hqc_parser.py
+
+# Import-runtime-loggar (lokala per worktree, ska ej spåras)
+import_logg.txt
+hpr_import_logg.txt
