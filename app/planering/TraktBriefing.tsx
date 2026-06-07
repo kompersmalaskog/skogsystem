@@ -270,6 +270,9 @@ export default function TraktBriefing({
   // Checklist state — EN lista (mandatory + Kvittering sammanslagna, STEG 6a-3)
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [expandedItem, setExpandedItem] = useState<string | null>(null);
+  // STEG 6e-1: kortvandring (briefing) — en sak i taget
+  const [walkStarted, setWalkStarted] = useState(false);
+  const [cardIndex, setCardIndex] = useState(0);
   const [resetConfirm, setResetConfirm] = useState<'skordare' | 'skotare' | null>(null);  // admin-nollställning (L3)
   const [panelHeight, setPanelHeight] = useState(50);
   const dragStartRef = useRef<{ y: number; h: number } | null>(null);
@@ -296,9 +299,26 @@ export default function TraktBriefing({
     const mainRoads = markers.filter(m => m.isLine && m.lineType === 'mainRoad' && m.path && m.path.length > 1);
     const symbolMarkers = markers.filter(m => (m.isMarker && m.type !== 'landing') || m.isZone);
 
-    const allPoints = boundaries.length > 0
-      ? boundaries[0].path!.map(p => svgToLatLon(p.x, p.y))
-      : markers.filter(m => m.x !== undefined).map(m => svgToLatLon(m.x, m.y));
+    // STEG 6e-1 (kamera-fix v2): trakten = GRÄNSEN (alla gränspolygoner). Basvägar/avlägg/
+    // symboler tas med BARA om de ligger NÄRA gränsen (inom ±50% av gränsens storlek) —
+    // fjärran vägsvansar som leder in från långt håll ska inte blåsa upp överblicken.
+    const boundaryPts: { lat: number; lon: number }[] = [];
+    for (const b of boundaries) { if (b.path) for (const p of b.path) boundaryPts.push(svgToLatLon(p.x, p.y)); }
+    const allPoints: { lat: number; lon: number }[] = [...boundaryPts];
+    if (boundaryPts.length > 0) {
+      let bMinLat = Infinity, bMaxLat = -Infinity, bMinLon = Infinity, bMaxLon = -Infinity;
+      for (const p of boundaryPts) { if (p.lat < bMinLat) bMinLat = p.lat; if (p.lat > bMaxLat) bMaxLat = p.lat; if (p.lon < bMinLon) bMinLon = p.lon; if (p.lon > bMaxLon) bMaxLon = p.lon; }
+      const rLat = Math.max((bMaxLat - bMinLat) * 0.5, 0.0015);
+      const rLon = Math.max((bMaxLon - bMinLon) * 0.5, 0.0025);
+      const near = (p: { lat: number; lon: number }) => p.lat >= bMinLat - rLat && p.lat <= bMaxLat + rLat && p.lon >= bMinLon - rLon && p.lon <= bMaxLon + rLon;
+      for (const m of [...mainRoads, ...landings, ...symbolMarkers]) {
+        const pts = (m.path && m.path.length > 0) ? m.path.map(p => svgToLatLon(p.x, p.y)) : (m.x !== undefined && m.y !== undefined ? [svgToLatLon(m.x, m.y)] : []);
+        for (const p of pts) if (near(p)) allPoints.push(p);
+      }
+    } else {
+      // Ingen gräns → fall tillbaka på alla markörer (kan inte definiera "trakten" annars).
+      for (const m of markers) if (m.x !== undefined && m.y !== undefined) allPoints.push(svgToLatLon(m.x, m.y));
+    }
 
     let centerLat = 0, centerLon = 0;
     if (allPoints.length > 0) {
@@ -439,6 +459,17 @@ export default function TraktBriefing({
       setChecklistOpen(true);
     }
   }, [mode, steps.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // STEG 6e-1: rama in trakten STILLA på start-panelen (briefing) — kartan bakom kortet.
+  useEffect(() => {
+    if (mode === 'checklist' || walkStarted || steps.length === 0) return;
+    const map = mapInstanceRef.current;
+    const ov = steps.find(s => s.type === 'overview');
+    if (!map || !ov?.bbox) return;
+    // bottom = start-panelens faktiska höjd (~210 px) + luft → trakten centreras i den
+    // SYNLIGA ytan OVANFÖR panelen (inte i hela viewporten → toppen klipps inte).
+    map.fitBounds(ov.bbox, { padding: { top: 90, left: 70, right: 70, bottom: 250 }, pitch: 0, bearing: 0, maxZoom: 15.5, duration: 1200, essential: true });
+  }, [steps.length, walkStarted, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup on unmount
   useEffect(() => {
@@ -619,19 +650,6 @@ export default function TraktBriefing({
     fontWeight: '600',
     cursor: 'pointer',
   };
-
-  // ============================================================
-  // === START SCREEN — just map + button ===
-  // ============================================================
-  if (currentStep === -1 && !checklistOpen) {
-    return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', pointerEvents: 'none' }}>
-        <button onClick={() => goToStep(0)} style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}>
-          ▶ Starta briefing
-        </button>
-      </div>
-    );
-  }
 
   // ============================================================
   // === KVITTERING — EN lista, tre tillstånd (STEG 6a-3) ===
@@ -871,122 +889,149 @@ export default function TraktBriefing({
     );
   }
 
-  const step = steps[currentStep];
-  if (!step) return null;
-
   // ============================================================
-  // === DONE SCREEN — just map + button ===
+  // === KORTVANDRING (briefing) — en sak i taget, STEG 6e-1 ===
+  // Bottenkort över stilla karta. "Sett – nästa" lägger id i checked_ids
+  // (BARA checked_ids — kvitto + grind är 6e-2). Bakåt rör BARA vyn (cardIndex),
+  // av-bockar aldrig (forward lägger till i ett Set → idempotent).
   // ============================================================
-  if (step.type === 'done') {
-    return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', pointerEvents: 'none' }}>
-        <button
-          onClick={() => {
-            const total = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about').length;
-            onBriefingComplete?.(total);
-            setChecklistOpen(true);
-          }}
-          style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}
-        >
-          Klar – börja köra
-        </button>
-      </div>
-    );
-  }
+  {
+    const cwBoundary = markers.find(m => m.isLine && m.lineType === 'boundary');
+    const cwNotes = cwBoundary?.notes || [];
+    const cwLegacyComment = cwBoundary?.comment;
+    const cwLegacyAudio = cwBoundary?.audioData;
+    const cwHasLegacy = !!(cwLegacyComment || cwLegacyAudio) && cwNotes.length === 0;
+    const cwListSteps = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about');
+    type CardEntry =
+      | { kind: 'note'; id: string; note: { id: string; date: string; text?: string; audioData?: string } }
+      | { kind: 'legacy'; id: string }
+      | { kind: 'step'; id: string; step: BriefingStep };
+    const cwEntries: CardEntry[] = [
+      ...cwNotes.map((n): CardEntry => ({ kind: 'note', id: `about-note-${n.id}`, note: n })),
+      ...(cwHasLegacy ? [{ kind: 'legacy', id: 'about' } as CardEntry] : []),
+      ...cwListSteps.map((s): CardEntry => ({ kind: 'step', id: s.id, step: s })),
+    ];
+    const cwTotal = cwEntries.length;
+    const cwStripColor = (m?: Marker): string => {
+      if (m?.isZone && m.zoneType) return ZONE_COLORS[m.zoneType] || A;
+      if (m?.type && ICON_BG[m.type]) return ICON_BG[m.type].bg;
+      return A;
+    };
+    const cwToggleAudio = (id: string) => setExpandedItem(prev => prev === id ? null : id);
+    // Lugn glid till markeringen (not utan kartpunkt → ingen glid, kartan ligger kvar)
+    const glideToEntry = (e?: CardEntry) => {
+      const map = mapInstanceRef.current;
+      if (e && e.kind === 'step' && e.step.center) {
+        onActiveMarkerChange?.(e.step.marker?.id || null);
+        if (map) {
+          const c = e.step.center;
+          // Rama markeringen med LUFT: zon/fastighet har egen bbox; punkt → liten bbox (~180 m).
+          const r = 180;
+          const dLat = r / 111320;
+          const dLon = r / (111320 * Math.cos(c.lat * Math.PI / 180));
+          const bbox = e.step.bbox || [c.lon - dLon, c.lat - dLat, c.lon + dLon, c.lat + dLat] as [number, number, number, number];
+          // bottom-padding = bottenkortets yta → markeringen hamnar i SYNLIGA ytan OVANFÖR kortet.
+          const cardPx = Math.round(window.innerHeight * 0.46);
+          map.fitBounds(bbox, { padding: { top: 80, left: 50, right: 50, bottom: cardPx }, pitch: 0, maxZoom: 17, duration: 1200, essential: true });
+        }
+      } else {
+        onActiveMarkerChange?.(null);
+      }
+    };
 
-  // ============================================================
-  // === STEP SCREEN — gradient + card ===
-  // ============================================================
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', pointerEvents: 'none' }}>
-      {/* Step counter */}
-      <div style={{
-        position: 'fixed', top: '16px', right: '16px', zIndex: 710, pointerEvents: 'auto',
-        padding: '6px 14px', borderRadius: '20px',
-        background: 'rgba(10,15,8,0.6)', color: 'rgba(138,180,96,0.5)',
-        fontSize: '13px', fontWeight: '600', backdropFilter: 'blur(8px)',
-      }}>
-        {currentStep + 1} / {steps.length}
-      </div>
-
-      <div style={{
-        pointerEvents: 'auto',
-        background: 'rgba(10,15,8,0.92)',
-        padding: '80px 20px 32px',
-        paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
-      }}>
-        <div style={{
-          maxWidth: '420px', margin: '0 auto',
-          opacity: fadeIn ? 1 : 0,
-          transform: fadeIn ? 'translateY(0)' : 'translateY(20px)',
-          transition: 'opacity 0.4s ease, transform 0.4s ease',
-        }}>
-          {/* Progress dots — accent green */}
-          <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', marginBottom: '20px' }}>
-            {steps.map((_, i) => (
-              <div key={i} style={{
-                width: i === currentStep ? '24px' : '6px', height: '6px', borderRadius: '3px',
-                background: i === currentStep ? A : 'rgba(138,180,96,0.2)',
-                transition: 'all 0.3s ease',
-              }} />
-            ))}
-          </div>
-
-          {/* Icon + title */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 28, color: '#fff' }}>{step.icon}</span>
-            <div style={{ fontSize: '18px', fontWeight: '600', color: '#e8f0e0' }}>
-              {step.title}
-            </div>
-          </div>
-
-          {/* Comment */}
-          {step.comment && (
-            <div style={{
-              padding: '12px 16px', borderRadius: '10px',
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.05)',
-              marginBottom: '16px',
-            }}>
-              <div style={{ fontSize: '14px', color: 'rgba(232,240,224,0.65)', lineHeight: '1.5' }}>
-                {step.comment}
-              </div>
-            </div>
-          )}
-
-          {/* Navigation */}
-          <div style={{ display: 'flex', gap: '10px' }}>
-            {currentStep > 0 && (
-              <button
-                onClick={() => goToStep(currentStep - 1)}
-                style={{
-                  flex: 1, padding: '14px',
-                  background: 'rgba(255,255,255,0.03)',
-                  color: 'rgba(138,180,96,0.45)',
-                  border: '1px solid rgba(255,255,255,0.05)',
-                  borderRadius: '12px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-                }}>
-                ← Tillbaka
+    // ── START-PANEL ──
+    if (!walkStarted) {
+      return (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', pointerEvents: 'none' }}>
+          <div style={{ pointerEvents: 'auto', background: 'rgba(10,15,8,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', padding: '28px 24px', paddingBottom: 'max(28px, env(safe-area-inset-bottom))', borderRadius: '24px 24px 0 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ maxWidth: '440px', margin: '0 auto' }}>
+              <div style={{ fontSize: '22px', fontWeight: '700', color: '#f0f4ec', letterSpacing: '-0.4px', marginBottom: '4px' }}>{traktName || 'Trakt'}</div>
+              <div style={{ fontSize: '15px', color: 'rgba(240,244,236,0.55)', marginBottom: '24px' }}>{cwTotal} {cwTotal === 1 ? 'sak' : 'saker'} att gå igenom</div>
+              <button onClick={() => { setWalkStarted(true); setCardIndex(0); glideToEntry(cwEntries[0]); }} style={{ width: '100%', padding: '16px', borderRadius: '16px', border: 'none', background: A, color: '#0a0f08', fontSize: '16px', fontWeight: '700', cursor: 'pointer' }}>
+                Börja genomgång
               </button>
-            )}
-            <button
-              onClick={() => !overviewBusy && goToStep(currentStep + 1)}
-              style={{
-                flex: currentStep > 0 ? 1 : undefined,
-                width: currentStep > 0 ? undefined : '100%',
-                padding: '14px',
-                background: overviewBusy ? 'rgba(138,180,96,0.15)' : A,
-                color: overviewBusy ? 'rgba(255,255,255,0.3)' : '#0a0f08',
-                border: 'none', borderRadius: '12px',
-                fontSize: '14px', fontWeight: '700',
-                cursor: overviewBusy ? 'default' : 'pointer',
-                transition: 'background 0.5s ease, color 0.5s ease',
-              }}>
-              {overviewBusy ? 'Flygning pågår...' : 'Kör vidare →'}
-            </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── KORT (ett per entry) ──
+    if (cardIndex < cwTotal) {
+      const e = cwEntries[cardIndex];
+      const stepEntry = e.kind === 'step' ? e.step : null;
+      const strip = stepEntry ? cwStripColor(stepEntry.marker) : A;
+      const cardTitle = e.kind === 'step' ? e.step.title : e.kind === 'note' ? 'Från planeraren' : 'Om trakten';
+      const cardText = e.kind === 'step' ? e.step.comment : e.kind === 'note' ? e.note.text : cwLegacyComment;
+      const audioData = e.kind === 'note' ? e.note.audioData : e.kind === 'legacy' ? (cwLegacyAudio || undefined) : stepEntry?.audioData;
+      const photoData = stepEntry?.photoData;
+      const audioId = `walk-audio-${e.id}`;
+      const audioOpen = expandedItem === audioId;
+      const hasBody = !!(cardText || photoData || audioData);
+      return (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', pointerEvents: 'none' }}>
+          <div style={{ pointerEvents: 'auto', padding: '0 16px max(20px, env(safe-area-inset-bottom))' }}>
+            <div style={{ maxWidth: '440px', margin: '0 auto' }}>
+              {/* prick-progress */}
+              <div style={{ display: 'flex', gap: '5px', justifyContent: 'center', marginBottom: '12px' }}>
+                {cwEntries.map((_, i) => (
+                  <div key={i} style={{ width: i === cardIndex ? '22px' : '6px', height: '6px', borderRadius: '3px', background: i === cardIndex ? A : i < cardIndex ? 'rgba(138,180,96,0.45)' : 'rgba(255,255,255,0.18)', transition: 'all 0.3s ease' }} />
+                ))}
+              </div>
+              {/* kort */}
+              <div style={{ display: 'flex', borderRadius: '20px', overflow: 'hidden', background: 'rgba(10,15,8,0.94)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ width: '4px', background: strip, flexShrink: 0 }} />
+                <div style={{ flex: 1, padding: '18px 18px 16px', minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: hasBody ? '12px' : '0' }}>
+                    {cardIndex > 0 && (
+                      <button onClick={() => { const prev = cardIndex - 1; setCardIndex(prev); glideToEntry(cwEntries[prev]); }} aria-label="Förra kortet" style={{ width: '30px', height: '30px', borderRadius: '15px', flexShrink: 0, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(240,244,236,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', fontSize: '17px', lineHeight: 1 }}>‹</button>
+                    )}
+                    {stepEntry ? <MarkerIconSvg marker={stepEntry.marker} fallbackEmoji={stepEntry.icon} size={36} /> : <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 30, color: A }}>edit_note</span>}
+                    <div style={{ flex: 1, minWidth: 0, fontSize: '18px', fontWeight: '700', color: '#f0f4ec', letterSpacing: '-0.3px' }}>{cardTitle}</div>
+                  </div>
+                  {cardText && <div style={{ fontSize: '15px', color: 'rgba(240,244,236,0.72)', lineHeight: '1.5', wordBreak: 'break-word', marginBottom: (photoData || audioData) ? '12px' : '0' }}>{cardText}</div>}
+                  {photoData && <div style={{ marginBottom: audioData ? '12px' : '0' }}><img src={photoData} alt="" style={{ width: '100%', maxHeight: '220px', objectFit: 'cover', borderRadius: '12px', border: '1px solid rgba(255,255,255,0.06)' }} /></div>}
+                  {audioData && (
+                    <div>
+                      <button onClick={(ev) => { ev.stopPropagation(); cwToggleAudio(audioId); }} style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 14px', borderRadius: '12px', background: audioOpen ? 'rgba(138,180,96,0.15)' : 'rgba(138,180,96,0.06)', border: `1px solid ${audioOpen ? 'rgba(138,180,96,0.25)' : 'rgba(138,180,96,0.1)'}`, color: A, fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}>
+                        <span style={{ fontSize: '14px' }}>{audioOpen ? '⏹' : '🎤'}</span>{audioOpen ? 'Stoppa' : 'Lyssna'}
+                      </button>
+                      {audioOpen && <div style={{ marginTop: '10px' }}><audio controls autoPlay src={audioData} style={{ width: '100%', height: '34px', borderRadius: '8px' }} /></div>}
+                    </div>
+                  )}
+                </div>
+              </div>
+              {/* Sett – nästa: BARA checked_ids (Set → idempotent), rör ej kvitto/körläge */}
+              <button
+                onClick={() => {
+                  onChecklistChange?.(checkedSet.has(e.id) ? Array.from(checkedSet) : [...Array.from(checkedSet), e.id]);
+                  const next = cardIndex + 1;
+                  setCardIndex(next);
+                  if (next < cwTotal) glideToEntry(cwEntries[next]);
+                }}
+                style={{ width: '100%', marginTop: '12px', padding: '16px', borderRadius: '16px', border: 'none', background: A, color: '#0a0f08', fontSize: '16px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                {cardIndex + 1 < cwTotal ? 'Sett – nästa' : 'Sett – klar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ── GENOMGÅNG KLAR — platshållare (underskrift + grind = 6e-2) ──
+    return (
+      <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', pointerEvents: 'none' }}>
+        <div style={{ pointerEvents: 'auto', background: 'rgba(10,15,8,0.92)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', padding: '28px 24px', paddingBottom: 'max(28px, env(safe-area-inset-bottom))', borderRadius: '24px 24px 0 0', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ maxWidth: '440px', margin: '0 auto', textAlign: 'center' }}>
+            <div style={{ fontSize: '22px', fontWeight: '700', color: '#f0f4ec', marginBottom: '6px' }}>&#10003; Genomgång klar</div>
+            <div style={{ fontSize: '14px', color: 'rgba(240,244,236,0.5)', marginBottom: '20px' }}>Du har gått igenom alla {cwTotal} {cwTotal === 1 ? 'sak' : 'saker'}.</div>
+            <div style={{ fontSize: '13px', color: 'rgba(138,180,96,0.7)', padding: '12px 14px', borderRadius: '12px', background: 'rgba(138,180,96,0.06)', border: '1px dashed rgba(138,180,96,0.25)' }}>
+              "Börja köra" (underskrift + grind) byggs i nästa steg (6e-2).
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  }
 }
