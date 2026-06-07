@@ -17904,6 +17904,7 @@ export default function PlannerPage() {
           }}
           onBriefingComplete={(total: number) => { setBriefingCompleted(true); setBriefingStepTotal(total); }}
           onShowOnMap={(itemId, center, markerId, source, extra) => {
+            setBriefingMode(false);            // stäng även briefing-flödets helskärmsark så glidningen + kart-kortet syns (annars ligger arket kvar och pin verkar död)
             setBriefingChecklistMode(false);
             setBriefingHighlightId(markerId || null);
             setChecklistMapView({ itemId, center, markerId, source: source || 'checklist', bbox: extra?.bbox, zoom: extra?.zoom, type: extra?.type, comment: extra?.comment, audioData: extra?.audioData, photoData: extra?.photoData, title: extra?.title, icon: extra?.icon });
