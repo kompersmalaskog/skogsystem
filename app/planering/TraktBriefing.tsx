@@ -299,9 +299,20 @@ export default function TraktBriefing({
     const mainRoads = markers.filter(m => m.isLine && m.lineType === 'mainRoad' && m.path && m.path.length > 1);
     const symbolMarkers = markers.filter(m => (m.isMarker && m.type !== 'landing') || m.isZone);
 
-    const allPoints = boundaries.length > 0
-      ? boundaries[0].path!.map(p => svgToLatLon(p.x, p.y))
-      : markers.filter(m => m.x !== undefined).map(m => svgToLatLon(m.x, m.y));
+    // STEG 6e-1 (kamera-fix): bbox måste omsluta HELA trakten — ALLA gränser + basvägar
+    // + avlägg + symboler/zoner — inte bara första gränspolygonen. Annars klipps basväg
+    // och utskjutande slingor som ligger utanför huvudpolygonen.
+    const allPoints: { lat: number; lon: number }[] = [];
+    for (const m of [...boundaries, ...mainRoads, ...landings, ...symbolMarkers]) {
+      if (m.path && m.path.length > 0) {
+        for (const p of m.path) allPoints.push(svgToLatLon(p.x, p.y));
+      } else if (m.x !== undefined && m.y !== undefined) {
+        allPoints.push(svgToLatLon(m.x, m.y));
+      }
+    }
+    if (allPoints.length === 0) {
+      for (const m of markers) if (m.x !== undefined && m.y !== undefined) allPoints.push(svgToLatLon(m.x, m.y));
+    }
 
     let centerLat = 0, centerLon = 0;
     if (allPoints.length > 0) {
