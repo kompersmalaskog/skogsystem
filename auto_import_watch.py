@@ -163,7 +163,7 @@ def run_hpr_import():
             text=True,
             encoding='utf-8',
             errors='replace',
-            timeout=600,
+            timeout=1800,  # marginal för stora HPR (senaste-per-objekt gör körningen liten)
             env=_env,
         )
         if result.returncode == 0:
