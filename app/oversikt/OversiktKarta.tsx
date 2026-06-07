@@ -243,10 +243,15 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
         </div>
 
         {/* 4. Fara (Beslut 6) — enda röda elementet, bara verklig fara (powerline/warning).
-           Visar ALLA faror staplade direkt — aldrig gömt bakom en knapp man inte
-           kan trycka på; fara är det viktigaste på kortet. */}
+           Visar ALLA faror staplade direkt — aldrig gömt bakom en knapp. Rad 1 =
+           farans namn, rad 2 = planerarens beskrivning (data.comment) om den finns. */}
         {warnings && warnings.items.some(i => i.level === 'fara') && (() => {
-          const faror = Array.from(new Set(warnings.items.filter(i => i.level === 'fara').map(i => i.label)));
+          const seen = new Set<string>();
+          const faror = warnings.items.filter(i => i.level === 'fara').filter(f => {
+            const k = `${f.label}|${f.comment || ''}`;        // dedupe på namn+beskrivning
+            if (seen.has(k)) return false;
+            seen.add(k); return true;
+          });
           return (
             <div style={{
               display: 'flex', alignItems: 'flex-start', gap: SP.sm, marginBottom: SP.lg,
@@ -254,9 +259,12 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
               border: `1px solid ${C.red}40`,
             }}>
               <span style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderBottom: `12px solid ${C.red}`, flexShrink: 0, marginTop: 3 }} />
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
-                {faror.map((label, i) => (
-                  <span key={i} style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>{label}</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: SP.sm, minWidth: 0 }}>
+                {faror.map((f, i) => (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+                    <span style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>{f.label}</span>
+                    {f.comment && <span style={{ ...T.caption, color: C.t1, fontWeight: 400, lineHeight: 1.4 }}>{f.comment}</span>}
+                  </div>
                 ))}
               </div>
             </div>
@@ -572,7 +580,7 @@ const SUB_LABEL: Record<string, string> = {
   highstump: 'Högstubbe',
 };
 export type FaraNiva = 'fara' | 'hansyn';
-export interface ObjWarnings { level: FaraNiva | null; items: { label: string; level: FaraNiva }[]; }
+export interface ObjWarnings { level: FaraNiva | null; items: { label: string; level: FaraNiva; comment?: string }[]; }
 interface MarkeringRow { objekt_id: string | null; typ: string | null; data: any; }
 
 /* Inloggad medarbetare — roll (forare/admin/planerare) + maskinkoppling.
@@ -859,8 +867,11 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       if (level === 'neutral') continue;
       const sub = markeringSub(m.data) || '';
       const label = SUB_LABEL[sub] || sub;
+      // Planerarens beskrivning ligger i data.comment (planering_markeringar) —
+      // tas med så fara-bannern kan visa den under farans namn.
+      const comment = typeof m.data?.comment === 'string' && m.data.comment.trim() ? m.data.comment.trim() : undefined;
       if (!map[m.objekt_id]) map[m.objekt_id] = { level: null, items: [] };
-      map[m.objekt_id].items.push({ label, level });
+      map[m.objekt_id].items.push({ label, level, comment });
     }
     for (const id in map) {
       const w = map[id];
