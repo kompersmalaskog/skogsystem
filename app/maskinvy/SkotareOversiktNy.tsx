@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { supabase } from '@/lib/supabase'
 import {
   C, FONT, getPeriodRange, fetchAll,
-  fmtSv, DeltaBadge, Sparkline,
-  type Period,
+  fmtSv, DeltaBadge, Sparkline, OperatorList,
+  type Period, type Operator,
 } from './OversiktShared'
 
 // ─────────────────────────────────────────────────────────────
@@ -101,6 +102,71 @@ async function fetchSkotareData(
       andel: lass > 0 ? klassCounts[i] / lass : 0,
     })),
   }
+}
+
+// ── Operatörslista ────────────────────────────────────────────
+// fakt_lass och fakt_tid hämtas SEPARAT per operator_id och slås
+// samman i JS. Aldrig en direkt join — det dubbelräknar tidsdatan.
+//
+// m³/G15h = SUM(volym_m3sub från fakt_lass) / SUM(g15h från fakt_tid)
+// Precis som skördaren men med lass-volym i täljaren.
+
+async function fetchSkotareOperatorer(
+  maskinId: string, start: string, end: string,
+): Promise<Operator[]> {
+  const ids = [maskinId]
+
+  const [lassRows, tidRows, opRes] = await Promise.all([
+    fetchAll('fakt_lass', 'datum, volym_m3sub, operator_id', ids, start, end),
+    fetchAll('fakt_tid',  'datum, operator_id, processing_sek, terrain_sek', ids, start, end),
+    supabase.from('dim_operator').select('operator_id, operator_namn').in('maskin_id', ids),
+  ])
+
+  // Namn-lookup
+  const opNames: Record<string, string> = {}
+  for (const o of ((opRes as any).data || [])) {
+    if (o.operator_id) opNames[o.operator_id] = o.operator_namn
+  }
+
+  // Aggregera fakt_lass per operator_id → volym + distinkta dagar
+  const lassByOp: Record<string, { volym: number; dagar: Set<string> }> = {}
+  for (const r of lassRows) {
+    const id = r.operator_id
+    if (!id) continue
+    if (!lassByOp[id]) lassByOp[id] = { volym: 0, dagar: new Set() }
+    lassByOp[id].volym += r.volym_m3sub || 0
+    if (r.datum) lassByOp[id].dagar.add(r.datum)
+  }
+
+  // Aggregera fakt_tid per operator_id → G15h (SEPARAT, aldrig join mot lass)
+  const tidByOp: Record<string, { proc: number; terr: number }> = {}
+  for (const r of tidRows) {
+    const id = r.operator_id
+    if (!id) continue
+    if (!tidByOp[id]) tidByOp[id] = { proc: 0, terr: 0 }
+    tidByOp[id].proc += r.processing_sek || 0
+    tidByOp[id].terr += r.terrain_sek    || 0
+  }
+
+  // Slå ihop, beräkna m³/G15h, filtrera och sortera alfabetiskt
+  const allIds = new Set([...Object.keys(lassByOp), ...Object.keys(tidByOp)])
+  return Array.from(allIds)
+    .map(id => {
+      const l = lassByOp[id] || { volym: 0, dagar: new Set<string>() }
+      const t = tidByOp[id]  || { proc: 0, terr: 0 }
+      const g15h = (t.proc + t.terr) / 3600
+      return {
+        id,
+        namn:    opNames[id] || id,
+        g15h,
+        volym:   l.volym,
+        stammar: 0,                               // skotare har inga stammar
+        dagar:   l.dagar.size,
+        prod:    g15h > 0 ? l.volym / g15h : null, // m³/G15h, viktat
+      } satisfies Operator
+    })
+    .filter(o => o.volym > 0)                     // skippa perioder utan lass
+    .sort((a, b) => a.namn.localeCompare(b.namn, 'sv'))
 }
 
 const MIN_DAGAR = 2
@@ -306,13 +372,14 @@ function DistKlasserKort({ data, loading }: { data: SkotareData | null; loading:
 // ── Huvud-komponent ───────────────────────────────────────────
 export default function SkotareOversiktNy() {
   type Maskin = typeof SKOTARE[number]
-  const [maskin, setMaskin]   = useState<Maskin>(SKOTARE[0])
-  const [period, setPeriod]   = useState<Period>('M')
-  const [offset, setOffset]   = useState(0)
-  const [data,     setData]   = useState<SkotareData | null>(null)
-  const [prevData, setPrevData] = useState<SkotareData | null>(null)
-  const [serie,    setSerie]  = useState<SkotareSerie[]>([])
-  const [loading,  setLoading]= useState(false)
+  const [maskin, setMaskin]       = useState<Maskin>(SKOTARE[0])
+  const [period, setPeriod]       = useState<Period>('M')
+  const [offset, setOffset]       = useState(0)
+  const [data,     setData]       = useState<SkotareData | null>(null)
+  const [prevData, setPrevData]   = useState<SkotareData | null>(null)
+  const [serie,    setSerie]      = useState<SkotareSerie[]>([])
+  const [operatorer, setOperatorer] = useState<Operator[]>([])
+  const [loading,  setLoading]    = useState(false)
   const [maskinOpen, setMaskinOpen] = useState(false)
 
   useEffect(() => {
@@ -326,13 +393,15 @@ export default function SkotareOversiktNy() {
       fetchSkotareData(maskin.id, cur.start,  cur.end ).catch(() => null),
       fetchSkotareData(maskin.id, prev.start, prev.end).catch(() => null),
       fetchSkotareSerie(maskin.id, period, offset).catch(() => []),
-    ]).then(([curD, prevD, ser]) => {
+      fetchSkotareOperatorer(maskin.id, cur.start, cur.end).catch(() => []),
+    ]).then(([curD, prevD, ser, ops]) => {
       if (cancelled) return
       // 65%-regel: visa delta bara om föregående period har jämförbar täckning.
       const prevValid = (prevD?.dagar ?? 0) >= (curD?.dagar ?? 0) * 0.65
       setData(curD)
       setPrevData(prevValid ? prevD : null)
       setSerie(ser ?? [])
+      setOperatorer(ops ?? [])
       setLoading(false)
     })
 
@@ -462,6 +531,7 @@ export default function SkotareOversiktNy() {
         />
         <SkotareKpiList data={data} prev={prevData} loading={loading} />
         <DistKlasserKort data={data} loading={loading} />
+        <OperatorList operatorer={operatorer} loading={loading} />
       </div>
     </div>
   )
