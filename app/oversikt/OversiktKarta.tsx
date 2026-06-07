@@ -242,20 +242,23 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
           </div>
         </div>
 
-        {/* 4. Fara (Beslut 6) — enda röda elementet, bara verklig fara (powerline/warning) */}
+        {/* 4. Fara (Beslut 6) — enda röda elementet, bara verklig fara (powerline/warning).
+           Visar ALLA faror staplade direkt — aldrig gömt bakom en knapp man inte
+           kan trycka på; fara är det viktigaste på kortet. */}
         {warnings && warnings.items.some(i => i.level === 'fara') && (() => {
-          const faror = warnings.items.filter(i => i.level === 'fara');
-          const rest = faror.length - 1;
+          const faror = Array.from(new Set(warnings.items.filter(i => i.level === 'fara').map(i => i.label)));
           return (
             <div style={{
-              display: 'flex', alignItems: 'center', gap: SP.sm, marginBottom: SP.lg,
+              display: 'flex', alignItems: 'flex-start', gap: SP.sm, marginBottom: SP.lg,
               padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: C.rd,
               border: `1px solid ${C.red}40`,
             }}>
-              <span style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderBottom: `12px solid ${C.red}`, flexShrink: 0 }} />
-              <span style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>
-                {faror[0]?.label}{rest > 0 ? ` +${rest} till` : ''}
-              </span>
+              <span style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderBottom: `12px solid ${C.red}`, flexShrink: 0, marginTop: 3 }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                {faror.map((label, i) => (
+                  <span key={i} style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>{label}</span>
+                ))}
+              </div>
             </div>
           );
         })()}
