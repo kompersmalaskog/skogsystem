@@ -45,8 +45,9 @@ _load_env_local()
 
 SUPABASE_URL = os.environ.get("NEXT_PUBLIC_SUPABASE_URL",
                os.environ.get("SUPABASE_URL", "https://mxydghzfacbenbgpodex.supabase.co"))
-SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY",
-               os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", ""))
+SUPABASE_KEY = (os.environ.get("SUPABASE_SERVICE_ROLE_KEY")            # service-role: kringgår RLS (samma namn som importern + .env.local)
+                or os.environ.get("SUPABASE_SERVICE_KEY")             # legacy-namn (om någon satt det)
+                or os.environ.get("NEXT_PUBLIC_SUPABASE_ANON_KEY", ""))  # sista utväg: anon (RLS blockerar skrivning -> 42501)
 
 ONEDRIVE_BASE = r"C:\Users\lindq\Kompersmåla Skog\Maskindata - Dokument\MOM-filer"
 BEHANDLADE = os.path.join(ONEDRIVE_BASE, "Behandlade")
