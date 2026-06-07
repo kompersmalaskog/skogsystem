@@ -524,16 +524,20 @@ function DriverSheet({ queue, maskinNamn, prodMap, warningsByObj, onSelect }: {
 function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
   const info = grotDeadlineInfo(obj.grot_deadline);
   const clr = info.color;
-  const sz = isSelected ? 18 : 14;
-  const hitSize = 28;
+  const sz = isSelected ? 24 : 20;
+  const iconSz = Math.round(sz * 0.66);
+  const hitSize = 34;
   const w = document.createElement('div');
   w.className = 'ovk-grot-marker';
   w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isSelected ? '1' : '0.92'}`;
 
-  // Diamant (roterad fyrkant) — egen GROT-symbol, skild från status-markörerna.
-  const diamond = document.createElement('div');
-  diamond.style.cssText = `position:absolute;left:50%;top:50%;width:${sz}px;height:${sz}px;transform:translate(-50%,-50%) rotate(45deg);background:${clr};border:1.5px solid rgba(255,255,255,0.85);border-radius:2px;box-shadow:${isSelected ? `0 0 12px ${clr}80` : '0 1px 4px rgba(0,0,0,.4)'}`;
-  w.appendChild(diamond);
+  // GROT-markör: rundad ruta i deadline-färg som BÄR en vit LÖV-ikon (löv = ris/
+  // grenar = grot). Skiljer grot tydligt från objektens cirkel (gallring) / rundad
+  // fyrkant (slutavverkning). INGEN flamma (krockar med ett framtida brandrisk-lager).
+  const pin = document.createElement('div');
+  pin.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${sz}px;height:${sz}px;border-radius:${Math.round(sz * 0.34)}px;background:${clr};border:1.5px solid rgba(255,255,255,0.9);display:flex;align-items:center;justify-content:center;box-shadow:${isSelected ? `0 0 12px ${clr}80` : '0 1px 4px rgba(0,0,0,.4)'}`;
+  pin.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M6.05 8.05c-2.73 2.73-2.73 7.15-.02 9.88 1.47-3.4 4.09-6.24 7.36-7.93-2.77 2.34-4.71 5.61-5.39 9.32 2.6 1.23 5.8.78 7.95-1.37C19.43 14.47 20 4 20 4S9.53 4.57 6.05 8.05z"/></svg>`;
+  w.appendChild(pin);
 
   // Brådske-etikett ovanför (bara orange/röd): 'X dgr' / 'X v' / 'Försenad'.
   if (info.label) {
