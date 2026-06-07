@@ -76,14 +76,20 @@ export async function aggregateMarkagarRapport(
   // 1. dim_objekt + atgard-gate
   const { data: dimObjekt } = await supabase
     .from('dim_objekt')
-    .select('objekt_id, object_name, skogsagare, atgard, areal_ha, vo_nummer')
+    .select('objekt_id, object_name, skogsagare, atgard, cutting_method, areal_ha, vo_nummer')
     .eq('objekt_id', objektIdText)
     .maybeSingle();
 
   if (!dimObjekt) return { status: 'objekt_saknas' };
 
-  const atgardLower = (dimObjekt.atgard ?? '').toLowerCase();
-  if (!opts.bypassAtgardCheck && atgardLower !== 'slutavverkning') {
+  // Slutavverkning identifieras via StanForD-fältet cutting_method (sätts av
+  // importen, pålitligt) — INTE via fritextfältet atgard, som är manuellt
+  // kurerat och inkonsekvent: bara 1 av 49 slutavverkningar har atgard satt
+  // till 'Slutavverkning'. cutting_method='ClearCutting' för slutavverkning,
+  // tomt/'Thinning' för gallring.
+  const isSlutavverkning =
+    (dimObjekt.cutting_method ?? '').toLowerCase() === 'clearcutting';
+  if (!opts.bypassAtgardCheck && !isSlutavverkning) {
     return { status: 'ej_implementerad', atgard: dimObjekt.atgard };
   }
 
