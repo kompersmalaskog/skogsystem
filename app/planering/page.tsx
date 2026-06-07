@@ -17904,12 +17904,11 @@ export default function PlannerPage() {
           }}
           onBriefingComplete={(total: number) => { setBriefingCompleted(true); setBriefingStepTotal(total); }}
           onShowOnMap={(itemId, center, markerId, source, extra) => {
-            setBriefingChecklistMode(false);
+            // STEG 6d-2a: in-place-glid — glid + highlighta UTAN att stänga sheeten (ingen mode-switch, inget kart-kort).
             setBriefingHighlightId(markerId || null);
-            setChecklistMapView({ itemId, center, markerId, source: source || 'checklist', bbox: extra?.bbox, zoom: extra?.zoom, type: extra?.type, comment: extra?.comment, audioData: extra?.audioData, photoData: extra?.photoData, title: extra?.title, icon: extra?.icon });
             const m = mapInstanceRef.current;
             if (m) {
-              m.flyTo({ center: [center.lon, center.lat], zoom: extra?.zoom || 17, pitch: 55, duration: 1500, essential: true });
+              m.flyTo({ center: [center.lon, center.lat], zoom: extra?.zoom || 17, pitch: 0, duration: 1200, essential: true, offset: [0, -Math.round(window.innerHeight * 0.22)] });
               // Property step: activate fastighetsgränser WMS + pulsing overlay
               if (extra?.type === 'property') {
                 checklistPrevOverlaysRef.current = { ...overlays };

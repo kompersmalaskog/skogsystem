@@ -433,12 +433,28 @@ export default function TraktBriefing({
     setSteps(built);
   }, [markers, svgToLatLon, symbolCategories, zoneTypes, currentStep]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-open checklist when mounted in checklist mode
+  // STEG 6d-2a: öppna listan direkt när stegen byggts — gäller BÅDE briefing och
+  // checklist. Ingen cinematisk sekvens; briefingen ÄR överblick + lista.
   useEffect(() => {
-    if (mode === 'checklist' && steps.length > 0 && !checklistOpen) {
+    if (steps.length > 0 && !checklistOpen) {
       setChecklistOpen(true);
+      // Markera briefingen som "sedd" (ersätter gamla DONE-knappens onBriefingComplete)
+      // — driver plus-badge-räkningen för okvitterade poster.
+      const total = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about').length;
+      onBriefingComplete?.(total);
     }
-  }, [mode, steps.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [steps.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // STEG 6d-2a: rama in trakten STILLA när listan öppnas — kartan ligger bakom sheeten.
+  // Bottom-padding lämnar plats för sheeten så trakten ramas i den synliga ytan ovanför.
+  useEffect(() => {
+    if (!checklistOpen) return;
+    const map = mapInstanceRef.current;
+    const ov = steps.find(s => s.type === 'overview');
+    if (!map || !ov?.bbox) return;
+    const sheetPx = window.innerHeight * (panelHeight / 100);
+    map.fitBounds(ov.bbox, { padding: { top: 70, left: 40, right: 40, bottom: sheetPx + 40 }, pitch: 0, bearing: 0, duration: 1200, essential: true });
+  }, [checklistOpen, steps.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup on unmount
   useEffect(() => {
@@ -621,19 +637,6 @@ export default function TraktBriefing({
   };
 
   // ============================================================
-  // === START SCREEN — just map + button ===
-  // ============================================================
-  if (currentStep === -1 && !checklistOpen) {
-    return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', pointerEvents: 'none' }}>
-        <button onClick={() => goToStep(0)} style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}>
-          ▶ Starta briefing
-        </button>
-      </div>
-    );
-  }
-
-  // ============================================================
   // === KVITTERING — EN lista, tre tillstånd (STEG 6a-3) ===
   // att göra → kvitterat → referens (låst). Två oberoende roller.
   // ============================================================
@@ -751,7 +754,16 @@ export default function TraktBriefing({
     const stepEntries = entries.filter(e => e.kind === 'step');
 
     return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 700, background: '#0c0f0a', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, top: 'auto', height: `${panelHeight}vh`, zIndex: 700, background: '#0c0f0a', display: 'flex', flexDirection: 'column', borderRadius: '20px 20px 0 0', boxShadow: '0 -8px 40px rgba(0,0,0,0.55)' }}>
+        {/* DRAG-HANDLE — STEG 6d-2a: dragbar peek-sheet över stilla kartöverblick (kartan ligger kvar bakom) */}
+        <div
+          onPointerDown={(e) => { dragStartRef.current = { y: e.clientY, h: panelHeight }; try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch {} }}
+          onPointerMove={(e) => { if (!dragStartRef.current) return; const dy = dragStartRef.current.y - e.clientY; setPanelHeight(Math.min(92, Math.max(28, dragStartRef.current.h + (dy / window.innerHeight) * 100))); }}
+          onPointerUp={(e) => { dragStartRef.current = null; try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch {} }}
+          style={{ padding: '8px 0 4px', display: 'flex', justifyContent: 'center', flexShrink: 0, cursor: 'grab', touchAction: 'none' }}
+        >
+          <div style={{ width: '36px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.22)' }} />
+        </div>
         {/* HEADER */}
         <div style={{ position: 'sticky', top: 0, zIndex: 10, flexShrink: 0, background: 'rgba(12,15,10,0.85)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)', padding: '0 20px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
           <div style={{ paddingTop: 'env(safe-area-inset-top)' }} />
@@ -871,122 +883,7 @@ export default function TraktBriefing({
     );
   }
 
-  const step = steps[currentStep];
-  if (!step) return null;
-
-  // ============================================================
-  // === DONE SCREEN — just map + button ===
-  // ============================================================
-  if (step.type === 'done') {
-    return (
-      <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', pointerEvents: 'none' }}>
-        <button
-          onClick={() => {
-            const total = steps.filter(s => s.type !== 'overview' && s.type !== 'done' && s.type !== 'about').length;
-            onBriefingComplete?.(total);
-            setChecklistOpen(true);
-          }}
-          style={{ ...glassBtnStyle, marginBottom: 'max(44px, env(safe-area-inset-bottom))' }}
-        >
-          Klar – börja köra
-        </button>
-      </div>
-    );
-  }
-
-  // ============================================================
-  // === STEP SCREEN — gradient + card ===
-  // ============================================================
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 700, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', pointerEvents: 'none' }}>
-      {/* Step counter */}
-      <div style={{
-        position: 'fixed', top: '16px', right: '16px', zIndex: 710, pointerEvents: 'auto',
-        padding: '6px 14px', borderRadius: '20px',
-        background: 'rgba(10,15,8,0.6)', color: 'rgba(138,180,96,0.5)',
-        fontSize: '13px', fontWeight: '600', backdropFilter: 'blur(8px)',
-      }}>
-        {currentStep + 1} / {steps.length}
-      </div>
-
-      <div style={{
-        pointerEvents: 'auto',
-        background: 'rgba(10,15,8,0.92)',
-        padding: '80px 20px 32px',
-        paddingBottom: 'max(32px, env(safe-area-inset-bottom))',
-      }}>
-        <div style={{
-          maxWidth: '420px', margin: '0 auto',
-          opacity: fadeIn ? 1 : 0,
-          transform: fadeIn ? 'translateY(0)' : 'translateY(20px)',
-          transition: 'opacity 0.4s ease, transform 0.4s ease',
-        }}>
-          {/* Progress dots — accent green */}
-          <div style={{ display: 'flex', gap: '4px', justifyContent: 'center', marginBottom: '20px' }}>
-            {steps.map((_, i) => (
-              <div key={i} style={{
-                width: i === currentStep ? '24px' : '6px', height: '6px', borderRadius: '3px',
-                background: i === currentStep ? A : 'rgba(138,180,96,0.2)',
-                transition: 'all 0.3s ease',
-              }} />
-            ))}
-          </div>
-
-          {/* Icon + title */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-            <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: 28, color: '#fff' }}>{step.icon}</span>
-            <div style={{ fontSize: '18px', fontWeight: '600', color: '#e8f0e0' }}>
-              {step.title}
-            </div>
-          </div>
-
-          {/* Comment */}
-          {step.comment && (
-            <div style={{
-              padding: '12px 16px', borderRadius: '10px',
-              background: 'rgba(255,255,255,0.03)',
-              border: '1px solid rgba(255,255,255,0.05)',
-              marginBottom: '16px',
-            }}>
-              <div style={{ fontSize: '14px', color: 'rgba(232,240,224,0.65)', lineHeight: '1.5' }}>
-                {step.comment}
-              </div>
-            </div>
-          )}
-
-          {/* Navigation */}
-          <div style={{ display: 'flex', gap: '10px' }}>
-            {currentStep > 0 && (
-              <button
-                onClick={() => goToStep(currentStep - 1)}
-                style={{
-                  flex: 1, padding: '14px',
-                  background: 'rgba(255,255,255,0.03)',
-                  color: 'rgba(138,180,96,0.45)',
-                  border: '1px solid rgba(255,255,255,0.05)',
-                  borderRadius: '12px', fontSize: '14px', fontWeight: '600', cursor: 'pointer',
-                }}>
-                ← Tillbaka
-              </button>
-            )}
-            <button
-              onClick={() => !overviewBusy && goToStep(currentStep + 1)}
-              style={{
-                flex: currentStep > 0 ? 1 : undefined,
-                width: currentStep > 0 ? undefined : '100%',
-                padding: '14px',
-                background: overviewBusy ? 'rgba(138,180,96,0.15)' : A,
-                color: overviewBusy ? 'rgba(255,255,255,0.3)' : '#0a0f08',
-                border: 'none', borderRadius: '12px',
-                fontSize: '14px', fontWeight: '700',
-                cursor: overviewBusy ? 'default' : 'pointer',
-                transition: 'background 0.5s ease, color 0.5s ease',
-              }}>
-              {overviewBusy ? 'Flygning pågår...' : 'Kör vidare →'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  // STEG 6d-2a: ingen cinematisk STEP/DONE-sekvens — briefingen renderar
+  // bara listan (öppnas direkt). Fallback om listan ej öppen ännu: visa inget.
+  return null;
 }
