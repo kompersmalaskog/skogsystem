@@ -299,18 +299,24 @@ export default function TraktBriefing({
     const mainRoads = markers.filter(m => m.isLine && m.lineType === 'mainRoad' && m.path && m.path.length > 1);
     const symbolMarkers = markers.filter(m => (m.isMarker && m.type !== 'landing') || m.isZone);
 
-    // STEG 6e-1 (kamera-fix): bbox måste omsluta HELA trakten — ALLA gränser + basvägar
-    // + avlägg + symboler/zoner — inte bara första gränspolygonen. Annars klipps basväg
-    // och utskjutande slingor som ligger utanför huvudpolygonen.
-    const allPoints: { lat: number; lon: number }[] = [];
-    for (const m of [...boundaries, ...mainRoads, ...landings, ...symbolMarkers]) {
-      if (m.path && m.path.length > 0) {
-        for (const p of m.path) allPoints.push(svgToLatLon(p.x, p.y));
-      } else if (m.x !== undefined && m.y !== undefined) {
-        allPoints.push(svgToLatLon(m.x, m.y));
+    // STEG 6e-1 (kamera-fix v2): trakten = GRÄNSEN (alla gränspolygoner). Basvägar/avlägg/
+    // symboler tas med BARA om de ligger NÄRA gränsen (inom ±50% av gränsens storlek) —
+    // fjärran vägsvansar som leder in från långt håll ska inte blåsa upp överblicken.
+    const boundaryPts: { lat: number; lon: number }[] = [];
+    for (const b of boundaries) { if (b.path) for (const p of b.path) boundaryPts.push(svgToLatLon(p.x, p.y)); }
+    const allPoints: { lat: number; lon: number }[] = [...boundaryPts];
+    if (boundaryPts.length > 0) {
+      let bMinLat = Infinity, bMaxLat = -Infinity, bMinLon = Infinity, bMaxLon = -Infinity;
+      for (const p of boundaryPts) { if (p.lat < bMinLat) bMinLat = p.lat; if (p.lat > bMaxLat) bMaxLat = p.lat; if (p.lon < bMinLon) bMinLon = p.lon; if (p.lon > bMaxLon) bMaxLon = p.lon; }
+      const rLat = Math.max((bMaxLat - bMinLat) * 0.5, 0.0015);
+      const rLon = Math.max((bMaxLon - bMinLon) * 0.5, 0.0025);
+      const near = (p: { lat: number; lon: number }) => p.lat >= bMinLat - rLat && p.lat <= bMaxLat + rLat && p.lon >= bMinLon - rLon && p.lon <= bMaxLon + rLon;
+      for (const m of [...mainRoads, ...landings, ...symbolMarkers]) {
+        const pts = (m.path && m.path.length > 0) ? m.path.map(p => svgToLatLon(p.x, p.y)) : (m.x !== undefined && m.y !== undefined ? [svgToLatLon(m.x, m.y)] : []);
+        for (const p of pts) if (near(p)) allPoints.push(p);
       }
-    }
-    if (allPoints.length === 0) {
+    } else {
+      // Ingen gräns → fall tillbaka på alla markörer (kan inte definiera "trakten" annars).
       for (const m of markers) if (m.x !== undefined && m.y !== undefined) allPoints.push(svgToLatLon(m.x, m.y));
     }
 
