@@ -11,7 +11,7 @@ import re
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
-from collections import Counter
+from collections import Counter, defaultdict
 
 try:
     import requests
@@ -452,6 +452,16 @@ def upload_hpr(parsed: Dict[str, Any], objekt_map: Dict[str, str]) -> bool:
 # HUVUDPROGRAM
 # ============================================================
 
+def _object_key(filename: str) -> str:
+    """Gruppnyckel per objekt: filnamn utan datum/tid-suffix, så HPR-snapshots för samma
+    objekt grupperas (t.ex. 'Hössjömåla Gallring 25 2026-04-27 1712.hpr' och
+    '... 2026-04-25 1108.hpr' -> 'Hössjömåla Gallring 25'). Klipper vid första datum-token
+    (' YYYY-MM-DD' eller '_YYYYMMDD')."""
+    base = re.sub(r'\.hpr$', '', filename, flags=re.IGNORECASE)
+    base = re.split(r'\s+\d{4}-\d{2}-\d{2}|_\d{8}', base)[0]
+    return base.strip()
+
+
 def find_hpr_files() -> List[str]:
     """Hitta alla HPR-filer i Behandlade-mappen."""
     files = []
@@ -493,8 +503,26 @@ def main():
     hpr_files = find_hpr_files()
     logger.info(f"Hittade {len(hpr_files)} HPR-filer i Behandlade")
 
-    # Filtrera bort redan importerade
-    to_import = [f for f in hpr_files if os.path.basename(f) not in existing]
+    # HPR är KUMULATIVT per objekt: varje snapshot = alla tidigare stammar + nya.
+    # Verifierat via StemKey-mängder att varje snapshot ⊆ största filen. Importera därför
+    # BARA den STÖRSTA (= mest kompletta, "högst stammar_count") filen per objekt — aldrig
+    # alla snapshots. (Att importera alla orsakade timeouten: t.ex. 197 Hössjömåla-snapshots
+    # à ~145 MB, var och en full parse + delete + reinsert.)
+    groups = defaultdict(list)
+    for f in hpr_files:
+        groups[_object_key(os.path.basename(f))].append(f)
+    selected = []
+    for key, group in sorted(groups.items()):
+        chosen = max(group, key=os.path.getsize)
+        selected.append(chosen)
+        if len(group) > 1:
+            logger.info(f"  {key}: valde {os.path.basename(chosen)} "
+                        f"({os.path.getsize(chosen) // (1024 * 1024)} MB), "
+                        f"hoppade {len(group) - 1} äldre snapshot(s)")
+    logger.info(f"Senaste-per-objekt: {len(selected)} filer (av {len(hpr_files)} totalt, {len(groups)} objekt)")
+
+    # Filtrera bort redan importerade (på filnamn)
+    to_import = [f for f in selected if os.path.basename(f) not in existing]
     logger.info(f"Att importera: {len(to_import)} nya filer")
 
     if not to_import:
