@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { motion } from 'framer-motion';
 import { OversiktObjekt, Maskin, MaskinKoItem, C, ST, T, BTN, SP, STATUS_AVSLUTADE, STATUS_AKTIV } from './oversikt-types';
 import { ff } from './oversikt-styles';
-import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotEffectiveColor, grotDeadlineDays, grotStepIndex, GROT_STEPS } from './oversikt-utils';
+import { formatVolym, pc, getMaskinDisplayName, getMaskinTyp, grotDeadlineDays } from './oversikt-utils';
 import { buildForarkartaStyle, FORARKARTA_ATTRIBUTION } from './forarkarta-stil';
 
 /* ── Animated count-up hook ── */
@@ -129,6 +129,48 @@ function cleanRestrName(name: string): string {
   return cleaned || name;
 }
 
+/* ── OSRM körväg-avstånd FRÅN enhetens GPS → label. Ingen GPS-behörighet eller
+   OSRM-miss → "–" (aldrig fågelväg). Delas av ObjCard + GrotCard. ── */
+function useRoadKm(devicePos: { lat: number; lng: number } | null | undefined, lat: number | null, lng: number | null): string {
+  const [roadKm, setRoadKm] = useState<number | null>(null);
+  const [roadLoading, setRoadLoading] = useState(false);
+  useEffect(() => {
+    if (!devicePos || lat == null || lng == null) { setRoadKm(null); setRoadLoading(false); return; }
+    let cancelled = false;
+    setRoadLoading(true);
+    (async () => {
+      try {
+        const url = `https://router.project-osrm.org/route/v1/driving/${devicePos.lng},${devicePos.lat};${lng},${lat}?overview=false`;
+        const res = await fetch(url);
+        const json = await res.json();
+        const meters = json?.routes?.[0]?.distance;
+        if (!cancelled) setRoadKm(typeof meters === 'number' ? meters / 1000 : null);
+      } catch {
+        if (!cancelled) setRoadKm(null);
+      } finally {
+        if (!cancelled) setRoadLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [devicePos, lat, lng]);
+  return !devicePos ? '–' : roadLoading ? '…' : roadKm == null ? '–' : roadKm < 1 ? `${Math.round(roadKm * 1000)} m` : `${roadKm.toFixed(1)} km`;
+}
+
+/* ── GROT-deadline-bevakning ──
+   Färg/etikett styrs av DEADLINE, inte grot_status (opålitlig: bara
+   'ej_aktuellt'/'skotat' finns). Trösklarna är lätt justerbara här. */
+const GROT_BROWN = '#8d6e63';   // lugn brun — ingen/avlägsen deadline
+const GROT_ORANGE_DAGAR = 30;   // ≤ så här många dgr kvar → orange (närmar sig)
+const GROT_ROD_DAGAR = 7;       // ≤ så här många dgr kvar (eller passerad) → röd
+function grotDeadlineInfo(deadline: string | null): { color: string; label: string; days: number | null } {
+  const days = grotDeadlineDays(deadline);
+  if (days === null) return { color: GROT_BROWN, label: '', days: null };
+  if (days < 0) return { color: C.red, label: 'Försenad', days };
+  if (days <= GROT_ROD_DAGAR) return { color: C.red, label: days === 0 ? 'Idag' : `${days} dgr`, days };
+  if (days <= GROT_ORANGE_DAGAR) return { color: C.orange, label: days <= 14 ? `${days} dgr` : `${Math.ceil(days / 7)} v`, days };
+  return { color: GROT_BROWN, label: '', days };   // avlägsen deadline → lugn tills den närmar sig
+}
+
 /* ── ObjCard popup (positioned fixed at screen bottom) ──
    EN konsekvent mall för ALLA objekt — fast sektionsordning:
    1 Titel+status · 2 typ·areal·volym · 3 Avstånd+Köplats · 4 Fara (enda röda) ·
@@ -153,41 +195,26 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
   const smsHref = markTel ? `sms:${markTel}${isIOS ? '&' : '?'}body=${smsBody}` : null;
   const ber = o.trakt_data?.beraknad;
 
-  // 3. Avstånd — OSRM riktig körväg FRÅN enhetens GPS-position. Aldrig fågelväg:
-  //    ingen GPS-behörighet ELLER OSRM-miss → "–" (ingen haversine-fallback).
-  const [roadKm, setRoadKm] = useState<number | null>(null);
-  const [roadLoading, setRoadLoading] = useState(false);
-  useEffect(() => {
-    if (!devicePos || o.lat == null || o.lng == null) { setRoadKm(null); setRoadLoading(false); return; }
-    let cancelled = false;
-    setRoadLoading(true);
-    (async () => {
-      try {
-        const url = `https://router.project-osrm.org/route/v1/driving/${devicePos.lng},${devicePos.lat};${o.lng},${o.lat}?overview=false`;
-        const res = await fetch(url);
-        const json = await res.json();
-        const meters = json?.routes?.[0]?.distance;
-        if (!cancelled) setRoadKm(typeof meters === 'number' ? meters / 1000 : null);
-      } catch {
-        if (!cancelled) setRoadKm(null);
-      } finally {
-        if (!cancelled) setRoadLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [devicePos, o.lat, o.lng]);
-  const avstandLabel = !devicePos ? '–'
-    : roadLoading ? '…'
-    : roadKm == null ? '–'
-    : roadKm < 1 ? `${Math.round(roadKm * 1000)} m` : `${roadKm.toFixed(1)} km`;
+  // 3. Avstånd — OSRM körväg från enhetens GPS (delad hook). Ingen GPS/OSRM → "–".
+  const avstandLabel = useRoadKm(devicePos, o.lat, o.lng);
 
-  // 7. Visa mer — innehåll i fast ordning: Hänsyn · Restriktioner · Trädslag · Logistik
-  const hansynLabels = warnings ? [...new Set(warnings.items.filter(i => i.level === 'hansyn').map(i => i.label))] : [];
+  // GROT-objekt = samma fulla kort + grot-deadline överst (i grot-färg).
+  const grotRel = o.grot === true || o.grot_deadline != null || o.grot_volym != null;
+  const grotInfo = grotDeadlineInfo(o.grot_deadline);
+  const grotDeadlineDate = o.grot_deadline ? new Date(o.grot_deadline + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' }) : null;
+  const gd = grotInfo.days;
+  const grotDagText = gd == null ? '' : gd < 0 ? `försenad ${Math.abs(gd)} ${Math.abs(gd) === 1 ? 'dag' : 'dagar'}` : gd === 0 ? 'idag' : `om ${gd} ${gd === 1 ? 'dag' : 'dagar'}`;
+
+  // 7. Visa mer — Markeringar (alla) · Restriktioner · Trädslag · Logistik
+  const markFara = warnings ? Array.from(new Set(warnings.items.filter(i => i.level === 'fara').map(i => i.label))) : [];
+  const markHansyn = warnings ? Array.from(new Set(warnings.items.filter(i => i.level === 'hansyn').map(i => i.label))) : [];
+  const markOvrigt = warnings ? Array.from(new Set(warnings.items.filter(i => i.level === 'ovrigt').map(i => i.label))) : [];
+  const hasMarks = markFara.length > 0 || markHansyn.length > 0 || markOvrigt.length > 0;
   const restrLabels = ber?.restriktioner?.length ? [...new Set(ber.restriktioner.map(r => cleanRestrName(r.name)))] : [];
   const tradslag = (ber?.tradslag || []).filter(ts => !ts.namn.toLowerCase().includes('okänt') && ts.andel > 0).slice(0, 6);
   const tsTotal = tradslag.reduce((s, ts) => s + ts.andel, 0);
   const hasLogistik = !!(o.barighet || o.terrang);
-  const hasDetails = hansynLabels.length > 0 || restrLabels.length > 0 || tradslag.length > 0 || hasLogistik;
+  const hasDetails = hasMarks || restrLabels.length > 0 || tradslag.length > 0 || hasLogistik;
 
   const statBox: React.CSSProperties = { flex: 1, background: C.surface, borderRadius: SP.md, padding: SP.md, textAlign: 'center', border: `1px solid ${C.border}` };
   const chip: React.CSSProperties = { ...T.caption, color: C.t1, padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm };
@@ -230,6 +257,23 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
           }}>{st.l}</div>
         </div>
 
+        {/* GROT — deadline/anteckning högst upp, i grot-färg (samma fulla kort) */}
+        {grotRel && (
+          <div style={{ marginBottom: SP.lg, padding: SP.md, borderRadius: SP.sm, background: `${grotInfo.color}1f`, border: `1px solid ${grotInfo.color}55` }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: SP.sm }}>
+              <div style={{ width: 11, height: 11, background: grotInfo.color, transform: 'rotate(45deg)', borderRadius: 2, flexShrink: 0, border: '1.5px solid rgba(255,255,255,0.85)' }} />
+              <span style={{ ...T.label, color: grotInfo.color }}>GROT</span>
+            </div>
+            {grotDeadlineDate && (
+              <div style={{ ...T.caption, color: grotInfo.color, fontWeight: 700, marginTop: SP.xs }}>
+                Ömtålig: klar senast {grotDeadlineDate} — {grotDagText}
+              </div>
+            )}
+            {o.grot_anteckning && <div style={{ ...T.caption, color: C.t1, fontWeight: 400, marginTop: SP.xs, lineHeight: 1.4 }}>{o.grot_anteckning}</div>}
+            <div style={{ ...T.caption, color: C.t2, marginTop: SP.xs }}>Mängd: {o.grot_volym != null ? `${formatVolym(o.grot_volym)} m³` : '– ej mätt än'}</div>
+          </div>
+        )}
+
         {/* 3. Avstånd + Köplats — alltid synlig; "–" när data saknas */}
         <div style={{ display: 'flex', gap: SP.md, marginBottom: SP.lg }}>
           <div style={statBox}>
@@ -242,20 +286,31 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
           </div>
         </div>
 
-        {/* 4. Fara (Beslut 6) — enda röda elementet, bara verklig fara (powerline/warning) */}
+        {/* 4. Fara (Beslut 6) — enda röda elementet, bara verklig fara (powerline/warning).
+           Visar ALLA faror staplade direkt — aldrig gömt bakom en knapp. Rad 1 =
+           farans namn, rad 2 = planerarens beskrivning (data.comment) om den finns. */}
         {warnings && warnings.items.some(i => i.level === 'fara') && (() => {
-          const faror = warnings.items.filter(i => i.level === 'fara');
-          const rest = faror.length - 1;
+          const seen = new Set<string>();
+          const faror = warnings.items.filter(i => i.level === 'fara').filter(f => {
+            const k = `${f.label}|${f.comment || ''}`;        // dedupe på namn+beskrivning
+            if (seen.has(k)) return false;
+            seen.add(k); return true;
+          });
           return (
             <div style={{
-              display: 'flex', alignItems: 'center', gap: SP.sm, marginBottom: SP.lg,
+              display: 'flex', alignItems: 'flex-start', gap: SP.sm, marginBottom: SP.lg,
               padding: `${SP.sm}px ${SP.md}px`, borderRadius: SP.sm, background: C.rd,
               border: `1px solid ${C.red}40`,
             }}>
-              <span style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderBottom: `12px solid ${C.red}`, flexShrink: 0 }} />
-              <span style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>
-                {faror[0]?.label}{rest > 0 ? ` +${rest} till` : ''}
-              </span>
+              <span style={{ width: 0, height: 0, borderLeft: '7px solid transparent', borderRight: '7px solid transparent', borderBottom: `12px solid ${C.red}`, flexShrink: 0, marginTop: 3 }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: SP.sm, minWidth: 0 }}>
+                {faror.map((f, i) => (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}>
+                    <span style={{ ...T.caption, color: C.t1, fontWeight: 600 }}>{f.label}</span>
+                    {f.comment && <span style={{ ...T.caption, color: C.t1, fontWeight: 400, lineHeight: 1.4 }}>{f.comment}</span>}
+                  </div>
+                ))}
+              </div>
             </div>
           );
         })()}
@@ -301,15 +356,27 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
             {expanded && (
               <div style={{ marginTop: SP.md }}>
 
-                {/* Hänsyn — orange chips */}
-                {hansynLabels.length > 0 && (
+                {/* Markeringar på trakten — KOMPLETT lista, grupperad på färg:
+                   Faror (röd) · Hänsyn (orange) · Övrigt (grå). Inget filtreras bort.
+                   Kartan förblir lugn — detta visas BARA här i kortet. */}
+                {hasMarks && (
                   <div style={{ padding: `${SP.md}px 0` }}>
-                    <Sec label="Hänsyn" />
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP.sm }}>
-                      {hansynLabels.map((lbl, i) => (
-                        <span key={i} style={{ ...chip, background: C.od, border: `1px solid ${C.orange}40` }}>{lbl}</span>
-                      ))}
-                    </div>
+                    <Sec label="Markeringar på trakten" />
+                    {markFara.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP.sm, marginBottom: SP.sm }}>
+                        {markFara.map((lbl, i) => <span key={`f${i}`} style={{ ...chip, background: C.rd, border: `1px solid ${C.red}40` }}>{lbl}</span>)}
+                      </div>
+                    )}
+                    {markHansyn.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP.sm, marginBottom: SP.sm }}>
+                        {markHansyn.map((lbl, i) => <span key={`h${i}`} style={{ ...chip, background: C.od, border: `1px solid ${C.orange}40` }}>{lbl}</span>)}
+                      </div>
+                    )}
+                    {markOvrigt.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: SP.sm }}>
+                        {markOvrigt.map((lbl, i) => <span key={`o${i}`} style={{ ...chip, background: C.surface, border: `1px solid ${C.border}` }}>{lbl}</span>)}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -362,84 +429,7 @@ function ObjCard({ obj, warnings, koPlats, devicePos }: {
   );
 }
 
-/* ── GROT popup card ── */
-function GrotCard({ obj }: { obj: OversiktObjekt }) {
-  const lass = obj.grot_volym ? Math.ceil(obj.grot_volym / 20) : 0;
-  const clr = grotEffectiveColor(obj.grot_status, obj.grot_deadline);
-  const bgTint = `${clr}15`;
-  const deadlineDays = grotDeadlineDays(obj.grot_deadline);
-  const isDone = grotStepIndex(obj.grot_status) >= 3;
-  const isOverdue = !isDone && deadlineDays !== null && deadlineDays < 0;
-  const isUrgent = !isDone && deadlineDays !== null && deadlineDays >= 0 && deadlineDays <= 14;
-  const stepIdx = grotStepIndex(obj.grot_status);
-  const sl: Record<string, string> = { ej_aktuellt: 'Ej aktuellt', hoglagd: 'Höglagd', flisad: 'Flisad', borttransporterad: 'Klar', bortkord: 'Klar' };
-
-  return (
-    <div onClick={(e) => e.stopPropagation()} style={{
-      position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)',
-      width: 300, maxWidth: 'calc(100% - 24px)',
-      background: 'rgba(28,28,30,0.97)', backdropFilter: 'blur(24px)',
-      borderRadius: 12, overflow: 'hidden', border: `1px solid ${C.border}`, zIndex: 20,
-      animation: 'fadeUp .2s ease-out',
-    }}>
-      <div style={{ height: 2, background: `linear-gradient(90deg,${clr},transparent)` }} />
-      <div style={{ padding: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-          <div style={{ width: 10, height: 10, background: clr, transform: 'rotate(45deg)', borderRadius: 2, flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>{obj.namn}</div>
-            <div style={{ fontSize: 11, color: C.t3 }}>{sl[obj.grot_status] || obj.grot_status}</div>
-          </div>
-          {isOverdue && (
-            <span style={{ fontSize: 11, fontWeight: 600, color: C.red, padding: '2px 8px', background: C.rd, borderRadius: 5 }}>Försenad</span>
-          )}
-          {isUrgent && (
-            <span style={{ fontSize: 11, fontWeight: 600, color: C.yellow, padding: '2px 8px', background: C.yd, borderRadius: 5 }}>
-              {deadlineDays === 0 ? 'Idag' : `${deadlineDays}d kvar`}
-            </span>
-          )}
-        </div>
-
-        {/* Step indicator */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 10 }}>
-          {GROT_STEPS.map((step, i) => {
-            const filled = stepIdx >= i + 1;
-            return (
-              <React.Fragment key={step.key}>
-                {i > 0 && <div style={{ width: 16, height: 2, background: filled ? step.color : 'rgba(255,255,255,0.06)' }} />}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: filled ? step.color : 'rgba(255,255,255,0.08)' }} />
-                  <span style={{ fontSize: 11, color: filled ? step.color : C.t4, fontWeight: filled ? 600 : 400 }}>{step.label}</span>
-                </div>
-              </React.Fragment>
-            );
-          })}
-        </div>
-
-        <div style={{ display: 'flex', gap: 2, borderRadius: 8, overflow: 'hidden', marginBottom: 8 }}>
-          <div style={{ flex: 1, background: bgTint, padding: '8px 4px', textAlign: 'center' }}>
-            <div style={{ fontSize: 13, color: C.t4, marginBottom: 2 }}>Volym</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{obj.grot_volym ? formatVolym(obj.grot_volym) : '–'} <span style={{ fontSize: 13, fontWeight: 400, color: C.t4 }}>m³</span></div>
-          </div>
-          <div style={{ flex: 1, background: bgTint, padding: '8px 4px', textAlign: 'center' }}>
-            <div style={{ fontSize: 13, color: C.t4, marginBottom: 2 }}>Lass</div>
-            <div style={{ fontSize: 14, fontWeight: 700, color: clr }}>{lass || '–'} <span style={{ fontSize: 13, fontWeight: 400, color: C.t4 }}>st</span></div>
-          </div>
-        </div>
-        {obj.grot_deadline && (
-          <div style={{ fontSize: 11, color: isOverdue ? C.red : isUrgent ? C.yellow : C.t3, marginBottom: 6 }}>
-            Senast: {new Date(obj.grot_deadline + 'T00:00:00').toLocaleDateString('sv-SE', { day: 'numeric', month: 'short', year: 'numeric' })}
-          </div>
-        )}
-        {obj.grot_anteckning && (
-          <div style={{ fontSize: 11, color: C.t3, padding: '8px 10px', background: bgTint, borderRadius: 8 }}>
-            {obj.grot_anteckning}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+/* GrotCard borttagen — grot-objekt öppnar nu SAMMA ObjCard (med grot-header). */
 
 /* ── Förar-sheet (Beslut 1): Nu störst + dragbart för Härnäst-listan ──
    Read-only. Källa: maskin_ko sorterad på ordning. Tryck → öppnar ObjCard. */
@@ -529,23 +519,39 @@ function DriverSheet({ queue, maskinNamn, prodMap, warningsByObj, onSelect }: {
   );
 }
 
-/* ── Build GROT diamond marker ── */
+/* ── Build GROT diamond marker — egen brun/orange/röd symbol, DEADLINE-styrd ──
+   Brun = ingen/avlägsen deadline · orange = närmar sig · röd = nära/passerad. */
 function buildGrotMarkerEl(obj: OversiktObjekt, isSelected: boolean, onClick: () => void): HTMLDivElement {
-  const clr = grotEffectiveColor(obj.grot_status, obj.grot_deadline);
-  const sz = isSelected ? 16 : 12;
-  const hitSize = 24;
+  const info = grotDeadlineInfo(obj.grot_deadline);
+  const clr = info.color;
+  const sz = isSelected ? 24 : 20;
+  const iconSz = Math.round(sz * 0.66);
+  const hitSize = 34;
   const w = document.createElement('div');
   w.className = 'ovk-grot-marker';
-  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isSelected ? '1' : '0.7'}`;
+  w.style.cssText = `width:${hitSize}px;height:${hitSize}px;cursor:pointer;overflow:visible;opacity:${isSelected ? '1' : '0.92'}`;
 
-  const diamond = document.createElement('div');
-  diamond.style.cssText = `position:absolute;left:50%;top:50%;width:${sz}px;height:${sz}px;transform:translate(-50%,-50%) rotate(45deg);background:${clr};border-radius:2px;box-shadow:${isSelected ? `0 0 12px ${clr}60` : '0 1px 4px rgba(0,0,0,.4)'}`;
-  w.appendChild(diamond);
+  // GROT-markör: rundad ruta i deadline-färg som BÄR en vit LÖV-ikon (löv = ris/
+  // grenar = grot). Skiljer grot tydligt från objektens cirkel (gallring) / rundad
+  // fyrkant (slutavverkning). INGEN flamma (krockar med ett framtida brandrisk-lager).
+  const pin = document.createElement('div');
+  pin.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:${sz}px;height:${sz}px;border-radius:${Math.round(sz * 0.34)}px;background:${clr};border:1.5px solid rgba(255,255,255,0.9);display:flex;align-items:center;justify-content:center;box-shadow:${isSelected ? `0 0 12px ${clr}80` : '0 1px 4px rgba(0,0,0,.4)'}`;
+  pin.innerHTML = `<svg width="${iconSz}" height="${iconSz}" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M6.05 8.05c-2.73 2.73-2.73 7.15-.02 9.88 1.47-3.4 4.09-6.24 7.36-7.93-2.77 2.34-4.71 5.61-5.39 9.32 2.6 1.23 5.8.78 7.95-1.37C19.43 14.47 20 4 20 4S9.53 4.57 6.05 8.05z"/></svg>`;
+  w.appendChild(pin);
 
+  // Brådske-etikett ovanför (bara orange/röd): 'X dgr' / 'X v' / 'Försenad'.
+  if (info.label) {
+    const badge = document.createElement('div');
+    badge.style.cssText = `position:absolute;bottom:${hitSize / 2 + sz / 2 + 3}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap;background:${clr};padding:2px 7px;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.5)`;
+    badge.innerHTML = `<span style="font-size:11px;font-weight:800;color:#fff;font-family:${ff}">${info.label}</span>`;
+    w.appendChild(badge);
+  }
+
+  // Namn-etikett under.
   const lbl = document.createElement('div');
   lbl.className = 'ovk-lbl';
   lbl.style.cssText = `position:absolute;top:${hitSize / 2 + sz / 2 + 4}px;left:50%;transform:translateX(-50%);pointer-events:none;white-space:nowrap`;
-  lbl.innerHTML = `<div style="font-size:11px;font-weight:600;color:${clr};font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
+  lbl.innerHTML = `<div style="font-size:11px;font-weight:600;color:#fff;font-family:${ff};background:rgba(0,0,0,0.75);padding:2px 6px;border-radius:4px">${obj.namn}</div>`;
   w.appendChild(lbl);
 
   w.addEventListener('click', (e) => { e.stopPropagation(); onClick(); });
@@ -563,13 +569,33 @@ const HANSYN_SUBTYPER = new Set([
   'culture', 'culturemonument', 'highstump',
 ]);
 const SUB_LABEL: Record<string, string> = {
+  // Faror
   powerline: 'Kraftledning', warning: 'Varning',
-  eternitytree: 'Eternitträd', naturecorner: 'Naturhänsyn', protected: 'Skyddat område',
+  // Hänsyn
+  eternitytree: 'Eternitträd', naturecorner: 'Naturhörn', protected: 'Skyddat område',
   fornlamning: 'Fornlämning', culture: 'Kulturmiljö', culturemonument: 'Kulturminne',
   highstump: 'Högstubbe',
+  // Övrigt — punkter
+  manualfelling: 'Manuell fällning', steep: 'Brant', culturestump: 'Kulturstubbe',
+  bridge: 'Bro', landing: 'Avlägg', corduroy: 'Kavelbro', ditch: 'Dike',
+  windfall: 'Vindfälle', brashpile: 'Rishög', road: 'Väg', trail: 'Stig',
+  // Övrigt — zoner
+  wet: 'Blöt mark', noentry: 'Kör ej',
+  // Övrigt — linjer
+  boundary: 'Traktgräns', mainRoad: 'Basväg', nature: 'Naturvärde', stickvag: 'Stickväg',
+  backRoadRed: 'Basväg', backRoadYellow: 'Basväg', backRoadBlue: 'Basväg',
+  sideRoadRed: 'Stickväg', sideRoadYellow: 'Stickväg', sideRoadBlue: 'Stickväg',
+  // Övrigt — pilar
+  fellingdirection: 'Fällriktning', drivedirection: 'Körriktning',
 };
-export type FaraNiva = 'fara' | 'hansyn';
-export interface ObjWarnings { level: FaraNiva | null; items: { label: string; level: FaraNiva }[]; }
+/* Sista utväg när vi saknar en svensk etikett — så inget filtreras bort tyst. */
+function prettifySub(sub: string): string {
+  const s = sub.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+export type FaraNiva = 'fara' | 'hansyn';               // markör/banner-nivå
+export type MarkLevel = 'fara' | 'hansyn' | 'ovrigt';   // alla markeringar i kortlistan
+export interface ObjWarnings { level: FaraNiva | null; items: { label: string; level: MarkLevel; comment?: string }[]; }
 interface MarkeringRow { objekt_id: string | null; typ: string | null; data: any; }
 
 /* Inloggad medarbetare — roll (forare/admin/planerare) + maskinkoppling.
@@ -586,18 +612,16 @@ function markeringSub(data: any): string | null {
   if (!data || typeof data !== 'object') return null;
   return data.type || data.zoneType || data.lineType || data.arrowType || null;
 }
-function classifyMarkering(data: any): FaraNiva | 'neutral' {
+function classifyMarkering(data: any): MarkLevel {
   const sub = markeringSub(data);
-  if (!sub) return 'neutral';
-  if (FARA_SUBTYPER.has(sub)) return 'fara';
-  if (HANSYN_SUBTYPER.has(sub)) return 'hansyn';
-  return 'neutral';
+  if (sub && FARA_SUBTYPER.has(sub)) return 'fara';
+  if (sub && HANSYN_SUBTYPER.has(sub)) return 'hansyn';
+  return 'ovrigt';   // visa allt — inget filtreras bort tyst
 }
 
 /* ── Marker badges (Beslut 2): köordning, GROT-hörn, fara/hänsyn ── */
 type MarkerBadge =
   | { kind: 'queue'; n: number }
-  | { kind: 'grot' }
   | { kind: 'warning'; level: FaraNiva };
 
 interface MarkerOpts {
@@ -684,11 +708,6 @@ function buildMarkerEl(
       q.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(${dotSize / 2 - 6}px,-${dotSize / 2 + 6}px);min-width:16px;height:16px;padding:0 3px;border-radius:8px;background:#fff;color:#000;font-size:11px;font-weight:800;font-family:${ff};display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.5);pointer-events:none`;
       q.textContent = String(b.n);
       w.appendChild(q);
-    } else if (b.kind === 'grot') {
-      const g = document.createElement('div');
-      g.title = 'GROT';
-      g.style.cssText = `position:absolute;left:50%;top:50%;transform:translate(${dotSize / 2 - 5}px,${dotSize / 2 - 5}px);width:11px;height:11px;border-radius:2px;background:${C.yellow};border:1px solid rgba(0,0,0,.4);pointer-events:none`;
-      w.appendChild(g);
     } else if (b.kind === 'warning') {
       // Litet hörnmärke PÅ markören (uppe vänster) — speglar köbadgen uppe höger.
       // Bara kritisk fara (röd) når hit; hänsyn visas aldrig på kartan.
@@ -852,18 +871,20 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     const map: Record<string, ObjWarnings> = {};
     for (const m of markeringar) {
       if (!m.objekt_id) continue;
-      const level = classifyMarkering(m.data);
-      if (level === 'neutral') continue;
-      const sub = markeringSub(m.data) || '';
-      const label = SUB_LABEL[sub] || sub;
+      const level = classifyMarkering(m.data);   // fara | hansyn | ovrigt (aldrig bortfiltrerad)
+      const subRaw = markeringSub(m.data);
+      const label = subRaw ? (SUB_LABEL[subRaw] || prettifySub(subRaw)) : 'Markering';
+      // Planerarens beskrivning ligger i data.comment (planering_markeringar).
+      const comment = typeof m.data?.comment === 'string' && m.data.comment.trim() ? m.data.comment.trim() : undefined;
       if (!map[m.objekt_id]) map[m.objekt_id] = { level: null, items: [] };
-      map[m.objekt_id].items.push({ label, level });
+      map[m.objekt_id].items.push({ label, level, comment });
     }
     for (const id in map) {
       const w = map[id];
-      // värsta först: fara (röd) före hänsyn (orange)
-      w.items.sort((a, b) => (a.level === 'fara' ? 0 : 1) - (b.level === 'fara' ? 0 : 1));
-      w.level = w.items.some(i => i.level === 'fara') ? 'fara' : 'hansyn';
+      const rank = (l: MarkLevel) => (l === 'fara' ? 0 : l === 'hansyn' ? 1 : 2);
+      w.items.sort((a, b) => rank(a.level) - rank(b.level));   // fara → hansyn → övrigt
+      // Markör/triangel-nivå: bara fara/hansyn räknas som varning (övrigt = ingen).
+      w.level = w.items.some(i => i.level === 'fara') ? 'fara' : w.items.some(i => i.level === 'hansyn') ? 'hansyn' : null;
     }
     return map;
   }, [markeringar]);
@@ -997,6 +1018,9 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
 
   /* ── Visible object IDs ── */
   const visIds = useMemo(() => {
+    // GROT-lagret på → grot är det man tittar på: dölj vanliga statusmarkörer så
+    // GROT-diamanterna inte staplas ovanpå dem (endast diamanterna visas då).
+    if (showGrot) return [];
     let list = objekt.filter(o => o.lat != null && o.lng != null);
 
     if (maskinFilter) {
@@ -1026,12 +1050,18 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
       }
     }
     return list.map(o => o.id);
-  }, [objekt, filt, maskinFilter, maskinKo, showDone]);
+  }, [objekt, filt, maskinFilter, maskinKo, showDone, showGrot]);
 
   /* ── GROT objects (with coordinates and grot_volym > 0) ── */
   const grotObjekt = useMemo(() => {
     if (!showGrot) return [];
-    return objekt.filter(o => o.lat != null && o.lng != null && o.grot_volym && o.grot_volym > 0);
+    // GROT-relevant: grot=true ELLER deadline ELLER volym. Göm bara 'skotat'
+    // (klart). grot_status är i övrigt opålitlig — bygg inte mer logik på den.
+    return objekt.filter(o =>
+      o.lat != null && o.lng != null &&
+      o.grot_status !== 'skotat' &&
+      (o.grot === true || o.grot_deadline != null || o.grot_volym != null)
+    );
   }, [objekt, showGrot]);
 
   const selectedGrotObj = selectedGrotId ? objekt.find(o => o.id === selectedGrotId) : null;
@@ -1046,8 +1076,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
     const badges: MarkerBadge[] = [];
     const qn = queueNums[obj.id];
     if (qn != null && !isMachine) badges.push({ kind: 'queue', n: qn });
-    if (obj.grot_volym && obj.grot_volym > 0) badges.push({ kind: 'grot' });
-    // Endast kritiska faror (powerline/warning) når kartan — hänsyn/neutralt visas
+    // Endast kritiska faror (powerline/warning) når kartan — hänsyn/övrigt visas
     // bara i ObjCard (under "Visa mer"), aldrig som märke på markören.
     const w = warningsByObj[obj.id];
     if (w?.items?.some(i => i.level === 'fara')) badges.push({ kind: 'warning', level: 'fara' });
@@ -1494,7 +1523,7 @@ export default function OversiktKarta({ objekt: propObjekt, maskiner: propMaskin
           devicePos={devicePos}
         />
       )}
-      {selectedGrotObj && <GrotCard obj={selectedGrotObj} />}
+      {selectedGrotObj && <ObjCard obj={selectedGrotObj} warnings={warningsByObj[selectedGrotObj.id]} koPlats={koPlatsByObj[selectedGrotObj.id]} devicePos={devicePos} />}
 
       {/* Förar-sheet (Beslut 1) — bara i förarläge när inget kort är öppet */}
       {driverMode && !selectedObj && !selectedGrotObj && (
