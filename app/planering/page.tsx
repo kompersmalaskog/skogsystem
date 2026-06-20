@@ -1136,24 +1136,14 @@ export default function PlannerPage() {
     load();
   }, [valtObjekt?.id]);
 
-  // === BRIEFING-STATUS: Spara till Supabase (debounced) ===
-  const briefingSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  useEffect(() => {
-    if (!valtObjekt?.id || !briefingLoadedRef.current) return;
-    if (briefingSaveTimeoutRef.current) clearTimeout(briefingSaveTimeoutRef.current);
-    briefingSaveTimeoutRef.current = setTimeout(async () => {
-      const { error } = await supabase
-        .from('briefing_status')
-        .upsert({
-          objekt_id: valtObjekt.id,
-          completed: briefingCompleted,
-          step_total: briefingStepTotal,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'objekt_id' });
-      if (error) console.error('[Briefing] Spara fel:', error);
-    }, 1500);
-    return () => { if (briefingSaveTimeoutRef.current) clearTimeout(briefingSaveTimeoutRef.current); };
-  }, [briefingCompleted, briefingStepTotal, valtObjekt?.id]);
+  // === BRIEFING-STATUS: Spara borttaget (prod-bugg-fix) ===
+  // Den gamla upserten skrev till briefing_status med onConflict 'objekt_id', men
+  // tabellen saknar unikt index på objekt_id → Postgres 42P10 → PostgREST 400
+  // ("[Briefing] Spara fel") vid VARJE briefing → tabellen förblev tom. Persistensen
+  // har alltså aldrig fungerat. briefingCompleted sätts ändå in-session av
+  // onBriefingComplete (driver plus-badgen), så borttagningen ändrar inget funktionellt.
+  // Den riktiga kvitteringen ligger i objekt_kvittering (onConflict 'objekt_id,roll',
+  // unikt index finns) och påverkas INTE.
 
   // === LJUD: Supabase Storage helpers ===
   const uploadAudioToStorage = useCallback(async (blob: Blob, markerId: string, noteId?: string): Promise<string | null> => {
