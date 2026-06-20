@@ -26,6 +26,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from pathlib import Path
 import re
+from urllib.parse import quote
 from collections import defaultdict, Counter
 
 # UUID pattern — Rottne machines sometimes put UUIDs instead of operator names
@@ -2939,6 +2940,37 @@ def _fetch_maskin_uuid_map() -> Dict[str, str]:
     return {r['maskin_id']: r['id'] for r in resp.json() if r.get('maskin_id')}
 
 
+def make_objekt_nyckel(maskin_id: str, vo_nummer: str, obj_key: str) -> Optional[str]:
+    """Stabil kompositnyckel per objekt för snapshot-dedup (oberoende av objekt-tabellen).
+    Format: '<maskin_id>:<numeriskt vo_nummer>'  annars  '<maskin_id>:k<ObjectKey>'.
+    Kompositen (maskin_id:) undviker krock mellan maskiner/objekt på korta vo-nummer.
+    Identisk med import_hpr.make_objekt_nyckel — BÅDA skrivarna måste ge samma nyckel."""
+    vo = (vo_nummer or '').strip()
+    ok = (obj_key or '').strip()
+    ident = vo if vo.isdigit() else (f"k{ok}" if ok else None)
+    if not maskin_id or ident is None:
+        return None
+    return f"{maskin_id}:{ident}"
+
+
+def _delete_existing_hpr_by_nyckel(objekt_nyckel: str) -> int:
+    """Radera hpr_filer + hpr_stammar för ALLA filer med samma objekt_nyckel (stammar först,
+    förlitar sig EJ på FK-cascade). Körs oavsett objekt_id — stoppar snapshot-ackumulering
+    även för objekt som saknar rad i objekt-tabellen. Returnerar antal raderade filer."""
+    q = quote(str(objekt_nyckel), safe='')
+    resp = requests.get(f"{SUPABASE_URL}/rest/v1/hpr_filer?select=id&objekt_nyckel=eq.{q}",
+                        headers=SUPABASE_HEADERS, timeout=30)
+    if resp.status_code != 200 or not resp.json():
+        return 0
+    fil_ids = [r['id'] for r in resp.json()]
+    for fid in fil_ids:
+        requests.delete(f"{SUPABASE_URL}/rest/v1/hpr_stammar?hpr_fil_id=eq.{fid}",
+                        headers=SUPABASE_HEADERS, timeout=60)
+    requests.delete(f"{SUPABASE_URL}/rest/v1/hpr_filer?objekt_nyckel=eq.{q}",
+                    headers=SUPABASE_HEADERS, timeout=30)
+    return len(fil_ids)
+
+
 def _save_hpr_tables(data: Dict):
     """Spara HPR-data till hpr_filer och hpr_stammar tabellerna."""
     filnamn = data.get('filnamn', '')
@@ -2979,6 +3011,34 @@ def _save_hpr_tables(data: Dict):
             earliest = t
     if earliest:
         fil_row['fil_datum'] = earliest.isoformat() if hasattr(earliest, 'isoformat') else str(earliest)
+
+    # Snapshot-dedup per objekt_nyckel (frikopplad från objekt-tabellen). Utan detta blir
+    # varje kumulativt snapshot en ny rad (on_conflict=filnamn) -> ackumulering + dubbel-
+    # räknade stammar. Ersätt BARA om nya snapshotet är >= största befintliga keyed-snapshot
+    # (subset-säkert + ordningsoberoende — samma princip som MOM _keep). Legacy-rader med
+    # objekt_nyckel NULL matchas EJ -> rörs ej här; de städas i lager c med delmängds-bevis.
+    objekt_nyckel = None
+    for obj in data.get('objekt', []):
+        objekt_nyckel = make_objekt_nyckel(maskin_id, obj.get('vo_nummer', ''), obj.get('object_key', ''))
+        if objekt_nyckel:
+            break
+    if objekt_nyckel:
+        fil_row['objekt_nyckel'] = objekt_nyckel
+        q = quote(str(objekt_nyckel), safe='')
+        ex = requests.get(
+            f"{SUPABASE_URL}/rest/v1/hpr_filer?select=stammar_count&objekt_nyckel=eq.{q}",
+            headers=SUPABASE_HEADERS, timeout=30)
+        existing_counts = [(r.get('stammar_count') or 0) for r in ex.json()] if ex.status_code == 200 else []
+        existing_max = max(existing_counts) if existing_counts else 0
+        if existing_counts and len(stammar) < existing_max:
+            logger.info(f"  hpr_filer: hoppar {filnamn} — {len(stammar)} stammar < befintlig "
+                        f"komplett snapshot ({existing_max}) för {objekt_nyckel} (ingen nedgradering)")
+            return
+        deleted = _delete_existing_hpr_by_nyckel(objekt_nyckel)
+        if deleted:
+            logger.info(f"  Ersätter: raderade {deleted} tidigare snapshot(s) för objekt {objekt_nyckel}")
+    else:
+        logger.warning(f"  {filnamn}: ingen objekt_nyckel kunde härledas — upsert per filnamn (kan ackumulera)")
 
     headers_repr = {**SUPABASE_HEADERS, 'Prefer': 'resolution=merge-duplicates,return=representation'}
     resp = requests.post(
