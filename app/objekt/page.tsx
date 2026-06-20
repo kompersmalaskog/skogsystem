@@ -1,13 +1,16 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 import PageContainer from '@/components/PageContainer';
+import proj4 from 'proj4';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+// SWEREF99 TM (EPSG:3006) → WGS84 — samma logik som /api/import-trakt
+const SWEREF99TM = '+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs';
+function sweref99ToWgs84(n: number, e: number): { lat: number; lng: number } {
+  const [lng, lat] = proj4(SWEREF99TM, 'WGS84', [e, n]);
+  return { lat, lng };
+}
 
 const MANADER = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December'];
 
@@ -53,12 +56,19 @@ export default function ObjektPage() {
     fetchData();
   }, []);
 
-  const bestallningar = [
-    { manad: 1, typ: 'slutavverkning', volym: 2000 },
-    { manad: 1, typ: 'gallring', volym: 1500 },
-    { manad: 2, typ: 'slutavverkning', volym: 2500 },
-    { manad: 2, typ: 'gallring', volym: 1000 },
-  ];
+  // Beställningar för vald månad — riktiga bestallningar-tabellen (samma källa som helikoptervyn)
+  const [bestallningar, setBestallningar] = useState<any[]>([]);
+  useEffect(() => {
+    (async () => {
+      const { data, error } = await supabase
+        .from('bestallningar')
+        .select('typ, volym')
+        .eq('ar', year)
+        .eq('manad', month + 1);
+      if (error) { console.error('Beställningar-hämtning misslyckades:', error); setBestallningar([]); return; }
+      setBestallningar(data || []);
+    })();
+  }, [year, month]);
 
   const [form, setForm] = useState({ 
     voNummer: '', traktNr: '', namn: '', bolag: '', 
@@ -66,7 +76,7 @@ export default function ObjektPage() {
     cert: '', typ: 'slut', atgard: '', volym: '', areal: '', grot: false,
     maskiner: [] as string[], koordinatX: '', koordinatY: '',
     sortiment: [] as string[], anteckningar: '',
-    ar: 2026, manad: 1, ordning: 1, status: 'oplanerad'
+    ar: 2026, manad: 1, ordning: 1, status: 'planerad'
   });
 
   const [sparadeBolag, setSparadeBolag] = useState(['Vida', 'Södra', 'ATA', 'JGA', 'Rönås', 'Privat']);
@@ -95,15 +105,17 @@ export default function ObjektPage() {
     return () => clearTimeout(timer);
   }, [month, year]);
 
-  const planerade = objekt.filter(o => o.ar === year && o.manad === month + 1);
-  const oplanerade = objekt.filter(o => !o.ar || !o.manad);
+  // status='avslutat' döljs ur hela aktiva vyn — samma villkor som planeringsvyns
+  // ObjektValjare (oplanerade/planerade exkluderar avslutade; de hör hemma i avslut-vyn).
+  const planerade = objekt.filter(o => o.ar === year && o.manad === month + 1 && o.status !== 'avslutat');
+  const oplanerade = objekt.filter(o => (!o.ar || !o.manad) && o.status !== 'avslutat');
 
   const slutObj = planerade.filter(o => o.typ === 'slutavverkning');
   const gallObj = planerade.filter(o => o.typ === 'gallring');
   const slutTotal = slutObj.reduce((s, o) => s + (o.volym || 0), 0);
   const gallTotal = gallObj.reduce((s, o) => s + (o.volym || 0), 0);
-  const slutBest = bestallningar.filter(b => b.manad === month + 1 && b.typ === 'slutavverkning').reduce((s, b) => s + (b.volym || 0), 0);
-  const gallBest = bestallningar.filter(b => b.manad === month + 1 && b.typ === 'gallring').reduce((s, b) => s + (b.volym || 0), 0);
+  const slutBest = bestallningar.filter(b => b.typ === 'slutavverkning').reduce((s, b) => s + (Number(b.volym) || 0), 0);
+  const gallBest = bestallningar.filter(b => b.typ === 'gallring').reduce((s, b) => s + (Number(b.volym) || 0), 0);
 
   const bytManad = (dir: number) => {
     let m = month + dir, y = year;
@@ -141,36 +153,9 @@ export default function ObjektPage() {
         return;
       }
 
-      // Lägg till det importerade objektet i listan
-      const newObj = {
-        id: data.objekt.id || Date.now().toString(),
-        vo_nummer: data.objekt.vo_nummer || '',
-        traktnr: data.objekt.traktnr || '',
-        namn: data.objekt.namn || '',
-        bolag: data.objekt.bolag || '',
-        inkopare: data.objekt.inkopare || '',
-        inkopare_tel: data.objekt.inkopare_tel || '',
-        markagare: data.objekt.markagare || '',
-        markagare_tel: data.objekt.markagare_tel || '',
-        markagare_epost: data.objekt.markagare_epost || '',
-        cert: data.objekt.cert || '',
-        typ: data.objekt.typ || 'slutavverkning',
-        volym: data.objekt.volym || 0,
-        areal: data.objekt.areal || 0,
-        grot: data.objekt.grot || false,
-        lat: data.objekt.lat,
-        lng: data.objekt.lng,
-        ar: data.objekt.ar,
-        manad: data.objekt.manad,
-        status: data.objekt.status || 'oplanerad',
-        atgard: '',
-        maskiner: data.objekt.maskiner || [],
-        sortiment: data.objekt.sortiment || [],
-        anteckningar: data.objekt.anteckningar || '',
-        ordning: planerade.length + 1
-      };
-
-      setObjekt([...objekt, newObj]);
+      // Importen persisterar redan server-side (/api/import-trakt) → hämta om från
+      // DB så listan får den riktiga raden (rätt uuid), inte en optimistisk lokal-add.
+      await fetchData();
       setImportStatus('✓ Importerat!');
       setTimeout(() => setImportStatus(''), 2000);
 
@@ -197,34 +182,59 @@ export default function ObjektPage() {
       cert: '', typ, atgard: '', volym: '', areal: '', grot: false,
       maskiner: [], koordinatX: '', koordinatY: '',
       sortiment: [], anteckningar: '',
-      ar: year, manad: month + 1, ordning: planerade.length + 1, status: 'oplanerad'
+      ar: year, manad: month + 1, ordning: planerade.length + 1, status: 'planerad'
     });
   };
 
-  const saveObj = () => {
+  const saveObj = async () => {
     if (!form.namn || !form.bolag || !form.volym) {
       alert('Fyll i namn, bolag och volym');
       return;
     }
-    const newObj = {
-      id: editingId || Date.now().toString(),
-      vo_nummer: form.voNummer, traktnr: form.traktNr, namn: form.namn, bolag: form.bolag,
-      inkopare: form.inkopare, inkopare_tel: form.inkoparetel,
-      markagare: form.markagare, markagare_tel: form.markagaretel, markagare_epost: form.markagareepost,
-      cert: form.cert, typ: form.typ === 'slut' ? 'slutavverkning' : 'gallring',
-      atgard: form.atgard, volym: parseInt(form.volym),
-      areal: form.areal ? parseFloat(form.areal) : 0, grot: form.grot, status: form.status,
-      lat: form.koordinatX ? parseFloat(form.koordinatX) : null,
-      lng: form.koordinatY ? parseFloat(form.koordinatY) : null,
-      maskiner: form.maskiner, sortiment: form.sortiment, anteckningar: form.anteckningar,
+
+    // Koordinater: konvertera SWEREF99 TM → WGS84 (samma som import-routen).
+    // Vid redigering laddas lat/lng (WGS84, små tal) tillbaka i fälten → konvertera inte då.
+    let lat: number | null = null, lng: number | null = null;
+    const kx = parseFloat(form.koordinatX), ky = parseFloat(form.koordinatY);
+    if (Number.isFinite(kx) && Number.isFinite(ky)) {
+      if (Math.abs(kx) > 1000) {        // SWEREF99 TM (northing/easting)
+        const c = sweref99ToWgs84(kx, ky); lat = c.lat; lng = c.lng;
+      } else {                          // redan WGS84 (lat/lng)
+        lat = kx; lng = ky;
+      }
+    }
+
+    const rad = {
+      vo_nummer: form.voNummer || null, traktnr: form.traktNr || null,
+      namn: form.namn, bolag: form.bolag,
+      inkopare: form.inkopare || null, inkopare_tel: form.inkoparetel || null,
+      markagare: form.markagare || null, markagare_tel: form.markagaretel || null, markagare_epost: form.markagareepost || null,
+      cert: form.cert || null, typ: form.typ === 'slut' ? 'slutavverkning' : 'gallring',
+      atgard: form.atgard || null, volym: parseInt(form.volym),
+      areal: form.areal ? parseFloat(form.areal) : null, grot: form.grot,
+      // status utelämnas medvetet → DB-default 'planerad' vid insert, oförändrad vid
+      // update. Status styrs av planeringsvyn, inte detta formulär (objekt_status_check).
+      lat, lng,
+      maskiner: form.maskiner, sortiment: form.sortiment, anteckningar: form.anteckningar || null,
       ar: form.manad === 0 ? null : form.ar, manad: form.manad === 0 ? null : form.manad, ordning: form.ordning,
     };
-    if (editingId) setObjekt(objekt.map(o => o.id === editingId ? newObj : o));
-    else setObjekt([...objekt, newObj]);
+
+    // Skriv via inloggad session (lib/supabase) — authenticated-policyerna släpper igenom.
+    const { error } = editingId
+      ? await supabase.from('objekt').update(rad).eq('id', editingId)
+      : await supabase.from('objekt').insert(rad);
+
+    if (error) {
+      console.error('Spara misslyckades:', error);
+      alert('Kunde inte spara: ' + error.message);
+      return;
+    }
+
     setShowForm(false);
     setImportStatus('');
     setEditMode(null);
     setShowAdd(null);
+    fetchData();
   };
 
   const editObj = (obj: any) => {
@@ -515,6 +525,30 @@ export default function ObjektPage() {
           {importStatus || 'Importera traktdirektiv (.zip)'}
         </label>
       </div>
+
+      {/* Ej planerad — skyddsnät: periodlösa objekt (ar/manad = null) syns här i stället för att försvinna */}
+      {oplanerade.length > 0 && (
+        <div style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '4px 0 6px' }}>
+            Ej planerad ({oplanerade.length})
+          </div>
+          {oplanerade.map(obj => (
+            <div key={obj.id} onClick={() => editObj(obj)}
+              style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' }}>
+              <div style={{ width: '3px', height: '32px', borderRadius: '2px', background: obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e', opacity: (obj.lat && obj.lng) ? 0.8 : 0.15 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff', letterSpacing: '-0.2px' }}>{obj.namn}</div>
+                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '3px' }}>{obj.bolag}{obj.atgard && ` · ${obj.atgard}`}</div>
+              </div>
+              <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                <div style={{ fontSize: '18px', fontWeight: '600', color: 'rgba(255,255,255,0.9)', letterSpacing: '-0.5px' }}>{obj.volym}</div>
+                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)', marginTop: '1px' }}>m³</div>
+              </div>
+              <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: '16px' }}>›</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Månadsväljare */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 0 16px', gap: '24px' }}>

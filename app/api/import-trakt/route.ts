@@ -382,7 +382,7 @@ export async function POST(request: NextRequest) {
       ar,
       manad,
       ordning: 1,
-      status: 'oplanerad',
+      // status utelämnas → DB-default 'planerad' (objekt_status_check tillåter inte 'oplanerad')
       kalla: 'traktdirektiv'
     };
 
