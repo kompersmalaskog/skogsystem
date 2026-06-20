@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { TreePine, Trees } from 'lucide-react'
+import PageContainer from '@/components/PageContainer'
 
 const MANADER = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 const TYP = {
@@ -182,11 +183,10 @@ export default function Bestallningar() {
     <div style={{ minHeight: '100vh', background: '#000', color: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif', paddingBottom: 120 }}>
       <style>{`@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}@keyframes slideDown{from{transform:translateY(0)}to{transform:translateY(100%)}}`}</style>
 
-      {/* Centrerad mobil-kolumn — aldrig kant-till-kant på desktop */}
-      <div style={{ maxWidth: 480, margin: '0 auto' }}>
+      <PageContainer width="smal">
 
       {/* Månadsväljare (sidtiteln visas i toppbaren) */}
-      <div style={{ padding: '60px 20px 8px', textAlign: 'center' }}>
+      <div style={{ padding: '60px 0 8px', textAlign: 'center' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
           <button onClick={() => bytManad(-1)} style={navBtn}>‹</button>
           <div style={{ fontSize: 22, fontWeight: 700, minWidth: 170 }}>{MANADER[month].toLowerCase()} {year}</div>
@@ -197,7 +197,7 @@ export default function Bestallningar() {
       {loading ? (
         <div style={{ textAlign: 'center', padding: 60, color: 'rgba(255,255,255,0.4)' }}>Laddar…</div>
       ) : (
-        <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ padding: '12px 0', display: 'flex', flexDirection: 'column', gap: 12 }}>
           {(['slutavverkning', 'gallring'] as TypNyckel[]).map(typ => {
             const { rader, total } = perTyp(typ)
             const t = TYP[typ]
@@ -243,7 +243,7 @@ export default function Bestallningar() {
           <button onClick={oppnaNy} style={{ width: '100%', padding: 18, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 16, color: '#fff', fontSize: 17, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>+ Ny beställning</button>
         </div>
       )}
-      </div>
+      </PageContainer>
 
       {sheet && <div onClick={closeSheet} style={overlay} />}
 

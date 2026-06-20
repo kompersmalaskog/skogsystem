@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import PageContainer from '@/components/PageContainer';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -485,14 +486,15 @@ export default function ObjektPage() {
     <div style={{ minHeight: '100vh', background: '#000', fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif' }}>
       <style>{`@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }`}</style>
       
+      <PageContainer width="smal">
       {/* Header */}
-      <div style={{ padding: '20px 24px 12px' }}>
+      <div style={{ padding: '20px 0 12px' }}>
         <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.25)', fontWeight: '600', letterSpacing: '1.5px' }}>KOMPERSMÅLA SKOG</div>
         <div style={{ fontSize: '32px', fontWeight: '700', color: '#fff', marginTop: '4px', letterSpacing: '-1px' }}>Objekt</div>
       </div>
 
       {/* Import */}
-      <div style={{ padding: '0 24px 16px' }}>
+      <div style={{ padding: '0 0 16px' }}>
         <input
           type="file"
           id="zip-import"
@@ -515,14 +517,14 @@ export default function ObjektPage() {
       </div>
 
       {/* Månadsväljare */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 24px 16px', gap: '24px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 0 16px', gap: '24px' }}>
         <button onClick={() => bytManad(-1)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>‹</button>
         <span style={{ fontSize: '18px', fontWeight: '600', color: 'rgba(255,255,255,0.85)', letterSpacing: '-0.3px' }}>{MANADER[month]} {year}</span>
         <button onClick={() => bytManad(1)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>›</button>
       </div>
 
       {/* Cirkeldiagram */}
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '48px', padding: '16px 24px 32px' }}>
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '48px', padding: '16px 0 32px' }}>
         {[
           { typ: 'slut', label: 'Slutavverkning', total: slutTotal, best: slutBest, color: '#eab308' }, 
           { typ: 'gallring', label: 'Gallring', total: gallTotal, best: gallBest, color: '#22c55e' }
@@ -548,7 +550,7 @@ export default function ObjektPage() {
 
 
       {/* Objektlista */}
-      <div style={{ padding: '0 24px', maxWidth: '600px', margin: '0 auto' }}>
+      <div>
         {planerade.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 24px', color: 'rgba(255,255,255,0.2)' }}>
             Inga objekt för {MANADER[month]}
@@ -587,6 +589,7 @@ export default function ObjektPage() {
           ))
         )}
       </div>
+      </PageContainer>
 
       {/* Formulär */}
       {showForm && (
