@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { KontrollResponse, StockRow, StamRow } from "@/app/api/kalibrering/kontroll/route";
+import PageContainer from '@/components/PageContainer';
 
 // === TYPES (matching actual Supabase tables) ===
 interface FaktKalibrering {
@@ -1542,7 +1543,7 @@ export default function KalibreringPage() {
         .kalib-pill{height:38px;padding:0 18px;border-radius:999px;font-size:14px;font-weight:500;color:#8E8E93;background:transparent;border:none;cursor:pointer;font-family:inherit;transition:background 0.15s,color 0.15s}
         .kalib-pill.active{background:#fff;color:#000;font-weight:600}
 
-        .kalib-container{max-width:680px;margin:0 auto;padding:24px 20px 32px}
+        .kalib-container{padding:24px 0 32px}
 
         .kalib-page-header{margin:0 0 24px}
         .kalib-page-title{font-size:28px;font-weight:600;letter-spacing:-0.02em;line-height:1.15;margin:0 0 6px;color:#fff}
@@ -2001,7 +2002,7 @@ export default function KalibreringPage() {
         @media(max-width:480px){
           .kalib-page-title{font-size:28px}
           .kalib-hero-metric-value{font-size:32px}
-          .kalib-container{padding:20px 16px 32px}
+          .kalib-container{padding:20px 0 32px}
           .kalib-report-metrics{grid-template-columns:repeat(2,1fr)}
         }
       `}</style>
@@ -2024,6 +2025,7 @@ export default function KalibreringPage() {
           </div>
         )}
 
+        <PageContainer width="bred">
         <div className="kalib-container">
           {activeTab === 'today' && latestKalib && (
             <>
@@ -2844,6 +2846,7 @@ export default function KalibreringPage() {
             </>
           )}
         </div>
+        </PageContainer>
 
         {(() => {
           const top = modalStack[modalStack.length - 1];
