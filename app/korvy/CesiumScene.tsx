@@ -327,7 +327,10 @@ function zoneColorFor(zoneType: string | undefined): string {
 //   '1772898258170', '1772898638712',
 //   '1772445281097', '1777998752739', '1777304162620'
 // );
-const OUTLIER_LIMIT = 200
+// Matchar dokumentationen (>1000 units = felritad km bort). 200 klippte legitima
+// markeringar 200–1000 units från centrum (t.ex. avlägg vid traktkant). Samma fix
+// som app/planering/page.tsx.
+const OUTLIER_LIMIT = 1000
 function isOutlierPoint(p: { x: number; y: number }): boolean {
   return Math.abs(p.x) > OUTLIER_LIMIT || Math.abs(p.y) > OUTLIER_LIMIT
 }
