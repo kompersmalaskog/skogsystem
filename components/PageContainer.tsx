@@ -8,7 +8,7 @@ export type SidBredd = 'smal' | 'bred' | 'full'
 //   • iPad/dator (bredare än max) → kapas och centreras (bekväm läsbredd)
 // 'full' = ingen kolumn alls — vyn äger bredden själv (kartor/fullskärm).
 const MAXBREDD = {
-  smal: 560, // listor & formulär
+  smal: 480, // listor & formulär
   bred: 880, // dashboards, data, diagram
 } as const
 
