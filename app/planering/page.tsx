@@ -49,7 +49,11 @@ const LEGEND = {
 // koordinater >1000 SVG-units från objekt-centrum (typiskt ritade när
 // mapCenter stod på fel referens innan ett objekt valts → hamnar km bort).
 // Sammma logik som CesiumScene.tsx — verifierat-ID:n se kommentar där.
-const OUTLIER_LIMIT = 200;
+// Tröskeln matchar dokumentationen ovan (>1000 units = felritad km bort). Tidigare 200
+// klippte LEGITIMA markeringar 200–1000 units från centrum (t.ex. avlägg vid traktkant)
+// → de syntes inte i kartan/briefingen. roadCheck-status påverkar INTE detta (renderingen
+// bär bara marker.type, inte roadCheck).
+const OUTLIER_LIMIT = 1000;
 function isOutlierPoint(p: { x: number; y: number }): boolean {
   return Math.abs(p.x) > OUTLIER_LIMIT || Math.abs(p.y) > OUTLIER_LIMIT;
 }
