@@ -335,6 +335,10 @@ export default function TraktBriefing({
     }
     const extentKm = Math.max(maxLat - minLat, (maxLon - minLon) * Math.cos(centerLat * Math.PI / 180)) * 111;
     const overviewZoom = extentKm < 0.5 ? 17 : extentKm < 1 ? 16.5 : extentKm < 2 ? 16 : 15.5;
+    // TEMP DIAGNOS (6e-1): mät trakt-storlek + bbox så vi inte gissar zoom.
+    console.log('[Briefing DIAG] gränspolygoner:', boundaries.length, '| allPoints:', allPoints.length,
+      '| trakt-extent:', Math.round((maxLat - minLat) * 111320), 'm (höjd) ×', Math.round((maxLon - minLon) * 111320 * Math.cos(centerLat * Math.PI / 180)), 'm (bredd)',
+      '| extentKm:', extentKm.toFixed(2), '| overviewZoom-estimat:', overviewZoom);
 
     // 1. OVERVIEW — stilla helbild av trakten (fitBounds, ingen rörelse). STEG 6d-1.
     const ovPadLat = Math.max((maxLat - minLat) * 0.12, 0.0008);
@@ -469,6 +473,8 @@ export default function TraktBriefing({
     // bottom = start-panelens faktiska höjd (~210 px) + luft → trakten centreras i den
     // SYNLIGA ytan OVANFÖR panelen (inte i hela viewporten → toppen klipps inte).
     map.fitBounds(ov.bbox, { padding: { top: 90, left: 70, right: 70, bottom: 250 }, pitch: 0, bearing: 0, maxZoom: 15.5, duration: 1200, essential: true });
+    // TEMP DIAGNOS (6e-1): vilken zoom valde fitBounds? Träffar den maxZoom-taket (15.5)?
+    map.once('moveend', () => { try { console.log('[Briefing DIAG] vald zoom:', map.getZoom().toFixed(2), '(maxZoom-tak: 15.5)'); } catch {} });
   }, [steps.length, walkStarted, mode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Cleanup on unmount
