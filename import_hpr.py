@@ -12,6 +12,7 @@ import logging
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from collections import Counter, defaultdict
+from urllib.parse import quote
 
 try:
     import requests
@@ -166,6 +167,18 @@ def make_objekt_id(vo_nummer: str, maskin_id: str, obj_key: str) -> str:
         return vo_nummer.strip()
     return f"{maskin_id}_{obj_key}"
 
+
+def make_objekt_nyckel(maskin_id: str, vo_nummer: str, obj_key: str) -> Optional[str]:
+    """Stabil kompositnyckel per objekt för snapshot-dedup (oberoende av objekt-tabellen).
+    Format: '<maskin_id>:<numeriskt vo_nummer>'  annars  '<maskin_id>:k<ObjectKey>'.
+    Kompositen (maskin_id:) undviker krock mellan maskiner/objekt på korta vo-nummer."""
+    vo = (vo_nummer or '').strip()
+    ok = (obj_key or '').strip()
+    ident = vo if vo.isdigit() else (f"k{ok}" if ok else None)
+    if not maskin_id or ident is None:
+        return None
+    return f"{maskin_id}:{ident}"
+
 def parse_datetime(dt_str) -> Optional[datetime]:
     if not dt_str:
         return None
@@ -190,6 +203,7 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
         'filnamn': filnamn,
         'maskin_id': None,       # text maskin_id (t.ex. R64101)
         'vo_nummers': [],        # alla vo_nummer i filen
+        'objekt_nyckel': None,   # stabil dedup-nyckel (maskin_id:vo|kObjectKey), första objektet
         'fil_datum': None,       # äldsta stam-tidpunkt
         'stammar': [],           # lista av stammar
     }
@@ -217,6 +231,8 @@ def parse_hpr_for_import(filepath: str) -> Dict[str, Any]:
         obj_key_map[obj_key] = objekt_id
         if vo_nummer and vo_nummer.strip().isdigit():
             result['vo_nummers'].append(vo_nummer.strip())
+        if result['objekt_nyckel'] is None:   # första objektet bestämmer dedup-nyckeln
+            result['objekt_nyckel'] = make_objekt_nyckel(maskin_id, vo_nummer, obj_key)
 
     # Trädslag-karta
     species_names = {}
@@ -343,6 +359,24 @@ def fetch_objekt_uuid_map() -> Dict[str, str]:
     rows = resp.json()
     return {r['vo_nummer']: r['id'] for r in rows if r.get('vo_nummer')}
 
+
+def delete_existing_by_nyckel(objekt_nyckel: str) -> int:
+    """Ersätt-logik: radera hpr_filer + hpr_stammar för ALLA filer med samma objekt_nyckel
+    (stammar först pga FK). Körs oavsett objekt_id — stoppar snapshot-ackumulering även för
+    objekt som saknas i objekt-tabellen. Returnerar antal raderade filer."""
+    q = quote(str(objekt_nyckel), safe='')
+    resp = requests.get(f"{SUPABASE_URL}/rest/v1/hpr_filer?select=id&objekt_nyckel=eq.{q}",
+                        headers=HEADERS, timeout=30)
+    if resp.status_code != 200 or not resp.json():
+        return 0
+    fil_ids = [r['id'] for r in resp.json()]
+    for fid in fil_ids:
+        requests.delete(f"{SUPABASE_URL}/rest/v1/hpr_stammar?hpr_fil_id=eq.{fid}",
+                        headers=HEADERS, timeout=60)
+    requests.delete(f"{SUPABASE_URL}/rest/v1/hpr_filer?objekt_nyckel=eq.{q}",
+                    headers=HEADERS, timeout=30)
+    return len(fil_ids)
+
 def fetch_existing_filnamn() -> set:
     """Hämta redan importerade filnamn från hpr_filer."""
     url = f"{SUPABASE_URL}/rest/v1/hpr_filer?select=filnamn"
@@ -411,17 +445,22 @@ def upload_hpr(parsed: Dict[str, Any], objekt_map: Dict[str, str]) -> bool:
     if parsed['fil_datum']:
         fil_row['fil_datum'] = parsed['fil_datum'].isoformat()
 
-    # Matcha objekt_id via vo_nummer
+    # Matcha objekt_id (UUID-FK) via vo_nummer — för registrerade objekt. FRIKOPPLAT från dedupen.
     for vo in parsed['vo_nummers']:
         if vo in objekt_map:
             fil_row['objekt_id'] = objekt_map[vo]
             break
 
-    # Radera befintliga HPR-data för detta objekt (ny fil ersätter alltid)
-    if 'objekt_id' in fil_row:
-        deleted = delete_existing_for_objekt(fil_row['objekt_id'])
+    # DEDUP: ersätt per objekt_nyckel ALLTID (även utan objekt_id) — stoppar snapshot-
+    # ackumulering även för objekt som saknas i objekt-tabellen. Senaste/största ersätter.
+    objekt_nyckel = parsed.get('objekt_nyckel')
+    if objekt_nyckel:
+        fil_row['objekt_nyckel'] = objekt_nyckel
+        deleted = delete_existing_by_nyckel(objekt_nyckel)
         if deleted > 0:
-            logger.info(f"  Raderade {deleted} gamla HPR-filer för objekt")
+            logger.info(f"  Ersätter: raderade {deleted} tidigare snapshot(s) för objekt {objekt_nyckel}")
+    else:
+        logger.warning(f"  {filnamn}: ingen objekt_nyckel kunde härledas — hoppar dedup (kan ackumulera)")
 
     # maskin_id FK pekar på maskiner-tabellen som är tom — lämna null
 
