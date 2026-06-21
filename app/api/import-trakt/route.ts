@@ -53,23 +53,25 @@ export async function POST(request: NextRequest) {
 
     // Hitta PDF-filer. _TD.pdf = traktdirektiv (text extraheras härifrån + sparas som
     // dokument). Övrig pdf (om den finns) = stämplingslängd. Tolka INTE innehållet.
-    let pdfBuffer: ArrayBuffer | null = null;        // traktdirektivet
+    // Läs varje PDF-entry till en STABIL byte-snapshot EN gång — samma bytes återanvänds
+    // sedan av både textutläsningen och uppladdningen (se .slice() vid unpdf nedan).
+    let pdfBytes: Uint8Array | null = null;          // traktdirektivet
     let pdfFilename = '';
-    let stampPdfBuffer: ArrayBuffer | null = null;   // stämplingslängd (övrig pdf)
+    let stampPdfBytes: Uint8Array | null = null;     // stämplingslängd (övrig pdf)
     let stampPdfFilename = '';
     for (const [filename, entry] of Object.entries(zip.files)) {
       if (entry.dir || !filename.toLowerCase().endsWith('.pdf')) continue;
-      const buf = await entry.async('arraybuffer');
-      if (/_TD\.pdf$/i.test(filename)) { pdfBuffer = buf; pdfFilename = filename; }
-      else { stampPdfBuffer = buf; stampPdfFilename = filename; }
+      const bytes = new Uint8Array(await entry.async('arraybuffer'));
+      if (/_TD\.pdf$/i.test(filename)) { pdfBytes = bytes; pdfFilename = filename; }
+      else { stampPdfBytes = bytes; stampPdfFilename = filename; }
     }
     // Fallback: ingen _TD-fil men det finns en pdf → behandla den som traktdirektiv
-    if (!pdfBuffer && stampPdfBuffer) {
-      pdfBuffer = stampPdfBuffer; pdfFilename = stampPdfFilename;
-      stampPdfBuffer = null; stampPdfFilename = '';
+    if (!pdfBytes && stampPdfBytes) {
+      pdfBytes = stampPdfBytes; pdfFilename = stampPdfFilename;
+      stampPdfBytes = null; stampPdfFilename = '';
     }
 
-    if (!pdfBuffer) {
+    if (!pdfBytes) {
       return NextResponse.json({ error: 'Ingen PDF i ZIP' }, { status: 400 });
     }
 
@@ -81,7 +83,9 @@ export async function POST(request: NextRequest) {
     let text = '';
     try {
       const { extractText } = await import('unpdf');
-      const result = await extractText(new Uint8Array(pdfBuffer), { mergePages: true });
+      // unpdf/PDF.js DETACHAR bufferten den får → ge en engångskopia så att pdfBytes
+      // överlever till PDF-uppladdningen nedan (annars "detached ArrayBuffer" vid upload).
+      const result = await extractText(pdfBytes.slice(), { mergePages: true });
       text = result.text || '';
     } catch (e) {
       console.error('PDF extraction failed:', e);
@@ -367,16 +371,16 @@ export async function POST(request: NextRequest) {
     // namn/telefon/e-post → byt till signerade URL:er (privat bucket + createSignedUrl).
     let traktdirektiv_url: string | null = null;
     let stamplingslangd_url: string | null = null;
-    const laddaUppPdf = async (buf: ArrayBuffer | null, suffix: string): Promise<string | null> => {
-      if (!buf) return null;
+    const laddaUppPdf = async (bytes: Uint8Array | null, suffix: string): Promise<string | null> => {
+      if (!bytes) return null;
       const path = `${traktnr || Date.now()}_${suffix}.pdf`;
       const { error: pdfErr } = await supabase.storage.from('kartbilder')
-        .upload(path, new Uint8Array(buf), { contentType: 'application/pdf', upsert: true });
+        .upload(path, bytes, { contentType: 'application/pdf', upsert: true });
       if (pdfErr) { console.error(`PDF-uppladdning (${suffix}) misslyckades:`, pdfErr); return null; }
       return supabase.storage.from('kartbilder').getPublicUrl(path).data.publicUrl;
     };
-    traktdirektiv_url = await laddaUppPdf(pdfBuffer, 'traktdirektiv');           // _TD.pdf
-    stamplingslangd_url = await laddaUppPdf(stampPdfBuffer, 'stamplingslangd');  // övrig pdf
+    traktdirektiv_url = await laddaUppPdf(pdfBytes, 'traktdirektiv');           // _TD.pdf
+    stamplingslangd_url = await laddaUppPdf(stampPdfBytes, 'stamplingslangd');  // övrig pdf
 
     const bolag = 'Vida';
 
