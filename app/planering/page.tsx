@@ -2963,6 +2963,8 @@ export default function PlannerPage() {
               setMarkers((prev: any[]) => prev.map(m =>
                 m.id === newMarker.id ? { ...m, roadCheck: result } : m
               ));
+            }).catch(() => {
+              setMarkers((prev: any[]) => prev.map(m => m.id === newMarker.id ? { ...m, roadCheck: { status: 'error', tillstand: 'ej_sokt', message: 'Kunde inte hämta vägdata' } } : m));
             });
           }
 
@@ -6490,11 +6492,15 @@ export default function PlannerPage() {
 
   // Asynkron vägkontroll via Overpass API
   const checkRoadSafety = async (lat: number, lon: number): Promise<RoadCheckResult> => {
+    // Klient-timeout (12s): ett hängande Overpass-anrop lämnar annars löftet pending för
+    // evigt → roadCheck fastnar på 'loading'. Aborten fångas av catch → status 'error'.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
     try {
       // Hämta vägar + korsningsnoder inom 250m (max siktavstånd)
       const query = `[out:json][timeout:10];(way(around:50,${lat},${lon})["highway"];node(around:250,${lat},${lon})["highway"="crossing"];node(around:250,${lat},${lon})["railway"="level_crossing"];);out body geom;`;
       const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
@@ -6580,8 +6586,29 @@ export default function PlannerPage() {
       };
     } catch (err) {
       return { status: 'error', tillstand: 'ej_sokt', message: 'Kunde inte hämta vägdata' };
+    } finally {
+      clearTimeout(timeoutId);
     }
   };
+
+  // STEG: självläk avlägg vars roadCheck fastnat på 'loading' (sparade innan Overpass
+  // svarade, eller gammalt stuck-loading). Kör om checkRoadSafety EN gång per markör/
+  // session. Hoppar över FÄRSKA avlägg (<30s) — deras skapande-kontroll (med generellt-
+  // tillstånd-logik) sköter dem. checkRoadSafety har nu timeout → resolvar alltid.
+  const roadCheckHealRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    for (const m of markers) {
+      if (m.type === 'landing' && m.isMarker && (m as any).roadCheck?.status === 'loading' && !roadCheckHealRef.current.has(String(m.id))) {
+        const idNum = Number((m as any).id);  // markör-id = Date.now()-timestamp
+        if (!Number.isNaN(idNum) && (Date.now() - idNum) < 30000) continue; // färsk → skapande-checken sköter
+        roadCheckHealRef.current.add(String(m.id));
+        const { lat, lon } = svgToLatLon(m.x, m.y);
+        checkRoadSafety(lat, lon)
+          .then(result => setMarkers(prev => prev.map(x => x.id === m.id ? { ...x, roadCheck: result } : x)))
+          .catch(() => setMarkers(prev => prev.map(x => x.id === m.id ? { ...x, roadCheck: { status: 'error', tillstand: 'ej_sokt', message: 'Kunde inte hämta vägdata' } } : x)));
+      }
+    }
+  }, [markers]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Klassificera om väg kräver TMA skyddsklassad (proxy för ÅDT > 2000)
   const isTmaSkyddsklassad = (highway: string, maxspeed?: number): boolean => {
@@ -7781,6 +7808,8 @@ export default function PlannerPage() {
           setMarkers(prev => prev.map(m =>
             m.id === newMarker.id ? { ...m, roadCheck: result } : m
           ));
+        }).catch(() => {
+          setMarkers((prev: any[]) => prev.map(m => m.id === newMarker.id ? { ...m, roadCheck: { status: 'error', tillstand: 'ej_sokt', message: 'Kunde inte hämta vägdata' } } : m));
         });
       }
 
@@ -10761,6 +10790,8 @@ export default function PlannerPage() {
                         setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, roadCheck: { ...m.roadCheck!, status: 'loading' as const } } : m));
                         checkRoadSafety(lat, lon).then(result => {
                           setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, roadCheck: result } : m));
+                        }).catch(() => {
+                          setMarkers(prev => prev.map(m => m.id === marker.id ? { ...m, roadCheck: { status: 'error', tillstand: 'ej_sokt', message: 'Kunde inte hämta vägdata' } } : m));
                         });
                       }}
                       style={{ padding: '6px 14px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.1)', color: '#fff', fontSize: '13px', cursor: 'pointer' }}
