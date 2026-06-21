@@ -279,7 +279,7 @@ export default function ObjektPage() {
     setRattaSektion(null);
     setEditingId(obj.id);
     setImportStatus('');
-    setExpandedSection('planering');
+    setExpandedSection(''); // traktinfo-raderna kollapsade vid redigering — lugnt undanstoppat
     setEditMode(null);
     setShowAdd(null);
     setShowForm(true);
@@ -344,19 +344,20 @@ export default function ObjektPage() {
     return <>{displayValue}</>;
   };
 
-  const Section = ({ title, id, children }: { title: string; id: string; children: React.ReactNode }) => {
+  // Tunn hopfällbar rad för traktinfo — lugn lista, underordnad planeringen
+  const Rad = ({ title, id, children }: { title: string; id: string; children: React.ReactNode }) => {
     const isOpen = expandedSection === id;
     return (
-      <div style={{ marginBottom: '8px' }}>
+      <div style={{ borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <button onClick={() => setExpandedSection(isOpen ? '' : id)}
-          style={{ width: '100%', padding: '14px 16px', background: 'rgba(255,255,255,0.04)', border: 'none',
-            borderRadius: isOpen ? '12px 12px 0 0' : '12px', color: '#fff', fontSize: '14px', fontWeight: '600',
+          style={{ width: '100%', padding: '14px 2px', background: 'none', border: 'none',
+            color: isOpen ? '#fff' : 'rgba(255,255,255,0.8)', fontSize: '14px', fontWeight: '500',
             cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           {title}
-          <span style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', opacity: 0.3, fontSize: '12px' }}>▼</span>
+          <span style={{ transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', opacity: 0.3, fontSize: '11px' }}>▼</span>
         </button>
         {isOpen && (
-          <div style={{ padding: '16px', background: 'rgba(255,255,255,0.02)', borderRadius: '0 0 12px 12px' }}>{children}</div>
+          <div style={{ padding: '2px 2px 18px' }}>{children}</div>
         )}
       </div>
     );
@@ -667,19 +668,33 @@ export default function ObjektPage() {
               </div>
             )}
 
-            {/* Dokumentknappar — typfärg, bara om url finns, öppnar PDF i ny flik */}
-            {editingId && (dokUrls.td || dokUrls.sl) && (
-              <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
-                {dokUrls.td && (
-                  <a href={dokUrls.td} target="_blank" rel="noopener noreferrer"
-                    style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none', fontSize: '14px', fontWeight: 600, background: `${typFarg}1a`, border: `1px solid ${typFarg}55`, color: typFarg }}>Traktdirektiv</a>
-                )}
-                {dokUrls.sl && (
-                  <a href={dokUrls.sl} target="_blank" rel="noopener noreferrer"
-                    style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none', fontSize: '14px', fontWeight: 600, background: `${typFarg}1a`, border: `1px solid ${typFarg}55`, color: typFarg }}>Stämplingslängd</a>
-                )}
-              </div>
-            )}
+            {/* Dokumentknappar — kompakta typfärgade pillar (ikon + text), bara om url finns */}
+            {editingId && (dokUrls.td || dokUrls.sl) && (() => {
+              const dokFarg = form.typ === 'slut' ? '#BA7515' : '#3f9457'; // dämpade typtoner (matchande dämpning)
+              const ikonStil = { width: '14px', height: '14px', flexShrink: 0 } as React.CSSProperties;
+              const pill = (url: string, etikett: string, ikon: React.ReactNode) => (
+                <a href={url} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '9px 12px', borderRadius: '9px',
+                    textDecoration: 'none', fontSize: '13px', fontWeight: 500, lineHeight: 1,
+                    background: `${dokFarg}18`, border: `1px solid ${dokFarg}40`, color: dokFarg }}>{ikon}{etikett}</a>
+              );
+              const fileTextIcon = (
+                <svg style={ikonStil} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /><line x1="10" y1="9" x2="8" y2="9" />
+                </svg>
+              );
+              const clipboardIcon = (
+                <svg style={ikonStil} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="8" y="2" width="8" height="4" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4" /><path d="M12 16h4" /><path d="M8 11h.01" /><path d="M8 16h.01" />
+                </svg>
+              );
+              return (
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+                  {dokUrls.td && pill(dokUrls.td, 'Traktdirektiv', fileTextIcon)}
+                  {dokUrls.sl && pill(dokUrls.sl, 'Stämplingslängd', clipboardIcon)}
+                </div>
+              );
+            })()}
 
             {importStatus && (
               <div style={{ textAlign: 'center', padding: '10px', marginBottom: '16px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
@@ -687,8 +702,9 @@ export default function ObjektPage() {
               </div>
             )}
 
-            {/* PLANERING (redigeras) — bara månad + år; maskiner/körordning hör till planeringsvyn */}
-            <Section title="Planering" id="planering">
+            {/* PLANERING — alltid framme (det användaren faktiskt redigerar) */}
+            <div style={{ marginBottom: '24px' }}>
+              <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.45)', fontWeight: '700', letterSpacing: '1px', marginBottom: '12px' }}>PLANERING</div>
               <div style={{ display: 'flex', gap: '12px' }}>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>MÅNAD</label>
@@ -706,16 +722,13 @@ export default function ObjektPage() {
                   </select>
                 </div>
               </div>
-            </Section>
+            </div>
 
-            {/* ANTECKNINGAR (redigeras — användarens egna noteringar) */}
-            <Section title="Anteckningar" id="anteckningar">
-              <textarea value={form.anteckningar} onChange={e => setForm({ ...form, anteckningar: e.target.value })} rows={3}
-                style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff', resize: 'vertical', boxSizing: 'border-box' }} />
-            </Section>
+            {/* TRAKTINFO FRÅN VIDA — lugn lista, underordnad planeringen */}
+            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontWeight: '700', letterSpacing: '1px', margin: '4px 0 2px' }}>TRAKTINFO FRÅN VIDA</div>
 
-            {/* TRAKTINFO · GRUNDDATA (läs; "Rätta" för sällsynt korrigering) */}
-            <Section title="Grunddata" id="grund">
+            {/* GRUNDDATA (läs; "Rätta" för sällsynt korrigering) */}
+            <Rad title="Grunddata" id="grund">
               {(!editingId || rattaSektion === 'grund') ? (
                 <>
                   <div style={{ display: 'flex', gap: '12px' }}>
@@ -755,10 +768,10 @@ export default function ObjektPage() {
                   <button onClick={() => setRattaSektion('grund')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: '2px 0' }}>Rätta</button>
                 </>
               )}
-            </Section>
+            </Rad>
 
-            {/* TRAKTINFO · KONTAKT (läs, typfärg; tel = ring-länk) */}
-            <Section title="Kontakt" id="kontakt">
+            {/* KONTAKT (läs, typfärg; tel = ring-länk) */}
+            <Rad title="Kontakt" id="kontakt">
               {(!editingId || rattaSektion === 'kontakt') ? (
                 <>
                   <InputField label="MARKÄGARE" value={form.markagare} onChange={(e: any) => setForm({ ...form, markagare: e.target.value })} />
@@ -790,10 +803,10 @@ export default function ObjektPage() {
                   <button onClick={() => setRattaSektion('kontakt')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: '2px 0' }}>Rätta</button>
                 </>
               )}
-            </Section>
+            </Rad>
 
-            {/* TRAKTINFO · KARTA (läs; Vägbeskrivning till koordinaten) */}
-            <Section title="Karta" id="karta">
+            {/* KARTA (läs; Vägbeskrivning till koordinaten) */}
+            <Rad title="Karta" id="karta">
               {(!editingId || rattaSektion === 'karta') ? (
                 <>
                   <div style={{ marginBottom: '16px' }}>
@@ -816,7 +829,13 @@ export default function ObjektPage() {
                   <button onClick={() => setRattaSektion('karta')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: '2px 0' }}>Rätta</button>
                 </>
               )}
-            </Section>
+            </Rad>
+
+            {/* ANTECKNINGAR (redigeras — egna noteringar; Vida-anteckningar landar också här) */}
+            <Rad title="Anteckningar" id="anteckningar">
+              <textarea value={form.anteckningar} onChange={e => setForm({ ...form, anteckningar: e.target.value })} rows={3}
+                style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff', resize: 'vertical', boxSizing: 'border-box' }} />
+            </Rad>
 
             {/* Knappar */}
             <div style={{ marginTop: '20px' }}>
