@@ -6492,15 +6492,14 @@ export default function PlannerPage() {
 
   // Asynkron vägkontroll via Overpass API
   const checkRoadSafety = async (lat: number, lon: number): Promise<RoadCheckResult> => {
-    // Klient-timeout (12s): ett hängande Overpass-anrop lämnar annars löftet pending för
-    // evigt → roadCheck fastnar på 'loading'. Aborten fångas av catch → status 'error'.
+    // Klient-timeout 30s — täcker proxyns fallback över flera Overpass-instanser. Aborten
+    // fångas av catch → status 'error' (löftet kan aldrig fastna pending → ingen 'loading').
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
     try {
-      // Hämta vägar + korsningsnoder inom 250m (max siktavstånd)
-      const query = `[out:json][timeout:10];(way(around:50,${lat},${lon})["highway"];node(around:250,${lat},${lon})["highway"="crossing"];node(around:250,${lat},${lon})["railway"="level_crossing"];);out body geom;`;
-      const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-      const response = await fetch(url, { signal: controller.signal });
+      // Vägkontroll via egen proxy (/api/roadcheck): löser CORS + fallback-instanser +
+      // server-side cache. Returnerar rå Overpass-JSON ({ elements }) — parsningen nedan oförändrad.
+      const response = await fetch(`/api/roadcheck?lat=${lat}&lon=${lon}`, { signal: controller.signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
 
