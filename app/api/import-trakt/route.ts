@@ -361,8 +361,10 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // === DOKUMENT (PDF:er) — spara filerna i 'kartbilder'-bucketen (publik, samma
-    // mönster som kartbild_url). Tolka INTE innehållet; format varierar mellan leverantörer.
+    // === DOKUMENT (PDF:er) — spara filerna i 'kartbilder'-bucketen (samma mönster som
+    // kartbild_url). Tolka INTE innehållet; format varierar mellan leverantörer.
+    // MÅSTE-FIX FÖRE LAUNCH: bucketen är PUBLIK och PDF:erna innehåller markägares
+    // namn/telefon/e-post → byt till signerade URL:er (privat bucket + createSignedUrl).
     let traktdirektiv_url: string | null = null;
     let stamplingslangd_url: string | null = null;
     const laddaUppPdf = async (buf: ArrayBuffer | null, suffix: string): Promise<string | null> => {

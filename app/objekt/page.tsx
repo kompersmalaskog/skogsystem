@@ -240,8 +240,9 @@ export default function ObjektPage() {
       // status utelämnas medvetet → DB-default 'planerad' vid insert, oförändrad vid
       // update. Status styrs av planeringsvyn, inte detta formulär (objekt_status_check).
       lat, lng,
-      maskiner: form.maskiner, sortiment: form.sortiment, anteckningar: form.anteckningar || null,
-      ar: form.manad === 0 ? null : form.ar, manad: form.manad === 0 ? null : form.manad, ordning: form.ordning,
+      sortiment: form.sortiment, anteckningar: form.anteckningar || null,
+      // maskiner + ordning skrivs INTE härifrån — de ägs av planeringsvyn (strikt separation).
+      ar: form.manad === 0 ? null : form.ar, manad: form.manad === 0 ? null : form.manad,
     };
 
     // Skriv via inloggad session (lib/supabase) — authenticated-policyerna släpper igenom.
