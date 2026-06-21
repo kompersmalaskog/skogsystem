@@ -51,15 +51,22 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const zip = await JSZip.loadAsync(arrayBuffer);
 
-    // Hitta PDF-filen
-    let pdfBuffer: ArrayBuffer | null = null;
+    // Hitta PDF-filer. _TD.pdf = traktdirektiv (text extraheras härifrån + sparas som
+    // dokument). Övrig pdf (om den finns) = stämplingslängd. Tolka INTE innehållet.
+    let pdfBuffer: ArrayBuffer | null = null;        // traktdirektivet
     let pdfFilename = '';
+    let stampPdfBuffer: ArrayBuffer | null = null;   // stämplingslängd (övrig pdf)
+    let stampPdfFilename = '';
     for (const [filename, entry] of Object.entries(zip.files)) {
-      if (filename.endsWith('.pdf') && !entry.dir) {
-        pdfBuffer = await entry.async('arraybuffer');
-        pdfFilename = filename;
-        break;
-      }
+      if (entry.dir || !filename.toLowerCase().endsWith('.pdf')) continue;
+      const buf = await entry.async('arraybuffer');
+      if (/_TD\.pdf$/i.test(filename)) { pdfBuffer = buf; pdfFilename = filename; }
+      else { stampPdfBuffer = buf; stampPdfFilename = filename; }
+    }
+    // Fallback: ingen _TD-fil men det finns en pdf → behandla den som traktdirektiv
+    if (!pdfBuffer && stampPdfBuffer) {
+      pdfBuffer = stampPdfBuffer; pdfFilename = stampPdfFilename;
+      stampPdfBuffer = null; stampPdfFilename = '';
     }
 
     if (!pdfBuffer) {
@@ -354,6 +361,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // === DOKUMENT (PDF:er) — spara filerna i 'kartbilder'-bucketen (publik, samma
+    // mönster som kartbild_url). Tolka INTE innehållet; format varierar mellan leverantörer.
+    let traktdirektiv_url: string | null = null;
+    let stamplingslangd_url: string | null = null;
+    const laddaUppPdf = async (buf: ArrayBuffer | null, suffix: string): Promise<string | null> => {
+      if (!buf) return null;
+      const path = `${traktnr || Date.now()}_${suffix}.pdf`;
+      const { error: pdfErr } = await supabase.storage.from('kartbilder')
+        .upload(path, new Uint8Array(buf), { contentType: 'application/pdf', upsert: true });
+      if (pdfErr) { console.error(`PDF-uppladdning (${suffix}) misslyckades:`, pdfErr); return null; }
+      return supabase.storage.from('kartbilder').getPublicUrl(path).data.publicUrl;
+    };
+    traktdirektiv_url = await laddaUppPdf(pdfBuffer, 'traktdirektiv');           // _TD.pdf
+    stamplingslangd_url = await laddaUppPdf(stampPdfBuffer, 'stamplingslangd');  // övrig pdf
+
     const bolag = 'Vida';
 
     // Skapa data-objekt
@@ -379,6 +401,8 @@ export async function POST(request: NextRequest) {
       anteckningar: anteckningar || null,
       kartbild_url,
       kartbild_bounds,
+      traktdirektiv_url,
+      stamplingslangd_url,
       ar,
       manad,
       ordning: 1,

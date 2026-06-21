@@ -14511,6 +14511,27 @@ export default function PlannerPage() {
                   )}
                 </div>
 
+                {/* DOKUMENT (plats B) — traktdirektiv + stämplingslängd, syns bara om url finns */}
+                {(valtObjekt?.traktdirektiv_url || valtObjekt?.stamplingslangd_url) && (() => {
+                  const docFarg = valtObjekt?.typ === 'slutavverkning' ? '#eab308' : '#22c55e';
+                  const dokKnapp = (url: string, etikett: string) => (
+                    <a href={url} target="_blank" rel="noopener noreferrer"
+                      style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none',
+                        fontSize: '13px', fontWeight: 600, background: `${docFarg}1a`, border: `1px solid ${docFarg}55`, color: docFarg }}>
+                      {etikett}
+                    </a>
+                  );
+                  return (
+                    <div style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '16px', padding: '16px', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '13px', opacity: 0.4, marginBottom: '12px' }}>Dokument</div>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        {valtObjekt?.traktdirektiv_url && dokKnapp(valtObjekt.traktdirektiv_url, 'Traktdirektiv')}
+                        {valtObjekt?.stamplingslangd_url && dokKnapp(valtObjekt.stamplingslangd_url, 'Stämplingslängd')}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* ANTECKNINGAR */}
                 <div style={{
                   background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.08)',

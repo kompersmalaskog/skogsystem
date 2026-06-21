@@ -21,6 +21,16 @@ const cap = (s: string) => (s || '').split(' ').map(w =>
   (w.length <= 3 && w === w.toUpperCase()) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
 ).join(' ');
 
+// Läs-rad för traktfakta (lugn text, ej input)
+function Las({ label, value, color }: { label: string; value?: string | number | null; color?: string }) {
+  return (
+    <div style={{ marginBottom: '14px' }}>
+      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontWeight: 600, letterSpacing: '0.5px', marginBottom: '4px' }}>{label}</div>
+      <div style={{ fontSize: '15px', color: color || '#fff' }}>{(value === '' || value == null) ? '—' : value}</div>
+    </div>
+  );
+}
+
 // Demo-data
 const DEMO_IMPORT = {
   voNummer: '11080935', traktNr: '883907', namn: 'Lönsbygd AU 2025', bolag: 'Vida',
@@ -87,6 +97,10 @@ export default function ObjektPage() {
     ar: 2026, manad: 1, ordning: 1, status: 'planerad'
   });
 
+  // Rätta-läge per traktinfo-sektion (null = läs), och dokument-URL:er för knapparna
+  const [rattaSektion, setRattaSektion] = useState<string | null>(null);
+  const [dokUrls, setDokUrls] = useState<{ td: string | null; sl: string | null }>({ td: null, sl: null });
+
   const [sparadeBolag, setSparadeBolag] = useState(['Vida', 'Södra', 'ATA', 'JGA', 'Rönås', 'Privat']);
   const [sparadeMaskiner, setSparadeMaskiner] = useState(['PONSSE Scorpion Giant 8W', 'Wisent 2015', 'Elephant King AF', 'Rottne']);
   const [sparadeAtgarder, setSparadeAtgarder] = useState<Record<string, string[]>>({ 
@@ -117,6 +131,7 @@ export default function ObjektPage() {
   // ObjektValjare (oplanerade/planerade exkluderar avslutade; de hör hemma i avslut-vyn).
   const planerade = objekt.filter(o => o.ar === year && o.manad === month + 1 && o.status !== 'avslutat');
   const oplanerade = objekt.filter(o => (!o.ar || !o.manad) && o.status !== 'avslutat');
+  const typFarg = form.typ === 'slut' ? '#eab308' : '#22c55e';
 
   const slutObj = planerade.filter(o => o.typ === 'slutavverkning');
   const gallObj = planerade.filter(o => o.typ === 'gallring');
@@ -192,6 +207,8 @@ export default function ObjektPage() {
       sortiment: [], anteckningar: '',
       ar: year, manad: month + 1, ordning: planerade.length + 1, status: 'planerad'
     });
+    setDokUrls({ td: null, sl: null });
+    setRattaSektion(null);
   };
 
   const saveObj = async () => {
@@ -257,6 +274,8 @@ export default function ObjektPage() {
       sortiment: obj.sortiment || [], anteckningar: obj.anteckningar || '',
       ar: obj.ar || year, manad: obj.manad || 0, ordning: obj.ordning || 1, status: obj.status || 'planerad'
     });
+    setDokUrls({ td: obj.traktdirektiv_url || null, sl: obj.stamplingslangd_url || null });
+    setRattaSektion(null);
     setEditingId(obj.id);
     setImportStatus('');
     setExpandedSection('planering');
@@ -647,15 +666,29 @@ export default function ObjektPage() {
               </div>
             )}
 
+            {/* Dokumentknappar — typfärg, bara om url finns, öppnar PDF i ny flik */}
+            {editingId && (dokUrls.td || dokUrls.sl) && (
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+                {dokUrls.td && (
+                  <a href={dokUrls.td} target="_blank" rel="noopener noreferrer"
+                    style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none', fontSize: '14px', fontWeight: 600, background: `${typFarg}1a`, border: `1px solid ${typFarg}55`, color: typFarg }}>Traktdirektiv</a>
+                )}
+                {dokUrls.sl && (
+                  <a href={dokUrls.sl} target="_blank" rel="noopener noreferrer"
+                    style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none', fontSize: '14px', fontWeight: 600, background: `${typFarg}1a`, border: `1px solid ${typFarg}55`, color: typFarg }}>Stämplingslängd</a>
+                )}
+              </div>
+            )}
+
             {importStatus && (
               <div style={{ textAlign: 'center', padding: '10px', marginBottom: '16px', background: 'rgba(255,255,255,0.04)', borderRadius: '8px', color: 'rgba(255,255,255,0.5)', fontSize: '13px' }}>
                 {importStatus}
               </div>
             )}
 
-            {/* PLANERING */}
+            {/* PLANERING (redigeras) — bara månad + år; maskiner/körordning hör till planeringsvyn */}
             <Section title="Planering" id="planering">
-              <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', gap: '12px' }}>
                 <div style={{ flex: 1 }}>
                   <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '8px', fontWeight: '600', letterSpacing: '0.5px' }}>MÅNAD</label>
                   <select value={form.manad} onChange={e => setForm({ ...form, manad: parseInt(e.target.value) })}
@@ -672,67 +705,116 @@ export default function ObjektPage() {
                   </select>
                 </div>
               </div>
-
-              <ChipSelect items={sparadeMaskiner} selected={form.maskiner} 
-                onSelect={(v: string[]) => setForm({ ...form, maskiner: v })} 
-                label="MASKINER" editKey="maskin" onAdd={addMaskin} onRemove={removeMaskin} multi />
-
-              <InputField label="KÖRORDNING" value={form.ordning} onChange={(e: any) => setForm({ ...form, ordning: parseInt(e.target.value) || 1 })} type="number" />
             </Section>
 
-            {/* GRUNDINFO */}
-            <Section title="Grundinfo" id="grund">
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ flex: 1 }}><InputField label="VO-NUMMER" value={form.voNummer} onChange={(e: any) => setForm({ ...form, voNummer: e.target.value })} /></div>
-                <div style={{ flex: 1 }}><InputField label="TRAKTNR" value={form.traktNr} onChange={(e: any) => setForm({ ...form, traktNr: e.target.value })} /></div>
-              </div>
-              <InputField label="NAMN" value={form.namn} onChange={(e: any) => setForm({ ...form, namn: e.target.value })} />
-              <ChipSelect items={sparadeBolag} selected={form.bolag} onSelect={(v: string) => setForm({ ...form, bolag: v })} label="BOLAG" editKey="bolag" onAdd={addBolag} onRemove={removeBolag} />
-              <ChipSelect items={sparadeCert} selected={form.cert} onSelect={(v: string) => setForm({ ...form, cert: v })} label="CERTIFIERING" editKey="cert" onAdd={addCert} onRemove={removeCert} />
-              <ChipSelect items={sparadeAtgarder[form.typ] || []} selected={form.atgard} onSelect={(v: string) => setForm({ ...form, atgard: v })} label="ÅTGÄRD" editKey="atgard" onAdd={addAtgard} onRemove={removeAtgard} />
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ flex: 1 }}><InputField label="VOLYM M³" value={form.volym} onChange={(e: any) => setForm({ ...form, volym: e.target.value })} type="number" /></div>
-                <div style={{ flex: 1 }}><InputField label="AREAL HA" value={form.areal} onChange={(e: any) => setForm({ ...form, areal: e.target.value })} /></div>
-              </div>
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '10px', fontWeight: '600', letterSpacing: '0.5px' }}>GROT</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <button onClick={() => setForm({ ...form, grot: true })} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: form.grot ? '#22c55e' : 'rgba(255,255,255,0.06)', color: form.grot ? '#fff' : 'rgba(255,255,255,0.4)', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>Ja</button>
-                  <button onClick={() => setForm({ ...form, grot: false })} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: !form.grot ? '#ef4444' : 'rgba(255,255,255,0.06)', color: !form.grot ? '#fff' : 'rgba(255,255,255,0.4)', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>Nej</button>
-                </div>
-              </div>
+            {/* ANTECKNINGAR (redigeras — användarens egna noteringar) */}
+            <Section title="Anteckningar" id="anteckningar">
+              <textarea value={form.anteckningar} onChange={e => setForm({ ...form, anteckningar: e.target.value })} rows={3}
+                style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff', resize: 'vertical', boxSizing: 'border-box' }} />
             </Section>
 
-            {/* KONTAKT */}
+            {/* TRAKTINFO · GRUNDDATA (läs; "Rätta" för sällsynt korrigering) */}
+            <Section title="Grunddata" id="grund">
+              {(!editingId || rattaSektion === 'grund') ? (
+                <>
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <div style={{ flex: 1 }}><InputField label="VO-NUMMER" value={form.voNummer} onChange={(e: any) => setForm({ ...form, voNummer: e.target.value })} /></div>
+                    <div style={{ flex: 1 }}><InputField label="TRAKTNR" value={form.traktNr} onChange={(e: any) => setForm({ ...form, traktNr: e.target.value })} /></div>
+                  </div>
+                  <InputField label="NAMN" value={form.namn} onChange={(e: any) => setForm({ ...form, namn: e.target.value })} />
+                  <ChipSelect items={sparadeBolag} selected={form.bolag} onSelect={(v: string) => setForm({ ...form, bolag: v })} label="BOLAG" editKey="bolag" onAdd={addBolag} onRemove={removeBolag} />
+                  <ChipSelect items={sparadeCert} selected={form.cert} onSelect={(v: string) => setForm({ ...form, cert: v })} label="CERTIFIERING" editKey="cert" onAdd={addCert} onRemove={removeCert} />
+                  <ChipSelect items={sparadeAtgarder[form.typ] || []} selected={form.atgard} onSelect={(v: string) => setForm({ ...form, atgard: v })} label="ÅTGÄRD" editKey="atgard" onAdd={addAtgard} onRemove={removeAtgard} />
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <div style={{ flex: 1 }}><InputField label="VOLYM M³" value={form.volym} onChange={(e: any) => setForm({ ...form, volym: e.target.value })} type="number" /></div>
+                    <div style={{ flex: 1 }}><InputField label="AREAL HA" value={form.areal} onChange={(e: any) => setForm({ ...form, areal: e.target.value })} /></div>
+                  </div>
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '10px', fontWeight: '600', letterSpacing: '0.5px' }}>GROT</label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button onClick={() => setForm({ ...form, grot: true })} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: form.grot ? '#22c55e' : 'rgba(255,255,255,0.06)', color: form.grot ? '#fff' : 'rgba(255,255,255,0.4)', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>Ja</button>
+                      <button onClick={() => setForm({ ...form, grot: false })} style={{ padding: '10px 20px', borderRadius: '10px', border: 'none', background: !form.grot ? '#ef4444' : 'rgba(255,255,255,0.06)', color: !form.grot ? '#fff' : 'rgba(255,255,255,0.4)', fontSize: '14px', fontWeight: '500', cursor: 'pointer' }}>Nej</button>
+                    </div>
+                  </div>
+                  <SortimentSelector selected={form.sortiment} onToggle={toggleSortiment} />
+                  {editingId && <button onClick={() => setRattaSektion(null)} style={{ background: 'none', border: 'none', color: typFarg, fontSize: '13px', fontWeight: '600', cursor: 'pointer', padding: '6px 0' }}>Klar</button>}
+                </>
+              ) : (
+                <>
+                  <Las label="VO-NUMMER" value={form.voNummer} />
+                  <Las label="TRAKTNR" value={form.traktNr} />
+                  <Las label="NAMN" value={form.namn} />
+                  <Las label="BOLAG" value={cap(form.bolag)} />
+                  <Las label="CERTIFIERING" value={form.cert} />
+                  <Las label="ÅTGÄRD" value={form.atgard} />
+                  <Las label="VOLYM" value={form.volym ? `${form.volym} m³fub` : ''} />
+                  <Las label="AREAL" value={form.areal ? `${form.areal} ha` : ''} />
+                  <Las label="GROT" value={form.grot ? 'Ja' : 'Nej'} />
+                  <Las label="SORTIMENT" value={form.sortiment.join(', ')} />
+                  <button onClick={() => setRattaSektion('grund')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: '2px 0' }}>Rätta</button>
+                </>
+              )}
+            </Section>
+
+            {/* TRAKTINFO · KONTAKT (läs, typfärg; tel = ring-länk) */}
             <Section title="Kontakt" id="kontakt">
-              <InputField label="MARKÄGARE" value={form.markagare} onChange={(e: any) => setForm({ ...form, markagare: e.target.value })} />
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ flex: 1 }}><InputField label="TELEFON" value={form.markagaretel} onChange={(e: any) => setForm({ ...form, markagaretel: e.target.value })} /></div>
-                <div style={{ flex: 1 }}><InputField label="E-POST" value={form.markagareepost} onChange={(e: any) => setForm({ ...form, markagareepost: e.target.value })} /></div>
-              </div>
-              <InputField label="INKÖPARE" value={form.inkopare} onChange={(e: any) => setForm({ ...form, inkopare: e.target.value })} />
-              <InputField label="INKÖPARE TELEFON" value={form.inkoparetel} onChange={(e: any) => setForm({ ...form, inkoparetel: e.target.value })} />
+              {(!editingId || rattaSektion === 'kontakt') ? (
+                <>
+                  <InputField label="MARKÄGARE" value={form.markagare} onChange={(e: any) => setForm({ ...form, markagare: e.target.value })} />
+                  <div style={{ display: 'flex', gap: '12px' }}>
+                    <div style={{ flex: 1 }}><InputField label="TELEFON" value={form.markagaretel} onChange={(e: any) => setForm({ ...form, markagaretel: e.target.value })} /></div>
+                    <div style={{ flex: 1 }}><InputField label="E-POST" value={form.markagareepost} onChange={(e: any) => setForm({ ...form, markagareepost: e.target.value })} /></div>
+                  </div>
+                  <InputField label="INKÖPARE" value={form.inkopare} onChange={(e: any) => setForm({ ...form, inkopare: e.target.value })} />
+                  <InputField label="INKÖPARE TELEFON" value={form.inkoparetel} onChange={(e: any) => setForm({ ...form, inkoparetel: e.target.value })} />
+                  {editingId && <button onClick={() => setRattaSektion(null)} style={{ background: 'none', border: 'none', color: typFarg, fontSize: '13px', fontWeight: '600', cursor: 'pointer', padding: '6px 0' }}>Klar</button>}
+                </>
+              ) : (
+                <>
+                  <Las label="MARKÄGARE" value={cap(form.markagare)} color={typFarg} />
+                  {form.markagaretel && (
+                    <div style={{ marginBottom: '14px' }}>
+                      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontWeight: 600, letterSpacing: '0.5px', marginBottom: '4px' }}>TELEFON</div>
+                      <a href={`tel:${form.markagaretel.replace(/\s/g, '')}`} style={{ fontSize: '15px', color: typFarg, textDecoration: 'none', fontWeight: 600 }}>{form.markagaretel}</a>
+                    </div>
+                  )}
+                  {form.markagareepost && <Las label="E-POST" value={form.markagareepost} />}
+                  <Las label="INKÖPARE" value={form.inkopare} color={typFarg} />
+                  {form.inkoparetel && (
+                    <div style={{ marginBottom: '14px' }}>
+                      <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', fontWeight: 600, letterSpacing: '0.5px', marginBottom: '4px' }}>INKÖPARE TELEFON</div>
+                      <a href={`tel:${form.inkoparetel.replace(/\s/g, '')}`} style={{ fontSize: '15px', color: typFarg, textDecoration: 'none', fontWeight: 600 }}>{form.inkoparetel}</a>
+                    </div>
+                  )}
+                  <button onClick={() => setRattaSektion('kontakt')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: '2px 0' }}>Rätta</button>
+                </>
+              )}
             </Section>
 
-            {/* SORTIMENT */}
-            <Section title="Sortiment" id="virke">
-              <SortimentSelector selected={form.sortiment} onToggle={toggleSortiment} />
-            </Section>
-
-            {/* ÖVRIGT */}
-            <Section title="Övrigt" id="ovrigt">
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '10px', fontWeight: '600', letterSpacing: '0.5px' }}>KOORDINATER</label>
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  <input value={form.koordinatX} onChange={e => setForm({ ...form, koordinatX: e.target.value })} placeholder="N" style={{ flex: 1, padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff' }} />
-                  <input value={form.koordinatY} onChange={e => setForm({ ...form, koordinatY: e.target.value })} placeholder="E" style={{ flex: 1, padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff' }} />
-                </div>
-              </div>
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '10px', fontWeight: '600', letterSpacing: '0.5px' }}>ANTECKNINGAR</label>
-                <textarea value={form.anteckningar} onChange={e => setForm({ ...form, anteckningar: e.target.value })} rows={3}
-                  style={{ width: '100%', padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff', resize: 'vertical', boxSizing: 'border-box' }} />
-              </div>
+            {/* TRAKTINFO · KARTA (läs; Vägbeskrivning till koordinaten) */}
+            <Section title="Karta" id="karta">
+              {(!editingId || rattaSektion === 'karta') ? (
+                <>
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '11px', color: 'rgba(255,255,255,0.35)', display: 'block', marginBottom: '10px', fontWeight: '600', letterSpacing: '0.5px' }}>KOORDINATER (N / E)</label>
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <input value={form.koordinatX} onChange={e => setForm({ ...form, koordinatX: e.target.value })} placeholder="N" style={{ flex: 1, padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff' }} />
+                      <input value={form.koordinatY} onChange={e => setForm({ ...form, koordinatY: e.target.value })} placeholder="E" style={{ flex: 1, padding: '12px 14px', background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: '10px', fontSize: '14px', color: '#fff' }} />
+                    </div>
+                  </div>
+                  {editingId && <button onClick={() => setRattaSektion(null)} style={{ background: 'none', border: 'none', color: typFarg, fontSize: '13px', fontWeight: '600', cursor: 'pointer', padding: '6px 0' }}>Klar</button>}
+                </>
+              ) : (
+                <>
+                  {(form.koordinatX && form.koordinatY) ? (
+                    <a href={`https://www.google.com/maps/dir/?api=1&destination=${form.koordinatX},${form.koordinatY}`} target="_blank" rel="noopener noreferrer"
+                      style={{ display: 'block', textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none', fontSize: '14px', fontWeight: 600, background: `${typFarg}1a`, border: `1px solid ${typFarg}55`, color: typFarg, marginBottom: '12px' }}>Vägbeskrivning</a>
+                  ) : (
+                    <Las label="KOORDINATER" value="" />
+                  )}
+                  <button onClick={() => setRattaSektion('karta')} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', fontSize: '12px', fontWeight: '600', cursor: 'pointer', padding: '2px 0' }}>Rätta</button>
+                </>
+              )}
             </Section>
 
             {/* Knappar */}
