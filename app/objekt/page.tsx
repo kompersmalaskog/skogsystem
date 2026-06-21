@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import PageContainer from '@/components/PageContainer';
 import proj4 from 'proj4';
+import { TreePine, Trees } from 'lucide-react';
 
 // SWEREF99 TM (EPSG:3006) → WGS84 — samma logik som /api/import-trakt
 const SWEREF99TM = '+proj=utm +zone=33 +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs';
@@ -13,6 +14,12 @@ function sweref99ToWgs84(n: number, e: number): { lat: number; lng: number } {
 }
 
 const MANADER = ['Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni', 'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December'];
+
+// Visningsnormalisering av bolagsnamn (rör INTE DB-värdet): title-case, men behåll
+// korta versala akronymer (ATA/JGA). T.ex. "VIDA" → "Vida", "ATA" → "ATA".
+const cap = (s: string) => (s || '').split(' ').map(w =>
+  (w.length <= 3 && w === w.toUpperCase()) ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+).join(' ');
 
 // Demo-data
 const DEMO_IMPORT = {
@@ -32,6 +39,7 @@ export default function ObjektPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [animated, setAnimated] = useState(false);
   const [importStatus, setImportStatus] = useState('');
+  const [ejPlanOpen, setEjPlanOpen] = useState(false);
 
 
   const [objekt, setObjekt] = useState<any[]>([]);
@@ -526,29 +534,35 @@ export default function ObjektPage() {
         </label>
       </div>
 
-      {/* Ej planerad — skyddsnät: periodlösa objekt (ar/manad = null) syns här i stället för att försvinna */}
-      {oplanerade.length > 0 && (
-        <div style={{ marginBottom: '8px', paddingBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-          <div style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px', padding: '4px 0 6px' }}>
-            Ej planerad ({oplanerade.length})
+      {/* Ej planerad — skyddsnät: periodlösa objekt (ar/manad = null). Hopfällbar; default hopfälld vid > 3. */}
+      {oplanerade.length > 0 && (() => {
+        const many = oplanerade.length > 3;
+        const open = many ? ejPlanOpen : true;
+        return (
+          <div style={{ marginBottom: '8px', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: open ? '8px' : '0' }}>
+            <button onClick={() => many && setEjPlanOpen(o => !o)}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'none', border: 'none', padding: '10px 0', cursor: many ? 'pointer' : 'default' }}>
+              <span style={{ fontSize: '11px', fontWeight: '600', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Ej planerad ({oplanerade.length})</span>
+              {many && <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▾</span>}
+            </button>
+            {open && oplanerade.map(obj => (
+              <div key={obj.id} onClick={() => editObj(obj)}
+                style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' }}>
+                <div style={{ width: '3px', height: '32px', borderRadius: '2px', flexShrink: 0, background: obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e', opacity: (obj.lat && obj.lng) ? 0.8 : 0.15 }} />
+                <div style={{ minWidth: 0, flexShrink: 1 }}>
+                  <div style={{ fontSize: '16px', fontWeight: '500', color: '#fff', letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
+                  <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cap(obj.bolag)}{obj.atgard && ` · ${obj.atgard}`}</div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', flexShrink: 0 }}>
+                  <span style={{ fontSize: '16px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>{obj.volym}</span>
+                  <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>m³fub</span>
+                  <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '15px', marginLeft: '2px' }}>›</span>
+                </div>
+              </div>
+            ))}
           </div>
-          {oplanerade.map(obj => (
-            <div key={obj.id} onClick={() => editObj(obj)}
-              style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '14px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' }}>
-              <div style={{ width: '3px', height: '32px', borderRadius: '2px', background: obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e', opacity: (obj.lat && obj.lng) ? 0.8 : 0.15 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff', letterSpacing: '-0.2px' }}>{obj.namn}</div>
-                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '3px' }}>{obj.bolag}{obj.atgard && ` · ${obj.atgard}`}</div>
-              </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontSize: '18px', fontWeight: '600', color: 'rgba(255,255,255,0.9)', letterSpacing: '-0.5px' }}>{obj.volym}</div>
-                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)', marginTop: '1px' }}>m³</div>
-              </div>
-              <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: '16px' }}>›</div>
-            </div>
-          ))}
-        </div>
-      )}
+        );
+      })()}
 
       {/* Månadsväljare */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '8px 0 16px', gap: '24px' }}>
@@ -557,25 +571,29 @@ export default function ObjektPage() {
         <button onClick={() => bytManad(1)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.2)', fontSize: '20px', cursor: 'pointer', padding: '8px' }}>›</button>
       </div>
 
-      {/* Cirkeldiagram */}
-      <div style={{ display: 'flex', justifyContent: 'center', gap: '48px', padding: '16px 0 32px' }}>
+      {/* Sammanfattning — planerat (objekt) vs beställt per typ. Klick = nytt objekt av typen. */}
+      <div style={{ background: '#1c1c1e', borderRadius: '14px', padding: '2px 16px', marginBottom: '20px' }}>
         {[
-          { typ: 'slut', label: 'Slutavverkning', total: slutTotal, best: slutBest, color: '#eab308' }, 
-          { typ: 'gallring', label: 'Gallring', total: gallTotal, best: gallBest, color: '#22c55e' }
-        ].map(item => {
-          const percent = item.best ? (item.total / item.best) * 100 : 0;
+          { typ: 'slut', namn: 'Slutavverkning', Ikon: TreePine, farg: '#eab308', plan: slutTotal, best: slutBest },
+          { typ: 'gallring', namn: 'Gallring', Ikon: Trees, farg: '#22c55e', plan: gallTotal, best: gallBest },
+        ].map((rad, i) => {
+          const Ikon = rad.Ikon;
+          const pct = rad.best > 0 ? Math.min(100, (rad.plan / rad.best) * 100) : 0;
           return (
-            <div key={item.typ} onClick={() => openFormWithType(item.typ)} style={{ textAlign: 'center', cursor: 'pointer' }}>
-              <div style={{ position: 'relative', display: 'inline-block' }}>
-                <Arc percent={percent} color={item.color} />
-                <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '24px', fontWeight: '700', color: '#fff', letterSpacing: '-1px' }}><AnimatedNumber value={Math.round(percent)} /></div>
-                  <div style={{ fontSize: '10px', color: 'rgba(255,255,255,0.3)', marginTop: '-2px' }}>%</div>
+            <div key={rad.typ} onClick={() => openFormWithType(rad.typ)}
+              style={{ padding: '14px 0', cursor: 'pointer', borderTop: i === 1 ? '1px solid rgba(255,255,255,0.06)' : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Ikon size={18} color={rad.farg} strokeWidth={2} />
+                  <span style={{ fontSize: '14px', fontWeight: '600', color: '#fff' }}>{rad.namn}</span>
+                </div>
+                <div style={{ fontSize: '15px' }}>
+                  <span style={{ color: rad.farg, fontWeight: '700' }}>{Math.round(rad.plan).toLocaleString('sv-SE')}</span>
+                  <span style={{ color: 'rgba(255,255,255,0.3)' }}> / {Math.round(rad.best).toLocaleString('sv-SE')} m³fub</span>
                 </div>
               </div>
-              <div style={{ marginTop: '14px' }}>
-                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.5)', fontWeight: '500' }}>{item.label}</div>
-                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.25)', marginTop: '4px' }}><AnimatedNumber value={item.total} /> / {item.best} m³</div>
+              <div style={{ height: '5px', background: 'rgba(255,255,255,0.08)', borderRadius: '3px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${pct}%`, background: rad.farg, borderRadius: '3px', transition: 'width 0.6s ease' }} />
               </div>
             </div>
           );
@@ -590,35 +608,22 @@ export default function ObjektPage() {
             Inga objekt för {MANADER[month]}
           </div>
         ) : (
-          planerade.map((obj, i) => (
+          planerade.map(obj => (
             <div key={obj.id} onClick={() => editObj(obj)}
-              style={{ 
-                display: 'flex', alignItems: 'center', gap: '16px', padding: '18px 0', 
-                borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' 
-              }}>
-              {/* Typlinje */}
-              <div style={{ 
-                width: '3px', height: '32px', borderRadius: '2px', 
-                background: obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e', 
-                opacity: (obj.lat && obj.lng) ? 0.8 : 0.15,
-              }} />
-
-              {/* Info */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: '16px', fontWeight: '600', color: '#fff', letterSpacing: '-0.2px' }}>{obj.namn}</div>
-                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '3px' }}>
-                  {obj.bolag}{obj.atgard && ` · ${obj.atgard}`}
-                </div>
+              style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '16px 0', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer' }}>
+              {/* Typstreck */}
+              <div style={{ width: '3px', height: '32px', borderRadius: '2px', flexShrink: 0, background: obj.typ === 'slutavverkning' ? '#eab308' : '#22c55e', opacity: (obj.lat && obj.lng) ? 0.8 : 0.15 }} />
+              {/* Namn + bolag·åtgärd */}
+              <div style={{ minWidth: 0, flexShrink: 1 }}>
+                <div style={{ fontSize: '16px', fontWeight: '500', color: '#fff', letterSpacing: '-0.2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{obj.namn}</div>
+                <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.3)', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{cap(obj.bolag)}{obj.atgard && ` · ${obj.atgard}`}</div>
               </div>
-
-              {/* Volym */}
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontSize: '18px', fontWeight: '600', color: 'rgba(255,255,255,0.9)', letterSpacing: '-0.5px' }}>{obj.volym}</div>
-                <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.2)', marginTop: '1px' }}>m³</div>
+              {/* Volym + enhet + chevron, direkt efter namnet */}
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px', flexShrink: 0 }}>
+                <span style={{ fontSize: '16px', fontWeight: '600', color: 'rgba(255,255,255,0.9)' }}>{obj.volym}</span>
+                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>m³fub</span>
+                <span style={{ color: 'rgba(255,255,255,0.2)', fontSize: '15px', marginLeft: '2px' }}>›</span>
               </div>
-
-              {/* Pil */}
-              <div style={{ color: 'rgba(255,255,255,0.15)', fontSize: '16px' }}>›</div>
             </div>
           ))
         )}
