@@ -13,6 +13,7 @@ import {
   Filler,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
+import { supabase } from '@/lib/supabase'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler)
 
@@ -65,10 +66,6 @@ const card: React.CSSProperties = {
   overflow: 'hidden',
 }
 
-const SUPABASE_URL = 'https://mxydghzfacbenbgpodex.supabase.co'
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im14eWRnaHpmYWNiZW5iZ3BvZGV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg4NzU2MjMsImV4cCI6MjA4NDQ1MTYyM30.NRBG5HcAtEXRTyf4YTp71A3iATk6U3DGhfdJ5EYlMyo'
-const HEADERS = { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
-
 const MANAD = ['', 'Januari', 'Februari', 'Mars', 'April', 'Maj', 'Juni',
   'Juli', 'Augusti', 'September', 'Oktober', 'November', 'December']
 
@@ -82,6 +79,25 @@ function normalizeBolag(b: string | null): string {
   if (lower === 'vida') return 'Vida'
   if (lower === 'ata') return 'ATA'
   return b.trim()
+}
+
+// Dedikerade skördare: Rottne = gallring, Ponsse Scorpion = slutavverkning (CLAUDE.md).
+const MASKIN_GALLRING = new Set(['R64101', 'R64428'])
+const MASKIN_SLUT = new Set(['PONS20SDJAA270231'])
+
+// Härled spår-typ för en helikopter_vy-rad. Prioritet: 1) dim_objekt.huvudtyp om satt,
+// 2) maskin-regel, 3) vo-match mot operativa objekt.typ, 4) 'Okänt'. Returnerar visningsform
+// (versal) — befintliga typ-filter jämför ändå med .toLowerCase().
+function harledTyp(huvudtyp: string | null, maskinId: string | undefined, objektTyp: string | undefined): 'Slutavverkning' | 'Gallring' | 'Okänt' {
+  const h = (huvudtyp || '').trim().toLowerCase()
+  if (h === 'slutavverkning') return 'Slutavverkning'
+  if (h === 'gallring') return 'Gallring'
+  if (maskinId && MASKIN_GALLRING.has(maskinId)) return 'Gallring'
+  if (maskinId && MASKIN_SLUT.has(maskinId)) return 'Slutavverkning'
+  const t = (objektTyp || '').trim().toLowerCase()
+  if (t === 'slutavverkning') return 'Slutavverkning'
+  if (t === 'gallring') return 'Gallring'
+  return 'Okänt'
 }
 
 function arbetsdagarKvar(ar: number, manad: number): number {
@@ -217,12 +233,27 @@ export default function HelikopterV2Page() {
 
   const load = useCallback(async () => {
     try {
-      const [hRes, bRes] = await Promise.all([
-        fetch(`${SUPABASE_URL}/rest/v1/helikopter_vy?select=*`, { headers: HEADERS }),
-        fetch(`${SUPABASE_URL}/rest/v1/bestallningar?select=*&ar=eq.${ar}&manad=eq.${manad}`, { headers: HEADERS }),
+      // Läs via inloggad session-klient (inte hårdkodad anon-nyckel).
+      const [hv, best, dimo, obj] = await Promise.all([
+        supabase.from('helikopter_vy').select('*'),
+        supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
+        supabase.from('dim_objekt').select('objekt_id,maskin_id'),
+        supabase.from('objekt').select('vo_nummer,typ'),
       ])
-      if (hRes.ok) setData(await hRes.json())
-      if (bRes.ok) setBestallningar(await bRes.json())
+      // Härled huvudtyp där den saknas (maskin-regel + vo-match) — fas 1, ingen DB-ändring.
+      const maskinById = new Map<string, string>((dimo.data || []).map((d: any) => [d.objekt_id, d.maskin_id]))
+      const typByVo = new Map<string, string>(
+        (obj.data || [])
+          .filter((o: any) => o.vo_nummer != null && String(o.vo_nummer).trim() !== '')
+          .map((o: any) => [String(o.vo_nummer).trim(), o.typ])
+      )
+      if (hv.data) {
+        setData(hv.data.map((o: any) => ({
+          ...o,
+          huvudtyp: harledTyp(o.huvudtyp, maskinById.get(o.objekt_id), typByVo.get(String(o.vo_nummer || '').trim())),
+        })))
+      }
+      if (best.data) setBestallningar(best.data)
     } catch { /* use empty */ }
   }, [ar, manad])
 
