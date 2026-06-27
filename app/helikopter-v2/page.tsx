@@ -664,16 +664,23 @@ export default function HelikopterV2Page() {
     manadData.reduce((s, o) => s + (o.skotat_m3 || 0), 0),
   [manadData])
 
+  const totalSkordat = useMemo(() =>
+    manadData.reduce((s, o) => s + (o.skordat_m3 || 0), 0),
+  [manadData])
+
   const manadsmal = useMemo(() => {
     const totalBest = slutBest + gallBest
     if (totalBest === 0) return null
     const procent = Math.round((totalSkotat / totalBest) * 100)
+    const skordatProcent = Math.round((totalSkordat / totalBest) * 100)
     const forvantadProcent = workdaysInfo.total > 0
       ? Math.round((workdaysInfo.passed / workdaysInfo.total) * 100)
       : 0
     const onTrack = procent >= forvantadProcent
-    return { procent, forvantadProcent, onTrack }
-  }, [slutBest, gallBest, totalSkotat, workdaysInfo])
+    // Tomläge: inget skotat än → larma inte rött (vyn är under uppbyggnad).
+    const harSkotat = totalSkotat > 0
+    return { procent, skordatProcent, forvantadProcent, onTrack, harSkotat }
+  }, [slutBest, gallBest, totalSkotat, totalSkordat, workdaysInfo])
 
   const prognosManad = useMemo(() => {
     if (workdaysInfo.passed === 0 || workdaysInfo.total === 0) return null
@@ -850,18 +857,30 @@ export default function HelikopterV2Page() {
         <div style={{ padding: '0 24px 120px' }}>
           {/* Procent månadsmål — primärt tal */}
           {manadsmal && (
-            <div style={{ textAlign: 'center', padding: '8px 0 28px' }}>
-              <div style={{
-                fontSize: 64, fontWeight: 700, lineHeight: 1,
-                color: manadsmal.onTrack ? '#30d158' : '#ff453a',
-                fontVariantNumeric: 'tabular-nums',
-              }}>
-                {manadsmal.procent}%
+            manadsmal.harSkotat ? (
+              <div style={{ textAlign: 'center', padding: '8px 0 28px' }}>
+                <div style={{
+                  fontSize: 64, fontWeight: 700, lineHeight: 1,
+                  color: manadsmal.onTrack ? '#30d158' : '#ff453a',
+                  fontVariantNumeric: 'tabular-nums',
+                }}>
+                  {manadsmal.procent}%
+                </div>
+                <div style={{ fontSize: 13, color: muted, marginTop: 8 }}>
+                  av månadens beställning · förväntat {manadsmal.forvantadProcent}%
+                </div>
               </div>
-              <div style={{ fontSize: 13, color: muted, marginTop: 8 }}>
-                av månadens beställning · förväntat {manadsmal.forvantadProcent}%
+            ) : (
+              // Inget skotat än — lugnt tomläge med skördat-% i neutral ton, inte rött 0%.
+              <div style={{ textAlign: 'center', padding: '8px 0 28px' }}>
+                <div style={{ fontSize: 64, fontWeight: 700, lineHeight: 1, color: text, fontVariantNumeric: 'tabular-nums' }}>
+                  {manadsmal.skordatProcent}%
+                </div>
+                <div style={{ fontSize: 13, color: muted, marginTop: 8 }}>
+                  skördat av beställning · väntar på skotning
+                </div>
               </div>
-            </div>
+            )
           )}
           {!manadsmal && !manadAvslutad && (
             <div style={{ textAlign: 'center', padding: '8px 0 28px', color: muted, fontSize: 13 }}>
