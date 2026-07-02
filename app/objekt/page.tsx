@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import PageContainer from '@/components/PageContainer';
 import proj4 from 'proj4';
@@ -43,8 +44,16 @@ const DEMO_IMPORT = {
 };
 
 export default function ObjektPage() {
-  const [year, setYear] = useState(new Date().getFullYear());
-  const [month, setMonth] = useState(new Date().getMonth());
+  return <Suspense fallback={null}><ObjektPageInner /></Suspense>;
+}
+
+function ObjektPageInner() {
+  // Förval av månad från URL (?ar=&manad=), t.ex. från helikopter-guiden. Fallback: innevarande månad.
+  const sp = useSearchParams();
+  const arParam = parseInt(sp.get('ar') || '');
+  const manadParam = parseInt(sp.get('manad') || '');
+  const [year, setYear] = useState(Number.isFinite(arParam) ? arParam : new Date().getFullYear());
+  const [month, setMonth] = useState(Number.isFinite(manadParam) && manadParam >= 1 && manadParam <= 12 ? manadParam - 1 : new Date().getMonth()); // 0-index
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [animated, setAnimated] = useState(false);

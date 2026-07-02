@@ -1,5 +1,6 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { Suspense, useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { TreePine, Trees } from 'lucide-react'
 import PageContainer from '@/components/PageContainer'
@@ -23,8 +24,16 @@ function TypIkon({ typ, size }: { typ: TypNyckel; size: number }) {
 const fmt = (n: number) => Math.round(Number(n) || 0).toLocaleString('sv-SE')
 
 export default function Bestallningar() {
-  const [year, setYear] = useState(2026)
-  const [month, setMonth] = useState(5) // 0-index, 5 = Juni
+  return <Suspense fallback={null}><BestallningarInner /></Suspense>
+}
+
+function BestallningarInner() {
+  // Förval av månad från URL (?ar=&manad=), t.ex. från helikopter-guiden. Fallback: Juni 2026.
+  const sp = useSearchParams()
+  const arParam = parseInt(sp.get('ar') || '')
+  const manadParam = parseInt(sp.get('manad') || '')
+  const [year, setYear] = useState(Number.isFinite(arParam) ? arParam : 2026)
+  const [month, setMonth] = useState(Number.isFinite(manadParam) && manadParam >= 1 && manadParam <= 12 ? manadParam - 1 : 5) // 0-index
   const [bestallningar, setBestallningar] = useState<Bestallning[]>([])
   const [loading, setLoading] = useState(true)
 
