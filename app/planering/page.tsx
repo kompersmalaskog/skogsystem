@@ -288,6 +288,14 @@ export default function PlannerPage() {
   // === STATE ===
   const [markers, setMarkers] = useState<Marker[]>([]);
   const [markersLoaded, setMarkersLoaded] = useState(false);
+  // Markör-id:n som redan finns i DB (laddade + nya). Vaktas av spar-effekten längre ner så
+  // en nyss utsatt markör persisteras direkt, och laddade markörer inte om-sparas i onödan.
+  const persistedMarkerIdsRef = useRef<Set<string>>(new Set());
+  // Vilket objekt nuvarande `markers`-array faktiskt tillhör (sätts när load landar). Under
+  // en LÅNGSAM laddning (dålig täckning i fält) hinner valtObjekt bytas medan `markers` ännu
+  // är förra traktens — då gäller markersObjektIdRef ≠ valtObjekt.id och alla tre write-vägar
+  // (create-effekt/synk/flush) bailar → förra traktens markörer skrivs ALDRIG till fel objekt.
+  const markersObjektIdRef = useRef<string | undefined>(undefined);
   const [showSaveToast, setShowSaveToast] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   const [markerMenuOpen, setMarkerMenuOpen] = useState<string | null>(null);
@@ -326,8 +334,22 @@ export default function PlannerPage() {
         .eq('objekt_id', valtObjekt.id);
       if (error) {
         console.error('Kunde inte ladda markeringar:', error);
-      } else if (data && data.length > 0) {
-        setMarkers(data.map(row => row.data as Marker));
+        // Load misslyckades → rensa in-memory (undvik stale från förra trakten) och märk
+        // arrayen som DETTA objekt. Då kan föraren rita nytt som sparas HIT — DB-raderna är
+        // orörda (upsert mergar) → inget tappas, och föraren fastnar aldrig i "kan inte spara".
+        persistedMarkerIdsRef.current = new Set();
+        markersObjektIdRef.current = valtObjekt.id;
+        setMarkers([]);
+      } else {
+        // ALLTID REPLACE med DB-sanningen — även [] för en tom trakt. Annars ligger förra
+        // traktens markörer kvar i minnet och synken/flushen kan skriva dem till FEL objekt.
+        const laddade = (data || []).map(row => row.data as Marker);
+        // Seeda "redan sparad"-vakten så laddade markörer inte triggar en onödig om-save i
+        // den omedelbara spar-effekten nedan (tom trakt → tom Set → inget att spara/skriva).
+        persistedMarkerIdsRef.current = new Set(laddade.map(m => String(m.id)));
+        // Markera att `markers` nu tillhör detta objekt → låser upp write-vägarna för det.
+        markersObjektIdRef.current = valtObjekt.id;
+        setMarkers(laddade);
       }
       setMarkersLoaded(true);
     };
@@ -362,7 +384,7 @@ export default function PlannerPage() {
   // Synka markers till Supabase vid ändringar (debounced)
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   useEffect(() => {
-    if (!valtObjekt?.id || !markersLoaded) return;
+    if (!valtObjekt?.id || !markersLoaded || markersObjektIdRef.current !== valtObjekt.id) return;
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
     syncTimeoutRef.current = setTimeout(async () => {
       // Upsert alla nuvarande markers
@@ -381,6 +403,50 @@ export default function PlannerPage() {
     }, 1000);
     return () => { if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current); };
   }, [markers, valtObjekt?.id, markersLoaded]);
+
+  // === DATAFÖRLUST-SKYDD 1: OMEDELBAR save av varje NY markör ===
+  // Den debouncade synken ovan sparar först efter 1s stillhet. Klickar föraren en extern
+  // länk / bakgrundar / laddar om innan dess går osparade markörer förlorade. Denna vakt
+  // sparar varje NY markör direkt via saveMarkerToDb (idempotent upsert, samma
+  // onConflict:'objekt_id,marker_id' → krockar aldrig med synken). Seedad från load →
+  // laddade markörer om-sparas ej. Redigeringar av befintliga markörer fångas av synken +
+  // flushen nedan.
+  useEffect(() => {
+    if (!valtObjekt?.id || !markersLoaded || markersObjektIdRef.current !== valtObjekt.id) return;
+    for (const m of markers) {
+      const id = String(m.id);
+      if (!persistedMarkerIdsRef.current.has(id)) {
+        persistedMarkerIdsRef.current.add(id);
+        saveMarkerToDb(m);
+      }
+    }
+  }, [markers, valtObjekt?.id, markersLoaded, saveMarkerToDb]);
+
+  // === DATAFÖRLUST-SKYDD 2: FLUSH vid pagehide / visibilitychange ===
+  // Fångar pending REDIGERINGAR (foton/anteckningar/flyttar) som ligger i 1s-debouncen när
+  // appen bakgrundas, byter flik, låses eller laddas om — precis det som förlorade fältdata
+  // vid länk-klicket. visibilitychange→hidden fyrar innan unload → upserten hinner oftast
+  // klart medan appen lever i bakgrunden. Läser senaste markers via ref (stabil lyssnare,
+  // registreras en gång).
+  const flushDataRef = useRef<{ markers: Marker[]; objektId?: string; loaded: boolean }>({ markers, objektId: valtObjekt?.id, loaded: markersLoaded });
+  flushDataRef.current = { markers, objektId: valtObjekt?.id, loaded: markersLoaded };
+  useEffect(() => {
+    const flush = () => {
+      if (document.visibilityState !== 'hidden') return;
+      const { markers: ms, objektId, loaded } = flushDataRef.current;
+      if (!objektId || !loaded || ms.length === 0 || markersObjektIdRef.current !== objektId) return;
+      const rows = ms.map(m => ({ objekt_id: objektId, marker_id: String(m.id), typ: getMarkerTyp(m), data: m }));
+      supabase.from('planering_markeringar')
+        .upsert(rows, { onConflict: 'objekt_id,marker_id' })
+        .then(({ error }) => { if (error) console.error('[Flush] markörer fel:', error); });
+    };
+    document.addEventListener('visibilitychange', flush);
+    window.addEventListener('pagehide', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', flush);
+      window.removeEventListener('pagehide', flush);
+    };
+  }, []);
 
   // === AVLÄGG: Ladda sparad data från Supabase ===
   const avlaggLoadedRef = useRef(false);
