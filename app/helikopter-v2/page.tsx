@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import Link from 'next/link'
 import { TreePine, Trees } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
@@ -121,6 +122,7 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
 export default function HelikopterV2Page() {
   const [data, setData] = useState<ObjektRow[]>([])
   const [bestallningar, setBestallningar] = useState<Bestallning[]>([])
+  const [objektAlla, setObjektAlla] = useState<{ ar: number | null; manad: number | null; status: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [ar, setAr] = useState(() => new Date().getFullYear())
   const [manad, setManad] = useState(() => new Date().getMonth() + 1)
@@ -137,7 +139,7 @@ export default function HelikopterV2Page() {
         supabase.from('helikopter_vy').select('*'),
         supabase.from('bestallningar').select('*').eq('ar', ar).eq('manad', manad),
         supabase.from('dim_objekt').select('objekt_id,maskin_id'),
-        supabase.from('objekt').select('vo_nummer,typ'),
+        supabase.from('objekt').select('vo_nummer,typ,ar,manad,status'),
       ])
       // Härled huvudtyp där den saknas (maskin-regel + vo-match) — fas 1, ingen DB-ändring.
       const maskinById = new Map<string, string>((dimo.data || []).map((d: any) => [d.objekt_id, d.maskin_id]))
@@ -153,6 +155,7 @@ export default function HelikopterV2Page() {
         })))
       }
       if (best.data) setBestallningar(best.data)
+      setObjektAlla(obj.data || [])
     } catch { /* use empty */ }
   }, [ar, manad])
 
@@ -293,6 +296,19 @@ export default function HelikopterV2Page() {
   // Render
   // ============================================================
 
+  // Checklista-signaler för tom-vyn — oberoende, ingen hård-gejtning.
+  const harBestallning = slutBest + gallBest > 0
+  const harProduktion = manadData.length > 0
+  const plAntal = useMemo(
+    () => objektAlla.filter(o => o.ar === ar && o.manad === manad && (o.status === 'planerad' || o.status === 'pagaende')).length,
+    [objektAlla, ar, manad]
+  )
+  const guideSteg = [
+    { n: 1, titel: 'Beställning', klar: harBestallning, vantar: false, under: harBestallning ? `${Math.round(slutBest + gallBest).toLocaleString('sv-SE')} m³fub lovat` : 'Lägg in månadens beställning', href: `/bestallningar?ar=${ar}&manad=${manad}` as string | null, lank: 'Lägg in' as string | null },
+    { n: 2, titel: 'Planera objekt', klar: plAntal > 0, vantar: false, under: plAntal > 0 ? `${plAntal} objekt planerade` : 'Planera objekt för månaden', href: `/objekt?ar=${ar}&manad=${manad}` as string | null, lank: 'Planera' as string | null },
+    { n: 3, titel: 'Följ upp', klar: false, vantar: true, under: 'Väntar på produktion', href: null as string | null, lank: null as string | null },
+  ]
+
   const SPAR = [
     { typ: 'Slutavverkning' as const, Ikon: TreePine, farg: '#eab308', best: slutBest },
     { typ: 'Gallring' as const, Ikon: Trees, farg: '#22c55e', best: gallBest },
@@ -337,6 +353,8 @@ export default function HelikopterV2Page() {
 
       {!loading && (
         <div style={{ padding: '0 24px 120px' }}>
+          {harProduktion ? (
+          <>
           {/* Hero — månadsmål. Lugnt tomläge när inget skotat än (inte rött 0%). */}
           {manadsmal && (
             manadsmal.harSkotat ? (
@@ -415,6 +433,39 @@ export default function HelikopterV2Page() {
               </div>
             )}
           </div>
+          </>
+          ) : manadAvslutad ? (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: muted, fontSize: 13 }}>
+              Ingen produktion registrerad för {MANAD[manad]}.
+            </div>
+          ) : (
+            <>
+              {/* GUIDE — vägledande checklista när månaden saknar produktion. Tre oberoende steg. */}
+              <div style={{ textAlign: 'center', padding: '8px 0 20px', color: muted, fontSize: 13 }}>
+                Inget skördat än i {MANAD[manad]} — så här sätter du upp månaden.
+              </div>
+              <div style={{ ...card, padding: '4px 18px' }}>
+                {guideSteg.map((s, i) => (
+                  <div key={s.n} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '16px 0', borderTop: i > 0 ? `1px solid ${divider}` : 'none' }}>
+                    {s.klar ? (
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" />
+                      </svg>
+                    ) : (
+                      <div style={{ width: 22, height: 22, borderRadius: 11, border: `1.5px solid ${s.vantar ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.35)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 600, color: s.vantar ? muted : text, flexShrink: 0 }}>{s.n}</div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: s.vantar ? muted : text }}>{s.titel}</div>
+                      <div style={{ fontSize: 13, color: muted, marginTop: 2 }}>{s.under}</div>
+                    </div>
+                    {!s.klar && s.href && (
+                      <Link href={s.href} style={{ fontSize: 14, fontWeight: 600, color: '#0a84ff', textDecoration: 'none', flexShrink: 0, whiteSpace: 'nowrap' }}>{s.lank} ›</Link>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       )}
 
