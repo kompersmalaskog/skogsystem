@@ -2511,17 +2511,19 @@ export default function PlannerPage() {
       console.log('[HPR] Laddar stammar för objekt', valtObjekt.id);
 
       // Läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78) — frikopplad från objekt_id-FK.
-      // Efter dedup finns EXAKT en fil per objekt. OBS: hpr_filer.stammar_count är opålitlig
-      // (fristående HPR-importen lämnar den tom) — läs aldrig den; räkna hämtade rader.
+      // EXAKT vo-segment-jämförelse klientsida (split ':' + ===): ingen LIKE/mönster-
+      // matchning (krock-benägen). ~1 rad per objekt i tabellen → hämta alla är försumbart.
+      // OBS: hpr_filer.stammar_count är opålitlig — läs aldrig den; räkna hämtade rader.
       const vo = String(valtObjekt.vo_nummer ?? '').trim();
-      const { data: filer, error: filErr } = /^\d+$/.test(vo)
+      const { data: kandidatFiler, error: filErr } = /^\d+$/.test(vo)
         ? await supabase
             .from('hpr_filer')
-            .select('id, fil_datum')
-            .like('objekt_nyckel', `%:${vo}`)
+            .select('id, fil_datum, objekt_nyckel')
             .order('fil_datum', { ascending: false, nullsFirst: false })
-            .limit(1)
-        : { data: [] as { id: string; fil_datum: string | null }[], error: null };
+        : { data: [] as { id: string; fil_datum: string | null; objekt_nyckel: string | null }[], error: null };
+      const filer = (kandidatFiler ?? [])
+        .filter(f => String(f.objekt_nyckel ?? '').split(':')[1] === vo)
+        .slice(0, 1);
 
       if (filErr || !filer || filer.length === 0) {
         console.log('[HPR] Inga HPR-filer för detta objekt');
@@ -2879,13 +2881,16 @@ export default function PlannerPage() {
       return '#6b7c3a';
     };
     const load = async () => {
-      // Läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78). stammar_count är opålitlig — används ej.
+      // Läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78) — exakt vo-segment-jämförelse
+      // klientsida (split ':' + ===), ingen LIKE. stammar_count är opålitlig — används ej.
       const vo = String(valtObjekt.vo_nummer ?? '').trim();
-      const { data: filer } = /^\d+$/.test(vo)
-        ? await supabase.from('hpr_filer').select('id')
-            .like('objekt_nyckel', `%:${vo}`)
-            .order('fil_datum', { ascending: false, nullsFirst: false }).limit(1)
-        : { data: [] as { id: string }[] };
+      const { data: kandidatFiler } = /^\d+$/.test(vo)
+        ? await supabase.from('hpr_filer').select('id, fil_datum, objekt_nyckel')
+            .order('fil_datum', { ascending: false, nullsFirst: false })
+        : { data: [] as { id: string; fil_datum: string | null; objekt_nyckel: string | null }[] };
+      const filer = (kandidatFiler ?? [])
+        .filter(f => String(f.objekt_nyckel ?? '').split(':')[1] === vo)
+        .slice(0, 1);
       if (!filer || filer.length === 0) { setKvarData([]); return; }
       const senasteFil = filer[0];
       let allStammar: { sortiment: string; total_volym: number }[] = [];

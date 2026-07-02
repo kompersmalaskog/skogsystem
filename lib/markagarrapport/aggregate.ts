@@ -113,18 +113,21 @@ export async function aggregateMarkagarRapport(
 
   // 3. hpr_filer — läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78), frikopplad
   // från objekt-tabellen: rapporten fungerar även för objekt utan planeringsrad
-  // (objektUuid används numera bara för areal ovan). Numeriskt id → suffix '%:<vo>'
-  // (':' ankrar vo-segmentet exakt); dim-fallback-id 'MASKIN_KEY' (icke-numeriskt vo,
-  // make_objekt_id) → exakt 'MASKIN:k<KEY>'. OBS: hpr_filer.stammar_count är opålitlig
-  // (fristående HPR-importen lämnar den tom) — läs aldrig den kolumnen.
+  // (objektUuid används numera bara för areal ovan). Numeriskt id → EXAKT vo-segment-
+  // jämförelse klientsida (split ':' + ===, ingen LIKE — mönster-matchning är krock-
+  // benägen); alla maskiners filer för objektet tas med (multi-maskin-vo summeras).
+  // Dim-fallback-id 'MASKIN_KEY' (icke-numeriskt vo, make_objekt_id) → exakt
+  // 'MASKIN:k<KEY>'. OBS: hpr_filer.stammar_count är opålitlig — läs aldrig den kolumnen.
   let hprFiler: Array<{ id: string; maskin_id: string | null; filnamn: string }> = [];
   const mkFallback = /^(.+)_(\d+)$/.exec(objektIdText);
   if (/^\d+$/.test(objektIdText)) {
     const { data } = await supabase
       .from('hpr_filer')
-      .select('id, maskin_id, filnamn')
-      .like('objekt_nyckel', `%:${objektIdText}`);
-    hprFiler = data ?? [];
+      .select('id, maskin_id, filnamn, objekt_nyckel');
+    hprFiler = (data ?? [])
+      .filter((f: { objekt_nyckel?: string | null }) =>
+        String(f.objekt_nyckel ?? '').split(':')[1] === objektIdText)
+      .map(({ id, maskin_id, filnamn }) => ({ id, maskin_id, filnamn }));
   } else if (mkFallback) {
     const { data } = await supabase
       .from('hpr_filer')

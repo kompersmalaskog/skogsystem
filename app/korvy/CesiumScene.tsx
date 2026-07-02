@@ -1387,16 +1387,18 @@ export default function CesiumScene({ objektId }: Props) {
       // 1) Fetch + cluster om inte cached för detta objekt
       if (hprCacheRef.current?.objektId !== objekt.id) {
         try {
-          // a) HPR-filen via objekt_nyckel '<maskin>:<vo>' (#78)
+          // a) HPR-filen via objekt_nyckel '<maskin>:<vo>' (#78) — exakt vo-segment-
+          //    jämförelse klientsida (split ':' + ===), ingen LIKE
           const vo = String(objekt.vo_nummer ?? '').trim()
-          const { data: filer } = /^\d+$/.test(vo)
+          const { data: kandidater } = /^\d+$/.test(vo)
             ? await supabase
                 .from('hpr_filer')
-                .select('id')
-                .like('objekt_nyckel', `%:${vo}`)
+                .select('id, fil_datum, objekt_nyckel')
                 .order('fil_datum', { ascending: false, nullsFirst: false })
-                .limit(1)
-            : { data: [] as { id: string }[] }
+            : { data: [] as { id: string; fil_datum: string | null; objekt_nyckel: string | null }[] }
+          const filer = (kandidater ?? [])
+            .filter(f => String(f.objekt_nyckel ?? '').split(':')[1] === vo)
+            .slice(0, 1)
           if (cancelled) return
           if (!filer || filer.length === 0) {
             hprCacheRef.current = { objektId: objekt.id, clusters: [] }
