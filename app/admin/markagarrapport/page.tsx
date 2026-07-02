@@ -78,30 +78,23 @@ export default async function Page() {
   if (dim.length > 0) {
     const objektIds = dim.map(d => d.objekt_id);
 
-    // 2. Mappa till objekt.id (uuid) via vo_nummer — för HPR-datum
-    const { data: objektRows } = await supabase
-      .from('objekt')
-      .select('id, vo_nummer')
-      .in('vo_nummer', objektIds);
-    const uuidByVo = new Map<string, string>();
-    for (const o of objektRows ?? []) {
-      if (o.vo_nummer) uuidByVo.set(o.vo_nummer, o.id);
-    }
-
-    // 3. hpr_filer — enbart för att härleda första datum ur filnamnets timestamp.
-    //    (stammar_count är opålitlig efter fristående HPR-import; faktiskt antal
-    //     stammar räknas från detalj_stam i steg 4.)
-    const uuids = Array.from(uuidByVo.values()).filter((u): u is string => !!u);
-    const firstFilByUuid = new Map<string, string>();
-    if (uuids.length > 0) {
-      const { data: hprRows } = await supabase
-        .from('hpr_filer')
-        .select('objekt_id, filnamn')
-        .in('objekt_id', uuids);
-      for (const h of hprRows ?? []) {
-        const cur = firstFilByUuid.get(h.objekt_id);
-        if (h.filnamn && (!cur || h.filnamn < cur)) firstFilByUuid.set(h.objekt_id, h.filnamn);
-      }
+    // 2+3. HPR-datum via objekt_nyckel '<maskin>:<vo>' (#78) — en fil per objekt efter
+    //    dedup, frikopplad från objekt-tabellen (ingen uuid-mappning behövs).
+    //    fil_datum = äldsta stam-tidpunkten i den kumulativa filen = objektets ÄKTA
+    //    första avverkningsdatum (filnamnets timestamp är tvärtom senaste snapshotet).
+    //    (stammar_count är opålitlig; faktiskt antal räknas från detalj_stam i steg 4.)
+    const datumByVo = new Map<string, string>();
+    const { data: hprRows } = await supabase
+      .from('hpr_filer')
+      .select('objekt_nyckel, fil_datum');
+    for (const h of hprRows ?? []) {
+      const [maskin, ident] = String(h.objekt_nyckel ?? '').split(':');
+      if (!ident || !h.fil_datum) continue;
+      // numeriskt ident = vo (= dim_objekt.objekt_id); 'k<KEY>' → dim-fallback-id 'MASKIN_KEY'
+      const voId = /^\d+$/.test(ident) ? ident : `${maskin}_${ident.slice(1)}`;
+      const d = String(h.fil_datum).slice(0, 10);
+      const cur = datumByVo.get(voId);
+      if (!cur || d < cur) datumByVo.set(voId, d);
     }
 
     // 4. Faktiskt antal stammar per objekt från detalj_stam (verklig
@@ -118,14 +111,12 @@ export default async function Page() {
     // 5. Bygg rader — bara objekt som faktiskt har stam-data
     rader = dim
       .map((d) => {
-        const uuid = uuidByVo.get(d.objekt_id);
-        const fil = uuid ? firstFilByUuid.get(uuid) : null;
         return {
           objekt_id: d.objekt_id,
           namn: d.object_name ?? d.objekt_id,
           skogsagare: d.skogsagare ?? null,
           stammar: stammarByObj.get(d.objekt_id) ?? 0,
-          forsta_datum: fil ? extractDateFromFilename(fil) : null,
+          forsta_datum: datumByVo.get(d.objekt_id) ?? null,
         };
       })
       .filter((r) => r.stammar > 0)
@@ -215,18 +206,4 @@ export default async function Page() {
       </div>
     </main>
   );
-}
-
-// HPR-filnamn har formatet "...{YYYYMMDDHHMMSS}.hpr" (Ponsse) eller liknande timestamp
-function extractDateFromFilename(filnamn: string): string | null {
-  // Försök match på 14-siffrig timestamp (Ponsse): YYYYMMDDHHMMSS
-  const m14 = /(\d{8})\d{6}/.exec(filnamn);
-  if (m14) {
-    const ds = m14[1];
-    return `${ds.slice(0, 4)}-${ds.slice(4, 6)}-${ds.slice(6, 8)}`;
-  }
-  // Fallback: "YYYY-MM-DD HHMM" i filnamnet (Rottne)
-  const mIso = /(\d{4}-\d{2}-\d{2})/.exec(filnamn);
-  if (mIso) return mIso[1];
-  return null;
 }

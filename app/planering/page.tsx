@@ -2510,13 +2510,18 @@ export default function PlannerPage() {
     const loadHogar = async () => {
       console.log('[HPR] Laddar stammar för objekt', valtObjekt.id);
 
-      // Hämta senaste (kumulativa) HPR-filen — den med högst stammar_count
-      const { data: filer, error: filErr } = await supabase
-        .from('hpr_filer')
-        .select('id, fil_datum, stammar_count')
-        .eq('objekt_id', valtObjekt.id)
-        .order('stammar_count', { ascending: false })
-        .limit(1);
+      // Läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78) — frikopplad från objekt_id-FK.
+      // Efter dedup finns EXAKT en fil per objekt. OBS: hpr_filer.stammar_count är opålitlig
+      // (fristående HPR-importen lämnar den tom) — läs aldrig den; räkna hämtade rader.
+      const vo = String(valtObjekt.vo_nummer ?? '').trim();
+      const { data: filer, error: filErr } = /^\d+$/.test(vo)
+        ? await supabase
+            .from('hpr_filer')
+            .select('id, fil_datum')
+            .like('objekt_nyckel', `%:${vo}`)
+            .order('fil_datum', { ascending: false, nullsFirst: false })
+            .limit(1)
+        : { data: [] as { id: string; fil_datum: string | null }[], error: null };
 
       if (filErr || !filer || filer.length === 0) {
         console.log('[HPR] Inga HPR-filer för detta objekt');
@@ -2549,7 +2554,7 @@ export default function PlannerPage() {
         offset += 1000;
       }
 
-      console.log(`[HPR] objekt_id=${valtObjekt.id}, senaste fil=${senasteFil.id}, stammar_count=${senasteFil.stammar_count}`);
+      console.log(`[HPR] vo=${vo}, fil=${senasteFil.id}`);
 
       const dedupStammar = allStammar.filter(s => s.lat && s.lng);
       console.log(`[HPR] ${dedupStammar.length} stammar med koordinater (av ${allStammar.length} totalt)`);
@@ -2874,9 +2879,13 @@ export default function PlannerPage() {
       return '#6b7c3a';
     };
     const load = async () => {
-      // Hämta senaste (kumulativa) HPR-filen — den med högst stammar_count
-      const { data: filer } = await supabase.from('hpr_filer').select('id, stammar_count')
-        .eq('objekt_id', valtObjekt.id).order('stammar_count', { ascending: false }).limit(1);
+      // Läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78). stammar_count är opålitlig — används ej.
+      const vo = String(valtObjekt.vo_nummer ?? '').trim();
+      const { data: filer } = /^\d+$/.test(vo)
+        ? await supabase.from('hpr_filer').select('id')
+            .like('objekt_nyckel', `%:${vo}`)
+            .order('fil_datum', { ascending: false, nullsFirst: false }).limit(1)
+        : { data: [] as { id: string }[] };
       if (!filer || filer.length === 0) { setKvarData([]); return; }
       const senasteFil = filer[0];
       let allStammar: { sortiment: string; total_volym: number }[] = [];

@@ -44,6 +44,7 @@ interface Objekt {
   lng: number
   areal?: number
   typ?: string
+  vo_nummer?: string | null
   // VIDA-traktdirektivets georefererade kartbild. När satt använder 2D
   // bounds-mitten som svgToLatLon-referens (page.tsx:8395–8409). 3D måste
   // matcha eller markeringar driftar relativt HPR-data.
@@ -1360,7 +1361,8 @@ export default function CesiumScene({ objektId }: Props) {
 
   // === HPR-högar (produktion + GROT) — fetch från Supabase, klustra, rendera ===
   // Datakällor:
-  //  - hpr_filer: hittar senaste filen för objektet (högst stammar_count)
+  //  - hpr_filer: objektets fil via objekt_nyckel '<maskin>:<vo>' (#78 — en fil
+  //    per objekt efter dedup; stammar_count är opålitlig och läses ej)
   //  - hpr_stammar: enskilda stammar med lat/lng/volym/trädslag/grot-flagga
   //  - skotning_uttag: redan skotade volymer som dras av globalt per trädslag
   //
@@ -1385,13 +1387,16 @@ export default function CesiumScene({ objektId }: Props) {
       // 1) Fetch + cluster om inte cached för detta objekt
       if (hprCacheRef.current?.objektId !== objekt.id) {
         try {
-          // a) Senaste hpr-filen
-          const { data: filer } = await supabase
-            .from('hpr_filer')
-            .select('id, stammar_count')
-            .eq('objekt_id', objekt.id)
-            .order('stammar_count', { ascending: false })
-            .limit(1)
+          // a) HPR-filen via objekt_nyckel '<maskin>:<vo>' (#78)
+          const vo = String(objekt.vo_nummer ?? '').trim()
+          const { data: filer } = /^\d+$/.test(vo)
+            ? await supabase
+                .from('hpr_filer')
+                .select('id')
+                .like('objekt_nyckel', `%:${vo}`)
+                .order('fil_datum', { ascending: false, nullsFirst: false })
+                .limit(1)
+            : { data: [] as { id: string }[] }
           if (cancelled) return
           if (!filer || filer.length === 0) {
             hprCacheRef.current = { objektId: objekt.id, clusters: [] }
