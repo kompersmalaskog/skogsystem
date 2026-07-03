@@ -2,7 +2,8 @@
 //
 // Identifier-mappning:
 //   route-param objekt_id (text) = dim_objekt.objekt_id = vo_nummer
-//   objekt.id (uuid) hämtas via vo_nummer-join för hpr_filer-uppslag
+//   hpr_filer slås upp via objekt_nyckel '<maskin>:<vo>' (#78) — frikopplad från
+//   objekt-tabellen; objekt.id (uuid) används bara för areal
 //   detalj_stock/detalj_stam joinas direkt på text-id
 //
 // Pagination: detalj_stock och detalj_stam överstiger 1000 rader för
@@ -110,13 +111,28 @@ export async function aggregateMarkagarRapport(
     : dimObjekt.areal_ha != null ? 'dim_objekt.areal_ha'
     : null;
 
-  // 3. hpr_filer (uuid-join)
+  // 3. hpr_filer — läs-tids-join på objekt_nyckel '<maskin>:<vo>' (#78), frikopplad
+  // från objekt-tabellen: rapporten fungerar även för objekt utan planeringsrad
+  // (objektUuid används numera bara för areal ovan). Numeriskt id → EXAKT vo-segment-
+  // jämförelse klientsida (split ':' + ===, ingen LIKE — mönster-matchning är krock-
+  // benägen); alla maskiners filer för objektet tas med (multi-maskin-vo summeras).
+  // Dim-fallback-id 'MASKIN_KEY' (icke-numeriskt vo, make_objekt_id) → exakt
+  // 'MASKIN:k<KEY>'. OBS: hpr_filer.stammar_count är opålitlig — läs aldrig den kolumnen.
   let hprFiler: Array<{ id: string; maskin_id: string | null; filnamn: string }> = [];
-  if (objektUuid) {
+  const mkFallback = /^(.+)_(\d+)$/.exec(objektIdText);
+  if (/^\d+$/.test(objektIdText)) {
+    const { data } = await supabase
+      .from('hpr_filer')
+      .select('id, maskin_id, filnamn, objekt_nyckel');
+    hprFiler = (data ?? [])
+      .filter((f: { objekt_nyckel?: string | null }) =>
+        String(f.objekt_nyckel ?? '').split(':')[1] === objektIdText)
+      .map(({ id, maskin_id, filnamn }) => ({ id, maskin_id, filnamn }));
+  } else if (mkFallback) {
     const { data } = await supabase
       .from('hpr_filer')
       .select('id, maskin_id, filnamn')
-      .eq('objekt_id', objektUuid);
+      .eq('objekt_nyckel', `${mkFallback[1]}:k${mkFallback[2]}`);
     hprFiler = data ?? [];
   }
   if (hprFiler.length === 0) return { status: 'ingen_data', reason: 'inga_hpr_filer' };
