@@ -1,16 +1,11 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabase'
 import type * as CesiumNS from 'cesium'
 import { wmsLayerGroups, wmsLayers, type LayerDef } from '@/lib/mapLayers'
 import { useMapLayers, useNumericSetting } from '@/lib/hooks/useMapLayers'
 import { markerIconDefs, loadMarkerCanvas, ICON_SIZE } from '@/lib/marker-icons'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 declare global {
   interface Window {

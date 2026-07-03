@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
-import { createClient } from '@supabase/supabase-js'
+import { supabase } from '@/lib/supabase'
 import ObjektValjare from './ObjektValjare'
 import BrandriskPanel from './brandrisk-panel'
 import VolymPanel from './volym-panel'
@@ -27,11 +27,6 @@ const TraktBriefing = dynamic(() => import('./TraktBriefing'), { ssr: false })
 function openExternal(url: string) {
   if (url) window.open(url, '_blank', 'noopener,noreferrer');
 }
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 // === Kartlegend-palett: enda källan för kartans feature-färger ===
 // Alla kart-arrayer (lineTypeDefs, lineTypes, zoneTypes, symbolCategories,

@@ -1,13 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 import { type UppfoljningObjekt } from '../lib/transform';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 // ── URL-identifierare för ett objekt ─────────────────────────────────────
 // Används av både listsidan (för router.push) och detaljsidan (för find).

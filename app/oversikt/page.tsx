@@ -1,17 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from '@/lib/supabase';
 import OversiktMaskiner from './OversiktMaskiner';
 import OversiktKarta from './OversiktKarta';
 import OversiktGrot from './OversiktGrot';
 import { Maskin, MaskinKoItem, OversiktObjekt, TabId, C } from './oversikt-types';
 import { globalCss, ff } from './oversikt-styles';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
 
 const OBJEKT_SELECT = `id, namn, vo_nummer, typ, atgard, status, volym, areal, lat, lng, ar, manad, bolag, markagare,
   barighet, terrang, skordare_maskin, skordare_band, skordare_band_par, skordare_manuell_fallning, skordare_manuell_fallning_text,
