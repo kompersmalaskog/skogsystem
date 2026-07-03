@@ -1674,6 +1674,11 @@ export default function PlannerPage() {
   const [gpsMapPosition, setGpsMapPosition] = useState<Point>({ x: 200, y: 300 }); // Var på kartan GPS-punkten är
   const [gpsPosition, setGpsPosition] = useState<{lat: number, lng: number} | null>(null); // GPS lat/lng
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null); // GPS accuracy i meter
+  // Senast kända GPS-fix — pricken ritar ALLTID denna → blankar aldrig när currentPosition
+  // tillfälligt är null (mellan fixar / precis efter en reload). Uppdateras vid varje giltig fix.
+  const lastKnownPositionRef = useRef<{ lat: number; lon: number } | null>(null);
+  // "Hämtar position…" när centrera-knappen trycks utan fix (istället för att ljuga = objektet).
+  const [gpsSokerPosition, setGpsSokerPosition] = useState(false);
 
   // === PASSIV GPS-WATCHER (sätter currentPosition automatiskt vid mount) ===
   // Befintliga toggleTracking/startGpsTracking startar SINA EGNA watchers för
@@ -1682,6 +1687,17 @@ export default function PlannerPage() {
   // Matchar /gps-test-mönstret som bevisat fungerar på telefon.
   useEffect(() => {
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return;
+    // Snabb första prick: hämta en (ev. cachad) position DIREKT vid mount så pricken syns
+    // omedelbart efter en reload/remount istället för att vänta på watchens första fix.
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setCurrentPosition({ lat: pos.coords.latitude, lon: pos.coords.longitude } as any);
+        setGpsPosition({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setGpsAccuracy(pos.coords.accuracy);
+      },
+      () => { /* ignorera — watchen nedan tar över */ },
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 }
+    );
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         const lat = pos.coords.latitude;
@@ -5494,6 +5510,8 @@ export default function PlannerPage() {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
+    // Kom ihåg senaste giltiga fix → rita ALLTID den så pricken aldrig blankar vid null.
+    if (pos && pos.lat != null && pos.lon != null) lastKnownPositionRef.current = { lat: pos.lat, lon: pos.lon };
     try {
       // Skapa source om saknas
       if (!map.getSource('gps-position')) {
@@ -5541,11 +5559,12 @@ export default function PlannerPage() {
         });
         console.log('[GPS-prick] alla 3 layers skapade');
       }
-      // Uppdatera data
-      const features = (pos && pos.lat != null && pos.lon != null) ? [{
+      // Uppdatera data — rita senast kända fix (aldrig tomt när vi haft en position)
+      const draw = lastKnownPositionRef.current;
+      const features = draw ? [{
         type: 'Feature' as const,
         properties: {},
-        geometry: { type: 'Point' as const, coordinates: [pos.lon, pos.lat] },
+        geometry: { type: 'Point' as const, coordinates: [draw.lon, draw.lat] },
       }] : [];
       const src = map.getSource('gps-position') as any;
       if (src) {
@@ -5555,8 +5574,8 @@ export default function PlannerPage() {
       try { map.moveLayer('gps-halo'); } catch {}
       try { map.moveLayer('gps-ring'); } catch {}
       try { map.moveLayer('gps-dot'); } catch {}
-      if (features.length > 0) {
-        console.log('[GPS-prick] setData + moveLayer', [pos.lon.toFixed(6), pos.lat.toFixed(6)]);
+      if (draw) {
+        console.log('[GPS-prick] setData + moveLayer', [draw.lon.toFixed(6), draw.lat.toFixed(6)]);
       }
     } catch (e) {
       console.error('[GPS-prick] source/layers update failed:', e);
@@ -10561,6 +10580,13 @@ export default function PlannerPage() {
         </div>
       )}
 
+      {/* "Hämtar position…" — visas när centrera trycks utan GPS-fix (ljuger aldrig med objektets plats) */}
+      {gpsSokerPosition && (
+        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 'calc(env(safe-area-inset-bottom, 0px) + 150px)', zIndex: 50, background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '13px', padding: '8px 14px', borderRadius: '18px', backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)', pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+          Hämtar position…
+        </div>
+      )}
+
       {/* === CENTRERA-KNAPP — kort tryck: GPS, långt tryck (500ms): objekt. Döljs i Körvy/volym/briefing. */}
       {!briefingMode && valtObjekt && !(volymLoading || volymResultat) && !korvyActive && (
         <button
@@ -10596,14 +10622,24 @@ export default function PlannerPage() {
                 duration: 600,
               });
               if (navigator.vibrate) navigator.vibrate(15);
-            } else if (map && valtObjekt && valtObjekt.lat && valtObjekt.lng) {
-              // Fallback om GPS saknas: centrera på objekt
-              map.flyTo({
-                center: [valtObjekt.lng, valtObjekt.lat],
-                zoom: Math.max(map.getZoom(), 14),
-                duration: 600,
-              });
-              if (navigator.vibrate) navigator.vibrate(15);
+            } else if (map && 'geolocation' in navigator) {
+              // Ingen fix → ljug ALDRIG genom att centrera på objektet. Visa "Hämtar position…"
+              // och hämta en engångs-fix; recentrera först när den kommer. Misslyckas den → gör
+              // inget (visa aldrig en plats som inte är din). Objekt-centrering finns på LÅNGT tryck.
+              setGpsSokerPosition(true);
+              navigator.geolocation.getCurrentPosition(
+                (p) => {
+                  setGpsSokerPosition(false);
+                  const lon = p.coords.longitude, lat = p.coords.latitude;
+                  setCurrentPosition({ lat, lon } as any);
+                  setGpsPosition({ lat, lng: lon });
+                  setGpsAccuracy(p.coords.accuracy);
+                  map.flyTo({ center: [lon, lat], zoom: Math.max(map.getZoom(), 16), duration: 600 });
+                  if (navigator.vibrate) navigator.vibrate(15);
+                },
+                () => { setGpsSokerPosition(false); },
+                { enableHighAccuracy: true, maximumAge: 10000, timeout: 12000 }
+              );
             }
           }}
           onPointerLeave={() => {
