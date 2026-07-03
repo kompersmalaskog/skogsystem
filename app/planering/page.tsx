@@ -19,6 +19,15 @@ import { point as turfPoint, polygon as turfPolygon } from '@turf/helpers'
 const DynamicMapLibre = dynamic(() => import('@/components/MapLibreMap'), { ssr: false })
 const TraktBriefing = dynamic(() => import('./TraktBriefing'), { ssr: false })
 
+// Öppna extern länk utan att döda iOS standalone-PWA:n. Ett <a target="_blank"> navigerar
+// där ofta IN-PLACE → appen kall-startar vid retur (kastas till objektväljaren, tappar vald
+// trakt + GPS). window.open startar systembrowsern OVANPÅ och lämnar PWA:n levande; blockeras
+// den no-op:ar den istället för att navigera bort. Ankaret behålls (href/target/rel) som
+// fallback om JS fejlar. Anropas via onClick + preventDefault på varje extern länk.
+function openExternal(url: string) {
+  if (url) window.open(url, '_blank', 'noopener,noreferrer');
+}
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -10938,6 +10947,7 @@ export default function PlannerPage() {
                             </div>
 
                             <a href="https://www.trafikverket.se/e-tjanster/upplag-av-virke-eller-skogsbransle-vid-vag/" target="_blank" rel="noopener noreferrer"
+                              onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }}
                               style={{ display: 'block', textAlign: 'center', marginTop: '16px', fontSize: '13px', color: '#0a84ff', textDecoration: 'none' }}>
                               Sök tillstånd hos Trafikverket →
                             </a>
@@ -11055,6 +11065,7 @@ export default function PlannerPage() {
                     <div style={{ marginTop: '20px', textAlign: 'center' as const }}>
                       <a href="https://www.skogforsk.se/cd_20200406123332/contentassets/8431ded2d08246c69be60fa9eb35b7fb/100401_upplag_av_virke_och_skogsbransle_vid_allman_och_enskild_vag_utg_6.pdf"
                         target="_blank" rel="noopener noreferrer"
+                        onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }}
                         style={{ fontSize: '13px', color: '#0a84ff', textDecoration: 'none' }}>
                         Trafikverket & Skogforsk instruktion (PDF) →
                       </a>
@@ -14595,6 +14606,7 @@ export default function PlannerPage() {
                   const docFarg = valtObjekt?.typ === 'slutavverkning' ? '#eab308' : '#22c55e';
                   const dokKnapp = (url: string, etikett: string) => (
                     <a href={url} target="_blank" rel="noopener noreferrer"
+                      onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }}
                       style={{ flex: 1, textAlign: 'center', padding: '12px', borderRadius: '10px', textDecoration: 'none',
                         fontSize: '13px', fontWeight: 600, background: `${docFarg}1a`, border: `1px solid ${docFarg}55`, color: docFarg }}>
                       {etikett}
@@ -15081,6 +15093,7 @@ export default function PlannerPage() {
                             href={`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lon}`}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }}
                             className="btn-press"
                             style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)' }}
                           >
@@ -15109,6 +15122,7 @@ export default function PlannerPage() {
                             href={`https://www.google.com/maps/dir/?api=1&destination=${h.lat},${h.lon}`}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }}
                             className="btn-press"
                             style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', borderRadius: '10px', background: 'rgba(255,255,255,0.06)' }}
                           >
@@ -16754,11 +16768,11 @@ export default function PlannerPage() {
                 <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   <div>
                     <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: '2px' }}>Ramudden: 010-303 50 00</div>
-                    <a href="https://www.ramudden.se/tjanster/trafiktjanster/tma" target="_blank" rel="noopener noreferrer" style={linkStyle}>ramudden.se →</a>
+                    <a href="https://www.ramudden.se/tjanster/trafiktjanster/tma" target="_blank" rel="noopener noreferrer" onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }} style={linkStyle}>ramudden.se →</a>
                   </div>
                   <div>
                     <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: '2px' }}>Assistancekåren</div>
-                    <a href="https://assistancekaren.se" target="_blank" rel="noopener noreferrer" style={linkStyle}>assistancekaren.se →</a>
+                    <a href="https://assistancekaren.se" target="_blank" rel="noopener noreferrer" onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }} style={linkStyle}>assistancekaren.se →</a>
                   </div>
                   <div>
                     <div style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)' }}>Trafikverket (frågor om krav): 0771-921 921</div>
@@ -16770,13 +16784,13 @@ export default function PlannerPage() {
               <div style={{ ...secStyle, borderBottom: 'none' }}>
                 <div style={headStyle}>Mer information</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <a href="https://www.skogforsk.se/rad--stod/filmer--publikationer/avverkning-av-trad-nara-trafikerade-vagar/" target="_blank" rel="noopener noreferrer" style={linkStyle}>
+                  <a href="https://www.skogforsk.se/rad--stod/filmer--publikationer/avverkning-av-trad-nara-trafikerade-vagar/" target="_blank" rel="noopener noreferrer" onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }} style={linkStyle}>
                     Skogforsk – Avverkning nära vägar →
                   </a>
-                  <a href="https://bransch.trafikverket.se/for-dig-i-branschen/Arbetsmiljo-och-sakerhet/Arbete-pa-vag/" target="_blank" rel="noopener noreferrer" style={linkStyle}>
+                  <a href="https://bransch.trafikverket.se/for-dig-i-branschen/Arbetsmiljo-och-sakerhet/Arbete-pa-vag/" target="_blank" rel="noopener noreferrer" onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }} style={linkStyle}>
                     Trafikverket – Arbete på väg →
                   </a>
-                  <a href="https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/arbetsmiljolag-19771160_sfs-1977-1160/" target="_blank" rel="noopener noreferrer" style={linkStyle}>
+                  <a href="https://www.riksdagen.se/sv/dokument-och-lagar/dokument/svensk-forfattningssamling/arbetsmiljolag-19771160_sfs-1977-1160/" target="_blank" rel="noopener noreferrer" onClick={(e) => { e.preventDefault(); openExternal(e.currentTarget.href); }} style={linkStyle}>
                     Arbetsmiljölagen 3 kap →
                   </a>
                 </div>
@@ -17796,7 +17810,7 @@ export default function PlannerPage() {
                                 href={hit.url || cfg.link}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                onClick={(e) => e.stopPropagation()}
+                                onClick={(e) => { e.stopPropagation(); e.preventDefault(); openExternal(e.currentTarget.href); }}
                                 style={{
                                   background: 'rgba(255,255,255,0.08)',
                                   border: 'none',
