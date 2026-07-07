@@ -211,8 +211,13 @@ function computeCamGeometry(
   userPitchDeg: number,
 ): { pitch: number; camHeight: number } {
   const canvas = viewer.scene.canvas
-  const aspect = canvas.clientWidth / Math.max(1, canvas.clientHeight)
-  const fovX = (viewer.camera.frustum as any).fov  // X-FOV (default 60°)
+  // Guarda aspect + fov mot icke-finita/degenererade värden (t.ex. canvas 0×0 under
+  // panel-layout, eller frustum utan .fov vid morph) → geometrin blir ALLTID finit, så
+  // kameran aldrig matas NaN (som poisonar Cesium-renderingen → "Rendering has stopped").
+  const rawAspect = canvas.clientWidth / Math.max(1, canvas.clientHeight)
+  const aspect = Number.isFinite(rawAspect) && rawAspect > 0 ? rawAspect : 1.6
+  const rawFov = (viewer.camera.frustum as any).fov  // X-FOV (default 60°)
+  const fovX = Number.isFinite(rawFov) && rawFov > 0 ? rawFov : Math.PI / 3  // 60° fallback
   const halfVertFov = Math.atan(Math.tan(fovX / 2) / aspect)
   const desiredOffset = MACHINE_Y_OFFSET_FRACTION * halfVertFov
 
@@ -1174,10 +1179,16 @@ export default function CesiumScene({ objektId }: Props) {
     const groundH = groundHeightRef.current
     const initBack = offsetLatLngByBearing(objekt.lat, objekt.lng, camBack, 180)
     const initGeom = computeCamGeometry(viewer, camBack, camPitchUser)
-    viewer.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(initBack[0], initBack[1], groundH * VERTICAL_EXAG + initGeom.camHeight),
-      orientation: { heading: 0, pitch: initGeom.pitch, roll: 0 },
-    })
+    const initHeight = groundH * VERTICAL_EXAG + initGeom.camHeight
+    // Samma finit-guard som GPS-follow: mata aldrig setView NaN.
+    if ([initBack[0], initBack[1], initHeight, initGeom.pitch].every(Number.isFinite)) {
+      try {
+        viewer.camera.setView({
+          destination: Cesium.Cartesian3.fromDegrees(initBack[0], initBack[1], initHeight),
+          orientation: { heading: 0, pitch: initGeom.pitch, roll: 0 },
+        })
+      } catch {}
+    }
     initialFlightDoneRef.current = true
     viewer.scene.requestRender()
 
@@ -1634,15 +1645,21 @@ export default function CesiumScene({ objektId }: Props) {
       // ger kontinuerlig glidande rörelse istället för rycka-stå-rycka.
       const geom = computeCamGeometry(viewer, camBack, camPitchUser)
       const back = offsetLatLngByBearing(pos.lat, pos.lon, camBack, (heading + 180) % 360)
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(back[0], back[1], groundH * VERTICAL_EXAG + geom.camHeight),
-        orientation: {
-          heading: Cesium.Math.toRadians(heading),
-          pitch: geom.pitch,
-          roll: 0,
-        },
-        duration: 1.0,
-      })
+      const destHeight = groundH * VERTICAL_EXAG + geom.camHeight
+      // Mata ALDRIG Cesium icke-finita värden — en NaN i destination/pitch/heading poisonar
+      // kameran → varje frame kastar → "Rendering has stopped". En reglage-ändring får aldrig
+      // döda vyn. Hoppa hellre över en enskild kamera-flytt än att frysa hela renderingen.
+      if (![back[0], back[1], destHeight, geom.pitch, heading].every(Number.isFinite)) return
+      const destination = Cesium.Cartesian3.fromDegrees(back[0], back[1], destHeight)
+      const orientation = { heading: Cesium.Math.toRadians(heading), pitch: geom.pitch, roll: 0 }
+      // flyTo kan kasta "Invalid array length" vid degenererad flygväg (destination ≈
+      // nuvarande kameraposition, t.ex. stillastående + små reglage-nudgar). Fånga och fall
+      // tillbaka på setView (ögonblicklig, ingen path-beräkning → kan inte kasta).
+      try {
+        viewer.camera.flyTo({ destination, orientation, duration: 1.0 })
+      } catch {
+        try { viewer.camera.setView({ destination, orientation }) } catch {}
+      }
     })()
 
     return () => { cancelled = true }
