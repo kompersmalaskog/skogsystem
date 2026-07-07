@@ -5298,7 +5298,10 @@ export default function PlannerPage() {
       map.easeTo({
         center: targetCenter,
         zoom: 18,
-        pitch: 78,
+        // STEG 1: lätt lutning (~28°) ger "vägen framåt"-känsla utan brant 3D. Platt mark
+        // (terräng-exaggeration 1.0, ej 1.8 — se effekten nedan) gör att stenmurar/markeringar
+        // inte förvrängs. Heading-up + följande = "det känns som att köra", ej statisk norr-upp.
+        pitch: 28,
         bearing: korvyHeading,
         duration: 800,
       });
@@ -5861,19 +5864,22 @@ export default function PlannerPage() {
     };
   }, [korvyActive, mapLibreReady]);
 
-  // === KÖRVY: terrain exaggeration (1.0 → 1.8) + maxPitch (60° → 85°) toggle ===
+  // === KÖRVY: platt mark + låg maxPitch (STEG 1) ===
+  // Körvy 2D ska kännas som en platt, lätt lutad bilkarta. Tidigare bumpades terräng-
+  // exaggeration till 1.8 + maxPitch 85 för en brant 3D-lutning (78°) — men det var
+  // 3D-terrängen som förvrängde stenmurar/markeringar. Nu: exaggeration 1.0 (naturlig,
+  // oförvrängd mark) och maxPitch 60 (den lätta 28°-lutningen behöver ingen brant tilt).
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
     try {
       if (map.getSource('terrain-dem')) {
-        map.setTerrain({ source: 'terrain-dem', exaggeration: korvyActive ? 1.8 : 1.0 } as any);
+        map.setTerrain({ source: 'terrain-dem', exaggeration: 1.0 } as any);
       }
     } catch (e) { console.error('[Körvy] setTerrain:', e); }
-    // Höj maxPitch i Körvy så 78° easeTo verkligen får 78° (annars kläms till 60)
     try {
       if (typeof (map as any).setMaxPitch === 'function') {
-        (map as any).setMaxPitch(korvyActive ? 85 : 60);
+        (map as any).setMaxPitch(60);
       }
     } catch (e) { console.error('[Körvy] setMaxPitch:', e); }
   }, [korvyActive, mapLibreReady]);
