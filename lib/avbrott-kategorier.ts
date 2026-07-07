@@ -15,7 +15,12 @@ export const kategoriNamn: Record<string, string> = {
   'Miscellaneous / other':      'Övrigt',
   'Administration, telephone':  'Administration & telefon',
   'Weather':                    'Väder',
-  'Unproductive terrain work':  'Improduktiv körning',
+  // OBS: 'Unproductive terrain work' är INTE körning. Källverifierat (A030353,
+  // 116/118 segment i MOM): EngineTime=0 & DrivenDistance=0 — maskinen står STILL.
+  // StanForD 2010 = oproduktivt terrängarbete (förarvald kategori, rymmer väntetid);
+  // hos oss i praktiken väntan/uppstart vid skiftstart. Fritext (CodeDescription)
+  // saknas på samtliga rader — kategorin loggas naken.
+  'Unproductive terrain work':  'Oproduktiv terrängtid',
   'Waiting for repair':         'Väntar på reparation',
 
   // ── Reparation (REPAIR_*) — verifierat mot DB 2026-05 ─────
