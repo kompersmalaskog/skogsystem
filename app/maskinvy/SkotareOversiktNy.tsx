@@ -426,7 +426,7 @@ function SkotareKpiList({
 
 // ── Tidsfördelning ────────────────────────────────────────────
 // Tre segment: Processing (grön), Terrängkörning (blå), Avbrott (röd).
-// Skotare saknar "Korta stopp" / "Rast" som egna kategorier —
+// Skotare saknar "Korta pauser" / "Rast" som egna kategorier —
 // dessa är försumbara (<2%) och ingår i avbrott_sek.
 function SkotareTidsfordelning({
   data, loading,

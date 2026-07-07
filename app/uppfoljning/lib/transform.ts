@@ -2,6 +2,7 @@
 // Inga sidoeffekter, ingen fetch, ingen React.
 
 import type { UppfoljningData, Maskin, Forare, AvbrottRad, DieselDag } from '../UppfoljningVy';
+import { G15_GRANS_SEK } from '@/lib/g15';
 
 // ── Typer ─────────────────────────────────────────────────────────────────
 export interface UppfoljningObjekt {
@@ -129,8 +130,14 @@ export function deduplicateAvbrott(rows: any[]): any[] {
 
 export function buildAvbrott(rows: any[]): AvbrottRad[] {
   const deduped = deduplicateAvbrott(rows);
+  // G15: bara riktiga avbrott (≥ 15 min) i orsakslistan/totalerna. Korta avbrott
+  // (< gränsen, förar-klassade) särredovisas som EGEN synlig rad — de får inte
+  // blandas in, men inte heller tyst filtreras bort. (Ej att förväxla med
+  // maskinens "korta pauser" = fakt_tid.kort_stopp_sek — se lib/g15.ts.)
+  const riktiga = deduped.filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK);
+  const korta   = deduped.filter((r: any) => (r.langd_sek || 0) <  G15_GRANS_SEK);
   const m = new Map<string, { tid: number; antal: number; typ: string }>();
-  deduped.forEach(r => {
+  riktiga.forEach(r => {
     const orsak = r.kategori_kod || r.typ || 'Övrigt';
     const typ = r.typ || 'Övrigt';
     const prev = m.get(orsak) || { tid: 0, antal: 0, typ };
@@ -138,9 +145,14 @@ export function buildAvbrott(rows: any[]): AvbrottRad[] {
     prev.antal += 1;
     m.set(orsak, prev);
   });
-  return Array.from(m.entries())
+  const rader = Array.from(m.entries())
     .map(([orsak, v]) => ({ orsak, typ: v.typ, tid: `${(v.tid / 3600).toFixed(1)}h`, antal: v.antal }))
     .sort((a, b) => parseFloat(b.tid) - parseFloat(a.tid));
+  if (korta.length > 0) {
+    const kortaSek = korta.reduce((s: number, r: any) => s + (r.langd_sek || 0), 0);
+    rader.push({ orsak: 'Korta avbrott (<15 min)', typ: 'Övrigt', tid: `${(kortaSek / 3600).toFixed(1)}h`, antal: korta.length });
+  }
+  return rader;
 }
 
 // ── Förare ────────────────────────────────────────────────────────────────
@@ -435,9 +447,11 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     dieselSkotare,
     // Avbrott — deduplicated totals from fakt_avbrott
     avbrottSkordare: buildAvbrott(skAvbrott),
-    avbrottSkordare_totalt: `${(deduplicateAvbrott(skAvbrott).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
+    // Totalerna räknar ENBART riktiga avbrott (≥ G15-gränsen) — korta avbrott syns
+    // som egen rad i buildAvbrott-listan men ingår inte i totalen.
+    avbrottSkordare_totalt: `${(deduplicateAvbrott(skAvbrott).filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
     avbrottSkotare: buildAvbrott(stAvbrott),
-    avbrottSkotareTotalt: `${(deduplicateAvbrott(stAvbrott).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
+    avbrottSkotareTotalt: `${(deduplicateAvbrott(stAvbrott).filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
     // Skotarproduktion
     antalLass,
     snittlassM3: snittLass,

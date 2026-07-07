@@ -7,6 +7,7 @@ import {
   type Maskin, type Period,
 } from './OversiktShared'
 import { translateKategori } from '../../lib/avbrott-kategorier'
+import { G15_GRANS_SEK } from '../../lib/g15'
 
 // ─────────────────────────────────────────────────────────────
 // Avbrott-vyn (?ny=1&vy=avbrott) — STEG 1.
@@ -41,13 +42,15 @@ type TypAgg = {
 }
 
 type AvbrottData = {
-  totalTimmar: number          // exkl. flytt
-  tillfallen: number           // exkl. flytt
-  reparationTimmar: number     // typ='Reparation' exkl. flytt
+  totalTimmar: number          // ENBART riktiga avbrott (≥ G15-gränsen), exkl. flytt
+  tillfallen: number           // dito
+  reparationTimmar: number     // typ='Reparation' (≥ G15), exkl. flytt
   reparationAntal: number
   flyttTimmar: number
   flyttAntal: number
-  perTyp: TypAgg[]             // alltid alla 4 typer i samma ordning
+  kortaAvbrottTimmar: number   // < G15-gränsen — särredovisas, UTANFÖR totalerna
+  kortaAvbrottAntal: number
+  perTyp: TypAgg[]             // alltid alla 4 typer i samma ordning (≥ G15)
 }
 
 // ── Datahämtning ─────────────────────────────────────────────
@@ -66,12 +69,20 @@ async function fetchAvbrott(maskinId: string, start: string, end: string): Promi
   const flyttTimmar = flyttRows.reduce((s, r) => s + (r.langd_sek || 0), 0) / 3600
   const flyttAntal = flyttRows.length
 
-  // 2. Aggregera avbrotten (utan flytt)
+  // 2. Dela på G15-gränsen: DownTime < 15 min är KORTA AVBROTT (förar-klassade) —
+  //    särredovisas, ingår INTE i avbrottstotalerna. (Ej att förväxla med maskinens
+  //    automatiska "korta pauser" = fakt_tid.kort_stopp_sek — se lib/g15.ts.)
+  const kortaRows   = avbrottRows.filter(r => (r.langd_sek || 0) < G15_GRANS_SEK)
+  const riktigaRows = avbrottRows.filter(r => (r.langd_sek || 0) >= G15_GRANS_SEK)
+  const kortaAvbrottTimmar = kortaRows.reduce((s, r) => s + (r.langd_sek || 0), 0) / 3600
+  const kortaAvbrottAntal = kortaRows.length
+
+  // 3. Aggregera de riktiga avbrotten (≥ G15, utan flytt)
   let totalSek = 0
   let repSek = 0, repAntal = 0
   const byTyp: Record<string, { sek: number; antal: number; kategorier: Record<string, { sek: number; antal: number }> }> = {}
 
-  for (const r of avbrottRows) {
+  for (const r of riktigaRows) {
     const sek = r.langd_sek || 0
     totalSek += sek
     if (r.typ === 'Reparation') { repSek += sek; repAntal += 1 }
@@ -102,10 +113,11 @@ async function fetchAvbrott(maskinId: string, start: string, end: string): Promi
 
   return {
     totalTimmar: totalSek / 3600,
-    tillfallen: avbrottRows.length,
+    tillfallen: riktigaRows.length,
     reparationTimmar: repSek / 3600,
     reparationAntal: repAntal,
     flyttTimmar, flyttAntal,
+    kortaAvbrottTimmar, kortaAvbrottAntal,
     perTyp,
   }
 }
@@ -332,6 +344,48 @@ function FlyttKort({ timmar, antal }: { timmar: number; antal: number }) {
   )
 }
 
+// ── KortaAvbrottKort ─────────────────────────────────────────
+// Förar-klassade DownTime under G15-gränsen (15 min) = KORTA AVBROTT — visas här
+// och ingår INTE i totalerna ovan. (Tidigare blandades de in i avbrottslistan.)
+function KortaAvbrottKort({ timmar, antal }: { timmar: number; antal: number }) {
+  return (
+    <div style={{
+      background: C.card, borderRadius: 14, padding: '14px 16px',
+      marginBottom: 14, display: 'grid',
+      gridTemplateColumns: '34px 1fr auto auto',
+      gap: 12, alignItems: 'center',
+    }}>
+      <div style={{
+        width: 34, height: 34, borderRadius: 17,
+        background: 'rgba(142,142,147,0.18)',
+        color: C.muted, display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        fontSize: 16, fontWeight: 600,
+      }}>⏱</div>
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>
+          Korta avbrott (&lt;15 min)
+        </div>
+        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
+          Under G15-gränsen — ingår inte i totalerna ovan
+        </div>
+      </div>
+      <div style={{
+        fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums',
+        textAlign: 'right',
+      }}>
+        {antal} {antal === 1 ? 'gång' : 'ggr'}
+      </div>
+      <div style={{
+        fontSize: 16, fontWeight: 600, color: C.muted,
+        fontVariantNumeric: 'tabular-nums', minWidth: 60, textAlign: 'right',
+      }}>
+        {fmtTid(timmar * 3600)}
+      </div>
+    </div>
+  )
+}
+
 // ── Root komponent ───────────────────────────────────────────
 export default function AvbrottNy() {
   const [maskin, setMaskin] = useState<Maskin>(MASKINER[0])
@@ -471,7 +525,7 @@ export default function AvbrottNy() {
           gap: 10, marginBottom: 14,
         }}>
           <MetricKort
-            label="Stopp"
+            label="Stopp ≥ 15 min"
             value={data?.totalTimmar ?? null}
             unit=""
             loading={loading}
@@ -496,6 +550,11 @@ export default function AvbrottNy() {
         {/* Flytt-kort (lyfts ut ur avbrotten — visas bara om > 0) */}
         {showFlytt && data && (
           <FlyttKort timmar={data.flyttTimmar} antal={data.flyttAntal} />
+        )}
+
+        {/* Korta avbrott (<15 min) — utanför avbrottstotalerna, visas bara om > 0 */}
+        {data && data.kortaAvbrottAntal > 0 && (
+          <KortaAvbrottKort timmar={data.kortaAvbrottTimmar} antal={data.kortaAvbrottAntal} />
         )}
 
         {/* Avbrottskort */}

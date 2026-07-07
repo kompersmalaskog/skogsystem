@@ -581,7 +581,7 @@ function Tid({ data }: { data: UppfoljningData }) {
     ['G15', data.skordareG15h, true],
     ['G0', data.skordareG0],
     ['Tomgång', data.skordareTomgang],
-    ['Korta stopp', data.skordareKortaStopp],
+    ['Korta pauser', data.skordareKortaStopp],
     ['Rast', data.skordareRast],
     ['Avbrott', data.skordareAvbrott],
   ];
@@ -589,7 +589,7 @@ function Tid({ data }: { data: UppfoljningData }) {
     ['G15', data.skotareG15h, true],
     ['G0', data.skotareG0],
     ['Tomgång', data.skotareTomgang],
-    ['Korta stopp', data.skotareKortaStopp],
+    ['Korta pauser', data.skotareKortaStopp],
     ['Rast', data.skotareRast],
     ['Avbrott', data.skotareAvbrott],
   ];
