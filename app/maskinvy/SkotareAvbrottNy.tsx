@@ -7,7 +7,6 @@ import {
   type Period,
 } from './OversiktShared'
 import { translateKategori } from '../../lib/avbrott-kategorier'
-import { G15_GRANS_SEK } from '../../lib/g15'
 
 // ─────────────────────────────────────────────────────────────
 // SkotareAvbrottNy — Avbrott för skotare bakom ?ny=1.
@@ -53,13 +52,13 @@ type TypAgg = {
 }
 
 type AvbrottData = {
-  totalTimmar:      number   // ENBART riktiga avbrott (≥ G15-gränsen), exkl. flytt
-  tillfallen:       number   // dito
+  totalTimmar:      number   // exkl. flytt — ALLA DownTime oavsett längd (se fetchAvbrott)
+  tillfallen:       number   // exkl. flytt
   reparationTimmar: number
   reparationAntal:  number
   flyttTimmar:      number
   flyttAntal:       number
-  perTyp:           TypAgg[] // alltid alla 4 typer (≥ G15)
+  perTyp:           TypAgg[] // alltid alla 4 typer
 }
 
 // ── Datahämtning ──────────────────────────────────────────────
@@ -80,13 +79,11 @@ async function fetchAvbrott(
   const flyttTimmar = flyttRows.reduce((s, r) => s + (r.langd_sek || 0), 0) / 3600
   const flyttAntal  = flyttRows.length
 
-  // 2. G15-gränsen: bara DownTime ≥ 15 min är avbrott. Rader UNDER gränsen är
-  //    samma fenomen som maskinens korta pauser (objektbytesglapp m.m. — verifierat
-  //    i MOM-källor, 0 väggklocke-överlapp) och räknas in i "Korta pauser" i
-  //    Översikten/uppföljningen — inte här. Se lib/g15.ts.
-  const riktigaRows = avbrottRows.filter(r => (r.langd_sek || 0) >= G15_GRANS_SEK)
-
-  // 3. Aggregera avbrotten (≥ G15, utan flytt)
+  // 2. Aggregera avbrotten (utan flytt) — INGEN G15-split här: skotare saknar
+  //    korta pauser-begreppet (ingen ShortDownTime i MOM, kort_stopp_sek = 0).
+  //    Deras fåtaliga korta DownTime (t.ex. Unproductive terrain work = tomkörning,
+  //    tankning) visas ofiltrerat med sina riktiga kategorier. G15-splitten gäller
+  //    bara SKÖRDARE — se lib/g15.ts.
   let totalSek = 0
   let repSek = 0, repAntal = 0
   const byTyp: Record<string, {
@@ -94,7 +91,7 @@ async function fetchAvbrott(
     kategorier: Record<string, { sek: number; antal: number }>
   }> = {}
 
-  for (const r of riktigaRows) {
+  for (const r of avbrottRows) {
     const sek = r.langd_sek || 0
     totalSek += sek
     if (r.typ === 'Reparation') { repSek += sek; repAntal += 1 }
@@ -125,7 +122,7 @@ async function fetchAvbrott(
 
   return {
     totalTimmar:      totalSek / 3600,
-    tillfallen:       riktigaRows.length,
+    tillfallen:       avbrottRows.length,
     reparationTimmar: repSek / 3600,
     reparationAntal:  repAntal,
     flyttTimmar, flyttAntal,
@@ -489,7 +486,7 @@ export default function SkotareAvbrottNy() {
           gap: 10, marginBottom: 14,
         }}>
           <MetricKort
-            label="Stopp ≥ 15 min"
+            label="Stopp"
             value={data?.totalTimmar ?? null}
             unit=""
             loading={loading}
@@ -537,16 +534,11 @@ export default function SkotareAvbrottNy() {
           )}
 
           {/* Typ-lista med accordion */}
-          <div style={{ margin: '0 -18px 0' }}>
+          <div style={{ margin: '0 -18px -12px' }}>
             <TypList
               perTyp={data?.perTyp ?? TYPER.map(t => ({ typ: t, sek: 0, antal: 0, kategorier: [] }))}
               loading={loading}
             />
-          </div>
-
-          {/* G15-fotnot: hemflytten synlig och begriplig — inget tyst filter */}
-          <div style={{ fontSize: 11, color: C.muted, padding: '10px 0 2px' }}>
-            Stopp under 15 min räknas som korta pauser (se Översikt)
           </div>
         </div>
       </div>
