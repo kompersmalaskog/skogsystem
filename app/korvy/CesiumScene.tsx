@@ -673,6 +673,11 @@ export default function CesiumScene({ objektId }: Props) {
   const [pos, setPos] = useState<{ lat: number; lon: number; heading: number | null; speed: number | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [ready, setReady] = useState(false)
+  // R2: GPS-status för synlig indikator — 'searching' (aldrig fått fix) / 'ok' / 'weak'
+  // (fix äldre än STALE_MS → pricken kan vara frusen). Så föraren ALDRIG luras av en tyst
+  // frusen prick mitt i körningen.
+  const [gpsStatus, setGpsStatus] = useState<'searching' | 'ok' | 'weak'>('searching')
+  const lastFixAtRef = useRef<number>(0)
   const [nextItems, setNextItems] = useState<NextItem[]>([])
   const [acuteWarning, setAcuteWarning] = useState<AcuteWarning | null>(null)
   // === Lager-väljare ===
@@ -751,21 +756,41 @@ export default function CesiumScene({ objektId }: Props) {
   useEffect(() => {
     if (isDevMock) return  // dev-mock-loopen tar över i en separat effekt
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) return
+    // En fix → uppdatera position OCH tidsstämpel + status (delas av first-fix-kick + watch).
+    const applyFix = (p: GeolocationPosition) => {
+      lastFixAtRef.current = Date.now()
+      setGpsStatus('ok')
+      setPos({
+        lat: p.coords.latitude,
+        lon: p.coords.longitude,
+        heading: (p.coords.heading != null && !isNaN(p.coords.heading) && (p.coords.speed ?? 0) >= 1) ? p.coords.heading : null,
+        speed: p.coords.speed ?? null,
+      })
+    }
+    // R1: snabb första fix (ev. cachad, relaxad maximumAge) så kamera/prick kommer DIREKT vid
+    // start istället för svart väntan på watchens första highAccuracy-fix.
+    navigator.geolocation.getCurrentPosition(applyFix, () => {}, { enableHighAccuracy: false, maximumAge: 60000, timeout: 8000 })
     watchIdRef.current = navigator.geolocation.watchPosition(
-      (p) => {
-        setPos({
-          lat: p.coords.latitude,
-          lon: p.coords.longitude,
-          heading: (p.coords.heading != null && !isNaN(p.coords.heading) && (p.coords.speed ?? 0) >= 1) ? p.coords.heading : null,
-          speed: p.coords.speed ?? null,
-        })
-      },
+      applyFix,
       (err) => console.warn('[Körvy3D GPS]', err.code, err.message),
       { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
     )
     return () => {
       if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current)
     }
+  }, [isDevMock])
+
+  // === R2: GPS-status-heartbeat — 'weak' om ingen fix på > STALE_MS ===
+  // iOS kan sluta emitta UTAN error-callback → en heartbeat fångar tyst frys som en ren
+  // error-handler missar (idag anropas setPos ej vid fel → pricken fryser tyst). lastFixAtRef
+  // === 0 → aldrig fått fix ('searching').
+  useEffect(() => {
+    if (isDevMock) { setGpsStatus('ok'); return }
+    const STALE_MS = 8000
+    const id = setInterval(() => {
+      setGpsStatus(lastFixAtRef.current === 0 ? 'searching' : (Date.now() - lastFixAtRef.current > STALE_MS ? 'weak' : 'ok'))
+    }, 2000)
+    return () => clearInterval(id)
   }, [isDevMock])
 
   // === Dev-mock GPS-loop (aktiveras via ?devmock=1) ===
@@ -1928,6 +1953,22 @@ export default function CesiumScene({ objektId }: Props) {
 
       {/* Error-toast — visas bara vid fel. Debug-status (Cesium ✓ / GPS ✓ /
           mark / km-h) borttagen för att undvika debug-text åt slutanvändaren. */}
+      {/* R2: GPS-status — synlig så föraren aldrig litar på en tyst frusen prick */}
+      {gpsStatus !== 'ok' && (
+        <div style={{
+          position: 'fixed', top: 'calc(env(safe-area-inset-top, 0px) + 12px)', left: '50%', transform: 'translateX(-50%)',
+          padding: '8px 16px', borderRadius: 18,
+          background: 'rgba(20,20,22,0.82)', backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)',
+          border: `1px solid ${gpsStatus === 'weak' ? '#ff9f0a' : 'rgba(255,255,255,0.15)'}`,
+          color: gpsStatus === 'weak' ? '#ff9f0a' : '#fff', fontSize: 14, fontWeight: 600,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
+          zIndex: 120, display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'none', whiteSpace: 'nowrap',
+        }}>
+          <span style={{ fontSize: 15 }}>📡</span>
+          {gpsStatus === 'weak' ? 'GPS svag – position kan vara gammal' : 'Söker GPS…'}
+        </div>
+      )}
+
       {error && (
         <div style={{
           position: 'fixed', left: 12, bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
