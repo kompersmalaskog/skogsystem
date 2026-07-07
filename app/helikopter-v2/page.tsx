@@ -127,6 +127,7 @@ export default function HelikopterV2Page() {
   const [ar, setAr] = useState(() => new Date().getFullYear())
   const [manad, setManad] = useState(() => new Date().getMonth() + 1)
   const [exportOpen, setExportOpen] = useState(false)
+  const [oppetSpar, setOppetSpar] = useState<'Slutavverkning' | 'Gallring' | null>(null) // dragspel: ett spår-djup i taget
   const [pullDistance, setPullDistance] = useState(0)
   const [refreshing, setRefreshing] = useState(false)
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -309,6 +310,39 @@ export default function HelikopterV2Page() {
     { n: 3, titel: 'Följ upp', klar: false, vantar: true, under: 'Väntar på produktion', href: null as string | null, lank: null as string | null },
   ]
 
+  // Beställning + skördat + skotat per bolag, per spår. Skördat/skotat = SUM ur helikopter_vy per
+  // vyns bolag-fält — ren summering av taggade objekt, INGEN gissning. Otaggad produktion
+  // (bolag null/tomt → 'Okänt') samlas i 'Övrigt'. Bara bestallningar + helikopter_vy.
+  const bolagRader = useMemo(() => {
+    const lovatAcc: Record<'Slutavverkning' | 'Gallring', Record<string, number>> = { Slutavverkning: {}, Gallring: {} }
+    for (const b of bestallningar) {
+      const typ = b.typ === 'slutavverkning' ? 'Slutavverkning' : b.typ === 'gallring' ? 'Gallring' : null
+      if (!typ) continue
+      lovatAcc[typ][normalizeBolag(b.bolag)] = (lovatAcc[typ][normalizeBolag(b.bolag)] || 0) + (b.volym || 0)
+    }
+    const prodAcc: Record<'Slutavverkning' | 'Gallring', Record<string, { skordat: number; skotat: number }>> = { Slutavverkning: {}, Gallring: {} }
+    for (const o of manadData) {
+      const typ = (o.huvudtyp === 'Slutavverkning' || o.huvudtyp === 'Gallring') ? o.huvudtyp : null
+      if (!typ) continue
+      const namn = normalizeBolag(o.bolag) // null/tomt → 'Okänt' → Övrigt
+      if (!prodAcc[typ][namn]) prodAcc[typ][namn] = { skordat: 0, skotat: 0 }
+      prodAcc[typ][namn].skordat += o.skordat_m3 || 0
+      prodAcc[typ][namn].skotat += o.skotat_m3 || 0
+    }
+    const bygg = (typ: 'Slutavverkning' | 'Gallring') => {
+      const namn = new Set<string>([...Object.keys(lovatAcc[typ]), ...Object.keys(prodAcc[typ])])
+      namn.delete('Okänt') // otaggad produktion hamnar i Övrigt-raden
+      const rader = Array.from(namn).map(bolag => {
+        const lovat = lovatAcc[typ][bolag] || 0
+        const p = prodAcc[typ][bolag] || { skordat: 0, skotat: 0 }
+        // Klar först när ALLT är framme: både skördat OCH skotat ≥ beställt.
+        return { bolag, lovat, skordat: p.skordat, skotat: p.skotat, klar: lovat > 0 && p.skordat >= lovat && p.skotat >= lovat }
+      }).sort((a, b) => (b.lovat - a.lovat) || (b.skordat - a.skordat)) // störst beställning först
+      return { rader, ovrigt: prodAcc[typ]['Okänt'] ? prodAcc[typ]['Okänt'].skordat : 0 }
+    }
+    return { Slutavverkning: bygg('Slutavverkning'), Gallring: bygg('Gallring') }
+  }, [bestallningar, manadData])
+
   const SPAR = [
     { typ: 'Slutavverkning' as const, Ikon: TreePine, farg: '#eab308', best: slutBest },
     { typ: 'Gallring' as const, Ikon: Trees, farg: '#22c55e', best: gallBest },
@@ -355,28 +389,9 @@ export default function HelikopterV2Page() {
         <div style={{ padding: '0 24px 120px' }}>
           {harProduktion ? (
           <>
-          {/* Hero — månadsmål. Lugnt tomläge när inget skotat än (inte rött 0%). */}
-          {manadsmal && (
-            manadsmal.harSkotat ? (
-              <div style={{ textAlign: 'center', padding: '8px 0 28px' }}>
-                <div style={{ fontSize: 64, fontWeight: 700, lineHeight: 1, color: manadsmal.onTrack ? '#30d158' : '#ff453a', fontVariantNumeric: 'tabular-nums' }}>
-                  {manadsmal.procent}%
-                </div>
-                <div style={{ fontSize: 13, color: muted, marginTop: 8 }}>
-                  av månadens beställning · förväntat {manadsmal.forvantadProcent}%
-                </div>
-              </div>
-            ) : (
-              <div style={{ textAlign: 'center', padding: '8px 0 28px' }}>
-                <div style={{ fontSize: 64, fontWeight: 700, lineHeight: 1, color: text, fontVariantNumeric: 'tabular-nums' }}>
-                  {manadsmal.skordatProcent}%
-                </div>
-                <div style={{ fontSize: 13, color: muted, marginTop: 8 }}>
-                  skördat av beställning · väntar på skotning
-                </div>
-              </div>
-            )
-          )}
+          {/* Hero-procenten borttagen — den mätte skotat/beställt medan spåren visar skördat+skotat
+              per typ (dubbelt budskap, och missvisande röd när skördat är över mål men skotat släpar).
+              All skördat/skotat-status bärs tydligare av spårens mätare nedan. */}
           {!manadsmal && !manadAvslutad && (
             <div style={{ textAlign: 'center', padding: '8px 0 28px', color: muted, fontSize: 13 }}>
               Beställning ej satt
@@ -392,37 +407,123 @@ export default function HelikopterV2Page() {
               const skordatPct = malet > 0 ? Math.min(100, (d.skordat / malet) * 100) : 0
               const skotatPct = malet > 0 ? Math.min(100, (d.skotat / malet) * 100) : 0
               const overMal = rad.best > 0 && d.skordat > rad.best
-              const over = overMal ? Math.round(d.skordat - rad.best) : 0
               const overTon = rad.typ === 'Slutavverkning' ? '#fde047' : '#4ade80' // ljusare typton = passerat mål
               return (
-                <div key={rad.typ} style={{ padding: '18px 0', borderTop: i === 1 ? `1px solid ${divider}` : 'none' }}>
+                <div key={rad.typ} style={{ borderTop: i === 1 ? `1px solid ${divider}` : 'none' }}>
+                  {/* Header + mätare = tryckyta som fäller ut bolag-djupet (dragspel via oppetSpar) */}
+                  <div onClick={() => setOppetSpar(oppetSpar === rad.typ ? null : rad.typ)} style={{ padding: '18px 0', cursor: 'pointer' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <Ikon size={18} color={rad.farg} strokeWidth={2} />
                       <span style={{ fontSize: 15, fontWeight: 600, color: text }}>{rad.typ}</span>
                     </div>
-                    <div style={{ fontSize: 14, fontVariantNumeric: 'tabular-nums' }}>
-                      <span style={{ color: rad.farg, fontWeight: 700 }}>{Math.round(d.skordat).toLocaleString('sv-SE')}</span>
-                      <span style={{ color: muted }}>{rad.best > 0 ? ` av ${Math.round(rad.best).toLocaleString('sv-SE')} m³fub` : ' m³fub skördat'}</span>
-                      {over > 0 && <span style={{ color: rad.farg, fontWeight: 600 }}> · +{over.toLocaleString('sv-SE')}</span>}
-                    </div>
+                    <span style={{ transform: oppetSpar === rad.typ ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s', opacity: 0.3, fontSize: 11, flexShrink: 0 }}>▼</span>
                   </div>
-                  {/* Skördat-mätare (primär) */}
+                  {rad.best > 0 ? (<>
+                  {/* Skördat-mätare (primär) — tal "X av beställt" till höger, symmetriskt med skotat */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                     <span style={{ fontSize: 11, color: muted, width: 44, flexShrink: 0 }}>Skördat</span>
                     <div style={{ flex: 1, height: 7, background: 'rgba(255,255,255,0.08)', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
                       <div style={{ height: '100%', width: `${skordatPct}%`, background: rad.farg, borderRadius: 4, transition: 'width 0.6s ease' }} />
                       {overMal && <div style={{ position: 'absolute', top: 0, right: 0, height: '100%', width: 12, background: overTon }} />}
                     </div>
+                    <span style={{ fontSize: 11, color: muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0, whiteSpace: 'nowrap', width: 104, textAlign: 'right' }}><span style={{ color: rad.farg, fontWeight: 700 }}>{Math.round(d.skordat).toLocaleString('sv-SE')}</span> av {Math.round(rad.best).toLocaleString('sv-SE')}</span>
                   </div>
-                  {/* Skotat-mätare (tunn, dämpad) */}
+                  {/* Över beställt: HUR MYCKET — egen dämpad rad under talet, bryter inte den fasta talkolumnen. Bara skördat. */}
+                  {overMal && (
+                    <div style={{ fontSize: 10, color: '#8e8e93', textAlign: 'right', marginTop: -2, marginBottom: 6, fontVariantNumeric: 'tabular-nums' }}>+{Math.round(d.skordat - rad.best).toLocaleString('sv-SE')} m³fub över beställt</div>
+                  )}
+                  {/* Skotat-mätare (tunn, dämpad) — samma "X av beställt" som skördat */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{ fontSize: 11, color: muted, width: 44, flexShrink: 0 }}>Skotat</span>
                     <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${skotatPct}%`, background: `${rad.farg}80`, borderRadius: 2, transition: 'width 0.6s ease' }} />
                     </div>
-                    <span style={{ fontSize: 11, color: muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{Math.round(d.skotat).toLocaleString('sv-SE')}</span>
+                    <span style={{ fontSize: 11, color: muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0, whiteSpace: 'nowrap', width: 104, textAlign: 'right' }}>{Math.round(d.skotat).toLocaleString('sv-SE')} av {Math.round(rad.best).toLocaleString('sv-SE')}</span>
                   </div>
+                  </>) : (
+                    /* Utan beställning → inget mål: skördat/skotat som tal, ingen mätare */
+                    <div style={{ fontSize: 13, color: muted, fontVariantNumeric: 'tabular-nums' }}><span style={{ color: rad.farg, fontWeight: 700 }}>{Math.round(d.skordat).toLocaleString('sv-SE')}</span> skördat · {Math.round(d.skotat).toLocaleString('sv-SE')} skotat m³fub</div>
+                  )}
+                  </div>
+                  {/* Bolag-djup (utfällt) — skördat + skotat mot beställt per bolag (två mätare, som huvudspåret).
+                      Summerade taggade objekt ur helikopter_vy (ingen gissning); otaggat → Övrigt.
+                      Klar-bock när BÅDE skördat OCH skotat ≥ beställt. */}
+                  {oppetSpar === rad.typ && (() => {
+                    const { rader, ovrigt } = bolagRader[rad.typ]
+                    if (rader.length === 0 && ovrigt === 0) {
+                      return <div style={{ paddingBottom: 14 }}><div style={{ padding: '6px 0 6px 30px', fontSize: 13, color: muted }}>Ingen beställning lagd för {rad.typ.toLowerCase()}.</div></div>
+                    }
+                    return (
+                      <div style={{ paddingBottom: 14 }}>
+                        {/* Saknar HELA spåret beställning? Säg det en gång — inte per bolag. */}
+                        {rad.best === 0 && (
+                          <div style={{ padding: '2px 0 6px 30px', fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>Ingen beställning satt</div>
+                        )}
+                        {rader.map(bl => {
+                          // Underordnat detalj-block: indraget med subtil vänsterlinje + luft, tunnare mätare
+                          // och mindre etiketter än huvudspåret — tydlig hierarki i utfällt läge.
+                          const blockStil: React.CSSProperties = { marginTop: 14, marginLeft: 28, paddingLeft: 12, borderLeft: '2px solid rgba(255,255,255,0.08)' }
+                          // Skördat utan beställning — ingen nämnare att mäta mot.
+                          if (bl.lovat === 0) {
+                            return (
+                              <div key={bl.bolag} style={{ ...blockStil, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.7)' }}>{bl.bolag}</span>
+                                <span style={{ fontSize: 12, color: muted, fontVariantNumeric: 'tabular-nums' }}>{Math.round(bl.skordat).toLocaleString('sv-SE')} skördat · {Math.round(bl.skotat).toLocaleString('sv-SE')} skotat</span>
+                              </div>
+                            )
+                          }
+                          const skordatPct = Math.min(100, (bl.skordat / bl.lovat) * 100)
+                          const skotatPct = Math.min(100, (bl.skotat / bl.lovat) * 100)
+                          const vantar = Math.max(0, bl.skordat - bl.skotat)
+                          const skotatFarg = rad.typ === 'Slutavverkning' ? '#8a6a2a' : '#31824f' // dämpad typfärg
+                          return (
+                            <div key={bl.bolag} style={blockStil}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7, fontSize: 13, fontWeight: 500, color: bl.klar ? '#30d158' : 'rgba(255,255,255,0.7)' }}>
+                                {bl.bolag}
+                                {bl.klar && (
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
+                                )}
+                              </div>
+                              {/* Skördat-mätare — tal "X av beställt" till höger, symmetriskt med skotat */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                <span style={{ fontSize: 10, color: muted, width: 38, flexShrink: 0 }}>Skördat</span>
+                                <div style={{ flex: 1, height: 4, background: 'rgba(255,255,255,0.07)', borderRadius: 2, overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${skordatPct}%`, background: rad.farg, borderRadius: 3, transition: 'width 0.6s ease' }} />
+                                </div>
+                                <span style={{ fontSize: 10, color: muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0, whiteSpace: 'nowrap', width: 88, textAlign: 'right' }}>{Math.round(bl.skordat).toLocaleString('sv-SE')} av {Math.round(bl.lovat).toLocaleString('sv-SE')}</span>
+                              </div>
+                              {bl.skordat > bl.lovat && (
+                                <div style={{ fontSize: 9, color: '#8e8e93', textAlign: 'right', marginTop: -2, marginBottom: 6, fontVariantNumeric: 'tabular-nums' }}>+{Math.round(bl.skordat - bl.lovat).toLocaleString('sv-SE')} över beställt</div>
+                              )}
+                              {/* Skotat-mätare — samma "X av beställt" som skördat */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                                <span style={{ fontSize: 10, color: muted, width: 38, flexShrink: 0 }}>Skotat</span>
+                                <div style={{ flex: 1, height: 3, background: 'rgba(255,255,255,0.05)', borderRadius: 2, overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${skotatPct}%`, background: skotatFarg, borderRadius: 2, transition: 'width 0.6s ease' }} />
+                                </div>
+                                <span style={{ fontSize: 10, color: muted, fontVariantNumeric: 'tabular-nums', flexShrink: 0, whiteSpace: 'nowrap', width: 88, textAlign: 'right' }}>{Math.round(bl.skotat).toLocaleString('sv-SE')} av {Math.round(bl.lovat).toLocaleString('sv-SE')}</span>
+                              </div>
+                              {/* Nämnaren står nu på varje mätare — kvar: bara det som väntar på skotning */}
+                              {vantar > 0 && (
+                                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', paddingLeft: 46, marginTop: 2 }}>{Math.round(vantar).toLocaleString('sv-SE')} väntar på skotning</div>
+                              )}
+                            </div>
+                          )
+                        })}
+                        {ovrigt > 0 && (
+                          /* Otaggat — svagare än kundraderna: en påminnelse, inte en kund */
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, padding: '2px 0 2px 30px', fontSize: 12, color: 'rgba(255,255,255,0.28)' }}>
+                            <span>Övrigt · otaggat</span>
+                            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{Math.round(ovrigt).toLocaleString('sv-SE')} m³fub</span>
+                          </div>
+                        )}
+                        {rader.length === 1 && ovrigt === 0 && rad.best > 0 && (
+                          <div style={{ padding: '4px 0 2px 30px', fontSize: 12, color: 'rgba(255,255,255,0.3)' }}>Fler bolag visas när deras beställning läggs in</div>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })}
