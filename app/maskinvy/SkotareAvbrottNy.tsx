@@ -81,9 +81,9 @@ async function fetchAvbrott(
 
   // 2. Aggregera avbrotten (utan flytt) — INGEN G15-split här: skotare saknar
   //    korta pauser-begreppet (ingen ShortDownTime i MOM, kort_stopp_sek = 0).
-  //    Deras fåtaliga korta DownTime (t.ex. Unproductive terrain work = tomkörning,
-  //    tankning) visas ofiltrerat med sina riktiga kategorier. G15-splitten gäller
-  //    bara SKÖRDARE — se lib/g15.ts.
+  //    Deras fåtaliga korta DownTime (t.ex. Unproductive terrain work = stillestånd
+  //    med motorn av, förarens valda kategori; tankning) visas ofiltrerat med sina
+  //    riktiga kategorier. G15-splitten gäller bara SKÖRDARE — se lib/g15.ts.
   let totalSek = 0
   let repSek = 0, repAntal = 0
   const byTyp: Record<string, {

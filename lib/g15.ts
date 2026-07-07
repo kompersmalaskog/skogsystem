@@ -14,10 +14,12 @@
 // MASKINSLAG — splitten gäller BARA SKÖRDARE:
 //   Skördare (PONS20SDJAA270231, R64101, R64428) HAR korta pauser (ShortDownTime i MOM).
 //   Skotare (A030353, A110148) SAKNAR begreppet (kort_stopp_sek = 0 i verkligheten) —
-//   deras fåtaliga korta DownTime (empiri A030353 18/18: 17× Unproductive terrain work =
-//   morgon-tomkörning ~10–14 min + 1× tankning/smörjning) redovisas OFILTRERAT i
-//   skotarens avbrottsvy med sina riktiga kategorier. Ingen split, ingen hemflytt,
-//   ingen påhittad korta pauser-kategori för skotare.
+//   deras fåtaliga korta DownTime (empiri A030353 18/18: 17× Unproductive terrain work
+//   + 1× tankning; Unproductive = STILLESTÅND med motorn av, EngineTime=0 &
+//   DrivenDistance=0, främst vid skiftstart — förarens VALDA kategori, inte körning
+//   och inte oregistrerad tid) redovisas OFILTRERAT i skotarens avbrottsvy med sina
+//   riktiga kategorier. Ingen split, ingen hemflytt, ingen påhittad korta
+//   pauser-kategori för skotare.
 //
 // Hårdkoda ALDRIG 900/15 min i vyer eller beräkningar — importera härifrån.
 // OBS: Python-importen (skogsmaskin_import_version_6.py) kan inte importera denna
