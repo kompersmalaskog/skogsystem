@@ -59,8 +59,6 @@ type AvbrottData = {
   reparationAntal:  number
   flyttTimmar:      number
   flyttAntal:       number
-  kortaAvbrottTimmar: number // < G15-gränsen — särredovisas, UTANFÖR totalerna
-  kortaAvbrottAntal:  number
   perTyp:           TypAgg[] // alltid alla 4 typer (≥ G15)
 }
 
@@ -82,15 +80,13 @@ async function fetchAvbrott(
   const flyttTimmar = flyttRows.reduce((s, r) => s + (r.langd_sek || 0), 0) / 3600
   const flyttAntal  = flyttRows.length
 
-  // 2. Dela på G15-gränsen: DownTime < 15 min är KORTA AVBROTT (förar-klassade) —
-  //    särredovisas, ingår INTE i avbrottstotalerna. (Ej att förväxla med maskinens
-  //    automatiska "korta pauser" = fakt_tid.kort_stopp_sek — se lib/g15.ts.)
-  const kortaRows   = avbrottRows.filter(r => (r.langd_sek || 0) < G15_GRANS_SEK)
+  // 2. G15-gränsen: bara DownTime ≥ 15 min är avbrott. Rader UNDER gränsen är
+  //    samma fenomen som maskinens korta pauser (objektbytesglapp m.m. — verifierat
+  //    i MOM-källor, 0 väggklocke-överlapp) och räknas in i "Korta pauser" i
+  //    Översikten/uppföljningen — inte här. Se lib/g15.ts.
   const riktigaRows = avbrottRows.filter(r => (r.langd_sek || 0) >= G15_GRANS_SEK)
-  const kortaAvbrottTimmar = kortaRows.reduce((s, r) => s + (r.langd_sek || 0), 0) / 3600
-  const kortaAvbrottAntal  = kortaRows.length
 
-  // 3. Aggregera de riktiga avbrotten (≥ G15, utan flytt)
+  // 3. Aggregera avbrotten (≥ G15, utan flytt)
   let totalSek = 0
   let repSek = 0, repAntal = 0
   const byTyp: Record<string, {
@@ -133,7 +129,6 @@ async function fetchAvbrott(
     reparationTimmar: repSek / 3600,
     reparationAntal:  repAntal,
     flyttTimmar, flyttAntal,
-    kortaAvbrottTimmar, kortaAvbrottAntal,
     perTyp,
   }
 }
@@ -355,48 +350,6 @@ function FlyttKort({ timmar, antal }: { timmar: number; antal: number }) {
   )
 }
 
-// ── KortaAvbrottKort ───────────────────────────────────────────
-// Förar-klassade DownTime under G15-gränsen (15 min) = KORTA AVBROTT — visas här
-// och ingår INTE i totalerna ovan.
-function KortaAvbrottKort({ timmar, antal }: { timmar: number; antal: number }) {
-  return (
-    <div style={{
-      background: C.card, borderRadius: 14, padding: '14px 16px',
-      marginBottom: 14, display: 'grid',
-      gridTemplateColumns: '34px 1fr auto auto',
-      gap: 12, alignItems: 'center',
-    }}>
-      <div style={{
-        width: 34, height: 34, borderRadius: 17,
-        background: 'rgba(142,142,147,0.18)',
-        color: C.muted, display: 'flex',
-        alignItems: 'center', justifyContent: 'center',
-        fontSize: 16, fontWeight: 600,
-      }}>⏱</div>
-      <div>
-        <div style={{ fontSize: 14, fontWeight: 500, color: C.text }}>
-          Korta avbrott (&lt;15 min)
-        </div>
-        <div style={{ fontSize: 11, color: C.muted, marginTop: 2 }}>
-          Under G15-gränsen — ingår inte i totalerna ovan
-        </div>
-      </div>
-      <div style={{
-        fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums',
-        textAlign: 'right',
-      }}>
-        {antal} {antal === 1 ? 'gång' : 'ggr'}
-      </div>
-      <div style={{
-        fontSize: 16, fontWeight: 600, color: C.muted,
-        fontVariantNumeric: 'tabular-nums', minWidth: 60, textAlign: 'right',
-      }}>
-        {fmtTid(timmar * 3600)}
-      </div>
-    </div>
-  )
-}
-
 // ── Root-komponent ─────────────────────────────────────────────
 export default function SkotareAvbrottNy() {
   const [maskin, setMaskin] = useState(SKOTARE[0])
@@ -563,11 +516,6 @@ export default function SkotareAvbrottNy() {
           <FlyttKort timmar={data.flyttTimmar} antal={data.flyttAntal} />
         )}
 
-        {/* Korta avbrott (<15 min) — utanför avbrottstotalerna, visas bara om > 0 */}
-        {data && data.kortaAvbrottAntal > 0 && (
-          <KortaAvbrottKort timmar={data.kortaAvbrottTimmar} antal={data.kortaAvbrottAntal} />
-        )}
-
         {/* Avbrottskort */}
         <div style={{ background: C.card, borderRadius: 14, padding: '16px 18px 12px', marginBottom: 14 }}>
           <div style={{
@@ -589,11 +537,16 @@ export default function SkotareAvbrottNy() {
           )}
 
           {/* Typ-lista med accordion */}
-          <div style={{ margin: '0 -18px -12px' }}>
+          <div style={{ margin: '0 -18px 0' }}>
             <TypList
               perTyp={data?.perTyp ?? TYPER.map(t => ({ typ: t, sek: 0, antal: 0, kategorier: [] }))}
               loading={loading}
             />
+          </div>
+
+          {/* G15-fotnot: hemflytten synlig och begriplig — inget tyst filter */}
+          <div style={{ fontSize: 11, color: C.muted, padding: '10px 0 2px' }}>
+            Stopp under 15 min räknas som korta pauser (se Översikt)
           </div>
         </div>
       </div>

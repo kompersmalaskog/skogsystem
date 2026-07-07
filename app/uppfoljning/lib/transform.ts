@@ -130,12 +130,10 @@ export function deduplicateAvbrott(rows: any[]): any[] {
 
 export function buildAvbrott(rows: any[]): AvbrottRad[] {
   const deduped = deduplicateAvbrott(rows);
-  // G15: bara riktiga avbrott (≥ 15 min) i orsakslistan/totalerna. Korta avbrott
-  // (< gränsen, förar-klassade) särredovisas som EGEN synlig rad — de får inte
-  // blandas in, men inte heller tyst filtreras bort. (Ej att förväxla med
-  // maskinens "korta pauser" = fakt_tid.kort_stopp_sek — se lib/g15.ts.)
+  // G15: bara avbrott ≥ 15 min i orsakslistan/totalerna. DownTime UNDER gränsen
+  // är samma fenomen som maskinens korta pauser (objektbytesglapp m.m.) och
+  // räknas in i "Korta pauser"-raden via kortaAvbrottTimmar() — inte här.
   const riktiga = deduped.filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK);
-  const korta   = deduped.filter((r: any) => (r.langd_sek || 0) <  G15_GRANS_SEK);
   const m = new Map<string, { tid: number; antal: number; typ: string }>();
   riktiga.forEach(r => {
     const orsak = r.kategori_kod || r.typ || 'Övrigt';
@@ -145,14 +143,18 @@ export function buildAvbrott(rows: any[]): AvbrottRad[] {
     prev.antal += 1;
     m.set(orsak, prev);
   });
-  const rader = Array.from(m.entries())
+  return Array.from(m.entries())
     .map(([orsak, v]) => ({ orsak, typ: v.typ, tid: `${(v.tid / 3600).toFixed(1)}h`, antal: v.antal }))
     .sort((a, b) => parseFloat(b.tid) - parseFloat(a.tid));
-  if (korta.length > 0) {
-    const kortaSek = korta.reduce((s: number, r: any) => s + (r.langd_sek || 0), 0);
-    rader.push({ orsak: 'Korta avbrott (<15 min)', typ: 'Övrigt', tid: `${(kortaSek / 3600).toFixed(1)}h`, antal: korta.length });
-  }
-  return rader;
+}
+
+// Korta pauser-hemflytt: DownTime under G15-gränsen är samma fenomen som maskinens
+// korta pauser (kort_stopp_sek) — verifierat i MOM-källor (objektbytesglapp,
+// 0 väggklocke-överlapp → adderbara utan dubbelräkning). Timmar.
+export function kortaAvbrottTimmar(rows: any[]): number {
+  return deduplicateAvbrott(rows)
+    .filter((r: any) => (r.langd_sek || 0) < G15_GRANS_SEK)
+    .reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600;
 }
 
 // ── Förare ────────────────────────────────────────────────────────────────
@@ -416,13 +418,13 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     skordareG15h: skTid.g15,
     skordareG0: skTid.g0,
     skordareTomgang: Math.round(skTid.tomgang * 10) / 10,
-    skordareKortaStopp: Math.round(skTid.kortaStopp * 10) / 10,
+    skordareKortaStopp: Math.round((skTid.kortaStopp + kortaAvbrottTimmar(skAvbrott)) * 10) / 10,
     skordareRast: Math.round(skTid.rast * 10) / 10,
     skordareAvbrott: Math.round(skTid.avbrott * 10) / 10,
     skotareG15h: stTid.g15,
     skotareG0: stTid.g0,
     skotareTomgang: Math.round(stTid.tomgang * 10) / 10,
-    skotareKortaStopp: Math.round(stTid.kortaStopp * 10) / 10,
+    skotareKortaStopp: Math.round((stTid.kortaStopp + kortaAvbrottTimmar(stAvbrott)) * 10) / 10,
     skotareRast: Math.round(stTid.rast * 10) / 10,
     skotareAvbrott: Math.round(stTid.avbrott * 10) / 10,
     // Produktion
@@ -447,8 +449,8 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     dieselSkotare,
     // Avbrott — deduplicated totals from fakt_avbrott
     avbrottSkordare: buildAvbrott(skAvbrott),
-    // Totalerna räknar ENBART riktiga avbrott (≥ G15-gränsen) — korta avbrott syns
-    // som egen rad i buildAvbrott-listan men ingår inte i totalen.
+    // Totalerna räknar ENBART avbrott ≥ G15-gränsen — DownTime under gränsen
+    // ingår i "Korta pauser"-raderna ovan (kortaAvbrottTimmar), inte här.
     avbrottSkordare_totalt: `${(deduplicateAvbrott(skAvbrott).filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
     avbrottSkotare: buildAvbrott(stAvbrott),
     avbrottSkotareTotalt: `${(deduplicateAvbrott(stAvbrott).filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,

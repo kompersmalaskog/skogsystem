@@ -152,10 +152,9 @@ export type Data = {
   dagar: number               // distinkta produktionsdagar
   operatorer: Operator[]      // filter: volym > 0 || stammar > 0
   avbrottPerKat: AvbrottKat[] // sorterad fallande på sek
-  // avbr + avbrottPerKat = ENBART riktiga avbrott (≥ G15-gränsen).
-  // Korta avbrott (< gränsen, förar-klassade) särredovisas här och ingår inte i
-  // totalerna. Ej att förväxla med 'kort' = maskinens korta pauser (kort_stopp_sek).
-  kortaAvbrottSek: number; kortaAvbrottAntal: number
+  // avbr + avbrottPerKat = ENBART avbrott ≥ G15-gränsen. DownTime UNDER gränsen
+  // räknas in i 'kort' (Korta pauser) — samma fenomen som kort_stopp_sek
+  // (objektbytesglapp m.m.; 0 väggklocke-överlapp, verifierat i MOM-källor).
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -237,16 +236,16 @@ export async function fetchData(
     }
   }
 
-  // fakt_avbrott → total + per kategori — ENBART ≥ G15-gränsen (riktiga avbrott);
-  // korta avbrott (< gränsen) räknas separat och blandas inte in i totalerna.
+  // fakt_avbrott → total + per kategori — ENBART ≥ G15-gränsen (riktiga avbrott).
+  // DownTime UNDER gränsen flyttas hem till 'kort' (Korta pauser) nedan — samma
+  // fenomen som kort_stopp_sek; väggklocke-separata → adderbara utan dubbelräkning.
   let avbr = 0
-  let kortaAvbrottSek = 0, kortaAvbrottAntal = 0
+  let kortaAvbrottSek = 0
   const katAgg: Record<string, { sek: number; antal: number }> = {}
   for (const r of avbrRows) {
     const sek = r.langd_sek || 0
     if (sek < G15_GRANS_SEK) {
       kortaAvbrottSek += sek
-      kortaAvbrottAntal += 1
       continue
     }
     avbr += sek
@@ -288,10 +287,9 @@ export async function fetchData(
   return {
     volym, stammar, g15h, produktivitet, medelstam,
     bransleTotalt: bransle, branslePerM3, stammarPerG15h,
-    proc, terr, kort, avbr, rast,
+    proc, terr, kort: kort + kortaAvbrottSek, avbr, rast,
     dagar: prodDays.size,
     operatorer, avbrottPerKat,
-    kortaAvbrottSek, kortaAvbrottAntal,
   }
 }
 
@@ -848,27 +846,6 @@ export function AvbrottCard({ data, loading }: { data: Data | null; loading: boo
           </div>
         </div>
       ))}
-      {/* Korta avbrott (< G15-gränsen) — särredovisas, ingår inte i avbrotten ovan */}
-      {!loading && data && data.kortaAvbrottAntal > 0 && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '8px 1fr auto auto',
-            gap: 10, alignItems: 'center',
-            padding: '12px 16px',
-            borderTop: `0.5px solid ${C.divider}`,
-          }}
-        >
-          <div style={{ width: 8, height: 8, borderRadius: 2, background: C.muted, opacity: 0.5 }} />
-          <div style={{ fontSize: 14, color: C.muted }}>Korta avbrott (&lt;15 min)</div>
-          <div style={{ fontSize: 11, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
-            {data.kortaAvbrottAntal} {data.kortaAvbrottAntal === 1 ? 'gång' : 'ggr'}
-          </div>
-          <div style={{ fontSize: 14, fontWeight: 500, color: C.muted, fontVariantNumeric: 'tabular-nums', minWidth: 70, textAlign: 'right' }}>
-            {fmtTid(data.kortaAvbrottSek)}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
