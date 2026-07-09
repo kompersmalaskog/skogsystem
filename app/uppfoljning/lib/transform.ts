@@ -2,6 +2,7 @@
 // Inga sidoeffekter, ingen fetch, ingen React.
 
 import type { UppfoljningData, Maskin, Forare, AvbrottRad, DieselDag } from '../UppfoljningVy';
+import { G15_GRANS_SEK } from '@/lib/g15';
 
 // ── Typer ─────────────────────────────────────────────────────────────────
 export interface UppfoljningObjekt {
@@ -127,10 +128,19 @@ export function deduplicateAvbrott(rows: any[]): any[] {
   return Array.from(groups.values());
 }
 
-export function buildAvbrott(rows: any[]): AvbrottRad[] {
+export function buildAvbrott(rows: any[], opts: { g15Split?: boolean } = {}): AvbrottRad[] {
+  const { g15Split = true } = opts;
   const deduped = deduplicateAvbrott(rows);
+  // G15-splitten gäller SKÖRDARE: DownTime under gränsen är samma fenomen som
+  // maskinens korta pauser och räknas in i "Korta pauser"-raden via
+  // kortaAvbrottTimmar() — inte här. SKOTARE saknar korta pauser-begreppet
+  // (kort_stopp_sek = 0) — deras rader visas OFILTRERADE med riktiga kategorier
+  // (g15Split: false). Se lib/g15.ts.
+  const urval = g15Split
+    ? deduped.filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK)
+    : deduped;
   const m = new Map<string, { tid: number; antal: number; typ: string }>();
-  deduped.forEach(r => {
+  urval.forEach(r => {
     const orsak = r.kategori_kod || r.typ || 'Övrigt';
     const typ = r.typ || 'Övrigt';
     const prev = m.get(orsak) || { tid: 0, antal: 0, typ };
@@ -141,6 +151,16 @@ export function buildAvbrott(rows: any[]): AvbrottRad[] {
   return Array.from(m.entries())
     .map(([orsak, v]) => ({ orsak, typ: v.typ, tid: `${(v.tid / 3600).toFixed(1)}h`, antal: v.antal }))
     .sort((a, b) => parseFloat(b.tid) - parseFloat(a.tid));
+}
+
+// Korta pauser-hemflytt — BARA SKÖRDARE: DownTime under G15-gränsen är samma
+// fenomen som maskinens korta pauser (kort_stopp_sek) — verifierat i MOM-källor
+// (objektbytesglapp, 0 väggklocke-överlapp → adderbara utan dubbelräkning).
+// Används ALDRIG för skotare (de saknar korta pauser-begreppet). Timmar.
+export function kortaAvbrottTimmar(rows: any[]): number {
+  return deduplicateAvbrott(rows)
+    .filter((r: any) => (r.langd_sek || 0) < G15_GRANS_SEK)
+    .reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600;
 }
 
 // ── Förare ────────────────────────────────────────────────────────────────
@@ -404,12 +424,14 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     skordareG15h: skTid.g15,
     skordareG0: skTid.g0,
     skordareTomgang: Math.round(skTid.tomgang * 10) / 10,
-    skordareKortaStopp: Math.round(skTid.kortaStopp * 10) / 10,
+    skordareKortaStopp: Math.round((skTid.kortaStopp + kortaAvbrottTimmar(skAvbrott)) * 10) / 10,
     skordareRast: Math.round(skTid.rast * 10) / 10,
     skordareAvbrott: Math.round(skTid.avbrott * 10) / 10,
     skotareG15h: stTid.g15,
     skotareG0: stTid.g0,
     skotareTomgang: Math.round(stTid.tomgang * 10) / 10,
+    // Skotare: rå kort_stopp_sek (= 0 i verkligheten — skotare har inga korta
+    // pauser; ingen hemflytt av korta DownTime hit, de ligger i avbrottslistan).
     skotareKortaStopp: Math.round(stTid.kortaStopp * 10) / 10,
     skotareRast: Math.round(stTid.rast * 10) / 10,
     skotareAvbrott: Math.round(stTid.avbrott * 10) / 10,
@@ -435,8 +457,12 @@ export function buildUppfoljningData(input: BuildUppfoljningDataInput): Uppfoljn
     dieselSkotare,
     // Avbrott — deduplicated totals from fakt_avbrott
     avbrottSkordare: buildAvbrott(skAvbrott),
-    avbrottSkordare_totalt: `${(deduplicateAvbrott(skAvbrott).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
-    avbrottSkotare: buildAvbrott(stAvbrott),
+    // Skördare: totalen räknar ENBART avbrott ≥ G15-gränsen — korta ingår i
+    // "Korta pauser"-raden ovan (kortaAvbrottTimmar).
+    avbrottSkordare_totalt: `${(deduplicateAvbrott(skAvbrott).filter((r: any) => (r.langd_sek || 0) >= G15_GRANS_SEK).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
+    // Skotare: INGEN G15-split — alla DownTime i lista + total (skotare saknar
+    // korta pauser-begreppet; se lib/g15.ts).
+    avbrottSkotare: buildAvbrott(stAvbrott, { g15Split: false }),
     avbrottSkotareTotalt: `${(deduplicateAvbrott(stAvbrott).reduce((s: number, r: any) => s + (r.langd_sek || 0), 0) / 3600).toFixed(1)}h`,
     // Skotarproduktion
     antalLass,

@@ -869,7 +869,13 @@ def parse_mom_file(filepath: str) -> Dict[str, Any]:
         # Spara/skriv över entryn — senaste filens version vinner
         raw_tid_entries[entry_key] = entry
 
-    # Korta stopp – nyckling per entry (MonitoringStartTime + operator)
+    # Korta stopp (IndividualShortDownTime) – nyckling per entry (MonitoringStartTime + operator).
+    # SEMANTIK: dessa är annoteringar av pauser INUTI G15-runtime (processing/terrain/other work)
+    # — INTE additiva segment; kort_stopp_sek får aldrig summeras med P/T/OW som "total tid".
+    # G15-gränsen (15 min = 900 s) tillämpas av MASKINEN när MOM skrivs. DownTime-segment
+    # UNDER gränsen (hamnar i fakt_avbrott) är maskingenererade övergångsglapp — appen räknar
+    # dem till "Korta pauser" ihop med kort_stopp_sek via lib/g15.ts (G15_GRANS_SEK = 900);
+    # väggklocke-separata mot ShortDownTime → adderbara. Ändras gränsen: uppdatera båda ställena.
     for short_down in find_all_elements(machine, 'IndividualShortDownTime', ns):
         duration = safe_int(get_text(short_down, 'MonitoringTimeLength', ns))
         start_time = get_text(short_down, 'MonitoringStartTime', ns)

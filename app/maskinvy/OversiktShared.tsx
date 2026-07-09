@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { translateKategori } from '@/lib/avbrott-kategorier'
+import { G15_GRANS_SEK } from '@/lib/g15'
 
 // ─────────────────────────────────────────────────────────────
 // iOS systemfärger (exakt) + bas-tokens
@@ -151,6 +152,9 @@ export type Data = {
   dagar: number               // distinkta produktionsdagar
   operatorer: Operator[]      // filter: volym > 0 || stammar > 0
   avbrottPerKat: AvbrottKat[] // sorterad fallande på sek
+  // avbr + avbrottPerKat = ENBART avbrott ≥ G15-gränsen. DownTime UNDER gränsen
+  // räknas in i 'kort' (Korta pauser) — samma fenomen som kort_stopp_sek
+  // (objektbytesglapp m.m.; 0 väggklocke-överlapp, verifierat i MOM-källor).
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -232,11 +236,18 @@ export async function fetchData(
     }
   }
 
-  // fakt_avbrott → total + per kategori
+  // fakt_avbrott → total + per kategori — ENBART ≥ G15-gränsen (riktiga avbrott).
+  // DownTime UNDER gränsen flyttas hem till 'kort' (Korta pauser) nedan — samma
+  // fenomen som kort_stopp_sek; väggklocke-separata → adderbara utan dubbelräkning.
   let avbr = 0
+  let kortaAvbrottSek = 0
   const katAgg: Record<string, { sek: number; antal: number }> = {}
   for (const r of avbrRows) {
     const sek = r.langd_sek || 0
+    if (sek < G15_GRANS_SEK) {
+      kortaAvbrottSek += sek
+      continue
+    }
     avbr += sek
     const kat = r.kategori_kod || 'Övrigt'
     if (!katAgg[kat]) katAgg[kat] = { sek: 0, antal: 0 }
@@ -276,7 +287,7 @@ export async function fetchData(
   return {
     volym, stammar, g15h, produktivitet, medelstam,
     bransleTotalt: bransle, branslePerM3, stammarPerG15h,
-    proc, terr, kort, avbr, rast,
+    proc, terr, kort: kort + kortaAvbrottSek, avbr, rast,
     dagar: prodDays.size,
     operatorer, avbrottPerKat,
   }
@@ -756,7 +767,7 @@ export function TimeDistribution({ data, loading }: { data: Data | null; loading
   const segments = [
     { key: 'proc', label: 'Process',     color: C.green  },
     { key: 'terr', label: 'Kör',         color: C.blue   },
-    { key: 'kort', label: 'Korta stopp', color: C.purple },
+    { key: 'kort', label: 'Korta pauser', color: C.purple },
     { key: 'avbr', label: 'Avbrott',     color: C.red    },
     { key: 'rast', label: 'Rast',        color: C.muted  },
   ] as const

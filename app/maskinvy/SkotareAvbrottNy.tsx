@@ -52,7 +52,7 @@ type TypAgg = {
 }
 
 type AvbrottData = {
-  totalTimmar:      number   // exkl. flytt
+  totalTimmar:      number   // exkl. flytt — ALLA DownTime oavsett längd (se fetchAvbrott)
   tillfallen:       number   // exkl. flytt
   reparationTimmar: number
   reparationAntal:  number
@@ -79,7 +79,11 @@ async function fetchAvbrott(
   const flyttTimmar = flyttRows.reduce((s, r) => s + (r.langd_sek || 0), 0) / 3600
   const flyttAntal  = flyttRows.length
 
-  // 2. Aggregera avbrotten (utan flytt)
+  // 2. Aggregera avbrotten (utan flytt) — INGEN G15-split här: skotare saknar
+  //    korta pauser-begreppet (ingen ShortDownTime i MOM, kort_stopp_sek = 0).
+  //    Deras fåtaliga korta DownTime (t.ex. Unproductive terrain work = stillestånd
+  //    med motorn av, förarens valda kategori; tankning) visas ofiltrerat med sina
+  //    riktiga kategorier. G15-splitten gäller bara SKÖRDARE — se lib/g15.ts.
   let totalSek = 0
   let repSek = 0, repAntal = 0
   const byTyp: Record<string, {

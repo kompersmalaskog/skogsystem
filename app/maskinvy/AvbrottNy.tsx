@@ -7,6 +7,7 @@ import {
   type Maskin, type Period,
 } from './OversiktShared'
 import { translateKategori } from '../../lib/avbrott-kategorier'
+import { G15_GRANS_SEK } from '../../lib/g15'
 
 // ─────────────────────────────────────────────────────────────
 // Avbrott-vyn (?ny=1&vy=avbrott) — STEG 1.
@@ -41,13 +42,13 @@ type TypAgg = {
 }
 
 type AvbrottData = {
-  totalTimmar: number          // exkl. flytt
-  tillfallen: number           // exkl. flytt
-  reparationTimmar: number     // typ='Reparation' exkl. flytt
+  totalTimmar: number          // ENBART riktiga avbrott (≥ G15-gränsen), exkl. flytt
+  tillfallen: number           // dito
+  reparationTimmar: number     // typ='Reparation' (≥ G15), exkl. flytt
   reparationAntal: number
   flyttTimmar: number
   flyttAntal: number
-  perTyp: TypAgg[]             // alltid alla 4 typer i samma ordning
+  perTyp: TypAgg[]             // alltid alla 4 typer i samma ordning (≥ G15)
 }
 
 // ── Datahämtning ─────────────────────────────────────────────
@@ -66,12 +67,18 @@ async function fetchAvbrott(maskinId: string, start: string, end: string): Promi
   const flyttTimmar = flyttRows.reduce((s, r) => s + (r.langd_sek || 0), 0) / 3600
   const flyttAntal = flyttRows.length
 
-  // 2. Aggregera avbrotten (utan flytt)
+  // 2. G15-gränsen: bara DownTime ≥ 15 min är avbrott. Rader UNDER gränsen är
+  //    samma fenomen som maskinens korta pauser (objektbytesglapp m.m. — verifierat
+  //    i MOM-källor, 0 väggklocke-överlapp) och räknas in i "Korta pauser" i
+  //    Översikten/uppföljningen — inte här. Se lib/g15.ts.
+  const riktigaRows = avbrottRows.filter(r => (r.langd_sek || 0) >= G15_GRANS_SEK)
+
+  // 3. Aggregera avbrotten (≥ G15, utan flytt)
   let totalSek = 0
   let repSek = 0, repAntal = 0
   const byTyp: Record<string, { sek: number; antal: number; kategorier: Record<string, { sek: number; antal: number }> }> = {}
 
-  for (const r of avbrottRows) {
+  for (const r of riktigaRows) {
     const sek = r.langd_sek || 0
     totalSek += sek
     if (r.typ === 'Reparation') { repSek += sek; repAntal += 1 }
@@ -102,7 +109,7 @@ async function fetchAvbrott(maskinId: string, start: string, end: string): Promi
 
   return {
     totalTimmar: totalSek / 3600,
-    tillfallen: avbrottRows.length,
+    tillfallen: riktigaRows.length,
     reparationTimmar: repSek / 3600,
     reparationAntal: repAntal,
     flyttTimmar, flyttAntal,
@@ -471,7 +478,7 @@ export default function AvbrottNy() {
           gap: 10, marginBottom: 14,
         }}>
           <MetricKort
-            label="Stopp"
+            label="Stopp ≥ 15 min"
             value={data?.totalTimmar ?? null}
             unit=""
             loading={loading}
@@ -520,8 +527,13 @@ export default function AvbrottNy() {
           )}
 
           {/* Typ-lista */}
-          <div style={{ margin: '0 -18px -12px' }}>
+          <div style={{ margin: '0 -18px 0' }}>
             <TypList perTyp={data?.perTyp ?? TYPER.map(t => ({ typ: t, sek: 0, antal: 0, kategorier: [] }))} loading={loading} />
+          </div>
+
+          {/* G15-fotnot: hemflytten synlig och begriplig — inget tyst filter */}
+          <div style={{ fontSize: 11, color: C.muted, padding: '10px 0 2px' }}>
+            Stopp under 15 min räknas som korta pauser (se Översikt)
           </div>
         </div>
       </div>
