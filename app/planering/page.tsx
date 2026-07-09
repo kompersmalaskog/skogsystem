@@ -68,6 +68,29 @@ const FALLNINGSRADIE_M = 40;
 // tal (att gissa en tröskel var hela buggen). Äkta skräp fångas hellre av from-driver-synhållet.
 const KORVY_SIGHT_M = 400;
 
+// === Körvy-kamera-känsla (finjustering — vridbara värden, testas i maskinen) ===
+// Prick strax UNDER MITTEN (inte nedre tredjedelen): en skogsmaskin fäller åt SIDAN, så
+// faran är runt om — pricken måste sitta högt nog att symboler bakom/vid sidan RYMS i bild.
+// Lite framåt-vy kvar, men runt-om-synlighet väger tyngre (säkerhet). padding.top som andel
+// av kartans höjd (0.21 → prick ~60 % ner). Pixel-baserat → sitter kvar när zoomen varierar.
+const KORVY_DOT_PAD_FRAC = 0.21;
+// Närhets-zoom (Martins idé — INTE fart-baserad; maskinen kör långsamt/stannar för att fälla).
+// Zooma IN när man närmar sig närmaste symbolen, UT när passerad. Full vid fällningsradien.
+// VÄRDENA sänkta: 18.5/19.5 var för hårt (nära symboler föll utanför kant). Sikta på "utdragna
+// vyn där allt syns runt pricken utan att dra".
+const KORVY_BASE_ZOOM = 17.5;    // inget nära → lugn överblick, allt runt om ryms
+const KORVY_FULL_ZOOM = 18;      // full inzoom vid fällningsradien (mjukt, ej beskuret)
+const KORVY_ZOOM_START_M = 100;  // börja glida in här
+// dist (förar-avstånd till korvyNextItems[0]) → mål-zoom. Full vid FALLNINGSRADIE_M (40 m,
+// hänger ihop med ringen), bas bortom 100 m, mjuk ramp emellan. Lerpen i follow-effekten
+// dämpar sedan jitter → zoomen studsar aldrig nervöst runt en tröskel.
+function korvyProximityZoom(dist: number | null): number {
+  if (dist == null || dist > KORVY_ZOOM_START_M) return KORVY_BASE_ZOOM;
+  if (dist <= FALLNINGSRADIE_M) return KORVY_FULL_ZOOM;
+  const t = (KORVY_ZOOM_START_M - dist) / (KORVY_ZOOM_START_M - FALLNINGSRADIE_M);  // 0..1
+  return KORVY_BASE_ZOOM + (KORVY_FULL_ZOOM - KORVY_BASE_ZOOM) * t;
+}
+
 // === TYPES ===
 interface Point {
   x: number;
@@ -2082,6 +2105,7 @@ export default function PlannerPage() {
   const [korvyActive, setKorvyActive] = useState(false);
   const [korvyBlinkOn, setKorvyBlinkOn] = useState(true);
   const korvyPrevCameraRef = useRef<{ center: [number, number]; zoom: number; bearing: number; pitch: number } | null>(null);
+  const korvyZoomRef = useRef<number>(KORVY_BASE_ZOOM);  // utjämnad närhets-zoom (lerp → ingen studs)
   // GPS-heading (pos.coords.heading) — sätts när användaren rör sig (speed >= ~1 m/s).
   // Föredras framför deviceHeading i Körvy eftersom det är faktisk färdriktning, inte enhetens orientering.
   const [gpsHeading, setGpsHeading] = useState<number | null>(null);
@@ -5294,24 +5318,29 @@ export default function PlannerPage() {
         };
       }
       const pos = currentPosition as any;
-      // Centrum = 50m bakom användaren längs heading (= heading + 180°), så användarens position
-      // hamnar framför kameran och vägen framåt syns
+      // Prick i NEDRE TREDJEDELEN: centrera på FÖRAREN och skjut ner den via padding.top (mest
+      // karta framåt, lite bakåt). Byter ut den gamla "50 m bakom"-offseten som satt pricken
+      // för högt. Pixel-baserat → sitter kvar när närhets-zoomen varierar.
       const targetCenter: [number, number] = pos && pos.lon != null && pos.lat != null
-        ? offsetLatLngByBearing(pos.lat, pos.lon, 50, (korvyHeading + 180) % 360)
+        ? [pos.lon, pos.lat]
         : [map.getCenter().lng, map.getCenter().lat];
+      const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
+      korvyZoomRef.current = KORVY_BASE_ZOOM;  // starta närhets-zoomen från bas
       map.easeTo({
         center: targetCenter,
-        zoom: 18,
+        zoom: KORVY_BASE_ZOOM,
         // STEG 1: lätt lutning (~28°) ger "vägen framåt"-känsla utan brant 3D. Platt mark
         // (terräng-exaggeration 1.0, ej 1.8 — se effekten nedan) gör att stenmurar/markeringar
         // inte förvrängs. Heading-up + följande = "det känns som att köra", ej statisk norr-upp.
         pitch: 28,
         bearing: korvyHeading,
+        padding: { top: topPad, bottom: 0, left: 0, right: 0 },
         duration: 800,
       });
     } else if (korvyPrevCameraRef.current) {
       const prev = korvyPrevCameraRef.current;
-      map.easeTo({ center: prev.center, zoom: prev.zoom, bearing: prev.bearing, pitch: prev.pitch, duration: 800 });
+      // Nollställ padding (körvy satte top-padding för lågt sittande prick) → planeringsvyn opåverkad.
+      map.easeTo({ center: prev.center, zoom: prev.zoom, bearing: prev.bearing, pitch: prev.pitch, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 800 });
       korvyPrevCameraRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5324,14 +5353,20 @@ export default function PlannerPage() {
     if (!map || !mapLibreReady) return;
     const pos = currentPosition as any;
     if (!pos || pos.lon == null || pos.lat == null) return;
-    const camCenter = offsetLatLngByBearing(pos.lat, pos.lon, 50, (korvyHeading + 180) % 360);
+    const topPad = (map.getContainer()?.clientHeight || 800) * KORVY_DOT_PAD_FRAC;
+    // Närhets-zoom: glid mot närmaste hindret (korvyNextItems[0], förar-avstånd). Lerp (0.35)
+    // mot mål-zoomen → mjuk glidning som dämpar GPS-jitter så zoomen aldrig studsar runt en tröskel.
+    const rawZoom = korvyProximityZoom(korvyNextItems[0]?.dist ?? null);
+    korvyZoomRef.current += (rawZoom - korvyZoomRef.current) * 0.35;
     map.easeTo({
-      center: camCenter,
+      center: [pos.lon, pos.lat],   // pricken centreras; padding.top skjuter ner den i nedre tredjedelen
       bearing: korvyHeading,
+      zoom: korvyZoomRef.current,
+      padding: { top: topPad, bottom: 0, left: 0, right: 0 },
       duration: 500,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPosition, korvyHeading, korvyActive]);
+  }, [currentPosition, korvyHeading, korvyActive, korvyNextItems]);
 
   // 3) Större ikoner i Körvy via icon-size paint expression
   useEffect(() => {
@@ -5751,12 +5786,20 @@ export default function PlannerPage() {
       } catch (e) { console.error('[Körvy] markers-radie-highlight:', e); }
     }
 
-    // 5) Maskin-ikon: cirkel-chassi + stor pil framåt (mer synlig än pentagon)
+    // 5) Maskin-ikon: mjuk riktnings-KÄGLA (viskar körriktningen istället för en pil som skriker).
+    //    Radiell gradient — starkast (#0a84ff 0.45) vid pricken, tonar ut till 0 framåt, ~55° spann.
+    //    Roterar med heading via maskin-symbol (icon-rotate). Prick + vit ring + skugga ligger i
+    //    maskin-ring / maskin-halo (cirkel-lager) nedan.
     if (!map.hasImage('maskin-ikon')) {
-      const size = 64;
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 64 64">
-        <circle cx="32" cy="32" r="22" fill="#ffffff" stroke="#0a84ff" stroke-width="3"/>
-        <path d="M32 8 L48 36 L32 28 L16 36 Z" fill="#0a84ff"/>
+      const size = 96;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 96 96">
+        <defs>
+          <radialGradient id="kon" cx="48" cy="48" r="42" gradientUnits="userSpaceOnUse">
+            <stop offset="0" stop-color="#0a84ff" stop-opacity="0.45"/>
+            <stop offset="1" stop-color="#0a84ff" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <path d="M48 48 L28.6 10.7 L67.4 10.7 Z" fill="url(#kon)"/>
       </svg>`;
       const img = new Image();
       img.onload = () => {
@@ -5789,10 +5832,12 @@ export default function PlannerPage() {
           type: 'circle',
           source: 'maskin-source',
           paint: {
-            'circle-radius': 35,
-            'circle-color': '#0a84ff',
-            'circle-opacity': 0.35,
-            'circle-blur': 0.6,
+            // Liten mjuk skugga → pricken "svävar" ovanför kartan. Statisk (pulsar EJ längre).
+            'circle-radius': 9,
+            'circle-color': '#000',
+            'circle-opacity': 0.22,
+            'circle-blur': 0.8,
+            'circle-translate': [0, 2],
             'circle-pitch-alignment': 'viewport',
           },
           layout: { 'visibility': 'none' },
@@ -5807,11 +5852,13 @@ export default function PlannerPage() {
           type: 'circle',
           source: 'maskin-source',
           paint: {
-            'circle-radius': 18,
-            'circle-color': '#fff',
-            'circle-opacity': 0.4,
-            'circle-stroke-color': '#0a84ff',
-            'circle-stroke-width': 2,
+            // Liten solid blå PUNKT = exakt position, med VIT RING så den syns mot alla
+            // bakgrunder (ljus mark, grön skog, gul väg). Ersätter den stora cirkeln.
+            'circle-radius': 6.5,
+            'circle-color': '#0a84ff',
+            'circle-opacity': 1,
+            'circle-stroke-color': '#fff',
+            'circle-stroke-width': 2.5,
             'circle-pitch-alignment': 'viewport',
           },
           layout: { 'visibility': 'none' },
@@ -5826,7 +5873,8 @@ export default function PlannerPage() {
           source: 'maskin-source',
           layout: {
             'icon-image': 'maskin-ikon',
-            'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.8, 17, 1.4, 19, 1.8],
+            // Kägla-storlek (96px-bild) — modest "viskning", ej dominant. Vridbar känsla.
+            'icon-size': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 17, 0.75, 19, 0.9],
             'icon-rotate': ['get', 'heading'],
             'icon-rotation-alignment': 'map',
             'icon-pitch-alignment': 'viewport',
@@ -5996,7 +6044,8 @@ export default function PlannerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPosition, korvyHeading, korvyActive, mapLibreReady]);
 
-  // Pulse-animation för gps-halo (22→50px) + maskin-halo (25→50px, ur fas så de inte synkar)
+  // Pulse-animation för gps-halo (22→50px). Körvy-markören (maskin-halo) pulsar EJ — den är en
+  // lugn skugga så pricken inte drar uppmärksamhet från symbolerna/faran.
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!map || !mapLibreReady) return;
@@ -6009,16 +6058,12 @@ export default function PlannerPage() {
       if (now - lastTickTs < 33) return;
       lastTickTs = now;
       const tg = ((now - start) % 2000) / 2000;          // gps-halo-fas
-      const tm = ((now - start + 800) % 2000) / 2000;    // maskin-halo offset 800ms
       try {
         if (map.getLayer('gps-halo')) {
           map.setPaintProperty('gps-halo', 'circle-radius', 22 + tg * 28);
           map.setPaintProperty('gps-halo', 'circle-opacity', 0.4 * (1 - tg));
         }
-        if (map.getLayer('maskin-halo')) {
-          map.setPaintProperty('maskin-halo', 'circle-radius', 25 + tm * 25);
-          map.setPaintProperty('maskin-halo', 'circle-opacity', 0.4 * (1 - tm));
-        }
+        // maskin-halo pulsar INTE längre (statisk skugga i paint-definitionen).
       } catch { /* layer not ready */ }
     };
     raf = requestAnimationFrame(tick);
@@ -9117,12 +9162,15 @@ export default function PlannerPage() {
         const inom = item.dist <= FALLNINGSRADIE_M;
         return (
           <div style={{
-            position: 'fixed', left: 12, right: 12,
+            // Slutar FÖRE höger-hörnet (right: 92) så +-knappen och meny-knappen är åtkomliga —
+            // panelen låg förut full bredd (right: 12) och skymde dem. Lägre padding = lägre panel.
+            position: 'fixed', left: 12, right: 92,
             bottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)',
+            maxWidth: 520,
             background: 'rgba(28,28,30,0.92)',
             backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)',
             border: `1px solid ${inom ? item.color : 'rgba(255,255,255,0.08)'}`,
-            borderRadius: 18, padding: '14px 16px', zIndex: 250, color: '#fff',
+            borderRadius: 18, padding: '11px 14px', zIndex: 250, color: '#fff',
             fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
