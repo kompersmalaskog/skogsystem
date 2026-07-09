@@ -1,3 +1,8 @@
+// Kategori-kod för flytt mellan objekt (StanForD OtherMachineDownTime).
+// Skotarvyerna lyfter ut flytt ur avbrottstotalerna — översikt och
+// avbrottsvy MÅSTE lyfta ut samma kod för att visa samma siffror.
+export const FLYTT_KATEGORI = 'Trailer transportation'
+
 export const kategoriNamn: Record<string, string> = {
   // ── Underhåll ──────────────────────────────────────────────
   'Planning/follow up':         'Planering & uppföljning',
